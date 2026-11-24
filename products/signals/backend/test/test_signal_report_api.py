@@ -5664,26 +5664,51 @@ class TestSignalReportTaskAssociationViaArtefacts(APIBaseTest):
         response = self._associate(report, {"task_id": str(task.id)})
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_reports_list_filters_by_task_id(self):
-        report = self._create_report()
-        other_report = self._create_report()
+    @parameterized.expand(
+        [
+            ("all_associations", "implementation", "", {"claimed", "linked"}),
+            ("pr_targets_drop_claim_beside_other_report", "implementation", "&pr_targets=true", {"linked"}),
+            ("pr_targets_keep_sole_claim", None, "&pr_targets=true", {"claimed"}),
+            ("pr_targets_keep_claim_with_attached_pr", "attached_pr", "&pr_targets=true", {"linked"}),
+        ]
+    )
+    def test_reports_list_filters_by_task_id(self, _name, link, extra_params, expected):
+        reports = {"claimed": self._create_report(), "linked": self._create_report()}
+        self._create_report()
         task = self._create_task()
-        append_task_run_artefact(
-            team_id=self.team.id,
-            report_id=str(report.id),
-            product="tasks",
-            type="agent_run",
-            task_id=str(task.id),
-        )
+        claimed_reports = ["claimed", "linked"] if link == "attached_pr" else ["claimed"]
+        for name in claimed_reports:
+            append_task_run_artefact(
+                team_id=self.team.id,
+                report_id=str(reports[name].id),
+                product="tasks",
+                type="agent_run",
+                task_id=str(task.id),
+            )
+        if link == "implementation":
+            append_task_run_artefact(
+                team_id=self.team.id,
+                report_id=str(reports["linked"].id),
+                product="signals",
+                type=TASK_RUN_TYPE_IMPLEMENTATION,
+                task_id=str(task.id),
+            )
+        elif link == "attached_pr":
+            SignalReportArtefact.add_log(
+                team_id=self.team.id,
+                report_id=str(reports["linked"].id),
+                content=PullRequestLink(url="https://github.com/example/repo/pull/1"),
+                attribution=ArtefactAttribution.from_task(str(task.id)),
+            )
 
-        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/?task_id={task.id}")
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/?task_id={task.id}{extra_params}")
         assert response.status_code == status.HTTP_200_OK
         ids = {r["id"] for r in response.json()["results"]}
-        assert ids == {str(report.id)}
-        assert str(other_report.id) not in ids
+        assert ids == {str(reports[name].id) for name in expected}
 
-    def test_reports_list_rejects_malformed_task_id(self):
-        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/?task_id=not-a-uuid")
+    @parameterized.expand([("malformed_task_id", "task_id=not-a-uuid"), ("pr_targets_without_task", "pr_targets=true")])
+    def test_reports_list_rejects_bad_task_filter(self, _name, query):
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/?{query}")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
 

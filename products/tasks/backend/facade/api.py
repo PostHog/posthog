@@ -1463,6 +1463,14 @@ def get_task_report_id(*, task_id: UUID, team_id: int) -> UUID | None:
     return Task.objects.filter(team_id=team_id, id=task_id).values_list("signal_report_id", flat=True).first()
 
 
+def get_task_signal_report_source_ids(*, task_ids: Iterable[str | UUID], team_id: int) -> dict[str, UUID]:
+    """The source report of each task that has one, keyed by task id."""
+    tasks = Task.objects.filter(team_id=team_id, id__in=list(task_ids)).only(
+        "id", "source_kind", "source_id", "signal_report_id", "hog_flow_id"
+    )
+    return {str(task.id): source_id for task in tasks if (source_id := task.signal_report_source_id) is not None}
+
+
 def signal_report_pipeline_stage(task_id: str | UUID, team_id: int) -> str | None:
     """The ``ai_stage`` the Signals report pipeline stamped on this task's runs, or ``None``.
 
@@ -3310,6 +3318,8 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "repositories",
         # Decides which repositories the run's GitHub token can write to.
         "github_access_repositories",
+        "caller_ends_run",
+        "end_run_when_done",
         "verified_pr_urls",
         "prewarmed",
         "await_user_message",
@@ -3702,6 +3712,7 @@ def _post_slack_update_for_pr(run: TaskRun, *, pr_url: str | None = None, report
     from products.slack_app.backend.models import (  # noqa: PLC0415 — cross-product import kept off the api import path
         SlackThreadTaskMapping,
     )
+    from products.tasks.backend.logic.services.compute_quota import organization_deactivated  # noqa: PLC0415
     from products.tasks.backend.temporal.process_task.activities.post_slack_update import (  # noqa: PLC0415 — keep temporalio off the api import path
         PostSlackUpdateInput,
         post_slack_update,
@@ -3712,7 +3723,8 @@ def _post_slack_update_for_pr(run: TaskRun, *, pr_url: str | None = None, report
             notify_implementation_prs_opened,
         )
 
-        notify_implementation_prs_opened(run.team_id, str(run.task_id), pr_urls, run_id=str(run.id))
+        if not organization_deactivated(run.team_id):
+            notify_implementation_prs_opened(run.team_id, str(run.task_id), pr_urls, run_id=str(run.id))
         mapping = (
             SlackThreadTaskMapping.objects.filter(task_run=run)
             .order_by("-updated_at")
@@ -4278,7 +4290,12 @@ def _entries_show_agent_activity(entries: list[dict]) -> bool:
 
 
 def append_task_run_log(
-    run_id: str | UUID, task_id: str | UUID, team_id: int, *, entries: list[dict]
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    entries: list[dict],
+    sent_by_run_sandbox: bool = False,
 ) -> contracts.TaskRunDetailDTO | None:
     """Append log entries to a run's S3 log and heartbeat its workflow.
 
@@ -4289,7 +4306,7 @@ def append_task_run_log(
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return None
-    run.append_log(entries, lock_attempts=1)
+    run.append_log(entries, lock_attempts=1, sent_by_run_sandbox=sent_by_run_sandbox)
     run.clear_echoed_followup_messages(entries)
     run.heartbeat_workflow(agent_active=_entries_show_agent_activity(entries))
     return _task_run_detail_to_dto(run)
@@ -12755,13 +12772,12 @@ def _activity_visible_task_qs(team_id: int, user_id: int) -> QuerySet[Task]:
     )
 
 
-def _task_activity_qs(team_id: int, user_id: int) -> QuerySet[TaskActivity]:
+def _task_activity_qs(team_id: int, user_id: int, visible_tasks: QuerySet[Task]) -> QuerySet[TaskActivity]:
     """The requester's feed rows, gated to tasks they can still see.
 
     Rows outlive visibility changes (a task moving to a private channel, say), so the
     visibility gate belongs on read rather than being enforced when projecting.
     """
-    visible_tasks = _activity_visible_task_qs(team_id, user_id)
     return TaskActivity.objects.for_team(team_id).filter(user_id=user_id, task__in=visible_tasks)
 
 
@@ -12783,9 +12799,8 @@ def _visible_activity_canvas_ids(team_id: int, user_id: int) -> set[str]:
 
 
 def _comment_activity_qs(
-    team_id: int, user_id: int, visible_canvas_ids: set[str] | None = None
+    team_id: int, user_id: int, visible_tasks: QuerySet[Task], visible_canvas_ids: set[str] | None = None
 ) -> QuerySet[TaskCommentActivity]:
-    visible_tasks = _activity_visible_task_qs(team_id, user_id)
     if visible_canvas_ids is None:
         visible_canvas_ids = _visible_activity_canvas_ids(team_id, user_id)
     return (
@@ -12845,13 +12860,20 @@ def count_unread_task_activity(team_id: int, user_id: int | None) -> int:
     """Unread tasks across the requester's whole feed. Backs the sidebar badge."""
     if user_id is None:
         return 0
-    return _count_unread_activity(team_id, user_id, _visible_activity_canvas_ids(team_id, user_id))
+    return _count_unread_activity(
+        team_id,
+        user_id,
+        _activity_visible_task_qs(team_id, user_id),
+        _visible_activity_canvas_ids(team_id, user_id),
+    )
 
 
-def _count_unread_activity(team_id: int, user_id: int, visible_canvas_ids: set[str]) -> int:
+def _count_unread_activity(
+    team_id: int, user_id: int, visible_tasks: QuerySet[Task], visible_canvas_ids: set[str]
+) -> int:
     return (
-        _task_activity_qs(team_id, user_id).filter(read_at__isnull=True).count()
-        + _comment_activity_qs(team_id, user_id, visible_canvas_ids).filter(read_at__isnull=True).count()
+        _task_activity_qs(team_id, user_id, visible_tasks).filter(read_at__isnull=True).count()
+        + _comment_activity_qs(team_id, user_id, visible_tasks, visible_canvas_ids).filter(read_at__isnull=True).count()
     )
 
 
@@ -12870,9 +12892,10 @@ def list_task_activity(
     """
     if user_id is None:
         return contracts.TaskActivityPageDTO(results=[], unread_count=0)
-    task_qs = _task_activity_qs(team_id, user_id)
+    visible_tasks = _activity_visible_task_qs(team_id, user_id)
+    task_qs = _task_activity_qs(team_id, user_id, visible_tasks)
     visible_canvas_ids = _visible_activity_canvas_ids(team_id, user_id)
-    comment_qs = _comment_activity_qs(team_id, user_id, visible_canvas_ids)
+    comment_qs = _comment_activity_qs(team_id, user_id, visible_tasks, visible_canvas_ids)
     if before is not None and before_id is not None:
         cursor = Q(activity_at__lt=before) | Q(activity_at=before, id__lt=before_id)
         task_qs = task_qs.filter(cursor)
@@ -12926,7 +12949,7 @@ def list_task_activity(
             for row in rows
             for task_details in [_activity_task_details(row, canvases_by_id)]
         ],
-        unread_count=_count_unread_activity(team_id, user_id, visible_canvas_ids),
+        unread_count=_count_unread_activity(team_id, user_id, visible_tasks, visible_canvas_ids),
         next_before=next_row.activity_at if next_row else None,
         next_before_id=next_row.id if next_row else None,
     )

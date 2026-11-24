@@ -734,6 +734,7 @@ export class PiAgentServer {
       this.config,
       {
         originProduct: launch.originProduct,
+        gatewayProduct: launch.policy.billingProduct,
         aiStage: launch.aiStage,
         taskId: payload.task_id,
         model: this.config.model,
@@ -751,6 +752,7 @@ export class PiAgentServer {
           ai_stage: launch.aiStage,
           ai_agent_name: launch.aiAgentName,
           task_execution_environment: "cloud",
+          task_run_policy_source: launch.policySource,
         },
       },
       this.logger,

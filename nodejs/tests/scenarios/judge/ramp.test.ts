@@ -2,7 +2,7 @@ import type { Named, Step } from '../cards'
 import type { DrivenStep, StepWindow } from '../generator/generator'
 import type { TruthRecord } from '../provider-edge'
 import { type BarEvidence, type BarResult, type CpuPoint, judgeBars } from './bars'
-import type { InvariantResult, JournalEntry } from './judge'
+import type { Convergence, InvariantResult, JournalEntry } from './judge'
 import { type MetricSample, SCRAPE_GAP_MS } from './measurements'
 import { Broke, LiveRamp, Ramp, RampEvidence, RampStop, StepRates, rampOf, stepRatesOf, watchRamp } from './ramp'
 
@@ -517,6 +517,8 @@ describe('ramp', () => {
                 sent: expected - missed,
                 duplicates: 0,
                 duplicateRate: 0,
+                refused: 0,
+                refusedRate: 0,
             }
         })
     const barAt5: Broke = {
@@ -917,7 +919,46 @@ describe('ramp', () => {
     ]
     const STEP_JOURNAL = [unit(0, 1), unit(0, 2), unit(0, 3), unit(1, 1), unit(1, 2, false), unit(1, 3)]
 
-    it.each<[string, { lost: boolean; duplicates: boolean }, StepRates[], number?]>([
+    const UNSETTLED: StepRates[] = [
+        {
+            index: 0,
+            scale: 1,
+            expected: 3,
+            lost: null,
+            lossRate: null,
+            sent: 2,
+            duplicates: 1,
+            duplicateRate: 0.5,
+            refused: 0,
+            refusedRate: 0,
+        },
+        {
+            index: 1,
+            scale: 2,
+            expected: 2,
+            lost: null,
+            lossRate: null,
+            sent: 1,
+            duplicates: 0,
+            duplicateRate: 0,
+            refused: 1,
+            refusedRate: 1 / 3,
+        },
+        {
+            index: 2,
+            scale: 5,
+            expected: 0,
+            lost: null,
+            lossRate: null,
+            sent: 0,
+            duplicates: 0,
+            duplicateRate: null,
+            refused: 0,
+            refusedRate: null,
+        },
+    ]
+
+    it.each<[string, { lost: boolean; duplicates: boolean }, StepRates[], Pick<Convergence, 'unfinishedJobs'>?]>([
         [
             'counts per step the deliveries its accepted units expected, lost and duplicated',
             { lost: true, duplicates: true },
@@ -931,8 +972,21 @@ describe('ramp', () => {
                     sent: 2,
                     duplicates: 1,
                     duplicateRate: 0.5,
+                    refused: 0,
+                    refusedRate: 0,
                 },
-                { index: 1, scale: 2, expected: 2, lost: 0, lossRate: 0, sent: 1, duplicates: 0, duplicateRate: 0 },
+                {
+                    index: 1,
+                    scale: 2,
+                    expected: 2,
+                    lost: 0,
+                    lossRate: 0,
+                    sent: 1,
+                    duplicates: 0,
+                    duplicateRate: 0,
+                    refused: 1,
+                    refusedRate: 1 / 3,
+                },
                 {
                     index: 2,
                     scale: 5,
@@ -942,45 +996,22 @@ describe('ramp', () => {
                     sent: 0,
                     duplicates: 0,
                     duplicateRate: null,
+                    refused: 0,
+                    refusedRate: null,
                 },
             ],
         ],
         [
             'leaves the losses unrecorded while a job stays unfinished, since its deliveries may only be late',
             { lost: true, duplicates: true },
-            [
-                {
-                    index: 0,
-                    scale: 1,
-                    expected: 3,
-                    lost: null,
-                    lossRate: null,
-                    sent: 2,
-                    duplicates: 1,
-                    duplicateRate: 0.5,
-                },
-                {
-                    index: 1,
-                    scale: 2,
-                    expected: 2,
-                    lost: null,
-                    lossRate: null,
-                    sent: 1,
-                    duplicates: 0,
-                    duplicateRate: 0,
-                },
-                {
-                    index: 2,
-                    scale: 5,
-                    expected: 0,
-                    lost: null,
-                    lossRate: null,
-                    sent: 0,
-                    duplicates: 0,
-                    duplicateRate: null,
-                },
-            ],
-            1,
+            UNSETTLED,
+            { unfinishedJobs: 1 },
+        ],
+        [
+            'leaves the losses unrecorded when the judge could not read the job count at the deadline',
+            { lost: true, duplicates: true },
+            UNSETTLED,
+            { unfinishedJobs: null },
         ],
         [
             'leaves the losses and duplicates of a card that judges neither unrecorded',
@@ -995,6 +1026,8 @@ describe('ramp', () => {
                     sent: 2,
                     duplicates: null,
                     duplicateRate: null,
+                    refused: 0,
+                    refusedRate: 0,
                 },
                 {
                     index: 1,
@@ -1005,6 +1038,8 @@ describe('ramp', () => {
                     sent: 1,
                     duplicates: null,
                     duplicateRate: null,
+                    refused: 1,
+                    refusedRate: 1 / 3,
                 },
                 {
                     index: 2,
@@ -1015,14 +1050,14 @@ describe('ramp', () => {
                     sent: 0,
                     duplicates: null,
                     duplicateRate: null,
+                    refused: 0,
+                    refusedRate: null,
                 },
             ],
         ],
-    ])('%s', (_story, judged, expected, unfinishedJobs = 0) => {
+    ])('%s', (_story, judged, expected, convergence = { unfinishedJobs: 0 }) => {
         expect(
-            stepRatesOf(STEPS_DRIVEN, { journal: STEP_JOURNAL, truth: DELIVERED, fetchRetries: 3 }, judged, {
-                unfinishedJobs,
-            })
+            stepRatesOf(STEPS_DRIVEN, { journal: STEP_JOURNAL, truth: DELIVERED, fetchRetries: 3 }, judged, convergence)
         ).toEqual(expected)
     })
 

@@ -1,5 +1,6 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
+import { waitFor } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
@@ -364,6 +365,150 @@ describe('hogFlowEditorLogic', () => {
             sandboxSenderLogic.actions.loadSandboxStatusSuccess(status)
 
             expect(insertEmail()?.type).toEqual('email_sandbox')
+        })
+
+        const savedSenderlessEmail = {
+            id: 'email-saved',
+            type: 'function_email',
+            name: 'Email',
+            description: '',
+            created_at: 0,
+            updated_at: 0,
+            config: {
+                template_id: 'template-email',
+                inputs: { email: { value: { to: { email: '{person.properties.email}' }, from: {} } } },
+            },
+        } as unknown as HogFlowAction
+
+        it.each<[string, IntegrationType[], HogFlowAction | null, Partial<HogFlowAction>]>([
+            [
+                'a new email step on the test sender when the project has no verified sender',
+                [],
+                null,
+                {
+                    type: 'email_sandbox',
+                    config: expect.objectContaining({
+                        inputs: {
+                            email: {
+                                templating: 'liquid',
+                                value: expect.objectContaining({ to: { email: '{{ person.properties.email }}' } }),
+                            },
+                        },
+                    }),
+                },
+            ],
+            [
+                'a copied email step on the test sender with its Hog templating when the project has no verified sender',
+                [],
+                savedSenderlessEmail,
+                {
+                    type: 'email_sandbox',
+                    config: expect.objectContaining({
+                        inputs: {
+                            email: {
+                                templating: 'hog',
+                                value: expect.objectContaining({ to: { email: '{person.properties.email}' } }),
+                            },
+                        },
+                    }),
+                },
+            ],
+            [
+                'a new email step from the sender that can send when the default sender stopped',
+                [
+                    { ...ownSender, config: { verified: true, ses_sending_status: 'failed' } } as IntegrationType,
+                    { ...ownSender, id: 8 },
+                ],
+                null,
+                {
+                    type: 'function_email',
+                    config: expect.objectContaining({
+                        inputs: expect.objectContaining({
+                            email: expect.objectContaining({
+                                value: expect.objectContaining({ from: { integrationId: 8 } }),
+                            }),
+                        }),
+                    }),
+                },
+            ],
+        ])('saves %s', async (_, integrations, copied, expected) => {
+            const created: Partial<HogFlow>[] = []
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/hog_function_templates': {
+                        results: [
+                            {
+                                id: 'template-email',
+                                name: 'Email',
+                                type: 'destination',
+                                status: 'hidden',
+                                free: false,
+                                inputs_schema: [
+                                    {
+                                        type: 'native_email',
+                                        key: 'email',
+                                        label: 'Email message',
+                                        required: true,
+                                        templating: 'liquid',
+                                        default: { to: { email: '{{ person.properties.email }}' }, from: {} },
+                                    },
+                                ],
+                            },
+                        ],
+                        count: 1,
+                    },
+                },
+                post: {
+                    '/api/projects/:team_id/hog_flows/': async ({ request }) => {
+                        const body = (await request.json()) as Partial<HogFlow>
+                        // The sandbox validator compiles a step without templating as Hog, which rejects Liquid tags.
+                        const rejected = body.actions?.some((action) => {
+                            const email = (action.config as any).inputs?.email
+                            return (
+                                action.type === 'email_sandbox' &&
+                                (email?.templating ?? 'hog') === 'hog' &&
+                                JSON.stringify(email?.value).includes('{{')
+                            )
+                        })
+                        if (rejected) {
+                            return [400, { attr: 'actions', detail: 'Invalid template' }]
+                        }
+                        created.push(body)
+                        return [201, { ...body, id: 'flow-1' }]
+                    },
+                },
+            })
+            initKeaTests()
+            teamLogic.actions.loadCurrentTeamSuccess({
+                ...MOCK_DEFAULT_TEAM,
+                workflows_config: { default_email_integration_id: 7 },
+            } as any)
+            logic = hogFlowEditorLogic()
+            logic.mount()
+            await waitFor(() => expect(workflowLogic().values.hogFunctionTemplatesById['template-email']).toBeTruthy())
+            integrationsLogic.actions.loadIntegrationsSuccess(integrations)
+            sandboxSenderLogic.actions.loadSandboxStatusSuccess(status)
+
+            if (copied) {
+                workflowLogic().actions.setWorkflowInfo({
+                    actions: [NEW_WORKFLOW.actions[0], copied, NEW_WORKFLOW.actions[1]],
+                    edges: [edge(TRIGGER_NODE_ID, copied.id, 'continue'), edge(copied.id, EXIT_NODE_ID, 'continue')],
+                })
+                logic.actions.startCopyingNode({
+                    id: copied.id,
+                    type: copied.type,
+                    data: copied,
+                    position: { x: 0, y: 0 },
+                } as HogFlowActionNode)
+                logic.actions.onDrop(undefined, edge(copied.id, EXIT_NODE_ID, 'continue'))
+            } else {
+                insertEmail()
+            }
+            workflowLogic().actions.saveWorkflow(workflowLogic().values.workflow)
+
+            await waitFor(() => expect(created).toHaveLength(1))
+            const inserted = created[0].actions?.find((action) => action.name === 'Email' && action.id !== copied?.id)
+            expect(inserted).toMatchObject(expected)
         })
 
         it('keeps the sandbox step and shows a retry when setting up the sender fails', async () => {

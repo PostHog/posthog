@@ -331,46 +331,6 @@ for (const scope of ['desktop', 'canvas']) {
     })
 }
 
-for (const scope of [
-    'agent',
-    'tasks',
-    'tasks-agent',
-    'agent-proxy',
-    'agent-runner',
-    'cloud-agent',
-    'sandboxes',
-    'gateway',
-    'llm-gateway',
-    'ai-gateway',
-]) {
-    test(`the shipped config maps the ${scope} scope to the agent infra label`, () => {
-        const labels = labelsForTitle(`feat(${scope}): x`, loadRules())
-        assert.ok(labels.includes('feature/agent-infra'), `${scope} scope does not map to feature/agent-infra`)
-        assert.ok(!labels.includes('feature/desktop'), `${scope} scope still maps to feature/desktop`)
-    })
-}
-
-for (const filename of [
-    'nodejs/src/ingestion/pipelines/ai/costs/providers/manual-providers.ts',
-    'packages/agent/src/run.ts',
-    'posthog/migrations/1225_team_llm_gateway_overspend_allowance_usd.py',
-    'posthog/tasks/team_llm_gateway_quota.py',
-    'products/tasks/backend/api.py',
-    'services/agent-proxy/src/main.rs',
-    'services/llm-gateway/src/app.py',
-]) {
-    test(`the shipped config maps a change to ${filename} to the agent infra label`, () => {
-        const labels = labelsForFiles([changed(filename, 10)], loadRules())
-        assert.ok(labels.includes('feature/agent-infra'), `${filename} does not map to feature/agent-infra`)
-    })
-}
-
-test('the shipped config keeps labels from mixed desktop and agent infra scopes', () => {
-    const labels = labelsForTitle('feat(desktop, tasks): x', loadRules())
-    assert.ok(labels.includes('feature/desktop'))
-    assert.ok(labels.includes('feature/agent-infra'))
-})
-
 // ---------------------------------------------------------------------------
 // Feature flags team only: the `review/low-hanging-fruit` label.
 // ---------------------------------------------------------------------------

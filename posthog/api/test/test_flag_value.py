@@ -258,10 +258,10 @@ class TestFlagValueViewSet(APIBaseTest):
 
     def test_flag_values_multivariate_with_empty_variant_key(self):
         """Test multivariate flag with empty variant key ignores that variant."""
-        flag = FeatureFlag.objects.create(
-            name="Multivariate Empty Key",
-            key="multivariate-empty-key",
-            team=self.team,
+        flag = FeatureFlag.objects.create(name="Multivariate Empty Key", key="multivariate-empty-key", team=self.team)
+        # save() refuses a variant without a key. QuerySet.update skips save(), so it can store the malformed row
+        # that this endpoint must still read.
+        FeatureFlag.objects.filter(pk=flag.pk).update(
             filters={
                 "groups": [{"rollout_percentage": 100}],
                 "multivariate": {
@@ -271,7 +271,7 @@ class TestFlagValueViewSet(APIBaseTest):
                         {"rollout_percentage": 25},  # No key should be ignored
                     ]
                 },
-            },
+            }
         )
 
         response = self.client.get(f"/api/projects/{self.team.project_id}/flag_value/values?key={flag.id}")
