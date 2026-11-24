@@ -136,6 +136,7 @@ tracer = trace.get_tracer(__name__)
 
 TRANSIENT_S3_ERROR_RETRY_DELAY_SECONDS = 1.0
 DESCRIBE_UNREADABLE_COLUMNS_TIMEOUT_SECONDS = 5
+QUERY_AST_LIMIT_SETTINGS = {"max_ast_elements", "max_expanded_ast_elements"}
 MAIN_CLUSTER_WORKLOADS = (Workload.DEFAULT, Workload.ONLINE, Workload.OFFLINE)
 
 
@@ -1130,10 +1131,15 @@ class HogQLQueryExecutor:
                 return run_on_clickhouse(clickhouse_sql, with_column_types=True)
 
             def describe_column_types() -> list[str]:
+                ast_limits = (
+                    self.clickhouse_settings.model_dump(include=QUERY_AST_LIMIT_SETTINGS, exclude_none=True)
+                    if self.clickhouse_settings is not None
+                    else {}
+                )
                 rows = run_on_clickhouse(
                     f"DESCRIBE TABLE ({clickhouse_sql})",
                     with_column_types=False,
-                    settings={"max_execution_time": DESCRIBE_UNREADABLE_COLUMNS_TIMEOUT_SECONDS},
+                    settings={**ast_limits, "max_execution_time": DESCRIBE_UNREADABLE_COLUMNS_TIMEOUT_SECONDS},
                     send_receive_timeout=DESCRIBE_UNREADABLE_COLUMNS_TIMEOUT_SECONDS,
                 )
                 return [column_type for _, column_type, *_ in rows]
