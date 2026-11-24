@@ -1,30 +1,23 @@
 import { useActions, useValues } from 'kea'
-import { MouseEvent as ReactMouseEvent, ReactNode, useMemo } from 'react'
+import { MouseEvent as ReactMouseEvent, useMemo } from 'react'
 
 import { HeatmapCanvas } from 'lib/components/heatmaps/HeatmapCanvas'
 import { useShiftKeyPressed } from 'lib/components/heatmaps/useShiftKeyPressed'
 
 import { AutocaptureElement } from '~/toolbar/shared/elements/AutocaptureElement'
 import { AutocaptureElementLabel } from '~/toolbar/shared/elements/AutocaptureElementLabel'
+import { ElementHighlight } from '~/toolbar/shared/elements/ElementHighlight'
 import { elementsLogic } from '~/toolbar/shared/elements/elementsLogic'
 import { FocusRect } from '~/toolbar/shared/elements/FocusRect'
 import { HeatmapOverlayElements, getStableElementId } from '~/toolbar/shared/elements/HeatmapOverlayElements'
 import { heatmapToolbarMenuLogic } from '~/toolbar/shared/elements/heatmapToolbarMenuLogic'
-import { ElementHighlight } from '~/toolbar/shared/product-tours/ElementHighlight'
 import { getBoxColors, isInToolbarRoot } from '~/toolbar/shared/utils'
 
 import { ScrollDepth } from './ScrollDepth'
 
 const noop = (): void => {}
 
-export function ElementOverlays({
-    showHeatmapCanvas,
-    children,
-}: {
-    showHeatmapCanvas: boolean
-    /** More highlights, drawn above the area filter and below the element boxes. */
-    children?: ReactNode
-}): JSX.Element {
+export function ElementOverlays({ showHeatmapCanvas }: { showHeatmapCanvas: boolean }): JSX.Element {
     const {
         heatmapElements,
         elementsToDisplay,
@@ -109,7 +102,6 @@ export function ElementOverlays({
             {heatmapEnabled && !areaSelectionActive && areaFilterRect && (
                 <ElementHighlight rect={areaFilterRect} isSelected />
             )}
-            {children}
 
             {elementsToDisplay.map(({ rect, element, apparentZIndex }) => {
                 return (

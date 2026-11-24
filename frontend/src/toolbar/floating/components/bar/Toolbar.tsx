@@ -22,7 +22,6 @@ import {
     IconPieChart,
     IconQuestion,
     IconSearch,
-    IconSpotlight,
     IconStethoscope,
     IconToggle,
     IconWarning,
@@ -46,7 +45,6 @@ import { PII_MASKING_PRESET_COLORS } from '~/toolbar/shared/bar/piiMaskingStyles
 import { toolbarLogic } from '~/toolbar/shared/bar/toolbarLogic'
 import { readPosthogDebugInfo } from '~/toolbar/shared/debug/posthogDebugInfo'
 import { fieldNotesLogic } from '~/toolbar/shared/field-notes/fieldNotesLogic'
-import { productToursLogic } from '~/toolbar/shared/product-tours/productToursLogic'
 import { screenshotUploadLogic } from '~/toolbar/shared/screenshot-upload/screenshotUploadLogic'
 import { toolbarConfigLogic } from '~/toolbar/shared/toolbarConfigLogic'
 import {
@@ -92,16 +90,6 @@ const FieldNotesToolbarMenu = lazy(() =>
 const FlagsToolbarMenu = lazy(() =>
     retryImport(() => import('~/toolbar/floating/components/flags/FlagsToolbarMenu')).then((m) => ({
         default: m.FlagsToolbarMenu,
-    }))
-)
-const ProductToursSidebar = lazy(() =>
-    retryImport(() => import('~/toolbar/floating/components/product-tours/ProductToursSidebar')).then((m) => ({
-        default: m.ProductToursSidebar,
-    }))
-)
-const ProductToursToolbarMenu = lazy(() =>
-    retryImport(() => import('~/toolbar/floating/components/product-tours/ProductToursToolbarMenu')).then((m) => ({
-        default: m.ProductToursToolbarMenu,
     }))
 )
 const HeatmapToolbarMenu = lazy(() =>
@@ -381,9 +369,6 @@ export function ToolbarInfoMenu(): JSX.Element | null {
 
     const { isAuthenticated } = useValues(toolbarConfigLogic)
 
-    const productToursFlag = useToolbarFeatureFlag('product-tours-2025')
-    const showProductTours = inStorybook() || productToursFlag
-
     const fieldNotesFlag = useToolbarFeatureFlag('field-notes')
     const showFieldNotes = inStorybook() || fieldNotesFlag
 
@@ -431,8 +416,6 @@ export function ToolbarInfoMenu(): JSX.Element | null {
         <WebVitalsToolbarMenu />
     ) : visibleMenu === 'experiments' ? (
         <ExperimentsToolbarMenu />
-    ) : visibleMenu === 'product-tours' && showProductTours ? (
-        <ProductToursToolbarMenu />
     ) : visibleMenu === 'field-notes' && showFieldNotes ? (
         <FieldNotesToolbarMenu />
     ) : null
@@ -492,11 +475,6 @@ export function Toolbar(): JSX.Element | null {
         useValues(toolbarConfigLogic)
     const { authenticate, openUiHostConfigModal, closeUiHostConfigModal, closeAuthConfirmModal } =
         useActions(toolbarConfigLogic)
-    const { selectedTourId, isPreviewing } = useValues(productToursLogic)
-
-    const productToursFlag = useToolbarFeatureFlag('product-tours-2025')
-    const showProductTours = inStorybook() || productToursFlag
-
     const fieldNotesFlag = useToolbarFeatureFlag('field-notes')
     const showFieldNotes = inStorybook() || fieldNotesFlag
     const { hasOpenedFieldNotes } = useValues(fieldNotesLogic)
@@ -527,24 +505,15 @@ export function Toolbar(): JSX.Element | null {
         if (userIntent === 'heatmaps') {
             setVisibleMenu('heatmap')
         }
-
-        if (userIntent === 'add-product-tour' || userIntent === 'edit-product-tour') {
-            setVisibleMenu('product-tours')
-        }
     }, [userIntent]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     if (isEmbeddedInApp) {
         return null
     }
 
-    const showToursSidebar = selectedTourId !== null && !isPreviewing
-
     return (
         <>
-            <Suspense fallback={null}>
-                {showToursSidebar && <ProductToursSidebar />}
-                {showFieldNotes && <FieldNotesOverlay />}
-            </Suspense>
+            <Suspense fallback={null}>{showFieldNotes && <FieldNotesOverlay />}</Suspense>
             <ToolbarInfoMenu />
             <div
                 ref={ref}
@@ -552,9 +521,8 @@ export function Toolbar(): JSX.Element | null {
                     'Toolbar--minimized': minimized,
                     'Toolbar--hedgehog-mode': hedgehogMode,
                     'Toolbar--dragging': isDragging,
-                    'Toolbar--extra-buttons-1': 1 + (showProductTours ? 1 : 0) + (showFieldNotes ? 1 : 0) === 1,
-                    'Toolbar--extra-buttons-2': 1 + (showProductTours ? 1 : 0) + (showFieldNotes ? 1 : 0) === 2,
-                    'Toolbar--extra-buttons-3': 1 + (showProductTours ? 1 : 0) + (showFieldNotes ? 1 : 0) === 3,
+                    'Toolbar--extra-buttons-1': !showFieldNotes,
+                    'Toolbar--extra-buttons-2': showFieldNotes,
                 })}
                 onMouseDown={(e) => onMouseOrTouchDown(e.nativeEvent)}
                 onTouchStart={(e) => onMouseOrTouchDown(e.nativeEvent)}
@@ -619,11 +587,6 @@ export function Toolbar(): JSX.Element | null {
                         <ToolbarButton menuId="experiments" title="Experiments">
                             <IconFlask />
                         </ToolbarButton>
-                        {showProductTours && (
-                            <ToolbarButton menuId="product-tours" title="Product tours">
-                                <IconSpotlight />
-                            </ToolbarButton>
-                        )}
                         {/* Heatmaps moves here and takes the app icon when field notes is enabled */}
                         {showFieldNotes && (
                             <ToolbarButton menuId="heatmap" title={HEATMAP_GATE_TITLES[heatmapGate] ?? 'Heatmaps'}>

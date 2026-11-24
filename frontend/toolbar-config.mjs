@@ -362,13 +362,8 @@ export function getToolbarExtensionScriptsBuildConfig(dirname) {
         format: 'iife',
         splitting: false,
         // An IIFE inlines every lazy import. The content script never runs hedgehog mode (pixi needs `new Function`,
-        // which Manifest V3 forbids) or the product tours editor, so they stay out of every page it's injected into.
-        extraPlugins: [
-            createToolbarModulePlugin(dirname, [
-                /^@posthog\/hedgehog-mode$/,
-                /product-tours\/editor\/generateStepHtml$/,
-            ]),
-        ],
+        // which Manifest V3 forbids), so it stays out of every page it's injected into.
+        extraPlugins: [createToolbarModulePlugin(dirname, [/^@posthog\/hedgehog-mode$/])],
     }
 }
 

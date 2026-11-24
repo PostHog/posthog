@@ -7,7 +7,6 @@ import { fileURLToPath } from 'node:url'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const frontendDir = path.resolve(__dirname, '..')
 const metaPath = path.join(frontendDir, 'toolbar-esbuild-meta.json')
-const baselinePath = path.join(__dirname, 'toolbar-graph-baseline.json')
 
 // The toolbar runs on customer pages, so its bundle must only contain what the toolbar
 // actually needs — not the app's scene graph. This check enforces that boundary from the
@@ -16,8 +15,7 @@ const baselinePath = path.join(__dirname, 'toolbar-graph-baseline.json')
 // 1. "Survivors" are the modules still reachable from the toolbar entry when traversal
 //    refuses to walk INTO the app zone (scenes/, layout/, models/, products manifests).
 //    Every survivor edge that crosses into the app zone is a real dependency the toolbar
-//    code holds on the app. New crossing edges fail; cutting an edge means deleting it from
-//    the checked-in baseline so the win is locked in.
+//    code holds on the app, and fails the check.
 //    Non-survivor crossings (app-zone code importing more app-zone code) aren't listed:
 //    they disappear on their own when the last survivor edge into their family is cut.
 //
@@ -62,9 +60,6 @@ if (!inputs?.[ENTRY]) {
     process.exit(1)
 }
 
-const baseline = JSON.parse(fs.readFileSync(baselinePath, 'utf-8'))
-const baselineEdges = new Set(baseline.edges)
-
 const inZone = (p) => APP_ZONE.some((re) => re.test(p))
 
 // Survivor closure: reachable from the entry without walking into the app zone.
@@ -90,24 +85,15 @@ for (const file of survivors) {
     }
 }
 
-const newEdges = [...crossingEdges].filter((e) => !baselineEdges.has(e)).sort()
-const removedEdges = [...baselineEdges].filter((e) => !crossingEdges.has(e)).sort()
+const newEdges = [...crossingEdges].sort()
 
 if (newEdges.length) {
     fail(
-        `${newEdges.length} new toolbar -> app import edge(s):\n` +
+        `${newEdges.length} toolbar -> app import edge(s):\n` +
             newEdges.map((e) => `   ${e}`).join('\n') +
-            `\nThe toolbar bundle must not grow new dependencies on app code (scenes/, layout/, models/, ` +
+            `\nThe toolbar bundle must not depend on app code (scenes/, layout/, models/, ` +
             `products manifests) — it ships to customer pages. Import from lib/, move the shared code out ` +
             `of the app zone, or fetch via toolbarFetch instead.`
-    )
-}
-
-if (removedEdges.length) {
-    fail(
-        `${removedEdges.length} baseline edge(s) no longer exist — delete them from ` +
-            `frontend/bin/toolbar-graph-baseline.json in this PR to lock the win in:\n` +
-            removedEdges.map((e) => `   ${e}`).join('\n')
     )
 }
 
@@ -155,8 +141,8 @@ if (unscannedSources.length) {
 
 const status = process.exitCode ? '🟡' : '🟢'
 console.info(
-    `${status} toolbar graph boundary: ${crossingEdges.size} toolbar -> app crossing edge(s) ` +
-        `(baseline ${baselineEdges.size}), ${survivors.size} survivor files reachable from the entry`
+    `${status} toolbar graph boundary: ${crossingEdges.size} toolbar -> app crossing edge(s), ` +
+        `${survivors.size} survivor files reachable from the entry`
 )
 
 if (process.env.GITHUB_STEP_SUMMARY) {
@@ -167,7 +153,7 @@ if (process.env.GITHUB_STEP_SUMMARY) {
             '',
             '| Metric | Value |',
             '| --- | --- |',
-            `| ${status} toolbar -> app crossing edges | ${crossingEdges.size} (baseline ${baselineEdges.size}) |`,
+            `| ${status} toolbar -> app crossing edges | ${crossingEdges.size} |`,
             `| survivor files (toolbar-owned closure) | ${survivors.size} |`,
         ].join('\n') + '\n'
     )

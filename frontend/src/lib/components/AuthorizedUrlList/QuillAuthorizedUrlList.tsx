@@ -32,7 +32,6 @@ export interface QuillAuthorizedUrlListProps {
     type: AuthorizedUrlListType
     actionId?: number
     experimentId?: ExperimentIdType
-    productTourId?: string | null
     addText: string
     allowWildCards?: boolean
     displaySuggestions: boolean
@@ -63,7 +62,6 @@ export function QuillAuthorizedUrlList({
     type,
     actionId,
     experimentId,
-    productTourId,
     addText,
     allowWildCards,
     displaySuggestions,
@@ -95,7 +93,6 @@ export function QuillAuthorizedUrlList({
                 type={type}
                 actionId={actionId}
                 experimentId={experimentId}
-                productTourId={productTourId}
                 allowWildCards={allowWildCards}
             />
         </Item>
@@ -106,7 +103,6 @@ export function QuillAuthorizedUrlList({
             {!hideEmptyState && (
                 <EmptyState
                     experimentId={experimentId}
-                    productTourId={productTourId}
                     actionId={actionId}
                     type={type}
                     displaySuggestions={displaySuggestions}

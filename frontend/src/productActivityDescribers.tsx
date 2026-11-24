@@ -121,8 +121,6 @@ export const productActivityDescribers: Partial<Record<ActivityScope, () => Prom
         import('../../products/alerts_platform/frontend/platformAlertConfigurationActivityDescriber').then(
             (module) => module.platformAlertConfigurationActivityDescriber
         ),
-    [ActivityScope.PRODUCT_TOUR]: () =>
-        import('scenes/product-tours/activityDescriptions').then((module) => module.productTourActivityDescriber),
     [ActivityScope.PROPERTY_DEFINITION]: () =>
         import('scenes/data-management/dataManagementDescribers').then(
             (module) => module.dataManagementActivityDescriber

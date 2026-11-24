@@ -16,7 +16,6 @@ import type { AlertApi } from 'products/alerts/frontend/generated/api.schemas'
 import type { TicketApi } from 'products/conversations/frontend/generated/api.schemas'
 import { getAccountStatusTags } from 'products/customer_analytics/frontend/components/Accounts/accountStatusTags'
 import type { AccountApi } from 'products/customer_analytics/frontend/generated/api.schemas'
-import type { ProductTourApi } from 'products/product_tours/frontend/generated/api.schemas'
 import type { HogFlowMinimalApi } from 'products/workflows/frontend/generated/api.schemas'
 
 import { filterSearchItems } from './utils'
@@ -321,16 +320,6 @@ export const hogFlowToSearchItem = (flow: HogFlowMinimalApi): SearchItem => {
         record: { type: 'workflows', id: flow.id, created_at: flow.created_at },
     }
 }
-
-export const productTourToSearchItem = (tour: ProductTourApi): SearchItem => ({
-    id: `product_tour-${tour.id}`,
-    name: tour.name,
-    displayName: tour.name,
-    category: 'results',
-    href: urls.productTour(tour.id),
-    itemType: 'product_tour',
-    record: { type: 'product_tour', id: tour.id },
-})
 
 /** "Create new" items match when every word is "new"/"create" or appears in the item's name, type, or path. */
 const LEADING_CREATE_WORD = /^\s*create\b/i

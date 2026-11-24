@@ -24,8 +24,8 @@ export function QuillExperimentPoliciesNotice(): JSX.Element | null {
                 <ItemDescription>
                     Launching, pausing, and changing the rollout or variant split of an experiment now follow the
                     experiment policies. Feature flag policies cover the flags that no product manages, so flags that a
-                    survey, product tour, or early access feature manages no longer need approval. Surveys will get
-                    their own policies soon.{' '}
+                    survey or early access feature manages no longer need approval. Surveys will get their own policies
+                    soon.{' '}
                     <Button
                         variant="link"
                         size="inline"

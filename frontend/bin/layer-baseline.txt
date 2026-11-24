@@ -275,7 +275,6 @@ frontend/src/lib/utils/accessControlUtils.ts -> frontend/src/scenes/sceneTypes.t
 frontend/src/lib/utils/deleteWithUndo.tsx -> frontend/src/layout/panel-layout/ProjectTree/projectTreeLogic.tsx
 frontend/src/lib/utils/deleteWithUndo.tsx -> frontend/src/scenes/dashboard/liveDashboardIds.ts
 frontend/src/lib/utils/eventUsageLogic.ts -> frontend/src/lib/logic/preflightLogic.tsx
-frontend/src/lib/utils/eventUsageLogic.ts -> frontend/src/scenes/product-tours/constants.ts
 frontend/src/lib/utils/eventUsageLogic.ts -> frontend/src/scenes/userLogic.ts
 frontend/src/lib/utils/eventUsageLogic.ts -> products/experiments/frontend/experimentStatus.ts
 frontend/src/lib/utils/events.ts -> frontend/src/taxonomy/taxonomy.tsx

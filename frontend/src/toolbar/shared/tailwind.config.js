@@ -9,7 +9,6 @@ module.exports = {
     content: [
         '../**/*.{ts,tsx}',
         '../../lib/**/*.{ts,tsx}',
-        '../../scenes/product-tours/**/*.{ts,tsx}',
         '../../styles/**/*.{ts,tsx}',
         '../../taxonomy/**/*.{ts,tsx}',
         '../../types.ts',

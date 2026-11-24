@@ -1999,8 +1999,6 @@ export const productUrls = {
     insightAlert: (insightShortId: InsightShortId, alertId: AlertType['id']): string =>
         `/insights/${insightShortId}/alerts?alert_id=${alertId}`,
     insightQuickStart: (): string => '/insights/quick-start',
-    productTours: (): string => '/product_tours',
-    productTour: (id: string): string => `/product_tours/${id}`,
     pulse: (): string => '/pulse',
     releases: (): string => '/releases',
     releaseCalendar: (): string => '/releases/calendar',
@@ -2260,15 +2258,6 @@ export const fileSystemTypes = {
         href: (ref: string) => urls.notebook(ref),
         filterKey: 'notebook',
     },
-    product_tour: {
-        name: 'Product tour',
-        iconType: 'product_tour',
-        href: (ref: string) => urls.productTour(ref),
-        listHref: () => urls.productTours(),
-        iconColor: ['var(--color-product-product-tours-light)', 'var(--color-product-product-tours-dark)'],
-        filterKey: 'product_tour',
-        flag: FEATURE_FLAGS.PRODUCT_TOURS,
-    },
     session_recording_playlist: {
         name: 'Replay playlist',
         iconType: 'session_replay',
@@ -2486,17 +2475,6 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
     },
     { path: `Notebook`, type: 'notebook', href: urls.notebook('new'), iconType: 'notebook' },
     {
-        path: `Product tour`,
-        type: 'product_tour',
-        href: urls.productTour('new'),
-        iconType: 'product_tour',
-        iconColor: [
-            'var(--color-product-product-tours-light)',
-            'var(--color-product-product-tours-dark)',
-        ] as FileSystemIconColor,
-        flag: FEATURE_FLAGS.PRODUCT_TOURS,
-    },
-    {
         path: `Survey`,
         type: 'survey',
         href: urls.surveyWizard('new'),
@@ -2547,7 +2525,6 @@ export type ProductTreePath =
     | 'Platform alerts'
     | 'Playground'
     | 'Product analytics'
-    | 'Product tours'
     | 'Prompts'
     | 'Pulse'
     | 'Replay vision'
@@ -3298,22 +3275,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconColor: ['var(--color-product-product-analytics-light)', 'var(--color-product-product-analytics-dark)'],
         sceneKey: 'SavedInsights',
         sceneKeys: ['SavedInsights', 'Insight'],
-    },
-    {
-        path: 'Product tours',
-        intents: [ProductKey.PRODUCT_TOURS],
-        category: ProductItemCategory.PRODUCT_ENGINEERING,
-        type: 'product_tour',
-        href: urls.productTours(),
-        searchKeywords: ['walkthrough', 'onboarding flows', 'tooltips'],
-        iconType: 'product_tour',
-        iconColor: [
-            'var(--color-product-product-tours-light)',
-            'var(--color-product-product-tours-dark)',
-        ] as FileSystemIconColor,
-        sceneKey: 'ProductTours',
-        sceneKeys: ['ProductTour', 'ProductTours'],
-        flag: FEATURE_FLAGS.PRODUCT_TOURS,
     },
     {
         path: 'Prompts',

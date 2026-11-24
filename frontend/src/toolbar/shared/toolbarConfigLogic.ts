@@ -63,7 +63,6 @@ export interface toolbarConfigLogicValues {
     isTrustedUiHost: boolean
     ownsPageSession: boolean
     posthog: PostHog | null
-    productTourId: string | null
     project: ToolbarProject | null
     props: ToolbarProps
     refreshToken: string | null
@@ -221,7 +220,6 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         ],
         actionId: [props.actionId || null, { logout: () => null, clearUserIntent: () => null }],
         experimentId: [props.experimentId || null, { logout: () => null, clearUserIntent: () => null }],
-        productTourId: [asNonEmptyString(props.productTourId), { logout: () => null, clearUserIntent: () => null }],
         userIntent: [asUserIntent(props.userIntent), { logout: () => null, clearUserIntent: () => null }],
         buttonVisible: [true, { showButton: () => true, hideButton: () => false, logout: () => false }],
         authStatus: [
@@ -465,7 +463,6 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
                 projectId: values.project?.projectId,
                 actionId: values.actionId ?? undefined,
                 experimentId: values.experimentId ?? undefined,
-                productTourId: values.productTourId ?? undefined,
                 userIntent: values.userIntent ?? undefined,
                 posthog: undefined,
             }
