@@ -23,6 +23,8 @@ const tracked: TransactionalEmailImpactApi = {
     not_clicked: 3540,
     untracked: 0,
     window_days: 7,
+    sessions: null,
+    link_tagging_enabled: true,
     after_click: null,
     without_click: null,
 }

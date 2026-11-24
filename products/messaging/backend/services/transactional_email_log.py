@@ -682,7 +682,7 @@ def _sessions_started_by_clicks(team: Team, user: User | None, workflow_id: str,
             GROUP BY created_at, message_id
         )
         WHERE message_function_id = %(workflow_id)s AND delivery_status != '' AND was_clicked
-        ORDER BY queued_at DESC
+        ORDER BY queued_at DESC, message_id DESC
         LIMIT %(limit)s
         """,
         {"start": period.start, "end": period.end, "workflow_id": workflow_id, "limit": MAX_RESULTS_RECIPIENTS},

@@ -254,14 +254,15 @@ class TransactionalEmailImpactSerializer(serializers.Serializer):
     )
     sessions = serializers.IntegerField(
         allow_null=True,
-        help_text="Sessions that started from a click in this email, counted from pageviews whose URL carries the "
-        "send's ph_workflow_run tag, up to window_days after the period. Reads the newest 10,000 clicked sends at "
-        "most. Null when link_tagging_enabled is false, or the user has no access to querying events.",
+        help_text="Sessions with a pageview from a link in this email: the pageview URL carries the ph_workflow_run "
+        "tag of one of its clicked sends, up to window_days after the period. Reads the newest 10,000 clicked sends "
+        "at most. Sends from before link tagging was turned on carry no tag. Null when link_tagging_enabled is "
+        "false, or the user has no access to querying events.",
     )
     link_tagging_enabled = serializers.BooleanField(
-        help_text="Whether the project tags tracked links on the sender's own domain with ph_workflow_run, which "
-        "connects a click to the session it starts. When false, sessions is null. Set it with "
-        "workflows_config.email_workflow_run_link_tag_enabled in the project settings."
+        help_text="Whether the project setting that tags tracked links on the sender's own domain with "
+        "ph_workflow_run is on now. The tag connects a click to its session. When false, sessions is null. Set it "
+        "with workflows_config.email_workflow_run_link_tag_enabled in the project settings."
     )
 
 
