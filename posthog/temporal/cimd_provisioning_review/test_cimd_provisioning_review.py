@@ -243,16 +243,31 @@ class TestSendPartnerReviewEmail(APIBaseTest):
         set_instance_setting("EMAIL_HOST", "fake_host")
         set_instance_setting("EMAIL_ENABLED", True)
 
-    def _review(self, status: ProvisioningReviewStatus, *, organization: Organization | None) -> CIMDProvisioningReview:
+    def _review(
+        self,
+        status: ProvisioningReviewStatus,
+        *,
+        organization: Organization | None,
+        message_written_for: Organization | None = None,
+    ) -> CIMDProvisioningReview:
         app = _make_app()
         app.organization = organization
         app.save(update_fields=["organization"])
+        written_for = message_written_for or organization
         return CIMDProvisioningReview.objects.create(
             application=app,
             domain="example.com",
             status=status,
             decided_at=timezone.now(),
             partner_message="Add a homepage to your metadata document.",
+            run_log=[
+                {
+                    "step": "settled",
+                    "status": str(status),
+                    "partner_message": "Add a homepage to your metadata document.",
+                    "organization_id": str(written_for.pk) if written_for else None,
+                }
+            ],
         )
 
     @parameterized.expand(
@@ -280,6 +295,21 @@ class TestSendPartnerReviewEmail(APIBaseTest):
         assert sent[0].template_name in WORKFLOWS_TEMPLATE_ID_MAP
         assert "Add a homepage to your metadata document." in sent[0].html_body
         assert f"/settings/organization-oauth-apps/{review.application_id}" in sent[0].html_body
+
+    @patch("posthog.api.oauth.provisioning_review.EmailMessage")
+    def test_leaves_out_a_message_written_for_the_previous_organization(self, MockEmailMessage) -> None:
+        sent = mock_email_messages(MockEmailMessage)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        previous_owner = Organization.objects.create(name="Previous owner of the client ID")
+        review = self._review(
+            ProvisioningReviewStatus.DECLINED, organization=self.organization, message_written_for=previous_owner
+        )
+
+        send_partner_review_email(str(review.pk), ProvisioningReviewStatus.DECLINED)
+
+        assert len(sent) == 1
+        assert "Add a homepage to your metadata document." not in sent[0].html_body
 
     @parameterized.expand(
         [

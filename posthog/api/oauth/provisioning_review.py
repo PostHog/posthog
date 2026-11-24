@@ -368,7 +368,7 @@ def send_partner_review_email(review_id: str, status: str) -> None:
         template_context={
             "app_name": app_name,
             "client_id": app.client_id,
-            "partner_message": review.partner_message,
+            "partner_message": partner_message_for_current_organization(review),
             "review_url": partner_review_url(app),
             **get_email_team_and_org_context(organization=organization),
         },
