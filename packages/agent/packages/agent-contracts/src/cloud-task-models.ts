@@ -105,7 +105,7 @@ export function getCloudTaskGatewayUrl(posthogHost: string): string {
   const custom = getCustomCloud();
 
   if (custom?.gatewayUrl && isCustomCloudHost(posthogHost)) {
-    gatewayBaseUrl = custom.gatewayUrl;
+    gatewayBaseUrl = custom.gatewayUrl.replace(/\/+$/, "");
   } else if (url.hostname === "localhost" || url.hostname === "127.0.0.1") {
     gatewayBaseUrl = `${url.protocol}//localhost:8080`;
   } else if (url.hostname === "host.docker.internal") {
@@ -117,7 +117,7 @@ export function getCloudTaskGatewayUrl(posthogHost: string): string {
     gatewayBaseUrl = `https://ai-gateway.${region}.posthog.com`;
   }
 
-  return gatewayBaseUrl.replace(/\/+$/, "");
+  return gatewayBaseUrl;
 }
 
 function isGatewayModel(value: unknown): value is Partial<GatewayModel> & {

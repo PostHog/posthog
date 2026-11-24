@@ -424,6 +424,14 @@ describe("AgentServer.configureEnvironment", () => {
     ).toBeUndefined();
   });
 
+  it("refuses an unrouted product when LLM_GATEWAY_URL is unset", () => {
+    delete process.env.LLM_GATEWAY_URL;
+
+    expect(() =>
+      buildServer("background").configureEnvironment({ isInternal: false }),
+    ).toThrow("LLM_GATEWAY_URL is unset");
+  });
+
   it("appends the resolved product to a LLM_GATEWAY_URL override base", () => {
     // The override is treated as a base URL. The product slug is always
     // appended so the gateway routes to the correct product config — a bare

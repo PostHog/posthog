@@ -804,7 +804,7 @@ container.bind(LLM_GATEWAY_HOST).toDynamicValue((ctx) => {
   };
 });
 // The Go gateway sends no CORS headers and the web host has no loopback
-// proxy.
+// proxy, so helper prompts are unavailable here.
 container
   .bind(GATEWAY_TOKEN_HOST)
   .toConstantValue({ goEnabled: false, override: null });

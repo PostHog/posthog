@@ -6,8 +6,11 @@ import {
 } from "@posthog/agent-contracts";
 import { isRetiredModel } from "@posthog/agent-contracts/model-catalog";
 import {
+  buildPosthogPropertiesHeaderLines,
+  buildPosthogPropertiesHeaderRecord,
   buildPosthogPropertyHeaderLines,
   buildPosthogPropertyHeaderRecord,
+  buildPosthogSessionHeaderRecord,
   buildPosthogUserHeaderLines,
   buildPosthogUserHeaderRecord,
 } from "@posthog/agent-contracts/posthog-property-headers";
@@ -148,18 +151,31 @@ export class Agent {
       );
     }
 
+    const directAiGateway = gatewayConfig !== null && !options.gatewayUrl;
+    const aiGatewayProperties = {
+      ...attribution,
+      ai_product: "posthog_code",
+      team_id: this.posthogApiConfig?.projectId ?? null,
+    };
+
     const codexGatewayAuth =
       !codexSubscription && gatewayConfig
         ? {
             apiBaseUrl: `${gatewayConfig.gatewayUrl}/v1`,
             apiBaseUrlInConfig: options.codexBaseUrlInConfig,
             apiKey: gatewayConfig.apiKey,
-            httpHeaders: {
-              ...buildPosthogPropertyHeaderRecord(
-                taskId ? { ...attribution, $ai_session_id: taskId } : {},
-              ),
-              ...buildPosthogUserHeaderRecord(userNode),
-            },
+            httpHeaders: directAiGateway
+              ? {
+                  ...buildPosthogPropertiesHeaderRecord(aiGatewayProperties),
+                  ...buildPosthogSessionHeaderRecord(taskId),
+                  ...buildPosthogUserHeaderRecord(userNode),
+                }
+              : {
+                  ...buildPosthogPropertyHeaderRecord(
+                    taskId ? { ...attribution, $ai_session_id: taskId } : {},
+                  ),
+                  ...buildPosthogUserHeaderRecord(userNode),
+                },
           }
         : undefined;
 
@@ -232,11 +248,14 @@ export class Agent {
                 ? String(this.posthogApiConfig.projectId)
                 : undefined,
             anthropicCustomHeaders: [
-              buildPosthogPropertyHeaderLines(attribution),
+              directAiGateway
+                ? buildPosthogPropertiesHeaderLines(aiGatewayProperties)
+                : buildPosthogPropertyHeaderLines(attribution),
               buildPosthogUserHeaderLines(userNode),
             ]
               .filter(Boolean)
               .join("\n"),
+            isAiGateway: directAiGateway,
           }
         : undefined;
 

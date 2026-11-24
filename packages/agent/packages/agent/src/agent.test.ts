@@ -237,7 +237,7 @@ describe("Agent", () => {
     expect(config.claudeGatewayEnv?.posthogProjectId).toBe("7");
   });
 
-  it("adds task attribution to local Claude gateway headers", async () => {
+  it("adds task attribution to direct AI gateway headers", async () => {
     fetchMock.mockResolvedValueOnce({
       ok: true,
       json: vi.fn().mockResolvedValue({
@@ -259,15 +259,16 @@ describe("Agent", () => {
     const [[config]] = createAcpConnectionMock.mock.calls as unknown as [
       [AcpConnectionConfig],
     ];
-    expect(config.claudeGatewayEnv?.anthropicCustomHeaders).toContain(
-      "x-posthog-property-task_id: task-1",
-    );
-    expect(config.claudeGatewayEnv?.anthropicCustomHeaders).toContain(
-      'x-posthog-property-task_repositories: ["org/repo"]',
-    );
-    expect(config.claudeGatewayEnv?.anthropicCustomHeaders).toContain(
-      "x-posthog-property-task_execution_environment: local",
-    );
+    const headers = config.claudeGatewayEnv?.anthropicCustomHeaders ?? "";
+    const blob = headers.match(/^X-PostHog-Properties: (.*)$/m)?.[1];
+    expect(config.claudeGatewayEnv?.isAiGateway).toBe(true);
+    expect(JSON.parse(blob ?? "{}")).toMatchObject({
+      task_id: "task-1",
+      task_repositories: '["org/repo"]',
+      task_execution_environment: "local",
+      ai_product: "posthog_code",
+      team_id: 7,
+    });
   });
 
   it("asserts the person's node so the gateway's per-user spend limit applies", async () => {
@@ -321,6 +322,8 @@ describe("Agent", () => {
     const [[config]] = createAcpConnectionMock.mock.calls as unknown as [
       [AcpConnectionConfig],
     ];
-    expect(config.claudeGatewayEnv?.anthropicCustomHeaders).toBe("");
+    expect(config.claudeGatewayEnv?.anthropicCustomHeaders).not.toContain(
+      "task_id",
+    );
   });
 });
