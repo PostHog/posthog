@@ -7,7 +7,7 @@ import base64
 import datetime
 import contextlib
 import collections
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Optional
 from urllib.parse import unquote_plus, urlparse
@@ -26,7 +26,7 @@ from pymongo.cursor import Cursor
 from pymongo.database import Database
 from pymongo.errors import CursorNotFound, ExecutionTimeout, OperationFailure, PyMongoError, ServerSelectionTimeoutError
 from pymongo.server_description import ServerDescription
-from pymongo.uri_parser import split_options
+from pymongo.uri_parser import parse_uri, split_options
 from structlog.types import FilteringBoundLogger
 
 from posthog.dataclasses import frozen
@@ -428,16 +428,14 @@ def _checked_connection_string(connection_string: str) -> str:
     return checked
 
 
-def _check_single_seed(client: MongoClient, team_id: int) -> None:
+def _check_single_seed(seeds: Sequence[tuple[str, Any]], team_id: int) -> None:
     """Refuse a client whose only seed is a host the outbound policy forbids.
 
     pymongo never calls a custom server selector for a Single or LoadBalanced topology, so
     `_make_safe_server_selector` never sees those servers. Only a client with one seed can end up
     in either topology: directConnection, loadBalanced (also from a DNS TXT record), or a lone
-    standalone server. pymongo resolves a `mongodb+srv` host when the client opens, so the seeds
-    here are the resolved hosts.
+    standalone server.
     """
-    seeds = list(client.topology_description.server_descriptions())
     if len(seeds) != 1:
         return
     host = seeds[0][0]
@@ -482,9 +480,14 @@ def mongo_client(connection_string: str, team_id: int, tls_ca_file: str | None =
         # substitutes U+FFFD for the bad bytes so the batch still decodes.
         "unicode_decode_error_handler": "replace",
     }
-    client: MongoClient = MongoClient(_checked_connection_string(connection_string), **kwargs)
+    checked_connection_string = _checked_connection_string(connection_string)
+    # The client's monitor dials the seed as soon as the client opens, so check before it exists.
+    # `parse_uri` makes the same SRV and TXT lookups as the client, without opening a connection.
+    _check_single_seed(parse_uri(checked_connection_string, warn=True)["nodelist"], team_id)
+    client: MongoClient = MongoClient(checked_connection_string, **kwargs)
     try:
-        _check_single_seed(client, team_id)
+        # The client makes its own SRV lookup, which can answer with other hosts than the one above.
+        _check_single_seed(list(client.topology_description.server_descriptions()), team_id)
         yield client
     finally:
         client.close()

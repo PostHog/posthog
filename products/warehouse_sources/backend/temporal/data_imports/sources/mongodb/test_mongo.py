@@ -161,10 +161,16 @@ class TestSafeServerSelector(SimpleTestCase):
         resolver = MagicMock()
         resolver.return_value.get_hosts.return_value = [("127.0.0.1", 1)]
         resolver.return_value.get_options.return_value = txt_options
-        with patch("pymongo.synchronous.uri_parser._SrvResolver", resolver):
+        with (
+            patch("pymongo.synchronous.uri_parser._SrvResolver", resolver),
+            patch(f"{_MONGO_MODULE}.MongoClient") as client_class,
+        ):
             with pytest.raises(HostNotAllowedError):
                 with mongo_client(connection_string, team_id=999):
                     pass
+
+        # The client would start a monitor that dials the seed, so the refusal has to come first.
+        client_class.assert_not_called()
 
     def test_client_checks_the_srv_hosts_even_when_the_string_defers_the_lookup(self):
         resolver = MagicMock()
