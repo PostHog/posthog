@@ -681,6 +681,16 @@ export const redirects: Record<
     '/data-management/database': urls.sources(),
     '/data-management/data-warehouse': urls.sources(),
     '/data-pipelines': urls.sources(),
+    // No scene lives under /data-pipelines/*. These entries send guessed and bookmarked subpaths to the
+    // matching page, because the bare '/data-pipelines' entry above does not match a subpath.
+    '/data-pipelines/overview': urls.sources(),
+    '/data-pipelines/sources': urls.sources(),
+    '/data-pipelines/destinations': urls.destinations(),
+    '/data-pipelines/transformations': urls.transformations(),
+    '/data-pipelines/batch-exports': urls.destinations('batch'),
+    '/data-pipelines/new/source': urls.dataPipelinesNew('source'),
+    '/data-pipelines/new/destination': urls.dataPipelinesNew('destination'),
+    '/data-pipelines/new/transformation': urls.dataPipelinesNew('transformation'),
     // TODO: Temporary redirect because of moving marketing Analytics out of web analytics. I will remove this after a month.
     '/web/marketing': (_, searchParams) => {
         const params = new URLSearchParams(searchParams as Record<string, string>).toString()

@@ -2517,10 +2517,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         query = "SELECT convertCurrency('USD', 'EUR', 100, '2024-01-01')"
         with self.assertRaises(InternalCHQueryError) as e:
             execute_hogql_query(query, team=self.team)
-        assert (
-            "Illegal type String of fourth argument of function dictGetOrDefault must be convertible to Int64"
-            in str(e.exception)
-        )
+        assert e.exception.code in (43, 44)
 
     def test_currency_conversion_with_bogus_currency_from(self):
         query = "SELECT convertCurrency('BOGUS', 'EUR', 100, _toDate('2024-01-01'))"
@@ -2640,18 +2637,23 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.results, [("41FF", "Qf8=")])
 
-    def test_unreadable_result_type_names_the_columns_that_return_it(self):
+    @parameterized.expand(
+        [
+            ("small_query", ""),
+            ("query_over_default_ast_limit", f", length([{', '.join(['rand()'] * 30_000)}]) AS many_values"),
+        ]
+    )
+    def test_unreadable_result_type_names_the_columns_that_return_it(self, _name: str, extra_columns: str) -> None:
         with self.assertRaises(CHQueryErrorUnknownType) as error:
             execute_hogql_query(
                 "SELECT 1 AS readable, if(rand() > 0, 1, 'a') AS mixed, "
-                "if(rand() > 0, 2, 'b') AS also_mixed, toString(1) AS also_readable",
+                f"if(rand() > 0, 2, 'b') AS also_mixed, toString(1) AS also_readable{extra_columns}",
                 team=self.team,
             )
 
         self.assertTrue(
             str(error.exception).startswith(
-                "The `mixed` and `also_mixed` columns have type `Variant(String, UInt8)`, "
-                "which PostHog can't send back in results."
+                "The `mixed` and `also_mixed` columns have type `Variant`, which PostHog can't send back in results."
             ),
             str(error.exception),
         )

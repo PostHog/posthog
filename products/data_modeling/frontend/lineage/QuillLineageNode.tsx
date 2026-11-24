@@ -29,7 +29,7 @@ import { servingSuspension } from 'products/data_modeling/frontend/suspension'
 import { syncIntervalToShorthand } from 'products/data_warehouse/frontend/utils'
 
 import { LineageNodeData, LineageNodeShape, lineageIssueMessage, lineageNodeAriaLabel } from './LineageNode'
-import { QUILL_NODE_TYPE_COLORS, STATUS_DOT_VARIANTS } from './nodeStyles'
+import { NODE_TYPE_TAG_SETTINGS, QUILL_NODE_TYPE_COLORS, STATUS_DOT_VARIANTS } from './nodeStyles'
 import { QuillNodeTypeTag } from './QuillNodeTypeTag'
 
 function HintedText({ hint, children }: { hint: React.ReactNode; children: React.ReactNode }): JSX.Element {
@@ -176,6 +176,46 @@ function NodeHandles({ data }: { data: LineageNodeData }): JSX.Element {
     )
 }
 
+function QuillCollapsedLineageNode({ data }: { data: LineageNodeData }): JSX.Element {
+    const { node, state, callbacks } = data
+    const description = `Hidden ${NODE_TYPE_TAG_SETTINGS[node.type].label.toLowerCase()}: ${node.name}`
+    return (
+        <Tooltip>
+            <TooltipTrigger
+                render={
+                    <div
+                        className={clsx(
+                            'pointer-events-auto relative flex h-full w-full items-center justify-center rounded-full border border-dashed bg-card text-muted-foreground',
+                            data.draggable
+                                ? 'cursor-grab active:cursor-grabbing'
+                                : callbacks.onClick && 'cursor-pointer',
+                            state.isSelected ? 'border-primary ring-2 ring-primary/30' : 'border-border',
+                            state.isDimmed && 'opacity-30'
+                        )}
+                        onClick={callbacks.onClick}
+                        data-attr="lineage-collapsed-node"
+                    />
+                }
+            >
+                {callbacks.onClick && (
+                    <button
+                        type="button"
+                        className="pointer-events-none absolute inset-0 rounded-full focus-visible:ring-2 focus-visible:ring-ring/40"
+                        onClick={(event) => {
+                            event.stopPropagation()
+                            callbacks.onClick?.(event)
+                        }}
+                        aria-label={description}
+                    />
+                )}
+                <NodeHandles data={data} />
+                <span aria-hidden="true">⋯</span>
+            </TooltipTrigger>
+            <TooltipContent>{description}</TooltipContent>
+        </Tooltip>
+    )
+}
+
 function quillNodeBorderClassName({ node, state }: LineageNodeData): string {
     if (state.isSelected) {
         return 'border-primary ring-4 ring-primary/30'
@@ -204,6 +244,10 @@ export function QuillLineageNode({ data }: { data: LineageNodeData }): JSX.Eleme
 
     if (state.loading) {
         return <QuillLineageNodeLoading data={data} />
+    }
+
+    if (node.collapsed) {
+        return <QuillCollapsedLineageNode data={data} />
     }
 
     const card = (

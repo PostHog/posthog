@@ -31,6 +31,8 @@ AccountsTabContent  ── binds dataNodeLogic(ACCOUNTS_TABLE_DATA_NODE_KEY, acc
 ```
 
 Product usage tiles use `AccountProductUsage` and `AccountProductUsageTable`: Products used summary, grouped active product rows and weekly user counts. Products without activity in the selected range and empty groups stay hidden. Roles keeps its canonical 18 products and places the other products in an explicit Additional products group; Use cases can repeat a product in several groups. `accountProductUsagePeopleLogic` loads the top five people per week for one account and runs all-history first-use queries only after opt in. Top users shows three names from the latest period on one truncated line; weekly tooltip summaries show five people and the full period, with an explicit button that opens a stable qualification dialog; account hover tooltips stay closed while it is open. Weekly rankings never imply a full-range ranking. Requests abort and cancel on replacement or unmount. First-use stars read the all-history `BookActivityFirstsQuery.accounts` dates, never the legacy matrix history floor. Toggling first use retains counts and names and does not rerun the matrix or people query. The grouping control reuses the DotMatrix setting-changed event (`setting: grouping`). Shared presentation helpers live in `../ProductActivity/`; deterministic query fixtures live in `../../__mocks__/`. `accountProductActivityUrl` resolves a configured product-usage account view, or opens an explicit setup prompt with no saved view or query created automatically.
+AI agent calls (`$mcp_tool_call`) count as product use. `agent_product_expr` in `backend/hogql_queries/book_activity_base.py` maps `$mcp_tool_name`: an `llma-` prefix first, then `$mcp_tool_category`, then name fragments. Failed calls, `exec` lookups and unmapped tools count toward no product.
+Cells carry `uiUsers` and `agentUsers`, so each person still counts once per product, and combinations keep one row per mask. A robot marks cells with agent activity, the cell tooltip states the app and agent split, and the person tooltip shows agent calls.
 
 The `AccountDotMatrixTile` uses the shared renderer in `lib/components/DotMatrix/`.
 Activity requests share the DataNode query queue. Disposing a queued tile prevents its query from starting.
@@ -267,6 +269,19 @@ Four table columns show the workflow with inline status, trigger time, last comp
 Step names come from the current workflow definition when the retained logs identify the completed action.
 The empty state explains that older runs may no longer be available.
 `AutomationsViewed`, `AutomationsLoaded`, `AutomationsLoadFailed`, and `AutomationWorkflowOpened` track entry, loading, failure, and workflow navigation without account data.
+
+`AccountContextPane` and its keyed `accountContextLogic` render the Context system tab and view widget.
+`customer-analytics-context-pane` gates the tab, the widget picker, and saved widgets through the shared component registry.
+The flag payload names the context source with `project_id`, `endpoint`, and `account_variable`. Without a valid payload, the pane shows a setup state and sends no request.
+The page bootstrap carries flag values but no payloads, so the logic loads again when `setFeatureFlags` arrives after a setup state.
+The logic runs that endpoint through the generated `endpointsRunCreate` client with the account's external ID.
+`CONTEXT_COLUMNS` in `accountContextData.ts` lists every column the parser reads. A response without one of them shows an unreadable state and reports the missing names, so an endpoint change fails loudly instead of rendering blank cells.
+`accountContextData.ts` turns the returned rows into facts, signals, and internal Slack threads with plain-language labels.
+An account without an external ID, a viewer without access (403 or 404), an unreadable response, and a failed request each show their own state. Only a failed request offers a retry, and a 403 or 404 is not reported as an exception.
+The pane stores nothing in Customer analytics, so no account read, MCP tool, or agent context returns its rows. Its root carries `ph-no-capture`.
+The confirmed and inferred split, the filters, and pagination run client-side over one response. The tables set `useUrl: false`, and a filter change returns a table to its first page. Write actions render disabled until write-back exists.
+Context dates are UTC calendar days. `AccountContextDate` parses them as UTC and turns off the `TZLabel` popover, which renders outside the `ph-no-capture` root.
+`ContextViewed`, `ContextLoaded`, and `ContextLoadFailed` track entry, loading, and failure with counts and a failure `reason` (`error`, `no_access`, or `unreadable`), never account data.
 
 `AccountsTable.useExpandable()` makes expansion controlled by `accountsExpansionLogic`. Expanded rows show `AccountPinnedPropertiesExpansion`.
 `accountViewComponents.tsx` owns the system-tab kinds and component registry. `AccountDetailNavigation` renders system tabs through `AccountViewComponent`.

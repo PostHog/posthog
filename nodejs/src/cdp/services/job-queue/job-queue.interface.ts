@@ -46,4 +46,5 @@ export type IdempotentInvocation = {
 export interface IdempotentJobQueue extends JobQueue {
     queueInvocationsIdempotently(entries: IdempotentInvocation[]): Promise<CyclotronV2IdempotentClaim[]>
     findIdempotencyKey(id: string): Promise<CyclotronV2IdempotencyKey | null>
+    findIdempotencyKeys(ids: string[]): Promise<(CyclotronV2IdempotencyKey | null)[]>
 }
