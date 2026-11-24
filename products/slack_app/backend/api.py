@@ -68,6 +68,9 @@ from products.slack_app.backend.logic.daily_focus import (
 from products.slack_app.backend.logic.feature_tips import interactivity as feature_tip_interactivity
 from products.slack_app.backend.logic.feature_tips.features import SlackFeature
 from products.slack_app.backend.logic.feature_tips.state import record_feature_used
+from products.slack_app.backend.logic.fork import interactivity as fork_interactivity
+from products.slack_app.backend.logic.fork.channel_picker import FORK_CHANNEL_MODAL_CALLBACK_ID
+from products.slack_app.backend.logic.fork.menu import FORK_THREAD_ACTION_ID
 from products.slack_app.backend.logic.inbox_report_actions import (
     SIGNALS_REMOVE_REVIEWER_ACTION_ID,
     SIGNALS_REPORT_STATE_ACTION_IDS,
@@ -101,7 +104,6 @@ from products.slack_app.backend.models import (
 )
 from products.slack_app.backend.services import (
     bare_mention,
-    fork_interactivity,
     inbox_interactivity,
     project_picker,
     slack_welcome_messages,
@@ -129,7 +131,6 @@ from products.slack_app.backend.services.slack_app_home import (
 )
 from products.slack_app.backend.services.slack_conversations import channel_ext_shared_state, channel_is_ext_shared
 from products.slack_app.backend.services.slack_messages import (
-    FORK_THREAD_ACTION_ID,
     SLACK_WEBHOOK_TIMEOUT_SECONDS,
     TURN_FEEDBACK_ACTION_ID,
     SlackThreadMessage,
@@ -6699,7 +6700,7 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
             return _handle_insight_alert_snooze_modal_submit(payload)
         if callback_id == turn_feedback.TURN_FEEDBACK_MODAL_CALLBACK_ID:
             return turn_feedback.handle_turn_feedback_modal_submit(payload)
-        if callback_id == fork_interactivity.FORK_CHANNEL_MODAL_CALLBACK_ID:
+        if callback_id == FORK_CHANNEL_MODAL_CALLBACK_ID:
             return fork_interactivity.handle_fork_channel_modal_submit(payload)
         return _handle_app_home_view_submission(payload)
 

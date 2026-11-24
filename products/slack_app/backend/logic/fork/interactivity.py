@@ -11,7 +11,6 @@ the hint extractor for region ownership and the handler entrypoints.
 
 import json
 import asyncio
-from typing import Any
 
 from django.conf import settings
 from django.http import HttpResponse
@@ -22,20 +21,18 @@ from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 from posthog.models.integration import SlackIntegration
 from posthog.temporal.common.client import sync_connect
 
-from products.slack_app.backend.services.slack_messages import (
-    FORK_TARGET_CHANNEL,
-    SLACK_WEBHOOK_TIMEOUT_SECONDS,
-    selected_fork_target,
+from products.slack_app.backend.logic.fork.channel_picker import (
+    channel_picker_metadata,
+    channel_picker_view,
+    picked_channel,
 )
+from products.slack_app.backend.logic.fork.menu import FORK_TARGET_CHANNEL, clicked_integration_id, selected_fork_target
+from products.slack_app.backend.services.slack_messages import SLACK_WEBHOOK_TIMEOUT_SECONDS
 from products.slack_app.backend.services.workspace_integrations import get_workspace_integration
 from products.slack_app.backend.temporal.slack_app_fork import SlackAppForkThreadWorkflow
 from products.slack_app.backend.temporal.types import SlackAppForkThreadInputs
 
 logger = structlog.get_logger(__name__)
-
-FORK_CHANNEL_MODAL_CALLBACK_ID = "slack_app_fork_channel_modal"
-_CHANNEL_BLOCK_ID = "fork_channel"
-_CHANNEL_ACTION_ID = "fork_channel_select"
 
 
 def handle_fork_menu_click(payload: dict) -> HttpResponse:
@@ -53,15 +50,8 @@ def handle_fork_channel_modal_submit(payload: dict) -> HttpResponse:
     destination is checked by Slack. The fork activity checks the source thread, because
     that check needs a ``conversations.info`` call.
     """
-    metadata = _modal_metadata(payload)
-    target_channel = (
-        payload.get("view", {})
-        .get("state", {})
-        .get("values", {})
-        .get(_CHANNEL_BLOCK_ID, {})
-        .get(_CHANNEL_ACTION_ID, {})
-        .get("selected_conversation")
-    )
+    metadata = channel_picker_metadata(payload)
+    target_channel = picked_channel(payload)
     if not metadata or not target_channel:
         logger.warning("slack_app_fork_channel_submit_incomplete", has_target=bool(target_channel))
         return HttpResponse(status=200)
@@ -82,36 +72,14 @@ def fork_channel_modal_integration_hint(payload: dict) -> int | None:
 
     A view submission carries no action, so the id rides in ``private_metadata``.
     """
-    integration_id = _modal_metadata(payload).get("integration_id")
+    integration_id = channel_picker_metadata(payload).get("integration_id")
     return integration_id if isinstance(integration_id, int) else None
-
-
-def _modal_metadata(payload: dict) -> dict[str, Any]:
-    view = payload.get("view")
-    if not isinstance(view, dict) or view.get("callback_id") != FORK_CHANNEL_MODAL_CALLBACK_ID:
-        return {}
-    try:
-        metadata = json.loads(view.get("private_metadata") or "{}")
-    except (TypeError, ValueError):
-        return {}
-    return metadata if isinstance(metadata, dict) else {}
-
-
-def _menu_integration_id(payload: dict) -> int | None:
-    for action in payload.get("actions", []) or ():
-        try:
-            value = json.loads((action.get("selected_option") or {}).get("value") or "{}")
-        except (TypeError, ValueError):
-            continue
-        if isinstance(value, dict) and isinstance(value.get("integration_id"), int):
-            return value["integration_id"]
-    return None
 
 
 def _open_channel_picker(payload: dict) -> None:
     trigger_id = payload.get("trigger_id")
     slack_team_id = payload.get("team", {}).get("id", "")
-    integration = get_workspace_integration(_menu_integration_id(payload), slack_team_id)
+    integration = get_workspace_integration(clicked_integration_id(payload), slack_team_id)
     message = payload.get("message", {}) or {}
     source_channel = payload.get("channel", {}).get("id")
     if not (trigger_id and integration and source_channel and message.get("ts")):
@@ -129,43 +97,9 @@ def _open_channel_picker(payload: dict) -> None:
     try:
         client = SlackIntegration(integration).client
         client.timeout = SLACK_WEBHOOK_TIMEOUT_SECONDS
-        client.views_open(trigger_id=trigger_id, view=_channel_picker_view(private_metadata))
+        client.views_open(trigger_id=trigger_id, view=channel_picker_view(private_metadata))
     except Exception:
         logger.warning("slack_app_fork_channel_picker_open_failed", exc_info=True)
-
-
-def _channel_picker_view(private_metadata: str) -> dict[str, Any]:
-    return {
-        "type": "modal",
-        "callback_id": FORK_CHANNEL_MODAL_CALLBACK_ID,
-        "private_metadata": private_metadata,
-        "title": {"type": "plain_text", "text": "Fork to channel"},
-        "submit": {"type": "plain_text", "text": "Fork"},
-        "close": {"type": "plain_text", "text": "Cancel"},
-        "blocks": [
-            {
-                "type": "input",
-                "block_id": _CHANNEL_BLOCK_ID,
-                "label": {"type": "plain_text", "text": "Channel"},
-                "hint": {
-                    "type": "plain_text",
-                    "text": "PostHog starts a new thread there that links back to this one, and continues the work.",
-                },
-                "element": {
-                    "type": "conversations_select",
-                    "action_id": _CHANNEL_ACTION_ID,
-                    "placeholder": {"type": "plain_text", "text": "Choose a public channel"},
-                    # A private thread must not move into a wider audience, and a Slack Connect
-                    # channel would show the forked work to people outside the workspace.
-                    "filter": {
-                        "include": ["public"],
-                        "exclude_external_shared_channels": True,
-                        "exclude_bot_users": True,
-                    },
-                },
-            }
-        ],
-    }
 
 
 def _dispatch_fork(payload: dict, *, target_channel: str | None) -> None:

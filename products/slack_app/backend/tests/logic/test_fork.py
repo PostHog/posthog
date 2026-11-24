@@ -13,10 +13,10 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.slack_app.backend.feature_flags import ASSISTANT_REQUIRED_SCOPES
-from products.slack_app.backend.temporal.activities.fork import process_slack_app_fork_thread_payload
+from products.slack_app.backend.logic.fork.start import start_fork
 from products.slack_app.backend.tests.helpers import sign_slack_request
 
-_FORK_MODULE = "products.slack_app.backend.temporal.activities.fork"
+_FORK_MODULE = "products.slack_app.backend.logic.fork.start"
 
 
 class TestForkThreadPayload(TestCase):
@@ -81,7 +81,7 @@ class TestForkThreadPayload(TestCase):
             patch("products.slack_app.backend.api.resolve_posthog_user_from_event", return_value=self.user),
             patch("products.slack_app.backend.api.get_slack_email_for_user", return_value=self.user.email),
         ):
-            process_slack_app_fork_thread_payload(payload, target_channel=target_channel)
+            start_fork(payload, target_channel=target_channel)
         return ephemeral, start
 
     def test_a_dm_fork_starts_the_run_in_the_dm_and_points_it_at_the_source_thread(self):
@@ -268,7 +268,7 @@ class TestForkMenuDispatch(TestCase):
         )
 
     def _click(self, integration_id: int, team_id: str = "T12345", target: str | None = None):
-        from products.slack_app.backend.services.slack_messages import FORK_THREAD_ACTION_ID
+        from products.slack_app.backend.logic.fork.menu import FORK_THREAD_ACTION_ID
 
         value: dict = {"integration_id": integration_id}
         if target:
@@ -297,7 +297,7 @@ class TestForkMenuDispatch(TestCase):
 
     @parameterized.expand([("current_menu", "dm"), ("menu_from_before_the_channel_option", None)])
     @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
-    @patch("products.slack_app.backend.services.fork_interactivity.sync_connect")
+    @patch("products.slack_app.backend.logic.fork.interactivity.sync_connect")
     def test_click_dispatches_keyed_on_the_thread_the_reply_sits_in(self, _name, target, mock_connect, mock_config):
         mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
         mock_client = MagicMock()
@@ -313,10 +313,10 @@ class TestForkMenuDispatch(TestCase):
         assert mock_client.start_workflow.call_args.args[1].target_channel is None
 
     @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
-    @patch("products.slack_app.backend.services.fork_interactivity.sync_connect")
-    @patch("products.slack_app.backend.services.fork_interactivity.SlackIntegration")
+    @patch("products.slack_app.backend.logic.fork.interactivity.sync_connect")
+    @patch("products.slack_app.backend.logic.fork.interactivity.SlackIntegration")
     def test_channel_option_opens_the_picker_and_its_submit_forks_there(self, mock_slack, mock_connect, mock_config):
-        from products.slack_app.backend.services.fork_interactivity import FORK_CHANNEL_MODAL_CALLBACK_ID
+        from products.slack_app.backend.logic.fork.channel_picker import FORK_CHANNEL_MODAL_CALLBACK_ID
 
         mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
         mock_client = MagicMock()
@@ -353,7 +353,7 @@ class TestForkMenuDispatch(TestCase):
         assert inputs.payload["message"] == {"ts": "222.1", "thread_ts": "111.1"}
 
     @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
-    @patch("products.slack_app.backend.services.fork_interactivity.sync_connect")
+    @patch("products.slack_app.backend.logic.fork.interactivity.sync_connect")
     def test_click_from_an_unknown_workspace_is_not_claimed(self, mock_connect, mock_config):
         mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
 
@@ -368,7 +368,7 @@ class TestForkMenuBlock(SimpleTestCase):
         # Bare, not wrapped in an `actions` block, so it can be the footer's accessory
         # and share its line. The integration in the option value is what lets the
         # cross-region interactivity router claim the click.
-        from products.slack_app.backend.services.slack_messages import FORK_THREAD_ACTION_ID, fork_menu_element
+        from products.slack_app.backend.logic.fork.menu import FORK_THREAD_ACTION_ID, fork_menu_element
 
         element = fork_menu_element(42)
 
