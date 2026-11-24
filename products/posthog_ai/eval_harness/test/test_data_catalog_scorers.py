@@ -151,9 +151,9 @@ def _sql_log(query: str, *, status: str = "completed") -> str:
         ),
         (
             "relationship_lookup",
-            "SELECT source_table, confidence, reasoning FROM system.information_schema.relationships",
+            "SELECT source_table, reasoning FROM system.information_schema.relationships",
             "information_schema.relationships",
-            ["confidence", "reasoning"],
+            ["reasoning"],
             "completed",
             1.0,
         ),

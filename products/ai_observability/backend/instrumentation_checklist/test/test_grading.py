@@ -8,11 +8,15 @@ from parameterized import parameterized
 from products.ai_observability.backend.instrumentation_checklist.grading import (
     VOLUME_FLOOR,
     CheckKey,
+    ChecklistProgress,
     ChecklistStats,
     CheckStatus,
     GradedCheck,
+    agent_prompt,
+    checklist_progress,
     grade_checklist,
 )
+from products.ai_observability.backend.logic.docs_urls import TOOLS_DOCS_URL
 
 SESSIONS_WARNING = (
     "No traces include $ai_session_id. If your product has multi-turn conversations, setting it lets us group them "
@@ -36,21 +40,22 @@ USER_IDENTITY_WARNING = (
 )
 USER_IDENTITY_OK = "AI events are attributed to identified users."
 USER_IDENTITY_PENDING = (
-    "This check runs once there are 20 generations from a PostHog SDK. Generations sent over OpenTelemetry are not "
-    "counted, because we cannot tell whether they are identified."
+    "Waiting for your first generation from a PostHog SDK. Generations sent over OpenTelemetry are not counted, "
+    "because we cannot tell whether they are identified."
 )
 TRACE_STRUCTURE_WARNING = (
     "Without spans, a trace shows LLM calls but not the retrieval, chains or sub-agent steps around them."
 )
 TRACE_STRUCTURE_OK = "Traces show the steps around your LLM calls."
-PENDING_GENERATIONS = "Still collecting data. This check runs once there are 20 generations."
-PENDING_AI_EVENTS = "Still collecting data. This check runs once there are 20 AI events."
+SESSIONS_PENDING = "Waiting for your first generation. This check runs as soon as one arrives."
+TOOL_CALLS_PENDING = "Still collecting data. This check runs once there are 20 generations."
+TRACE_STRUCTURE_PENDING = "Waiting for your first AI event. This check runs as soon as one arrives."
 
-# The denominator each check floors on, paired with the count that clears its warning.
+# The denominator and floor each check grades on, paired with the count that clears its warning.
 GENERATION_DENOMINATED = [
-    (CheckKey.SESSIONS, "generations", "events_with_session"),
-    (CheckKey.TOOL_CALLS, "generations", "generations_with_tool_calls"),
-    (CheckKey.USER_IDENTITY, "sdk_generations", "sdk_generations_identified"),
+    (CheckKey.SESSIONS, "generations", "events_with_session", 1),
+    (CheckKey.TOOL_CALLS, "generations", "generations_with_tool_calls", VOLUME_FLOOR),
+    (CheckKey.USER_IDENTITY, "sdk_generations", "sdk_generations_identified", 1),
 ]
 
 
@@ -82,17 +87,16 @@ class TestGradeChecklist:
     @parameterized.expand(
         [
             (f"{key.value}_{generations}_signal_{signal}", key, denominator, field, generations, signal, expected)
-            for key, denominator, field in GENERATION_DENOMINATED
+            for key, denominator, field, floor in GENERATION_DENOMINATED
             for generations, signal, expected in [
-                (VOLUME_FLOOR - 1, 0, CheckStatus.PENDING),
-                (VOLUME_FLOOR - 1, VOLUME_FLOOR - 1, CheckStatus.PENDING),
-                (VOLUME_FLOOR, 0, CheckStatus.WARNING),
-                (VOLUME_FLOOR, 1, CheckStatus.OK),
-                (VOLUME_FLOOR + 1, 0, CheckStatus.WARNING),
+                (floor - 1, 0, CheckStatus.PENDING),
+                (floor, 0, CheckStatus.WARNING),
+                (floor, 1, CheckStatus.OK),
+                (floor + 1, 0, CheckStatus.WARNING),
             ]
         ]
     )
-    def test_volume_floor_boundary_for_generation_denominated_checks(
+    def test_each_check_grades_from_its_own_floor(
         self,
         _name: str,
         key: CheckKey,
@@ -105,11 +109,25 @@ class TestGradeChecklist:
         stats = _stats(**{"generations": generations, denominator: generations, field: signal})
         assert _graded(stats, key).status == expected
 
+    def test_sessions_grades_from_the_first_event(self) -> None:
+        assert _graded(_stats(generations=1), CheckKey.SESSIONS).status == CheckStatus.WARNING
+
+    def test_user_identity_grades_from_the_first_sdk_generation(self) -> None:
+        stats = _stats(generations=1, sdk_generations=1)
+        assert _graded(stats, CheckKey.USER_IDENTITY).status == CheckStatus.WARNING
+
+    def test_trace_structure_grades_from_the_first_event(self) -> None:
+        assert _graded(_stats(total_events=1), CheckKey.TRACE_STRUCTURE).status == CheckStatus.WARNING
+
+    def test_tool_calls_still_waits_for_twenty_generations(self) -> None:
+        assert _graded(_stats(generations=VOLUME_FLOOR - 1), CheckKey.TOOL_CALLS).status == CheckStatus.PENDING
+        assert _graded(_stats(generations=VOLUME_FLOOR), CheckKey.TOOL_CALLS).status == CheckStatus.WARNING
+
     @parameterized.expand(
         [
-            ("below_floor", VOLUME_FLOOR - 1, CheckStatus.PENDING),
-            ("at_floor", VOLUME_FLOOR, CheckStatus.WARNING),
-            ("above_floor", VOLUME_FLOOR + 1, CheckStatus.WARNING),
+            ("below_floor", 0, CheckStatus.PENDING),
+            ("at_floor", 1, CheckStatus.WARNING),
+            ("above_floor", 2, CheckStatus.WARNING),
         ]
     )
     def test_volume_floor_boundary_for_trace_structure(
@@ -142,8 +160,8 @@ class TestGradeChecklist:
         graded = _graded(stats, CheckKey.SESSIONS)
         assert (graded.status, graded.detail) == (expected, expected_detail)
 
-    def test_declining_a_session_cannot_lift_a_project_off_the_volume_floor(self) -> None:
-        stats = _stats(generations=VOLUME_FLOOR - 1, events_declining_session=VOLUME_FLOOR - 1)
+    def test_declining_a_session_cannot_lift_a_project_off_the_floor(self) -> None:
+        stats = _stats(generations=0, events_declining_session=5)
         assert _graded(stats, CheckKey.SESSIONS).status == CheckStatus.PENDING
 
     def test_trace_structure_is_graded_at_a_spans_only_project(self) -> None:
@@ -206,7 +224,7 @@ class TestGradeChecklist:
                 {},
                 CheckKey.SESSIONS,
                 CheckStatus.PENDING,
-                PENDING_GENERATIONS,
+                SESSIONS_PENDING,
             ),
             (
                 "tool_calls_ok",
@@ -256,7 +274,7 @@ class TestGradeChecklist:
                 {},
                 CheckKey.TRACE_STRUCTURE,
                 CheckStatus.PENDING,
-                PENDING_AI_EVENTS,
+                TRACE_STRUCTURE_PENDING,
             ),
         ]
     )
@@ -291,7 +309,7 @@ class TestGradeChecklist:
         [
             ("would_be_ok", {"generations": 40, "events_with_session": 40}, SESSIONS_OK),
             ("would_be_warning", {"generations": 40}, SESSIONS_WARNING),
-            ("would_be_pending", {}, PENDING_GENERATIONS),
+            ("would_be_pending", {}, SESSIONS_PENDING),
         ]
     )
     def test_dismissal_overrides_every_other_status_but_keeps_the_underlying_detail(
@@ -364,6 +382,53 @@ class TestGradeChecklist:
             total_events=90,
         )
         assert _graded(stats, key).stats == expected_stats
+
+
+class TestAgentPrompt:
+    def test_agent_prompt_none_when_nothing_warns(self) -> None:
+        checks = grade_checklist(_stats(), ())
+        assert all(check.status == CheckStatus.PENDING for check in checks)
+        assert agent_prompt(checks) is None
+
+    def test_agent_prompt_lists_each_warning_with_docs(self) -> None:
+        stats = _stats(generations=40, sdk_generations=40, sdk_generations_identified=1, events_with_session=1)
+        checks = grade_checklist(stats, ["trace_structure"])
+        warnings = [check for check in checks if check.status == CheckStatus.WARNING]
+        assert [check.key for check in warnings] == [CheckKey.TOOL_CALLS]
+
+        assert agent_prompt(checks) == (
+            "My PostHog AI observability setup is missing some instrumentation. Fix each item below in this "
+            "codebase, following the linked docs.\n\n"
+            f"- Tool calls: {TOOL_CALLS_WARNING_NOT_DECLARED} Docs: {TOOLS_DOCS_URL}"
+        )
+
+    def test_agent_prompt_has_one_bullet_per_warning(self) -> None:
+        prompt = agent_prompt(grade_checklist(_stats(generations=40, sdk_generations=40, total_events=40), ()))
+        assert prompt is not None
+        assert [line.split(":")[0] for line in prompt.splitlines()[2:]] == [
+            "- Sessions",
+            "- Tool calls",
+            "- User identity",
+            "- Trace structure",
+        ]
+
+
+class TestChecklistProgress:
+    @parameterized.expand(
+        [
+            ("nothing graded yet passes nothing", _stats(), (), ChecklistProgress(passing=0, total=4)),
+            (
+                "ok and dismissed checks pass, warnings do not",
+                _stats(generations=40, sdk_generations=40, sdk_generations_identified=1, events_with_session=1),
+                ["trace_structure"],
+                ChecklistProgress(passing=3, total=4),
+            ),
+        ]
+    )
+    def test_checklist_progress_counts_ok_and_dismissed_as_passing(
+        self, _name: str, stats: ChecklistStats, dismissed_keys: list[str], expected: ChecklistProgress
+    ) -> None:
+        assert checklist_progress(grade_checklist(stats, dismissed_keys)) == expected
 
 
 class TestChecklistStats:

@@ -3,6 +3,7 @@ import { parseAiEventsRetentionDaysByTeam } from './retention-days-by-team'
 describe('parseAiEventsRetentionDaysByTeam', () => {
     it.each([
         ['', []],
+        ['1:60', [[1, 60]]],
         ['1:90', [[1, 90]]],
         [
             '1:90, 2:365',

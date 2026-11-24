@@ -815,13 +815,6 @@ export interface DataCatalogRelationshipProposalApi {
     field_name: string
     /** Extra join configuration, e.g. a field mapping. */
     configuration?: unknown
-    /**
-     * Discovery confidence in this join, 0-1.
-     * @minimum 0
-     * @maximum 1
-     * @nullable
-     */
-    confidence?: number | null
     /** Why this join is proposed. */
     reasoning?: string
     /** Sampling evidence: match rates, sample values. */
@@ -917,13 +910,6 @@ export interface TopicClusterApi {
     people: number
     /** What the sessions that asked for a metric ended up with. */
     coverage: TopicCoverageApi
-}
-
-export interface TopicDefinitionApi {
-    /** Short name of the subject. */
-    title: string
-    /** One sentence on what the topic covers. */
-    description: string
 }
 
 export interface TopicSessionCountsApi {
@@ -1090,11 +1076,6 @@ export interface UsageSnapshotPayloadApi {
      * @nullable
      */
     topics: TopicClusterApi[] | null
-    /**
-     * The whole topic list that the next scan keeps, including topics with no sessions in this scan. Null until grouped.
-     * @nullable
-     */
-    topic_definitions: TopicDefinitionApi[] | null
     /** What the sampled sessions were about, by kind. Null until grouped. */
     topic_sessions: TopicSessionCountsApi | null
     /**
@@ -1142,6 +1123,8 @@ export interface UsageSnapshotApi {
     created_at: string
     /** The scan result, one key per section. */
     payload: UsageSnapshotPayloadApi
+    /** How many of the scan's topics the payload leaves out for this reader. A topic is left out when its sessions read a table or view the reader is denied, or read data the scan could not trace to tables. */
+    hidden_topics: number
 }
 
 export type DataCatalogCertificationsListParams = {

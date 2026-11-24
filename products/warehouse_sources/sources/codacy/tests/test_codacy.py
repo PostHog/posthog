@@ -813,3 +813,122 @@ class TestPullRequestFanOut:
             self.PRS_URL: {"data": [{"pullRequest": {}}], "pagination": {}},
         }
         assert self._run(monkeypatch, "pull_request_coverage", pages) == []
+
+
+class TestBranches:
+    def test_fans_out_over_repositories_in_name_order(self, monkeypatch: Any) -> None:
+        # Name order keeps the cursor walk stable; the default alternative, last-updated, reshuffles
+        # while the sync pages. Branch ids are keyed with the repository like every other child.
+        branches = f"{BASE}/organizations/gh/acme/repositories/repo-a/branches"
+        pages = {
+            REPOS_URL: {"data": [{"name": "repo-a"}], "pagination": {}},
+            f"{branches}?limit=100&sort=name&direction=asc": {
+                "data": [{"id": 11, "name": "develop", "isDefault": False}],
+                "pagination": {"cursor": "c2"},
+            },
+            f"{branches}?limit=100&sort=name&direction=asc&cursor=c2": {
+                "data": [{"id": 12, "name": "main", "isDefault": True}],
+                "pagination": {},
+            },
+        }
+        rows = _collect(monkeypatch, "branches", pages)
+        assert rows == [
+            {"repository": "repo-a", "id": 11, "name": "develop", "isDefault": False},
+            {"repository": "repo-a", "id": 12, "name": "main", "isDefault": True},
+        ]
+
+
+class TestSbomDependencies:
+    def test_posts_an_empty_filter_and_follows_the_cursor(self) -> None:
+        # The search endpoint is POST-only; a GET or a missing JSON body is rejected.
+        result = _driver().run(
+            "sbom_dependencies",
+            [
+                ScriptedResponse(
+                    json={
+                        "data": [{"fullName": "npm/left-pad", "versionsCount": 2}],
+                        "pagination": {"cursor": "c2"},
+                        "overview": {},
+                    }
+                ),
+                ScriptedResponse(
+                    json={
+                        "data": [{"fullName": "pypi/example-lib", "versionsCount": 1}],
+                        "pagination": {},
+                        "overview": {},
+                    }
+                ),
+            ],
+        )
+
+        assert result.raised is None
+        assert [row["fullName"] for row in result.rows] == ["npm/left-pad", "pypi/example-lib"]
+        assert {request.method for request in result.requests} == {"POST"}
+        assert [request.json() for request in result.requests] == [{}, {}]
+        assert result.params("cursor") == [None, "c2"]
+
+
+class TestAuditLogs:
+    EVENT = {
+        "actor": {"email": "admin@example.com", "role": "organizationAdmin"},
+        "action": "organizations.gatepolicies.update",
+        "result": "succeed",
+        "timestamp": "2026-03-01T10:00:00Z",
+        "source": "UI",
+    }
+
+    @parameterized.expand(
+        [
+            ("full_refresh", {}, None),
+            ("incremental_first_run", {"incremental_field": "timestamp"}, None),
+            (
+                "incremental_datetime_cursor",
+                {
+                    "incremental_field": "timestamp",
+                    "db_incremental_field_last_value": datetime(2026, 3, 1, 10, 0, 0, 123000, tzinfo=UTC),
+                },
+                "1772359200123",
+            ),
+            (
+                "incremental_iso_cursor",
+                {"incremental_field": "timestamp", "db_incremental_field_last_value": "2026-03-01T10:00:00Z"},
+                "1772359200000",
+            ),
+        ]
+    )
+    def test_from_bound_follows_the_incremental_cursor(
+        self, _name: str, inputs: dict[str, Any], expected_from: str | None
+    ) -> None:
+        result = _driver().run("audit_logs", [ScriptedResponse(json=[self.EVENT])], **inputs)
+
+        assert result.raised is None
+        assert result.paths == ["/api/v3/organizations/gh/acme/audit"]
+        assert result.params("from") == [expected_from]
+        assert result.params("limit") == [None]
+
+    def test_rows_are_keyed_on_a_stable_content_hash(self) -> None:
+        # Audit events have no id; two different events must not collide, and the same event read
+        # again by the inclusive `from` bound must get the same key so it merges onto its own row.
+        other = {**self.EVENT, "action": "organizations.repositories.add"}
+        first = _driver().run("audit_logs", [ScriptedResponse(json=[self.EVENT, other])])
+        again = _driver().run("audit_logs", [ScriptedResponse(json=[self.EVENT])])
+
+        ids = [row["id"] for row in first.rows]
+        assert len(set(ids)) == 2
+        assert again.rows[0]["id"] == ids[0]
+        assert {k: v for k, v in first.rows[0].items() if k != "id"} == self.EVENT
+
+    def test_empty_log_yields_no_rows(self) -> None:
+        result = _driver().run("audit_logs", [ScriptedResponse(json=[])])
+        assert result.raised is None
+        assert result.items == []
+
+    def test_unreadable_cursor_fails_instead_of_reading_full_history(self) -> None:
+        result = _driver().run(
+            "audit_logs",
+            [ScriptedResponse(json=[])],
+            incremental_field="timestamp",
+            db_incremental_field_last_value="not a date",
+        )
+        assert isinstance(result.raised, ValueError)
+        assert result.requests == []
