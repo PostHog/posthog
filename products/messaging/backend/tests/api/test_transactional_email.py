@@ -3858,10 +3858,19 @@ class TestSendCategoryCreatedConcurrently(NonAtomicAPIBaseTest):
             ]
         )
 
-    @parameterized.expand([("restores", True), ("creates", False)])
-    def test_a_category_another_send_makes_at_the_limit_is_used(self, cdp_post, _flag, _capture, _name, archived):
+    @parameterized.expand(
+        [
+            ("restores_at_limit", True, send_categories.SEND_CATEGORY_LIMIT - 1),
+            ("creates_at_limit", False, send_categories.SEND_CATEGORY_LIMIT - 1),
+            ("restores_with_100_others_live", True, send_categories.SEND_CATEGORY_LIMIT),
+            ("creates_with_100_others_live", False, send_categories.SEND_CATEGORY_LIMIT),
+        ]
+    )
+    def test_a_category_another_send_makes_at_the_limit_is_used(
+        self, cdp_post, _flag, _capture, _name, archived, other_live_categories
+    ):
         cdp = self.enterContext(FakeCdpApi().serving(cdp_post))
-        self._seed_categories(send_categories.SEND_CATEGORY_LIMIT - 1)
+        self._seed_categories(other_live_categories)
         if archived:
             category = MessageCategory.objects.create(
                 team=self.team, key="newsletter", name="Newsletter", category_type="marketing", deleted=True
@@ -3943,51 +3952,3 @@ class TestSendCategoryCreatedConcurrently(NonAtomicAPIBaseTest):
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
         assert cdp.categories() == [{"id": str(category_id), "type": "marketing"}]
         assert MessageCategory.objects.filter(team=self.team, key="newsletter").count() == 1
-
-    @parameterized.expand([("creates", False), ("restores", True)])
-    def test_a_key_the_app_makes_live_between_lookup_and_count_with_100_others_live_is_used(
-        self, cdp_post, _flag, _capture, _name, archived
-    ):
-        cdp = self.enterContext(FakeCdpApi().serving(cdp_post))
-        self._seed_categories(send_categories.SEND_CATEGORY_LIMIT)
-        archived_category = (
-            MessageCategory.objects.create(
-                team=self.team, key="newsletter", name="Newsletter", category_type="marketing", deleted=True
-            )
-            if archived
-            else None
-        )
-        lock_key = f"{send_categories.SEND_CATEGORY_LOCK}:{self.team.id}"
-        lock_acquired = False
-        written_id: list[Any] = []
-
-        def write_in_other_session() -> None:
-            try:
-                if archived_category is not None:
-                    MessageCategory.objects.filter(id=archived_category.id).update(deleted=False)
-                    written_id.append(archived_category.id)
-                else:
-                    written_id.append(
-                        MessageCategory.objects.create(
-                            team=self.team, key="newsletter", name="Made in the app", category_type="marketing"
-                        ).id
-                    )
-            finally:
-                connection.close()
-
-        def app_wins_after_locked_lookup(execute, sql, params, many, context):
-            nonlocal lock_acquired
-            result = execute(sql, params, many, context)
-            if params and lock_key in params:
-                lock_acquired = True
-            elif lock_acquired and not written_id and params and "newsletter" in params:
-                with ThreadPoolExecutor(max_workers=1) as pool:
-                    pool.submit(write_in_other_session).result(timeout=30)
-            return result
-
-        with connection.execute_wrapper(app_wins_after_locked_lookup):
-            response = self._send_newsletter()
-
-        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
-        assert len(written_id) == 1
-        assert cdp.categories() == [{"id": str(written_id[0]), "type": "marketing"}]

@@ -79,6 +79,12 @@ class TestTextFromHtml(SimpleTestCase):
                 "Unsubscribe ({{ unsubscribe_url }}?utm_source=email#preferences)",
             ),
             (
+                "marketing_send_with_spaces_in_query_and_fragment",
+                '<a href="{{ unsubscribe_url }}?campaign=Fall  Launch#My  Prefs">Unsubscribe</a>',
+                True,
+                "Unsubscribe ({{ unsubscribe_url }}?campaign=Fall%20%20Launch#My%20%20Prefs)",
+            ),
+            (
                 "marketing_send_with_newline_in_query",
                 '<a href="{{ unsubscribe_url }}?utm_source=email\n&utm_medium=message">Unsubscribe</a>',
                 True,

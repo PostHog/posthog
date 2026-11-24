@@ -1,6 +1,7 @@
 import re
 from collections import Counter
 from html.parser import HTMLParser
+from urllib.parse import quote
 
 from posthog.dataclasses import frozen
 
@@ -129,20 +130,25 @@ class _TextParser(HTMLParser):
         if href is not None:
             if href.startswith(LINK_SCHEMES):
                 self.open_links.append(_OpenLink(depth=len(self.open_tags), href=href, label_start=self.label_length))
-            elif self._is_unsubscribe_link(href):
-                cleaned = href.strip(_C0_AND_SPACE).translate(_URL_IGNORED_CHARS)
+            elif (cleaned := self._clean_unsubscribe_link(href)) is not None:
                 self.open_links.append(
                     _OpenLink(depth=len(self.open_tags), href=cleaned, label_start=self.label_length)
                 )
 
-    def _is_unsubscribe_link(self, href: str) -> bool:
+    def _clean_unsubscribe_link(self, href: str) -> str | None:
         if not self.keep_unsubscribe_link:
-            return False
+            return None
         match = _UNSUBSCRIBE_HREF_PREFIX.match(href)
         if match is None:
-            return False
+            return None
         rest = href[match.end() :]
-        return not rest.strip(_C0_AND_SPACE) or rest.lstrip("\t\n\r").startswith(("?", "#"))
+        prefix = href[: match.end()].strip(_C0_AND_SPACE).translate(_URL_IGNORED_CHARS)
+        if not rest.strip(_C0_AND_SPACE):
+            return prefix
+        if not rest.lstrip("\t\n\r").startswith(("?", "#")):
+            return None
+        suffix = WHITESPACE.sub(lambda m: quote(m.group(0)), rest.rstrip(_C0_AND_SPACE).translate(_URL_IGNORED_CHARS))
+        return f"{prefix}{suffix}"
 
     def _push(self, tag: str) -> None:
         self.open_tags.append(tag)
