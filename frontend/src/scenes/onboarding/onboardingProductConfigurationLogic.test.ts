@@ -7,6 +7,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { AccessControlLevel } from '~/types'
 
 import { ProductConfigOption, onboardingProductConfigurationLogic } from './onboardingProductConfigurationLogic'
 
@@ -62,11 +63,11 @@ describe('onboardingProductConfigurationLogic', () => {
     ]
 
     it.each([
-        ['member', OrganizationMembershipLevel.Member, 'member', false],
-        ['admin', OrganizationMembershipLevel.Admin, 'admin', true],
-        ['owner', OrganizationMembershipLevel.Owner, 'admin', true],
-        ['unknown membership', null, 'member', false],
-        ['admin granted by access control', OrganizationMembershipLevel.Member, 'admin', true],
+        ['member', OrganizationMembershipLevel.Member, AccessControlLevel.Member, false],
+        ['admin', OrganizationMembershipLevel.Admin, AccessControlLevel.Admin, true],
+        ['owner', OrganizationMembershipLevel.Owner, AccessControlLevel.Admin, true],
+        ['unknown membership', null, AccessControlLevel.Member, false],
+        ['admin granted by access control', OrganizationMembershipLevel.Member, AccessControlLevel.Admin, true],
     ])('saves only permitted configuration for a project %s', async (_, membershipLevel, accessLevel, isAdmin) => {
         const team = {
             ...MOCK_DEFAULT_TEAM,
@@ -118,7 +119,7 @@ describe('onboardingProductConfigurationLogic', () => {
             initKeaTests(true, {
                 ...MOCK_DEFAULT_TEAM,
                 effective_membership_level: OrganizationMembershipLevel.Member,
-                user_access_level: 'member',
+                user_access_level: AccessControlLevel.Member,
             })
             const requests: unknown[] = []
             useMocks({
