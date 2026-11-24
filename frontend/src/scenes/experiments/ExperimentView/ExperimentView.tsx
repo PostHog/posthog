@@ -10,6 +10,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { ActivityScope } from '~/types'
 
 import { ExperimentMetaBar } from 'products/experiments/frontend/components/ExperimentMetaBar'
+import { FeatureFlagCalledMetricsBanner } from 'products/experiments/frontend/components/FeatureFlagCalledMetricsBanner'
 import { ExperimentHealthTab } from 'products/experiments/frontend/health/ExperimentHealthTab'
 import { healthIssues } from 'products/experiments/frontend/health/healthPanelFindings'
 import { useHealthFindingReporting } from 'products/experiments/frontend/health/useHealthFindingReporting'
@@ -205,6 +206,7 @@ export function ExperimentView(): JSX.Element {
             ) : (
                 <>
                     <DeletedFlagBanner />
+                    <FeatureFlagCalledMetricsBanner />
                     {healthFindings === null && <ExperimentWarningBanner />}
                     {showDebugPanel && (
                         <div className="mb-4">
