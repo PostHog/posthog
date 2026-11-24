@@ -113,7 +113,7 @@ describe('agenticAuthorizeLogic', () => {
         router.actions.push(urls.agenticAuthorize(), { state: 'valid_state', error: code })
 
         await expectLogic(logic).toMatchValues({
-            consentError: expect.objectContaining({
+            pageError: expect.objectContaining({
                 title: 'No project to connect',
                 description: expect.stringContaining(reason),
             }),
