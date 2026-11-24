@@ -180,6 +180,7 @@ def onboarding_intro_text(slack_user_id: str) -> str:
         f":wave: Hey <@{slack_user_id}>, I'm PostHog, your team's AI agent in Slack. I can:\n"
         "• Answer questions about your product data\n"
         "• Dig into bugs and errors\n"
+        "• Tell jokes\n"
         "• Open pull requests with fixes\n"
         "Let's get you set up, it takes about 2 minutes."
     )
