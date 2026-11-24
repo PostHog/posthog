@@ -837,6 +837,50 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
             [("Rome", 10, 6, None), ("$$_posthog_breakdown_other_$$", 1000, 2, 1)],
         )
 
+    @parameterized.expand(
+        [
+            (
+                "ungrouped_events_do_not_rank",
+                "unique_group",
+                [("2020-01-03", "Paris", "org:5"), *[("2020-01-03", "Rome", "")] * 3],
+                "Paris",
+                [0, 2, 0],
+            ),
+            (
+                "events_before_the_range_rank_for_weekly_active",
+                "weekly_active",
+                [("2019-12-30", "Rome", "")],
+                "Rome",
+                [2, 2, 2],
+            ),
+        ]
+    )
+    def test_breakdown_limit_ranks_the_events_that_the_series_read(
+        self, _name, math, events, expected_breakdown_value, expected_data
+    ):
+        for day, shop, group in events:
+            with time_machine.travel(f"{day}T13:01:01Z", tick=False):
+                _create_event(
+                    team=self.team, event="signup", distinct_id="blabla", properties={"shop": shop, "$group_0": group}
+                )
+
+        series = {"kind": "EventsNode", "event": "signup", "math": math}
+        if math == "unique_group":
+            series["math_group_type_index"] = 0
+        response = self._run(
+            {
+                "series": [series, series],
+                "dateRange": {"date_from": "2020-01-02", "date_to": "2020-01-04"},
+                "breakdownFilter": {"breakdown": "shop", "breakdown_limit": 1},
+                "trendsFilter": {"formula": "A + B"},
+            }
+        )
+
+        self.assertEqual(
+            [(series["breakdown_value"], series["data"]) for series in response],
+            [(expected_breakdown_value, expected_data)],
+        )
+
     def test_breakdown_limit_ranks_the_values_of_each_compared_period(self):
         with time_machine.travel("2019-12-25T13:01:01Z", tick=False):
             for event, location in [

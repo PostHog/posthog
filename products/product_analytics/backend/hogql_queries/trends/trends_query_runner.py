@@ -6,7 +6,7 @@ from datetime import date, datetime, timedelta
 from functools import cached_property, partial
 from math import ceil
 from operator import itemgetter
-from typing import Any, Optional, Union
+from typing import Any, Optional, Union, cast
 
 from django.conf import settings
 from django.db import connection, models
@@ -26,10 +26,12 @@ from posthog.schema import (
     CompareItem,
     DataWarehouseEventsModifier,
     DataWarehouseNode,
+    DateRange,
     DayItem,
     EventsNode,
     GroupMathType,
     GroupNode,
+    HogQLPropertyFilter,
     HogQLQueryModifiers,
     HogQLQueryResponse,
     InCohortVia,
@@ -42,6 +44,7 @@ from posthog.schema import (
     QueryTiming,
     ResolvedDateRangeResponse,
     Series,
+    TrendsFilter,
     TrendsFormulaNode,
     TrendsQuery,
     TrendsQueryResponse,
@@ -105,6 +108,7 @@ from products.product_analytics.backend.hogql_queries.trends.trends_actors_query
     TrendsActorsQueryBuilder,
 )
 from products.product_analytics.backend.hogql_queries.trends.trends_query_builder import TrendsQueryBuilder
+from products.product_analytics.backend.hogql_queries.trends.utils import is_groups_math
 from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by_name
 
 
@@ -183,6 +187,9 @@ def _event_count_series(
     no_math = {"math_property", "math_property_type", "math_hogql", "math_group_type_index", "math_multiplier"}
     update: dict[str, Any] = {"math": "total"}
     update.update({field: None for field in no_math if field in type(series).model_fields})
+    if is_groups_math(series) and not isinstance(series, DataWarehouseNode):
+        group_filter = HogQLPropertyFilter(key=f"$group_{int(cast(int, series.math_group_type_index))} != ''")
+        update["properties"] = [*(series.properties or []), group_filter]
     return series.model_copy(update=update)
 
 
@@ -350,23 +357,16 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         with self.timings.measure("shared_breakdown_values"):
             queries: list[ast.SelectQuery] = []
             for is_previous_period in (False, True):
-                builders = [
-                    self._series_query_builder(
-                        SeriesWithExtras(
-                            series=_event_count_series(series.series),
-                            series_order=series.series_order,
-                            is_previous_period_series=series.is_previous_period_series,
-                            overriden_query=series.overriden_query,
-                            aggregate_values=series.aggregate_values,
-                        )
-                    )
-                    for series in self.series
-                    if bool(series.is_previous_period_series) == is_previous_period
+                period_series = [
+                    series for series in self.series if bool(series.is_previous_period_series) == is_previous_period
                 ]
-                if builders:
+                if period_series:
                     queries.append(
-                        builders[0].top_breakdown_values_query(
-                            [builder.breakdown_value_totals_query() for builder in builders]
+                        self._series_query_builder(period_series[0]).top_breakdown_values_query(
+                            [
+                                self._event_count_query_builder(series).breakdown_value_totals_query()
+                                for series in period_series
+                            ]
                         )
                     )
 
@@ -402,6 +402,46 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
 
         assert rankings[0] is not None
         return _SharedBreakdownValues(current_period=rankings[0], previous_period=rankings[1])
+
+    def _event_count_query_builder(self, series: SeriesWithExtras) -> TrendsQueryBuilder:
+        # The table display totals each breakdown value over the whole date range, without a row per interval.
+        query = series.overriden_query or self.query
+        trends_filter = (query.trendsFilter or TrendsFilter()).model_copy(
+            update={"display": ChartDisplayType.ACTIONS_TABLE}
+        )
+        return TrendsQueryBuilder(
+            trends_query=query.model_copy(update={"trendsFilter": trends_filter}),
+            team=self.team,
+            query_date_range=self._event_count_date_range(series),
+            series=_event_count_series(series.series),
+            timings=self.timings,
+            modifiers=self.modifiers,
+            limit_context=self.limit_context,
+        )
+
+    def _event_count_date_range(self, series: SeriesWithExtras) -> QueryDateRange:
+        # Weekly and monthly active users also count the users of the days before each interval. The ranking counts
+        # the events of the same window, so a value with events only in those days still gets its own row.
+        query_date_range = self._series_query_builder(series).query_date_range
+        if series.series.math == BaseMathType.WEEKLY_ACTIVE:
+            lookback_days = 7
+        elif series.series.math == BaseMathType.MONTHLY_ACTIVE:
+            lookback_days = 30
+        else:
+            return query_date_range
+
+        date_to = query_date_range.date_to()
+        window_start = date_to if self._trends_display.is_total_value() else query_date_range.date_from()
+        return QueryDateRange(
+            date_range=DateRange(
+                date_from=(window_start - timedelta(days=lookback_days)).isoformat(),
+                date_to=date_to.isoformat(),
+                explicitDate=True,
+            ),
+            team=self.team,
+            interval=query_date_range.interval_type,
+            now=query_date_range.now_with_timezone,
+        )
 
     @staticmethod
     def _breakdown_ranking(rows: list[Any]) -> _BreakdownRanking:

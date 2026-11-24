@@ -53,35 +53,27 @@
                sum(count) AS total
         FROM
           (SELECT sum(total) AS count,
-                  day_start AS day_start,
                   breakdown_value AS breakdown_value
            FROM
              (SELECT count() AS total,
-                     toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                      ifNull(nullIf(leftUTF8(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'location'), ''), 'null'), '^"|"$', '')), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
               FROM events AS e
               WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session start'))
-              GROUP BY day_start,
-                       breakdown_value)
-           GROUP BY day_start,
-                    breakdown_value)
+              GROUP BY breakdown_value)
+           GROUP BY breakdown_value)
         GROUP BY breakdown_value
         UNION ALL SELECT breakdown_value AS breakdown_value,
                          sum(count) AS total
         FROM
           (SELECT sum(total) AS count,
-                  day_start AS day_start,
                   breakdown_value AS breakdown_value
            FROM
              (SELECT count() AS total,
-                     toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                      ifNull(nullIf(leftUTF8(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'location'), ''), 'null'), '^"|"$', '')), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
               FROM events AS e
               WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session start'))
-              GROUP BY day_start,
-                       breakdown_value)
-           GROUP BY day_start,
-                    breakdown_value)
+              GROUP BY breakdown_value)
+           GROUP BY breakdown_value)
         GROUP BY breakdown_value)
      WHERE isNotNull(breakdown_value)
      GROUP BY breakdown_value)
@@ -555,35 +547,27 @@
                sum(count) AS total
         FROM
           (SELECT sum(total) AS count,
-                  day_start AS day_start,
                   breakdown_value AS breakdown_value
            FROM
              (SELECT count() AS total,
-                     toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                      ifNull(nullIf(leftUTF8(toString(concat(ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.person_properties, '$some_prop'), ''), 'null'), '^"|"$', '')), ''), ' : ', ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'location'), ''), 'null'), '^"|"$', '')), ''))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
               FROM events AS e
               WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session start'))
-              GROUP BY day_start,
-                       breakdown_value)
-           GROUP BY day_start,
-                    breakdown_value)
+              GROUP BY breakdown_value)
+           GROUP BY breakdown_value)
         GROUP BY breakdown_value
         UNION ALL SELECT breakdown_value AS breakdown_value,
                          sum(count) AS total
         FROM
           (SELECT sum(total) AS count,
-                  day_start AS day_start,
                   breakdown_value AS breakdown_value
            FROM
              (SELECT count() AS total,
-                     toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                      ifNull(nullIf(leftUTF8(toString(concat(ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.person_properties, '$some_prop'), ''), 'null'), '^"|"$', '')), ''), ' : ', ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'location'), ''), 'null'), '^"|"$', '')), ''))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
               FROM events AS e
               WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session start'))
-              GROUP BY day_start,
-                       breakdown_value)
-           GROUP BY day_start,
-                    breakdown_value)
+              GROUP BY breakdown_value)
+           GROUP BY breakdown_value)
         GROUP BY breakdown_value)
      WHERE isNotNull(breakdown_value)
      GROUP BY breakdown_value)
@@ -709,35 +693,27 @@
                sum(count) AS total
         FROM
           (SELECT sum(total) AS count,
-                  day_start AS day_start,
                   breakdown_value AS breakdown_value
            FROM
              (SELECT count() AS total,
-                     toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                      ifNull(nullIf(leftUTF8(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'location'), ''), 'null'), '^"|"$', '')), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
               FROM events AS e
               WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session start'))
-              GROUP BY day_start,
-                       breakdown_value)
-           GROUP BY day_start,
-                    breakdown_value)
+              GROUP BY breakdown_value)
+           GROUP BY breakdown_value)
         GROUP BY breakdown_value
         UNION ALL SELECT breakdown_value AS breakdown_value,
                          sum(count) AS total
         FROM
           (SELECT sum(total) AS count,
-                  day_start AS day_start,
                   breakdown_value AS breakdown_value
            FROM
              (SELECT count() AS total,
-                     toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                      ifNull(nullIf(leftUTF8(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'location'), ''), 'null'), '^"|"$', '')), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
               FROM events AS e
               WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session start'))
-              GROUP BY day_start,
-                       breakdown_value)
-           GROUP BY day_start,
-                    breakdown_value)
+              GROUP BY breakdown_value)
+           GROUP BY breakdown_value)
         GROUP BY breakdown_value)
      WHERE isNotNull(breakdown_value)
      GROUP BY breakdown_value)
@@ -863,35 +839,27 @@
                sum(count) AS total
         FROM
           (SELECT sum(total) AS count,
-                  day_start AS day_start,
                   breakdown_value AS breakdown_value
            FROM
              (SELECT count() AS total,
-                     toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                      ifNull(nullIf(leftUTF8(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'location'), ''), 'null'), '^"|"$', '')), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
               FROM events AS e
               WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session start'))
-              GROUP BY day_start,
-                       breakdown_value)
-           GROUP BY day_start,
-                    breakdown_value)
+              GROUP BY breakdown_value)
+           GROUP BY breakdown_value)
         GROUP BY breakdown_value
         UNION ALL SELECT breakdown_value AS breakdown_value,
                          sum(count) AS total
         FROM
           (SELECT sum(total) AS count,
-                  day_start AS day_start,
                   breakdown_value AS breakdown_value
            FROM
              (SELECT count() AS total,
-                     toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
                      ifNull(nullIf(leftUTF8(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'location'), ''), 'null'), '^"|"$', '')), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
               FROM events AS e
               WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session end'))
-              GROUP BY day_start,
-                       breakdown_value)
-           GROUP BY day_start,
-                    breakdown_value)
+              GROUP BY breakdown_value)
+           GROUP BY breakdown_value)
         GROUP BY breakdown_value)
      WHERE isNotNull(breakdown_value)
      GROUP BY breakdown_value)
