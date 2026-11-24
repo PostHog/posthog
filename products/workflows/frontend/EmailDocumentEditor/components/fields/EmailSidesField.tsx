@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import { EmailSides } from '../../emailDocument'
+import { numberOrUnset } from './numberOrUnset'
 
 const SIDES: { name: keyof EmailSides; title: string }[] = [
     { name: 'top', title: 'Top' },
@@ -58,7 +59,7 @@ export function EmailSidesField({
                             value={shown.top}
                             suffix={<span className="text-xs text-secondary">px</span>}
                             onChange={(next) => {
-                                const all = next ?? 0
+                                const all = numberOrUnset(next) ?? 0
                                 onChange({ top: all, right: all, bottom: all, left: all })
                             }}
                             data-attr={attr}
@@ -94,7 +95,7 @@ export function EmailSidesField({
                                 min={0}
                                 aria-label={`${label} ${title}`}
                                 value={shown[name]}
-                                onChange={(next) => onChange({ ...shown, [name]: next ?? 0 })}
+                                onChange={(next) => onChange({ ...shown, [name]: numberOrUnset(next) ?? 0 })}
                                 data-attr={attr ? `${attr}-${name}` : undefined}
                             />
                             {title}
