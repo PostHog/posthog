@@ -3318,6 +3318,8 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "repositories",
         # Decides which repositories the run's GitHub token can write to.
         "github_access_repositories",
+        "caller_ends_run",
+        "end_run_when_done",
         "verified_pr_urls",
         "prewarmed",
         "await_user_message",
