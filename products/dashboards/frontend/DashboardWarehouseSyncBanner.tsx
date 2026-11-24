@@ -33,7 +33,12 @@ export function DashboardWarehouseSyncBanner(): JSX.Element | null {
                           targetBlank: true,
                           'data-attr': 'dashboard-warehouse-sync-manage-source',
                       }
-                    : undefined
+                    : {
+                          children: 'Manage sources',
+                          to: urls.sources(),
+                          targetBlank: true,
+                          'data-attr': 'dashboard-warehouse-sync-manage-sources',
+                      }
             }
         >
             {`Data from ${origin} is out of date, so ${pluralize(insightCount, 'insight')} on this dashboard may not show current numbers. Hover the Out of date tag on an insight for details.`}

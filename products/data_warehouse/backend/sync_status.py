@@ -10,7 +10,7 @@ import humanize
 from posthog.utils import ensure_utc
 
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
-from products.warehouse_sources.backend.facade.types import ExternalDataSchemaStatus
+from products.warehouse_sources.backend.facade.types import ExternalDataSchemaStatus, ExternalDataSourceType
 
 if TYPE_CHECKING:
     from posthog.schema import DataWarehouseSyncWarning
@@ -107,6 +107,11 @@ def _build_warning_for_schema(
     schema_status = schema.status
     source_type = schema.source.source_type if schema.source_id else "unknown"
     source_id = str(schema.source_id) if schema.source_id else None
+
+    # A file upload has no schedule: its schema stays paused on purpose and syncs only when a new
+    # file is uploaded, so its data is never behind a sync that should have run.
+    if source_type == ExternalDataSourceType.FILEUPLOAD:
+        return None
 
     def build(*, status: str, message: str, data_is_current: bool = False) -> DataWarehouseSyncWarning:
         return DataWarehouseSyncWarning(

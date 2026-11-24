@@ -273,6 +273,25 @@ class TestWarehouseSyncWarnings(BaseTest):
         assert "hasn't completed a sync yet" in warnings[0].message
         assert warnings[0].data_is_current is False
 
+    @parameterized.expand(
+        [
+            ("paused_and_stale", ExternalDataSchema.Status.COMPLETED, timedelta(hours=20)),
+            ("paused_and_fresh", ExternalDataSchema.Status.COMPLETED, timedelta(minutes=30)),
+            ("never_synced", ExternalDataSchema.Status.PAUSED, None),
+            ("failed", ExternalDataSchema.Status.FAILED, timedelta(hours=20)),
+        ]
+    )
+    def test_no_warnings_for_file_upload_source(self, _name: str, status: str, synced_ago: timedelta | None) -> None:
+        self.source.source_type = ExternalDataSourceType.FILEUPLOAD
+        self.source.save()
+        self._make_schema(
+            status=status,
+            should_sync=False,
+            last_synced_at=self.now - synced_ago if synced_ago is not None else None,
+        )
+        warnings = get_warehouse_sync_warnings(self.table, now=self.now)
+        assert warnings == []
+
     def test_warning_when_completed_but_stale(self) -> None:
         self._make_schema(
             status=ExternalDataSchema.Status.COMPLETED,
