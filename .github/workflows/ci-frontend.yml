@@ -713,6 +713,8 @@ jobs:
 
             # `if-no-files-found: ignore` and always(): a base build that failed still has to hand
             # over the files it did write, and the consumer degrades per file.
+            # `include-hidden-files` is required because the cache-restored report directory is
+            # `.base-reports`, and upload-artifact silently skips dot-prefixed paths without it.
             - name: Upload base branch reports
               if: always()
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
@@ -720,6 +722,7 @@ jobs:
                   name: frontend-base-reports
                   path: .base-reports/
                   if-no-files-found: ignore
+                  include-hidden-files: true
                   retention-days: 1
 
     frontend-bundle-size:
