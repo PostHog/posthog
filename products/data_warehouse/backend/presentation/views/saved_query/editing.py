@@ -966,8 +966,9 @@ class DataWarehouseSavedQuerySerializer(
             raise exceptions.ValidationError(detail="Filters and placeholder expressions are not allowed in views")
 
         try:
+            validation_ast = modeling_api.plan_prompt_jev_on_zero_rows(select_ast, context, self.context["get_team"]())
             prepare_and_print_ast(
-                node=select_ast,
+                node=validation_ast,
                 context=context,
                 dialect="clickhouse",
                 stack=None,

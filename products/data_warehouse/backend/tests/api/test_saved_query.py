@@ -958,6 +958,38 @@ class TestSavedQuery(APIBaseTest):
         response_json = response.json()
         assert "Invalid query" in response_json["detail"]
 
+    def test_create_with_jev_saves_without_model_call(self):
+        with patch("httpx.AsyncClient.post") as post:
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+                {
+                    "name": "jev_view",
+                    "query": {
+                        "kind": "HogQLQuery",
+                        "query": (
+                            "SELECT s.id AS id, jev(s.text, 'Is this a refund request?') AS verdict "
+                            "FROM (SELECT toString(uuid) AS id, toString(event) AS text FROM events LIMIT 100) AS s"
+                        ),
+                    },
+                },
+            )
+
+        assert response.status_code == 201, response.content
+        assert [column["name"] for column in response.json()["columns"]] == ["id", "verdict"]
+        post.assert_not_called()
+
+    def test_create_with_jev_over_budget_returns_planner_error(self):
+        query = "SELECT jev(toString(event), 'Topic?') AS a, jev(toString(event), 'Tone?') AS b FROM events LIMIT 600"
+        with patch("httpx.AsyncClient.post") as post:
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+                {"name": "jev_view", "query": {"kind": "HogQLQuery", "query": query}},
+            )
+
+        assert response.status_code == 400, response.content
+        assert response.json()["detail"].startswith("Invalid query: jev exceeds the query budget")
+        post.assert_not_called()
+
     def test_delete(self):
         query_name = "test_query"
         saved_query = DataWarehouseSavedQuery.objects.create(team=self.team, name=query_name)

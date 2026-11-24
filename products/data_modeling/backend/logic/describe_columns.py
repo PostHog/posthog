@@ -204,6 +204,24 @@ def _plan_prompt_jev(
     return planned_query, list(context.external_tables.values())
 
 
+def plan_prompt_jev_on_zero_rows(
+    select_query: ast.SelectQuery | ast.SelectSetQuery, context: HogQLContext, team: Team
+) -> ast.SelectQuery | ast.SelectSetQuery:
+    """The query with its jev calls planned on zero rows, so a view's query can be printed without a model call.
+
+    The budget is checked on the query as written, because the zero-row copy always fits it.
+    """
+    if not PromptJevFinder.contains(select_query):
+        return select_query
+    from posthog.hogql.transforms.prompt_jev import (  # noqa: PLC0415 -- keep the optional model clients off ordinary query imports
+        PromptJevBudget,
+    )
+
+    PromptJevBudget().visit(select_query)
+    planned_query, _ = _plan_prompt_jev(select_query, context, team)
+    return planned_query
+
+
 def _run_describe(
     sql: str,
     context: HogQLContext,
