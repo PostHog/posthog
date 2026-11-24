@@ -373,7 +373,7 @@ from posthog.schema_enums import (
     WindowDays as WindowDays,
     XScale as XScale,
     YAxisPosition as YAxisPosition,
-    YAxisPosition2 as YAxisPosition2,
+    YAxisPosition3 as YAxisPosition3,
     YAxisScaleType as YAxisScaleType,
 )
 
@@ -936,6 +936,85 @@ class AssistantHogQLQuery(BaseModel):
     )
 
 
+class AssistantInsightAxisDisplaySettings(BaseModel):
+    color: str | None = Field(
+        default=None,
+        description="Custom color for this series as a hex string (e.g. `#1d4aff`).",
+    )
+    displayType: DisplayType | None = Field(default=None, description="Chart type. `auto` uses `display`.")
+    excludeFromTotal: bool | None = Field(
+        default=None,
+        description=(
+            "Keep this series out of the tooltip's total row, e.g. a target line over"
+            " stacked bars. A bar series still stacks, so set `displayType` to `line`"
+            " for a series drawn over the stack."
+        ),
+    )
+    label: str | None = Field(
+        default=None,
+        description="Series label in legends and tooltips; replaces the column name.",
+    )
+    trendLine: bool | None = Field(
+        default=None,
+        description=("Draw a linear trend line for this series. Only meaningful for line, bar, and area charts."),
+    )
+    valueLabels: ValueLabels | None = Field(
+        default=None,
+        description=(
+            "Per-series override of chart-level `showValuesOnSeries`. `show` labels"
+            " this series even when the chart setting is off, `hide` leaves it"
+            " unlabeled when the setting is on, `auto` follows the chart."
+        ),
+    )
+    yAxisPosition: YAxisPosition | None = Field(
+        default=None,
+        description=("Which Y axis this numeric series should use. Use `right` for a secondary Y axis."),
+    )
+
+
+class AssistantInsightAxisSettings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    display: AssistantInsightAxisDisplaySettings | None = Field(
+        default=None, description="Display settings for a plotted Y series."
+    )
+    formatting: AssistantDataVisualizationAxisFormatting | None = Field(
+        default=None,
+        description="Number-formatting settings for the values on this axis or series.",
+    )
+
+
+class AssistantInsightColumnDisplaySettings(BaseModel):
+    description: str | None = Field(
+        default=None,
+        description="Table column description shown in the header tooltip.",
+    )
+
+
+class AssistantInsightColumnSettings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    display: AssistantInsightColumnDisplaySettings | None = Field(
+        default=None, description="Display settings for this column."
+    )
+    formatting: AssistantDataVisualizationAxisFormatting | None = Field(
+        default=None,
+        description="Number-formatting settings for the values in this column.",
+    )
+
+
+class AssistantInsightGoalLine(BaseModel):
+    label: str = Field(..., description="Label rendered next to the goal line.")
+    value: float = Field(..., description="Y-axis value at which the goal line is drawn.")
+
+
+class AssistantInsightMetricSettings(BaseModel):
+    showChange: bool | None = None
+    summary: Summary | None = None
+
+
 class AssistantPathCleaningFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -960,9 +1039,6 @@ class AssistantPathCleaningFilter(BaseModel):
 
 
 class AssistantPieChartOptions(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
     hideAggregation: bool | None = Field(default=None, description="Hide the total on a pie chart.")
 
 
@@ -1090,9 +1166,6 @@ class AssistantUpdateEvent(BaseModel):
 
 
 class AssistantVizSpecificOptions(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
     ActionsPie: AssistantPieChartOptions | None = None
 
 
@@ -3446,7 +3519,7 @@ class ResultCustomizationBase(BaseModel):
     )
     color: DataColorToken | None = None
     hidden: bool | None = None
-    yAxisPosition: YAxisPosition2 | None = None
+    yAxisPosition: YAxisPosition3 | None = None
 
 
 class ResultCustomizationByPosition(BaseModel):
@@ -3456,7 +3529,7 @@ class ResultCustomizationByPosition(BaseModel):
     assignmentBy: Literal["position"] = "position"
     color: DataColorToken | None = None
     hidden: bool | None = None
-    yAxisPosition: YAxisPosition2 | None = None
+    yAxisPosition: YAxisPosition3 | None = None
 
 
 class ResultCustomizationByValue(BaseModel):
@@ -3468,7 +3541,7 @@ class ResultCustomizationByValue(BaseModel):
     customColor: str | None = None
     hidden: bool | None = None
     label: str | None = None
-    yAxisPosition: YAxisPosition2 | None = None
+    yAxisPosition: YAxisPosition3 | None = None
 
 
 class RetentionValue(BaseModel):
@@ -4255,25 +4328,6 @@ class AssistantDataVisualizationColumn(BaseModel):
     )
 
 
-class AssistantDataVisualizationTableSettings(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    columns: list[AssistantDataVisualizationColumn] | None = Field(
-        default=None,
-        description=("Columns to display and their order. Omit to show every column returned by the query."),
-    )
-    conditionalFormatting: list[ConditionalFormattingRule] | None = Field(
-        default=None,
-        description=(
-            "Cell color rules made in the PostHog app. Send each saved rule back"
-            " unchanged, including `bytecode`. A rule you leave out is deleted."
-        ),
-    )
-    pinnedColumns: list[str] | None = Field(default=None, description="Column names to pin to the left of the table.")
-    transpose: bool | None = Field(default=None, description="Transpose rows and columns.")
-
-
 class AssistantDateTimePropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4710,10 +4764,32 @@ class AssistantGroupPropertyFilter5(BaseModel):
     type: Literal["group"] = "group"
 
 
-class AssistantInsightVizNode(BaseModel):
+class AssistantInsightAxis(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    column: str = Field(
+        ...,
+        description="Name of a column returned by the SQL query to map onto this axis.",
+    )
+    settings: AssistantInsightAxisSettings | None = Field(
+        default=None,
+        description="Optional series settings. Only applies to Y-axis series.",
+    )
+
+
+class AssistantInsightColumn(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    column: str = Field(..., description="Name of a column returned by the SQL query.")
+    settings: AssistantInsightColumnSettings | None = Field(
+        default=None,
+        description="Optional display and number-formatting settings for this column.",
+    )
+
+
+class AssistantInsightVizNode(BaseModel):
     kind: Literal["InsightVizNode"] = "InsightVizNode"
     source: dict[str, Any] = Field(
         ...,
@@ -10364,32 +10440,13 @@ class AssistantDataVisualizationChartSettings(BaseModel):
     )
 
 
-class AssistantDataVisualizationNode(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    chartSettings: AssistantDataVisualizationChartSettings | None = Field(
+class AssistantDataVisualizationTableSettings(BaseModel):
+    columns: list[AssistantInsightColumn] | None = Field(
         default=None,
-        description=("Chart configuration. Ignored when `display` is `ActionsTable` or `BoldNumber`."),
+        description=("Columns to display and their order. Omit to show every column returned by the query."),
     )
-    display: AssistantDataVisualizationDisplayType | None = Field(
-        default=None,
-        description=(
-            "Chart type (default `ActionsTable`): `BoldNumber` = one value; `Metric` ="
-            " KPI; `ActionsLineGraph` / `ActionsAreaGraph` = time series; `ActionsPie`"
-            " / `ActionsDonut` / `ActionsProportionBar` = shares; `ActionsBar` /"
-            " `ActionsStackedBar` = categories; `ActionsBarValue` = horizontal"
-            " rankings; `TwoDimensionalHeatmap` = 2D aggregates; `ScatterPlot` = two"
-            " measures; `BoxPlot` = distribution summaries with"
-            " `chartSettings.boxPlot`."
-        ),
-    )
-    kind: Literal["DataVisualizationNode"] = "DataVisualizationNode"
-    source: dict[str, Any] = Field(..., description="HogQL query object that produces the rows to visualize.")
-    tableSettings: AssistantDataVisualizationTableSettings | None = Field(
-        default=None,
-        description=("Table configuration. Only applies when `display` is `ActionsTable` or omitted."),
-    )
+    pinnedColumns: list[str] | None = Field(default=None, description="Column names to pin to the left of the table.")
+    transpose: bool | None = Field(default=None, description="Transpose rows and columns.")
 
 
 class AssistantErrorTrackingQuery(BaseModel):
@@ -10620,6 +10677,83 @@ class AssistantFunnelsGroupNode(BaseModel):
         min_length=2,
     )
     operator: Literal["OR"] = Field(default="OR", description="Only `OR` is supported.")
+
+
+class AssistantInsightChartSettings(BaseModel):
+    boxPlot: AssistantDataVisualizationBoxPlotSettings | None = Field(
+        default=None,
+        description=(
+            "Column mappings for `BoxPlot`. The SQL must return one pre-aggregated row per X-axis and series pair."
+        ),
+    )
+    colorBarsByCategory: bool | None = Field(
+        default=None,
+        description=("Color each X-axis category in single-series `ActionsBar` and `ActionsBarValue` charts."),
+    )
+    goalLines: list[AssistantInsightGoalLine] | None = Field(
+        default=None, description="Horizontal goal lines drawn across the chart."
+    )
+    leftYAxisSettings: AssistantDataVisualizationYAxisSettings | None = Field(
+        default=None, description="Settings for the left Y axis."
+    )
+    legendPosition: LegendPosition | None = Field(
+        default=None,
+        description=("Where the legend sits. Defaults to right for pie and donut, top for other charts."),
+    )
+    metric: AssistantInsightMetricSettings | None = Field(
+        default=None,
+        description="Settings for `Metric`. `summary` defaults to `latest`.",
+    )
+    pie: PieChartSettings | None = Field(default=None, description="Settings for `ActionsPie` and `ActionsDonut`.")
+    rightYAxisSettings: AssistantDataVisualizationYAxisSettings | None = Field(
+        default=None,
+        description=(
+            "Settings for the right Y axis. Only applies when a Y series uses"
+            ' `settings.display.yAxisPosition: "right"`.'
+        ),
+    )
+    seriesBreakdownColumn: str | None = Field(
+        default=None,
+        description=(
+            "Column that splits a single Y series into multiple colored series — e.g."
+            " breaking down a line chart by `country`. Set to `null` or omit to"
+            " disable. A breakdown buckets rows by x value, so it is ignored when"
+            " `display` is `ScatterPlot`."
+        ),
+    )
+    showAnnotations: bool | None = Field(
+        default=None,
+        description=(
+            "Show annotations on the chart. Only applies to line, area, bar, and"
+            " stacked bar charts whose X axis is a date or datetime column."
+        ),
+    )
+    showLegend: bool | None = Field(default=None, description="Show the chart legend.")
+    showNullsAsZero: bool | None = Field(default=None, description="Replace null aggregation results with zero.")
+    showTotalRow: bool | None = Field(
+        default=None,
+        description=("Show a total summing all Y series. Applies to line, bar, and area charts."),
+    )
+    showValuesOnSeries: bool | None = Field(
+        default=None,
+        description="Render each data point's value as a label directly on the series.",
+    )
+    stackBars100: bool | None = Field(
+        default=None,
+        description=("Stack bars to 100% of the total. Only meaningful with `ActionsStackedBar`."),
+    )
+    xAxis: AssistantInsightColumn | None = Field(
+        default=None,
+        description=(
+            "Column used as the X axis. Typically a time bucket or categorical column,"
+            " but `ScatterPlot` plots two measures against each other, so it needs a"
+            " numeric column here too."
+        ),
+    )
+    xAxisLabel: str | None = Field(default=None, description="Label rendered under the X axis.")
+    yAxis: list[AssistantInsightAxis] | None = Field(
+        default=None, description="One or more numeric columns plotted as Y series."
+    )
 
 
 class AssistantInsightsQueryBase(BaseModel):
@@ -20777,28 +20911,6 @@ class InsightActorsQueryBase(BaseModel):
     response: ActorsQueryResponse | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
-
-
-class InsightQuery(
-    RootModel[
-        AssistantDataTableNode
-        | AssistantBIVisualizationNode
-        | AssistantInsightVizNode
-        | AssistantDataVisualizationNode
-        | AssistantBareInsightQuery
-        | AssistantBareHogQLQuery
-        | AssistantEventsQuery
-    ]
-):
-    root: (
-        AssistantDataTableNode
-        | AssistantBIVisualizationNode
-        | AssistantInsightVizNode
-        | AssistantDataVisualizationNode
-        | AssistantBareInsightQuery
-        | AssistantBareHogQLQuery
-        | AssistantEventsQuery
-    )
 
 
 class IsolationForestDetectorConfig(BaseModel):
@@ -31364,6 +31476,31 @@ class AssistantBasePropertyFilter(
     )
 
 
+class AssistantDataVisualizationNode(BaseModel):
+    chartSettings: AssistantInsightChartSettings | None = Field(
+        default=None,
+        description=("Chart configuration. Ignored when `display` is `ActionsTable` or `BoldNumber`."),
+    )
+    display: AssistantDataVisualizationDisplayType | None = Field(
+        default=None,
+        description=(
+            "Chart type (default `ActionsTable`): `BoldNumber` = one value; `Metric` ="
+            " KPI; `ActionsLineGraph` / `ActionsAreaGraph` = time series; `ActionsPie`"
+            " / `ActionsDonut` / `ActionsProportionBar` = shares; `ActionsBar` /"
+            " `ActionsStackedBar` = categories; `ActionsBarValue` = horizontal"
+            " rankings; `TwoDimensionalHeatmap` = 2D aggregates; `ScatterPlot` = two"
+            " measures; `BoxPlot` = distribution summaries with"
+            " `chartSettings.boxPlot`."
+        ),
+    )
+    kind: Literal["DataVisualizationNode"] = "DataVisualizationNode"
+    source: dict[str, Any] = Field(..., description="HogQL query object that produces the rows to visualize.")
+    tableSettings: AssistantDataVisualizationTableSettings | None = Field(
+        default=None,
+        description=("Table configuration. Only applies when `display` is `ActionsTable` or omitted."),
+    )
+
+
 class AssistantFunnelsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -33661,6 +33798,28 @@ class InsightActorsQueryOptionsResponse(BaseModel):
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
         description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
+    )
+
+
+class InsightQuery(
+    RootModel[
+        AssistantDataTableNode
+        | AssistantBIVisualizationNode
+        | AssistantInsightVizNode
+        | AssistantDataVisualizationNode
+        | AssistantBareInsightQuery
+        | AssistantBareHogQLQuery
+        | AssistantEventsQuery
+    ]
+):
+    root: (
+        AssistantDataTableNode
+        | AssistantBIVisualizationNode
+        | AssistantInsightVizNode
+        | AssistantDataVisualizationNode
+        | AssistantBareInsightQuery
+        | AssistantBareHogQLQuery
+        | AssistantEventsQuery
     )
 
 

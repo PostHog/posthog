@@ -25,7 +25,6 @@ import {
 import {
     ActionsNode,
     CompareFilter,
-    ConditionalFormattingRule,
     DateRange,
     ErrorTrackingIssueAssignee,
     ErrorTrackingOrderBy,
@@ -1839,15 +1838,18 @@ export interface AssistantInsightVizNode {
     source: Record<string, any>
     /** Chart rendering options. */
     vizSpecificOptions?: AssistantVizSpecificOptions
+    [key: string]: unknown
 }
 
 export interface AssistantPieChartOptions {
     /** Hide the total on a pie chart. */
     hideAggregation?: boolean
+    [key: string]: unknown
 }
 
 export interface AssistantVizSpecificOptions {
     ActionsPie?: AssistantPieChartOptions
+    [key: string]: unknown
 }
 
 /**
@@ -2052,18 +2054,140 @@ export interface AssistantDataVisualizationChartSettings {
     showTotalRow?: boolean
 }
 
+// The insight tools save what an agent sends, so they must accept every setting `insight-get` returns,
+// including settings people made in the PostHog app that these types do not list. The copies below
+// carry an index signature for that, because zod strips every key a schema does not declare. The
+// endpoint still validates against the full chart types, which reject unknown keys. PostHog AI's
+// `execute_sql` tool uses the closed originals, so an unknown key there still fails validation.
+// The open copies repeat their fields because ts-json-schema-generator drops an index signature
+// from an interface that extends another one. test_assistant_dataviz_schema_contract.py keeps each
+// copy's fields equal to its original's.
+
+export interface AssistantInsightColumnDisplaySettings {
+    /** Table column description shown in the header tooltip. */
+    description?: string
+    [key: string]: unknown
+}
+
+export interface AssistantInsightColumnSettings extends AssistantDataVisualizationColumnSettings {
+    /** Display settings for this column. */
+    display?: AssistantInsightColumnDisplaySettings
+}
+
+/** A column with a description and number formatting. Series display settings apply only to Y-axis series. */
+export interface AssistantInsightColumn extends AssistantDataVisualizationColumn {
+    /** Optional display and number-formatting settings for this column. */
+    settings?: AssistantInsightColumnSettings
+}
+
+export interface AssistantInsightAxisDisplaySettings {
+    /** Which Y axis this numeric series should use. Use `right` for a secondary Y axis. */
+    yAxisPosition?: 'left' | 'right'
+    /**
+     * Chart type. `auto` uses `display`.
+     */
+    displayType?: 'auto' | 'line' | 'bar' | 'area'
+    /** Draw a linear trend line for this series. Only meaningful for line, bar, and area charts. */
+    trendLine?: boolean
+    /** Series label in legends and tooltips; replaces the column name. */
+    label?: string
+    /** Custom color for this series as a hex string (e.g. `#1d4aff`). */
+    color?: string
+    /**
+     * Keep this series out of the tooltip's total row, e.g. a target line over stacked bars.
+     * A bar series still stacks, so set `displayType` to `line` for a series drawn over the stack.
+     */
+    excludeFromTotal?: boolean
+    /**
+     * Per-series override of chart-level `showValuesOnSeries`. `show` labels this series even when the
+     * chart setting is off, `hide` leaves it unlabeled when the setting is on, `auto` follows the chart.
+     */
+    valueLabels?: 'auto' | 'show' | 'hide'
+    [key: string]: unknown
+}
+
+export interface AssistantInsightAxisSettings extends AssistantDataVisualizationAxisSettings {
+    /** Display settings for a plotted Y series. */
+    display?: AssistantInsightAxisDisplaySettings
+}
+
+export interface AssistantInsightAxis extends AssistantDataVisualizationAxis {
+    /** Optional series settings. Only applies to Y-axis series. */
+    settings?: AssistantInsightAxisSettings
+}
+
+export interface AssistantInsightGoalLine {
+    /** Label rendered next to the goal line. */
+    label: string
+    /** Y-axis value at which the goal line is drawn. */
+    value: number
+    [key: string]: unknown
+}
+
+export interface AssistantInsightMetricSettings {
+    summary?: 'total' | 'average' | 'latest'
+    showChange?: boolean
+    [key: string]: unknown
+}
+
+export interface AssistantInsightChartSettings {
+    /**
+     * Column used as the X axis. Typically a time bucket or categorical column, but `ScatterPlot`
+     * plots two measures against each other, so it needs a numeric column here too.
+     */
+    xAxis?: AssistantInsightColumn
+    /** Label rendered under the X axis. */
+    xAxisLabel?: string
+    /** One or more numeric columns plotted as Y series. */
+    yAxis?: AssistantInsightAxis[]
+    /** Settings for the left Y axis. */
+    leftYAxisSettings?: AssistantDataVisualizationYAxisSettings
+    /** Settings for the right Y axis. Only applies when a Y series uses `settings.display.yAxisPosition: "right"`. */
+    rightYAxisSettings?: AssistantDataVisualizationYAxisSettings
+    /** Column mappings for `BoxPlot`. The SQL must return one pre-aggregated row per X-axis and series pair. */
+    boxPlot?: AssistantDataVisualizationBoxPlotSettings
+    /**
+     * Column that splits a single Y series into multiple colored series — e.g. breaking down
+     * a line chart by `country`. Set to `null` or omit to disable. A breakdown buckets rows by
+     * x value, so it is ignored when `display` is `ScatterPlot`.
+     */
+    seriesBreakdownColumn?: string | null
+    /** Horizontal goal lines drawn across the chart. */
+    goalLines?: AssistantInsightGoalLine[]
+    /** Stack bars to 100% of the total. Only meaningful with `ActionsStackedBar`. */
+    stackBars100?: boolean
+    /** Color each X-axis category in single-series `ActionsBar` and `ActionsBarValue` charts. */
+    colorBarsByCategory?: boolean
+    /** Show the chart legend. */
+    showLegend?: boolean
+    /** Where the legend sits. Defaults to right for pie and donut, top for other charts. */
+    legendPosition?: 'top' | 'bottom' | 'left' | 'right'
+    /**
+     * Show annotations on the chart. Only applies to line, area, bar, and stacked bar charts
+     * whose X axis is a date or datetime column.
+     */
+    showAnnotations?: boolean
+    /** Settings for `ActionsPie` and `ActionsDonut`. */
+    pie?: PieChartSettings
+    /** Settings for `Metric`. `summary` defaults to `latest`. */
+    metric?: AssistantInsightMetricSettings
+    /** Render each data point's value as a label directly on the series. */
+    showValuesOnSeries?: boolean
+    /** Replace null aggregation results with zero. */
+    showNullsAsZero?: boolean
+    /** Show a total summing all Y series. Applies to line, bar, and area charts. */
+    showTotalRow?: boolean
+    [key: string]: unknown
+}
+
 export interface AssistantDataVisualizationTableSettings {
     /** Columns to display and their order. Omit to show every column returned by the query. */
-    columns?: AssistantDataVisualizationColumn[]
+    columns?: AssistantInsightColumn[]
     /** Column names to pin to the left of the table. */
     pinnedColumns?: string[]
     /** Transpose rows and columns. */
     transpose?: boolean
-    /**
-     * Cell color rules made in the PostHog app. Send each saved rule back unchanged, including `bytecode`.
-     * A rule you leave out is deleted.
-     */
-    conditionalFormatting?: ConditionalFormattingRule[]
+    [key: string]: unknown
 }
 
 /**
@@ -2088,9 +2212,10 @@ export interface AssistantDataVisualizationNode {
      */
     display?: AssistantDataVisualizationDisplayType
     /** Chart configuration. Ignored when `display` is `ActionsTable` or `BoldNumber`. */
-    chartSettings?: AssistantDataVisualizationChartSettings
+    chartSettings?: AssistantInsightChartSettings
     /** Table configuration. Only applies when `display` is `ActionsTable` or omitted. */
     tableSettings?: AssistantDataVisualizationTableSettings
+    [key: string]: unknown
 }
 
 // `MCPInsightSerializer.validate_query` wraps these shapes server-side before it saves the

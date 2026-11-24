@@ -53,23 +53,29 @@ const AssistantBIVisualizationNode = z
     })
     .catchall(z.unknown())
 
-const AssistantPieChartOptions = z.object({
-    hideAggregation: z.coerce.boolean().describe('Hide the total on a pie chart.').optional(),
-})
+const AssistantPieChartOptions = z
+    .object({
+        hideAggregation: z.coerce.boolean().describe('Hide the total on a pie chart.').optional(),
+    })
+    .catchall(z.unknown())
 
-const AssistantVizSpecificOptions = z.object({
-    ActionsPie: AssistantPieChartOptions.optional(),
-})
+const AssistantVizSpecificOptions = z
+    .object({
+        ActionsPie: AssistantPieChartOptions.optional(),
+    })
+    .catchall(z.unknown())
 
-const AssistantInsightVizNode = z.object({
-    kind: z.literal('InsightVizNode').default('InsightVizNode'),
-    source: z
-        .record(z.string(), z.unknown())
-        .describe(
-            'Product analtycs query objects like TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery'
-        ),
-    vizSpecificOptions: AssistantVizSpecificOptions.describe('Chart rendering options.').optional(),
-})
+const AssistantInsightVizNode = z
+    .object({
+        kind: z.literal('InsightVizNode').default('InsightVizNode'),
+        source: z
+            .record(z.string(), z.unknown())
+            .describe(
+                'Product analtycs query objects like TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery'
+            ),
+        vizSpecificOptions: AssistantVizSpecificOptions.describe('Chart rendering options.').optional(),
+    })
+    .catchall(z.unknown())
 
 const AssistantDataVisualizationBoxPlotSettings = z.object({
     excludeOutliers: z.coerce
@@ -96,10 +102,12 @@ const AssistantDataVisualizationBoxPlotSettings = z.object({
         .optional(),
 })
 
-const AssistantDataVisualizationGoalLine = z.object({
-    label: z.string().describe('Label rendered next to the goal line.'),
-    value: z.coerce.number().describe('Y-axis value at which the goal line is drawn.'),
-})
+const AssistantInsightGoalLine = z
+    .object({
+        label: z.string().describe('Label rendered next to the goal line.'),
+        value: z.coerce.number().describe('Y-axis value at which the goal line is drawn.'),
+    })
+    .catchall(z.unknown())
 
 const AssistantDataVisualizationYAxisSettings = z.object({
     label: z.string().describe('Label rendered beside this Y axis.').optional(),
@@ -109,10 +117,12 @@ const AssistantDataVisualizationYAxisSettings = z.object({
     startAtZero: z.coerce.boolean().describe('Whether this Y axis should start at zero.').optional(),
 })
 
-const AssistantDataVisualizationMetricSettings = z.object({
-    showChange: z.coerce.boolean().optional(),
-    summary: z.enum(['total', 'average', 'latest']).optional(),
-})
+const AssistantInsightMetricSettings = z
+    .object({
+        showChange: z.coerce.boolean().optional(),
+        summary: z.enum(['total', 'average', 'latest']).optional(),
+    })
+    .catchall(z.unknown())
 
 const PieChartSettings = z.object({
     showTotal: z.coerce
@@ -131,9 +141,11 @@ const PieChartSettings = z.object({
         .optional(),
 })
 
-const AssistantDataVisualizationColumnDisplaySettings = z.object({
-    description: z.string().describe('Table column description shown in the header tooltip.').optional(),
-})
+const AssistantInsightColumnDisplaySettings = z
+    .object({
+        description: z.string().describe('Table column description shown in the header tooltip.').optional(),
+    })
+    .catchall(z.unknown())
 
 const AssistantDataVisualizationAxisFormatting = z.object({
     decimalPlaces: z.coerce.number().describe('Number of decimal places to display.').optional(),
@@ -147,122 +159,121 @@ const AssistantDataVisualizationAxisFormatting = z.object({
     suffix: z.string().describe('Value suffix (e.g. ` ms`). Omit for `percent`, which adds `%`.').optional(),
 })
 
-const AssistantDataVisualizationColumnSettings = z.object({
-    display: AssistantDataVisualizationColumnDisplaySettings.describe('Display settings for this column.').optional(),
+const AssistantInsightColumnSettings = z.object({
+    display: AssistantInsightColumnDisplaySettings.describe('Display settings for this column.').optional(),
     formatting: AssistantDataVisualizationAxisFormatting.describe(
         'Number-formatting settings for the values in this column.'
     ).optional(),
 })
 
-const AssistantDataVisualizationColumn = z.object({
+const AssistantInsightColumn = z.object({
     column: z.string().describe('Name of a column returned by the SQL query.'),
-    settings: AssistantDataVisualizationColumnSettings.describe(
+    settings: AssistantInsightColumnSettings.describe(
         'Optional display and number-formatting settings for this column.'
     ).optional(),
 })
 
-const AssistantDataVisualizationAxisDisplaySettings = z.object({
-    color: z.string().describe('Custom color for this series as a hex string (e.g. `#1d4aff`).').optional(),
-    displayType: z.enum(['auto', 'line', 'bar', 'area']).describe('Chart type. `auto` uses `display`.').optional(),
-    excludeFromTotal: z.coerce
-        .boolean()
-        .describe(
-            "Keep this series out of the tooltip's total row, e.g. a target line over stacked bars. A bar series still stacks, so set `displayType` to `line` for a series drawn over the stack."
-        )
-        .optional(),
-    label: z.string().describe('Series label in legends and tooltips; replaces the column name.').optional(),
-    trendLine: z.coerce
-        .boolean()
-        .describe('Draw a linear trend line for this series. Only meaningful for line, bar, and area charts.')
-        .optional(),
-    valueLabels: z
-        .enum(['auto', 'show', 'hide'])
-        .describe(
-            'Per-series override of chart-level `showValuesOnSeries`. `show` labels this series even when the chart setting is off, `hide` leaves it unlabeled when the setting is on, `auto` follows the chart.'
-        )
-        .optional(),
-    yAxisPosition: z
-        .enum(['left', 'right'])
-        .describe('Which Y axis this numeric series should use. Use `right` for a secondary Y axis.')
-        .optional(),
-})
+const AssistantInsightAxisDisplaySettings = z
+    .object({
+        color: z.string().describe('Custom color for this series as a hex string (e.g. `#1d4aff`).').optional(),
+        displayType: z.enum(['auto', 'line', 'bar', 'area']).describe('Chart type. `auto` uses `display`.').optional(),
+        excludeFromTotal: z.coerce
+            .boolean()
+            .describe(
+                "Keep this series out of the tooltip's total row, e.g. a target line over stacked bars. A bar series still stacks, so set `displayType` to `line` for a series drawn over the stack."
+            )
+            .optional(),
+        label: z.string().describe('Series label in legends and tooltips; replaces the column name.').optional(),
+        trendLine: z.coerce
+            .boolean()
+            .describe('Draw a linear trend line for this series. Only meaningful for line, bar, and area charts.')
+            .optional(),
+        valueLabels: z
+            .enum(['auto', 'show', 'hide'])
+            .describe(
+                'Per-series override of chart-level `showValuesOnSeries`. `show` labels this series even when the chart setting is off, `hide` leaves it unlabeled when the setting is on, `auto` follows the chart.'
+            )
+            .optional(),
+        yAxisPosition: z
+            .enum(['left', 'right'])
+            .describe('Which Y axis this numeric series should use. Use `right` for a secondary Y axis.')
+            .optional(),
+    })
+    .catchall(z.unknown())
 
-const AssistantDataVisualizationAxisSettings = z.object({
-    display: AssistantDataVisualizationAxisDisplaySettings.describe(
-        'Display settings for a plotted Y series.'
-    ).optional(),
+const AssistantInsightAxisSettings = z.object({
+    display: AssistantInsightAxisDisplaySettings.describe('Display settings for a plotted Y series.').optional(),
     formatting: AssistantDataVisualizationAxisFormatting.describe(
         'Number-formatting settings for the values on this axis or series.'
     ).optional(),
 })
 
-const AssistantDataVisualizationAxis = z.object({
+const AssistantInsightAxis = z.object({
     column: z.string().describe('Name of a column returned by the SQL query to map onto this axis.'),
-    settings: AssistantDataVisualizationAxisSettings.describe(
+    settings: AssistantInsightAxisSettings.describe(
         'Optional series settings. Only applies to Y-axis series.'
     ).optional(),
 })
 
-const AssistantDataVisualizationChartSettings = z.object({
-    boxPlot: AssistantDataVisualizationBoxPlotSettings.describe(
-        'Column mappings for `BoxPlot`. The SQL must return one pre-aggregated row per X-axis and series pair.'
-    ).optional(),
-    colorBarsByCategory: z.coerce
-        .boolean()
-        .describe('Color each X-axis category in single-series `ActionsBar` and `ActionsBarValue` charts.')
-        .optional(),
-    goalLines: z
-        .array(AssistantDataVisualizationGoalLine)
-        .describe('Horizontal goal lines drawn across the chart.')
-        .optional(),
-    leftYAxisSettings: AssistantDataVisualizationYAxisSettings.describe('Settings for the left Y axis.').optional(),
-    legendPosition: z
-        .enum(['top', 'bottom', 'left', 'right'])
-        .describe('Where the legend sits. Defaults to right for pie and donut, top for other charts.')
-        .optional(),
-    metric: AssistantDataVisualizationMetricSettings.describe(
-        'Settings for `Metric`. `summary` defaults to `latest`.'
-    ).optional(),
-    pie: PieChartSettings.describe('Settings for `ActionsPie` and `ActionsDonut`.').optional(),
-    rightYAxisSettings: AssistantDataVisualizationYAxisSettings.describe(
-        'Settings for the right Y axis. Only applies when a Y series uses `settings.display.yAxisPosition: "right"`.'
-    ).optional(),
-    seriesBreakdownColumn: z
-        .string()
-        .nullable()
-        .describe(
-            'Column that splits a single Y series into multiple colored series — e.g. breaking down a line chart by `country`. Set to `null` or omit to disable. A breakdown buckets rows by x value, so it is ignored when `display` is `ScatterPlot`.'
-        )
-        .optional(),
-    showAnnotations: z.coerce
-        .boolean()
-        .describe(
-            'Show annotations on the chart. Only applies to line, area, bar, and stacked bar charts whose X axis is a date or datetime column.'
-        )
-        .optional(),
-    showLegend: z.coerce.boolean().describe('Show the chart legend.').optional(),
-    showNullsAsZero: z.coerce.boolean().describe('Replace null aggregation results with zero.').optional(),
-    showTotalRow: z.coerce
-        .boolean()
-        .describe('Show a total summing all Y series. Applies to line, bar, and area charts.')
-        .optional(),
-    showValuesOnSeries: z.coerce
-        .boolean()
-        .describe("Render each data point's value as a label directly on the series.")
-        .optional(),
-    stackBars100: z.coerce
-        .boolean()
-        .describe('Stack bars to 100% of the total. Only meaningful with `ActionsStackedBar`.')
-        .optional(),
-    xAxis: AssistantDataVisualizationColumn.describe(
-        'Column used as the X axis. Typically a time bucket or categorical column, but `ScatterPlot` plots two measures against each other, so it needs a numeric column here too.'
-    ).optional(),
-    xAxisLabel: z.string().describe('Label rendered under the X axis.').optional(),
-    yAxis: z
-        .array(AssistantDataVisualizationAxis)
-        .describe('One or more numeric columns plotted as Y series.')
-        .optional(),
-})
+const AssistantInsightChartSettings = z
+    .object({
+        boxPlot: AssistantDataVisualizationBoxPlotSettings.describe(
+            'Column mappings for `BoxPlot`. The SQL must return one pre-aggregated row per X-axis and series pair.'
+        ).optional(),
+        colorBarsByCategory: z.coerce
+            .boolean()
+            .describe('Color each X-axis category in single-series `ActionsBar` and `ActionsBarValue` charts.')
+            .optional(),
+        goalLines: z
+            .array(AssistantInsightGoalLine)
+            .describe('Horizontal goal lines drawn across the chart.')
+            .optional(),
+        leftYAxisSettings: AssistantDataVisualizationYAxisSettings.describe('Settings for the left Y axis.').optional(),
+        legendPosition: z
+            .enum(['top', 'bottom', 'left', 'right'])
+            .describe('Where the legend sits. Defaults to right for pie and donut, top for other charts.')
+            .optional(),
+        metric: AssistantInsightMetricSettings.describe(
+            'Settings for `Metric`. `summary` defaults to `latest`.'
+        ).optional(),
+        pie: PieChartSettings.describe('Settings for `ActionsPie` and `ActionsDonut`.').optional(),
+        rightYAxisSettings: AssistantDataVisualizationYAxisSettings.describe(
+            'Settings for the right Y axis. Only applies when a Y series uses `settings.display.yAxisPosition: "right"`.'
+        ).optional(),
+        seriesBreakdownColumn: z
+            .string()
+            .nullable()
+            .describe(
+                'Column that splits a single Y series into multiple colored series — e.g. breaking down a line chart by `country`. Set to `null` or omit to disable. A breakdown buckets rows by x value, so it is ignored when `display` is `ScatterPlot`.'
+            )
+            .optional(),
+        showAnnotations: z.coerce
+            .boolean()
+            .describe(
+                'Show annotations on the chart. Only applies to line, area, bar, and stacked bar charts whose X axis is a date or datetime column.'
+            )
+            .optional(),
+        showLegend: z.coerce.boolean().describe('Show the chart legend.').optional(),
+        showNullsAsZero: z.coerce.boolean().describe('Replace null aggregation results with zero.').optional(),
+        showTotalRow: z.coerce
+            .boolean()
+            .describe('Show a total summing all Y series. Applies to line, bar, and area charts.')
+            .optional(),
+        showValuesOnSeries: z.coerce
+            .boolean()
+            .describe("Render each data point's value as a label directly on the series.")
+            .optional(),
+        stackBars100: z.coerce
+            .boolean()
+            .describe('Stack bars to 100% of the total. Only meaningful with `ActionsStackedBar`.')
+            .optional(),
+        xAxis: AssistantInsightColumn.describe(
+            'Column used as the X axis. Typically a time bucket or categorical column, but `ScatterPlot` plots two measures against each other, so it needs a numeric column here too.'
+        ).optional(),
+        xAxisLabel: z.string().describe('Label rendered under the X axis.').optional(),
+        yAxis: z.array(AssistantInsightAxis).describe('One or more numeric columns plotted as Y series.').optional(),
+    })
+    .catchall(z.unknown())
 
 const AssistantDataVisualizationDisplayType = z.enum([
     'ActionsTable',
@@ -281,44 +292,32 @@ const AssistantDataVisualizationDisplayType = z.enum([
     'BoxPlot',
 ])
 
-const ConditionalFormattingRule = z.object({
-    bytecode: z.array(z.unknown()),
-    color: z.string(),
-    colorMode: z.enum(['light', 'dark']).optional(),
-    columnName: z.string(),
-    id: z.string(),
-    input: z.string(),
-    templateId: z.string(),
-})
+const AssistantDataVisualizationTableSettings = z
+    .object({
+        columns: z
+            .array(AssistantInsightColumn)
+            .describe('Columns to display and their order. Omit to show every column returned by the query.')
+            .optional(),
+        pinnedColumns: z.array(z.string()).describe('Column names to pin to the left of the table.').optional(),
+        transpose: z.coerce.boolean().describe('Transpose rows and columns.').optional(),
+    })
+    .catchall(z.unknown())
 
-const AssistantDataVisualizationTableSettings = z.object({
-    columns: z
-        .array(AssistantDataVisualizationColumn)
-        .describe('Columns to display and their order. Omit to show every column returned by the query.')
-        .optional(),
-    conditionalFormatting: z
-        .array(ConditionalFormattingRule)
-        .describe(
-            'Cell color rules made in the PostHog app. Send each saved rule back unchanged, including `bytecode`. A rule you leave out is deleted.'
-        )
-        .optional(),
-    pinnedColumns: z.array(z.string()).describe('Column names to pin to the left of the table.').optional(),
-    transpose: z.coerce.boolean().describe('Transpose rows and columns.').optional(),
-})
-
-const AssistantDataVisualizationNode = z.object({
-    chartSettings: AssistantDataVisualizationChartSettings.describe(
-        'Chart configuration. Ignored when `display` is `ActionsTable` or `BoldNumber`.'
-    ).optional(),
-    display: AssistantDataVisualizationDisplayType.describe(
-        'Chart type (default `ActionsTable`): `BoldNumber` = one value; `Metric` = KPI; `ActionsLineGraph` / `ActionsAreaGraph` = time series; `ActionsPie` / `ActionsDonut` / `ActionsProportionBar` = shares; `ActionsBar` / `ActionsStackedBar` = categories; `ActionsBarValue` = horizontal rankings; `TwoDimensionalHeatmap` = 2D aggregates; `ScatterPlot` = two measures; `BoxPlot` = distribution summaries with `chartSettings.boxPlot`.'
-    ).optional(),
-    kind: z.literal('DataVisualizationNode').default('DataVisualizationNode'),
-    source: z.record(z.string(), z.unknown()).describe('HogQL query object that produces the rows to visualize.'),
-    tableSettings: AssistantDataVisualizationTableSettings.describe(
-        'Table configuration. Only applies when `display` is `ActionsTable` or omitted.'
-    ).optional(),
-})
+const AssistantDataVisualizationNode = z
+    .object({
+        chartSettings: AssistantInsightChartSettings.describe(
+            'Chart configuration. Ignored when `display` is `ActionsTable` or `BoldNumber`.'
+        ).optional(),
+        display: AssistantDataVisualizationDisplayType.describe(
+            'Chart type (default `ActionsTable`): `BoldNumber` = one value; `Metric` = KPI; `ActionsLineGraph` / `ActionsAreaGraph` = time series; `ActionsPie` / `ActionsDonut` / `ActionsProportionBar` = shares; `ActionsBar` / `ActionsStackedBar` = categories; `ActionsBarValue` = horizontal rankings; `TwoDimensionalHeatmap` = 2D aggregates; `ScatterPlot` = two measures; `BoxPlot` = distribution summaries with `chartSettings.boxPlot`.'
+        ).optional(),
+        kind: z.literal('DataVisualizationNode').default('DataVisualizationNode'),
+        source: z.record(z.string(), z.unknown()).describe('HogQL query object that produces the rows to visualize.'),
+        tableSettings: AssistantDataVisualizationTableSettings.describe(
+            'Table configuration. Only applies when `display` is `ActionsTable` or omitted.'
+        ).optional(),
+    })
+    .catchall(z.unknown())
 
 const InsightNodeKind = z.enum([
     'TrendsQuery',

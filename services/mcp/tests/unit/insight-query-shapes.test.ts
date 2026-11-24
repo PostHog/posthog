@@ -21,10 +21,19 @@ const acceptedQueries = [
         shape: 'wrapped DataVisualizationNode',
         query: {
             kind: 'DataVisualizationNode',
+            version: 1,
             source: { kind: 'HogQLQuery', query: 'select 1 as value' },
-            chartSettings: { legendPosition: 'bottom', showAnnotations: true },
+            chartSettings: {
+                legendPosition: 'bottom',
+                showAnnotations: true,
+                yAxisAtZero: true,
+                xAxis: { column: 'day', settings: { display: { label: 'Day' } } },
+                yAxis: [{ column: 'value', settings: { display: { description: 'Value in USD', color: '#00aa00' } } }],
+                goalLines: [{ label: 'Target', value: 10, borderColor: '#ff0000' }],
+                metric: { summary: 'total', colorByDirection: true },
+            },
             tableSettings: {
-                columns: [{ column: 'value', settings: { display: { description: 'Value in USD' } } }],
+                columns: [{ column: 'value', settings: { display: { description: 'Value in USD', label: 'Value' } } }],
                 conditionalFormatting: [
                     {
                         id: 'rule-1',
@@ -108,12 +117,16 @@ describe('insight query shapes', () => {
         expect((result.data as { query: unknown }).query).toEqual(BARE_TRENDS_QUERY)
     })
 
-    it.each(tools)('$tool keeps the pie chart options of a wrapped query', ({ tool, base }) => {
+    it.each(tools)('$tool keeps the chart options of a wrapped query', ({ tool, base }) => {
         const { schema } = GENERATED_TOOLS[tool]!()
         const query = {
             kind: 'InsightVizNode',
+            showHeader: true,
             source: { ...BARE_TRENDS_QUERY, trendsFilter: { display: 'ActionsPie' } },
-            vizSpecificOptions: { ActionsPie: { hideAggregation: true } },
+            vizSpecificOptions: {
+                ActionsPie: { hideAggregation: true, disableHoverOffset: true },
+                RETENTION: { hideLineGraph: true },
+            },
         }
 
         const result = schema.safeParse({ ...base, query })

@@ -9723,7 +9723,7 @@
         }
     },
     "insight-update": {
-        "description": "Update a saved insight by numeric `id` or `short_id`. Can update name, description, query, tags, favorited status, and dashboards. Returns insight metadata only — after updating the query, call the insight-query tool with the same identifier if you want to see the recomputed results. Query uses the same format as insight-create. Replacing query replaces the entire definition; include all filters and visualization settings you want to retain. After substantial visual changes, check the final saved insight once if browser access is already available. Skip browser checks for small edits.",
+        "description": "Update a saved insight by numeric `id` or `short_id`. Can update name, description, query, tags, favorited status, and dashboards. Returns insight metadata only — after updating the query, call the insight-query tool with the same identifier if you want to see the recomputed results. Query uses the same format as insight-create. Replacing query replaces the entire definition; include all filters and visualization settings you want to retain. Copy them unchanged from insight-get, including keys this schema does not list, such as SQL conditional formatting rules with their `bytecode`. After substantial visual changes, check the final saved insight once if browser access is already available. Skip browser checks for small edits.",
         "category": "Product analytics",
         "feature": "product_analytics",
         "summary": "Update insight",

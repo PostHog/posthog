@@ -115,6 +115,7 @@
                     "type": "object"
                 },
                 {
+                    "additionalProperties": {},
                     "properties": {
                         "kind": {
                             "const": "InsightVizNode",
@@ -130,9 +131,11 @@
                             "type": "object"
                         },
                         "vizSpecificOptions": {
+                            "additionalProperties": {},
                             "description": "Chart rendering options.",
                             "properties": {
                                 "ActionsPie": {
+                                    "additionalProperties": {},
                                     "properties": {
                                         "hideAggregation": {
                                             "description": "Hide the total on a pie chart.",
@@ -149,8 +152,10 @@
                     "type": "object"
                 },
                 {
+                    "additionalProperties": {},
                     "properties": {
                         "chartSettings": {
+                            "additionalProperties": {},
                             "description": "Chart configuration. Ignored when `display` is `ActionsTable` or `BoldNumber`.",
                             "properties": {
                                 "boxPlot": {
@@ -224,6 +229,7 @@
                                 "goalLines": {
                                     "description": "Horizontal goal lines drawn across the chart.",
                                     "items": {
+                                        "additionalProperties": {},
                                         "properties": {
                                             "label": {
                                                 "description": "Label rendered next to the goal line.",
@@ -272,6 +278,7 @@
                                     "type": "string"
                                 },
                                 "metric": {
+                                    "additionalProperties": {},
                                     "description": "Settings for `Metric`. `summary` defaults to `latest`.",
                                     "properties": {
                                         "showChange": {
@@ -377,6 +384,7 @@
                                             "description": "Optional display and number-formatting settings for this column.",
                                             "properties": {
                                                 "display": {
+                                                    "additionalProperties": {},
                                                     "description": "Display settings for this column.",
                                                     "properties": {
                                                         "description": {
@@ -432,6 +440,7 @@
                                                 "description": "Optional series settings. Only applies to Y-axis series.",
                                                 "properties": {
                                                     "display": {
+                                                        "additionalProperties": {},
                                                         "description": "Display settings for a plotted Y series.",
                                                         "properties": {
                                                             "color": {
@@ -537,6 +546,7 @@
                             "type": "object"
                         },
                         "tableSettings": {
+                            "additionalProperties": {},
                             "description": "Table configuration. Only applies when `display` is `ActionsTable` or omitted.",
                             "properties": {
                                 "columns": {
@@ -551,6 +561,7 @@
                                                 "description": "Optional display and number-formatting settings for this column.",
                                                 "properties": {
                                                     "display": {
+                                                        "additionalProperties": {},
                                                         "description": "Display settings for this column.",
                                                         "properties": {
                                                             "description": {
@@ -588,39 +599,6 @@
                                             }
                                         },
                                         "required": ["column"],
-                                        "type": "object"
-                                    },
-                                    "type": "array"
-                                },
-                                "conditionalFormatting": {
-                                    "description": "Cell color rules made in the PostHog app. Send each saved rule back unchanged, including `bytecode`. A rule you leave out is deleted.",
-                                    "items": {
-                                        "properties": {
-                                            "bytecode": {
-                                                "items": {},
-                                                "type": "array"
-                                            },
-                                            "color": {
-                                                "type": "string"
-                                            },
-                                            "colorMode": {
-                                                "enum": ["light", "dark"],
-                                                "type": "string"
-                                            },
-                                            "columnName": {
-                                                "type": "string"
-                                            },
-                                            "id": {
-                                                "type": "string"
-                                            },
-                                            "input": {
-                                                "type": "string"
-                                            },
-                                            "templateId": {
-                                                "type": "string"
-                                            }
-                                        },
-                                        "required": ["bytecode", "color", "columnName", "id", "input", "templateId"],
                                         "type": "object"
                                     },
                                     "type": "array"

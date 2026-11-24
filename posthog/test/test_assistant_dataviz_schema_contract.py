@@ -1,8 +1,20 @@
 from django.test.testcases import SimpleTestCase
 
+from parameterized import parameterized
+from pydantic import BaseModel
+
 from posthog.schema import (
+    AssistantDataVisualizationAxisDisplaySettings,
     AssistantDataVisualizationChartSettings,
+    AssistantDataVisualizationColumnDisplaySettings,
+    AssistantDataVisualizationGoalLine,
+    AssistantDataVisualizationMetricSettings,
     AssistantDataVisualizationTableSettings,
+    AssistantInsightAxisDisplaySettings,
+    AssistantInsightChartSettings,
+    AssistantInsightColumnDisplaySettings,
+    AssistantInsightGoalLine,
+    AssistantInsightMetricSettings,
     ChartSettings,
     TableSettings,
 )
@@ -15,18 +27,37 @@ from posthog.schema import (
 
 
 class TestAssistantDataVizSchemaContract(SimpleTestCase):
-    def test_assistant_chart_settings_are_accepted_by_real_chart_settings(self) -> None:
-        extra = set(AssistantDataVisualizationChartSettings.model_fields) - set(ChartSettings.model_fields)
+    @parameterized.expand(
+        [
+            ("chart_settings", AssistantDataVisualizationChartSettings, ChartSettings),
+            ("insight_tool_chart_settings", AssistantInsightChartSettings, ChartSettings),
+            ("table_settings", AssistantDataVisualizationTableSettings, TableSettings),
+        ]
+    )
+    def test_assistant_settings_are_accepted_by_real_settings(
+        self, _name: str, assistant: type[BaseModel], real: type[BaseModel]
+    ) -> None:
+        extra = set(assistant.model_fields) - set(real.model_fields)
         self.assertEqual(
             extra,
             set(),
-            f"AssistantDataVisualizationChartSettings advertises fields ChartSettings rejects: {sorted(extra)}",
+            f"{assistant.__name__} advertises fields {real.__name__} rejects: {sorted(extra)}",
         )
 
-    def test_assistant_table_settings_are_accepted_by_real_table_settings(self) -> None:
-        extra = set(AssistantDataVisualizationTableSettings.model_fields) - set(TableSettings.model_fields)
+    @parameterized.expand(
+        [
+            ("chart_settings", AssistantInsightChartSettings, AssistantDataVisualizationChartSettings),
+            ("goal_line", AssistantInsightGoalLine, AssistantDataVisualizationGoalLine),
+            ("metric_settings", AssistantInsightMetricSettings, AssistantDataVisualizationMetricSettings),
+            ("axis_display", AssistantInsightAxisDisplaySettings, AssistantDataVisualizationAxisDisplaySettings),
+            ("column_display", AssistantInsightColumnDisplaySettings, AssistantDataVisualizationColumnDisplaySettings),
+        ]
+    )
+    def test_insight_tool_copies_declare_the_same_fields_as_their_originals(
+        self, _name: str, copy: type[BaseModel], original: type[BaseModel]
+    ) -> None:
         self.assertEqual(
-            extra,
-            set(),
-            f"AssistantDataVisualizationTableSettings advertises fields TableSettings rejects: {sorted(extra)}",
+            set(copy.model_fields),
+            set(original.model_fields),
+            f"{copy.__name__} must declare the same fields as {original.__name__}",
         )

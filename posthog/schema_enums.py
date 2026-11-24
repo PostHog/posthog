@@ -3076,7 +3076,7 @@ class RefreshType(StrEnum):
     LAZY_ASYNC = "lazy_async"
 
 
-class YAxisPosition2(StrEnum):
+class YAxisPosition3(StrEnum):
     AUTO = "auto"
     LEFT = "left"
     RIGHT = "right"
