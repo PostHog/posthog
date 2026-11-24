@@ -33,6 +33,7 @@ from products.workflows.backend.services.batch_audience import (
     audience_page_size,
     can_read_email,
     get_batch_audience_person_ids,
+    reject_audience_reading_restricted_properties,
 )
 from products.workflows.backend.services.batch_audience_cohorts import (
     find_realtime_behavioral_cohort,
@@ -129,6 +130,7 @@ def get_audience_size(
     user: User | None = None,
 ) -> AudienceSize:
     team = Team.objects.get(id=team_id)
+    reject_audience_reading_restricted_properties(team, filters, user)
     audience_limit = resolve_batch_audience_limit(team_id, sends_email=sends_email, email_rate_limit=email_rate_limit)
     # Preview matches the actual send: with dedup active, "affected" is the number of
     # sends (unique emails + email-less persons), not the number of matching persons.

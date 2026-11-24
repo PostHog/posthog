@@ -322,6 +322,9 @@ class TestAudienceV2(ClickhouseTestMixin, BaseTest):
         assert "max_bytes_before_external_group_by=4294967296" in clickhouse_sql
 
 
+EMAIL_FILTER = {"key": "email", "type": "person", "value": "a@example.com", "operator": "exact"}
+
+
 class TestAudienceCountsHonorPropertyAccess(ClickhouseTestMixin, BaseTest):
     def setUp(self):
         super().setUp()
@@ -343,9 +346,7 @@ class TestAudienceCountsHonorPropertyAccess(ClickhouseTestMixin, BaseTest):
         _create_person(team=self.team, distinct_ids=["a"], properties={"email": "a@example.com"})
         _create_person(team=self.team, distinct_ids=["b"], properties={"email": "b@example.com"})
         flush_persons_and_events()
-        self.filters = {
-            "properties": [{"key": "email", "type": "person", "value": "a@example.com", "operator": "exact"}]
-        }
+        self.filters = {"properties": [EMAIL_FILTER]}
 
     def _member(self, email: str) -> User:
         user = User.objects.create_user(email=email, password=None, first_name="Member")
@@ -381,21 +382,46 @@ class TestAudienceCountsHonorPropertyAccess(ClickhouseTestMixin, BaseTest):
         allowed = size(self.other_member)
         assert (allowed.affected, allowed.dedupe_key) == (2, EMAIL_DEDUPE_KEY)
 
-    def test_cached_counts_are_kept_per_user(self):
-        def size(user: User) -> int:
-            return get_audience_size(
-                team_id=self.team.pk,
-                filters=self.filters,
-                group_type_index=None,
-                dedupe_key=None,
-                sends_email=False,
-                use_cached_counts=True,
-                user=user,
-            ).affected
+    def _size(self, user: User, filters: dict) -> int:
+        return get_audience_size(
+            team_id=self.team.pk,
+            filters=filters,
+            group_type_index=None,
+            dedupe_key=None,
+            sends_email=False,
+            use_cached_counts=True,
+            user=user,
+        ).affected
 
-        assert size(self.other_member) == 1
-        assert size(self.restricted_member) == 0
+    @parameterized.expand(
+        [
+            ("filter_on_the_restricted_property", [EMAIL_FILTER], True),
+            ("hogql_filter", [{"type": "hogql", "key": "1 = 1"}], True),
+            ("filter_on_an_allowed_property", [{"key": "plan", "type": "person", "value": "pro"}], False),
+            ("no_filters", [], False),
+        ]
+    )
+    def test_audience_size_refuses_a_filter_the_user_cannot_read(self, _name, properties, refused):
+        filters = {"properties": properties}
+        if refused:
+            with pytest.raises(ValidationError):
+                self._size(self.restricted_member, filters)
+        else:
+            self._size(self.restricted_member, filters)
+        self._size(self.other_member, filters)
+
+    def test_audience_size_refuses_a_cohort_that_filters_on_the_restricted_property(self):
+        cohort = Cohort.objects.create(team=self.team, groups=[{"properties": [EMAIL_FILTER]}])
+
+        with pytest.raises(ValidationError):
+            self._size(self.restricted_member, {"properties": [{"key": "id", "type": "cohort", "value": cohort.pk}]})
+
+    def test_refusal_lifts_once_the_rule_is_removed(self):
+        filters = {"properties": [EMAIL_FILTER]}
+        assert self._size(self.other_member, filters) == 1
+        with pytest.raises(ValidationError):
+            self._size(self.restricted_member, filters)
 
         PropertyAccessControl.objects.all().delete()
 
-        assert size(self.restricted_member) == 1
+        assert self._size(self.restricted_member, filters) == 1

@@ -10,6 +10,7 @@ from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.restricted_properties import key_read_overlaps_restriction
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
@@ -66,6 +67,10 @@ BATCH_FLAG_CONDITION_REJECTION = (
 
 
 INCOMPLETE_AUDIENCE_CONDITION = "An audience filter is incomplete. Finish it or remove it."
+RESTRICTED_AUDIENCE_PROPERTY = (
+    "This audience filters on a property you don't have access to. "
+    "Ask an admin for access, or remove that filter to size and send it."
+)
 
 
 def _is_condition_group(condition: Any) -> bool:
@@ -117,6 +122,42 @@ def reject_unusable_audience_conditions(team: Team, filters: dict) -> None:
     property_groups = expand_cohort_properties(parse_property_group_data((filters or {}).get("properties")), team)
     if any(prop.type == "flag" for prop in property_groups.flat):
         raise exceptions.ValidationError(BATCH_FLAG_CONDITION_REJECTION)
+
+
+def reject_audience_reading_restricted_properties(team: Team, filters: dict, user: Optional[User]) -> None:
+    """
+    Refuse an audience whose preview would count different people than the send reaches.
+
+    The send selects recipients without a user, so only the team's default property rules mask it. The preview
+    runs as the user, so their member and role rules mask it too. The two match only when every filter reads
+    properties that the user's rules and the default rules mask the same way. A filter this check cannot read
+    the keys of, such as HogQL or an event filter, could read any property, so it counts as a mismatch.
+    """
+    user_names = access_control_api.split_restricted_property_names(
+        access_control_api.get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team.pk)
+    )
+    send_names = access_control_api.split_restricted_property_names(
+        access_control_api.get_restricted_properties_with_group_type_index_for_team(user=None, team_id=team.pk)
+    )
+    person_diff = user_names.person ^ send_names.person
+    group_diff = {
+        index: user_names.group.get(index, frozenset()) ^ send_names.group.get(index, frozenset())
+        for index in user_names.group.keys() | send_names.group.keys()
+    }
+    if not person_diff and not any(group_diff.values()) and not user_names.event ^ send_names.event:
+        return
+
+    for prop in expand_cohort_properties(parse_property_group_data((filters or {}).get("properties")), team).flat:
+        if prop.type == "person" and not key_read_overlaps_restriction(str(prop.key), person_diff):
+            continue
+        if prop.type == "group" and (
+            prop.key == "$group_key"
+            or not key_read_overlaps_restriction(
+                str(prop.key), group_diff.get(prop.group_type_index, frozenset()) | group_diff.get(None, frozenset())
+            )
+        ):
+            continue
+        raise exceptions.ValidationError(RESTRICTED_AUDIENCE_PROPERTY)
 
 
 def get_batch_audience_person_ids(

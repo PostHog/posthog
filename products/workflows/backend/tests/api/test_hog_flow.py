@@ -32,6 +32,8 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.scopes.catalog import APIScopeObject
 from posthog.test.fixtures import create_app_metric2
 
+from products.access_control.backend.facade.contracts import PropertyAccessLevel
+from products.access_control.backend.facade.testing import create_property_access_control
 from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.facade.testing import create_action
@@ -57,6 +59,7 @@ from products.cohorts.backend.models.team_access import (
     RealtimeCohortLevel,
     RealtimeCohortTeamAccess,
 )
+from products.event_definitions.backend.models import PropertyDefinition
 from products.feature_flags.backend.user_blast_radius import BlastRadiusResult
 from products.messaging.backend.facade.categories import update_category
 from products.messaging.backend.facade.testing import create_message_category_for_test
@@ -5827,6 +5830,34 @@ class TestHogFlowAPI(APIBaseTest):
             )
 
         assert response.status_code == 403, response.content
+
+    def test_user_blast_radius_refuses_a_filter_on_a_property_the_member_cannot_read(self):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        email = PropertyDefinition.objects.create(
+            team=self.team, name="email", property_type="String", type=PropertyDefinition.Type.PERSON
+        )
+        create_property_access_control(
+            team_id=self.team.pk,
+            property_definition_id=email.id,
+            access_level=PropertyAccessLevel.NONE.value,
+            organization_member_id=self.organization_membership.id,
+        )
+
+        with patch("products.workflows.backend.services.blast_radius.get_person_audience_count_v2") as mock_count:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
+                {"filters": {"properties": [{"key": "email", "type": "person", "value": "a@example.com"}]}},
+                format="json",
+            )
+
+        assert response.status_code == 400, response.json()
+        assert "confirm_token" not in response.json()
+        mock_count.assert_not_called()
 
     def test_user_blast_radius_personal_api_key_with_person_read_scope_allowed(self):
         key = generate_random_token_personal()
