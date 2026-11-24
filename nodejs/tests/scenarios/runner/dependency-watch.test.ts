@@ -1,5 +1,6 @@
 import http from 'http'
-import { AddressInfo } from 'net'
+import net, { AddressInfo } from 'net'
+import { setTimeout as sleep } from 'timers/promises'
 
 import { defaultConfig } from '~/common/config/config'
 
@@ -62,7 +63,16 @@ describe('dependency watch', () => {
         )
     })
 
-    it('names a refused dependency gone even when the busy runner hears the refusal after the timeout', async () => {
+    it('names a harness limit when a busy check runs out its budget with an error that is no answer', async () => {
+        const closedAfterItsTimeout = (): Promise<unknown> =>
+            sleep(2100).then(() => Promise.reject(new Error('Connection is closed.')))
+
+        const { losses } = await watched({ redis: closedAfterItsTimeout }, RUNNER_BLOCKS_MS)
+
+        expect(losses.map(({ name, kind }) => `${name} ${kind}`)).toEqual(['redis unheard'])
+    }, 30_000)
+
+    it('names a refused dependency gone when the busy runner hears the refusal past the 2-second check budget', async () => {
         const { postgres } = edgeAndPostgres(UNREACHABLE_POSTGRES)
         const heardLate = (): Promise<unknown> => {
             busyFor(1500)
@@ -77,18 +87,32 @@ describe('dependency watch', () => {
     }, 30_000)
 
     it('names a dependency gone when the retry hears a refusal after a busy first check timed out', async () => {
+        const sockets: net.Socket[] = []
+        const silent = net.createServer((socket) => sockets.push(socket))
+        await new Promise<void>((resolve) => silent.listen(0, '127.0.0.1', resolve))
+        const { port } = silent.address() as AddressInfo
+        const silentPostgres = edgeAndPostgres(`postgres://posthog:posthog@127.0.0.1:${port}/posthog`).postgres
+        const { postgres: refused } = edgeAndPostgres(UNREACHABLE_POSTGRES)
         let calls = 0
-        const silentThenRefused = (): Promise<unknown> => {
-            if (++calls === 1) {
-                busyFor(1500)
-                return Promise.reject(new Error('timeout expired'))
+        const silentThenRefused = async (): Promise<unknown> => {
+            if (++calls > 1) {
+                return refused()
             }
-            return Promise.reject(new Error('connect ECONNREFUSED'))
+            const saturating = setInterval(() => busyFor(RUNNER_BLOCKS_MS), 5)
+            try {
+                return await silentPostgres()
+            } finally {
+                clearInterval(saturating)
+            }
         }
+        try {
+            const { losses } = await watched({ postgres: silentThenRefused })
 
-        const { losses } = await watched({ postgres: silentThenRefused })
-
-        expect(losses.map(({ name, kind }) => `${name} ${kind}`)).toEqual(['postgres gone'])
+            expect(losses.map(({ name, kind }) => `${name} ${kind}`)).toEqual(['postgres gone'])
+        } finally {
+            sockets.forEach((socket) => socket.destroy())
+            silent.close()
+        }
     }, 30_000)
 
     it('confirms every dependency that first fails on a confirming check before the watch stops', async () => {

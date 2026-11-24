@@ -3,7 +3,7 @@ import { closeSync, openSync, writeFileSync } from 'fs'
 import Redis from 'ioredis'
 import { Producer } from 'node-rdkafka'
 import path from 'path'
-import { Client } from 'pg'
+import { Client, DatabaseError } from 'pg'
 import { promisify } from 'util'
 
 import { getDefaultConfig, overrideWithEnv } from '~/common/config/config'
@@ -390,10 +390,12 @@ async function pingKafka(): Promise<void> {
     await new Promise((resolve) => producer.disconnect(resolve))
 }
 
+class HttpAnswer extends Error {}
+
 export async function expectOk(url: string): Promise<void> {
     const { status } = await internalFetch(url, { timeoutMs: PROBE_TIMEOUT_MS })
     if (status !== 200) {
-        throw new Error(`${url} answered ${status}`)
+        throw new HttpAnswer(`${url} answered ${status}`)
     }
 }
 
@@ -416,22 +418,26 @@ export function dependencyProbes(
     }
 }
 
-const TIMEOUT = /timeout|timed ?out/i
+const ANSWER_CODES = new Set(['ECONNREFUSED', 'ECONNRESET', 'ENOTFOUND', 'EHOSTUNREACH'])
 
-const timedOut = (error: unknown): boolean =>
-    error instanceof Error
-        ? TIMEOUT.test(`${error.name} ${error.message} ${error.cause instanceof Error ? error.cause.message : ''}`)
-        : TIMEOUT.test(String(error))
+const answers = (error: unknown): boolean =>
+    error instanceof HttpAnswer ||
+    error instanceof DatabaseError ||
+    ANSWER_CODES.has(String((error as { code?: unknown } | null | undefined)?.code))
+
+const isAnswer = (error: unknown): boolean => answers(error) || (error instanceof Error && answers(error.cause))
 
 export async function failedProbes(probes: Probes): Promise<ProbeFailure[]> {
     const results = await Promise.all(
         Object.entries(probes).map(async ([name, probe]): Promise<ProbeFailure | null> => {
+            const startedAt = performance.now()
             try {
                 await probe()
                 return null
             } catch (error) {
+                const ranOutItsClock = performance.now() - startedAt >= PROBE_TIMEOUT_MS
                 const reason = error instanceof Error ? error.message : String(error)
-                return { name, reason, timedOut: timedOut(error) }
+                return { name, reason, timedOut: ranOutItsClock && !isAnswer(error) }
             }
         })
     )

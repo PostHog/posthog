@@ -308,7 +308,7 @@ A failed check runs again at once.
 A dependency that first fails on a confirming check gets a confirming check of its own, even when the run is stopping.
 A dependency went away when both checks failed and the runner's event loop does not explain it.
 A check that ran out its 2-second timeout while the loop was busy for half or more of the check is unheard: the runner also hosts the edge and runs the probes, so a saturated loop times them out against healthy services.
-Only a check whose error is a timeout can be unheard; any other error is an answer, however late the busy loop delivered it.
+A refusal, an HTTP status or a Postgres server error is an answer, however late the busy loop delivered it.
 The dependency is unheard only when both of its checks were unheard.
 A dependency that answers the second check recovered.
 `probes.json` keeps every failed check with its reason, time, kind and the loop's busy share.
