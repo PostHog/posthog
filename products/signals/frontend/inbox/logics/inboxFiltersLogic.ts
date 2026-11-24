@@ -523,7 +523,16 @@ export interface inboxFiltersLogicMeta {
             scoutFilter: string[],
             tagFilter: string[],
             priorityFilter: SignalReportPriority[],
-            stateFilter: InboxReportSectionKey[],
+            stateFilter: (
+                | 'closed'
+                | 'dismissed'
+                | 'held-back'
+                | 'monitoring'
+                | 'needs-decision'
+                | 'not-actionable'
+                | 'outcome-monitoring'
+                | 'resolved'
+            )[],
             sortField: InboxSortField,
             sortDirection: InboxSortDirection,
             searchQuery: string,
