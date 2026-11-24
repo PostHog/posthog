@@ -11,15 +11,10 @@ import { reviewHogProjectSettingsLogic } from './reviewHogProjectSettingsLogic'
 import { reviewHogRepositoriesLogic } from './reviewHogRepositoriesLogic'
 
 /** The less common settings of one repository, behind a "..." button. */
-export function RepositoryMoreMenu({ entry }: { entry: ReviewRepositoryOverviewEntryApi }): JSX.Element | null {
+export function RepositoryMoreMenu({ entry }: { entry: ReviewRepositoryOverviewEntryApi }): JSX.Element {
     const { canEdit } = useValues(reviewHogProjectSettingsLogic)
     const { busyRepositories } = useValues(reviewHogRepositoriesLogic)
     const { setRepositoryDeepReviews } = useActions(reviewHogRepositoriesLogic)
-
-    // Without auto-approval the repository has no rules to read. A switch left on stays visible so an admin can turn it off.
-    if (!entry.auto_approval && !entry.deep_review_gated_prs) {
-        return null
-    }
 
     const disabledReason =
         !canEdit && entry.deep_review_gated_prs

@@ -23,7 +23,8 @@ TRIGGER_COMMENT = "comment"
 TRIGGER_REVIEW_REQUEST = "review_request"
 TRIGGER_AUTOMATIC = "automatic"
 # The `trigger_action` of the automatic Deep review that follows a Standard turn with a must-fix finding. It
-# reviews a head that already had its automatic review, so the turn skips neither the head nor the push gate.
+# reviews a head that already had its automatic review, so the turn does not skip the head, and the push gate
+# applies only its draft rule.
 DEEP_FOLLOW_UP_ACTION = "deep_follow_up"
 # The triggers that ask for a review and then wait on an answer. A Stamphog handoff counts, because
 # Inbox triage reads the answer. An inbox review comes from the signals agent, so it is not one of them.

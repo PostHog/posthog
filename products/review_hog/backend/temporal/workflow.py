@@ -122,7 +122,6 @@ from products.review_hog.backend.temporal.scheduling import (
     request_silent_stamphog,
 )
 from products.review_hog.backend.temporal.types import (
-    DEEP_FOLLOW_UP_ACTION,
     TRIGGER_AUTOMATIC,
     TRIGGER_INBOX,
     TRIGGER_LABEL,
@@ -610,7 +609,6 @@ class ReviewPRWorkflow:
         if (
             workflow.patched("reviewhog-push-gate-2026-10")
             and inputs.trigger_source == TRIGGER_AUTOMATIC
-            and inputs.trigger_action != DEEP_FOLLOW_UP_ACTION
             and meta.automatic_reviewed_head_sha is not None
         ):
             try:
@@ -629,6 +627,7 @@ class ReviewPRWorkflow:
                         coordinator=meta.coordinator,
                         installation_id=inputs.installation_id,
                         github_repo_id=inputs.github_repo_id,
+                        trigger_action=inputs.trigger_action,
                     ),
                     start_to_close_timeout=_QUICK_TIMEOUT,
                     retry_policy=_RETRY,

@@ -758,6 +758,7 @@ class GatePushInput:
     coordinator: bool = False
     installation_id: str | None = None
     github_repo_id: int | None = None
+    trigger_action: str | None = None
 
 
 @dataclass(frozen=False)
@@ -2711,6 +2712,9 @@ def _cadence_allows_follow_up(input: GatePushInput, current: PRSnapshotArtefact 
 
 
 def _gate_push(input: GatePushInput) -> PushGateDecision:
+    # The Deep follow-up reviews the head that its Standard turn just reviewed, so no rule about pushes applies.
+    if input.trigger_action == DEEP_FOLLOW_UP_ACTION:
+        return _gate_automatic_deep_push(input)
     current = load_pr_snapshot(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha)
     draft = _pr_draft(current)
     if not _cadence_allows_follow_up(input, current, draft):
