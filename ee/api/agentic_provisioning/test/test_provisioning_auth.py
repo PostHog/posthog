@@ -49,7 +49,7 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
                 active=True, can_create_accounts=True, can_provision_resources=True
             ),
         )
-        # A client secret is enough only for a first-party app, which doesn't have to sign.
+        # Every provisioning partner signs, so a client secret identifies this partner but isn't enough.
         self.secret_partner = OAuthApplication.objects.create(
             client_id="test-client-secret-partner",
             name="Client Secret Partner",
@@ -58,7 +58,6 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="https://partner.example.com/callback",
             algorithm="RS256",
-            is_first_party=True,
             is_provisioning_partner=True,
             _provisioning_config=provisioning_config(active=True, can_create_accounts=False),
         )
@@ -100,38 +99,23 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
                 HTTP_AUTHORIZATION=self._basic_auth_header(self.secret_partner),
             )
 
-        # Past authentication to the capability check, which a partner that cannot create accounts fails.
-        assert res.status_code == 403, res.json()
-        assert res.json()["error"]["code"] == "forbidden"
+        # Identified by its secret, then refused because it doesn't sign.
+        assert res.status_code == 401, res.json()
+        assert res.json()["error"] == {"code": "unauthorized", "message": PRIVATE_KEY_REQUIRED_MESSAGE}
 
-    @parameterized.expand([("proven by its secret", True), ("public client id only", False)])
-    def test_partner_is_recorded_by_id_only_when_it_proved_itself(self, _name, confidential):
-        if confidential:
-            partner = self.secret_partner
-            data = self._client_auth(partner)
-        else:
-            partner = OAuthApplication.objects.create(
-                client_id="activity-log-public-partner",
-                name="Public partner",
-                client_type=OAuthApplication.CLIENT_PUBLIC,
-                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-                redirect_uris="https://partner.example.com/callback",
-                algorithm="RS256",
-                is_first_party=True,
-                is_provisioning_partner=True,
-                _provisioning_config=provisioning_config(can_create_accounts=False),
-            )
-            data = {"client_id": partner.client_id}
-        request = Request(APIRequestFactory().post("/", data, format="json"), parsers=[JSONParser()])
+    def test_signed_partner_is_recorded_by_id(self):
+        request = Request(
+            APIRequestFactory().post("/", self._client_auth(self.partner), format="json"), parsers=[JSONParser()]
+        )
 
         activity_storage.mark_request_scoped()
         try:
-            assert ProvisioningAuthentication().authenticate(request) == (None, partner)
+            assert ProvisioningAuthentication().authenticate(request) == (None, self.partner)
             credential = activity_storage.get_credential()
         finally:
             activity_storage.clear_all()
 
-        assert credential == ActivityCredential(type="partner", id=str(partner.id) if confidential else None)
+        assert credential == ActivityCredential(type="partner", id=str(self.partner.id))
 
     @parameterized.expand(
         [
@@ -265,27 +249,12 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
     # --- can_create_accounts enforcement ---
 
     def test_partner_without_can_create_accounts_rejected(self):
-        OAuthApplication.objects.create(
-            name="Disabled Partner",
-            client_id="disabled-partner",
-            client_secret=TEST_PARTNER_CLIENT_SECRET,
-            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
-            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            redirect_uris="https://localhost",
-            algorithm="RS256",
-            is_first_party=True,
-            is_provisioning_partner=True,
-            _provisioning_config=provisioning_config(active=True, can_create_accounts=False),
-        )
+        self.partner.update_provisioning(can_create_accounts=False)
 
-        res = self._post_api(
+        res = self._post_as_partner(
             "/api/agentic/provisioning/account_requests",
-            {
-                "id": "req_disabled",
-                "email": "disabled@example.com",
-                "client_id": "disabled-partner",
-                "client_secret": TEST_PARTNER_CLIENT_SECRET,
-            },
+            {"id": "req_disabled", "email": "disabled@example.com"},
+            self.partner,
         )
         assert res.status_code == 403
         assert res.json()["error"]["code"] == "forbidden"
@@ -356,15 +325,13 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
 
     @parameterized.expand(
         [
-            ("cannot_provision_resources", {"can_provision_resources": False}, False, False, 403),
-            ("dropped_its_private_key", {}, True, False, 401),
-            ("dropped_its_private_key_without_creating_accounts", {"can_create_accounts": False}, True, False, 401),
-            ("first_party_app_that_creates_accounts_dropped_its_key", {}, True, True, 401),
-            ("first_party_resource_app_dropped_its_key", {"can_create_accounts": False}, True, True, 200),
+            ("cannot_provision_resources", {"can_provision_resources": False}, False, 403),
+            ("dropped_its_private_key", {}, True, 401),
+            ("dropped_its_private_key_without_creating_accounts", {"can_create_accounts": False}, True, 401),
         ]
     )
     def test_bearer_after_partner_changes(
-        self, _name: str, change: dict[str, bool], drop_key: bool, first_party: bool, expected_status: int
+        self, _name: str, change: dict[str, bool], drop_key: bool, expected_status: int
     ) -> None:
         token = self._get_bearer_token()
 
@@ -372,8 +339,7 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
             self.partner.update_provisioning(**change)
         if drop_key:
             self.partner.jwks_uri = None
-            self.partner.is_first_party = first_party
-            self.partner.save(update_fields=["jwks_uri", "is_first_party"])
+            self.partner.save(update_fields=["jwks_uri"])
 
         res = self._post_with_bearer("/api/agentic/provisioning/resources", {}, token=token)
         assert res.status_code == expected_status
@@ -392,7 +358,6 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
             algorithm="RS256",
             client_id=cimd_url,
             is_cimd_client=True,
-            is_first_party=True,
             is_provisioning_partner=True,
             _provisioning_config=provisioning_config(
                 active=True, can_create_accounts=False, can_provision_resources=True
@@ -410,9 +375,9 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
                 "code_challenge_method": "S256",
             },
         )
-        # Past authentication to the capability check: an unknown client_id would be a 401.
-        assert res.status_code == 403, res.json()
-        assert res.json()["error"]["code"] == "forbidden"
+        # Identified by its CIMD URL, then refused for not signing. An unknown client_id gets a different message.
+        assert res.status_code == 401, res.json()
+        assert res.json()["error"] == {"code": "unauthorized", "message": PRIVATE_KEY_REQUIRED_MESSAGE}
 
     @patch("posthog.api.oauth.cimd.refresh_cimd_metadata_task")
     def test_cimd_url_inactive_partner_rejected(self, mock_refresh):
@@ -538,32 +503,21 @@ class TestUnsignedProvisioning(ProvisioningTestBase):
 
     @parameterized.expand(
         [
-            ("creates_accounts", {}, False, 401, "refused"),
-            ("pays_for_customers", {"can_create_accounts": False, "pays_for_customers": True}, False, 401, "refused"),
-            ("only_provisions_resources", {"can_create_accounts": False}, False, 401, "refused"),
-            ("first_party_app_that_creates_accounts", {}, True, 401, "refused"),
-            # Not asked to sign, so it gets past authentication to the capability check.
-            ("first_party_resource_app", {"can_create_accounts": False}, True, 403, "unsigned_exempt"),
+            ("creates_accounts", {}, False),
+            ("pays_for_customers", {"can_create_accounts": False, "pays_for_customers": True}, False),
+            ("only_provisions_resources", {"can_create_accounts": False}, False),
+            ("first_party_app", {"can_create_accounts": False}, True),
         ]
     )
     def test_partner_that_must_sign_is_refused_unsigned(
-        self,
-        name: str,
-        capabilities: dict[str, bool],
-        first_party: bool,
-        expected_status: int,
-        expected_signing: str,
+        self, name: str, capabilities: dict[str, bool], first_party: bool
     ) -> None:
         email = f"new-partner-{name}@example.com"
         partner = self._public_partner(capabilities=capabilities, first_party=first_party)
         res, signing = self._account_request(partner, email)
 
-        assert signing == expected_signing
-        if expected_status == 401:
-            self._assert_refused(res, email)
-        else:
-            assert res.status_code == expected_status, res.json()
-            assert res.json()["error"]["code"] == "forbidden"
+        assert signing == "refused"
+        self._assert_refused(res, email)
 
 
 CIMD_PROV_URL = "https://partner.example.com/.well-known/oauth-client-metadata.json"

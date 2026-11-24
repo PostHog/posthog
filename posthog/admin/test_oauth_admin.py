@@ -35,54 +35,16 @@ class TestOAuthApplicationAdmin(BaseTest):
 
     @parameterized.expand(
         [
-            (
-                "signing_partner_made_public",
-                {"can_create_accounts": True},
-                True,
-                False,
-                {"client_type": "public"},
-                True,
-            ),
-            ("signing_partner_drops_its_key", {"pays_for_customers": True}, True, False, {"jwks_uri": ""}, True),
-            (
-                "resource_only_partner_drops_its_key",
-                {"can_provision_resources": True},
-                True,
-                False,
-                {"jwks_uri": ""},
-                True,
-            ),
-            (
-                "first_party_app_that_creates_accounts_drops_its_key",
-                {"can_create_accounts": True},
-                True,
-                True,
-                {"jwks_uri": ""},
-                True,
-            ),
-            (
-                "first_party_resource_app_drops_its_key",
-                {"can_provision_resources": True},
-                True,
-                True,
-                {"jwks_uri": ""},
-                False,
-            ),
-            (
-                "keyless_app_loses_first_party",
-                {"can_provision_resources": True},
-                True,
-                True,
-                {"jwks_uri": "", "is_first_party": False},
-                True,
-            ),
+            ("signing_partner_made_public", {"can_create_accounts": True}, True, {"client_type": "public"}, True),
+            ("signing_partner_drops_its_key", {"pays_for_customers": True}, True, {"jwks_uri": ""}, True),
+            ("resource_only_partner_drops_its_key", {"can_provision_resources": True}, True, {"jwks_uri": ""}, True),
             # Never authenticates through provisioning auth, like the HMAC-signed Stripe Projects app.
-            ("not_a_provisioning_partner", {"pays_for_customers": True}, False, False, {"jwks_uri": ""}, False),
-            ("unrelated_edit", {"can_create_accounts": True}, True, False, {"name": "Renamed"}, False),
+            ("not_a_provisioning_partner", {"pays_for_customers": True}, False, {"jwks_uri": ""}, False),
+            ("unrelated_edit", {"can_create_accounts": True}, True, {"name": "Renamed"}, False),
         ]
     )
     def test_an_edit_cannot_leave_a_signing_partner_without_a_key(
-        self, name: str, config: dict, is_partner: bool, first_party: bool, changes: dict, expects_error: bool
+        self, name: str, config: dict, is_partner: bool, changes: dict, expects_error: bool
     ) -> None:
         app = OAuthApplication.objects.create(
             name=f"Signing App {name}",
@@ -93,12 +55,11 @@ class TestOAuthApplicationAdmin(BaseTest):
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="https://example.com/callback",
             algorithm="RS256",
-            is_first_party=first_party,
             is_provisioning_partner=is_partner,
             _provisioning_config=config,
         )
 
-        form = self._change_form(app, **{"jwks_uri": app.jwks_uri, "is_first_party": first_party, **changes})
+        form = self._change_form(app, **{"jwks_uri": app.jwks_uri, **changes})
 
         assert form.is_valid() is not expects_error, form.errors
         assert ("client_type" in form.errors) is expects_error

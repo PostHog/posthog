@@ -716,27 +716,6 @@ class TestOAuthModels(TestCase):
         self.assertEqual(refresh_token.revoked is not None, expects_revoke)
         self.assertEqual(app.sessions_revoked_at is not None, expects_revoke)
 
-    @parameterized.expand(
-        [
-            ("partner_stops_being_first_party", True, True, False, True),
-            ("non_partner_stops_being_first_party", False, True, False, False),
-            ("partner_becomes_first_party", True, False, True, False),
-        ]
-    )
-    def test_a_partner_that_stops_being_first_party_is_signed_out(
-        self, _name: str, is_partner: bool, was_first_party: bool, first_party: bool, expects_revoke: bool
-    ) -> None:
-        app = self._make_app(
-            "Partner", "partner_client_id", is_provisioning_partner=is_partner, is_first_party=was_first_party
-        )
-        refresh_token = OAuthRefreshToken.objects.create(application=app, user=self.user, token="partner_refresh")
-
-        app.is_first_party = first_party
-        app.save(update_fields=["is_first_party"])
-
-        refresh_token.refresh_from_db()
-        self.assertEqual(refresh_token.revoked is not None, expects_revoke)
-
     def test_a_stale_full_save_revokes_a_partner_switched_on_since_it_loaded(self) -> None:
         app = self._make_app("Partner", "partner_client_id", is_provisioning_partner=False)
         refresh_token = OAuthRefreshToken.objects.create(application=app, user=self.user, token="partner_refresh")

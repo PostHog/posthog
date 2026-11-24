@@ -84,7 +84,6 @@ class OAuthApplicationForm(forms.ModelForm):
         if before.edit_would_break_provisioning_signature(
             client_type=cleaned.get("client_type", before.client_type),
             jwks_uri=cleaned.get("jwks_uri", before.jwks_uri),
-            is_first_party=cleaned.get("is_first_party", before.is_first_party),
         ):
             self.add_error(
                 "client_type",

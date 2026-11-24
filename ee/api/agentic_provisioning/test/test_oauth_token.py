@@ -21,6 +21,7 @@ from products.access_control.backend.models.access_control import AccessControl
 from ee.api.agentic_provisioning.constants import AUTH_CODE_CACHE_PREFIX, PARTNER_TOKEN_EXPIRY_SECONDS
 from ee.api.agentic_provisioning.test.base import (
     TEST_PARTNER_CLIENT_SECRET,
+    TEST_PARTNER_JWKS_URI,
     TEST_PARTNER_SCOPES,
     ProvisioningTestBase,
     provisioning_config,
@@ -66,22 +67,7 @@ class TestOAuthTokenExchange(ProvisioningTestBase):
     def _stamp_session_revoke(self, when=None) -> None:
         OAuthApplication.objects.filter(id=self.partner.id).update(sessions_revoked_at=when or timezone.now())
 
-    def _public_partner(self, *, run_by_posthog: bool = False, **provisioning: bool) -> OAuthApplication:
-        return OAuthApplication.objects.create(
-            client_id="pkce-token-partner",
-            name="PKCE Token Partner",
-            client_secret="",
-            client_type=OAuthApplication.CLIENT_PUBLIC,
-            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            redirect_uris="https://partner.example.com/callback",
-            algorithm="RS256",
-            scopes=TEST_PARTNER_SCOPES,
-            is_first_party=run_by_posthog,
-            is_provisioning_partner=True,
-            _provisioning_config=provisioning_config(active=True, **provisioning),
-        )
-
-    def _client_secret_partner(self, *, run_by_posthog: bool = False, **provisioning: bool) -> OAuthApplication:
+    def _client_secret_partner(self, **provisioning: bool) -> OAuthApplication:
         return OAuthApplication.objects.create(
             client_id="client-secret-token-partner",
             name="Client Secret Token Partner",
@@ -91,7 +77,6 @@ class TestOAuthTokenExchange(ProvisioningTestBase):
             redirect_uris="https://partner.example.com/callback",
             algorithm="RS256",
             scopes=TEST_PARTNER_SCOPES,
-            is_first_party=run_by_posthog,
             is_provisioning_partner=True,
             _provisioning_config=provisioning_config(active=True, **provisioning),
         )
@@ -173,117 +158,55 @@ class TestOAuthTokenExchange(ProvisioningTestBase):
         assert res.status_code == 401
         assert res.json()["error_description"] == "code_verifier is required for PKCE"
 
-    @parameterized.expand(
-        [
-            ("missing_credentials", None),
-            ("wrong_secret", "not-the-real-secret"),
-        ]
-    )
-    def test_confidential_partner_without_valid_secret_cannot_exchange_code(self, _name, secret):
-        partner = self._client_secret_partner(run_by_posthog=True, can_create_accounts=False)
-        code, verifier = self._mint_auth_code(partner=partner)
-        body = {"grant_type": "authorization_code", "code": code, "code_verifier": verifier}
-        if secret is not None:
-            body.update(self._client_auth(partner, secret=secret))
-
-        res = self._post_api(TOKEN_URL, body)
-
-        assert res.status_code == 401
-        assert res.json()["error"] == "invalid_client"
-        # Client authentication runs before the code is consumed, so a rejected attempt must
-        # leave the caller able to retry with the right secret.
-        assert self._exchange_code(code, verifier, partner).status_code == 200
-
-    def test_confidential_partner_without_valid_secret_cannot_refresh(self):
-        partner = self._client_secret_partner(run_by_posthog=True, can_create_accounts=False)
+    def _partner_that_dropped_its_key(self, *, public: bool) -> tuple[OAuthApplication, str]:
+        """A partner that got its tokens while it signed, then lost its key, as a CIMD refresh does when the
+        metadata document drops `jwks_uri`."""
+        partner = self._client_secret_partner()
+        partner.jwks_uri = TEST_PARTNER_JWKS_URI
+        partner.save(update_fields=["jwks_uri"])
         refresh_token = self._request_bearer_token(partner=partner).json()["refresh_token"]
 
-        res = self._post_api(
-            TOKEN_URL,
-            {
-                "grant_type": "refresh_token",
-                "refresh_token": refresh_token,
-                **self._client_auth(partner, secret="not-the-real-secret"),
-            },
-        )
-
-        assert res.status_code == 401
-        assert res.json()["error"] == "invalid_client"
-        # The rejected refresh must not have revoked the caller's only token.
-        assert self._refresh(refresh_token, partner).status_code == 200
-
-    def test_pkce_partner_exchanges_code_without_a_secret(self):
-        # PKCE partners are public clients: code_verifier is their only client authentication,
-        # so requiring a secret from confidential partners must not reach them.
-        code, verifier = self._mint_auth_code(
-            partner=self._public_partner(run_by_posthog=True, can_create_accounts=False)
-        )
-
-        res = self._post_api(TOKEN_URL, {"grant_type": "authorization_code", "code": code, "code_verifier": verifier})
-
-        assert res.status_code == 200
-        assert res.json()["access_token"].startswith("pha_")
+        partner.jwks_uri = None
+        update_fields = ["jwks_uri"]
+        if public:
+            partner.client_type = OAuthApplication.CLIENT_PUBLIC
+            partner.client_secret = ""
+            update_fields += ["client_type", "client_secret"]
+        partner.save(update_fields=update_fields)
+        return partner, refresh_token
 
     @parameterized.expand(
         [
-            ("public_code_exchange", True, False, "authorization_code", TOKEN_URL, 401),
-            ("public_refresh", True, False, "refresh_token", TOKEN_URL, 401),
-            ("client_secret_refresh", False, False, "refresh_token", TOKEN_URL, 401),
-            ("public_refresh_at_oauth_token", True, False, "refresh_token", OAUTH_TOKEN_URL, 401),
-            ("client_secret_refresh_at_oauth_token", False, False, "refresh_token", OAUTH_TOKEN_URL, 401),
-            ("posthog_public_refresh", True, True, "refresh_token", TOKEN_URL, 200),
-            ("posthog_public_refresh_at_oauth_token", True, True, "refresh_token", OAUTH_TOKEN_URL, 200),
-            # The Wizard's production shape: a PostHog app with a client secret.
-            ("posthog_client_secret_refresh", False, True, "refresh_token", TOKEN_URL, 200),
-            ("posthog_client_secret_refresh_at_oauth_token", False, True, "refresh_token", OAUTH_TOKEN_URL, 200),
+            ("public_code_exchange", True, "authorization_code", TOKEN_URL),
+            ("public_refresh", True, "refresh_token", TOKEN_URL),
+            ("client_secret_code_exchange", False, "authorization_code", TOKEN_URL),
+            ("client_secret_refresh", False, "refresh_token", TOKEN_URL),
+            ("public_refresh_at_oauth_token", True, "refresh_token", OAUTH_TOKEN_URL),
+            ("client_secret_refresh_at_oauth_token", False, "refresh_token", OAUTH_TOKEN_URL),
         ]
     )
-    def test_unsigned_token_request(
-        self,
-        _name: str,
-        public: bool,
-        run_by_posthog: bool,
-        grant_type: str,
-        url: str,
-        expected_status: int,
-    ) -> None:
-        # Starts exempt so it can hold a refresh token. Gaining account creation then makes it sign, as any
-        # partner that has to sign does.
-        partner = (
-            self._public_partner(run_by_posthog=True, can_create_accounts=False)
-            if public
-            else self._client_secret_partner(run_by_posthog=True, can_create_accounts=False)
-        )
-        credentials = self._client_auth(partner) if not public else {"client_id": partner.client_id}
+    def test_unsigned_token_request(self, _name: str, public: bool, grant_type: str, url: str) -> None:
+        partner, refresh_token = self._partner_that_dropped_its_key(public=public)
+        credentials = {"client_id": partner.client_id} if public else self._client_auth(partner)
         if grant_type == "authorization_code":
             code, verifier = self._mint_auth_code(partner=partner)
             body = {"grant_type": grant_type, "code": code, "code_verifier": verifier, **credentials}
         else:
-            refresh_token = self._request_bearer_token(partner=partner).json()["refresh_token"]
             body = {"grant_type": grant_type, "refresh_token": refresh_token, **credentials}
-        if not run_by_posthog:
-            partner.update_provisioning(can_create_accounts=True)
 
         with patch("posthoganalytics.capture") as capture:
             res = self._post_api(url, body)
 
-        assert res.status_code == expected_status, res.json()
+        assert res.status_code == 401, res.json()
+        assert res.json()["error"] == "invalid_client"
+        assert res.json()["error_description"] == PRIVATE_KEY_REQUIRED_MESSAGE
         tags = {call.kwargs.get("properties", {}).get("provisioning_signing") for call in capture.call_args_list}
-        assert ("refused" if expected_status == 401 else "unsigned_exempt") in tags
-        if expected_status == 401:
-            assert res.json()["error"] == "invalid_client"
-            assert res.json()["error_description"] == PRIVATE_KEY_REQUIRED_MESSAGE
+        assert "refused" in tags
 
     @parameterized.expand([("public", True), ("client_secret", False)])
     def test_refused_partner_can_still_revoke_its_tokens(self, _name: str, public: bool) -> None:
-        partner = (
-            self._public_partner(run_by_posthog=True, can_create_accounts=False)
-            if public
-            else self._client_secret_partner(run_by_posthog=True, can_create_accounts=False)
-        )
+        partner, refresh_token = self._partner_that_dropped_its_key(public=public)
         credentials = {"client_id": partner.client_id} if public else self._client_auth(partner)
-        refresh_token = self._request_bearer_token(partner=partner).json()["refresh_token"]
-        partner.update_provisioning(can_create_accounts=True)
 
         res = self._post_api(
             "/oauth/revoke/",

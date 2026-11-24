@@ -410,15 +410,8 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
 
     @property
     def provisioning_signing(self) -> ProvisioningSigning:
-        """Every provisioning partner signs its requests with a private key, except a first-party app that only
-        provisions resources. Those are PostHog's own, such as the setup agent, whose CLI runs on people's machines
-        and so can't keep a key secret. Only staff set `is_first_party`, so a partner can't exempt itself."""
+        """Every provisioning partner signs its requests with a private key, because its client_id alone is public."""
         if not self.is_provisioning_partner:
-            return ProvisioningSigning.NOT_REQUIRED
-        provisioning = self.provisioning
-        # A first-party app that creates accounts or pays still signs: a client_id alone would let anyone who
-        # reads it out of the CLI create an account for an email they don't own.
-        if self.is_first_party and not (provisioning.can_create_accounts or provisioning.pays_for_customers):
             return ProvisioningSigning.NOT_REQUIRED
         return ProvisioningSigning.REQUIRED
 
@@ -605,40 +598,29 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
     def save(self, *args, **kwargs):
         self.full_clean()
 
-        update_fields = kwargs.get("update_fields")
-        writes_partner_off = self._writes_partner_flag_off(update_fields)
-        writes_first_party_off = self._writes_first_party_off_for_partner(update_fields)
-        if not (writes_partner_off or writes_first_party_off):
+        if not self._writes_partner_flag_off(kwargs.get("update_fields")):
             super().save(*args, **kwargs)
             return
 
-        # Every write of these flags goes through save. The stored flags are read under the app row lock, so
-        # a request that turns a flag on cannot commit between the read and the write. The revoke shares the
-        # transaction, so a failed revoke also undoes the flag change. The app row is locked before any token
-        # row, the order revoke_application_sessions and every token mint use.
+        # Every write of the flag goes through save. The stored flag is read under the app row lock, so
+        # a request that turns the flag on cannot commit between the read and the write. The revoke
+        # shares the transaction, so a failed revoke also undoes the flag change. The app row is locked
+        # before any token row, the order revoke_application_sessions and every token mint use.
         with transaction.atomic():
-            stored = (
+            stored_as_partner = (
                 OAuthApplication.objects.select_for_update()
                 .filter(pk=self.pk)
-                .values_list("is_provisioning_partner", "is_first_party")
+                .values_list("is_provisioning_partner", flat=True)
                 .first()
             )
             super().save(*args, **kwargs)
-            stored_as_partner, stored_as_first_party = stored or (False, False)
-            # A first-party partner that stops being first party may hold tokens it got without signing, and the
-            # rule that now makes it sign only checks new requests.
-            if (writes_partner_off and stored_as_partner) or (writes_first_party_off and stored_as_first_party):
+            if stored_as_partner:
                 revoke_application_sessions(self)
 
     def _writes_partner_flag_off(self, update_fields: Iterable[str] | None) -> bool:
         if self._state.adding or self.is_provisioning_partner:
             return False
         return update_fields is None or "is_provisioning_partner" in update_fields
-
-    def _writes_first_party_off_for_partner(self, update_fields: Iterable[str] | None) -> bool:
-        if self._state.adding or self.is_first_party or not self.is_provisioning_partner:
-            return False
-        return update_fields is None or "is_first_party" in update_fields
 
     def allows_grant_type(self, *grant_types: str) -> bool:
         # The device grant's approval page can only show a client's self-declared name, so a device
