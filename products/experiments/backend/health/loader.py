@@ -1,6 +1,8 @@
 from dataclasses import replace
 from typing import Any
 
+from django.utils import timezone
+
 import pydantic
 
 from posthog.models.user import User
@@ -22,7 +24,10 @@ from products.experiments.backend.health.exposure_columns import load_filters_wi
 from products.experiments.backend.health.exposure_gate import load_flag_history
 from products.experiments.backend.health.latest_calculation import load_latest_calculation
 from products.experiments.backend.health.metric_compiles import load_metric_compiles
-from products.experiments.backend.health.metric_windows import load_primary_metric_windows
+from products.experiments.backend.health.metric_windows import (
+    load_primary_metric_windows,
+    load_primary_metric_windows_at_launch,
+)
 from products.experiments.backend.health.pause_history import load_pause_history
 from products.experiments.backend.health.primary_metric import load_primary_metric
 from products.experiments.backend.health.registry import EXPERIMENT_HEALTH_CHECKS, evaluate, not_checked_health
@@ -45,11 +50,17 @@ from products.feature_flags.backend.facade.filters import (
 
 
 def evaluate_experiment_health(
-    *, team_id: int, experiment_id: int, reader_access: ExperimentHealthReaderAccess, user: User | None
+    *,
+    team_id: int,
+    experiment_id: int,
+    reader_access: ExperimentHealthReaderAccess,
+    user: User | None,
+    at_launch: bool = False,
 ) -> ExperimentHealth:
     """The health endpoint's checks and the flag's setup. The checks read the experiment, its flag, its linked
     metrics, the compile of their queries and their latest calculation, the changes of the flag since launch and the
-    flag's recent calls, as far as `reader_access` and `user`'s warehouse access allow."""
+    flag's recent calls, as far as `reader_access` and `user`'s warehouse access allow. With `at_launch`, the checks of
+    a draft that run only after launch also run as if it launched now."""
     experiment = _load_experiment(team_id, experiment_id)
     if experiment.is_rule_linked:
         # The checks and the setup read the release conditions and the variants of a v1 flag, and none reads a
@@ -57,7 +68,23 @@ def evaluate_experiment_health(
         return not_checked_health(EXPERIMENT_HEALTH_CHECKS, NOT_ON_FLAG_RULE)
     team_config = _team_config(experiment)
     ctx = _health_context(experiment, team_config, reader_access, user)
-    return replace(evaluate(ctx, EXPERIMENT_HEALTH_CHECKS), setup=_health_setup(experiment, ctx, team_config))
+    launched = _launched_now(experiment, ctx) if at_launch and not ctx.is_launched else None
+    return replace(
+        evaluate(ctx, EXPERIMENT_HEALTH_CHECKS, launched=launched), setup=_health_setup(experiment, ctx, team_config)
+    )
+
+
+def _launched_now(experiment: Experiment, ctx: HealthContext) -> HealthContext:
+    """The draft as it is when its launch succeeds. Nothing from the run exists yet: no exposures, calculation, flag
+    change or pause, so the checks that need them keep "Runs after launch"."""
+    return replace(
+        ctx,
+        is_launched=True,
+        is_running=True,
+        hours_since_launch=0.0,
+        hours_since_start=0.0,
+        primary_metric_windows=load_primary_metric_windows_at_launch(experiment, timezone.now()),
+    )
 
 
 def _health_setup(

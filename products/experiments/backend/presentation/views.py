@@ -135,6 +135,7 @@ from products.experiments.backend.presentation.serializers import (
     ExperimentBasicSerializer,
     ExperimentFlagCleanupTargetSerializer,
     ExperimentFlagCleanupTaskSerializer,
+    ExperimentHealthQuerySerializer,
     ExperimentHealthSerializer,
     ExperimentInSessionExposureSerializer,
     ExperimentMatchingIdsResponseSerializer,
@@ -992,12 +993,12 @@ class EnterpriseExperimentsViewSet(
         target = service.get_cleanup_repository_target(experiment)
         return Response(ExperimentFlagCleanupTargetSerializer(target).data)
 
-    @extend_schema(
-        request=None,
-        responses=ExperimentHealthSerializer,
+    @validated_request(
+        query_serializer=ExperimentHealthQuerySerializer,
+        responses={200: OpenApiResponse(response=ExperimentHealthSerializer)},
     )
     @action(methods=["GET"], detail=True, required_scopes=["experiment:read"])
-    def health(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+    def health(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         """
         Health check findings for this experiment: problems in its configuration and its feature flag
         that keep it from producing trustworthy results, each with a fix. `checks` gives the result of
@@ -1158,6 +1159,11 @@ class EnterpriseExperimentsViewSet(
         A running experiment with `only_count_matured_users` on gets the info
         `metrics_not_matured` while it is younger than the conversion or retention window of
         every primary metric, because no user can count for those metrics until a window passes.
+
+        With `at_launch=true`, a draft is checked as it will be when its launch succeeds: a check
+        that runs only after launch, such as `no_metric`, also runs as if the experiment launched
+        now. A check that needs exposures, a calculation or a flag change keeps the reason
+        "Runs after launch".
         """
         experiment: Experiment = self.get_object()
         # The checks read the stored results and the exposure counts, which came from the warehouse.
@@ -1167,6 +1173,7 @@ class EnterpriseExperimentsViewSet(
             experiment_id=experiment.id,
             reader_access=self._health_reader_access(request, experiment),
             user=request.user if isinstance(request.user, User) else None,
+            at_launch=request.validated_query_data["at_launch"],
         )
         return Response(ExperimentHealthSerializer(health).data)
 

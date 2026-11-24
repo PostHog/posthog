@@ -35,6 +35,19 @@ def load_primary_metric_windows(
         return None
 
 
+def load_primary_metric_windows_at_launch(
+    experiment: Experiment, launched_at: datetime
+) -> tuple[MetricWindow, ...] | None:
+    """The windows of the primary metrics of a draft that launches at `launched_at`, or None. Never raises."""
+    if experiment.archived or not experiment.only_count_matured_users:
+        return None
+    try:
+        return _load_primary_metric_windows(experiment, launched_at)
+    except Exception as error:
+        capture_exception(error)
+        return None
+
+
 def metric_window(*, name: str, definition: dict[str, Any], launched_at: datetime) -> MetricWindow | None:
     """The window of one metric definition. None when the definition doesn't parse, which `metric_cannot_compile`
     reports, so this captures nothing."""
