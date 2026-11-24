@@ -1,4 +1,4 @@
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import field
 from functools import partial
 from math import inf
@@ -9,6 +9,11 @@ from django.utils import timezone
 
 import structlog
 from prometheus_client import Counter, Gauge
+from redis.exceptions import (
+    ConnectionError as RedisConnectionError,
+    RedisClusterException,
+    TimeoutError as RedisTimeoutError,
+)
 
 from posthog.dataclasses import frozen
 from posthog.quota_redis import QuotaRedisClient, get_secondary_quota_redis_client, reconcile_quota_set
@@ -23,6 +28,9 @@ SECONDARY_RETRY_DELAY_SECONDS = 30
 # Covers the optional store's snapshot and reconcile in one quota run, not the time between them.
 QUOTA_SECONDARY_RUN_BUDGET_SECONDS = 300.0
 QUOTA_READ_PAGE_SIZE = 5_000
+QUOTA_READ_RETRY_DELAYS_SECONDS = (1.0, 2.0)
+# A cluster client that times out drops its only seed node, so redis-py raises RedisClusterException, not the timeout.
+_QUOTA_READ_RETRY_ERRORS = (RedisClusterException, RedisConnectionError, RedisTimeoutError)
 _retry_after: dict[str, float] = {}
 
 QUOTA_MIGRATION_ENABLED = Gauge(
@@ -78,7 +86,37 @@ def run_secondary_quota_operation[T](
     return result
 
 
-def _read_quota_set(client: QuotaRedisClient, key: str, deadline: float = inf) -> dict[bytes, float]:
+def _read_retries() -> Iterator[tuple[int, float]]:
+    return enumerate(QUOTA_READ_RETRY_DELAYS_SECONDS, start=1)
+
+
+def _read_quota_page(
+    client: QuotaRedisClient, key: str, cursor: int, deadline: float, retries: Iterator[tuple[int, float]]
+) -> tuple[QuotaRedisClient, int, list[tuple[bytes, float]]]:
+    try:
+        next_cursor, page = client.zscan(key, cursor, count=QUOTA_READ_PAGE_SIZE)
+        return client, next_cursor, page
+    except _QUOTA_READ_RETRY_ERRORS as error:
+        failure = error
+    for attempt, delay in retries:
+        if monotonic() + delay >= deadline:
+            break
+        logger.warning("quota_secondary_read_retry", key=key, attempt=attempt, error_type=type(failure).__name__)
+        sleep(delay)
+        try:
+            retry_client = get_secondary_quota_redis_client(maintenance=True)
+            if retry_client is None:
+                break
+            next_cursor, page = retry_client.zscan(key, cursor, count=QUOTA_READ_PAGE_SIZE)
+            return retry_client, next_cursor, page
+        except _QUOTA_READ_RETRY_ERRORS as error:
+            failure = error
+    raise failure
+
+
+def _read_quota_set(
+    client: QuotaRedisClient, key: str, retries: Iterator[tuple[int, float]], deadline: float = inf
+) -> tuple[QuotaRedisClient, dict[bytes, float]]:
     # Concurrent web writes shift ZRANGE ranks between pages. ZSCAN returns every member that stays
     # present for the whole scan and can return a member twice, so the dict keeps one score per member.
     scores: dict[bytes, float] = {}
@@ -86,10 +124,10 @@ def _read_quota_set(client: QuotaRedisClient, key: str, deadline: float = inf) -
     while True:
         if monotonic() >= deadline:
             raise TimeoutError("Quota Redis run budget exceeded")
-        cursor, page = client.zscan(key, cursor, count=QUOTA_READ_PAGE_SIZE)
+        client, cursor, page = _read_quota_page(client, key, cursor, deadline, retries)
         scores.update(page)
         if cursor == 0:
-            return scores
+            return client, scores
 
 
 @frozen
@@ -115,11 +153,13 @@ def snapshot_quota_stores(selected: Mapping[str, Sequence[str]]) -> QuotaReconci
     """Every store removes only tokens it contained before this quota run's decisions."""
     now = timezone.now().timestamp()
     deadline = monotonic() + QUOTA_SECONDARY_RUN_BUDGET_SECONDS
+    # One retry allowance for all keys, because the snapshot delays the shared writes that follow it.
+    retries = _read_retries()
 
     def read(client: QuotaRedisClient) -> dict[str, list[str]]:
         snapshot: dict[str, list[str]] = {}
         for key in selected:
-            scores = _read_quota_set(client, key, deadline)
+            client, scores = _read_quota_set(client, key, retries, deadline)
             snapshot[key] = [token.decode("utf-8") for token, score in scores.items() if score >= now]
         return snapshot
 
@@ -174,13 +214,16 @@ def compare_quota_stores(keys: Sequence[str]) -> bool:
         return False
     try:
         shared = get_client(settings.REDIS_READER_URL or settings.REDIS_URL)
-        secondary = get_secondary_quota_redis_client(maintenance=True)
-        if secondary is None:
+        configured_secondary = get_secondary_quota_redis_client(maintenance=True)
+        if configured_secondary is None:
             return False
+        secondary = configured_secondary
+        retries = _read_retries()
 
         def differences(key: str) -> dict[bytes, _QuotaScoreDifference]:
+            nonlocal secondary
             shared_scores = dict(shared.zrange(key, 0, -1, withscores=True))
-            secondary_scores = _read_quota_set(secondary, key)
+            secondary, secondary_scores = _read_quota_set(secondary, key, retries)
             return {
                 token: _QuotaScoreDifference(shared=shared_scores.get(token), secondary=secondary_scores.get(token))
                 for token in shared_scores.keys() | secondary_scores.keys()
