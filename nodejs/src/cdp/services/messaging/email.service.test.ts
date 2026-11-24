@@ -2781,24 +2781,13 @@ describe('EmailService', () => {
                             }
                         }
                     }
-                    const until = async (done: () => boolean): Promise<void> => {
-                        const givesUpAt = performance.now() + 10_000
-                        while (!done()) {
-                            if (performance.now() > givesUpAt) {
-                                throw new Error('the send did not get there in 10 real seconds')
-                            }
-                            await new Promise((resolve) => setTimeout(resolve, 10))
-                        }
-                    }
                     try {
-                        let outcome: ReturnType<typeof outcomeOf> | undefined
-                        void emailService.executeSendEmail(invocation).then((result) => (outcome = outcomeOf(result)))
-                        await until(() => bucket.heldRequests > 0)
+                        const outcome = emailService.executeSendEmail(invocation).then(outcomeOf)
+                        await bucket.holding()
                         advanceSendClock(answeredAfterMs)
                         bucket.release()
-                        await until(() => outcome !== undefined)
 
-                        expect(outcome).toEqual(expected)
+                        expect(await outcome).toEqual(expected)
                         expect(deliveredTo(ses, recipient)).toHaveLength(deliveries)
                     } finally {
                         timeouts.mockRestore()
