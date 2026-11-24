@@ -1002,6 +1002,17 @@ describe('RecordingApi', () => {
             expect(mockService.getBlockByRef).not.toHaveBeenCalled()
         })
 
+        it('has no staff ref route on an internal pod without the staff secret', async () => {
+            const app = await buildApp('internal')
+
+            const res = await supertest(app)
+                .get('/api/projects/1/recordings/session-123/blocks/v1.abc')
+                .set('Authorization', serviceToken())
+
+            expect(res.status).toBe(404)
+            expect(mockService.getBlockByRef).not.toHaveBeenCalled()
+        })
+
         it('refuses a team id spelled with a leading zero', async () => {
             const app = await buildApp('public')
 
