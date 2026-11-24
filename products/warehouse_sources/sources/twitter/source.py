@@ -19,7 +19,12 @@ from products.warehouse_sources.sources.sdk import (
     detect,
 )
 from products.warehouse_sources.sources.twitter._config import TwitterSourceConfig
-from products.warehouse_sources.sources.twitter.settings import API_VERSION_2, ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.sources.twitter.settings import (
+    API_VERSION_2,
+    ENDPOINTS,
+    INCREMENTAL_FIELDS,
+    MERGE_ONLY_ENDPOINTS,
+)
 from products.warehouse_sources.sources.twitter.twitter import (
     TwitterResumeConfig,
     endpoint_permissions,
@@ -54,6 +59,7 @@ class TwitterSource(ResumableSource[TwitterSourceConfig, TwitterResumeConfig]):
             # X's pay-per-use plan answers 402 once the project's prepaid credits run out, mirroring
             # the check in `validate_credentials` — retrying a sync won't refill the balance.
             "402 Client Error: Payment Required for url: https://api.x.com": "Your X developer project has run out of API credits. Add credits in the X developer portal, then try again.",
+            "Add a search query to the source settings to sync this table.": None,
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
@@ -70,7 +76,7 @@ class TwitterSource(ResumableSource[TwitterSourceConfig, TwitterResumeConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=MERGE_ONLY_ENDPOINTS)
 
     def validate_credentials(
         self,
@@ -84,7 +90,7 @@ class TwitterSource(ResumableSource[TwitterSourceConfig, TwitterResumeConfig]):
     def get_endpoint_permissions(
         self, config: TwitterSourceConfig, team_id: int, endpoints: list[str], api_version: str | None = None
     ) -> dict[str, str | None]:
-        return endpoint_permissions(config.bearer_token, config.username, endpoints)
+        return endpoint_permissions(config.bearer_token, config.username, endpoints, config.search_query)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[TwitterResumeConfig]:
         return ResumableSourceManager[TwitterResumeConfig](inputs, TwitterResumeConfig)
@@ -103,6 +109,7 @@ class TwitterSource(ResumableSource[TwitterSourceConfig, TwitterResumeConfig]):
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,
+            search_query=config.search_query,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,
@@ -142,6 +149,19 @@ class TwitterSource(ResumableSource[TwitterSourceConfig, TwitterResumeConfig]):
                         required=True,
                         placeholder="posthog",
                         secret=False,
+                    ),
+                    SourceFieldInputConfig(
+                        name="search_query",
+                        label="Search query",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder="posthog -from:posthog",
+                        caption=(
+                            "Used only by the `SearchedPosts` table, which syncs matching posts from the last 7 days. "
+                            "Accepts [X search operators](https://docs.x.com/x-api/posts/search/integrate/build-a-query)."
+                        ),
+                        secret=False,
+                        sync_setting=True,
                     ),
                 ],
             ),

@@ -50,11 +50,14 @@ def mock_team(db):
     from posthog.models.organization import Organization
     from posthog.models.team import Team
 
-    organization = Organization.objects.create(name="Test Org")
+    from products.ai_observability.backend.models.clustering_config import ClusteringConfig
+
+    organization = Organization.objects.create(name="Test Org", is_ai_data_processing_approved=True)
     team = Team.objects.create(
         organization=organization,
         name="Test Team",
     )
+    ClusteringConfig.objects.create(team=team, enabled=True)
     return team
 
 

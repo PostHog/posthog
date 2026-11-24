@@ -178,10 +178,10 @@ def _member_welcome_tail(integration: WorkspaceIntegration) -> list[dict[str, An
 def onboarding_intro_text(slack_user_id: str) -> str:
     return (
         f":wave: Hey <@{slack_user_id}>, I'm PostHog, your team's AI agent in Slack. I can:\n"
-        "• :bar_chart: Answer questions about your product data\n"
-        "• :bug: Dig into bugs and errors\n"
-        "• :hammer_and_wrench: Open pull requests with fixes\n"
-        "Let's get you set up, it takes about 2 minutes :point_down:"
+        "• Answer questions about your product data\n"
+        "• Dig into bugs and errors\n"
+        "• Open pull requests with fixes\n"
+        "Let's get you set up, it takes about 2 minutes."
     )
 
 
@@ -268,7 +268,7 @@ def github_connect_button(team_id: int) -> dict:
 def _github_blocks(integration: WorkspaceIntegration, *, done: bool) -> list[dict]:
     blocks: list[dict] = [
         section_block(
-            "*1. Connect your codebase* :wrench:\nConnect GitHub so I can fix things, not just flag them - "
+            "*1. Connect your codebase*\nConnect GitHub so I can fix things, not just flag them - "
             "when I spot a problem in your product I'll proactively open a pull request with the fix for you to review."
         )
     ]
@@ -310,7 +310,7 @@ def sources_blocks(integration: WorkspaceIntegration, *, title: str, action_id: 
 def _sources_blocks(integration: WorkspaceIntegration) -> list[dict]:
     return sources_blocks(
         integration,
-        title="*2. Choose what I watch* :eyes:\nTick the signals I should monitor and investigate.",
+        title="*2. Choose what I watch*\nTick the signals I should monitor and investigate.",
         action_id=INBOX_SOURCES_CHECKBOXES_ACTION,
         block_id=f"{INBOX_SOURCES_BLOCK_PREFIX}:{integration.id}",
     )
@@ -319,7 +319,7 @@ def _sources_blocks(integration: WorkspaceIntegration) -> list[dict]:
 def _channel_blocks(integration: WorkspaceIntegration, slack: SlackIntegration, *, done: bool) -> list[dict]:
     blocks: list[dict] = [
         section_block(
-            "*3. Where I report* :inbox_tray:\nEverything I find lands in one shared channel so the team stays in the loop."
+            "*3. Where I report*\nEverything I find lands in one shared channel so the team stays in the loop."
         )
     ]
     if done:
@@ -399,7 +399,7 @@ def build_onboarding_dm(
     # Above the steps because it is the half of the product the steps never describe, and a reader
     # who stops at the setup checklist would otherwise never learn the agent answers questions.
     interactive = section_block(
-        "💬 *You can also just talk to me*\nTag `@PostHog` in any channel, or message me here, to dig into your "
+        "*You can also just talk to me*\nTag `@PostHog` in any channel, or message me here, to dig into your "
         "product data or open a pull request. Name a project to route one question: `@PostHog give me DAU for "
         "Staging please`. In a channel, `/posthog` lists my commands."
     )
@@ -411,7 +411,7 @@ def build_onboarding_dm(
         blocks += _ai_approval_blocks(integration, is_admin=ai_approval_is_admin)
     blocks.append(
         context_block(
-            "🎉 Once you're set up, I'll start watching your product and send your first report to "
+            "Once you're set up, I'll start watching your product and send your first report to "
             "#posthog-inbox as soon as I spot something."
         )
     )

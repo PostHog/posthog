@@ -22,6 +22,7 @@ from products.tasks.backend.logic.services.model_catalogue import (
     catalog_model_choices,
     display_name_for_model,
     filter_unsupported_effort,
+    find_model_choice,
     group_by_runtime,
     label_for,
     offered_model_choices,
@@ -29,7 +30,11 @@ from products.tasks.backend.logic.services.model_catalogue import (
     runnable_model_choices,
     runtime_adapter_for,
 )
-from products.tasks.backend.model_catalog import CAPABILITY_LADDER_BY_RUNTIME_ADAPTER, normalize_model_id
+from products.tasks.backend.model_catalog import (
+    CAPABILITY_LADDER_BY_RUNTIME_ADAPTER,
+    normalize_model_id,
+    reasoning_efforts_for,
+)
 
 __all__ = [
     "CAPABILITY_LADDER_BY_RUNTIME_ADAPTER",
@@ -45,12 +50,14 @@ __all__ = [
     "uncataloged_runtime_adapter",
     "display_name_for_model",
     "filter_unsupported_effort",
+    "find_model_choice",
     "group_by_runtime",
     "label_for",
     "model_allowed_by_product_pin",
     "normalize_model_id",
     "offered_model_choices",
     "plan_model_choices",
+    "reasoning_efforts_for",
     "runnable_model_choices",
     "runtime_adapter_for",
 ]

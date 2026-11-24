@@ -4,7 +4,7 @@ import { IconPlus, IconPlusSmall } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
 
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator, PropertyFilterRow } from '~/types'
 

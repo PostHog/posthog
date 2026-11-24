@@ -84,7 +84,7 @@ class HoneybadgerSource(ResumableSource[HoneybadgerSourceConfig, HoneybadgerResu
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Honeybadger",
             releaseStatus=ReleaseStatus.GA,
-            caption="""Enter your Honeybadger personal authentication token to pull your error monitoring data (projects, environments, errors, occurrences, affected users, comments, deployments, uptime checks and their results, outages, check-ins, and alarm history) into the PostHog Data warehouse.
+            caption="""Enter your Honeybadger personal authentication token to pull your error monitoring data (projects, environments, errors, occurrences, affected users, comments, deployments, uptime checks and their results, outages, check-ins, alarm history, reports, teams, and account users) into the PostHog Data warehouse.
 
 You can find your personal authentication token on your [Honeybadger profile page](https://app.honeybadger.io/users/edit).
 
@@ -158,6 +158,17 @@ Note that Honeybadger's API is limited to 360 requests per hour, so large backfi
                 )
             if endpoint == "alarm_history":
                 return "State changes of each Honeybadger Insights alarm"
+            if endpoint == "notices_per_day":
+                return (
+                    "Daily error counts per project from the Reports tab. The first sync reads the last 30 days, "
+                    "and incremental syncs add each new day"
+                )
+            if endpoint == "notices_by_class":
+                return "Error counts per error class and project over the last 30 days. Each sync replaces the table"
+            if endpoint == "team_members":
+                return "Members of each Honeybadger team. Listing members can need team admin rights"
+            if endpoint == "account_users":
+                return "Users of each Honeybadger account, with their role. Listing users can need account admin rights"
             return None
 
         schemas = [

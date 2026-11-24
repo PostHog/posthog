@@ -229,7 +229,7 @@ class TestAvailableModelChoices:
         [
             ("posthog_code", "claude-opus-5-5", True),
             (FREE_TIER_PIN_KEY, "claude-opus-5-5", False),
-            (FREE_TIER_PIN_KEY, "moonshotai/kimi-k3", True),
+            (FREE_TIER_PIN_KEY, "moonshotai/kimi-k3.1-pro", True),
         ]
     )
     def test_marks_whether_the_plan_pin_admits_each_model(self, plan_pin: str, model: str, allowed: bool) -> None:

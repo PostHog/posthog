@@ -469,7 +469,7 @@ class TestScopeRepoFigure(SimpleTestCase):
     def test_scope_figures_read_only_the_prs_in_scope(self) -> None:
         facts = [
             _facts(1, in_scope=True, ready_hours=10, approved_after_hours=4, pushes_after=[0, 6]),
-            # Approved while still a draft: nobody waited on a reviewer after it went ready.
+            # Approved while still a draft.
             _facts(2, in_scope=False, ready_hours=2, approved_after_hours=-1, pushes_after=[1]),
             _facts(3, in_scope=False, ready_hours=30, approved_after_hours=None, pushes_after=[]),
         ]
@@ -853,10 +853,8 @@ class TestDeliveryReadsOnWarehouse(_WarehouseMixin):
         assert closed.segments[-1].ended_at == _dt(closed_at)
 
     def test_an_earlier_ready_event_still_wins_when_the_latest_is_after_the_close(self) -> None:
-        # PR 33 went ready, back to draft, then ready again; the events and pull-requests tables sync
-        # apart, so its last ready event lands after its own row's close. Picking the unbounded latest
-        # ready event and discarding it wholesale on an out-of-bounds read would lose the earlier,
-        # still-valid one and overstate the review timeline from created_at instead.
+        # The events table and the pull requests table sync at different times, so the last ready
+        # event of PR 33 lands after the close time on its row.
         closed_at = _ago(2)
         self._create_table(
             "github_pull_requests",
@@ -886,9 +884,8 @@ class TestDeliveryReadsOnWarehouse(_WarehouseMixin):
         assert reopened.started_at == _dt(_ago(5))
 
     def test_a_never_ready_pr_starts_at_its_own_created_at(self) -> None:
-        # PR 32 has an issue event, but never a ready_for_review one. The bounded ready-at read must
-        # come back empty here, not fall back to ClickHouse's zero-value DateTime default, which would
-        # read as truthy and pin the timeline to run_from instead.
+        # PR 32 has an issue event but no ready_for_review event. ClickHouse's zero DateTime default
+        # is truthy, so the ready-at read must return no value at all.
         created_at = _ago(6)
         self._create_table(
             "github_pull_requests",
@@ -947,9 +944,8 @@ class TestDeliveryComparisonOnWarehouse(_WarehouseMixin):
             ],
         )
         self._create_table("github_workflow_runs", WORKFLOW_RUNS_COLUMNS, [])
-        # Alice is in two teams that own code and in an approver group that owns none. The two teams sit on
-        # either side of MIN_OTHER_TEAM_AUTHORS: team-replay has exactly as many other authors with a ready
-        # time as the floor asks for, team-ingestion one fewer, so its median stays hidden.
+        # Alice is in two teams that own code and in an approver group that owns none. team-replay has
+        # exactly MIN_OTHER_TEAM_AUTHORS other authors with a ready time, and team-ingestion has one fewer.
         self._create_table(
             "github_team_members",
             TEAM_MEMBERS_COLUMNS,
@@ -1118,8 +1114,7 @@ class TestDeliveryDeployWindow(_WarehouseMixin):
         lead_time = summary.lead_time
         assert lead_time.deploy_data_available is True
         assert lead_time.merged_pr_count == 2
-        # One deploy follows the report end and another belongs to an earlier merge, so neither
-        # belongs in the count or its adjacent distribution.
+        # One deploy follows the report end and another belongs to an earlier merge.
         assert lead_time.deployed_merged_pr_count == 1
         assert lead_time.open_to_deploy.scope.pr_count == 1
 

@@ -52,6 +52,11 @@ from posthog.models.user_integration import (
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.tasks.backend.facade.access import (
+    DesktopAccessDecision,
+    DesktopAccessResolutionError,
+    PostHogAIAccessDecision,
+)
 
 
 def _authorization(gh_id: int = 99, gh_login: str = "octocat") -> GitHubUserAuthorization:
@@ -1270,16 +1275,29 @@ class TestGetGithubLoginPrecedence(APIBaseTest):
         UserSocialAuth.objects.create(user=self.user, provider="github", uid="99", extra_data={"login": "ghuser"})
         self.assertEqual(self.user.get_github_login(), "ghuser")
 
-    def test_uses_team_integration_when_only_source(self):
+    @parameterized.expand(
+        [
+            ("own_row_in_current_team", "current", "self", "teamuser"),
+            ("own_row_in_another_organization", "other_org", "self", "teamuser"),
+            ("row_of_another_user", "current", "other", None),
+        ]
+    )
+    def test_uses_team_integration_when_only_source(self, _name, team_kind, creator, expected):
+        team = self.team
+        if team_kind == "other_org":
+            team = Team.objects.create(organization=Organization.objects.create(name="Other org"))
+        created_by = self.user
+        if creator == "other":
+            created_by = User.objects.create_and_join(self.organization, "other@example.com", None)
         Integration.objects.create(
-            team=self.team,
+            team=team,
             kind="github",
             integration_id="inst-1",
             config={"connecting_user_github_login": "teamuser"},
             sensitive_config={},
-            created_by=self.user,
+            created_by=created_by,
         )
-        self.assertEqual(self.user.get_github_login(), "teamuser")
+        self.assertEqual(self.user.get_github_login(), expected)
 
     def test_user_integration_takes_precedence_over_social_auth(self):
         from social_django.models import UserSocialAuth
@@ -1719,7 +1737,7 @@ def _create_slack_user_integration(
             "slack_email_at_link": slack_email_at_link,
             "linked_at": int(time.time()),
         },
-        sensitive_config={},
+        sensitive_config={"user_access_token": "xoxp-test-token"},
     )
 
 
@@ -1780,10 +1798,15 @@ class TestUserIntegrationSlackEndpoints(APIBaseTest):
         response = self.client.get("/api/users/@me/integrations/?kind=slack")
         self.assertEqual(response.json()["results"], [])
 
-    def test_slack_destroy_removes_row(self):
+    @parameterized.expand([("slack_revokes", None), ("slack_is_down", ConnectionError("slack is down"))])
+    def test_slack_destroy_revokes_the_token_and_removes_row(self, _name: str, revoke_error: Exception | None):
         _create_slack_user_integration(self.user, slack_user_id="U999")
-        response = self.client.delete("/api/users/@me/integrations/slack/U999/")
+        with patch("posthog.models.user_integration.SlackWebClient") as slack_client:
+            slack_client.return_value.auth_revoke.side_effect = revoke_error
+            response = self.client.delete("/api/users/@me/integrations/slack/U999/")
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(slack_client.call_args.args, ("xoxp-test-token",))
+        slack_client.return_value.auth_revoke.assert_called_once()
         self.assertFalse(
             UserIntegration.objects.filter(
                 user=self.user, kind=UserIntegration.IntegrationKind.SLACK, integration_id="U999"
@@ -1982,9 +2005,18 @@ class TestUserIntegrationSlackEndpoints(APIBaseTest):
 class TestUserIntegrationCodexEndpoints(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
-        flag = patch("posthog.api.user_integration_codex.posthoganalytics.feature_enabled", return_value=True)
-        self.flag_enabled = flag.start()
+        flag = patch(
+            "posthog.api.user_integration_codex.get_posthog_ai_access_decision",
+            return_value=PostHogAIAccessDecision.GRANDFATHERED,
+        )
+        self.access_decision = flag.start()
         self.addCleanup(flag.stop)
+        desktop_access = patch(
+            "posthog.api.user_integration_codex.get_desktop_access_decision",
+            return_value=DesktopAccessDecision.SIGNUPS_PAUSED,
+        )
+        self.desktop_access_decision = desktop_access.start()
+        self.addCleanup(desktop_access.stop)
         cache.clear()
 
     def _sandbox_client(self) -> APIClient:
@@ -2097,21 +2129,33 @@ class TestUserIntegrationCodexEndpoints(APIBaseTest):
             UserIntegration.objects.get(user=self.user, kind="codex").sensitive_config["refresh_token"] == "rt_rotated"
         )
 
-    @parameterized.expand([("flag_off", False, None), ("flag_check_failed", None, RuntimeError("down"))])
-    def test_connect_is_unavailable_without_the_flag(self, _name, enabled, error):
-        self.flag_enabled.return_value = enabled
-        self.flag_enabled.side_effect = error
+    @parameterized.expand(
+        [(decision, desktop) for decision in PostHogAIAccessDecision for desktop in [*DesktopAccessDecision, None]]
+    )
+    def test_connect_follows_product_access(
+        self, decision: PostHogAIAccessDecision, desktop: DesktopAccessDecision | None
+    ) -> None:
+        self.access_decision.return_value = decision
+        if desktop is None:
+            self.desktop_access_decision.side_effect = DesktopAccessResolutionError("unavailable")
+        else:
+            self.desktop_access_decision.return_value = desktop
+        allowed = decision.allowed or (desktop is not None and desktop.allowed)
+        expected_status = (
+            status.HTTP_200_OK
+            if allowed
+            else status.HTTP_503_SERVICE_UNAVAILABLE
+            if desktop is None
+            else status.HTTP_404_NOT_FOUND
+        )
 
-        with patch("requests.request") as request:
-            response = self.client.post(
-                "/api/users/@me/integrations/codex/",
-                {"tokens": {"access_token": _codex_access_token(), "refresh_token": "rt_submitted"}},
-                format="json",
-            )
+        response = self._connect()
 
-        assert response.status_code == status.HTTP_404_NOT_FOUND
-        request.assert_not_called()
-        assert not UserIntegration.objects.filter(user=self.user, kind="codex").exists()
+        assert response.status_code == expected_status
+        if expected_status == status.HTTP_503_SERVICE_UNAVAILABLE:
+            assert response.json()["code"] == "desktop_access_unavailable"
+            assert "Try again" in response.json()["detail"]
+        assert UserIntegration.objects.filter(user=self.user, kind="codex").exists() is allowed
 
     def test_connect_is_throttled_per_user(self):
         for _ in range(10):

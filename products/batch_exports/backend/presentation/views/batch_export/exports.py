@@ -26,6 +26,7 @@ from products.batch_exports.backend.facade.contracts import (
     InvalidBatchExportDestinationError,
     InvalidBatchExportFilters,
     InvalidDestinationConfigError,
+    InvalidKeyError,
     UnsupportedDestinationTestError,
     UnsupportedHogQLQueryError,
 )
@@ -764,7 +765,7 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
             )
         except UnsupportedDestinationTestError:
             raise ValidationError(f"Connection tests aren't available for {destination['type']} destinations.")
-        except InvalidDestinationConfigError as e:
+        except (InvalidDestinationConfigError, InvalidKeyError) as e:
             raise ValidationError(str(e))
         except BatchExportNotFoundError:
             raise NotFound(f"BatchExport ID '{export_id}' not found.")

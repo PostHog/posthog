@@ -65,6 +65,7 @@ export function handleFunnelLineChartClick(
                 timezone={deps.timezone}
                 weekStartDay={deps.weekStartDay ?? undefined}
                 date={day.toString()}
+                showFullDate
             />
             {breakdownLabel ? <> • {breakdownLabel}</> : null}
         </>

@@ -1,6 +1,7 @@
 //! A TCP proxy between the persons pools and Postgres that injects the faults of a persons DB
 //! stall.
 
+use std::net::IpAddr;
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Arc, Mutex,
@@ -25,6 +26,7 @@ struct Faults {
 
 pub struct PersonsDbProxy {
     url: String,
+    port: u16,
     faults: watch::Sender<Faults>,
     accepted: Arc<AtomicUsize>,
     open_connections: Arc<Mutex<CancellationToken>>,
@@ -32,18 +34,18 @@ pub struct PersonsDbProxy {
 }
 
 impl PersonsDbProxy {
-    /// Proxies the Postgres server of `database_url`. [`Self::url`] reaches the same database
-    /// through the proxy.
-    pub async fn start(database_url: &str) -> Self {
+    /// Proxies the Postgres server of `database_url`, listening on `listen_ip`. [`Self::url`]
+    /// reaches the same database through the proxy.
+    pub async fn start(database_url: &str, listen_ip: IpAddr) -> Self {
         let mut url = Url::parse(database_url).expect("valid database URL");
         let upstream = (
             url.host_str().expect("database URL has a host").to_string(),
             url.port().unwrap_or(5432),
         );
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let listener = TcpListener::bind((listen_ip, 0)).await.unwrap();
+        let port = listener.local_addr().unwrap().port();
         url.set_host(Some("127.0.0.1")).unwrap();
-        url.set_port(Some(listener.local_addr().unwrap().port()))
-            .unwrap();
+        url.set_port(Some(port)).unwrap();
 
         let (faults, faults_rx) = watch::channel(Faults::default());
         let accepted = Arc::new(AtomicUsize::new(0));
@@ -58,6 +60,7 @@ impl PersonsDbProxy {
 
         Self {
             url: url.to_string(),
+            port,
             faults,
             accepted,
             open_connections,
@@ -67,6 +70,10 @@ impl PersonsDbProxy {
 
     pub fn url(&self) -> &str {
         &self.url
+    }
+
+    pub fn port(&self) -> u16 {
+        self.port
     }
 
     /// Connections the proxy accepted, which counts connect attempts whether they succeed or not.

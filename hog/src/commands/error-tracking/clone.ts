@@ -1,7 +1,7 @@
 import { defineCommand } from '@/core/command'
 import { cloneMaps } from '@/error-tracking/run'
 
-import { DRY_RUN_OPTION, readOptions, RELEASE_OPTIONS, renderRelease } from './shared'
+import { DRY_RUN_OPTION, readOptions, RELEASE_OPTIONS, releaseLines } from './shared'
 
 export default defineCommand({
     description: 'Copy the chunk ID and release from a Metro map to the map Hermes composed',
@@ -21,15 +21,17 @@ export default defineCommand({
     ],
 
     async run({ args, options, ctx }) {
-        return cloneMaps(ctx, args.packagerMap, args.composedMap, await readOptions(options, ctx))
+        const settings = await readOptions(options, ctx)
+        return cloneMaps(ctx, args.packagerMap, args.composedMap, settings)
     },
 
     human({ result, out }) {
-        renderRelease(out, result.release)
-        for (const warning of result.warnings) {
-            out.line(out.style(warning, 'yellow'))
-        }
         const what = result.chunkId ? `chunk ID ${out.style(result.chunkId, 'bold')}` : 'no chunk ID'
-        out.line(`${result.dryRun ? 'Would copy' : 'Copied'} ${what} to ${result.to}.`)
+        out.report({
+            status: result.dryRun ? 'unchanged' : 'done',
+            result: `${result.dryRun ? 'Dry run: would copy' : 'Copied'} ${what} to ${result.to}`,
+            effects: releaseLines(out, result.release),
+            warnings: result.warnings,
+        })
     },
 })

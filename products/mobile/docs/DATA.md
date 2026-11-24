@@ -54,7 +54,15 @@ Each page orders the reports again, so a report that moved can come back on a la
 A next page that fails shows "Couldn't load more reports." and "Try again" under the list.
 `mobile_inbox_page_requested` carries the page number of each next-page request.
 `mobile_inbox_error_shown` carries `during` (`load` for the full-screen error, `next_page` for the footer) and, for `load`, `kind` (`scope`, `auth`, `forbidden`, `not_found`, `server`, `network`, `unknown`).
-`mobile_inbox_empty_shown` is sent each time the list shows "Nothing needs you right now".
+`mobile_inbox_empty_shown` is sent when the personal inbox has no reports. `mobile_inbox_state_shown` adds the resolved project state and whether the viewer can configure it.
+
+### Empty inbox setup
+
+An empty `for_you` result does not tell us whether self-driving is configured. While the empty inbox is visible, `useInboxStatus()` reads `GET signals/inbox_status/` with the existing `inbox:read` scope. This summary includes current setup, project-wide report history, the first investigation outcome, and configuration access without returning scout details.
+
+New projects get a setup action; unfinished setup gets a resume action; projects with no active sources or scouts get settings when they previously completed setup or received reports. AI data processing being off is explained separately. Active projects without report history show the first investigation's progress or outcome. Active projects with history keep the caught-up state. Filtered results, loading, and failed status requests never imply that setup is missing.
+
+Setup opens the selected project's web app in its own region. The link can also be copied for a computer or a project admin. Web setup remembers an allowlisted mobile return scheme for one hour, scoped to the project. Returning to mobile or pulling to refresh reloads status; pending and running investigations refresh every 15 seconds while the empty inbox is in the foreground. When status detects a report, it refreshes the project’s inbox list so the report appears without a manual reload. `mobile_inbox_setup_opened` and `mobile_inbox_setup_link_copied` record the state that prompted the action.
 
 **Filter and sort.**
 `useInboxItems({ filters })` filters and sorts on the device over the reports returned by the `for_you` view.

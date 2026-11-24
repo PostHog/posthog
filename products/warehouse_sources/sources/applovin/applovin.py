@@ -48,11 +48,15 @@ AUTH_ERROR_PREFIX = "AppLovin denied the request"
 BAD_REQUEST_ERROR_PREFIX = "AppLovin rejected the report request"
 MANAGEMENT_AUTH_ERROR_PREFIX = "AppLovin denied the Campaign Management API request"
 MANAGEMENT_CREDENTIALS_MISSING_PREFIX = "AppLovin Campaign Management API credentials are missing"
+ADVERTISER_KEY_ON_PUBLISHER_REPORT_PREFIX = "AppLovin Report Key belongs to an advertiser account"
 # Deliberately NOT registered as non-retryable: the tracked session already retried the request,
 # and an upstream outage must not permanently disable the source.
 TRANSIENT_ERROR_PREFIX = "AppLovin API error (retryable)"
 
 _AUTH_STATUS_CODES = (401, 403)
+# `/report` checks the columns of a publisher request against the advertiser column list when the
+# Report Key belongs to an advertiser-only account, and names the first column it refuses.
+_ADVERTISER_COLUMN_REJECTION = "Invalid Advertiser Column"
 
 
 class AppLovinAPIError(Exception):
@@ -157,7 +161,7 @@ def _build_url(config: AppLovinEndpointConfig, api_key: str, start: date, end: d
         "offset": offset,
         # Pin the order so limit/offset paging can't reshuffle rows between pages, and so rows
         # arrive oldest-first (`sort_mode="asc"` on the response).
-        "sort_day": "ASC",
+        f"sort_{config.sort_column}": "ASC",
         **config.extra_params,
     }
     return f"{APPLOVIN_API_BASE_URL}{config.path}?{urlencode(params)}"
@@ -173,6 +177,15 @@ def _fetch_page(
     logger: FilteringBoundLogger,
 ) -> list[dict[str, Any]]:
     response = _get(session, _build_url(config, api_key, start, end, offset), api_key)
+    if (
+        response.status_code == 400
+        and config.extra_params.get("report_type") == "publisher"
+        and _ADVERTISER_COLUMN_REJECTION in response.text
+    ):
+        raise AppLovinAPIError(
+            f"{ADVERTISER_KEY_ON_PUBLISHER_REPORT_PREFIX}: endpoint={config.path}, "
+            f"body={_redacted(response.text, api_key)[:500]}"
+        )
     _raise_for_status(response, config.path, api_key)
     body = _json_body(response, config.path, api_key)
 
@@ -185,7 +198,11 @@ def _fetch_page(
         logger.debug(f"AppLovin: {config.name} returned no results list for {start.isoformat()}..{end.isoformat()}")
         return []
 
-    return [row for row in results if isinstance(row, dict)]
+    rows = [row for row in results if isinstance(row, dict)]
+    if not config.has_day_column:
+        for row in rows:
+            row["day"] = start.isoformat()
+    return rows
 
 
 @dataclasses.dataclass(frozen=True)
@@ -229,8 +246,9 @@ def get_rows(
             offset = resume_config.next_offset
             logger.debug(f"AppLovin: resuming {endpoint} from {start.isoformat()} offset {offset}")
 
+    window_days = REPORT_WINDOW_DAYS if config.has_day_column else 1
     while start <= today:
-        window_end = min(start + timedelta(days=REPORT_WINDOW_DAYS - 1), today)
+        window_end = min(start + timedelta(days=window_days - 1), today)
 
         while True:
             rows = _fetch_page(session, config, api_key, start, window_end, offset, logger)
@@ -678,8 +696,8 @@ def applovin_source(
         primary_keys=primary_keys,
         partition_count=1,
         partition_size=1,
-        # Windows are walked oldest-first and each request pins `sort_day=ASC`, so `day` only
-        # ever moves forward; the restatement re-pull happens below the saved watermark and
+        # Windows are walked oldest-first and each request pins `sort_day=ASC` (or covers one
+        # day), so `day` only ever moves forward; the restatement re-pull happens below the saved watermark and
         # merges on the dimension primary key.
         sort_mode="asc",
     )

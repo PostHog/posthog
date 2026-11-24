@@ -34,6 +34,7 @@ service PersonHogService {
   rpc CountCohortMembers(personhog.types.v1.CountCohortMembersRequest) returns (personhog.types.v1.CountCohortMembersResponse);
   rpc DeleteCohortMember(personhog.types.v1.DeleteCohortMemberRequest) returns (personhog.types.v1.DeleteCohortMemberResponse);
   rpc DeleteCohortMembersBulk(personhog.types.v1.DeleteCohortMembersBulkRequest) returns (personhog.types.v1.DeleteCohortMembersBulkResponse);
+  rpc DeleteCohortMembersByPersonIds(personhog.types.v1.DeleteCohortMembersByPersonIdsRequest) returns (personhog.types.v1.DeleteCohortMembersByPersonIdsResponse);
   rpc InsertCohortMembers(personhog.types.v1.InsertCohortMembersRequest) returns (personhog.types.v1.InsertCohortMembersResponse);
   rpc ListCohortMemberIds(personhog.types.v1.ListCohortMemberIdsRequest) returns (personhog.types.v1.ListCohortMemberIdsResponse);
 

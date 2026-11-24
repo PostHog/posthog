@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 4 enabled ops
+ * PostHog API - MCP 5 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -26,6 +26,8 @@ export const transactionalEmailLogListQueryLimitMax = 200
 export const transactionalEmailLogListQueryOffsetDefault = 0
 export const transactionalEmailLogListQueryOffsetMin = 0
 
+export const transactionalEmailLogListQueryReasonMax = 64
+
 export const TransactionalEmailLogListQueryParams = () => zod.object({
     date_from: zod.iso
         .datetime({ offset: true })
@@ -46,6 +48,14 @@ export const TransactionalEmailLogListQueryParams = () => zod.object({
         .min(transactionalEmailLogListQueryOffsetMin)
         .default(transactionalEmailLogListQueryOffsetDefault)
         .describe('Sends to skip.'),
+    reason: zod
+        .string()
+        .min(1)
+        .max(transactionalEmailLogListQueryReasonMax)
+        .optional()
+        .describe(
+            'Only sends whose delivery status has this reason, such as `soft` for a soft bounce or `sending_paused` for a send skipped while sending was paused.'
+        ),
     search: zod
         .string()
         .optional()
@@ -64,6 +74,19 @@ export const TransactionalEmailLogListQueryParams = () => zod.object({
  * @summary Get a transactional email send
  */
 export const TransactionalEmailLogRetrieveParams = () => zod.object({
+    id: zod.string().describe('The `message_id` that the send returned.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * The recipient's events in the 7 days before and after one send, with the sessions they belong to.
+ * @summary Get what a transactional email's recipient did around the send
+ */
+export const TransactionalEmailLogActivityRetrieveParams = () => zod.object({
     id: zod.string().describe('The `message_id` that the send returned.'),
     project_id: zod
         .string()

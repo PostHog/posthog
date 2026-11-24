@@ -30,6 +30,11 @@ from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 
 from products.managed_warehouse.backend.backfill_trino import _retry_transient
+from products.managed_warehouse.backend.temporal.ducklake_declared_columns import (
+    DeclaredColumn,
+    columns_missing_from_files,
+    trino_type_for_clickhouse,
+)
 from products.managed_warehouse.backend.trino_connection import connect_managed_warehouse_trino
 from products.managed_warehouse.backend.trino_execution import TrinoQueryControl
 
@@ -139,11 +144,17 @@ def _add_column(columns: dict[str, StagingColumn], column: StagingColumn, path: 
         )
 
 
-def staging_table_schema(footers: Sequence[ParquetFooter], hive_partition_columns: Sequence[str]) -> StagingTableSchema:
-    """Union the file columns by name, then append the Hive partition columns as VARCHAR partitions.
+def staging_table_schema(
+    footers: Sequence[ParquetFooter],
+    hive_partition_columns: Sequence[str],
+    declared_columns: Sequence[DeclaredColumn] = (),
+) -> StagingTableSchema:
+    """Union the file columns by name, add the declared columns that no file or partition has, then append the Hive
+    partition columns as VARCHAR partitions.
 
     A file may lack a column: add_files reads it as NULL. Partition values come from the paths, as
-    `read_parquet(..., hive_partitioning=true)` reads them on the duckgres path.
+    `read_parquet(..., hive_partitioning=true)` reads them on the duckgres path. A declared column takes its type from
+    the table record only when no file carries it, so the file type of a column always wins.
     """
     columns: dict[str, StagingColumn] = {}
     for footer in footers:
@@ -155,13 +166,20 @@ def staging_table_schema(footers: Sequence[ParquetFooter], hive_partition_column
                     "for DuckLake registration through Trino"
                 )
             _add_column(columns, StagingColumn(name=field.name, trino_type=trino_type), footer.path)
+    partitions: dict[str, StagingColumn] = {}
     for name in hive_partition_columns:
         if not _PARTITION_COLUMN_PATTERN.fullmatch(name):
             raise _non_retryable(f"Hive partition column name '{name}' is not a plain identifier")
         existing = columns.get(name.lower())
         if existing is not None:
             raise _non_retryable(f"Hive partition column '{name}' collides with column '{existing.name}'")
-        columns[name.lower()] = StagingColumn(name=name, trino_type="VARCHAR")
+        partitions[name.lower()] = StagingColumn(name=name, trino_type="VARCHAR")
+    for declared in columns_missing_from_files(declared_columns, [*columns, *partitions]):
+        columns[declared.name.lower()] = StagingColumn(
+            name=declared.name, trino_type=trino_type_for_clickhouse(declared.clickhouse_type)
+        )
+    # The partition columns stay last, as they are in the table that `read_parquet(..., hive_partitioning=true)` reads.
+    columns.update(partitions)
     return StagingTableSchema(columns=tuple(columns.values()), partition_columns=tuple(hive_partition_columns))
 
 
@@ -358,19 +376,21 @@ def register_prepared_files_through_trino(
     before_add_files: Callable[[], None] | None = None,
     deadline_monotonic: float | None = None,
     canary: bool = False,
+    declared_columns: Sequence[DeclaredColumn] = (),
 ) -> TrinoRegistrationResult:
     """Create the shadow table, add the copied files to it, check its row count and publish it.
 
     `landing_paths` are this attempt's copied files. The columns and the expected row count come from their Parquet
-    footers, because add_files compares each file's own types exactly. The import ids derive from `attempt_token`,
-    so a repeated attempt replays finished batches as no-ops. `deadline_monotonic` is the `time.monotonic()` value
-    at which the running statement is cancelled. `before_add_files` runs once before the first add_files statement.
-    Until then no table can reference the landing files.
+    footers, because add_files compares each file's own types exactly. `declared_columns` are the columns of the
+    table record, and each one that no file carries is added with its declared type. The import ids derive from
+    `attempt_token`, so a repeated attempt replays finished batches as no-ops. `deadline_monotonic` is the
+    `time.monotonic()` value at which the running statement is cancelled. `before_add_files` runs once before the
+    first add_files statement. Until then no table can reference the landing files.
     """
     sorted_paths = sorted(landing_paths)
     # A type error fails here, before any catalog work.
     footers = read_parquet_footers(filesystem, sorted_paths)
-    staging_schema = staging_table_schema(footers, hive_partition_columns)
+    staging_schema = staging_table_schema(footers, hive_partition_columns, declared_columns)
     expected_rows = sum(footer.num_rows for footer in footers)
 
     # Reading many footers takes time, so the remaining budget is measured after the reads.

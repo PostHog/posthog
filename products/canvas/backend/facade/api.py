@@ -29,10 +29,6 @@ from products.canvas.backend.contract import (
     canvas_sdk_version as canvas_sdk_version,
     contract_limits as contract_limits,
 )
-from products.canvas.backend.experiment import (
-    blocks_session_action as blocks_session_action,
-    in_canvas_experiment as in_canvas_experiment,
-)
 from products.canvas.backend.facade.contracts import CanvasArtifact
 from products.canvas.backend.facade.enums import (
     ConnectorCallStatus as ConnectorCallStatus,
@@ -52,6 +48,7 @@ from products.canvas.backend.layout import (
 from products.canvas.backend.logic.canvases import (
     create_canvas as create_canvas,
     delete_canvas as delete_canvas,
+    editable_canvas_ids as editable_canvas_ids,
     get_canvas as get_canvas,
     home_canvas as home_canvas,
     list_canvases as list_canvases,
@@ -104,6 +101,7 @@ from products.canvas.backend.teaching import (
     RESERVED_TEMPLATE_IDS as RESERVED_TEMPLATE_IDS,
     seed_teaching_canvas as seed_teaching_canvas,
 )
+from products.canvas.backend.web_authoring import blocks_session_action as blocks_session_action
 
 
 def render_canvas_artifact(*, host: str, token: str, artifact_path: str, if_none_match: str | None) -> CanvasArtifact:

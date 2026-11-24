@@ -1,0 +1,14 @@
+.DotGlyph {
+    display: block;
+    flex: none;
+    background-image: radial-gradient(
+        circle,
+        var(--dot-matrix-empty-slot, var(--color-border-secondary)) 1px,
+        transparent 1.5px
+    );
+    background-size: 17px 17px;
+}
+
+.DotGlyph--compact {
+    background-size: 13px 13px;
+}

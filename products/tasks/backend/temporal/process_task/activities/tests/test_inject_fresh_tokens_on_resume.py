@@ -195,9 +195,12 @@ class TestInjectFreshTokensOnResumeActivity:
         assert sandbox.execute.call_count == 3
         assert sandbox.write_file.call_count == 2
 
-    def test_prepare_sandbox_injects_user_github_token_without_repository(self, activity_environment, team, user):
+    def test_prepare_sandbox_injects_user_github_token_without_repository(
+        self, activity_environment, team, user, settings, sandbox_ai_gateway
+    ):
         from products.tasks.backend.models import Task
 
+        settings.SANDBOX_AI_GATEWAY_PRODUCTS = "slack_app"
         task = Task.objects.create(
             team=team,
             created_by=user,
@@ -251,10 +254,11 @@ class TestInjectFreshTokensOnResumeActivity:
         assert prepared.environment_variables["POSTHOG_PERSONAL_API_KEY"] == "oauth_new"
 
     def test_prepare_sandbox_injects_team_github_token_without_repository(
-        self, activity_environment, team, user, github_integration
+        self, activity_environment, team, user, github_integration, settings, sandbox_ai_gateway
     ):
         from products.tasks.backend.models import Task
 
+        settings.SANDBOX_AI_GATEWAY_PRODUCTS = "slack_app"
         task = Task.objects.create(
             team=team,
             created_by=user,

@@ -1,1 +1,1 @@
-0066_squash_2026_11_02_schema_addons
+0067_membership_cleanup

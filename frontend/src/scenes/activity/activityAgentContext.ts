@@ -1,3 +1,5 @@
+import { FLAG_EVALUATIONS_TABLE } from 'scenes/feature-flags/flagEvaluationsTable'
+
 import { AttachedContextItem } from '~/layout/ai/attachedContext'
 import { DataTableNode, Node } from '~/queries/schema/schema-general'
 import { ActivityTab, AnyPropertyFilter } from '~/types'
@@ -17,6 +19,10 @@ const ELIDED_MARKER_RULE =
     `A field whose value is "${ELIDED_MARKER}" was too large to send, so ask the user what it holds ` +
     'rather than assuming it is empty.'
 
+const NOT_APPLIED_BACK_RULE =
+    'Results you compute are not applied back to the open table, so say so when you answer from a query other ' +
+    'than the one on screen.'
+
 // These are our own build-time constants, which is what makes them safe as trusted `instructions`.
 // Which tab is open travels on the untrusted item's `type`, so no page value reaches trusted context.
 const EXPLORE_CONTEXT_ITEM: AttachedContextItem = {
@@ -30,8 +36,26 @@ const EXPLORE_CONTEXT_ITEM: AttachedContextItem = {
         'to. Answer questions about it by running HogQL over the events or sessions table with the execute-sql ' +
         'tool. Keep the columns, filters, and time range of that query unless the user asks to change them. ' +
         ELIDED_MARKER_RULE +
-        ' Results you compute are not applied back to the open table, so say so when you ' +
-        'answer from a query other than the one on screen.',
+        ' ' +
+        NOT_APPLIED_BACK_RULE,
+}
+
+const FLAG_CALLS_CONTEXT_ITEM: AttachedContextItem = {
+    type: 'instructions',
+    hidden: true,
+    dismissGroup: EXPLORE_DISMISS_GROUP,
+    value:
+        'The user has the PostHog flag calls list open, which lists feature flag evaluations across all flags. The ' +
+        'flag_calls_explorer_query item is the live, possibly unsaved query behind the table on their screen. Read ' +
+        'it to resolve what "this", "these rows", or "the current filters" refer to. The list reads the ' +
+        `${FLAG_EVALUATIONS_TABLE} table, so answer questions about it by running HogQL over that table with the ` +
+        'execute-sql tool. Prefer its flag_key and response columns to the matching properties. The list ' +
+        'filters on current person properties, so match a person-property filter with person_id IN (SELECT id ' +
+        'FROM persons WHERE ...), not with the person properties stored on the row. Keep the ' +
+        'filters and time range of that query unless the user asks to change them. ' +
+        ELIDED_MARKER_RULE +
+        ' ' +
+        NOT_APPLIED_BACK_RULE,
 }
 
 const LIVE_CONTEXT_ITEM: AttachedContextItem = {
@@ -77,19 +101,40 @@ function serializeExploreQuery(query: Node | DataTableNode): string {
     return serializeBounded({ ...source })
 }
 
+const EXPLORE_TABS: Record<
+    ActivityTab.ExploreEvents | ActivityTab.ExploreSessions | ActivityTab.ExploreFlagCalls,
+    { type: string; label: string; instructions: AttachedContextItem }
+> = {
+    [ActivityTab.ExploreEvents]: {
+        type: 'events_explorer_query',
+        label: 'Current events query',
+        instructions: EXPLORE_CONTEXT_ITEM,
+    },
+    [ActivityTab.ExploreSessions]: {
+        type: 'sessions_explorer_query',
+        label: 'Current sessions query',
+        instructions: EXPLORE_CONTEXT_ITEM,
+    },
+    [ActivityTab.ExploreFlagCalls]: {
+        type: 'flag_calls_explorer_query',
+        label: 'Current flag calls query',
+        instructions: FLAG_CALLS_CONTEXT_ITEM,
+    },
+}
+
 export function buildExploreAgentContext(
-    tab: ActivityTab.ExploreEvents | ActivityTab.ExploreSessions,
+    tab: keyof typeof EXPLORE_TABS,
     query: Node | DataTableNode
 ): AttachedContextItem[] {
-    const isEvents = tab === ActivityTab.ExploreEvents
+    const { type, label, instructions } = EXPLORE_TABS[tab]
     return [
         {
-            type: isEvents ? 'events_explorer_query' : 'sessions_explorer_query',
+            type,
             value: serializeExploreQuery(query),
-            label: isEvents ? 'Current events query' : 'Current sessions query',
+            label,
             dismissGroup: EXPLORE_DISMISS_GROUP,
         },
-        EXPLORE_CONTEXT_ITEM,
+        instructions,
     ]
 }
 

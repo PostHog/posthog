@@ -86,9 +86,10 @@ class TestFromFilterValue:
                 incremental_field="updatedAt",
             )
 
-    def test_full_refresh_endpoint_never_filters(self):
+    @pytest.mark.parametrize("endpoint", ["datasets", "skills"])
+    def test_full_refresh_endpoint_never_filters(self, endpoint):
         value = _from_filter_value(
-            LANGFUSE_ENDPOINTS["datasets"],
+            LANGFUSE_ENDPOINTS[endpoint],
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
             incremental_field=None,
@@ -164,6 +165,7 @@ class TestLangfuseSourceResponse:
             ("datasets", ["id"], None, "desc"),
             ("dataset_items", ["id"], "createdAt", "desc"),
             ("models", ["id"], None, "desc"),
+            ("skills", ["name"], None, "desc"),
         ],
     )
     def test_response_shape(self, endpoint, primary_keys, partition_key, sort_mode):

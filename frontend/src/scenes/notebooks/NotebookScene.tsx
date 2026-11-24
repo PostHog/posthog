@@ -13,11 +13,14 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
+import { AnalyticsScenePinButton } from 'scenes/analytics/AnalyticsScenePinButton'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
+
+import { NotebookAppScene } from 'products/notebooks/frontend/AppBuilder/NotebookAppScene'
 
 import { Notebook } from './Notebook/Notebook'
 import { NotebookLoadingState } from './Notebook/NotebookLoadingState'
@@ -141,6 +144,7 @@ export function NotebookScene(): JSX.Element {
                     name={notebook?.title || 'Unnamed'}
                     isLoading={!notebook}
                     resourceType={{ type: 'notebook' }}
+                    nameAction={<AnalyticsScenePinButton dataAttrKey="notebook" />}
                 />
             )}
             <div className={cn('flex flex-wrap gap-2 items-center justify-between', sceneMenuBarEnabled && 'mt-2')}>
@@ -203,14 +207,16 @@ export function NotebookScene(): JSX.Element {
                 <NotebookRunAllBanner shortId={notebookId} />
             </BindLogic>
 
-            <Notebook
-                collapsedToolbarContainer={collapsedToolbarContainer}
-                key={notebookId}
-                shortId={notebookId}
-                editable={!isTemplate}
-                markdownSourceOpen={isMarkdownSourceOpen}
-                onMarkdownSourceOpenChange={setIsMarkdownSourceOpen}
-            />
+            <NotebookAppScene shortId={notebookId}>
+                <Notebook
+                    collapsedToolbarContainer={collapsedToolbarContainer}
+                    key={notebookId}
+                    shortId={notebookId}
+                    editable={!isTemplate}
+                    markdownSourceOpen={isMarkdownSourceOpen}
+                    onMarkdownSourceOpenChange={setIsMarkdownSourceOpen}
+                />
+            </NotebookAppScene>
             <NotebookShareModal shortId={notebookId} />
         </>
     )

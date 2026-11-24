@@ -174,6 +174,7 @@ export const TECHNOLOGY = {
         'IconReact',
         'IconGo',
         'IconNode',
+        'IconConvex',
         'IconPython',
         'IconRust',
         'IconAndroid',

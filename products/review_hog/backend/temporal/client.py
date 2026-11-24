@@ -98,26 +98,67 @@ class QueuedReviewHeads:
     pending: tuple[str | None, ...] = ()
 
 
-def queued_review_heads(workflow_id: str, rpc_timeout: timedelta | None = None) -> QueuedReviewHeads:
-    """The heads the PR's review queue still has to review. Empty when no queue runs.
+def _query_review_queue(workflow_id: str, query_name: str, rpc_timeout: timedelta | None) -> Any | None:
+    """The answer of the PR's review queue to `query_name`, or None when no queue runs.
 
-    Raises when Temporal does not answer, so a caller cannot read an outage as "nothing queued".
+    Raises when Temporal does not answer.
     """
     try:
         client = sync_connect()
         handle = client.get_workflow_handle(workflow_id)
         # async_to_sync erases query's overloads, so mypy binds the wrong one.
         query = cast(Callable[..., Any], async_to_sync(handle.query))
-        heads: dict[str, list[str | None]] = query(
-            "requested_heads", reject_condition=QueryRejectCondition.NOT_OPEN, rpc_timeout=rpc_timeout
-        )
+        return query(query_name, reject_condition=QueryRejectCondition.NOT_OPEN, rpc_timeout=rpc_timeout)
     except WorkflowQueryRejectedError:
-        return QueuedReviewHeads()
+        return None
     except RPCError as e:
         if e.status == RPCStatusCode.NOT_FOUND:
-            return QueuedReviewHeads()
+            return None
         raise
+
+
+def queued_review_heads(workflow_id: str, rpc_timeout: timedelta | None = None) -> QueuedReviewHeads:
+    """The heads the PR's review queue still has to review. Empty when no queue runs.
+
+    Raises when Temporal does not answer, so a caller cannot read an outage as "nothing queued".
+    """
+    heads: dict[str, list[str | None]] | None = _query_review_queue(workflow_id, "requested_heads", rpc_timeout)
+    if heads is None:
+        return QueuedReviewHeads()
     return QueuedReviewHeads(active=tuple(heads["active"]), pending=tuple(heads["pending"]))
+
+
+@frozen
+class QueuedReviewRequest:
+    review_mode: str
+    automatic: bool
+
+
+@frozen
+class QueuedReviewModes:
+    """The requests the PR's review queue still has to run."""
+
+    # The request whose turn runs now, or waits for a resolution run to end before it starts.
+    active: tuple[QueuedReviewRequest, ...] = ()
+    pending: tuple[QueuedReviewRequest, ...] = ()
+
+
+def queued_review_modes(workflow_id: str, rpc_timeout: timedelta | None = None) -> QueuedReviewModes:
+    """The mode of each request the PR's review queue still has to run. Empty when no queue runs.
+
+    Raises when Temporal does not answer, and when the queue runs on a worker that does not know the query yet.
+    """
+    modes: dict[str, list[dict[str, Any]]] | None = _query_review_queue(workflow_id, "requested_modes", rpc_timeout)
+    if modes is None:
+        return QueuedReviewModes()
+
+    def requests(key: str) -> tuple[QueuedReviewRequest, ...]:
+        return tuple(
+            QueuedReviewRequest(review_mode=str(item["review_mode"]), automatic=bool(item["automatic"]))
+            for item in modes[key]
+        )
+
+    return QueuedReviewModes(active=requests("active"), pending=requests("pending"))
 
 
 def workflow_running(workflow_id: str) -> bool:

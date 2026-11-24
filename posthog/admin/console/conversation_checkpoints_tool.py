@@ -10,7 +10,6 @@ from django.http import HttpRequest, HttpResponse
 import structlog
 
 from posthog.admin.console.registry import console
-from posthog.admin.console.team_panels import DEV_EXPERIENCE
 from posthog.admin.console.tools import Cell, ConsoleTool, Notice, Page, Row, Table, ToolOperation
 from posthog.utils import pluralize
 
@@ -142,8 +141,8 @@ def compact(request: HttpRequest, form: forms.Form | None) -> HttpResponse | Non
 class ConversationCheckpointsTool(ConsoleTool):
     key = TOOL_KEY
     title = "AI conversation checkpoints"
-    owner = DEV_EXPERIENCE
-    group = "Data"
+    owner = None
+    group = "AI"
     description = "Compacts the stored checkpoints of PostHog AI conversations."
 
     def page(self, request: HttpRequest) -> Page:
@@ -173,3 +172,10 @@ class ConversationCheckpointsTool(ConsoleTool):
                 undo_hint="This cannot be undone. The deleted checkpoints are gone, and the latest state stays.",
             )
         ]
+
+
+console.register_moved_page(
+    old_path="admin/posthog_ai/conversation/<uuid:pk>/compact/",
+    title="Compacting a conversation",
+    url="/admin/console/tools/ai-conversation-checkpoints/compact/?conversation={pk}",
+)

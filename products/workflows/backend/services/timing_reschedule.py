@@ -17,6 +17,8 @@ MAX_RESCHEDULE_ACTION_IDS = 100
 
 
 _TIME_WINDOW_CONFIG_KEYS = ("day", "time", "timezone", "use_person_timezone", "fallback_timezone")
+# delay_until holds the expression, offset and timezone fields; any edit to it or its cap can move a wake earlier.
+_DELAY_UNTIL_CONFIG_KEYS = ("delay_until", "max_delay_duration")
 
 
 def parse_delay_duration_seconds(value: object, field: str = "delay_duration") -> Optional[float]:
@@ -58,6 +60,8 @@ def get_timing_reschedule_action_ids(
     - delay: trigger on a shortened effective duration; unparseable durations trigger
       conservatively (the worker throws on them at wake, and a spurious sweep is a cheap
       no-op re-park).
+      Any change to delay_until or max_delay_duration triggers, including a switch between
+      fixed and date modes.
     - wait_until_condition: trigger on a shortened max_wait_duration (same comparison as
       delay) and on any condition edit - a swept run re-evaluates the live condition at
       wake (advance if it now matches, re-park if not), which keeps fixes to broken
@@ -109,6 +113,10 @@ def get_timing_reschedule_action_ids(
             elif after_seconds < before_seconds:
                 action_ids.add(action["id"])
             if after_type == "wait_until_condition" and before_config.get("condition") != after_config.get("condition"):
+                action_ids.add(action["id"])
+            if after_type == "delay" and any(
+                before_config.get(key) != after_config.get(key) for key in _DELAY_UNTIL_CONFIG_KEYS
+            ):
                 action_ids.add(action["id"])
         elif after_type == "wait_until_time_window":
             if any(before_config.get(key) != after_config.get(key) for key in _TIME_WINDOW_CONFIG_KEYS):

@@ -1,5 +1,5 @@
-"""The exposure curve of a flag edit: in each time bucket, how many people carry the flag, and how many of them get the
-value that the edit started serving.
+"""The exposure curve of a flag edit: in each time bucket, how many people carry the flag, how many of them get the
+value that the edit started serving, and how many don't.
 
 Flag rollback suggestions read the curve as the clock of an observation window. The new value reaches people only when
 their app reloads flags, so the share of people with the new value rises over time and then stabilizes. The window
@@ -33,6 +33,7 @@ from products.feature_flags.backend.flag_windows.query import (
 class ConditionExposure:
     with_flag: int
     exposed: int
+    unexposed: int
 
 
 @frozen
@@ -41,6 +42,9 @@ class ExposureCounts:
     with_flag: int
     # The people (or groups) with a value other than false.
     exposed: int
+    # The people (or groups) with the value false, or that loaded flags without this flag when the edit enables it. A
+    # person whose value changed counts here and in `exposed`, so this isn't `with_flag - exposed`.
+    unexposed: int
     # The people (or groups) with each variant that the flag serves. Empty for a boolean flag.
     by_variant: Mapping[str, int]
     # The same counts, only for the people (or groups) in the watched conditions. Empty without watched conditions.
@@ -80,20 +84,22 @@ def _counts(edit: WatchedEdit, read: FlagRead) -> list[ast.Expr]:
     return [
         read.with_flag,
         read.exposed,
+        read.unexposed,
         *[read.has_variant(variant) for variant in edit.variants],
-        *in_condition_columns(read, [read.with_flag, read.exposed]),
+        *in_condition_columns(read, [read.with_flag, read.exposed, read.unexposed]),
     ]
 
 
 def _exposure(edit: WatchedEdit, matches: Sequence[ConditionMatch], values: tuple[int, ...]) -> ExposureCounts:
-    with_flag, exposed, *rest = values
+    with_flag, exposed, unexposed, *rest = values
     by_variant, in_condition_values = rest[: len(edit.variants)], rest[len(edit.variants) :]
     return ExposureCounts(
         with_flag=with_flag,
         exposed=exposed,
+        unexposed=unexposed,
         by_variant=dict(zip(edit.variants, by_variant, strict=True)),
         in_condition={
-            match: ConditionExposure(with_flag=counts[0], exposed=counts[1])
+            match: ConditionExposure(with_flag=counts[0], exposed=counts[1], unexposed=counts[2])
             for match, counts in read_in_condition(matches, in_condition_values).items()
         },
     )

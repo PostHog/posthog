@@ -8,7 +8,13 @@ from unittest import mock
 import requests
 
 from products.warehouse_sources.sources.sdk import RESTClientNonRetryableError
-from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
+from products.warehouse_sources.sources.sdk.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    route,
+    scripted_network,
+)
 from products.warehouse_sources.sources.wordpress import wordpress as wordpress_module
 from products.warehouse_sources.sources.wordpress._config import WordpressSourceConfig
 from products.warehouse_sources.sources.wordpress.settings import WORDPRESS_ENDPOINTS
@@ -16,6 +22,7 @@ from products.warehouse_sources.sources.wordpress.source import WordpressSource
 from products.warehouse_sources.sources.wordpress.wordpress import (
     HOST_NOT_ALLOWED_ERROR,
     HTTP_NOT_ALLOWED_ERROR,
+    WordpressCredentialsRequiredError,
     WordpressHostNotAllowedError,
     WordpressResumeConfig,
     WordpressRetryableError,
@@ -357,6 +364,19 @@ class TestGetRows:
 
         assert isinstance(result.raised, WordpressRetryableError)
 
+    def test_408_is_retried_then_succeeds(self):
+        # A 408 is the server timing out, not a bad request; it must be retried like 429/5xx
+        # rather than falling through to raise_for_status() as a non-retryable HTTPError.
+        result = _driver().run("posts", [_response(status_code=408), _response(json_data=[{"id": 1}])])
+
+        assert result.raised is None
+        assert _ids(result) == [1]
+
+    def test_persistent_408_reraises_as_retryable(self):
+        result = _driver().run("posts", always(_response(status_code=408)))
+
+        assert isinstance(result.raised, WordpressRetryableError)
+
     def test_does_not_follow_next_url_on_foreign_host(self):
         page1 = _response(
             json_data=[{"id": 1}],
@@ -432,3 +452,157 @@ class TestRetryAfter:
         state = mock.MagicMock()
         state.outcome.exception.return_value = WordpressRetryableError("rate limited", retry_after=7.0)
         assert _retry_wait(state) == 7.0
+
+
+SITE = "https://example.com"
+REVISIONS_SITE_KWARGS = {"site_url": SITE, "username": "admin", "application_password": "app pass word"}
+
+
+class TestRevisions:
+    @pytest.mark.parametrize("endpoint, parent", [("post_revisions", "posts"), ("page_revisions", "pages")])
+    def test_fans_out_over_every_parent_page_and_child_page(self, endpoint, parent):
+        parent_page_2 = f"{SITE}/wp-json/wp/v2/{parent}?page=2"
+        child_page_2 = f"{SITE}/wp-json/wp/v2/{parent}/1/revisions?page=2"
+        script = route(
+            {
+                f"/{parent}": [
+                    _response(json_data=[{"id": 1}, {"id": 2}], link=f'<{parent_page_2}>; rel="next"'),
+                    _response(json_data=[{"id": 3}]),
+                ],
+                f"/{parent}/1/revisions": [
+                    _response(json_data=[{"id": 11, "parent": 1}], link=f'<{child_page_2}>; rel="next"'),
+                    _response(json_data=[{"id": 12, "parent": 1}]),
+                ],
+                f"/{parent}/2/revisions": [_response(json_data=[])],
+                f"/{parent}/3/revisions": [_response(json_data=[{"id": 31, "parent": 3}])],
+            }
+        )
+
+        result = _driver(**REVISIONS_SITE_KWARGS).run(endpoint, script)
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == [11, 12, 31]
+        assert result.paths == [
+            f"/wp-json/wp/v2/{parent}",
+            f"/wp-json/wp/v2/{parent}/1/revisions",
+            f"/wp-json/wp/v2/{parent}/1/revisions",
+            f"/wp-json/wp/v2/{parent}/2/revisions",
+            f"/wp-json/wp/v2/{parent}",
+            f"/wp-json/wp/v2/{parent}/3/revisions",
+        ]
+        assert result.queries[0] == {
+            "per_page": ("100",),
+            "_fields": ("id",),
+            "orderby": ("id",),
+            "order": ("asc",),
+        }
+        assert result.urls[2] == child_page_2
+        # The cursor is the parent page being fanned out, so a resume re-reads that page's children.
+        assert result.saved_states == [
+            WordpressResumeConfig(next_url=result.urls[0]),
+            WordpressResumeConfig(next_url=parent_page_2),
+        ]
+        assert result.response is not None
+        assert result.response.sort_mode is None
+
+    @pytest.mark.parametrize(
+        "inputs, expected_modified_after, expected_ids",
+        [
+            ({"should_use_incremental_field": False}, None, [1, 2]),
+            (
+                {"incremental_field": "date", "db_incremental_field_last_value": datetime(2024, 1, 10, 12, 0, 0)},
+                "2024-01-10T10:00:00",
+                [2],
+            ),
+        ],
+    )
+    def test_incremental_bounds_the_parents_and_drops_older_revisions(
+        self, inputs, expected_modified_after, expected_ids
+    ):
+        script = route(
+            {
+                "/posts": [_response(json_data=[{"id": 7}])],
+                "/posts/7/revisions": [
+                    _response(
+                        json_data=[
+                            {"id": 1, "parent": 7, "date": "2024-01-01T09:00:00"},
+                            {"id": 2, "parent": 7, "date": "2024-01-10T11:00:00"},
+                        ]
+                    )
+                ],
+            }
+        )
+
+        result = _driver(**REVISIONS_SITE_KWARGS).run("post_revisions", script, **inputs)
+
+        assert result.raised is None
+        assert result.params("modified_after") == [expected_modified_after, None]
+        assert [row["id"] for row in result.rows] == expected_ids
+
+    @pytest.mark.parametrize(
+        "status_code, raises",
+        [
+            # The user can't edit this parent: skip it and keep going.
+            (403, False),
+            # The parent was deleted after its page was read.
+            (404, False),
+            # Bad credentials fail the run instead of syncing an empty table.
+            (401, True),
+        ],
+    )
+    def test_child_error_statuses(self, status_code, raises):
+        script = route(
+            {
+                "/posts": [_response(json_data=[{"id": 1}, {"id": 2}])],
+                "/posts/1/revisions": [_response(status_code=status_code, json_data={"code": "rest_cannot_read"})],
+                "/posts/2/revisions": [_response(json_data=[{"id": 21, "parent": 2}])],
+            }
+        )
+
+        result = _driver(**REVISIONS_SITE_KWARGS).run("post_revisions", script)
+
+        if raises:
+            assert isinstance(result.raised, requests.HTTPError)
+            assert result.rows == []
+        else:
+            assert result.raised is None
+            assert [row["id"] for row in result.rows] == [21]
+
+    def test_resumes_from_the_saved_parent_page(self):
+        resume_url = f"{SITE}/wp-json/wp/v2/posts?page=4"
+        script = route(
+            {
+                "/posts": [_response(json_data=[{"id": 40}])],
+                "/posts/40/revisions": [_response(json_data=[{"id": 41, "parent": 40}])],
+            }
+        )
+
+        result = _driver(**REVISIONS_SITE_KWARGS).run(
+            "post_revisions", script, resume_state=WordpressResumeConfig(next_url=resume_url)
+        )
+
+        assert result.urls[0] == resume_url
+        assert [row["id"] for row in result.rows] == [41]
+
+    def test_requires_credentials_before_any_request(self):
+        result = _driver().run("post_revisions", [_response(json_data=[{"id": 1}])])
+
+        assert isinstance(result.raised, WordpressCredentialsRequiredError)
+        assert result.requests == []
+
+
+class TestKeyedObjectEndpoints:
+    @pytest.mark.parametrize("endpoint, path", [("post_types", "/types"), ("taxonomies", "/taxonomies")])
+    def test_reads_one_object_keyed_by_slug_into_rows(self, endpoint, path):
+        body = {
+            "post": {"slug": "post", "name": "Posts", "rest_base": "posts"},
+            "book": {"slug": "book", "name": "Books", "rest_base": "books"},
+        }
+
+        result = _driver().run(endpoint, [_response(json_data=body)])
+
+        assert result.raised is None
+        assert result.urls == [f"{SITE}/wp-json/wp/v2{path}"]
+        assert [row["slug"] for row in result.rows] == ["post", "book"]
+        assert result.response is not None
+        assert result.response.primary_keys == ["slug"]

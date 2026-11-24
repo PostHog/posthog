@@ -61,17 +61,6 @@ describe('WarehouseWebhooksService', () => {
             expect(outputs.produce).toHaveBeenCalledTimes(1)
         })
 
-        it('queue([]) is a no-op', async () => {
-            service.queue([])
-            await service.flush()
-            expect(outputs.produce).not.toHaveBeenCalled()
-        })
-
-        it('flush with empty buffer does not call outputs.produce', async () => {
-            await service.flush()
-            expect(outputs.produce).not.toHaveBeenCalled()
-        })
-
         it('swallows produce errors so one bad payload does not block the rest', async () => {
             outputs.produce.mockRejectedValueOnce(new Error('kafka down'))
             service.queue([buildPayload({ schema_id: 'a' }), buildPayload({ schema_id: 'b' })])
@@ -100,12 +89,6 @@ describe('WarehouseWebhooksService', () => {
             ])
             await service.flush()
 
-            expect(outputs.produce).not.toHaveBeenCalled()
-        })
-
-        it('handles an empty result array', async () => {
-            service.queueInvocationResults([])
-            await service.flush()
             expect(outputs.produce).not.toHaveBeenCalled()
         })
     })

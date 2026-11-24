@@ -75,6 +75,20 @@ ENDPOINTS: dict[str, CriteoEndpoint] = {
         ),
         description="Ads that link creatives to ad sets, with their delivery status and schedule.",
     ),
+    "Creatives": CriteoEndpoint(
+        name="Creatives",
+        path="marketing-solutions/advertisers/{advertiser-id}/creatives",
+        page_size=50,
+        primary_keys=("advertiserId", "id"),
+        fanout=DependentEndpointConfig(
+            parent_name="Advertisers",
+            resolve_param="advertiser-id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "advertiserId"},
+        ),
+        description="Creatives in each advertiser's library, with their format, status, and format-specific attributes.",
+    ),
     "Audiences": CriteoEndpoint(
         name="Audiences",
         path="marketing-solutions/audiences/search",
@@ -82,6 +96,14 @@ ENDPOINTS: dict[str, CriteoEndpoint] = {
         page_size=100,
         total_path="meta.totalItems",
         description="Audience definitions and their linked segments.",
+    ),
+    "AudienceSegments": CriteoEndpoint(
+        name="AudienceSegments",
+        path="marketing-solutions/audience-segments/search",
+        method="POST",
+        page_size=100,
+        total_path="meta.totalItems",
+        description="Audience segment definitions, such as in-market, lookalike, contact list, and retargeting segments.",
     ),
     "CampaignStats": CriteoEndpoint(
         name="CampaignStats",

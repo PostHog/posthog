@@ -129,6 +129,9 @@ class TestCursorFromPage:
         assert _cursor_from_page(items, "createdAt") == expected
 
 
+_INVALID_TOKEN_BODY = {"error": {"code": "forbidden", "message": "Not authorized", "invalidToken": True}}
+
+
 class TestValidateCredentials:
     @parameterized.expand(
         [
@@ -162,13 +165,50 @@ class TestValidateCredentials:
         # A transient Vercel-side error must not tell the user to fix their (possibly valid) token.
         assert "Check that it's a valid token" not in (error or "")
 
-    @parameterized.expand([(400,), (404,)])
-    def test_credential_rejection_status_tells_the_user_to_replace_the_token(self, status: int) -> None:
-        with scripted_network(always(ScriptedResponse(status=status, json={}))):
+    @parameterized.expand(
+        [
+            ("bad_request", 400, {}, "token", vercel._VERCEL_INVALID_TOKEN_ERROR),
+            ("not_found", 404, {}, "token", vercel._VERCEL_INVALID_TOKEN_ERROR),
+            # The shape Vercel sends back for a made-up or revoked token on /v2/user.
+            ("forbidden_invalid_token", 403, _INVALID_TOKEN_BODY, "token", vercel._VERCEL_INVALID_TOKEN_ERROR),
+            ("personal_token", 403, _INVALID_TOKEN_BODY, "vcp_abc123", vercel._VERCEL_INVALID_TOKEN_ERROR),
+            ("ai_gateway_key", 403, _INVALID_TOKEN_BODY, "vck_abc123", vercel._VERCEL_AI_GATEWAY_KEY_ERROR),
+            ("ai_gateway_key_bad_request", 400, {}, "vck_abc123", vercel._VERCEL_AI_GATEWAY_KEY_ERROR),
+            ("ai_gateway_key_not_found", 404, {}, "vck_abc123", vercel._VERCEL_AI_GATEWAY_KEY_ERROR),
+            ("prefix_not_at_start", 403, _INVALID_TOKEN_BODY, "abcvck_123", vercel._VERCEL_INVALID_TOKEN_ERROR),
+        ]
+    )
+    def test_credential_rejection_status_tells_the_user_to_replace_the_token(
+        self, _name: str, status: int, body: dict[str, Any], token: str, expected_error: str
+    ) -> None:
+        with scripted_network(always(ScriptedResponse(status=status, json=body))):
+            ok, error = validate_credentials(token)
+
+        assert ok is False
+        assert error == expected_error
+
+    @parameterized.expand(
+        [
+            ("empty_body", {}),
+            ("no_invalid_token_flag", {"error": {"code": "forbidden", "message": "Not authorized"}}),
+            ("invalid_token_false", {"error": {"code": "forbidden", "invalidToken": False}}),
+            ("error_is_a_string", {"error": "forbidden"}),
+            ("body_is_a_list", [{"invalidToken": True}]),
+        ]
+    )
+    def test_forbidden_without_invalid_token_flag_points_at_token_scope(self, _name: str, body: Any) -> None:
+        with scripted_network(always(ScriptedResponse(status=403, json=body))):
             ok, error = validate_credentials("token")
 
         assert ok is False
-        assert error == vercel._VERCEL_INVALID_TOKEN_ERROR
+        assert error == vercel._VERCEL_TOKEN_SCOPE_ERROR
+
+    def test_forbidden_with_non_json_body_points_at_token_scope(self) -> None:
+        with scripted_network(always(ScriptedResponse(status=403, body=b"<html>Forbidden</html>"))):
+            ok, error = validate_credentials("token")
+
+        assert ok is False
+        assert error == vercel._VERCEL_TOKEN_SCOPE_ERROR
 
     def test_non_ascii_token_is_rejected_without_a_request(self) -> None:
         with scripted_network([]) as network:

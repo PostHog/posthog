@@ -73,6 +73,7 @@ class DetectPropertyTypeExpression:
                     name ilike 'utm_%', 'String',
                     name ilike '$feature/%', 'String',
                     name ilike '$feature_flag_response', 'String',
+                    name ilike '$feature_flag_variant_key', 'String',
                     name ilike '$survey_response%', 'String',
                     -- special cases: timestamp detection
                     (

@@ -143,3 +143,30 @@ def test_campaign_without_sections_does_not_stop_other_children() -> None:
     )
     assert result.raised is None
     assert result.rows == [{"id": 1, "campaign_id": 12}]
+
+
+@pytest.mark.parametrize("body", [{"status": "ok"}, []])
+def test_campaign_without_data_envelope_does_not_stop_other_children(body: Any) -> None:
+    result = driver().run(
+        "goals",
+        [
+            collection([{"id": 11}, {"id": 12}], False),
+            ScriptedResponse(json=body),
+            collection([{"id": 1}], False),
+        ],
+    )
+    assert result.raised is None
+    assert result.rows == [{"id": 1, "campaign_id": 12}]
+
+
+def test_campaign_child_with_vwo_errors_still_fails() -> None:
+    result = driver().run(
+        "goals",
+        [
+            collection([{"id": 11}, {"id": 12}], False),
+            ScriptedResponse(json={"_errors": [{"code": 401, "message": "Authentication Failed"}]}),
+        ],
+    )
+    assert isinstance(result.raised, ValueError)
+    assert "Authentication Failed" in str(result.raised)
+    assert result.rows == []

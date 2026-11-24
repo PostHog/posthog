@@ -3,6 +3,7 @@ import threading
 import dataclasses
 from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime
+from functools import partial
 from typing import Any, Optional
 from urllib.parse import urlsplit
 
@@ -55,6 +56,22 @@ RUN_INCREMENTAL_SORT_KEYS: dict[str, str] = {
 }
 _DEFAULT_RUN_INCREMENTAL_FIELD = "createdAt"
 
+# Run-child tables page the runs connection with nested data per run, so they use smaller pages
+# than PAGE_SIZE to keep each response bounded.
+RUN_ARTIFACTS_RUNS_PAGE_SIZE = 20
+RUN_ARTIFACTS_PAGE_SIZE = 50
+RUN_HISTORY_RUNS_PAGE_SIZE = 10
+# A step window is accepted only when it returns at most this many rows. The query asks for twice
+# as many samples, so a window the server had to sample comes back larger than this and is split.
+RUN_HISTORY_PAGE_SIZE = 1000
+RUN_FILES_RUNS_PAGE_SIZE = 20
+RUN_FILES_PAGE_SIZE = 50
+RUN_EVENTS_RUNS_PAGE_SIZE = 20
+# `events` has no range arguments, only `samples`, so a run with more system metric lines than this is
+# sampled down by the server. A sample with many GPUs is a few KB, so this keeps one run's response
+# well under MAX_RESPONSE_BYTES.
+RUN_EVENTS_MAX_SAMPLES = 5000
+
 
 class WeightsAndBiasesRetryableError(Exception):
     pass
@@ -68,7 +85,7 @@ class WeightsAndBiasesConfigError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class WeightsAndBiasesResumeConfig:
     # Project-name bookmark for the fan-out endpoints (runs, sweeps, reports, artifacts). A
     # stable name (not a positional index) so projects added/removed between a crash and the
@@ -79,6 +96,9 @@ class WeightsAndBiasesResumeConfig:
     # project granularity only (nested type/collection cursors aren't representable), so a
     # resumed project re-walks its artifacts and merge dedupes on the primary key.
     cursor: str | None = None
+    # run_history only: the run within the runs page at `cursor`, and the first step to read.
+    run: str | None = None
+    step: int | None = None
 
 
 _PROJECTS_QUERY = """
@@ -179,6 +199,177 @@ query ArtifactVersions($entity: String!, $project: String!, $type: String!, $col
         }
       }
     }
+  }
+}
+"""
+
+_PROJECT_ARTIFACT_TYPES_QUERY = """
+query ProjectArtifactTypes($entity: String!, $project: String!, $first: Int!, $after: String) {
+  project(entityName: $entity, name: $project) {
+    artifactTypes(first: $first, after: $after) {
+      edges { node { id name description createdAt } }
+      pageInfo { endCursor hasNextPage }
+    }
+  }
+}
+"""
+
+_PROJECT_ARTIFACT_COLLECTIONS_QUERY = """
+query ProjectArtifactCollections($entity: String!, $project: String!, $first: Int!, $after: String) {
+  project(entityName: $entity, name: $project) {
+    artifactCollections(first: $first, after: $after) {
+      edges {
+        node {
+          __typename id name description createdAt updatedAt
+          defaultArtifactType { name }
+          tags { edges { node { name } } }
+        }
+      }
+      pageInfo { endCursor hasNextPage }
+    }
+  }
+}
+"""
+
+# Never request the members' `apiKey` field: it exists on the type but is a credential.
+_MEMBERS_QUERY = """
+query EntityMembers($entity: String!) {
+  entity(name: $entity) {
+    members { id username name email admin pending accountType }
+  }
+}
+"""
+
+_ARTIFACT_REF_FIELDS = "id versionIndex artifactType { name } artifactSequence { name }"
+
+_RUN_ARTIFACTS_RUNS_QUERY = f"""
+query RunArtifactLineage(
+  $entity: String!, $project: String!, $filters: JSONString, $order: String, $first: Int!, $after: String,
+  $artifactsFirst: Int!
+) {{
+  project(entityName: $entity, name: $project) {{
+    runs(filters: $filters, order: $order, first: $first, after: $after) {{
+      edges {{
+        node {{
+          id name createdAt heartbeatAt
+          inputArtifacts(first: $artifactsFirst) {{
+            edges {{ node {{ {_ARTIFACT_REF_FIELDS} }} }}
+            pageInfo {{ endCursor hasNextPage }}
+          }}
+          outputArtifacts(first: $artifactsFirst) {{
+            edges {{ node {{ {_ARTIFACT_REF_FIELDS} }} }}
+            pageInfo {{ endCursor hasNextPage }}
+          }}
+        }}
+      }}
+      pageInfo {{ endCursor hasNextPage }}
+    }}
+  }}
+}}
+"""
+
+
+def _single_run_artifacts_query(connection: str) -> str:
+    return f"""
+query RunArtifacts($entity: String!, $project: String!, $run: String!, $first: Int!, $after: String) {{
+  project(entityName: $entity, name: $project) {{
+    run(name: $run) {{
+      {connection}(first: $first, after: $after) {{
+        edges {{ node {{ {_ARTIFACT_REF_FIELDS} }} }}
+        pageInfo {{ endCursor hasNextPage }}
+      }}
+    }}
+  }}
+}}
+"""
+
+
+_RUN_ARTIFACT_CONNECTIONS: dict[str, str] = {"input": "inputArtifacts", "output": "outputArtifacts"}
+_SINGLE_RUN_ARTIFACTS_QUERIES: dict[str, str] = {
+    connection: _single_run_artifacts_query(connection) for connection in _RUN_ARTIFACT_CONNECTIONS.values()
+}
+
+_RUN_HISTORY_RUNS_QUERY = """
+query RunHistoryRuns($entity: String!, $project: String!, $filters: JSONString, $order: String, $first: Int!, $after: String) {
+  project(entityName: $entity, name: $project) {
+    runs(filters: $filters, order: $order, first: $first, after: $after) {
+      edges { node { id name createdAt heartbeatAt historyLineCount historyKeys } }
+      pageInfo { endCursor hasNextPage }
+    }
+  }
+}
+"""
+
+_RUN_HISTORY_QUERY = """
+query RunHistoryPage($entity: String!, $project: String!, $run: String!, $minStep: Int64!, $maxStep: Int64!, $samples: Int!) {
+  project(entityName: $entity, name: $project) {
+    run(name: $run) { history(minStep: $minStep, maxStep: $maxStep, samples: $samples) }
+  }
+}
+"""
+
+# photoUrl is left out: it is a signed storage URL that changes on every request.
+_ENTITY_QUERY = """
+query Entity($entity: String!) {
+  entity(name: $entity) {
+    id name isTeam entityType isPaid privateOnly defaultAccess readOnly codeSavingEnabled storageBytes createdAt
+  }
+}
+"""
+
+# url and directUrl are left out: they are signed download URLs that expire.
+_RUN_FILE_FIELDS = "id name sizeBytes mimetype md5 createdAt updatedAt"
+
+_RUN_FILES_RUNS_QUERY = f"""
+query RunFilesRuns(
+  $entity: String!, $project: String!, $filters: JSONString, $order: String, $first: Int!, $after: String,
+  $filesFirst: Int!
+) {{
+  project(entityName: $entity, name: $project) {{
+    runs(filters: $filters, order: $order, first: $first, after: $after) {{
+      edges {{
+        node {{
+          id name createdAt heartbeatAt
+          files(first: $filesFirst) {{
+            edges {{ node {{ {_RUN_FILE_FIELDS} }} }}
+            pageInfo {{ endCursor hasNextPage }}
+          }}
+        }}
+      }}
+      pageInfo {{ endCursor hasNextPage }}
+    }}
+  }}
+}}
+"""
+
+_SINGLE_RUN_FILES_QUERY = f"""
+query RunFiles($entity: String!, $project: String!, $run: String!, $first: Int!, $after: String) {{
+  project(entityName: $entity, name: $project) {{
+    run(name: $run) {{
+      files(first: $first, after: $after) {{
+        edges {{ node {{ {_RUN_FILE_FIELDS} }} }}
+        pageInfo {{ endCursor hasNextPage }}
+      }}
+    }}
+  }}
+}}
+"""
+
+_RUN_EVENTS_RUNS_QUERY = """
+query RunEventsRuns($entity: String!, $project: String!, $filters: JSONString, $order: String, $first: Int!, $after: String) {
+  project(entityName: $entity, name: $project) {
+    runs(filters: $filters, order: $order, first: $first, after: $after) {
+      edges { node { id name createdAt heartbeatAt eventsLineCount } }
+      pageInfo { endCursor hasNextPage }
+    }
+  }
+}
+"""
+
+_RUN_EVENTS_QUERY = """
+query RunEvents($entity: String!, $project: String!, $run: String!, $samples: Int!) {
+  project(entityName: $entity, name: $project) {
+    run(name: $run) { events(samples: $samples) }
   }
 }
 """
@@ -473,15 +664,471 @@ def _get_fan_out_rows(
     after: str | None,
     resumable_source_manager: ResumableSourceManager[WeightsAndBiasesResumeConfig],
     logger: FilteringBoundLogger,
+    transform: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
 ) -> Iterator[list[dict[str, Any]]]:
     for edges, end_cursor, has_next in _iter_connection(
         execute, query, variables, connection_path, logger, after=after
     ):
-        rows = [{**edge["node"], "projectName": project} for edge in edges if edge.get("node")]
+        rows = [
+            {**(transform(edge["node"]) if transform else edge["node"]), "projectName": project}
+            for edge in edges
+            if edge.get("node")
+        ]
         if rows:
             yield rows
         if has_next:
             resumable_source_manager.save_state(WeightsAndBiasesResumeConfig(project=project, cursor=end_cursor))
+
+
+def _artifact_collection_row(node: dict[str, Any]) -> dict[str, Any]:
+    tag_edges = (node.get("tags") or {}).get("edges") or []
+    return {
+        "id": node.get("id"),
+        "name": node.get("name"),
+        # ArtifactSequence (a regular collection) or ArtifactPortfolio (a collection of linked versions).
+        "collectionType": node.get("__typename"),
+        "description": node.get("description"),
+        "createdAt": node.get("createdAt"),
+        "updatedAt": node.get("updatedAt"),
+        "artifactTypeName": (node.get("defaultArtifactType") or {}).get("name"),
+        "tags": [tag["node"]["name"] for tag in tag_edges if (tag.get("node") or {}).get("name")],
+    }
+
+
+def _get_member_rows(
+    execute: Callable[[str, dict[str, Any]], dict[str, Any]], entity: str
+) -> Iterator[list[dict[str, Any]]]:
+    data = execute(_MEMBERS_QUERY, {"entity": entity})
+    members = (data.get("entity") or {}).get("members") or []
+    # Pending invites can have no user id yet; they can't resolve a run's user, so skip them.
+    rows = [member for member in members if member and member.get("id")]
+    if rows:
+        yield rows
+
+
+def _run_child_query_variables(
+    entity: str,
+    project: str,
+    page_size: int,
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+) -> dict[str, Any]:
+    filters: str | None = None
+    order = RUN_INCREMENTAL_SORT_KEYS["createdAt"]
+    if should_use_incremental_field:
+        order = RUN_INCREMENTAL_SORT_KEYS["heartbeatAt"]
+        if db_incremental_field_last_value is not None:
+            filters = json.dumps({"heartbeatAt": {"$gt": _format_timestamp(db_incremental_field_last_value)}})
+
+    return {"entity": entity, "project": project, "filters": filters, "order": order, "first": page_size}
+
+
+def _run_child_base(project: str, run: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "runId": run.get("id"),
+        "runName": run.get("name"),
+        "projectName": project,
+        "runCreatedAt": run.get("createdAt"),
+        "runHeartbeatAt": run.get("heartbeatAt"),
+    }
+
+
+def _run_artifact_rows(base: dict[str, Any], direction: str, edges: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    rows = []
+    for edge in edges:
+        node = edge.get("node") or {}
+        if not node.get("id"):
+            continue
+        rows.append(
+            {
+                **base,
+                "direction": direction,
+                "artifactId": node["id"],
+                "artifactTypeName": (node.get("artifactType") or {}).get("name"),
+                "collectionName": (node.get("artifactSequence") or {}).get("name"),
+                "versionIndex": node.get("versionIndex"),
+            }
+        )
+    return rows
+
+
+@dataclasses.dataclass(frozen=True)
+class _RunCursor:
+    run: dict[str, Any]
+    # Bookmark that reads this run again from its start (history adds the step to it).
+    resume_here: WeightsAndBiasesResumeConfig
+    # Bookmark past this run, staged before its last batch is yielded. None for the last run of
+    # the project; get_rows then advances the project bookmark.
+    after_run: WeightsAndBiasesResumeConfig | None
+    first_step: int
+
+
+@dataclasses.dataclass(frozen=True)
+class _RunsPageEnd:
+    # Bookmark for the next runs page, or None after the last page.
+    next_page: WeightsAndBiasesResumeConfig | None
+
+
+def _finish_runs_page(
+    page_end: _RunsPageEnd, resumable_source_manager: ResumableSourceManager[WeightsAndBiasesResumeConfig]
+) -> None:
+    # Every run of the page is read, so the next page is a safe bookmark. The safe point also covers
+    # a page whose runs returned no rows, which would otherwise never hand control back.
+    if page_end.next_page is not None:
+        resumable_source_manager.save_state(page_end.next_page)
+    resumable_source_manager.safe_point()
+
+
+def _iter_runs(
+    execute: Callable[[str, dict[str, Any]], dict[str, Any]],
+    query: str,
+    variables: dict[str, Any],
+    project: str,
+    resume: WeightsAndBiasesResumeConfig | None,
+    logger: FilteringBoundLogger,
+) -> Iterator[_RunCursor | _RunsPageEnd]:
+    """Walk a project's runs for the run-child tables, with a run-level bookmark for each run.
+
+    After the runs of each page it yields a _RunsPageEnd, which the consumer passes to
+    _finish_runs_page once it has read those runs.
+    """
+    page_after = resume.cursor if resume else None
+    resume_run = resume.run if resume else None
+    resume_step = (resume.step or 0) if resume else 0
+
+    for edges, end_cursor, has_next in _iter_connection(
+        execute, query, variables, ("project", "runs"), logger, after=page_after
+    ):
+        runs = [edge["node"] for edge in edges if (edge.get("node") or {}).get("name")]
+        names = [run["name"] for run in runs]
+        # If the bookmarked run is gone, read the whole page again; merge dedupes on the key.
+        start = names.index(resume_run) if resume_run in names else 0
+        for index in range(start, len(runs)):
+            after_run: WeightsAndBiasesResumeConfig | None = None
+            if index + 1 < len(runs):
+                after_run = WeightsAndBiasesResumeConfig(project=project, cursor=page_after, run=names[index + 1])
+            elif has_next:
+                after_run = WeightsAndBiasesResumeConfig(project=project, cursor=end_cursor)
+            yield _RunCursor(
+                run=runs[index],
+                resume_here=WeightsAndBiasesResumeConfig(project=project, cursor=page_after, run=names[index]),
+                after_run=after_run,
+                first_step=resume_step if index == start and resume_run in names else 0,
+            )
+        yield _RunsPageEnd(
+            next_page=WeightsAndBiasesResumeConfig(project=project, cursor=end_cursor) if has_next else None
+        )
+        resume_run = None
+        resume_step = 0
+        page_after = end_cursor
+
+
+def _run_artifact_batches(
+    execute: Callable[[str, dict[str, Any]], dict[str, Any]],
+    entity: str,
+    project: str,
+    run: dict[str, Any],
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict[str, Any]]]:
+    base = _run_child_base(project, run)
+    for direction, connection_name in _RUN_ARTIFACT_CONNECTIONS.items():
+        connection = run.get(connection_name) or {}
+        yield _run_artifact_rows(base, direction, connection.get("edges") or [])
+        page_info = connection.get("pageInfo") or {}
+        if not page_info.get("hasNextPage") or not page_info.get("endCursor"):
+            continue
+        for more_edges, _c, _h in _iter_connection(
+            execute,
+            _SINGLE_RUN_ARTIFACTS_QUERIES[connection_name],
+            {"entity": entity, "project": project, "run": run["name"], "first": RUN_ARTIFACTS_PAGE_SIZE},
+            ("project", "run", connection_name),
+            logger,
+            after=page_info["endCursor"],
+        ):
+            yield _run_artifact_rows(base, direction, more_edges)
+
+
+def _get_run_child_rows(
+    execute: Callable[[str, dict[str, Any]], dict[str, Any]],
+    runs_query: str,
+    variables: dict[str, Any],
+    project: str,
+    resume: WeightsAndBiasesResumeConfig | None,
+    resumable_source_manager: ResumableSourceManager[WeightsAndBiasesResumeConfig],
+    logger: FilteringBoundLogger,
+    run_batches: Callable[[dict[str, Any]], Iterator[list[dict[str, Any]]]],
+) -> Iterator[list[dict[str, Any]]]:
+    """Walk a project's runs and yield the batches `run_batches` reads for each run, resumable per run."""
+    for cursor in _iter_runs(execute, runs_query, variables, project, resume, logger):
+        if isinstance(cursor, _RunsPageEnd):
+            _finish_runs_page(cursor, resumable_source_manager)
+            continue
+        # Hold one batch back, so the bookmark past the run is staged before its last batch.
+        held: list[dict[str, Any]] | None = None
+        for batch in run_batches(cursor.run):
+            if held is not None:
+                resumable_source_manager.save_state(cursor.resume_here)
+                if held:
+                    yield held
+                else:
+                    resumable_source_manager.safe_point()
+            held = batch
+        if cursor.after_run is not None:
+            resumable_source_manager.save_state(cursor.after_run)
+        if held:
+            yield held
+        else:
+            resumable_source_manager.safe_point()
+
+
+def _get_run_artifact_rows(
+    execute: Callable[[str, dict[str, Any]], dict[str, Any]],
+    entity: str,
+    project: str,
+    variables: dict[str, Any],
+    resume: WeightsAndBiasesResumeConfig | None,
+    resumable_source_manager: ResumableSourceManager[WeightsAndBiasesResumeConfig],
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict[str, Any]]]:
+    """One row per (run, direction, artifact version), from the runs connection with nested artifact pages.
+
+    The first page of each run's input and output artifacts rides along in the runs query, so a run
+    costs an extra request only when it has more artifacts than fit on that page. Each artifact page
+    is yielded on its own, so a run with many artifacts never builds up in memory.
+    """
+    yield from _get_run_child_rows(
+        execute,
+        _RUN_ARTIFACTS_RUNS_QUERY,
+        {**variables, "artifactsFirst": RUN_ARTIFACTS_PAGE_SIZE},
+        project,
+        resume,
+        resumable_source_manager,
+        logger,
+        partial(_run_artifact_batches, execute, entity, project, logger=logger),
+    )
+
+
+def _run_file_rows(base: dict[str, Any], edges: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    rows = []
+    for edge in edges:
+        node = edge.get("node") or {}
+        if not node.get("name"):
+            continue
+        rows.append(
+            {
+                **base,
+                "id": node.get("id"),
+                "name": node["name"],
+                "sizeBytes": node.get("sizeBytes"),
+                "mimetype": node.get("mimetype"),
+                "md5": node.get("md5"),
+                "createdAt": node.get("createdAt"),
+                "updatedAt": node.get("updatedAt"),
+            }
+        )
+    return rows
+
+
+def _run_file_batches(
+    execute: Callable[[str, dict[str, Any]], dict[str, Any]],
+    entity: str,
+    project: str,
+    run: dict[str, Any],
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict[str, Any]]]:
+    base = _run_child_base(project, run)
+    connection = run.get("files") or {}
+    yield _run_file_rows(base, connection.get("edges") or [])
+    page_info = connection.get("pageInfo") or {}
+    if not page_info.get("hasNextPage") or not page_info.get("endCursor"):
+        return
+    for more_edges, _c, _h in _iter_connection(
+        execute,
+        _SINGLE_RUN_FILES_QUERY,
+        {"entity": entity, "project": project, "run": run["name"], "first": RUN_FILES_PAGE_SIZE},
+        ("project", "run", "files"),
+        logger,
+        after=page_info["endCursor"],
+    ):
+        yield _run_file_rows(base, more_edges)
+
+
+def _system_metrics_row(base: dict[str, Any], line: Any) -> dict[str, Any] | None:
+    entry = json.loads(line) if isinstance(line, str) else line
+    if not isinstance(entry, dict):
+        return None
+    # A sample has no step, so its timestamp is its key within the run.
+    timestamp = _history_timestamp(entry.pop("_timestamp", None))
+    if timestamp is None:
+        return None
+    runtime = entry.pop("_runtime", None)
+    entry.pop("_wandb", None)
+    return {
+        **base,
+        "timestamp": timestamp,
+        "runtime": float(runtime) if isinstance(runtime, int | float) and not isinstance(runtime, bool) else None,
+        "metrics": json.dumps(entry, default=str),
+    }
+
+
+def _run_system_metric_batches(
+    execute: Callable[[str, dict[str, Any]], dict[str, Any]],
+    entity: str,
+    project: str,
+    run: dict[str, Any],
+) -> Iterator[list[dict[str, Any]]]:
+    if run.get("eventsLineCount") == 0:
+        return
+    data = execute(
+        _RUN_EVENTS_QUERY,
+        {"entity": entity, "project": project, "run": run["name"], "samples": RUN_EVENTS_MAX_SAMPLES},
+    )
+    run_node = (data.get("project") or {}).get("run")
+    if run_node is None:
+        return  # run deleted between listing and this fetch
+    base = _run_child_base(project, run)
+    yield [row for row in (_system_metrics_row(base, line) for line in run_node.get("events") or []) if row]
+
+
+def _get_entity_rows(
+    execute: Callable[[str, dict[str, Any]], dict[str, Any]], entity: str
+) -> Iterator[list[dict[str, Any]]]:
+    node = execute(_ENTITY_QUERY, {"entity": entity}).get("entity")
+    if node and node.get("id"):
+        yield [node]
+
+
+def _last_history_step(history_keys: Any) -> int:
+    if isinstance(history_keys, str):
+        try:
+            history_keys = json.loads(history_keys)
+        except ValueError:
+            return -1
+    if not isinstance(history_keys, dict):
+        return -1
+    last_step = history_keys.get("lastStep")
+    return last_step if isinstance(last_step, int) and not isinstance(last_step, bool) else -1
+
+
+def _history_timestamp(value: Any) -> str | None:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    try:
+        return datetime.fromtimestamp(value, tz=UTC).isoformat()
+    except (OverflowError, OSError, ValueError):
+        return None
+
+
+def _history_row(base: dict[str, Any], line: Any) -> dict[str, Any] | None:
+    entry = json.loads(line) if isinstance(line, str) else line
+    if not isinstance(entry, dict):
+        return None
+    step = entry.pop("_step", None)
+    if isinstance(step, bool) or not isinstance(step, int):
+        return None
+    runtime = entry.pop("_runtime", None)
+    timestamp = entry.pop("_timestamp", None)
+    return {
+        **base,
+        "step": step,
+        "timestamp": _history_timestamp(timestamp),
+        "runtime": float(runtime) if isinstance(runtime, int | float) and not isinstance(runtime, bool) else None,
+        # Metric names are user-defined and differ per run, so they stay in one JSON column
+        # rather than becoming table columns.
+        "metrics": json.dumps(entry, default=str),
+    }
+
+
+def _initial_history_window(run: dict[str, Any], first_step: int, last_step: int) -> int:
+    # Size the first window to hold about one page at the run's average step density, so a run
+    # that logs sparse steps (e.g. a sample count as the step) doesn't cost one request per page
+    # of empty step range.
+    span = last_step + 1 - first_step
+    line_count = run.get("historyLineCount")
+    if not isinstance(line_count, int) or isinstance(line_count, bool) or line_count <= 0:
+        return RUN_HISTORY_PAGE_SIZE
+    return max(RUN_HISTORY_PAGE_SIZE, min(span, RUN_HISTORY_PAGE_SIZE * span // line_count))
+
+
+def _get_single_run_history_rows(
+    execute: Callable[[str, dict[str, Any]], dict[str, Any]],
+    entity: str,
+    project: str,
+    cursor: _RunCursor,
+    resumable_source_manager: ResumableSourceManager[WeightsAndBiasesResumeConfig],
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict[str, Any]]]:
+    """Read one run's history in step windows [step, step + window).
+
+    `history(samples:)` samples down a window that holds more rows than `samples`. Each window asks
+    for twice RUN_HISTORY_PAGE_SIZE samples and is accepted only when it returns at most
+    RUN_HISTORY_PAGE_SIZE rows, which proves the server did not sample it. A larger result halves the
+    window and reads it again. A window no wider than RUN_HISTORY_PAGE_SIZE steps can't be sampled,
+    because steps are unique.
+    """
+    run = cursor.run
+    last_step = _last_history_step(run.get("historyKeys"))
+    base = _run_child_base(project, run)
+    step = cursor.first_step
+    window = _initial_history_window(run, step, last_step)
+
+    for _ in range(MAX_PAGES_PER_CONNECTION):
+        if step > last_step:
+            return
+        data = execute(
+            _RUN_HISTORY_QUERY,
+            {
+                "entity": entity,
+                "project": project,
+                "run": run["name"],
+                "minStep": step,
+                "maxStep": step + window,
+                "samples": RUN_HISTORY_PAGE_SIZE * 2,
+            },
+        )
+        run_node = (data.get("project") or {}).get("run")
+        if run_node is None:
+            return  # run deleted between listing and this fetch
+        lines = run_node.get("history") or []
+
+        if len(lines) > RUN_HISTORY_PAGE_SIZE and window > RUN_HISTORY_PAGE_SIZE:
+            window = max(RUN_HISTORY_PAGE_SIZE, window // 2)
+            resumable_source_manager.safe_point()
+            continue
+
+        rows = [row for row in (_history_row(base, line) for line in lines) if row is not None]
+        step += window
+        if len(lines) < RUN_HISTORY_PAGE_SIZE // 2:
+            window *= 2
+
+        if step <= last_step:
+            resumable_source_manager.save_state(dataclasses.replace(cursor.resume_here, step=step))
+        elif cursor.after_run is not None:
+            resumable_source_manager.save_state(cursor.after_run)
+        if rows:
+            yield rows
+        else:
+            resumable_source_manager.safe_point()
+
+    logger.warning(
+        f"Weights & Biases: hit the {MAX_PAGES_PER_CONNECTION}-page cap reading history for run {run['name']}"
+    )
+
+
+def _get_run_history_rows(
+    execute: Callable[[str, dict[str, Any]], dict[str, Any]],
+    entity: str,
+    project: str,
+    variables: dict[str, Any],
+    resume: WeightsAndBiasesResumeConfig | None,
+    resumable_source_manager: ResumableSourceManager[WeightsAndBiasesResumeConfig],
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict[str, Any]]]:
+    for cursor in _iter_runs(execute, _RUN_HISTORY_RUNS_QUERY, variables, project, resume, logger):
+        if isinstance(cursor, _RunsPageEnd):
+            _finish_runs_page(cursor, resumable_source_manager)
+            continue
+        yield from _get_single_run_history_rows(execute, entity, project, cursor, resumable_source_manager, logger)
 
 
 def _get_artifact_rows(
@@ -569,15 +1216,25 @@ def get_rows(
         yield from _get_project_rows(execute, entity, after, resumable_source_manager, logger)
         return
 
+    if endpoint == "members":
+        yield from _get_member_rows(execute, entity)
+        return
+
+    if endpoint == "entities":
+        yield from _get_entity_rows(execute, entity)
+        return
+
     # Fan-out endpoints iterate every project in the entity. Resolve the saved project-name
     # bookmark to the slice still to process; if the bookmarked project no longer exists,
     # start over from the first project (merge dedupes re-pulled rows on the primary key).
     project_names = _collect_fan_out_project_names(execute, entity, logger)
     remaining = project_names
     resume_cursor: str | None = None
+    project_resume: WeightsAndBiasesResumeConfig | None = None
     if resume is not None and resume.project is not None and resume.project in project_names:
         remaining = project_names[project_names.index(resume.project) :]
         resume_cursor = resume.cursor
+        project_resume = resume
         logger.debug(f"Weights & Biases: resuming {endpoint} from project={resume.project}")
 
     for index, project in enumerate(remaining):
@@ -617,10 +1274,103 @@ def get_rows(
                 resumable_source_manager,
                 logger,
             )
+        elif endpoint == "artifact_types":
+            yield from _get_fan_out_rows(
+                execute,
+                _PROJECT_ARTIFACT_TYPES_QUERY,
+                {"entity": entity, "project": project, "first": PAGE_SIZE},
+                ("project", "artifactTypes"),
+                project,
+                resume_cursor,
+                resumable_source_manager,
+                logger,
+            )
+        elif endpoint == "artifact_collections":
+            yield from _get_fan_out_rows(
+                execute,
+                _PROJECT_ARTIFACT_COLLECTIONS_QUERY,
+                {"entity": entity, "project": project, "first": PAGE_SIZE},
+                ("project", "artifactCollections"),
+                project,
+                resume_cursor,
+                resumable_source_manager,
+                logger,
+                transform=_artifact_collection_row,
+            )
+        elif endpoint == "run_artifacts":
+            yield from _get_run_artifact_rows(
+                execute,
+                entity,
+                project,
+                _run_child_query_variables(
+                    entity,
+                    project,
+                    RUN_ARTIFACTS_RUNS_PAGE_SIZE,
+                    should_use_incremental_field,
+                    db_incremental_field_last_value,
+                ),
+                project_resume,
+                resumable_source_manager,
+                logger,
+            )
+        elif endpoint == "run_history":
+            yield from _get_run_history_rows(
+                execute,
+                entity,
+                project,
+                _run_child_query_variables(
+                    entity,
+                    project,
+                    RUN_HISTORY_RUNS_PAGE_SIZE,
+                    should_use_incremental_field,
+                    db_incremental_field_last_value,
+                ),
+                project_resume,
+                resumable_source_manager,
+                logger,
+            )
+        elif endpoint == "run_files":
+            yield from _get_run_child_rows(
+                execute,
+                _RUN_FILES_RUNS_QUERY,
+                {
+                    **_run_child_query_variables(
+                        entity,
+                        project,
+                        RUN_FILES_RUNS_PAGE_SIZE,
+                        should_use_incremental_field,
+                        db_incremental_field_last_value,
+                    ),
+                    "filesFirst": RUN_FILES_PAGE_SIZE,
+                },
+                project,
+                project_resume,
+                resumable_source_manager,
+                logger,
+                partial(_run_file_batches, execute, entity, project, logger=logger),
+            )
+        elif endpoint == "run_system_metrics":
+            yield from _get_run_child_rows(
+                execute,
+                _RUN_EVENTS_RUNS_QUERY,
+                _run_child_query_variables(
+                    entity,
+                    project,
+                    RUN_EVENTS_RUNS_PAGE_SIZE,
+                    should_use_incremental_field,
+                    db_incremental_field_last_value,
+                ),
+                project,
+                project_resume,
+                resumable_source_manager,
+                logger,
+                partial(_run_system_metric_batches, execute, entity, project),
+            )
         else:  # artifacts
             yield from _get_artifact_rows(execute, entity, project, logger)
 
         resume_cursor = None  # only the resumed-into project uses the saved cursor
+        project_resume = None
         # Advance the bookmark so a crash between projects resumes at the next one.
         if index + 1 < len(remaining):
             resumable_source_manager.save_state(WeightsAndBiasesResumeConfig(project=remaining[index + 1]))
@@ -638,6 +1388,15 @@ def weights_and_biases_source(
     incremental_field: str | None = None,
 ) -> SourceResponse:
     endpoint_config = WANDB_ENDPOINTS[endpoint]
+    partition_kwargs: dict[str, Any] = {}
+    if endpoint_config.partition_key is not None:
+        partition_kwargs = {
+            "partition_count": 1,
+            "partition_size": 1,
+            "partition_mode": "datetime",
+            "partition_format": "month",
+            "partition_keys": [endpoint_config.partition_key],
+        }
 
     return SourceResponse(
         name=endpoint,
@@ -653,11 +1412,7 @@ def weights_and_biases_source(
             incremental_field=incremental_field,
         ),
         primary_keys=list(endpoint_config.primary_keys),
-        partition_count=1,
-        partition_size=1,
-        partition_mode="datetime",
-        partition_format="month",
-        partition_keys=[endpoint_config.partition_key],
+        **partition_kwargs,
         # Fan-out over projects means rows only ascend within a single project, so the
         # pipeline commits the incremental watermark when a run completes rather than
         # per batch.

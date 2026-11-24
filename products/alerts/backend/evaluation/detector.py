@@ -50,6 +50,9 @@ from products.alerts.backend.evaluation.delay import (
     validate_evaluation_delay,
 )
 from products.alerts.backend.facade.contracts import MovedAlertCheck
+from products.alerts.backend.forecast import scorer as forecast_scorer
+from products.alerts.backend.forecast.access import FORECAST_DETECTOR_NO_CREATOR_MESSAGE
+from products.alerts.backend.forecast.rules import ForecastComparison, breach_detail
 from products.alerts.backend.judge import (
     EarlierFlag,
     JudgeAttribution,
@@ -58,6 +61,7 @@ from products.alerts.backend.judge import (
     SeriesJudge,
     SeriesJudgment,
 )
+from products.alerts.backend.judge.contract import ForecastDetectorMisconfiguredError
 from products.alerts.backend.judge.llm import LLMSeriesJudge, prompt_window
 from products.alerts.backend.llm_detector_limits import is_llm_detector_config
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
@@ -301,9 +305,16 @@ def _platform_fired_checks(alert: AlertConfiguration, moved_at: datetime) -> lis
 
 
 def _judge_attribution(
-    *, team: Team | None, user: User | None, evaluation_id: str | None, is_agent_billable: bool
+    *,
+    team: Team | None,
+    user: User | None,
+    evaluation_id: str | None,
+    is_agent_billable: bool,
+    detector_type: str = DetectorType.LLM.value,
 ) -> JudgeAttribution:
     """Who the judge's charged call runs as. Refused loudly when there is no one to attribute it to."""
+    if (team is None or user is None) and detector_type == DetectorType.FORECAST.value:
+        raise ForecastDetectorMisconfiguredError(FORECAST_DETECTOR_NO_CREATOR_MESSAGE)
     if team is None or user is None:
         raise LLMDetectorMisconfiguredError(
             "The AI detector needs a project and a user to attribute its model calls to. This "
@@ -369,15 +380,30 @@ def _score_series(
     series_context: SeriesContext,
     attribution: Callable[[], JudgeAttribution],
 ) -> _ScoredSeries:
-    """Score one series with whatever its config names: a registry detector, or the AI judge.
+    """Score one series with whatever its config names: a registry detector, the AI judge, or the forecast.
 
-    ``attribution`` is resolved only on the judge path, so an alert with no creator still
-    evaluates on a statistical detector and only fails when a charged call would need someone
-    to run as. The judge always judges the latest point only, so ``every_point`` applies to a
-    registry detector alone.
+    ``attribution`` is resolved only on the judge and forecast paths, so an alert with no creator
+    still evaluates on a statistical detector and only fails when a gateway call would need someone
+    to run as. The judge and the forecast score the latest point only, so ``every_point`` applies
+    to a registry detector alone.
     """
     data = np.array([p.value for p in series.points])
     detector_type_str = detector_config.get("type", "zscore")
+    if detector_type_str == DetectorType.FORECAST.value:
+        comparison = forecast_scorer.score_latest(data, detector_config, attribution=attribution())
+        if comparison is None:
+            return _ScoredSeries(data=data, detection=None, persisted_metadata={}, breach_suffix="")
+        return _ScoredSeries(
+            data=data,
+            # A forecast has no score. Its verdict flags the latest point only.
+            detection=DetectionResult(
+                is_anomaly=comparison.fires,
+                score=None,
+                triggered_indices=[len(data) - 1] if comparison.fires else [],
+            ),
+            persisted_metadata=comparison.persisted_metadata(),
+            breach_suffix=f": {breach_detail(comparison)}",
+        )
     if detector_type_str == DetectorType.LLM.value:
         judgment = _series_judge(detector_config).judge_latest(data, series=series_context, attribution=attribution())
         rationale = judgment.rationale.strip() if judgment is not None else ""
@@ -399,7 +425,7 @@ def _score_series(
 
 # The breach message a person reads names the detector. Every statistical type is already
 # a recognizable name; "llm" is not something the alert editor ever calls it.
-_DETECTOR_DISPLAY_NAMES = {DetectorType.LLM.value: "AI"}
+_DETECTOR_DISPLAY_NAMES = {DetectorType.LLM.value: "AI", DetectorType.FORECAST.value: "forecast"}
 
 
 def _anomaly_breach(label: str, scored: _ScoredSeries, detector_type_str: str) -> str:
@@ -461,6 +487,7 @@ def evaluate_with_detector(
                 user=alert.created_by if alert is not None else None,
                 evaluation_id=evaluation_id,
                 is_agent_billable=True,
+                detector_type=detector_type_str,
             ),
         )
 
@@ -475,8 +502,10 @@ def evaluate_with_detector(
                     triggered_points=scored.detection.triggered_indices or None,
                     triggered_dates=_triggered_dates(s, scored.detection.triggered_indices or []) or None,
                     interval=interval_value,
+                    # series_index stays the breakdown position, which the alert chart reads.
                     triggered_metadata={
                         **_check_provenance(insight, bd_index, detector_type_str),
+                        "breakdown_label": s.label,
                         **scored.persisted_metadata,
                     },
                 )
@@ -580,7 +609,9 @@ def simulate_detector_on_insight(
     """Run a detector over historical insight data for chart visualization. Read-only (no AlertCheck).
 
     A statistical detector scores every point. The AI detector makes one live check of the
-    latest point, and reads the earlier flags of ``alert_id`` when the alert is saved.
+    latest point, and reads the earlier flags of ``alert_id`` when the alert is saved. The forecast
+    detector scores every point with a rolling one-step forecast, and returns the forecast of each point
+    so the chart can draw the expected range.
 
     ``score=False`` returns the extracted series with no scores: for a caller that only wants
     the points, such as the investigation agent's chart, and must not pay for a model call.
@@ -664,12 +695,28 @@ def simulate_detector_on_insight(
         else (),
     )
 
+    if result.is_breakdown and detector_type_str == DetectorType.LLM.value:
+        # One model call per breakdown value is the cost profile the saved-alert path
+        # refuses; the preview must refuse it before the first call, not after the last.
+        raise ValueError("The AI detector does not support breakdown insights yet.")
+
+    scored_series = result.series if result.is_breakdown else result.series[:1]
+    if score and detector_type_str == DetectorType.FORECAST.value:
+        sims = _forecast_sims(
+            scored_series,
+            detector_config,
+            attribution=_judge_attribution(
+                team=insight.team,
+                user=user,
+                evaluation_id=None,
+                is_agent_billable=is_agent_billable,
+                detector_type=detector_type_str,
+            ),
+        )
+    else:
+        sims = [_sim_from_series(s, detector_config, detector_type_str, sim_context) for s in scored_series]
+
     if result.is_breakdown:
-        if detector_type_str == DetectorType.LLM.value:
-            # One model call per breakdown value is the cost profile the saved-alert path
-            # refuses; the preview must refuse it before the first call, not after the last.
-            raise ValueError("The AI detector does not support breakdown insights yet.")
-        breakdown_sims = [_sim_from_series(s, detector_config, detector_type_str, sim_context) for s in result.series]
         return {
             "data": [],
             "dates": [],
@@ -677,13 +724,13 @@ def simulate_detector_on_insight(
             "triggered_indices": [],
             "triggered_dates": [],
             "interval": interval_value,
-            "total_points": sum(sim["total_points"] for sim in breakdown_sims),
-            "anomaly_count": sum(sim["anomaly_count"] for sim in breakdown_sims),
-            "breakdown_results": breakdown_sims,
+            "total_points": sum(sim["total_points"] for sim in sims),
+            "anomaly_count": sum(sim["anomaly_count"] for sim in sims),
+            "breakdown_results": sims,
             **interval_metadata,
         }
 
-    sim = _sim_from_series(result.series[0], detector_config, detector_type_str, sim_context)
+    sim = sims[0]
     sim.pop("label", None)
     return {**sim, "interval": interval_value, **interval_metadata}
 
@@ -741,8 +788,15 @@ def _sim_from_series(
         persisted_metadata = scored.persisted_metadata
     else:
         detection = None
-    if detection is None:
-        detection = DetectionResult(is_anomaly=False)
+    return _shaped_sim(series, detection or DetectionResult(is_anomaly=False), detector_type_str, persisted_metadata)
+
+
+def _shaped_sim(
+    series: ComparableSeries,
+    detection: DetectionResult,
+    detector_type_str: str,
+    persisted_metadata: dict[str, Any],
+) -> dict[str, Any]:
     triggered = detection.triggered_indices or []
     scores = detection.all_scores if detection.all_scores else [None] * len(series.points)
 
@@ -765,3 +819,42 @@ def _sim_from_series(
         sim["rationale"] = persisted_metadata["rationale"]
         sim["kind"] = persisted_metadata.get("kind")
     return sim
+
+
+def _forecast_sims(
+    series: list[ComparableSeries], detector_config: dict[str, Any], *, attribution: JudgeAttribution
+) -> list[dict[str, Any]]:
+    """Score every point of each series with a rolling forecast, and shape each for the simulation chart.
+
+    All the series share one batched forecast call. Each sim carries the forecast of each point, so the
+    chart can draw the expected value and the range, and mark the side that fired.
+    """
+    rolling = forecast_scorer.score_every_point(
+        [np.array([point.value for point in s.points]) for s in series], detector_config, attribution=attribution
+    )
+    sims: list[dict[str, Any]] = []
+    for s, comparisons in zip(series, rolling.comparisons, strict=True):
+        triggered = [index for index, comparison in enumerate(comparisons) if comparison and comparison.fires]
+        sim = _shaped_sim(
+            s,
+            # A forecast has no score.
+            DetectionResult(is_anomaly=bool(triggered), triggered_indices=triggered),
+            DetectorType.FORECAST.value,
+            {},
+        )
+        sim["forecast"] = {
+            "lower_quantile": rolling.levels.lower,
+            "upper_quantile": rolling.levels.upper,
+            **_forecast_points(comparisons),
+        }
+        sims.append(sim)
+    return sims
+
+
+def _forecast_points(comparisons: tuple[ForecastComparison | None, ...]) -> dict[str, list[Any]]:
+    return {
+        "expected": [comparison.expected if comparison else None for comparison in comparisons],
+        "lower": [comparison.lower if comparison else None for comparison in comparisons],
+        "upper": [comparison.upper if comparison else None for comparison in comparisons],
+        "fired_side": [comparison.side if comparison else None for comparison in comparisons],
+    }

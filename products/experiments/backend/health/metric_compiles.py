@@ -51,7 +51,6 @@ from products.experiments.backend.metric_calculation.config import (
     MetricCalculationConfig,
     build_calculation_configs,
     calculation_metric_name,
-    team_experiments_configs,
 )
 from products.experiments.backend.metric_resolution import build_metric, metric_uses_warehouse_native_source
 from products.experiments.backend.models.experiment import Experiment
@@ -89,18 +88,21 @@ _CACHE_SECONDS = {
 _CONFIGURATION_ERRORS = (ValidationError, ExposedHogQLError, HogQLNotImplementedError, pydantic.ValidationError)
 
 
-def load_metric_compiles(experiment: Experiment, *, user: User | None) -> MetricCompiles | None:
+def load_metric_compiles(
+    experiment: Experiment, *, team_config: TeamExperimentsConfig, user: User | None
+) -> MetricCompiles | None:
     """The compile of each metric that the experiment calculates, as `user`, or None when it fails. Never raises: the
     check then reports that it couldn't check. Without a user, a metric that reads the warehouse is not checked."""
     try:
-        return _load_metric_compiles(experiment, user)
+        return _load_metric_compiles(experiment, team_config, user)
     except Exception as error:
         capture_exception(error)
         return None
 
 
-def _load_metric_compiles(experiment: Experiment, user: User | None) -> MetricCompiles:
-    team_config = team_experiments_configs([experiment.team_id])[experiment.team_id]
+def _load_metric_compiles(
+    experiment: Experiment, team_config: TeamExperimentsConfig, user: User | None
+) -> MetricCompiles:
     # Metrics that share a uuid share its first definition, so one compile covers them.
     configs: dict[str, MetricCalculationConfig] = {}
     for calculation_config in build_calculation_configs(experiment, team_config=team_config):
@@ -185,7 +187,7 @@ class _MetricCompiler:
         except pydantic.ValidationError as error:
             return _failure(ExperimentHealthMetricCompileErrorKind.DEFINITION, _definition_message(error))
         if metric_uses_warehouse_native_source(metric):
-            # No query runs in the customer's warehouse yet, so the compile would report a defect of PostHog.
+            # The statement runs in the customer's warehouse and has no HogQL to compile.
             return _Outcome.UNKNOWN
         runner = ExperimentQueryRunner(
             query=ExperimentQuery(experiment_id=self.experiment.id, metric=metric),

@@ -110,4 +110,18 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             waitlist_id="ID of the waitlist the entry belongs to.",
         ),
     },
+    "organization_memberships": {
+        "description": "A user's membership in an organization, with the roles the user holds there.",
+        "docs_url": "https://workos.com/docs/reference/authkit/organization-membership",
+        "columns": _columns(
+            user_id="ID of the user who holds the membership.",
+            organization_id="ID of the organization the membership belongs to.",
+            organization_name="Name of the organization the membership belongs to.",
+            role="The user's primary role in the organization, as an object with a `slug`.",
+            roles="All the roles the user holds in the organization, each with a `slug`.",
+            status="Status of the membership: active, inactive, or pending.",
+            directory_managed="Whether a Directory Sync connection manages the membership.",
+            custom_attributes="Attributes from the linked directory user or SSO profile.",
+        ),
+    },
 }

@@ -1,9 +1,11 @@
 import { useLayoutEffect, useMemo, useRef } from 'react'
 import { create } from 'zustand'
 
-export type TabKey = 'inbox' | 'chats' | 'views' | 'errors' | 'replay' | 'web_analytics' | 'live'
+/** `live` is the Home tab. */
+export type TabKey = 'live' | 'inbox' | 'chats' | 'views' | 'errors' | 'replay' | 'web_analytics'
 
 export interface TabHeaderSlot {
+    scrollToTop?: () => void
     refreshing?: boolean
     /** A short line under the status line, such as why a pull to refresh did nothing. */
     hint: string | null
@@ -11,8 +13,8 @@ export interface TabHeaderSlot {
     /** An edit mode replaces the title and swaps the controls for a Done button. */
     editing: { title: string; onDone: () => void } | null
     editPins: { disabled: boolean; onPress: () => void } | null
-    /** The Inbox publishes this; the header then shows a filter button left of More. */
-    filter: { active: boolean; onPress: () => void } | null
+    /** Live shows its number of applied filters. Inbox shows a dot for active filters. */
+    filter: { active: boolean; count?: number; onPress: () => void } | null
 }
 
 interface TabHeaderState {
@@ -24,8 +26,8 @@ interface TabHeaderState {
 
 // One slot per tab, so a screen that renders while another tab is focused never overwrites the focused tab's header.
 export const useTabHeaderStore = create<TabHeaderState>()((set) => ({
-    focused: 'inbox',
-    slots: { inbox: null, chats: null, views: null, errors: null, replay: null, web_analytics: null, live: null },
+    focused: 'live',
+    slots: { live: null, inbox: null, chats: null, views: null, errors: null, replay: null, web_analytics: null },
     setFocused: (focused) => set({ focused }),
     setSlot: (tab, slot) => set((state) => ({ slots: { ...state.slots, [tab]: slot } })),
 }))
@@ -45,6 +47,7 @@ export function useTabHeader(tab: TabKey, slot: TabHeaderSlot): void {
     latest.current = slot
     const callbacks = useMemo(
         () => ({
+            scrollToTop: (): void => latest.current.scrollToTop?.(),
             done: (): void => latest.current.editing?.onDone(),
             editPins: (): void => latest.current.editPins?.onPress(),
             filter: (): void => latest.current.filter?.onPress(),
@@ -58,16 +61,30 @@ export function useTabHeader(tab: TabKey, slot: TabHeaderSlot): void {
     const editPinsDisabled = editPins?.disabled ?? false
     const hasFilter = filter !== null
     const filterActive = filter?.active ?? false
+    const filterCount = filter?.count
     useLayoutEffect(() => {
         useTabHeaderStore.getState().setSlot(tab, {
             refreshing,
+            scrollToTop: callbacks.scrollToTop,
             hint,
             status,
             editing: editingTitle === null ? null : { title: editingTitle, onDone: callbacks.done },
             editPins: hasEditPins ? { disabled: editPinsDisabled, onPress: callbacks.editPins } : null,
-            filter: hasFilter ? { active: filterActive, onPress: callbacks.filter } : null,
+            filter: hasFilter ? { active: filterActive, count: filterCount, onPress: callbacks.filter } : null,
         })
-    }, [tab, callbacks, hint, status, editingTitle, hasEditPins, editPinsDisabled, hasFilter, filterActive, refreshing])
+    }, [
+        tab,
+        callbacks,
+        hint,
+        status,
+        editingTitle,
+        hasEditPins,
+        editPinsDisabled,
+        hasFilter,
+        filterActive,
+        refreshing,
+        filterCount,
+    ])
 
     useLayoutEffect(() => () => useTabHeaderStore.getState().setSlot(tab, null), [tab])
 }

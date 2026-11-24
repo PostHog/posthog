@@ -51,10 +51,8 @@ GROUPING_KEYWORDS = frozenset({"by", "without", "on", "ignoring", "group_left", 
 KEYWORDS = GROUPING_KEYWORDS | {"bool", "and", "or", "unless", "offset", "atan2", "inf", "nan"}
 
 # Grafana fills these per panel. PostHog runs a range-less rate or increase over the query step,
-# which is what `$__rate_interval` and `$__interval` stand for.
+# which is what `$__rate_interval` and `$__interval` stand for. The PromQL runner fills `$__range`.
 _STEP_RANGE_VARIABLE = re.compile(r"^\$\{?__(rate_interval|interval|auto)\}?$")
-# Grafana also writes the dashboard range as `${__range_s}s` or `${__range_ms}ms`.
-_DASHBOARD_RANGE_VARIABLE = re.compile(r"^\$\{?__range(?:\}?|_s\}?s|_ms\}?ms)$")
 
 _LOGQL_PIPELINE = re.compile(
     r"\}\s*(?:\|=|!=|\|~|!~|\|\s*(?:json|logfmt|pattern|regexp|unpack|line_format|label_format|unwrap|drop|keep|decolorize)\b)"
@@ -67,13 +65,6 @@ class Token:
     text: str
     start: int
     end: int
-
-
-@frozen
-class RangeRewrite:
-    expr: str
-    # True when a `$__range` window became the query step, which changes what the panel shows.
-    changed_meaning: bool
 
 
 def tokenize(expr: str) -> list[Token]:
@@ -168,11 +159,10 @@ def metric_names(expr: str) -> list[str]:
     return list(dict.fromkeys(names))
 
 
-def strip_grafana_ranges(expr: str) -> RangeRewrite:
-    """Remove `[$__rate_interval]`, `[$__interval]` and `[$__range]` windows from range functions."""
+def strip_grafana_ranges(expr: str) -> str:
+    """Remove `[$__rate_interval]` and `[$__interval]` windows from range functions."""
     tokens = tokenize(expr)
     removals: list[tuple[int, int]] = []
-    changed_meaning = False
     index = 0
     while index < len(tokens):
         token = tokens[index]
@@ -181,16 +171,13 @@ def strip_grafana_ranges(expr: str) -> RangeRewrite:
             inner = expr[token.end : tokens[end].start].strip()
             if _STEP_RANGE_VARIABLE.match(inner):
                 removals.append((token.start, tokens[end].end))
-            elif _DASHBOARD_RANGE_VARIABLE.match(inner):
-                removals.append((token.start, tokens[end].end))
-                changed_meaning = True
             index = end + 1
             continue
         index += 1
     rewritten = expr
     for start, end in reversed(removals):
         rewritten = rewritten[:start] + rewritten[end:]
-    return RangeRewrite(expr=rewritten, changed_meaning=changed_meaning)
+    return rewritten
 
 
 def drop_match_all_matchers(expr: str) -> str:

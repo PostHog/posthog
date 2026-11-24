@@ -317,6 +317,7 @@ CROSS JOIN {sessions_agg} AS sessions_agg
                 timings=self.timings,
                 modifiers=pre_agg_modifiers,
                 limit_context=self.limit_context,
+                **self._hogql_context_kwargs(),
             )
 
             # We could have an empty result in normal conditions but also when we're recreating the tables.
@@ -447,6 +448,7 @@ WHERE and(
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
+            **self._hogql_context_kwargs(),
         )
         row = conversions_response.results[0] if conversions_response.results else [None] * 4
         include_previous = bool(self.query.compareFilter and self.query.compareFilter.compare)
@@ -541,6 +543,7 @@ WHERE and(
                 modifiers=execution_modifiers,
                 limit_context=self.limit_context,
                 settings=HogQLGlobalSettings(max_bytes_before_external_group_by=MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY),
+                **self._hogql_context_kwargs(),
             )
             if not pre_aggregated_response
             else pre_aggregated_response

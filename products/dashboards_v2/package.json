@@ -1,0 +1,25 @@
+{
+    "name": "@posthog/products-dashboards-v2",
+    "dependencies": {
+        "@posthog/quill": "workspace:*",
+        "kea": "catalog:",
+        "kea-router": "catalog:",
+        "react-grid-layout": "^2.3.0"
+    },
+    "devDependencies": {
+        "@storybook/react": "catalog:",
+        "@testing-library/dom": ">=9.3.4",
+        "jest": "^29.7.0",
+        "kea-test-utils": "catalog:"
+    },
+    "peerDependencies": {
+        "@posthog/icons": "catalog:",
+        "@storybook/react": "*",
+        "@types/react": "*",
+        "@types/react-dom": "*",
+        "clsx": "*",
+        "jest": "*",
+        "react": "*",
+        "react-dom": "*"
+    }
+}

@@ -1,5 +1,4 @@
-"""Latest per-team test-file counts from the daily census events, read from ``events``
-through the curated handle so team scope stays in one place (the ``llm_spend`` pattern)."""
+"""Latest per-team test-file counts from the daily census events."""
 
 from datetime import datetime
 
@@ -36,7 +35,8 @@ def query_census_counts(
     scan_from: datetime,
     date_to: datetime,
 ) -> dict[str, WindowedCount]:
-    """``owner_team -> test-file counts``; empty when no census ran."""
+    """Test-file counts by owner team: the latest in the scan and the latest before ``date_from``.
+    Empty when no census ran."""
     if not curated.repository:
         return {}
     response = curated.run(

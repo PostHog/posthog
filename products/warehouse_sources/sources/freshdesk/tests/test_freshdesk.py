@@ -141,23 +141,63 @@ class TestFanout:
         assert [row["id"] for row in result.rows] == [5]
         assert result.paths[1] == "/api/v2/canned_response_folders/1/responses"
 
-    def test_solution_articles_walk_categories_then_folders(self) -> None:
+    @pytest.mark.parametrize(
+        "endpoint, expected_paths",
+        [
+            (
+                "solution_articles",
+                [
+                    "/api/v2/solutions/categories",
+                    "/api/v2/solutions/categories/3/folders",
+                    "/api/v2/solutions/folders/4/articles",
+                ],
+            ),
+            (
+                "discussion_topics",
+                [
+                    "/api/v2/discussions/categories",
+                    "/api/v2/discussions/categories/3/forums",
+                    "/api/v2/discussions/forums/4/topics",
+                ],
+            ),
+            (
+                "discussion_comments",
+                [
+                    "/api/v2/discussions/categories",
+                    "/api/v2/discussions/categories/3/forums",
+                    "/api/v2/discussions/forums/4/topics",
+                    "/api/v2/discussions/topics/5/comments",
+                ],
+            ),
+        ],
+    )
+    def test_chained_fan_out_walks_every_level(self, endpoint: str, expected_paths: list[str]) -> None:
+        parent_ids = [3, 4, 5][: len(expected_paths) - 1]
+        script = [ScriptedResponse(json=[{"id": parent_id}]) for parent_id in parent_ids]
+        script.append(ScriptedResponse(json=[{"id": 1}]))
+
+        result = _driver().run(endpoint, script)
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == [1]
+        assert result.paths == expected_paths
+
+    def test_ticket_watchers_become_one_row_per_ticket(self) -> None:
         result = _driver().run(
-            "solution_articles",
+            "ticket_watchers",
             [
-                ScriptedResponse(json=[{"id": 3}]),
-                ScriptedResponse(json=[{"id": 4}]),
-                ScriptedResponse(json=[{"id": 1, "folder_id": 4, "category_id": 3}]),
+                ScriptedResponse(json=[{"id": 20}, {"id": 21}]),
+                ScriptedResponse(json={"watcher_ids": [7001, 7002]}),
+                ScriptedResponse(json={"watcher_ids": []}),
             ],
         )
 
         assert result.raised is None
-        assert [row["id"] for row in result.rows] == [1]
-        assert result.paths == [
-            "/api/v2/solutions/categories",
-            "/api/v2/solutions/categories/3/folders",
-            "/api/v2/solutions/folders/4/articles",
-        ]
+        assert result.paths == ["/api/v2/tickets", "/api/v2/tickets/20/watchers", "/api/v2/tickets/21/watchers"]
+        # The watchers endpoint takes no page-size param.
+        assert result.requests[1].param("per_page") is None
+        # `ticket_id` is the primary key, and the response does not carry it.
+        assert [(row["ticket_id"], row["watcher_ids"]) for row in result.rows] == [(20, [7001, 7002]), (21, [])]
 
     @pytest.mark.parametrize(
         "endpoint, script, expected_paths, parent_key, parent_value",

@@ -73,12 +73,23 @@ class PinnedResolver(AbstractResolver):
         pass
 
 
+def _without_userinfo(url: URL) -> URL:
+    """Remove userinfo from proxy URL.
+
+    Deployments put per-pod credentials in the proxy URL but trust should be
+    decided by the proxy address alone. This matches the behaviour of the
+    pinned httpx client.
+    """
+
+    return url.with_user(None)
+
+
 class PinnedTCPConnector(TCPConnector):
     def __init__(self, host_to_resolved_ips: Mapping[str, ResolvedIPs], **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._host_to_resolved_ips = host_to_resolved_ips
         self._pinned_resolver = PinnedResolver(host_to_resolved_ips)
-        self._trusted_proxies = frozenset(URL(url) for url in settings.SSRF_TRUSTED_PROXY_URLS)
+        self._trusted_proxies = frozenset(_without_userinfo(URL(url)) for url in settings.SSRF_TRUSTED_PROXY_URLS)
         self._using_proxy: ContextVar[bool] = ContextVar("pinned_aiohttp_using_proxy", default=False)
 
     async def connect(self, req: ClientRequest, traces: list[Trace], timeout: ClientTimeout) -> Connection:
@@ -87,7 +98,7 @@ class PinnedTCPConnector(TCPConnector):
         if self._host_to_resolved_ips and not self._host_to_resolved_ips.get(canonicalize_host(host)):
             raise SSRFBlockedError(f"Unknown host: {host}")
 
-        if req.proxy is not None and req.proxy not in self._trusted_proxies:
+        if req.proxy is not None and _without_userinfo(req.proxy) not in self._trusted_proxies:
             raise SSRFBlockedError(
                 "Outbound proxy is not trusted. Ask an administrator to configure SSRF_TRUSTED_PROXY_URLS."
             )
@@ -103,7 +114,35 @@ class PinnedTCPConnector(TCPConnector):
     async def _resolve_host(self, host: str, port: int, traces: Sequence[Trace] | None = None) -> list[ResolveResult]:
         if self._using_proxy.get() or not self._host_to_resolved_ips:
             return await super()._resolve_host(host, port, traces)
-        return await self._pinned_resolver.resolve(host, port, socket.AddressFamily(self.family))
+
+        addresses = await self._pinned_resolver.resolve(host, port, socket.AddressFamily(self.family))
+        if not addresses:
+            return addresses
+
+        key = (host, port)
+        if key in self._cached_hosts:
+            cached = self._cached_hosts.next_addrs(key)
+            sort_key = _make_sort_key_using_cached(cached)
+            addresses.sort(key=sort_key)
+
+        # Cache and return resolved IP list, in order
+        self._cached_hosts.add(key, addresses)
+        return self._cached_hosts.next_addrs(key)
+
+
+def _make_sort_key_using_cached(cached: list[ResolveResult]) -> Callable[[ResolveResult], int]:
+    """Make a sort key for resolved addresses based on existing cached addresses."""
+    positions = {addr["host"]: index for index, addr in enumerate(cached)}
+
+    def _sort_key(element: ResolveResult) -> int:
+        try:
+            return positions[element["host"]]
+        except KeyError:
+            # Sends new ones to the end with same key
+            # Python's stable sort preserves relative order
+            return len(cached)
+
+    return _sort_key
 
 
 def pinned_session(host_to_resolved_ips: Mapping[str, ResolvedIPs], **kwargs: Any) -> ClientSession:

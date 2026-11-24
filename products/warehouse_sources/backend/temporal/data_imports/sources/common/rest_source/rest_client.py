@@ -4,8 +4,6 @@ import time
 import zlib
 import logging
 from collections.abc import Callable, Iterator
-from datetime import UTC, datetime
-from email.utils import parsedate_to_datetime
 from typing import Any, Optional
 from urllib.parse import urlsplit
 
@@ -34,6 +32,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
     suspend_adapter_retries,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.observer import redact_request_urls
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.retry_policy import (
+    parse_retry_after as _parse_retry_after,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.url_utils import safe_url as _safe_url
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.interruptible_wait import (
     interruptible_wait,
 )
@@ -170,23 +172,6 @@ def _error_identity(response: Response) -> str:
     return " ".join(parts)
 
 
-def _safe_url(url: str) -> str:
-    """Scheme, host, and path only — never the query string, fragment, or userinfo.
-
-    An error message built from a URL can flow into non-retryable-error analytics
-    and error tracking, where tracked-session value redaction doesn't reach. An
-    ``api_key`` auth with ``location: "query"`` carries the secret in the query
-    string, so keep only the parts that are safe to surface."""
-    parts = urlsplit(url)
-    host = parts.hostname or ""
-    if parts.port:
-        host = f"{host}:{parts.port}"
-    if not parts.scheme:
-        # A redirect `Location` can be relative or scheme-relative and still carry a signed query.
-        return f"//{host}{parts.path}" if parts.netloc else parts.path
-    return f"{parts.scheme}://{host}{parts.path}"
-
-
 def _monotonic() -> float:
     # Read at each call, so a fake clock that replaces `time.monotonic` reaches the deadline too.
     return time.monotonic()
@@ -216,110 +201,6 @@ def _effective_port(scheme: str, port: Optional[int]) -> Optional[int]:
     if port is not None:
         return port
     return _DEFAULT_PORTS.get(scheme)
-
-
-def _seconds_from_epoch_reset(value: str) -> Optional[float]:
-    try:
-        reset_epoch = int(value)
-    except ValueError:
-        return None
-    return reset_epoch - datetime.now(UTC).timestamp()
-
-
-# Dub puts the UNIX epoch in milliseconds at which its window resets into ``Retry-After``, not a
-# delay. Read as seconds that is a wait of decades, so every 429 failed without a retry. A value
-# that, read as epoch seconds or milliseconds, lands this close to now is taken as that instant.
-_RETRY_AFTER_EPOCH_WINDOW_SECONDS = 24 * 60 * 60
-
-
-def _seconds_until_retry_after_epoch(value: float) -> Optional[float]:
-    now = datetime.now(UTC).timestamp()
-    for reset_epoch in (value, value / 1000):
-        if abs(reset_epoch - now) <= _RETRY_AFTER_EPOCH_WINDOW_SECONDS:
-            return reset_epoch - now
-    return None
-
-
-def _seconds_from_rfc3339_reset(value: str) -> Optional[float]:
-    try:
-        reset_at = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    if reset_at.tzinfo is None:
-        reset_at = reset_at.replace(tzinfo=UTC)
-    return (reset_at - datetime.now(UTC)).total_seconds()
-
-
-def _seconds_until_anthropic_replenish(value: str) -> Optional[float]:
-    # Anthropic documents this instant as the time when the request budget is fully replenished,
-    # not the time when the next request is allowed. The bucket refills continuously, so a request
-    # usually succeeds long before the instant. An uncapped value of up to an hour made the client
-    # fail every 429 at once, so the value is capped at the longest wait the client honors. The
-    # client then waits and retries instead.
-    seconds = _seconds_from_rfc3339_reset(value)
-    if seconds is None:
-        return None
-    return min(seconds, max_retry_after_seconds())
-
-
-# Rate-limit reset headers to fall back on when a 429 carries no ``Retry-After``, each paired with
-# the parser that turns its value into "seconds from now until the budget replenishes".
-_RATE_LIMIT_RESET_HEADERS: tuple[tuple[str, Callable[[str], Optional[float]]], ...] = (
-    # Anthropic rate limits per organization and documents this RFC 3339 instant as when the request
-    # budget replenishes. Some Admin API report endpoints send it on a 429 without a ``Retry-After``.
-    ("anthropic-ratelimit-requests-reset", _seconds_until_anthropic_replenish),
-    # Sentry signals its rate-limit window with a UNIX epoch timestamp rather than ``Retry-After``,
-    # and Sentry's flat / fan-out endpoints (e.g. ``project_users``) sync through this client too.
-    ("X-Sentry-Rate-Limit-Reset", _seconds_from_epoch_reset),
-    # X (Twitter) answers 429 with this UNIX epoch reset and no ``Retry-After``. Its windows are 15
-    # minutes wide and some endpoints allow only a handful of requests per window, so a backfill
-    # that falls back to exponential backoff spends its whole attempt budget inside one window.
-    ("x-rate-limit-reset", _seconds_from_epoch_reset),
-    # The common ``X-RateLimit-*`` convention, spelled with a UNIX epoch reset and no
-    # ``Retry-After`` — SendGrid answers every 429 this way, and its Email Activity endpoint is
-    # capped at 6 requests/minute, so without honoring the reset a message-activity backfill
-    # spends its whole attempt budget inside a single window. APIs that put delta-seconds in this
-    # header parse to an elapsed instant and fall back to exponential backoff.
-    ("X-RateLimit-Reset", _seconds_from_epoch_reset),
-)
-
-
-def _parse_retry_after(response: Response) -> Optional[float]:
-    """Best-effort retry delay (seconds) from a rate-limited / erroring response.
-
-    Honors the standard ``Retry-After`` header (delta-seconds or HTTP-date) first, then the
-    vendor rate-limit reset headers in ``_RATE_LIMIT_RESET_HEADERS``. Without a server-provided
-    delay a 429 backs off on the short exponential fallback and the attempt budget is spent long
-    before the limit window clears. The value is not capped here: the retry loop fails the request
-    when the server asks for more than the client's limit.
-    """
-    retry_after_header = response.headers.get("Retry-After")
-    if retry_after_header:
-        try:
-            delay = float(retry_after_header)
-        except ValueError:
-            try:
-                dt = parsedate_to_datetime(retry_after_header)
-            except (TypeError, ValueError):
-                return None
-            return max(0.0, (dt - datetime.now(UTC)).total_seconds())
-        epoch_wait = _seconds_until_retry_after_epoch(delay)
-        if epoch_wait is not None:
-            return epoch_wait if epoch_wait > 0 else None
-        return max(0.0, delay)
-
-    for header, parse in _RATE_LIMIT_RESET_HEADERS:
-        value = response.headers.get(header)
-        if not value:
-            continue
-        wait_seconds = parse(value)
-        # A reset already in the past says the window has cleared — nothing to honor, so fall
-        # through to the caller's exponential backoff rather than retrying with no delay at all.
-        if wait_seconds is None or wait_seconds <= 0:
-            return None
-        return wait_seconds
-
-    return None
 
 
 def _retry_after_exceeds_limit(client: Any, exc: Optional[BaseException]) -> bool:
@@ -724,19 +605,21 @@ class RESTClient:
 
         The caller sets the deadline one time, before the first try, so the retries share it.
         """
-        prepared = self.session.prepare_request(request)
-        # Fail loud on a pagination/resume URL that points off the expected host before the
-        # request (and its Authorization header) ever leaves the process. Raised outside the
-        # retryable-error type so it propagates immediately rather than being retried.
-        self._check_allowed_host(prepared.url)
         # `send` reads the body eagerly (stream=False), so a connection dropped mid-stream
         # surfaces here as ChunkedEncodingError. A connection that never got established at all —
         # egress proxy refusing/resetting the connection, a connect timeout — surfaces as
         # ConnectionError. Both are transient network failures, so reissue them like a
         # truncated/partial body below rather than letting them skip this retry loop and fail the
-        # whole sync on one bad connection attempt.
+        # whole sync on one bad connection attempt. ``prepare_request`` is in scope here too: a
+        # lazily-minted auth token (e.g. OAuth2Auth._obtain_token) makes its own HTTP call from
+        # inside it, and a timeout or dropped connection there is exactly as transient.
         try:
             with request_deadline(deadline):
+                prepared = self.session.prepare_request(request)
+                # Fail loud on a pagination/resume URL that points off the expected host before the
+                # request (and its Authorization header) ever leaves the process. Raised outside the
+                # retryable-error type so it propagates immediately rather than being retried.
+                self._check_allowed_host(prepared.url)
                 response = self._send(prepared)
                 presigned_url = self._presigned_redirect_url(response)
                 if presigned_url is not None:
@@ -749,9 +632,11 @@ class RESTClient:
             # string. `_redact` only replaces a secret's raw value, not the percent-encoded form
             # a query-param API key takes there — so build the message from `_safe_url` (scheme/
             # host/path only) rather than the raw exception text, the same way the 5xx path below
-            # avoids leaking an encoded credential into the persisted `latest_error`.
+            # avoids leaking an encoded credential into the persisted `latest_error`. Built from
+            # `request.url`, not `prepared.url`: a failure in `prepare_request` itself never binds
+            # the latter.
             raise RESTClientRetryableError(
-                self._redact(f"Connection error ({type(e).__name__}) for {_safe_url(prepared.url or '')}")
+                self._redact(f"Connection error ({type(e).__name__}) for {_safe_url(request.url or '')}")
             ) from e
         except RequestsTimeout as e:
             # A connect/read timeout (a host that accepts the connection then stalls) is transient
@@ -760,7 +645,7 @@ class RESTClient:
             # still gets a few tries before the sync gives up. Built from `_safe_url` for the same
             # credential-in-query-string reason as the ConnectionError branch.
             raise RESTClientRetryableError(
-                self._redact(f"Request timed out ({type(e).__name__}) for {_safe_url(prepared.url or '')}")
+                self._redact(f"Request timed out ({type(e).__name__}) for {_safe_url(request.url or '')}")
             ) from e
         except TooManyRedirects as e:
             # requests already followed its redirect cap (30) chasing a final response and never
@@ -769,7 +654,7 @@ class RESTClient:
             # Re-fetching replays the same chain, so fail fast and non-retryably instead of burning
             # the retry budget on 30+ requests per attempt.
             raise RESTClientNonRetryableError(
-                self._redact(f"Too many redirects for {_safe_url(prepared.url or '')}")
+                self._redact(f"Too many redirects for {_safe_url(request.url or '')}")
             ) from e
 
         # With redirects disabled, a 3xx is not an error to `raise_for_status` and would fall
@@ -884,8 +769,9 @@ class RESTClient:
             # the response shape changed (e.g. an error object on a 200) — fail loud rather than
             # wrapping the stray object as a single row.
             if required and not isinstance(body, list):
+                keys = f" (body keys: {sorted(body.keys())[:20]})" if isinstance(body, dict) else ""
                 raise ValueError(
-                    f"Required a list response body, got {type(body).__name__}. "
+                    f"Required a list response body, got {type(body).__name__}{keys}. "
                     "The API response shape may have changed."
                 )
             data = body

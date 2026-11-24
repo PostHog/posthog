@@ -1,0 +1,18 @@
+FROM --platform=$BUILDPLATFORM golang:1.26.10-bookworm@sha256:5de7c99eb78ca5e515a4c340235d0955ec5964a5071c492c15503d7c267da473 AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY cmd ./cmd
+COPY internal ./internal
+ARG TARGETOS
+ARG TARGETARCH
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /egress-relay ./cmd/egress-relay
+
+FROM python:3.12-slim-bookworm@sha256:935c3c5b12357a7e10caa9c1e6ca5692344d97cf229832ef584be2cec9fc03df
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates openssl \
+    && rm -rf /var/lib/apt/lists/*
+ARG COMMIT_HASH=development
+LABEL org.opencontainers.image.source="https://github.com/PostHog/posthog" \
+      org.opencontainers.image.revision="$COMMIT_HASH"
+COPY --from=build /egress-relay /usr/local/bin/egress-relay
+CMD ["sleep", "infinity"]

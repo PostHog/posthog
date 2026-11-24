@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 
 import { delay } from '../../utils/utils'
 import { KafkaProducerWrapper } from '../producer'
+import { KafkaConsumer } from './consumer-v1'
 import { KafkaConsumerV2 } from './consumer-v2'
 
 /**
@@ -156,7 +157,10 @@ function makeConsumer(
  * Wait until each consumer has at least one partition assigned. This is the actual signal
  * that the group has stabilized — not a fixed delay.
  */
-async function waitForAssignments(consumers: KafkaConsumerV2[], timeoutMs = 10_000): Promise<void> {
+async function waitForAssignments(
+    consumers: Pick<KafkaConsumerV2, 'assignments'>[],
+    timeoutMs = 10_000
+): Promise<void> {
     const deadline = Date.now() + timeoutMs
     while (Date.now() < deadline) {
         if (consumers.every((c) => c.assignments().length > 0)) {
@@ -419,6 +423,72 @@ describe('KafkaConsumerV2 (integration)', () => {
             // disconnect should not be instantaneous if there was work to drain.
             expect(disconnectDuration).toBeGreaterThan(taskFinishedAt - taskStartedAt - 100)
         } finally {
+            await deleteTopic(topic)
+        }
+    })
+})
+
+describe('KafkaConsumer v1 (integration)', () => {
+    let producer: KafkaProducerWrapper
+
+    beforeAll(async () => {
+        producer = await KafkaProducerWrapper.createWithConfig(undefined, {
+            'metadata.broker.list': KAFKA_HOSTS,
+        } as Record<string, unknown>)
+    })
+
+    afterAll(async () => {
+        await producer.disconnect()
+    })
+
+    const makeV1Consumer = (groupId: string, topic: string): KafkaConsumer =>
+        new KafkaConsumer({ groupId, topic, batchTimeoutMs: 50 }, {
+            'metadata.broker.list': KAFKA_HOSTS,
+            'session.timeout.ms': 10_000,
+        } as Record<string, unknown>)
+
+    it('a batch whose background task failed is redelivered to the next consumer in the group', async () => {
+        const topic = `v1_int_failed_task_${randomUUID()}`
+        const groupId = `v1-int-failed-task-${randomUUID()}`
+        await createTopic(topic, 1)
+        const first = makeV1Consumer(groupId, topic)
+        const second = makeV1Consumer(groupId, topic)
+
+        try {
+            const seenByFirst: number[] = []
+            await first.connect((msgs) => {
+                seenByFirst.push(...msgs.map((m) => m.offset))
+                const failed = msgs.some((m) => m.offset >= 1)
+                return Promise.resolve({
+                    backgroundTask: failed ? Promise.reject(new Error('background task failed')) : Promise.resolve(),
+                })
+            })
+            let firstLoopOutcome: unknown
+            void first['consumerLoop']!.then(
+                () => (firstLoopOutcome = 'stopped cleanly'),
+                (error) => (firstLoopOutcome = error)
+            )
+
+            await waitForAssignments([first])
+            // Offset 0 succeeds in a batch of its own, so the group has a committed offset to resume from.
+            await produceMessages(producer, topic, 1)
+            await waitFor(() => seenByFirst.includes(0), 8_000)
+            await produceMessages(producer, topic, 1)
+
+            await waitFor(() => firstLoopOutcome !== undefined, 8_000)
+            expect(firstLoopOutcome).toEqual(new Error('background task failed'))
+            await first.disconnect().catch(() => {})
+
+            const seenBySecond: number[] = []
+            await second.connect((msgs) => {
+                seenBySecond.push(...msgs.map((m) => m.offset))
+                return Promise.resolve()
+            })
+            await waitFor(() => seenBySecond.length > 0, 8_000)
+
+            expect(seenBySecond).toEqual([1])
+        } finally {
+            await Promise.all([first, second].map((consumer) => consumer.disconnect().catch(() => {})))
             await deleteTopic(topic)
         }
     })

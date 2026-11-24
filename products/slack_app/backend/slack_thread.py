@@ -1,4 +1,5 @@
 import re
+import zlib
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from enum import StrEnum
@@ -19,6 +20,12 @@ from products.slack_app.backend.analytics import capture_slack_event, slack_sess
 from products.slack_app.backend.feature_flags import is_slack_app_forking_enabled
 from products.slack_app.backend.logic.feature_tips.offer import TipRequest, offer_feature_tip
 from products.slack_app.backend.logic.interview_recruitment import FrustrationInviteRequest, offer_frustration_invite
+from products.slack_app.backend.logic.message_sentiment import (
+    UNHAPPY_SENTIMENTS,
+    SentimentResponseRequest,
+    SentimentResult,
+    respond_to_sentiment,
+)
 from products.slack_app.backend.logic.reply_suggestions import (
     clear_open_suggestions,
     remember_open_suggestions,
@@ -27,6 +34,7 @@ from products.slack_app.backend.logic.reply_suggestions import (
     slack_reply_attribution,
 )
 from products.slack_app.backend.services.slack_messages import (
+    SLACK_PROGRESS_MESSAGE_TS_KEY,
     RunFooter,
     app_home_url,
     context_block,
@@ -57,7 +65,17 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-PROGRESS_MESSAGE_MARKER = "Working on task..."
+# One header per run, so a card that updates in place keeps its header while threads still see variety.
+PROGRESS_MESSAGE_HEADERS = (
+    "*Hedgehog on the job* :hedgehog:",
+    "*The hedgehog is on it* :hedgehog:",
+    "*Spikes up, getting to work* :hedgehog:",
+    "*Hedgehog mode: on* :hedgehog:",
+    "*One hedgehog, coming right up* :hedgehog:",
+    "*Quills out, let's go* :hedgehog:",
+)
+# Cards posted before the copy change still carry this text and must stay editable.
+LEGACY_PROGRESS_MESSAGE_MARKER = "Working on task..."
 UPSTREAM_PROVIDER_FAILURE_MESSAGE = (
     "The upstream AI provider failed to process the request. Please retry the task in a few minutes."
 )
@@ -68,6 +86,14 @@ DEFAULT_FAILURE_RECOVERY_HINT = (
     "or add the missing details and I'll re-plan before continuing."
 )
 _TASK_FIELD_LIMIT = 256
+
+
+def pick_variant(variants: tuple[str, ...], seed: str | None) -> str:
+    if not seed:
+        return variants[0]
+    return variants[zlib.crc32(seed.encode()) % len(variants)]
+
+
 _MARKDOWN_CHUNK_LIMIT = 12000
 _SECTION_TEXT_LIMIT = 3000
 
@@ -77,6 +103,7 @@ _SECTION_TEXT_LIMIT = 3000
 _BLOCK_REJECTION_ERROR_CODES = frozenset({"invalid_blocks", "invalid_blocks_format"})
 # Slack closed the stream, so every later append and the stop call fail the same way.
 _STREAM_ENDED_ERROR_CODE = "message_not_in_streaming_state"
+_MESSAGE_NOT_FOUND_ERROR_CODE = "message_not_found"
 
 
 class ReplyKind(StrEnum):
@@ -258,6 +285,7 @@ class SlackThreadHandler:
         actor_slack_user_id: str | None = None,
         turn_trace_id: str | None = None,
         turn_person_message: str | None = None,
+        turn_person_message_ts: str | None = None,
     ) -> None:
         self.context = context
         self.run_footer = run_footer or RunFooter()
@@ -267,6 +295,8 @@ class SlackThreadHandler:
         self.turn_trace_id = turn_trace_id
         # What the person said to start this turn, so reply suggestions know what they asked for.
         self.turn_person_message = turn_person_message
+        # The context's ts is the message that opened the run, so a later turn carries its own message's ts here.
+        self.turn_person_message_ts = turn_person_message_ts or context.user_message_ts
         # Who this reply is for, which can differ from the task creator because a thread
         # outlives its opener.
         self.actor_slack_user_id = actor_slack_user_id or context.mentioning_slack_user_id
@@ -279,6 +309,7 @@ class SlackThreadHandler:
         # Safe to keep for the handler's life: each activity call builds a fresh handler.
         self._muted_cache: dict[tuple[str | None, bool], bool] = {}
         self.stream_ended = False
+        self.progress_message_ts = self.run_footer.progress_message_ts
 
     @classmethod
     def for_run(
@@ -289,6 +320,7 @@ class SlackThreadHandler:
         actor_slack_user_id: str | None = None,
         turn_trace_id: str | None = None,
         turn_person_message: str | None = None,
+        turn_person_message_ts: str | None = None,
         include_thread_cost: bool = False,
     ) -> "SlackThreadHandler":
         """A handler whose footer describes ``run_id``.
@@ -302,6 +334,7 @@ class SlackThreadHandler:
             actor_slack_user_id=actor_slack_user_id,
             turn_trace_id=turn_trace_id,
             turn_person_message=turn_person_message,
+            turn_person_message_ts=turn_person_message_ts,
         )
 
         handler.task_run_id = str(run_id) if run_id is not None else None
@@ -476,7 +509,9 @@ class SlackThreadHandler:
         )
 
     def _find_progress_message_ts(self) -> str | None:
-        """Find existing progress message in the thread."""
+        """The progress card's ``ts``: the stored one, or a search of the thread for runs that predate storing it."""
+        if self.progress_message_ts:
+            return self.progress_message_ts
         try:
             client = self._get_client()
             bot_user_id = self._get_bot_user_id()
@@ -491,7 +526,10 @@ class SlackThreadHandler:
             messages: list[dict[str, Any]] = response.get("messages", [])
 
             for msg in messages:
-                if msg.get("user") == bot_user_id and PROGRESS_MESSAGE_MARKER in msg.get("text", ""):
+                text = msg.get("text", "")
+                if msg.get("user") == bot_user_id and (
+                    any(header in text for header in PROGRESS_MESSAGE_HEADERS) or LEGACY_PROGRESS_MESSAGE_MARKER in text
+                ):
                     return msg.get("ts")
         except Exception as e:
             logger.warning("slack_find_progress_message_failed", error=str(e))
@@ -730,7 +768,7 @@ class SlackThreadHandler:
         running on and against is a property of the task, and the thread already has
         one place that describes it while it works.
         """
-        text = f"*{PROGRESS_MESSAGE_MARKER}* :hourglass_flowing_sand:\nStage: {stage}"
+        text = f"{pick_variant(PROGRESS_MESSAGE_HEADERS, self.task_run_id)}\n{stage}"
         blocks: list[dict[str, Any]] = [
             {"type": "section", "text": {"type": "mrkdwn", "text": text}},
         ]
@@ -744,14 +782,21 @@ class SlackThreadHandler:
             progress_ts = self._find_progress_message_ts()
 
             if progress_ts:
-                client.chat_update(
-                    channel=self.context.channel,
-                    ts=progress_ts,
-                    text=text,
-                    blocks=blocks,
-                )
-            else:
-                self._post_in_thread(text=text, blocks=blocks)
+                try:
+                    client.chat_update(
+                        channel=self.context.channel,
+                        ts=progress_ts,
+                        text=text,
+                        blocks=blocks,
+                    )
+                except SlackApiError as e:
+                    if e.response.get("error") != _MESSAGE_NOT_FOUND_ERROR_CODE:
+                        raise
+                    progress_ts = None
+            if not progress_ts:
+                response = self._post_in_thread(text=text, blocks=blocks)
+                progress_ts = response.get("ts") if response else None
+            self._remember_progress_ts(progress_ts)
         except Exception as e:
             logger.exception("slack_progress_update_failed", error=str(e))
 
@@ -761,7 +806,7 @@ class SlackThreadHandler:
         task_url: str | None,
         reply_target_slack_user_id: str | None = None,
         bot_authored: bool = False,
-    ) -> None:
+    ) -> bool:
         """Post the single per-run "PR opened" card.
 
         Used at every lifecycle moment a run surfaces a PR for the first
@@ -781,7 +826,7 @@ class SlackThreadHandler:
         """
         reply_target_slack_user_id = self.notification_target(reply_target_slack_user_id)
         mention_prefix = f"<@{reply_target_slack_user_id}> " if reply_target_slack_user_id else ""
-        header = f"{mention_prefix}*Pull request opened* :rocket:"
+        header = f"{mention_prefix}*Hedgehog shipped a PR* :hedgehog: :rocket:"
 
         blocks: list[dict[str, Any]] = [
             {"type": "section", "text": {"type": "mrkdwn", "text": header}},
@@ -790,9 +835,9 @@ class SlackThreadHandler:
         if bot_authored:
             blocks.append(context_block(self._personal_github_hint()))
 
-        self.capture_reply_posted(
-            ReplyKind.PR_OPENED, delivered=self._delete_progress_and_post(header, blocks, task_url=task_url)
-        )
+        delivered = self._delete_progress_and_post(header, blocks, task_url=task_url)
+        self.capture_reply_posted(ReplyKind.PR_OPENED, delivered=delivered)
+        return delivered
 
     def post_pr_closed(
         self,
@@ -809,7 +854,9 @@ class SlackThreadHandler:
         """
         reply_target_slack_user_id = self.notification_target(reply_target_slack_user_id)
         mention_prefix = f"<@{reply_target_slack_user_id}> " if reply_target_slack_user_id else ""
-        outcome = "*Pull request merged* :tada:" if merged else "*Pull request closed without merging*"
+        outcome = (
+            "*Merged! The hedgehog is proud* :tada:" if merged else "*PR closed, the hedgehog lets it go* :fallen_leaf:"
+        )
         header = f"{mention_prefix}{outcome}"
         blocks: list[dict[str, Any]] = [
             {"type": "section", "text": {"type": "mrkdwn", "text": header}},
@@ -953,7 +1000,7 @@ class SlackThreadHandler:
         semantics). This card is the "task finished without opening a PR"
         terminal state.
         """
-        header = "*Task Completed* :hedgehog:"
+        header = "*All done, hedgehog out* :hedgehog:"
 
         blocks: list[dict[str, Any]] = [
             {"type": "section", "text": {"type": "mrkdwn", "text": header}},
@@ -967,7 +1014,7 @@ class SlackThreadHandler:
         self, error: str, task_url: str | None, recovery_hint: str | None = DEFAULT_FAILURE_RECOVERY_HINT
     ) -> None:
         """Post the error message. The session link is in the footer."""
-        header = "*Task Failed* :x:"
+        header = "*The hedgehog hit a snag* :hedgehog: :boom:"
         error = _format_task_error(error)
         truncated_error = error[:200] if len(error) > 200 else error
 
@@ -995,10 +1042,33 @@ class SlackThreadHandler:
         try:
             client = self._get_client()
             progress_ts = self._find_progress_message_ts()
-            if progress_ts:
+            if not progress_ts:
+                return
+            try:
                 client.chat_delete(channel=self.context.channel, ts=progress_ts)
+            except SlackApiError as e:
+                if e.response.get("error") != _MESSAGE_NOT_FOUND_ERROR_CODE:
+                    raise
+            self._remember_progress_ts(None)
         except Exception as e:
             logger.warning("slack_delete_progress_failed", error=str(e))
+
+    def _remember_progress_ts(self, ts: str | None) -> None:
+        if ts == self.progress_message_ts:
+            return
+        self.progress_message_ts = ts
+        if not self.task_run_id:
+            return
+        # Deferred, matching `load_run_footer`.
+        from products.tasks.backend.facade.api import update_task_run_state  # noqa: PLC0415
+
+        try:
+            if ts:
+                update_task_run_state(self.task_run_id, updates={SLACK_PROGRESS_MESSAGE_TS_KEY: ts})
+            else:
+                update_task_run_state(self.task_run_id, remove_keys=[SLACK_PROGRESS_MESSAGE_TS_KEY])
+        except Exception as e:
+            logger.warning("slack_progress_ts_store_failed", run_id=self.task_run_id, error=str(e))
 
     def _delete_progress_and_post(
         self,
@@ -1123,9 +1193,27 @@ class SlackThreadHandler:
         )
 
     def offer_feature_tip(self) -> None:
-        """Offer one private prompt under the answer: an interview invitation if the reader is frustrated, else a tip."""
+        """React to how the reader feels, then offer one private prompt under the answer: an interview invitation
+        if the reader is unhappy, else a tip."""
         if not self.actor_slack_user_id:
             return
+        result: SentimentResult | None = None
+        try:
+            result = respond_to_sentiment(
+                SentimentResponseRequest(
+                    integration=self._get_integration(),
+                    slack_user_id=self.actor_slack_user_id,
+                    posthog_user=self._actor_posthog_user,
+                    channel=self.context.channel,
+                    thread_ts=self.context.thread_ts,
+                    person_message=self.turn_person_message,
+                    person_message_ts=self.turn_person_message_ts,
+                    run_id=self.task_run_id,
+                    trace_id=self.turn_trace_id,
+                )
+            )
+        except Exception:
+            logger.warning("slack_app_sentiment_response_failed", exc_info=True)
         try:
             if offer_frustration_invite(
                 FrustrationInviteRequest(
@@ -1137,6 +1225,7 @@ class SlackThreadHandler:
                     signal="message",
                     person_message=self.turn_person_message,
                     trace_id=self.turn_trace_id,
+                    unhappy=result.sentiment in UNHAPPY_SENTIMENTS if result is not None else None,
                 )
             ):
                 return

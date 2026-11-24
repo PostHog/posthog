@@ -3,6 +3,7 @@ import hashlib
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, time, timedelta
 from typing import Any, Optional
+from urllib.parse import quote
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -70,6 +71,7 @@ class PendoResumeConfig:
     offset: int = 0
     # Sort-field value of the last row yielded for an aggregation endpoint schema. Pendo's
     # aggregation pipeline has no skip/offset stage, so resuming re-filters for values past this.
+    # For a fan-out endpoint schema, the last parent id whose children were yielded.
     last_id: Optional[str] = None
     # ISO date of the next UTC day to request for an event endpoint schema.
     next_day: Optional[str] = None
@@ -208,6 +210,45 @@ def _iter_aggregation(
             break
 
 
+def _iter_fan_out(
+    session: requests.Session,
+    base_url: str,
+    parent_path: str,
+    path: str,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[PendoResumeConfig],
+    start_after: Optional[str],
+    all_apps: bool,
+) -> Iterator[list[dict[str, Any]]]:
+    parent_url = f"{base_url}{parent_path}?expand=*" if all_apps else f"{base_url}{parent_path}"
+    data = _request(session, "GET", parent_url, logger).json()
+    parents: list[dict[str, Any]] = data if isinstance(data, list) else data.get("results", [])
+    # The list endpoint documents no order, so walk the ids sorted to resume after the last one.
+    parent_ids = sorted({str(parent["id"]) for parent in parents if parent.get("id")})
+    del data, parents
+
+    for parent_id in parent_ids:
+        if start_after is not None and parent_id <= start_after:
+            continue
+        url = f"{base_url}{path.replace('{id}', quote(parent_id, safe=''))}"
+        try:
+            response = _request(session, "GET", url, logger)
+        except requests.HTTPError as e:
+            # The parent was deleted after the list was read.
+            if e.response is None or e.response.status_code != 404:
+                raise
+            rows: list[dict[str, Any]] = []
+        else:
+            body = response.json()
+            rows = body if isinstance(body, list) else body.get("results", [])
+
+        resumable_source_manager.save_state(PendoResumeConfig(last_id=parent_id))
+        if not rows:
+            resumable_source_manager.safe_point()
+            continue
+        yield rows
+
+
 def _to_epoch_ms(value: Any) -> Optional[int]:
     if isinstance(value, bool) or value is None:
         return None
@@ -244,6 +285,7 @@ def _iter_events(
     end_day: date,
     all_apps: bool,
     grouped: bool,
+    day_from_window: bool,
 ) -> Iterator[list[dict[str, Any]]]:
     url = f"{base_url}{AGGREGATION_PATH}"
     day = start_day
@@ -269,6 +311,9 @@ def _iter_events(
         data = response.json()
         del response
         rows: list[dict[str, Any]] = (data.get("results") or []) if isinstance(data, dict) else data
+        window_start = _to_epoch_ms(data.get("startTime")) if isinstance(data, dict) else None
+        if window_start is None:
+            window_start = int(datetime.combine(day, time(), tzinfo=UTC).timestamp() * 1000)
 
         day += timedelta(days=1)
         if not rows:
@@ -281,7 +326,10 @@ def _iter_events(
             if start + EVENT_BATCH_SIZE >= len(rows):
                 resumable_source_manager.save_state(PendoResumeConfig(next_day=day.isoformat()))
             batch = rows[start : start + EVENT_BATCH_SIZE]
-            yield [_with_bucket_id(row) for row in batch] if grouped else batch
+            if day_from_window:
+                yield [{**_with_bucket_id(row), "day": window_start} for row in batch]
+            else:
+                yield [_with_bucket_id(row) for row in batch] if grouped else batch
 
 
 def get_rows(
@@ -317,6 +365,7 @@ def get_rows(
             end_day,
             config.all_apps,
             config.grouped_events,
+            config.day_from_window,
         )
     elif config.is_aggregation:
         if config.aggregation_source is None:
@@ -332,6 +381,22 @@ def get_rows(
             logger,
             resumable_source_manager,
             start_after,
+        )
+    elif config.parent_path is not None:
+        if config.path is None:
+            raise ValueError(f"Endpoint '{endpoint}' is a fan-out but has no path")
+        start_after = resume.last_id if resume else None
+        if start_after is not None:
+            logger.debug(f"Pendo: resuming endpoint={endpoint} after parent id={start_after}")
+        yield from _iter_fan_out(
+            session,
+            base_url,
+            config.parent_path,
+            config.path,
+            logger,
+            resumable_source_manager,
+            start_after,
+            config.all_apps,
         )
     else:
         if config.path is None:

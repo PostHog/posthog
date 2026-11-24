@@ -1,6 +1,5 @@
-// One push (head SHA) collapsed into a CI round: when it started, wall-clock CI time, verdict.
-// Mirrors the backend's push-history rule (pull_request_list.py): the latest run per workflow
-// decides the verdict; wall time is the earliest run start → the latest completed run end.
+// Mirrors the backend's push-history rule in pull_request_list.py. The latest run per workflow decides
+// the verdict, and wall time runs from the earliest run start to the latest completed run end.
 
 import type { PushCISampleApi } from '../generated/api.schemas'
 import { WorkflowRun, isDecisiveFailure } from './lifecycle'
@@ -9,7 +8,7 @@ import { VERDICT_COLOR } from './runStatus'
 export interface PushRound {
     headSha: string
     startedAt: string | null
-    /** Earliest run start → latest completed run end; null while nothing has completed. */
+    /** Null while nothing has completed. */
     wallSeconds: number | null
     failed: boolean
     pending: boolean
@@ -25,7 +24,6 @@ export function pushRoundFromSample(sample: PushCISampleApi): PushRound {
     }
 }
 
-/** Collapse one push's runs into a round, client-side (the PR page already has the runs). */
 export function pushRoundOf(headSha: string, runs: WorkflowRun[]): PushRound {
     const latestByWorkflow = new Map<string, WorkflowRun>()
     for (const run of runs) {
@@ -49,7 +47,6 @@ export function pushRoundOf(headSha: string, runs: WorkflowRun[]): PushRound {
     }
 }
 
-/** Status color for a round: a decisive failure wins, then still-running amber, then green. */
 export function pushRoundColor(round: PushRound): string {
     return round.failed ? VERDICT_COLOR.danger : round.pending ? VERDICT_COLOR.warning : VERDICT_COLOR.success
 }

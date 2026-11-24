@@ -14,7 +14,7 @@ use crate::{
     context::AppContext,
     emit::Emitter,
     error::{
-        extract_retry_after_from_error, get_user_message, is_oob_domain_error,
+        extract_retry_after_from_error, get_user_message, get_user_message_or, is_oob_domain_error,
         is_rate_limited_error, is_timeout_error, is_transient_network_error,
         is_transient_object_store_error, is_transient_server_error, UserError,
     },
@@ -32,6 +32,9 @@ pub mod config;
 pub mod model;
 #[cfg(test)]
 pub(crate) mod test_db;
+
+const COMMIT_FAILED_USER_MESSAGE: &str =
+    "Job paused after a failed commit. Resolve the error and resume.";
 
 #[derive(Debug, PartialEq)]
 enum ErrorHandlingDecision {
@@ -985,13 +988,10 @@ impl Job {
 
         let status_message =
             format!("Commit of part {key} failed, rolled back to offset {new_offset}: {err:#}");
+        let display_message = get_user_message_or(err, COMMIT_FAILED_USER_MESSAGE);
 
         model
-            .pause(
-                self.context.clone(),
-                status_message,
-                Some("Job paused after a failed commit. Resolve the error and resume.".to_string()),
-            )
+            .pause(self.context.clone(), status_message, Some(display_message))
             .await?;
         model.release_lease(&self.context.db).await
     }
@@ -1668,6 +1668,8 @@ mod tests {
             }
         }
 
+        const SINK_REJECTED_USER_MESSAGE: &str = "The sink rejected the chunk.";
+
         /// Delivers in `commit_write` like the capture sink, recording each send rate and abort.
         /// `on_send` runs during a delivery, which is where an operator change races the worker.
         struct RecordingEmitter {
@@ -1709,7 +1711,8 @@ mod tests {
                     hook(index).await;
                 }
                 if self.emitter.fail_sends {
-                    return Err(Error::msg("sink rejected the chunk"));
+                    return Err(Error::msg("sink rejected the chunk")
+                        .context(UserError::new(SINK_REJECTED_USER_MESSAGE)));
                 }
                 Ok(Duration::ZERO)
             }
@@ -2044,6 +2047,21 @@ mod tests {
             assert!(run.sends.lock().unwrap().is_empty());
             let stored = test_db::read_job(&run.context.db, run.id).await;
             assert_eq!(stored.status, "running");
+            assert_eq!(offsets(&stored), vec![0, 0, 0]);
+            test_db::delete_job(&run.context.db, run.id).await;
+        }
+
+        #[tokio::test]
+        async fn test_failed_send_pauses_with_the_sink_user_message() {
+            let run = run_job(no_hook, no_op, true).await;
+
+            assert!(run.result.is_err());
+            let stored = test_db::read_job(&run.context.db, run.id).await;
+            assert_eq!(stored.status, "paused");
+            assert_eq!(
+                stored.display_status_message.as_deref(),
+                Some(SINK_REJECTED_USER_MESSAGE)
+            );
             assert_eq!(offsets(&stored), vec![0, 0, 0]);
             test_db::delete_job(&run.context.db, run.id).await;
         }

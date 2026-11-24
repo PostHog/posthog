@@ -6,6 +6,12 @@ from posthog.models.utils import UUIDModel
 from products.workflows.backend.facade.enums import WorkflowImportSource
 
 
+# nosemgrep: tuple-return-prefer-dataclass -- the pair shape is what Django choices require
+def workflow_import_source_choices() -> list[tuple[str, str]]:
+    # Callable so adding a source doesn't generate a no-op migration.
+    return list(WorkflowImportSource.choices)
+
+
 class WorkflowImport(TeamScopedRootMixin, UUIDModel):
     """A workflow imported from another messaging tool, with what the import could not carry over.
 
@@ -23,7 +29,7 @@ class WorkflowImport(TeamScopedRootMixin, UUIDModel):
 
     # db_constraint=False: a real FK constraint to a hot table takes a parent-table lock on creation.
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
-    source = models.CharField(max_length=40, choices=Source.choices)
+    source = models.CharField(max_length=40, choices=workflow_import_source_choices)
     source_id = models.CharField(max_length=200, help_text="The object's id in the source tool.")
     source_name = models.CharField(max_length=400, blank=True, default="")
     hog_flow = models.ForeignKey(

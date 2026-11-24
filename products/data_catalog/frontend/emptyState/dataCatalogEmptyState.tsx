@@ -7,6 +7,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { DATA_CATALOG_DOCS_URL } from '../common'
 import { DataCatalogPreview } from './DataCatalogPreview'
 import { DataCatalogPrimaryAction } from './DataCatalogPrimaryAction'
 import { dataCatalogSetupLogic } from './dataCatalogSetupLogic'
@@ -31,7 +32,7 @@ export const dataCatalogEmptyState: SceneProductEmptyState = {
             },
         },
         PrimaryAction: DataCatalogPrimaryAction,
-        docsUrl: 'https://posthog.com/docs/semantic-layer',
+        docsUrl: DATA_CATALOG_DOCS_URL,
         previewLabel: 'Your catalog, once defined',
         Preview: DataCatalogPreview,
     },

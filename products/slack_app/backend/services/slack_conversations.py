@@ -42,8 +42,8 @@ def resolve_conversation_type(
 ) -> SlackThreadTaskMapping.ConversationType:
     """The shape of the conversation ``channel_id`` names.
 
-    Never raises: an unresolvable conversation comes back as ``UNKNOWN``, which reads as
-    non-private downstream. Task creation must not fail over this.
+    Never raises: an unresolvable conversation comes back as ``UNKNOWN``, which keeps the task
+    with its creator downstream. Task creation must not fail over this.
     """
     channel_type = event.get("channel_type")
     if channel_type in _CHANNEL_TYPE_TO_CONVERSATION_TYPE:

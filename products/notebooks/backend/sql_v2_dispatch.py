@@ -73,10 +73,6 @@ class NodeRunDispatchFailed(Exception):
     """The run row exists but no lane took it. The row is already terminal."""
 
 
-class NodeRunNotPermitted(Exception):
-    """The resolved plan needs a lane this caller's flags do not grant."""
-
-
 @frozen
 class RefSpec:
     """A name a cell may read, and the sibling cell that exports it."""
@@ -100,8 +96,6 @@ class NodeRunRequest:
     # Answer with the caller's own identical run from the last hour instead of executing
     # again, when one is still running or already done.
     reuse_results: bool = False
-    # False for a caller gated out of full compute: it may run HogQL but not the sandbox.
-    allow_sandbox: bool = True
     # Set when a whole-notebook run started this cell, so the status endpoint can find it.
     notebook_run_id: UUID | None = None
 
@@ -435,11 +429,6 @@ def dispatch_node_run(notebook: Notebook, user: User | None, team: Team, request
 
     plan = _build_plan(request, resolve_refs(team.id, notebook, request))
 
-    # Reading a sibling's kernel frame reroutes a hogql request to the sandbox's DuckDB, so the
-    # sandbox gate has to sit behind the resolved plan rather than the request's own node_type.
-    if not request.allow_sandbox and plan.node_type != "hogql":
-        raise NodeRunNotPermitted()
-
     reusable = _reusable_runs(notebook, user, team.id, request, plan)
     if (existing := reusable.first() if reusable is not None else None) is not None:
         return NodeRunDispatch(run_id=existing.id, starts_sandbox=False, sandbox_hourly_price=None)
@@ -512,7 +501,6 @@ __all__ = [
     "NodeRunDispatch",
     "NodeRunDispatchFailed",
     "NodeRunInvalid",
-    "NodeRunNotPermitted",
     "NodeRunRequest",
     "NotebookRunBusy",
     "RawRefSpec",

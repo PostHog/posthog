@@ -31,11 +31,12 @@ def response(body: object, status: int = 200, next_url: str | None = None) -> Sc
 
 
 @pytest.mark.parametrize(
-    ("table", "path", "key"),
+    ("table", "path", "key", "params"),
     [
-        ("workflows", "plumber-workflows", "wf_id"),
-        ("pipelines", "pipelines", "ppl_id"),
-        ("deployment_targets", "deployment_targets", "id"),
+        ("workflows", "plumber-workflows", "wf_id", {"project_id": [PROJECT_ID]}),
+        ("pipelines", "pipelines", "ppl_id", {"project_id": [PROJECT_ID]}),
+        ("deployment_targets", "deployment_targets", "id", {"project_id": [PROJECT_ID]}),
+        ("flaky_tests", f"projects/{PROJECT_ID}/test_results/flaky_tests", "id", {}),
     ],
 )
 @pytest.mark.parametrize("empty_terminal", [False, True])
@@ -44,9 +45,10 @@ def test_transport_and_terminal_page(
     table: str,
     path: str,
     key: str,
+    params: dict[str, list[str]],
     empty_terminal: bool,
 ) -> None:
-    next_url = f"{BASE_URL}{path}?project_id={PROJECT_ID}&page=2"
+    next_url = f"{BASE_URL}{path}?page=2"
     first = {key: "row-1", "created_at": {"seconds": 1704067200, "nanos": 123456000}}
     last = [] if empty_terminal else [{key: "row-2", "created_at": "2024-01-02T00:00:00Z"}]
     result = SourceDriver(SemaphoreSource(), config).run(table, [response([first], next_url=next_url), response(last)])
@@ -57,13 +59,126 @@ def test_transport_and_terminal_page(
     assert result.response.primary_keys == [key]
     requests = result.requests
     assert urlsplit(requests[0].url).path == f"/api/v1alpha/{path}"
-    assert parse_qs(urlsplit(requests[0].url).query) == {"project_id": [PROJECT_ID]}
+    assert parse_qs(urlsplit(requests[0].url).query) == params
     assert requests[1].url == next_url
     for request in requests:
         assert request.headers["authorization"] == f"Token {TOKEN}"
         assert request.headers["user-agent"] == "SemaphoreCI v2.0 Client"
     assert result.saved_states[0] == SemaphoreResumeConfig(next_url=next_url)
     assert result.saved_states[-1] == SemaphoreResumeConfig(completed=True)
+
+
+@pytest.mark.parametrize("resumed", [False, True])
+def test_members_walk_page_numbers_until_total_pages(config: SemaphoreSourceConfig, resumed: bool) -> None:
+    pages = [
+        response({"members": [{"id": "member-1", "roles": []}], "total_pages": 2}),
+        response({"members": [{"id": "member-2", "roles": []}], "total_pages": 2}),
+    ]
+    result = SourceDriver(SemaphoreSource(), config).run(
+        "members",
+        pages[1:] if resumed else pages,
+        resume_state=SemaphoreResumeConfig(paginator_state={"page": 1}) if resumed else None,
+    )
+    assert [row["id"] for row in result.rows] == (["member-2"] if resumed else ["member-1", "member-2"])
+    assert [parse_qs(urlsplit(request.url).query) for request in result.requests] == (
+        [{"page_no": ["1"]}] if resumed else [{"page_no": ["0"]}, {"page_no": ["1"]}]
+    )
+    assert urlsplit(result.requests[0].url).path == "/api/v1alpha/members"
+    if not resumed:
+        assert result.saved_states[0] == SemaphoreResumeConfig(paginator_state={"page": 1})
+    assert result.saved_states[-1] == SemaphoreResumeConfig(completed=True)
+
+
+@pytest.mark.parametrize(
+    "last_page",
+    [
+        {"deployments": [{"id": "deploy-2", "target_id": "target-a"}], "cursor_before": 0, "cursor_after": 0},
+        {"deployments": [], "cursor_before": 1685000000000000, "cursor_after": 0},
+    ],
+)
+def test_deployment_history_walks_each_target_back_in_time(
+    config: SemaphoreSourceConfig, last_page: dict[str, Any]
+) -> None:
+    cursor = 1685096881121173
+    result = SourceDriver(SemaphoreSource(), config).run(
+        "deployment_history",
+        [
+            response([{"id": "target-a"}, {"id": "target-b"}]),
+            response(
+                {
+                    "deployments": [{"id": "deploy-1", "target_id": "target-a"}],
+                    "cursor_before": cursor,
+                    "cursor_after": 0,
+                }
+            ),
+            response(last_page),
+            response({"deployments": [{"id": "deploy-3", "target_id": "target-b"}], "cursor_before": 0}),
+        ],
+    )
+    assert result.raised is None
+    expected = ["deploy-1", *[row["id"] for row in last_page["deployments"]], "deploy-3"]
+    assert [row["id"] for row in result.rows] == expected
+    assert [(urlsplit(r.url).path, parse_qs(urlsplit(r.url).query)) for r in result.requests] == [
+        ("/api/v1alpha/deployment_targets", {"project_id": [PROJECT_ID]}),
+        ("/api/v1alpha/deployment_targets/target-a/history", {}),
+        (
+            "/api/v1alpha/deployment_targets/target-a/history",
+            {"cursor_type": ["BEFORE"], "cursor_value": [str(cursor)]},
+        ),
+        ("/api/v1alpha/deployment_targets/target-b/history", {}),
+    ]
+
+
+def test_deployment_history_fails_on_a_repeated_cursor(config: SemaphoreSourceConfig) -> None:
+    page = {"deployments": [{"id": "deploy-1", "target_id": "target-a"}], "cursor_before": 1685096881121173}
+    result = SourceDriver(SemaphoreSource(), config).run(
+        "deployment_history", [response([{"id": "target-a"}]), response(page), response(page)]
+    )
+    assert isinstance(result.raised, ValueError)
+    assert len(result.requests) == 3
+
+
+@pytest.mark.parametrize("resumed", [False, True])
+def test_flaky_test_disruptions_fan_out_over_flaky_tests(config: SemaphoreSourceConfig, resumed: bool) -> None:
+    base = f"projects/{PROJECT_ID}/test_results/flaky_tests"
+    first_path = f"{base}/flaky-1/disruptions"
+    first_child = [
+        response(
+            [{"pipeline_id": "pipeline-1", "created_at": "2025-05-30T14:22:01Z"}],
+            next_url=f"{BASE_URL}{first_path}?page=2",
+        ),
+        response([{"pipeline_id": "pipeline-2", "created_at": "2025-05-31T09:00:00Z"}]),
+    ]
+    result = SourceDriver(SemaphoreSource(), config).run(
+        "flaky_test_disruptions",
+        [
+            response([{"id": "flaky-1"}, {"id": "flaky-2"}]),
+            *([] if resumed else first_child),
+            response([{"pipeline_id": "pipeline-3", "created_at": "2025-06-01T00:00:00Z"}]),
+        ],
+        resume_state=(
+            SemaphoreResumeConfig(paginator_state={"completed": [first_path], "current": None, "child_state": None})
+            if resumed
+            else None
+        ),
+    )
+    assert result.raised is None
+    expected = (
+        [("flaky-2", "pipeline-3")]
+        if resumed
+        else [
+            ("flaky-1", "pipeline-1"),
+            ("flaky-1", "pipeline-2"),
+            ("flaky-2", "pipeline-3"),
+        ]
+    )
+    assert [(row["flaky_test_id"], row["pipeline_id"]) for row in result.rows] == expected
+    assert result.rows[-1]["created_at"] == datetime(2025, 6, 1, tzinfo=UTC)
+    paths = [urlsplit(request.url).path for request in result.requests]
+    assert paths[0] == f"/api/v1alpha/{base}"
+    assert paths[-1] == f"/api/v1alpha/{base}/flaky-2/disruptions"
+    assert len(paths) == (2 if resumed else 4)
+    assert all(state.paginator_state is not None for state in result.saved_states)
 
 
 @pytest.mark.parametrize(

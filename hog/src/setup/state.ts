@@ -23,6 +23,7 @@ export const STEP_IDS = [
     'review',
     'verify',
     'products',
+    'mcp',
     'connected',
 ] as const
 
@@ -46,6 +47,8 @@ const SetupStateSchema = z.object({
     products: z.array(z.string()).transform((ids) => ids.flatMap((id) => ProductIdSchema.safeParse(id).data ?? [])),
     // The host the purpose step picked, so the login goes there before posthog.json names it.
     host: HostSchema,
+    // Set when nobody named the host or answered the region, so the login step can offer the other region.
+    hostPicked: z.enum(['default', 'last_login']).optional().catch(undefined),
     reads: z.array(SkillFileSchema),
     completed: z.array(z.string()).transform((ids) => ids.filter((id): id is StepId => isStepId(id))),
 })
@@ -89,7 +92,7 @@ export async function readState(ctx: Context, scope: SetupScope): Promise<SetupS
     }
 }
 
-// Reads the file again under a lock, so a `hog learn` that records a read at the same time keeps it.
+// Reads the file again under a lock, so a `hog skills read` that records a read at the same time keeps it.
 export async function updateState(
     ctx: Context,
     scope: SetupScope,
@@ -108,7 +111,7 @@ export function hasRead(state: SetupState, file: SkillFile): boolean {
     return state.reads.some((read) => read.skill === file.skill && read.path === file.path)
 }
 
-// Called by `hog learn`. A read counts only while a setup is running in this folder, and a failure
+// Called by `hog skills read`. A read counts only while a setup is running in this folder, and a failure
 // to record it never fails the read.
 export async function recordSkillReads(ctx: Context, reads: readonly SkillRead[]): Promise<void> {
     // The install gates stand for having read whole files, so a line range or a search doesn't count.
