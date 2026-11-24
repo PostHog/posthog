@@ -7,9 +7,52 @@ import pytest
 
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 
-from products.batch_exports.backend.temporal.batch_exports import DataInterval, get_data_interval, iter_records
+from products.batch_exports.backend.service import BackfillDetails
+from products.batch_exports.backend.temporal.batch_exports import (
+    DataInterval,
+    get_data_interval,
+    iter_records,
+    reads_recent_events_table,
+)
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
+
+
+@pytest.mark.parametrize("use_new_events_schema", [False, True])
+@pytest.mark.parametrize(
+    "interval_minutes,start_days_ago,is_backfill,expected",
+    [
+        (5, 0, False, True),
+        (60, 0, False, True),
+        (60, 20, False, False),
+        (60, 3, True, True),
+        (60, 20, True, False),
+    ],
+    ids=["five-minute-run", "hourly-run", "late-run", "recent-backfill", "old-backfill"],
+)
+def test_reads_recent_events_table(
+    use_new_events_schema: bool,
+    interval_minutes: int,
+    start_days_ago: int,
+    is_backfill: bool,
+    expected: bool,
+):
+    start = dt.datetime.now(tz=dt.UTC).replace(minute=0, second=0, microsecond=0) - dt.timedelta(days=start_days_ago)
+    end = start + dt.timedelta(minutes=interval_minutes)
+    backfill_details = (
+        BackfillDetails(backfill_id=None, start_at=start.isoformat(), end_at=end.isoformat()) if is_backfill else None
+    )
+
+    assert (
+        reads_recent_events_table(
+            team_id=1,
+            interval_start=start.isoformat(),
+            interval_end=end.isoformat(),
+            use_new_events_schema=use_new_events_schema,
+            backfill_details=backfill_details,
+        )
+        == expected
+    )
 
 
 def assert_records_match_events(records, events):

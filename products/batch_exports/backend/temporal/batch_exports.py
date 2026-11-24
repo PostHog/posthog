@@ -241,6 +241,33 @@ def select_events_query_template(
     return SELECT_FROM_EVENTS_VIEW
 
 
+def reads_recent_events_table(
+    *,
+    team_id: int,
+    interval_start: str | None,
+    interval_end: str,
+    use_new_events_schema: bool,
+    is_backfill: bool = False,
+    backfill_details: BackfillDetails | None = None,
+) -> bool:
+    """Whether `iter_records` reads a recent events table, which the batch exports cluster stores."""
+    if use_new_events_schema:
+        start_at = dt.datetime.fromisoformat(interval_start) if interval_start is not None else None
+        return use_distributed_events_recent_table(
+            is_backfill=(backfill_details is not None) or is_backfill,
+            backfill_details=backfill_details,
+            data_interval_start=start_at,
+        )
+    template = select_events_query_template(
+        team_id=team_id,
+        interval_start=interval_start,
+        interval_end=interval_end,
+        is_backfill=is_backfill,
+        backfill_details=backfill_details,
+    )
+    return template in (SELECT_FROM_EVENTS_VIEW_RECENT, SELECT_FROM_DISTRIBUTED_EVENTS_RECENT)
+
+
 def _build_new_events_records_query(
     *,
     team_id: int,
