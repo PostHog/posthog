@@ -2845,7 +2845,7 @@ def devbox_forward(workspace: str | None, port: int | None) -> None:
     port_forward_replace(name, port, _BOX_APP_PORT)
 
 
-@click.command(name="devbox:cleanup:disk", help="Free disk space on your devbox with `hogli doctor:disk`")
+@click.command(name="devbox:cleanup:disk", help="Free disk space by cleaning caches and build artifacts")
 @workspace_argument
 @click.option("--dry-run", is_flag=True, help="Show what would be cleaned without deleting")
 @click.option("--yes", "-y", is_flag=True, help="Auto-confirm all cleanup operations")
