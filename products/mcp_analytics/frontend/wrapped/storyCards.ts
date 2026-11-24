@@ -105,6 +105,23 @@ export function formatSuccessRate(rate: number): string {
     return formatPercent(rate)
 }
 
+/** One line on how reliable the server was, from the share of calls that returned without an error. */
+export function reliabilityLine(rate: number): string {
+    if (rate >= 0.995) {
+        return 'Rock solid.'
+    }
+    if (rate >= 0.98) {
+        return 'Smooth sailing.'
+    }
+    if (rate >= 0.95) {
+        return 'Your server held up.'
+    }
+    if (rate >= 0.9) {
+        return 'Mostly smooth, with a few bumps.'
+    }
+    return 'A bumpy year, with room to improve.'
+}
+
 export function formatDuration(ms: number): string {
     return ms >= 1000 ? `${(ms / 1000).toFixed(1)} s` : `${Math.round(ms)} ms`
 }

@@ -1,37 +1,35 @@
-import { cn } from 'lib/utils/css-classes'
+import { IconWarning } from '@posthog/icons'
 
 import type { MCPWrappedReliabilityCardApi } from '../../generated/api.schemas'
-import { formatPercent, formatSuccessRate } from '../storyCards'
+import { formatPercent, formatSuccessRate, reliabilityLine } from '../storyCards'
 import { WrappedCard } from '../WrappedCard'
 
-const DOTS = 100
-
 export function ReliabilityCard({ card }: { card: MCPWrappedReliabilityCardApi }): JSX.Element {
-    const cleanDots = Math.round(card.success_rate * DOTS)
     return (
         <WrappedCard cardKey="reliability" kicker="Reliability">
-            <div className="MCPWrapped__pop text-6xl font-bold leading-none tabular-nums">
-                {formatSuccessRate(card.success_rate)}
+            <div className="MCPWrapped__pop flex flex-wrap items-baseline gap-x-2">
+                <span className="text-6xl font-bold leading-none tabular-nums">
+                    {formatSuccessRate(card.success_rate)}
+                </span>
+                <span className="text-2xl font-bold">error-free</span>
             </div>
-            <p className="MCPWrapped__rise m-0 text-base">of tool calls returned without an error.</p>
-            <div className="MCPWrapped__rise flex flex-col gap-1.5">
-                <div className="grid grid-cols-[repeat(20,minmax(0,1fr))] gap-1" aria-hidden>
-                    {Array.from({ length: DOTS }, (_, index) => (
-                        <span
-                            key={index}
-                            className={cn('aspect-square rounded-full', index < cleanDots ? 'bg-white' : 'bg-black/70')}
-                        />
-                    ))}
-                </div>
-                <span className="text-xs opacity-75">Each dot is 1% of calls.</span>
-            </div>
+            <p className="MCPWrapped__rise m-0 text-base">
+                <strong className="block">{reliabilityLine(card.success_rate)}</strong>
+                That's the share of tool calls that returned without an error.
+            </p>
             {card.struggling_tool && (
-                <div className="MCPWrapped__rise flex flex-col gap-0.5 rounded-xl bg-white/45 p-3">
-                    <span className="text-sm opacity-75">Needs the most attention</span>
-                    <span className="break-all font-mono font-bold">{card.struggling_tool.tool}</span>
-                    <span className="text-sm">
-                        {formatPercent(card.struggling_tool.error_rate)} of its calls failed.
+                <div className="MCPWrapped__rise flex items-center gap-3 rounded-xl bg-black/10 p-3">
+                    <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-black/80 text-white">
+                        <IconWarning className="size-4" />
                     </span>
+                    <div className="min-w-0 flex-1">
+                        <div className="text-sm opacity-75">Needs the most attention</div>
+                        <div className="truncate font-mono font-bold">{card.struggling_tool.tool}</div>
+                    </div>
+                    <div className="shrink-0 text-right">
+                        <div className="font-bold tabular-nums">{formatPercent(card.struggling_tool.error_rate)}</div>
+                        <div className="text-sm opacity-75">failed</div>
+                    </div>
                 </div>
             )}
         </WrappedCard>
