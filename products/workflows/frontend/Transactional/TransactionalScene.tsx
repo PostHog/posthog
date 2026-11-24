@@ -19,6 +19,8 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { EmailSuspensionBanner } from '../EmailSuspensionBanner'
 import { EngagementEventsBanner } from '../EngagementEventsBanner'
 import { MessagingTabActions } from '../MessagingTabActions'
+import { ImportFromAnotherToolButton } from '../OptOuts/ImportFromAnotherToolButton'
+import { ProviderImportModal } from '../OptOuts/ProviderImportModal'
 import { TransactionalRoute, transactionalRouteFor } from './transactionalRoute'
 import { TransactionalTabs } from './TransactionalTabs'
 import { TransactionalEmailWizard } from './wizard/TransactionalEmailWizard'
@@ -57,6 +59,7 @@ export function TransactionalScene(): JSX.Element {
             <EmailSuspensionBanner />
             <EngagementEventsBanner />
             <TransactionalTabs currentTab={currentTab} showWebhooks={showWebhooks} />
+            <ProviderImportModal />
         </SceneContent>
     )
 }
@@ -70,28 +73,31 @@ function TransactionalSceneActions({ tab }: { tab: Exclude<TransactionalRoute, '
         return <MessagingTabActions tab={tab} channelsUrl={urls.transactional('channels')} />
     }
     return (
-        <AccessControlAction
-            resourceType={AccessControlResourceType.Workflow}
-            minAccessLevel={AccessControlLevel.Editor}
-        >
-            {todayRailNav ? (
-                <Button
-                    data-attr="new-transactional-email"
-                    onClick={() => router.actions.push(urls.transactionalNew())}
-                    variant="primary"
-                >
-                    New transactional email
-                </Button>
-            ) : (
-                <LemonButton
-                    data-attr="new-transactional-email"
-                    to={urls.transactionalNew()}
-                    type="primary"
-                    size="small"
-                >
-                    New transactional email
-                </LemonButton>
-            )}
-        </AccessControlAction>
+        <>
+            <ImportFromAnotherToolButton entryPoint="transactional" dataAttr="transactional-import-from-another-tool" />
+            <AccessControlAction
+                resourceType={AccessControlResourceType.Workflow}
+                minAccessLevel={AccessControlLevel.Editor}
+            >
+                {todayRailNav ? (
+                    <Button
+                        data-attr="new-transactional-email"
+                        onClick={() => router.actions.push(urls.transactionalNew())}
+                        variant="primary"
+                    >
+                        New transactional email
+                    </Button>
+                ) : (
+                    <LemonButton
+                        data-attr="new-transactional-email"
+                        to={urls.transactionalNew()}
+                        type="primary"
+                        size="small"
+                    >
+                        New transactional email
+                    </LemonButton>
+                )}
+            </AccessControlAction>
+        </>
     )
 }

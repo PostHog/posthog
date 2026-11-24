@@ -1,6 +1,8 @@
+import datetime
 from typing import Any
 
 import pytest
+import time_machine
 
 from products.warehouse_sources.sources.rudderstack._config import RudderStackSourceConfig
 from products.warehouse_sources.sources.rudderstack.rudderstack import (
@@ -29,6 +31,7 @@ def driver() -> SourceDriver:
         ("connections", "/v2/connections", "connections", "page", "test-workspace-token"),
         ("retl_connections", "/v2/retl-connections", "data", "page", "test-workspace-token"),
         ("audit_logs", "/v2/audit-logs", "data", "after_cursor", "test-organization-token"),
+        ("regulations", "/v2/regulations", "data", "after_cursor", "test-workspace-token"),
     ],
 )
 def test_linked_collections_walk_to_the_end_and_commit_resume_state(
@@ -59,8 +62,18 @@ def test_linked_collections_walk_to_the_end_and_commit_resume_state(
     assert all(request.param("created_after") is None for request in result.requests)
 
 
-@pytest.mark.parametrize("table", ["catalog_events", "catalog_properties", "catalog_categories"])
-def test_catalog_uses_response_page_size_and_stops_at_total(driver: SourceDriver, table: str) -> None:
+@pytest.mark.parametrize(
+    ("table", "order_by"),
+    [
+        ("catalog_events", "createdAt:asc"),
+        ("catalog_properties", "createdAt:asc"),
+        ("catalog_categories", "createdAt:asc"),
+        ("custom_types", None),
+    ],
+)
+def test_catalog_uses_response_page_size_and_stops_at_total(
+    driver: SourceDriver, table: str, order_by: str | None
+) -> None:
     result = driver.run(
         table,
         [
@@ -72,7 +85,7 @@ def test_catalog_uses_response_page_size_and_stops_at_total(driver: SourceDriver
     assert result.raised is None
     assert result.rows == [{"id": "a"}, {"id": "b"}, {"id": "c"}]
     assert result.params("page") == ["1", "2"]
-    assert result.params("orderBy") == ["createdAt:asc", "createdAt:asc"]
+    assert result.params("orderBy") == [order_by, order_by]
     assert result.committed_states == [RudderStackResumeConfig(paginator_state={"page": 2})]
 
 
@@ -205,6 +218,64 @@ def test_sync_history_resume_skips_completed_connections(driver: SourceDriver) -
     assert result.raised is None
     assert result.paths == ["/v2/retl-connections", "/v2/retl-connections/connection-b/syncs"]
     assert result.rows == [{"id": "remaining", "connection_id": "connection-b"}]
+
+
+def test_tracking_plan_events_page_each_plan_from_the_first_page(driver: SourceDriver) -> None:
+    result = driver.run(
+        "tracking_plan_events",
+        [
+            ScriptedResponse(json={"trackingPlans": [{"id": "plan-a"}, {"id": "plan-b"}]}),
+            ScriptedResponse(json={"data": [{"id": "shared-event"}], "total": 2, "pageSize": 1, "currentPage": 1}),
+            ScriptedResponse(json={"data": [{"id": "event-a"}], "total": 2, "pageSize": 1, "currentPage": 2}),
+            ScriptedResponse(json={"data": [{"id": "shared-event"}], "total": 1, "pageSize": 50, "currentPage": 1}),
+        ],
+    )
+
+    assert result.raised is None
+    assert result.rows == [
+        {"id": "shared-event", "tracking_plan_id": "plan-a"},
+        {"id": "event-a", "tracking_plan_id": "plan-a"},
+        {"id": "shared-event", "tracking_plan_id": "plan-b"},
+    ]
+    assert result.paths == [
+        "/v2/catalog/tracking-plans",
+        "/v2/catalog/tracking-plans/plan-a/events",
+        "/v2/catalog/tracking-plans/plan-a/events",
+        "/v2/catalog/tracking-plans/plan-b/events",
+    ]
+    assert result.params("page") == [None, "1", "2", "1"]
+    assert result.params("rebuildSchemas") == [None, "false", "false", "false"]
+    assert result.response is not None and result.response.primary_keys == ["tracking_plan_id", "id"]
+
+
+@pytest.mark.parametrize(
+    ("inputs", "expected_start"),
+    [
+        ({}, "2026-01-20"),
+        ({"should_use_incremental_field": False, "db_incremental_field_last_value": "2026-03-10"}, "2026-01-20"),
+        ({"incremental_field": "bucket", "db_incremental_field_last_value": "2026-03-10"}, "2026-03-08"),
+        ({"incremental_field": "bucket", "db_incremental_field_last_value": datetime.date(2026, 3, 19)}, "2026-03-17"),
+        ({"incremental_field": "bucket", "db_incremental_field_last_value": "2025-06-01"}, "2026-01-20"),
+    ],
+)
+def test_event_usage_requests_a_daily_window_inside_the_api_lookback(
+    driver: SourceDriver, inputs: dict[str, Any], expected_start: str
+) -> None:
+    row = {"workspaceId": "ws-1", "sourceId": "src-1", "bucket": "2026-03-19", "count": 12, "deleted": False}
+    with time_machine.travel(datetime.datetime(2026, 3, 20, 15, 30, tzinfo=datetime.UTC), tick=False):
+        result = driver.run(
+            "event_metrics_usage",
+            [ScriptedResponse(json={"data": [row], "summary": {"totalEvents": 12}})],
+            **inputs,
+        )
+
+    assert result.raised is None
+    assert result.rows == [row]
+    assert result.paths == ["/v2/organizations/usage/event-metrics"]
+    assert result.params("start") == [expected_start]
+    assert result.params("granularity") == ["day"]
+    assert result.requests[0].headers["authorization"] == "Bearer test-organization-token"
+    assert result.response is not None and result.response.partition_keys == ["bucket"]
 
 
 @pytest.mark.parametrize("status", [401, 403])

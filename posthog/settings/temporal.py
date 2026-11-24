@@ -100,6 +100,7 @@ SANDBOX_API_URL: str | None = get_from_env("SANDBOX_API_URL", None, optional=Tru
 AGENT_EGRESS_PROBE_CONFIG_DIR: str = get_from_env("AGENT_EGRESS_PROBE_CONFIG_DIR", "")
 AGENT_EGRESS_STAGING_PROBE_RUN_ID: str = get_from_env("AGENT_EGRESS_STAGING_PROBE_RUN_ID", "")
 AGENT_EGRESS_OBSERVATION_CONFIG: str = get_from_env("AGENT_EGRESS_OBSERVATION_CONFIG", "")
+AGENT_EGRESS_ENROLLMENT_CONFIG: str = get_from_env("AGENT_EGRESS_ENROLLMENT_CONFIG", "")
 # Hogland (Firecracker microVM sandbox service) control plane. Deliberately not
 # SANDBOX_*-prefixed: agentsh folds SANDBOX_* URL settings into the in-box egress
 # allowlist, and the box never needs to reach the hogland control plane.

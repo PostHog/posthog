@@ -8,7 +8,9 @@ database "posthog" {
     ttl          = "toDate(timestamp) + toIntervalDay(92)"
     settings = {
       index_granularity                = "8192"
+      map_serialization_version        = "with_buckets"
       materialize_ttl_recalculate_only = "1"
+      max_buckets_in_map               = "32"
       ttl_only_drop_parts              = "1"
     }
     extend = "_flag_evaluations_columns"
@@ -41,6 +43,9 @@ database "posthog" {
     }
     patch_column "properties_group_custom" {
       materialized = "mapSort(mapFilter((key, _) -> ((key NOT LIKE '$%') AND (key NOT IN ('token', 'distinct_id', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term', 'gclid', 'gad_source', 'gclsrc', 'dclid', 'gbraid', 'wbraid', 'fbclid', 'msclkid', 'twclid', 'li_fat_id', 'mc_cid', 'igshid', 'ttclid', 'rdt_cid', 'epik', 'qclid', 'sccid', 'irclid', '_kx'))), CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)')))"
+    }
+    patch_column "properties_group_feature_flags" {
+      materialized = "mapSort(mapFilter((key, _) -> (key LIKE '$feature/%'), CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(LowCardinality(String), LowCardinality(String))')))"
     }
     patch_column "person_properties_map_custom" {
       materialized = "mapSort(mapFilter((key, _) -> (key NOT LIKE '$%'), CAST(JSONExtractKeysAndValues(person_properties, 'String'), 'Map(String, String)')))"

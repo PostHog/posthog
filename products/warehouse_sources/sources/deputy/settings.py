@@ -29,15 +29,20 @@ DEPUTY_ENDPOINTS: dict[str, DeputyEndpointConfig] = {
     "employee_availability": DeputyEndpointConfig(resource="EmployeeAvailability"),
     "employee_roles": DeputyEndpointConfig(resource="EmployeeRole"),
     "employees": DeputyEndpointConfig(resource="Employee"),
+    "employment_contracts": DeputyEndpointConfig(resource="EmploymentContract"),
     "events": DeputyEndpointConfig(resource="Event"),
     "journals": DeputyEndpointConfig(resource="Journal"),
     "leave": DeputyEndpointConfig(resource="Leave"),
+    "leave_accruals": DeputyEndpointConfig(resource="LeaveAccrual"),
     "memos": DeputyEndpointConfig(resource="Memo"),
     "operational_units": DeputyEndpointConfig(resource="OperationalUnit"),
     "rosters": DeputyEndpointConfig(resource="Roster"),
     "tasks": DeputyEndpointConfig(resource="Task"),
+    "teams": DeputyEndpointConfig(resource="Team"),
     "timesheet_pay_returns": DeputyEndpointConfig(resource="TimesheetPayReturn"),
     "timesheets": DeputyEndpointConfig(resource="Timesheet"),
+    "training_modules": DeputyEndpointConfig(resource="TrainingModule"),
+    "training_records": DeputyEndpointConfig(resource="TrainingRecord"),
 }
 
 ENDPOINTS = tuple(DEPUTY_ENDPOINTS)

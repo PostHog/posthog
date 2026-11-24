@@ -186,7 +186,7 @@ class AmazonSellingPartnerSource(ResumableSource[AmazonSellingPartnerSourceConfi
             ),
             iconPath="/static/services/amazon_selling_partner.png",
             docsUrl="https://posthog.com/docs/cdp/sources/amazon-selling-partner",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

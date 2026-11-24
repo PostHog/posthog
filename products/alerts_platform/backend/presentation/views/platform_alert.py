@@ -364,6 +364,7 @@ SOURCE_KIND_RESOURCE: dict[str, APIScopeObject] = {
     PlatformAlertConfigurationSourceKind.WAREHOUSE_DESTINATION.value: "external_data_source",
     PlatformAlertConfigurationSourceKind.METRICS.value: "metrics",
     PlatformAlertConfigurationSourceKind.TRACES.value: "tracing",
+    PlatformAlertConfigurationSourceKind.ERROR_TRACKING.value: "error_tracking",
 }
 
 # Kinds the read API does not serve. An insight copy shows its insight's bound and firing state,
@@ -645,7 +646,8 @@ class PlatformAlertsFlagPermission(BasePermission):
     """Lets a caller in when the flag of at least one source kind is on. Each action then serves only
     the kinds whose flag is on."""
 
-    message = f"This action requires feature flag {PLATFORM_ALERTS_FLAG!r} to be enabled for your organization."
+    # Each source kind has its own flag, so the message names none of them.
+    message = "Alerts are not available for this project yet."
     code = FEATURE_FLAG_REQUIRED_ERROR_CODE
 
     def has_permission(self, request: Request, view: APIView) -> bool:
