@@ -1,5 +1,10 @@
 import { MessageHeader, SESv2Client, SendEmailCommand, SendEmailCommandInput } from '@aws-sdk/client-sesv2'
 import { DateTime } from 'luxon'
+import { AsyncLocalStorage } from 'node:async_hooks'
+import diagnosticsChannel from 'node:diagnostics_channel'
+import type { ClientRequest } from 'node:http'
+import type { Socket } from 'node:net'
+import { TLSSocket } from 'node:tls'
 import { SendMailOptions } from 'nodemailer'
 import * as mimeFuncs from 'nodemailer/lib/mime-funcs'
 import { Counter, Histogram } from 'prom-client'
@@ -137,6 +142,7 @@ const SES_SEND_ERROR_RESULTS = [
     'NotFoundException',
     'BadRequestException',
     'TimeoutError',
+    'SesMayHaveSentError',
 ] as const
 type SesSendResult = 'success' | 'throttled' | (typeof SES_SEND_ERROR_RESULTS)[number] | 'other'
 
@@ -259,63 +265,68 @@ const sesRefused = (response: unknown): boolean => {
     return statusCode !== undefined && (statusCode < 200 || statusCode >= 300)
 }
 
-// Node names the failed system call on a network error. A failed DNS lookup or TCP connect means no request byte
-// reached SES. When a host has several addresses, Node tries each and raises an AggregateError of the failures.
-// A connection that closes during the TLS handshake carries no system call, and Node marks it with this message.
-// The request is written only after the handshake, so no request byte reached SES either.
-const TLS_HANDSHAKE_RESET = 'Client network socket disconnected before secure TLS connection was established'
+type SendAttempt = { connectionOpened: boolean; sesRefused: boolean; error?: unknown }
 
-const failedBeforeTheConnectionOpened = (error: unknown): boolean => {
-    const { syscall, code, message, errors } = (error ?? {}) as {
-        syscall?: string
-        code?: string
-        message?: string
-        errors?: unknown
+const currentSendAttempt = new AsyncLocalStorage<SendAttempt>()
+
+const markTheAttemptOnceItsConnectionOpens = ({ request }: { request: ClientRequest }): void => {
+    const attempt = currentSendAttempt.getStore()
+    if (!attempt) {
+        return
     }
-    if (Array.isArray(errors)) {
-        return errors.length > 0 && errors.every(failedBeforeTheConnectionOpened)
-    }
-    return (
-        syscall === 'getaddrinfo' ||
-        syscall === 'connect' ||
-        (code === 'ECONNRESET' && syscall === undefined && message === TLS_HANDSHAKE_RESET)
-    )
+    request.once('socket', (socket: Socket) => {
+        if (request.reusedSocket) {
+            attempt.connectionOpened = true
+            return
+        }
+        socket.once(socket instanceof TLSSocket ? 'secureConnect' : 'connect', () => {
+            attempt.connectionOpened = true
+        })
+    })
 }
 
+diagnosticsChannel.subscribe('http.client.request.created', (message) =>
+    markTheAttemptOnceItsConnectionOpens(message as { request: ClientRequest })
+)
+
 class SesMayHaveSentError extends Error {
-    constructor() {
-        super('The connection to SES dropped before SES answered. It may have sent the email, so it is not sent again.')
+    constructor(earlierAttemptError: unknown) {
+        const reason = earlierAttemptError instanceof Error ? ` (${earlierAttemptError.message})` : ''
+        super(
+            `An earlier attempt reached SES and did not get its answer${reason}. SES may have sent the email, so it is not sent again.`,
+            { cause: earlierAttemptError }
+        )
         this.name = 'SesMayHaveSentError'
     }
 }
 
-function trackAttemptsSesMayHaveAccepted(command: SendEmailCommand, retryOnlyRefusedAttempts: boolean): () => boolean {
-    let attemptsSesMayHaveAccepted = 0
+function trackAttemptsSesMayHaveAccepted(
+    command: SendEmailCommand,
+    refuseRetryOnceSesMayHaveAccepted: boolean
+): () => boolean {
+    const attempts: SendAttempt[] = []
+    const attemptSesMayHaveAccepted = (): SendAttempt | undefined =>
+        attempts.find((attempt) => attempt.connectionOpened && !attempt.sesRefused)
     command.middlewareStack.add(
         (next) => async (args) => {
-            // The SDK retries a dropped connection on its own. SES can take an attempt whose connection then drops,
-            // so a retry after it can deliver a second copy.
-            if (retryOnlyRefusedAttempts && attemptsSesMayHaveAccepted > 0) {
-                throw new SesMayHaveSentError()
+            const earlierAttempt = attemptSesMayHaveAccepted()
+            if (refuseRetryOnceSesMayHaveAccepted && earlierAttempt) {
+                throw new SesMayHaveSentError(earlierAttempt.error)
             }
-            attemptsSesMayHaveAccepted++
-            let httpAnswer
+            const attempt: SendAttempt = { connectionOpened: false, sesRefused: false }
+            attempts.push(attempt)
             try {
-                httpAnswer = await next(args)
+                const httpAnswer = await currentSendAttempt.run(attempt, () => next(args))
+                attempt.sesRefused = sesRefused(httpAnswer.response)
+                return httpAnswer
             } catch (error) {
-                if (failedBeforeTheConnectionOpened(error)) {
-                    attemptsSesMayHaveAccepted--
-                }
+                attempt.error = error
                 throw error
             }
-            if (sesRefused(httpAnswer.response)) {
-                attemptsSesMayHaveAccepted--
-            }
-            return httpAnswer
         },
         { step: FIRST_STEP_AFTER_SIGNING, priority: BENEATH_THE_DESERIALIZER, name: 'trackAttemptsSesMayHaveAccepted' }
     )
-    return () => attemptsSesMayHaveAccepted > 0
+    return () => attemptSesMayHaveAccepted() !== undefined
 }
 
 const isAttachmentLoadFailure = (error: unknown): boolean =>
@@ -1856,7 +1867,7 @@ export class EmailService {
         }
 
         const command = new SendEmailCommand(sendEmailParams)
-        const anAttemptSesMayHaveAccepted = trackAttemptsSesMayHaveAccepted(command, deadline !== undefined)
+        const anAttemptSesMayHaveAccepted = trackAttemptsSesMayHaveAccepted(command, files.length > 0)
         const sendStartedAt = performance.now()
         try {
             const response = deadline

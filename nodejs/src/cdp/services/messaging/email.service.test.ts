@@ -2984,30 +2984,27 @@ describe('EmailService', () => {
 
             it.each([
                 [
-                    'SES receives the request and does not answer past the deadline',
+                    'SES receives the request and does not answer',
                     () => {
                         ses.failWith('no-answer')
                     },
-                    0,
                 ],
                 [
-                    'SES answers 200 and its body stalls past the deadline',
+                    'SES answers 200 and its body stalls',
                     () => {
                         ses.failWith('stalled-body')
                     },
-                    0,
                 ],
                 [
-                    'the connection drops after the request went out and the SDK is still backing off past the deadline',
+                    'the connection drops after the request went out and the SDK is still backing off',
                     (emailService: EmailService) => {
                         ses.failWith('drop-connection')
                         emailService.sesV2Client = sesClientFor(ses, { retryStrategy: oneRetryAfter(2_000) })
                     },
-                    0,
                 ],
             ])(
-                'when %s, fails the send without a retry, because SES may have sent it',
-                async (_name, fault, deliveries) => {
+                'when %s past the deadline, fails the send without a retry, because SES may have sent it',
+                async (_name, fault) => {
                     const emailService = sender({ attachmentSendDeadlineMs: 1000 })
                     fault(emailService)
 
@@ -3017,99 +3014,140 @@ describe('EmailService', () => {
                         finished: result.finished,
                         error: result.error,
                         failed: result.metrics.some((metric) => metric.metric_name === 'email_failed'),
-                        delivered: deliveredTo(ses, recipient).length,
+                        delivered: deliveredTo(ses, recipient),
                     }).toEqual({
                         finished: true,
                         error: expect.stringMatching(/^Failed to send email via SES: /),
                         failed: true,
-                        delivered: deliveries,
+                        delivered: [],
                     })
                 }
             )
 
+            const listeningOnLoopback = async (server: net.Server): Promise<number> => {
+                await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+                return (server.address() as AddressInfo).port
+            }
+
             const portNobodyListensOn = async (): Promise<number> => {
                 const server = net.createServer()
-                await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
-                const { port } = server.address() as AddressInfo
+                const port = await listeningOnLoopback(server)
                 await new Promise((resolve) => server.close(resolve))
                 return port
             }
 
-            const refusedOn =
-                (addresses: string[]) =>
-                async (_transport: any, request: any, options: any): Promise<unknown> => {
-                    const lookup: LookupFunction = (_hostname, lookupOptions, answer) =>
-                        lookupOptions.all
-                            ? answer(
-                                  null,
-                                  addresses.map((address) => ({ address, family: 4 }))
-                              )
-                            : answer(null, addresses[0], 4)
-                    const handler = new NodeHttpHandler({ httpAgent: new http.Agent({ lookup }) })
-                    return await handler.handle(
-                        { ...request, hostname: 'email.ses.example.com', port: await portNobodyListensOn() },
-                        options
-                    )
+            const sendThrough =
+                (handler: () => NodeHttpHandler, target: () => Promise<Record<string, unknown>>) =>
+                async (_ses: { hostname: string; port: number }, request: any, options: any): Promise<unknown> =>
+                    await handler().handle({ ...request, ...(await target()) }, options)
+
+            const resolvingTo =
+                (addresses: string[]): LookupFunction =>
+                (_hostname, lookupOptions, answer) =>
+                    lookupOptions.all
+                        ? answer(
+                              null,
+                              addresses.map((address) => ({ address, family: 4 }))
+                          )
+                        : answer(null, addresses[0], 4)
+
+            const refusedOn = (addresses: string[]): ReturnType<typeof sendThrough> =>
+                sendThrough(
+                    () => new NodeHttpHandler({ httpAgent: new http.Agent({ lookup: resolvingTo(addresses) }) }),
+                    async () => ({ hostname: 'email.ses.example.com', port: await portNobodyListensOn() })
+                )
+
+            const neverConnectsBeforeTheConnectionTimeout = sendThrough(
+                () =>
+                    new NodeHttpHandler({
+                        connectionTimeout: 50,
+                        httpAgent: new http.Agent({ lookup: () => {} }),
+                    }),
+                () => Promise.resolve({ hostname: 'email.ses.example.com', port: 443 })
+            )
+
+            const tlsServerThatReadsTheClientHelloThen =
+                (hangUp: (socket: net.Socket) => void) =>
+                async (_ses: unknown, request: any, options: any): Promise<unknown> => {
+                    const server = net.createServer((socket) => socket.once('data', () => hangUp(socket)))
+                    const port = await listeningOnLoopback(server)
+                    try {
+                        return await new NodeHttpHandler().handle(
+                            { ...request, protocol: 'https:', hostname: '127.0.0.1', port },
+                            options
+                        )
+                    } finally {
+                        await new Promise((resolve) => server.close(resolve))
+                    }
                 }
 
-            const closedDuringTheTlsHandshake = async (
-                _transport: any,
+            const proxyThatDropsTheConnectionOnceSesAnswers = async (
+                ses: { hostname: string; port: number },
                 request: any,
                 options: any
             ): Promise<unknown> => {
-                const server = net.createServer((socket) => socket.destroy())
-                await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
-                const { port } = server.address() as AddressInfo
+                const proxy = net.createServer((client) => {
+                    const upstream = net.connect(ses.port, ses.hostname)
+                    client.pipe(upstream)
+                    upstream.once('data', () => {
+                        client.resetAndDestroy()
+                        upstream.destroy()
+                    })
+                })
+                const port = await listeningOnLoopback(proxy)
                 try {
-                    return await new NodeHttpHandler().handle(
-                        { ...request, protocol: 'https:', hostname: '127.0.0.1', port },
-                        options
-                    )
+                    return await new NodeHttpHandler().handle({ ...request, hostname: '127.0.0.1', port }, options)
                 } finally {
-                    await new Promise((resolve) => server.close(resolve))
+                    await new Promise((resolve) => proxy.close(resolve))
                 }
             }
 
+            const deliveredOnceWithoutAnError = { finished: true, error: undefined, delivered: 1 }
+
             it.each([
+                ['SES refuses the connection', refusedOn(['127.0.0.1']), deliveredOnceWithoutAnError],
                 [
-                    'SES refuses the connection before the request goes out',
-                    refusedOn(['127.0.0.1']),
-                    { finished: true, error: undefined, delivered: 1 },
-                ],
-                [
-                    'each address of SES refuses the connection before the request goes out',
+                    'each address of SES refuses the connection',
                     refusedOn(['127.0.0.1', '127.0.0.2']),
-                    { finished: true, error: undefined, delivered: 1 },
+                    deliveredOnceWithoutAnError,
                 ],
                 [
-                    'SES closes the connection during the TLS handshake before the request goes out',
-                    closedDuringTheTlsHandshake,
-                    { finished: true, error: undefined, delivered: 1 },
+                    'the connection to SES does not open before the connection timeout',
+                    neverConnectsBeforeTheConnectionTimeout,
+                    deliveredOnceWithoutAnError,
+                ],
+                [
+                    'SES closes the connection during the TLS handshake',
+                    tlsServerThatReadsTheClientHelloThen((socket) => socket.end()),
+                    deliveredOnceWithoutAnError,
+                ],
+                [
+                    'SES resets the connection during the TLS handshake',
+                    tlsServerThatReadsTheClientHelloThen((socket) => socket.resetAndDestroy()),
+                    deliveredOnceWithoutAnError,
                 ],
                 [
                     'SES takes the email and the connection drops before its answer arrives',
-                    async (transport: any, request: any, options: any) => {
-                        await transport.handle(request, options)
-                        throw Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET', syscall: 'read' })
-                    },
+                    proxyThatDropsTheConnectionOnceSesAnswers,
                     {
                         finished: true,
-                        error: expect.stringMatching(/^Failed to send email via SES: /),
+                        error: expect.stringMatching(/^Failed to send email via SES: An earlier attempt reached SES/),
                         delivered: 1,
                     },
                 ],
             ])(
-                'when %s on the first attempt and the SDK retries at once, delivers the email once',
+                'when %s on the first attempt of a send with files, delivers the email once',
                 async (_name, firstAttempt, expected) => {
                     const emailService = sender()
+                    const { hostname, port } = new URL(ses.endpoint)
                     const transport = sesClientFor(ses).config.requestHandler
                     let attempts = 0
                     emailService.sesV2Client = sesClientFor(ses, {
-                        retryStrategy: oneRetryAfter(0),
+                        maxAttempts: 2,
                         requestHandler: {
                             handle: (request: any, options: any) =>
                                 ++attempts === 1
-                                    ? firstAttempt(transport, request, options)
+                                    ? firstAttempt({ hostname, port: Number(port) }, request, options)
                                     : transport.handle(request, options),
                         },
                     })
