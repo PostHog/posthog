@@ -3,7 +3,7 @@ import { AddressInfo } from 'net'
 
 import { defaultConfig } from '~/common/config/config'
 
-import { ProbeFailure, Probes, dependencyProbes, expectOk, failedProbes } from '../environment/stack'
+import { Probes, dependencyProbes, expectOk, failedProbes } from '../environment/stack'
 import { ProviderEdge, startProviderEdge } from '../provider-edge'
 import { DependencyLoss, dependencyReasonOf, watchDependencies } from './dependency-watch'
 
@@ -11,8 +11,6 @@ const POSTGRES = defaultConfig.DATABASE_URL!
 const UNREACHABLE_POSTGRES = 'postgres://posthog:posthog@127.0.0.1:1/posthog'
 const VALKEY = { host: '127.0.0.1', port: 6379 }
 const RUNNER_BLOCKS_MS = 2100
-
-const refusal = (name: string): ProbeFailure => ({ name, reason: 'connect ECONNREFUSED', timedOut: false })
 
 const busyFor = (ms: number): void => {
     const until = performance.now() + ms
@@ -64,40 +62,50 @@ describe('dependency watch', () => {
         )
     })
 
-    it('names a refused dependency as gone even when the busy runner hears the refusal late', async () => {
-        const { postgres } = edgeAndPostgres(UNREACHABLE_POSTGRES)
-        const heardLate = (): Promise<unknown> => {
-            busyFor(1500)
-            const refused = postgres()
-            busyFor(1000)
-            return refused
+    it('names a dependency gone when the busy runner reads its answer after the timeout', async () => {
+        const answersLate = (): Promise<unknown> => {
+            busyFor(RUNNER_BLOCKS_MS + 400)
+            return Promise.reject(new Error('the database system is starting up'))
         }
 
-        const { reason } = await watched({ postgres: heardLate })
+        const { reason } = await watched({ postgres: answersLate })
 
-        expect(reason).toMatch(/^dependencies went away: postgres in the 320x step \(.*ECONNREFUSED.*\)$/)
+        expect(reason).toBe('dependencies went away: postgres in the 320x step (the database system is starting up)')
     }, 30_000)
 
-    it('confirms a dependency that first failed on the retry before the watch stops', async () => {
-        const checks: ProbeFailure[][] = [[refusal('postgres')], [refusal('redis')], [refusal('redis')]]
-
-        const losses = await watchDependencies(() => Promise.resolve(checks.shift() ?? []), 60_000).stop()
-
-        expect(losses.map(({ name, kind }) => `${name} ${kind}`)).toEqual(['postgres recovered', 'redis gone'])
-    })
-
     it('names a dependency gone when the retry hears a refusal after a busy first check timed out', async () => {
-        const checks: (() => ProbeFailure[])[] = [
-            () => {
-                busyFor(200)
-                return [{ name: 'postgres', reason: 'timeout expired', timedOut: true }]
-            },
-            () => [refusal('postgres')],
-        ]
+        let calls = 0
+        const silentThenRefused = (): Promise<unknown> => {
+            if (++calls === 1) {
+                busyFor(1500)
+                return new Promise(() => undefined)
+            }
+            return Promise.reject(new Error('connect ECONNREFUSED'))
+        }
 
-        const losses = await watchDependencies(() => Promise.resolve(checks.shift()?.() ?? []), 60_000).stop()
+        const { losses } = await watched({ postgres: silentThenRefused })
 
         expect(losses.map(({ name, kind }) => `${name} ${kind}`)).toEqual(['postgres gone'])
+    }, 30_000)
+
+    it('confirms every dependency that first fails on a confirming check before the watch stops', async () => {
+        const failingOn = (failing: number[]): (() => Promise<unknown>) => {
+            let calls = 0
+            return () =>
+                failing.includes(++calls) ? Promise.reject(new Error('connect ECONNREFUSED')) : Promise.resolve()
+        }
+
+        const { losses } = await watched({
+            postgres: failingOn([1]),
+            redis: failingOn([2, 3]),
+            kafka: failingOn([3, 4]),
+        })
+
+        expect(losses.map(({ name, kind }) => `${name} ${kind}`)).toEqual([
+            'postgres recovered',
+            'redis gone',
+            'kafka gone',
+        ])
     })
 
     it('names each unheard dependency at its own ramp step', () => {

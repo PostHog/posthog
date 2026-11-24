@@ -4,7 +4,7 @@ import { setTimeout as sleep } from 'timers/promises'
 import type { ProbeFailure } from '../environment/stack'
 
 // The runner hosts the provider edge and runs the probes on its own event loop, so a saturated loop times them
-// out against healthy services. Only two failed probes in a row that the busy loop does not excuse count as gone.
+// out against healthy services. Only two failed probes in a row that the busy loop does not both excuse count as gone.
 export type DependencyLoss = {
     name: string
     at: number
@@ -13,24 +13,25 @@ export type DependencyLoss = {
     kind: 'gone' | 'unheard' | 'recovered'
 }
 
-type Attempt = { failures: ProbeFailure[]; runnerBusy: number }
+type Attempt = { at: number; failures: ProbeFailure[]; runnerBusy: number }
 
 type StepWindow = { scale: number; startedAt: number; endedAt: number }
 
 const RUNNER_BUSY_LIMIT = 0.5
 
 async function attempt(check: () => Promise<ProbeFailure[]>): Promise<Attempt> {
+    const at = Date.now()
     const before = performance.eventLoopUtilization()
     const failures = await check().catch((error: unknown) => [
         { name: 'health check', reason: error instanceof Error ? error.message : String(error), timedOut: false },
     ])
-    return { failures, runnerBusy: performance.eventLoopUtilization(before).utilization }
+    return { at, failures, runnerBusy: performance.eventLoopUtilization(before).utilization }
 }
 
 const excused = ({ timedOut }: ProbeFailure, { runnerBusy }: Attempt): boolean =>
     timedOut && runnerBusy >= RUNNER_BUSY_LIMIT
 
-function lossesOf(at: number, first: Attempt, second: Attempt): DependencyLoss[] {
+function lossesOf(first: Attempt, second: Attempt): DependencyLoss[] {
     return first.failures.map((failure) => {
         const again = second.failures.find(({ name }) => name === failure.name)
         const kind =
@@ -38,12 +39,25 @@ function lossesOf(at: number, first: Attempt, second: Attempt): DependencyLoss[]
         const last = again ?? failure
         return {
             name: failure.name,
-            at,
+            at: first.at,
             reason: last.reason,
             runnerBusy: Math.max(first.runnerBusy, second.runnerBusy),
             kind,
         }
     })
+}
+
+async function confirmed(check: () => Promise<ProbeFailure[]>): Promise<DependencyLoss[]> {
+    const losses: DependencyLoss[] = []
+    const seen = new Set<string>()
+    let first = await attempt(check)
+    while (first.failures.length > 0) {
+        const second = await attempt(check)
+        losses.push(...lossesOf(first, second))
+        first.failures.forEach(({ name }) => seen.add(name))
+        first = { ...second, failures: second.failures.filter(({ name }) => !seen.has(name)) }
+    }
+    return losses
 }
 
 export function watchDependencies(
@@ -53,22 +67,9 @@ export function watchDependencies(
     const losses: DependencyLoss[] = []
     const stopped = new AbortController()
     const watching = (async () => {
-        let unconfirmed: Attempt | undefined
-        while (!stopped.signal.aborted || unconfirmed) {
-            const at = Date.now()
-            const first = unconfirmed ?? (await attempt(check))
-            const second = first.failures.length > 0 ? await attempt(check) : undefined
-            const fresh =
-                second && !unconfirmed
-                    ? second.failures.filter(({ name }) => !first.failures.some((failure) => failure.name === name))
-                    : []
-            if (second) {
-                losses.push(...lossesOf(at, first, second))
-            }
-            unconfirmed = second && fresh.length > 0 ? { failures: fresh, runnerBusy: second.runnerBusy } : undefined
-            if (!unconfirmed) {
-                await sleep(everyMs, undefined, { signal: stopped.signal }).catch(() => undefined)
-            }
+        while (!stopped.signal.aborted) {
+            losses.push(...(await confirmed(check)))
+            await sleep(everyMs, undefined, { signal: stopped.signal }).catch(() => undefined)
         }
     })()
     return {

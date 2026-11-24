@@ -416,25 +416,31 @@ export function dependencyProbes(
     }
 }
 
-// A refusal or an HTTP status is an answer, however late a busy loop delivered it.
-const ANSWER = /ECONNREFUSED|ECONNRESET|ENOTFOUND|EHOSTUNREACH|answered \d{3}/
-
-const textOf = (error: unknown): string =>
-    error instanceof Error
-        ? `${error.message} ${String((error as { code?: unknown }).code ?? '')} ${textOf(error.cause ?? '')}`
-        : String(error)
-
-// A probe that failed before its timeout got an answer; one that ran out its clock may only have gone unheard.
+// The deadline starts before the probe, so an answer the busy loop reads before it fires counts however late it came.
 export async function failedProbes(probes: Probes): Promise<ProbeFailure[]> {
     const results = await Promise.all(
         Object.entries(probes).map(async ([name, probe]): Promise<ProbeFailure | null> => {
-            const startedAt = performance.now()
+            let deadline: NodeJS.Timeout | undefined
+            const unheard = new Promise<ProbeFailure>((resolve) => {
+                deadline = setTimeout(
+                    () => resolve({ name, reason: `no answer within ${PROBE_TIMEOUT_MS} ms`, timedOut: true }),
+                    PROBE_TIMEOUT_MS
+                )
+            })
+            const answered = Promise.resolve()
+                .then(probe)
+                .then(
+                    () => null,
+                    (error: unknown) => ({
+                        name,
+                        reason: error instanceof Error ? error.message : String(error),
+                        timedOut: false,
+                    })
+                )
             try {
-                await probe()
-                return null
-            } catch (error) {
-                const timedOut = performance.now() - startedAt >= PROBE_TIMEOUT_MS && !ANSWER.test(textOf(error))
-                return { name, reason: error instanceof Error ? error.message : String(error), timedOut }
+                return await Promise.race([answered, unheard])
+            } finally {
+                clearTimeout(deadline)
             }
         })
     )
