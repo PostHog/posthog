@@ -141,6 +141,14 @@ class TestOrganizationOAuthApplicationViewSet(APIBaseTest):
                 "waiting_for_staff",
             ),
             ("on", True, ProvisioningConfig(active=True), ProvisioningReviewStatus.ACCEPTED, "on"),
+            (
+                "changes_requested",
+                True,
+                ProvisioningConfig(),
+                ProvisioningReviewStatus.CHANGES_REQUESTED,
+                "changes_requested",
+            ),
+            ("declined", True, ProvisioningConfig(), ProvisioningReviewStatus.DECLINED, "declined"),
             ("blocked", True, ProvisioningConfig(disabled=True), ProvisioningReviewStatus.REJECTED, "blocked"),
             # Every partner gate reads `active` alone, so this partner still provisions.
             ("active_and_disabled", True, ProvisioningConfig(active=True, disabled=True), None, "on"),
@@ -172,3 +180,42 @@ class TestOrganizationOAuthApplicationViewSet(APIBaseTest):
             )
             self.assertEqual(result["provisioning_review"]["status"], review_status)
             self.assertNotIn("legitimate", str(result))
+
+    @parameterized.expand(
+        [
+            ("declined", ProvisioningReviewStatus.DECLINED, False, 200),
+            ("changes_requested", ProvisioningReviewStatus.CHANGES_REQUESTED, False, 200),
+            ("waiting_for_staff", ProvisioningReviewStatus.NEEDS_HUMAN, False, 200),
+            ("in_review", ProvisioningReviewStatus.PENDING, False, 400),
+            ("accepted", ProvisioningReviewStatus.ACCEPTED, False, 400),
+            ("blocked", ProvisioningReviewStatus.REJECTED, True, 400),
+            ("declined_then_blocked_outside_the_review", ProvisioningReviewStatus.DECLINED, True, 400),
+        ]
+    )
+    def test_review_note_sends_the_review_back_to_staff(self, _name, review_status, disabled, expected_code):
+        app = self._create_app(
+            self.organization,
+            is_provisioning_partner=True,
+            _provisioning_config=ProvisioningConfig(disabled=disabled).model_dump(mode="json"),
+        )
+        review = CIMDProvisioningReview.objects.create(application=app, domain="example.com", status=review_status)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                f"/api/organizations/@current/oauth_applications/{app.id}/review_note/",
+                {"note": "We moved the document to our own domain."},
+            )
+
+        self.assertEqual(response.status_code, expected_code, response.content)
+        review.refresh_from_db()
+        if expected_code == 200:
+            self.assertEqual(response.json()["provisioning_status"], "waiting_for_staff")
+            self.assertEqual(review.status, ProvisioningReviewStatus.NEEDS_HUMAN)
+            self.assertIsNone(review.decided_at)
+            self.assertIn("We moved the document to our own domain.", review.run_log[-1]["message"])
+        else:
+            self.assertEqual(response.json()["attr"], "note")
+            self.assertEqual(review.status, review_status)
+            self.assertEqual(review.run_log, [])
+        app.refresh_from_db()
+        self.assertEqual((app.provisioning.active, app.provisioning.disabled), (False, disabled))

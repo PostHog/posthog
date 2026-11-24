@@ -7,6 +7,7 @@ import { supportLogic } from 'lib/components/Support/supportLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { oauthAppReviewNoteLogic } from './oauthAppReviewNoteLogic'
 import { oauthAppsLogic } from './oauthAppsLogic'
 
 const MOCK_APPS = [
@@ -92,6 +93,42 @@ describe('oauthAppsLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadOAuthAppsSuccess']).toMatchValues({
             oauthAppsLoadFailed: false,
         })
+    })
+
+    it.each([
+        ['sent', 200, '', 'waiting_for_staff'],
+        ['refused', 400, 'PostHog blocked provisioning for this application.', 'blocked'],
+    ] as const)('a review note that is %s lands on the app or on the form', async (_name, code, formError, status) => {
+        const sentNotes: unknown[] = []
+        const answered = { ...MOCK_APPS[1], provisioning_status: 'changes_requested' as const }
+        await expectLogic(logic).toDispatchActions(['loadOAuthAppsSuccess'])
+        logic.actions.replaceOAuthApp(answered)
+        useMocks({
+            get: {
+                '/api/organizations/:organization_id/oauth_applications/': {
+                    results: [MOCK_APPS[0], { ...answered, provisioning_status: 'blocked' }],
+                },
+            },
+            post: {
+                '/api/organizations/:organization_id/oauth_applications/:id/review_note/': async ({ request }) => {
+                    sentNotes.push(await request.json())
+                    return code === 200
+                        ? [200, { ...answered, provisioning_status: 'waiting_for_staff' }]
+                        : [400, { type: 'validation_error', attr: 'note', detail: formError }]
+                },
+            },
+        })
+        const noteLogic = oauthAppReviewNoteLogic({ appId: answered.id })
+        noteLogic.mount()
+
+        noteLogic.actions.setReviewNoteValue('note', 'We moved the document to our own domain.')
+        await expectLogic(noteLogic, () => noteLogic.actions.submitReviewNote()).toFinishAllListeners()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(sentNotes).toEqual([{ note: 'We moved the document to our own domain.' }])
+        expect(logic.values.oauthApps?.[1].provisioning_status).toEqual(status)
+        expect(noteLogic.values.reviewNoteManualErrors.note).toEqual(formError || undefined)
+        expect(noteLogic.values.reviewNote.note).toEqual(formError ? 'We moved the document to our own domain.' : '')
     })
 
     it.each([

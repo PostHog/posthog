@@ -30,7 +30,7 @@ from posthog.models.oauth_provisioning_review import (
     ProvisioningReviewStatus,
 )
 from posthog.tasks.test.utils_email_tests import mock_email_messages
-from posthog.temporal.cimd_provisioning_review.activities import _research
+from posthog.temporal.cimd_provisioning_review.activities import _research, _settle
 from posthog.temporal.cimd_provisioning_review.judgment import (
     THRESHOLDS,
     PartnerJudgment,
@@ -180,15 +180,18 @@ def _make_app(client_id: str = "https://app.example.com/client.json", **provisio
 class TestSettleReview(APIBaseTest):
     @parameterized.expand(
         [
-            ("accepted", ProvisioningReviewStatus.ACCEPTED, False, True, False),
-            ("rejected", ProvisioningReviewStatus.REJECTED, False, False, True),
-            ("needs_human", ProvisioningReviewStatus.NEEDS_HUMAN, False, False, False),
+            ("accept", ReviewOutcome.ACCEPT, ProvisioningReviewStatus.ACCEPTED, False, True, False),
+            # Only staff block, so the pipeline's rejection leaves the partner a way to ask again.
+            ("reject", ReviewOutcome.REJECT, ProvisioningReviewStatus.DECLINED, False, False, False),
+            ("needs_human", ReviewOutcome.NEEDS_HUMAN, ProvisioningReviewStatus.NEEDS_HUMAN, False, False, False),
             # An admin switched the partner off while it waited, and an accept must not undo that.
-            ("accepted_after_admin_disabled", ProvisioningReviewStatus.ACCEPTED, True, False, True),
+            ("accept_after_admin_disabled", ReviewOutcome.ACCEPT, ProvisioningReviewStatus.ACCEPTED, True, False, True),
         ]
     )
     @time_machine.travel("2026-11-16T12:00:00Z", tick=False)
-    def test_verdict_applies_to_the_partner(self, _name, status, disabled_before, expected_active, expected_disabled):
+    def test_verdict_applies_to_the_partner(
+        self, _name, outcome, status, disabled_before, expected_active, expected_disabled
+    ):
         app = _make_app(disabled=disabled_before)
         CIMDProvisioningReview.objects.create(application=app, domain="example.com")
         OAuthAccessToken.objects.create(
@@ -199,15 +202,18 @@ class TestSettleReview(APIBaseTest):
             patch("posthog.api.oauth.provisioning_review.send_partner_review_email") as send_email,
             self.captureOnCommitCallbacks(execute=True),
         ):
-            settled = settle_review(str(app.pk), status=status, stage=ProvisioningReviewStage.RESEARCH, reason="test")
+            settled = _settle(
+                SettleReviewInputs(
+                    application_id=str(app.pk), outcome=outcome, stage=ProvisioningReviewStage.RESEARCH, reason="test"
+                )
+            )
 
         assert settled is True
         send_email.delay.assert_called_once_with(str(app.provisioning_review.pk), status)
         app.refresh_from_db()
         assert app.provisioning.active is expected_active
         assert app.provisioning.disabled is expected_disabled
-        token_survives = status != ProvisioningReviewStatus.REJECTED
-        assert OAuthAccessToken.objects.filter(application=app).exists() is token_survives
+        assert OAuthAccessToken.objects.filter(application=app).exists()
         assert CIMDProvisioningReview.objects.get(application=app).status == status
 
     def test_a_decision_staff_made_is_kept(self):
@@ -218,7 +224,7 @@ class TestSettleReview(APIBaseTest):
 
         settled = settle_review(
             str(app.pk),
-            status=ProvisioningReviewStatus.REJECTED,
+            status=ProvisioningReviewStatus.DECLINED,
             stage=ProvisioningReviewStage.RESEARCH,
             reason="late run",
         )
@@ -251,6 +257,8 @@ class TestSendPartnerReviewEmail(APIBaseTest):
         [
             (ProvisioningReviewStatus.ACCEPTED, "oauth_app_provisioning_accepted"),
             (ProvisioningReviewStatus.REJECTED, "oauth_app_provisioning_rejected"),
+            (ProvisioningReviewStatus.DECLINED, "oauth_app_provisioning_declined"),
+            (ProvisioningReviewStatus.CHANGES_REQUESTED, "oauth_app_provisioning_changes_requested"),
             (ProvisioningReviewStatus.NEEDS_HUMAN, "oauth_app_provisioning_in_review"),
         ]
     )

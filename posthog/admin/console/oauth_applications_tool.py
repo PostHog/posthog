@@ -52,14 +52,18 @@ REFRESH_SECONDS_WHILE_PENDING = 10
 STATUS_TONES = {
     ProvisioningReviewStatus.PENDING: Tone.INFO,
     ProvisioningReviewStatus.ACCEPTED: Tone.SUCCESS,
+    ProvisioningReviewStatus.DECLINED: Tone.WARNING,
+    ProvisioningReviewStatus.CHANGES_REQUESTED: Tone.INFO,
     ProvisioningReviewStatus.REJECTED: Tone.DESTRUCTIVE,
     ProvisioningReviewStatus.NEEDS_HUMAN: Tone.WARNING,
 }
 REVIEW_COUNT_LABELS = {
     ProvisioningReviewStatus.NEEDS_HUMAN: "Waiting for staff",
     ProvisioningReviewStatus.PENDING: "Reviews running",
+    ProvisioningReviewStatus.CHANGES_REQUESTED: "Waiting for the partner",
     ProvisioningReviewStatus.ACCEPTED: "Accepted partners",
-    ProvisioningReviewStatus.REJECTED: "Rejected partners",
+    ProvisioningReviewStatus.DECLINED: "Declined partners",
+    ProvisioningReviewStatus.REJECTED: "Blocked partners",
 }
 LOG_TONES = {"error": Tone.DESTRUCTIVE, "warning": Tone.WARNING}
 NO_REVIEW = "none"
@@ -252,8 +256,8 @@ class OAuthApplicationsTool(ConsoleTool):
         if partner_provisioning_status(app, review) == PartnerProvisioningStatus.WAITING_FOR_STAFF:
             summary = Notice(
                 text=(
-                    f"{app.name} is waiting for a staff decision. Read the review below, then accept or block the "
-                    "partner."
+                    f"{app.name} is waiting for a staff decision. Read the review below, then accept, ask for changes, "
+                    "decline or block the partner."
                 ),
                 tone=Tone.WARNING,
             )

@@ -57,6 +57,8 @@ WORKSPACE_CACHE_SECONDS = 60 * 60
 
 STATUS_HEADINGS = {
     ProvisioningReviewStatus.ACCEPTED: ":white_check_mark: Provisioning partner accepted",
+    ProvisioningReviewStatus.DECLINED: ":x: Provisioning partner declined",
+    ProvisioningReviewStatus.CHANGES_REQUESTED: ":leftwards_arrow_with_hook: Provisioning partner sent back for changes",
     ProvisioningReviewStatus.REJECTED: ":no_entry: Provisioning partner blocked",
     ProvisioningReviewStatus.NEEDS_HUMAN: ":eyes: Provisioning partner needs a staff review",
     ProvisioningReviewStatus.PENDING: ":hourglass: Provisioning partner in review",
@@ -200,7 +202,10 @@ def _sync_review_slack_thread(review_id: str, *, status: str, previous_status: s
 
     client.chat_update(channel=review.slack_channel_id, ts=review.slack_message_ts, text=text, blocks=blocks)
     change = ProvisioningReviewStatus(status).label
-    reply = f"{ProvisioningReviewStatus(previous_status).label} → {change}" if previous_status else change
+    if previous_status and previous_status != status:
+        reply = f"{ProvisioningReviewStatus(previous_status).label} → {change}"
+    else:
+        reply = change
     if reason:
         reply = f"{reply}: {_escape(reason)}"
     client.chat_postMessage(channel=review.slack_channel_id, thread_ts=review.slack_message_ts, text=reply[:3000])
@@ -351,5 +356,9 @@ def block_partner_from_slack(review_id: str, *, slack_team_id: str, slack_user_i
     review = CIMDProvisioningReview.objects.select_related("application").filter(pk=review_id).first()
     if review is None:
         return
-    decide_partner(review.application, accept=False, reason=f"Staff ({staff.email}, from Slack): {reason}")
+    decide_partner(
+        review.application,
+        decision=ProvisioningReviewStatus.REJECTED,
+        reason=f"Staff ({staff.email}, from Slack): {reason}",
+    )
     logger.info("cimd_review_blocked_from_slack", review_id=review_id, staff_user_id=staff.pk)

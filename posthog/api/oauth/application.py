@@ -1,7 +1,17 @@
-from drf_spectacular.utils import extend_schema, extend_schema_field
-from rest_framework import mixins, serializers, viewsets
+from typing import cast
 
-from posthog.api.oauth.provisioning_review import partner_provisioning_status
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
+from rest_framework import exceptions, mixins, serializers, viewsets
+from rest_framework.decorators import action
+from rest_framework.response import Response
+
+from posthog.api.mixins import ValidatedRequest, validated_request
+from posthog.api.oauth.provisioning_review import (
+    PARTNER_NOTE_MAX_LENGTH,
+    PartnerNoteRefused,
+    partner_provisioning_status,
+    send_partner_note,
+)
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.oauth import OAuthApplication
 from posthog.models.oauth_provisioning_review import (
@@ -9,6 +19,7 @@ from posthog.models.oauth_provisioning_review import (
     PartnerProvisioningStatus,
     ProvisioningReviewStatus,
 )
+from posthog.models.user import User
 from posthog.models.utils import strict_fetch
 from posthog.permissions import OrganizationAdminReadPermissions
 
@@ -25,7 +36,9 @@ class PartnerReviewSerializer(serializers.ModelSerializer):
         read_only=True,
         help_text=(
             "pending: the automated review is running. needs_human: PostHog staff decide next. "
-            "accepted: the app may provision. rejected: provisioning is blocked."
+            "accepted: the app may provision. changes_requested: PostHog staff asked for changes or more "
+            "information, so send a review note. declined: not approved, and a review note asks for another review. "
+            "rejected: provisioning is blocked, and only PostHog staff can lift it."
         ),
     )
     opened_at = serializers.DateTimeField(
@@ -92,6 +105,17 @@ class OrganizationOAuthApplicationSerializer(serializers.ModelSerializer):
         return PartnerReviewSerializer(review).data if review is not None else None
 
 
+class PartnerReviewNoteSerializer(serializers.Serializer):
+    note = serializers.CharField(
+        max_length=PARTNER_NOTE_MAX_LENGTH,
+        help_text=(
+            "What PostHog staff should know about the application: what it does, why it provisions, and what changed "
+            "since the last decision. Sending a note on a declined review, or one that asked for changes, asks for "
+            "another review."
+        ),
+    )
+
+
 def _review(app: OAuthApplication) -> CIMDProvisioningReview | None:
     return getattr(app, "provisioning_review", None)
 
@@ -122,6 +146,30 @@ class OrganizationOAuthApplicationViewSet(
         .order_by("-created")
     )
     serializer_class = OrganizationOAuthApplicationSerializer
+
+    @validated_request(
+        request_serializer=PartnerReviewNoteSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=OrganizationOAuthApplicationSerializer,
+                description="The application with its review, which is back with PostHog staff.",
+            ),
+        },
+        summary="Send a note on the app's provisioning review",
+        description=(
+            "Tell PostHog staff about the application. On a declined review, or one where staff asked for changes, "
+            "the note asks for another review. A blocked application cannot send one."
+        ),
+    )
+    @action(detail=True, methods=["post"], url_path="review_note", required_scopes=["organization:write"])
+    def review_note(self, request: ValidatedRequest, *args, **kwargs) -> Response:
+        app = self.get_object()
+        try:
+            send_partner_note(app, user=cast(User, request.user), note=request.validated_data["note"])
+        except PartnerNoteRefused as refused:
+            raise exceptions.ValidationError({"note": str(refused)})
+        app = self.get_queryset().get(pk=app.pk)
+        return Response(self.get_serializer(app).data)
 
     def safely_get_queryset(self, queryset):
         queryset = queryset.filter(organization=self.organization)

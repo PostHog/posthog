@@ -9,10 +9,12 @@ import { OrganizationOAuthApplicationApi } from '~/generated/core/api.schemas'
 
 import {
     PROVISIONING_STATUSES_NEEDING_SUPPORT,
+    PROVISIONING_STATUSES_TAKING_A_NOTE,
     PROVISIONING_STATUS_LABELS,
     PROVISIONING_STATUS_NEXT_STEPS,
     PROVISIONING_STATUS_TAG_TYPES,
 } from './oauthAppProvisioningStatus'
+import { OAuthAppReviewNoteForm } from './OAuthAppReviewNoteForm'
 import { oauthAppsLogic } from './oauthAppsLogic'
 
 export function OAuthAppDetails({ app }: { app: OrganizationOAuthApplicationApi }): JSX.Element {
@@ -20,6 +22,7 @@ export function OAuthAppDetails({ app }: { app: OrganizationOAuthApplicationApi 
     const review = app.provisioning_review
     const canRequestVerification = app.is_cimd_client && !app.is_verified
     const needsSupport = PROVISIONING_STATUSES_NEEDING_SUPPORT.has(app.provisioning_status)
+    const takesANote = !!review && PROVISIONING_STATUSES_TAKING_A_NOTE.has(app.provisioning_status)
     const showsProvisioning = app.is_cimd_client || app.provisioning_status !== 'not_a_partner'
     const redirectUris = app.redirect_uris_list ?? []
 
@@ -68,6 +71,7 @@ export function OAuthAppDetails({ app }: { app: OrganizationOAuthApplicationApi 
                     <p className="m-0 whitespace-pre-wrap">{review.partner_message}</p>
                 </div>
             )}
+            {takesANote && <OAuthAppReviewNoteForm app={app} />}
             {(needsSupport || canRequestVerification) && (
                 <div className="flex flex-wrap gap-2">
                     {needsSupport && (

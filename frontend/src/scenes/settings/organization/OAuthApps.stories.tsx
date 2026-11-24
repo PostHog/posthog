@@ -67,6 +67,25 @@ const PARTNER_ON = {
     updated: '2025-12-01T09:02:00Z',
 }
 
+const PARTNER_DECLINED = {
+    id: '4',
+    name: 'Example Workspace',
+    client_id: 'https://workspace.example.com/.well-known/posthog-client.json',
+    redirect_uris_list: ['https://workspace.example.com/callback'],
+    is_verified: false,
+    is_cimd_client: true,
+    provisioning_status: 'declined',
+    provisioning_review: {
+        status: 'declined',
+        opened_at: '2025-12-10T11:00:00Z',
+        decided_at: '2025-12-11T16:20:00Z',
+        partner_message:
+            "We couldn't tell what the application does with the accounts it creates. Add a homepage that describes it, then ask for another review.",
+    },
+    created: '2025-12-10T11:00:00Z',
+    updated: '2025-12-11T16:20:00Z',
+}
+
 function mockApps(results: object[]): void {
     // The app knows the organization before any settings page mounts. A story starts without one.
     ApiConfig.setCurrentOrganizationId(MOCK_DEFAULT_ORGANIZATION.id)
@@ -118,5 +137,27 @@ export const PartnerWaitingForStaff: Story = {
         })
         await userEvent.click(expand)
         await canvas.findByText('Request verification')
+    },
+}
+
+export const PartnerDeclined: Story = {
+    parameters: {
+        testOptions: { snapshotBrowsers: [] },
+    },
+    render: () => {
+        mockApps([PARTNER_DECLINED])
+        return <OAuthApps />
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        const expand = await waitFor(() => {
+            const toggle = canvasElement.querySelector<HTMLElement>('.LemonTable__toggle button')
+            if (!toggle) {
+                throw new Error('Waiting for the applications to load')
+            }
+            return toggle
+        })
+        await userEvent.click(expand)
+        await canvas.findByText('Ask for another review')
     },
 }

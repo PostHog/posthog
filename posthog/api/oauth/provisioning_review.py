@@ -1,10 +1,12 @@
 """Opens, starts and settles the review a self-registered CIMD provisioning partner goes through.
 
 A partner under review has its provisioning config written but left inactive, so every partner
-endpoint refuses it the way it refuses a deactivated partner. Accepting turns it on. Rejecting
-sets the ``disabled`` kill switch, which re-registering cannot clear, and revokes the app's
-sessions. Staff can reverse either verdict later, and the review keeps each change in its run log.
-The pipeline that reaches the verdict is ``posthog/temporal/cimd_provisioning_review/``.
+endpoint refuses it the way it refuses a deactivated partner. Accepting turns it on. Declining, or
+asking for changes, keeps it off, and the partner's organization admins can answer with a note
+that sends the review back to staff. Blocking, which only staff do, sets the ``disabled`` kill
+switch, which neither re-registering nor a note can clear, and revokes the app's sessions. Staff
+can reverse any verdict later, and the review keeps each change in its run log. The pipeline that
+reaches the verdict is ``posthog/temporal/cimd_provisioning_review/``.
 """
 
 import asyncio
@@ -34,6 +36,7 @@ from posthog.models.oauth_provisioning_review import (
     ProvisioningReviewStatus,
 )
 from posthog.models.organization import OrganizationMembership
+from posthog.models.user import User
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.utils import get_instance_region
 
@@ -51,6 +54,15 @@ ORGANIZATION_LINK_REQUIRED_MESSAGE = (
 )
 # Retries append to the log, so it is capped to keep a review that failed for hours readable.
 MAX_RUN_LOG_ENTRIES = 200
+PARTNER_NOTE_MAX_LENGTH = 4000
+# A partner already waiting for staff can add to what it told them.
+PARTNER_NOTE_STATUSES = frozenset(
+    {
+        ProvisioningReviewStatus.DECLINED,
+        ProvisioningReviewStatus.CHANGES_REQUESTED,
+        ProvisioningReviewStatus.NEEDS_HUMAN,
+    }
+)
 
 
 def review_required() -> bool:
@@ -204,10 +216,7 @@ def _write_verdict(
 ) -> str:
     """Save the verdict on a review locked by the caller, and return the status it replaced."""
     previous = review.status
-    if previous in (ProvisioningReviewStatus.ACCEPTED, ProvisioningReviewStatus.REJECTED):
-        message = f"Changed from {ProvisioningReviewStatus(previous).label} to {status.label}: {reason}"
-    else:
-        message = f"{status.label}: {reason}"
+    message = _settled_message(previous, status, reason)
     review.status = status
     review.decided_stage = stage
     review.reason = reason
@@ -218,6 +227,22 @@ def _write_verdict(
     ][-MAX_RUN_LOG_ENTRIES:]
     review.save(update_fields=["status", "decided_stage", "reason", "decided_at", "run_log", "partner_message"])
     return previous
+
+
+VERDICTS = frozenset(
+    {
+        ProvisioningReviewStatus.ACCEPTED,
+        ProvisioningReviewStatus.DECLINED,
+        ProvisioningReviewStatus.CHANGES_REQUESTED,
+        ProvisioningReviewStatus.REJECTED,
+    }
+)
+
+
+def _settled_message(previous: str, status: ProvisioningReviewStatus, reason: str) -> str:
+    if previous in VERDICTS:
+        return f"Changed from {ProvisioningReviewStatus(previous).label} to {status.label}: {reason}"
+    return f"{status.label}: {reason}"
 
 
 def _capture_settled(review: CIMDProvisioningReview, *, previous_status: str) -> None:
@@ -246,15 +271,20 @@ def _capture_settled(review: CIMDProvisioningReview, *, previous_status: str) ->
     queue_review_slack_thread(review, previous_status=previous_status)
 
 
-# Review outcomes the partner's organization admins hear about. A pending review stays quiet.
+# Review outcomes the partner's organization admins hear about. A pending review stays quiet, and so does
+# one that went back to staff because those admins asked for it.
 REVIEW_EMAIL_TEMPLATES = {
     ProvisioningReviewStatus.ACCEPTED: "oauth_app_provisioning_accepted",
+    ProvisioningReviewStatus.DECLINED: "oauth_app_provisioning_declined",
+    ProvisioningReviewStatus.CHANGES_REQUESTED: "oauth_app_provisioning_changes_requested",
     ProvisioningReviewStatus.REJECTED: "oauth_app_provisioning_rejected",
     ProvisioningReviewStatus.NEEDS_HUMAN: "oauth_app_provisioning_in_review",
 }
 REVIEW_EMAIL_SUBJECTS = {
     ProvisioningReviewStatus.ACCEPTED: "{app_name} is approved for provisioning",
-    ProvisioningReviewStatus.REJECTED: "{app_name} wasn't approved for provisioning",
+    ProvisioningReviewStatus.DECLINED: "{app_name} wasn't approved for provisioning",
+    ProvisioningReviewStatus.CHANGES_REQUESTED: "PostHog needs more information about {app_name}",
+    ProvisioningReviewStatus.REJECTED: "{app_name} is blocked from provisioning",
     ProvisioningReviewStatus.NEEDS_HUMAN: "{app_name} is waiting for a manual review",
 }
 
@@ -320,6 +350,11 @@ def send_partner_review_email(review_id: str, status: str) -> None:
     message.send()
 
 
+PIPELINE_VERDICTS = frozenset(
+    {ProvisioningReviewStatus.ACCEPTED, ProvisioningReviewStatus.DECLINED, ProvisioningReviewStatus.NEEDS_HUMAN}
+)
+
+
 def settle_review(
     application_id: str,
     *,
@@ -328,9 +363,10 @@ def settle_review(
     reason: str,
 ) -> bool:
     """Write the pipeline's verdict and apply it to the app. Returns False when the review is no
-    longer pending, which leaves a decision staff made in place. Staff decide with ``decide_partner``."""
-    if status == ProvisioningReviewStatus.PENDING:
-        raise ValueError("A review cannot be settled as pending")
+    longer pending, which leaves a decision staff made in place. Staff decide with ``decide_partner``,
+    and only staff block or ask for changes."""
+    if status not in PIPELINE_VERDICTS:
+        raise ValueError(f"The pipeline cannot settle a review as {status}")
 
     with transaction.atomic():
         review = (
@@ -345,8 +381,6 @@ def settle_review(
         app = review.application
         if status == ProvisioningReviewStatus.ACCEPTED and not app.provisioning.disabled:
             app.update_provisioning(active=True)
-        elif status == ProvisioningReviewStatus.REJECTED:
-            _block(app)
 
     _capture_settled(review, previous_status=previous)
     return True
@@ -359,11 +393,21 @@ def _block(app: OAuthApplication) -> None:
     revoke_application_sessions(app)
 
 
-def decide_partner(app: OAuthApplication, *, accept: bool, reason: str, partner_message: str = "") -> None:
-    """Staff turn a provisioning partner on, or block it. Either decision can be reversed later,
-    and the app's review, when it has one, records each one in its run log. ``partner_message``
-    replaces what the partner's organization admins see on the review."""
-    status = ProvisioningReviewStatus.ACCEPTED if accept else ProvisioningReviewStatus.REJECTED
+# Without a review the partner has nowhere to read a decision or answer it, so staff only turn it on or block it.
+DECISIONS_WITHOUT_REVIEW = frozenset({ProvisioningReviewStatus.ACCEPTED, ProvisioningReviewStatus.REJECTED})
+
+
+def decide_partner(
+    app: OAuthApplication, *, decision: ProvisioningReviewStatus, reason: str, partner_message: str = ""
+) -> None:
+    """Staff accept a provisioning partner, decline it, ask it for changes, or block it. Any decision
+    can be reversed later, and the app's review, when it has one, records each one in its run log.
+    ``partner_message`` replaces what the partner's organization admins see on the review, and asking
+    for changes needs one, because it is the only place the partner learns what to change."""
+    if decision not in VERDICTS:
+        raise ValueError(f"Staff cannot decide {decision}")
+    if decision == ProvisioningReviewStatus.CHANGES_REQUESTED and not partner_message.strip():
+        raise ValueError("Asking a partner for changes needs a message that says what to change")
     previous: str | None = None
     with transaction.atomic():
         review = (
@@ -372,20 +416,88 @@ def decide_partner(app: OAuthApplication, *, accept: bool, reason: str, partner_
             .filter(application=app)
             .first()
         )
+        if review is None and decision not in DECISIONS_WITHOUT_REVIEW:
+            raise ValueError(f"{app.name} has no review, so it can only be accepted or blocked")
         if review is not None:
             review.partner_message = partner_message
-            if review.status == status:
+            if review.status == decision:
                 review.save(update_fields=["partner_message"])
             else:
-                previous = _write_verdict(review, status=status, stage=ProvisioningReviewStage.STAFF, reason=reason)
-        if accept:
+                previous = _write_verdict(review, status=decision, stage=ProvisioningReviewStage.STAFF, reason=reason)
+        if decision == ProvisioningReviewStatus.ACCEPTED:
             app.update_provisioning(active=True, disabled=False)
-        else:
+        elif decision == ProvisioningReviewStatus.REJECTED:
             _block(app)
+        else:
+            app.update_provisioning(active=False, disabled=False)
 
     if previous is not None:
         assert review is not None
         _capture_settled(review, previous_status=previous)
+
+
+class PartnerNoteRefused(Exception):
+    """The partner's organization cannot send a note on this review right now. The message says why, for its admins."""
+
+
+def send_partner_note(app: OAuthApplication, *, user: User, note: str) -> CIMDProvisioningReview:
+    """An admin of the partner's organization tells staff about the app, which sends a declined review, or one
+    that asked for changes, back to staff. A blocked partner cannot send one, because only staff lift a block.
+
+    The note lands in the run log and the Slack thread, where staff read it. The partner never sees the review's
+    internal reason, so the note answers ``partner_message``."""
+    note = note.strip()
+    if not note:
+        raise PartnerNoteRefused("Write a note for PostHog staff.")
+    with transaction.atomic():
+        review = (
+            CIMDProvisioningReview.objects.select_for_update()
+            .select_related("application")
+            .filter(application=app)
+            .first()
+        )
+        if review is None:
+            raise PartnerNoteRefused("This application has no provisioning review to answer.")
+        # Read from the locked review's app, so a block staff saved since the request read the app is seen.
+        if review.application.provisioning.disabled:
+            raise PartnerNoteRefused(
+                "PostHog blocked provisioning for this application, so it can't be reviewed again."
+            )
+        if review.status not in PARTNER_NOTE_STATUSES:
+            raise PartnerNoteRefused(
+                f"This review is {ProvisioningReviewStatus(review.status).label.lower()}, so it isn't waiting for a note."
+            )
+        previous = review.status
+        status = ProvisioningReviewStatus.NEEDS_HUMAN
+        message = (
+            f"{user.email} asked for another review: {note}"
+            if previous != status
+            else f"{user.email} added a note: {note}"
+        )
+        review.status = status
+        review.reason = message
+        review.decided_stage = None
+        review.decided_at = None
+        review.run_log = [
+            *review.run_log,
+            _log_entry("partner_note", message, user_id=user.pk, previous_status=previous),
+        ][-MAX_RUN_LOG_ENTRIES:]
+        review.save(update_fields=["status", "reason", "decided_stage", "decided_at", "run_log"])
+
+    posthoganalytics.capture(
+        distinct_id=str(user.distinct_id),
+        event="cimd_provisioning_review_note_sent",
+        properties={
+            "app_id": str(app.pk),
+            "review_id": str(review.pk),
+            "previous_status": previous,
+            "status": review.status,
+            "region": get_instance_region(),
+        },
+        groups={"organization": str(app.organization_id)} if app.organization_id else None,
+    )
+    queue_review_slack_thread(review, previous_status=previous)
+    return review
 
 
 def partner_provisioning_status(
@@ -404,4 +516,8 @@ def partner_provisioning_status(
         return PartnerProvisioningStatus.IN_REVIEW
     if review is not None and review.status == ProvisioningReviewStatus.NEEDS_HUMAN:
         return PartnerProvisioningStatus.WAITING_FOR_STAFF
+    if review is not None and review.status == ProvisioningReviewStatus.CHANGES_REQUESTED:
+        return PartnerProvisioningStatus.CHANGES_REQUESTED
+    if review is not None and review.status == ProvisioningReviewStatus.DECLINED:
+        return PartnerProvisioningStatus.DECLINED
     return PartnerProvisioningStatus.OFF

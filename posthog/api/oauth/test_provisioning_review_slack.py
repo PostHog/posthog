@@ -12,7 +12,7 @@ from celery.exceptions import Retry
 from parameterized import parameterized
 from slack_sdk.errors import SlackApiError
 
-from posthog.api.oauth.provisioning_review import decide_partner, settle_review
+from posthog.api.oauth.provisioning_review import decide_partner, send_partner_note, settle_review
 from posthog.api.oauth.provisioning_review_slack import (
     BLOCK_ACTION_ID,
     BLOCK_ID_PREFIX,
@@ -105,14 +105,25 @@ class TestProvisioningReviewSlack(APIBaseTest):
             patch("posthog.api.oauth.provisioning_review_slack.SlackWebClient", return_value=client),
             self.captureOnCommitCallbacks(execute=True),
         ):
-            decide_partner(self.app, accept=False, reason="Staff: Malicious usage")
+            send_partner_note(self.app, user=self.user, note="We onboard <!channel> teams.")
+
+        note = client.chat_postMessage.call_args.kwargs
+        assert note["thread_ts"] == "1700000000.000100"
+        assert note["text"] == f"Needs staff review: {self.user.email} added a note: We onboard &lt;!channel&gt; teams."
+
+        client.reset_mock()
+        with (
+            patch("posthog.api.oauth.provisioning_review_slack.SlackWebClient", return_value=client),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            decide_partner(self.app, decision=ProvisioningReviewStatus.REJECTED, reason="Staff: Malicious usage")
 
         updated = client.chat_update.call_args.kwargs
         assert updated["ts"] == "1700000000.000100"
         assert BLOCK_ACTION_ID not in _actions(updated["blocks"])
         reply = client.chat_postMessage.call_args.kwargs
         assert reply["thread_ts"] == "1700000000.000100"
-        assert reply["text"] == "Needs staff review → Rejected: Staff: Malicious usage"
+        assert reply["text"] == "Needs staff review → Blocked: Staff: Malicious usage"
 
     def test_a_review_settled_where_the_bot_is_not_configured_still_queues_its_thread(self, _send_email) -> None:
         with (
