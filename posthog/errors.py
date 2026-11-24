@@ -1,4 +1,5 @@
 import re
+import sys
 from collections.abc import Sequence
 from enum import StrEnum
 from typing import Optional
@@ -82,8 +83,39 @@ class ErrorCodeMeta:
         return self.name.replace("_", " ").title().replace(" ", "")
 
 
+_HTTP_CLIENT_ERROR_CODE = re.compile(r"\b[Cc]ode: ([0-9]{1,6})\b")
+_HTTP_CLIENT_RESPONSE_PREFIX = "server response: "
+_HTTP_CLIENT_URL_SUFFIX = re.compile(r"\s*\(for url [^)]*\)\s*$")
+_SERVER_CODE_PREFIX = re.compile(r"^Code: [0-9]{1,6}\.\s*")
+
+
+def _server_exception_from_http_client_error(err: Exception) -> ServerException | None:
+    """Rebuild a clickhouse_connect error as the native driver's ServerException.
+
+    The HTTP client (ProxyClient) raises clickhouse_connect errors that carry the ClickHouse code only
+    in the message text, for example "Received ClickHouse exception, code: 394, server response: Code:
+    394. DB::Exception: ...". Rebuilding them lets both clients share one code mapping.
+    """
+    # Importing clickhouse_connect loads pandas, so do not import it here. If the module is not
+    # loaded, no HTTP client ran and the error cannot come from it.
+    exceptions = sys.modules.get("clickhouse_connect.driver.exceptions")
+    if exceptions is None or not isinstance(err, (exceptions.DatabaseError, exceptions.StreamFailureError)):
+        return None
+    text = str(err)
+    code_match = _HTTP_CLIENT_ERROR_CODE.search(text)
+    if code_match is None:
+        return None
+    _, has_prefix, response = text.partition(_HTTP_CLIENT_RESPONSE_PREFIX)
+    if not has_prefix:
+        response = text
+    # The URL holds the cluster host, so it stays out of the message.
+    message = _SERVER_CODE_PREFIX.sub("", _HTTP_CLIENT_URL_SUFFIX.sub("", response).strip())
+    return ServerException(message, int(code_match.group(1)))
+
+
 def clickhouse_error_type(e: Exception) -> str:
     "Provide a ClickHouse error type for observability"
+    e = _server_exception_from_http_client_error(e) or e
     if not isinstance(e, ServerException):
         return type(e).__name__
     return f"CHQueryError{look_up_clickhouse_error_code_meta(e).label}"
@@ -253,6 +285,7 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
     "Beautifies clickhouse client errors, using custom error classes for every code"
     if isinstance(err, UnknownTypeError):
         return _wrap_unknown_type_error(err)
+    err = _server_exception_from_http_client_error(err) or err
     if not isinstance(err, ServerException):
         return err
 
@@ -355,6 +388,7 @@ def look_up_clickhouse_error_code_meta(error: ClickHouseDriverError) -> ErrorCod
 
 def classify_query_error(e: Exception) -> QueryErrorCategory:
     """Classify a query execution exception into a high-level category for observability."""
+    e = _server_exception_from_http_client_error(e) or e
     if isinstance(e, ServerException):
         meta = look_up_clickhouse_error_code_meta(e)
         # NOT_IMPLEMENTED is a user error only for the allowlisted message shapes. A wrapped error has

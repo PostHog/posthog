@@ -1,30 +1,38 @@
+import jsonwebtoken from 'jsonwebtoken'
 import { NextFunction, Request, Response } from 'ultimate-express'
 
 import { JWT, PosthogJwtAudience, hasJwtKeys, makeOptionalJwt, parseJwtKeys } from '~/cdp/utils/jwt-utils'
 import { logger } from '~/common/utils/logger'
 
 import { RecordingApiMetrics } from './metrics'
-import { DEV_RECORDING_API_BLOCKS_JWT_SECRET, DEV_RECORDING_API_JWT_SECRET, RecordingApiRole } from './types'
+import {
+    DEV_RECORDING_API_BLOCKS_JWT_SECRET,
+    DEV_RECORDING_API_JWT_SECRET,
+    DEV_RECORDING_API_STAFF_JWT_SECRET,
+    RecordingApiRole,
+} from './types'
 
 /**
  * Authorization for recording-api routes.
  *
  * Each route requires a team + operation scoped JWT (audience `posthog:recording_api`) minted by
  * an authorized service: the token's `team_id` must match the `:team_id` in the path and its `op`
- * must match the route (read, delete or write).
+ * must match the route (read or delete).
  */
 
-export type RecordingApiOp = 'read' | 'delete' | 'write'
+export type RecordingApiOp = 'read' | 'delete'
 
 // jsonwebtoken tolerates up to this many seconds of clock skew between minter and verifier.
 const CLOCK_TOLERANCE_SECONDS = 30
 
-const MIN_BLOCKS_SECRET_BYTES = 32
+const MIN_HMAC_SECRET_BYTES = 32
 
 export interface RecordingApiAuthOptions {
     // Comma-separated keys (newest first) for zero-downtime rotation. Empty disables JWT auth (dev only).
     jwtSecret: string
     op: RecordingApiOp
+    // Verifies read-only staff tokens minted on toolbox pods, and accepts none when empty.
+    staffJwtSecret?: string
 }
 
 function getHeader(req: Request, name: string): string | undefined {
@@ -76,9 +84,21 @@ function verifyBearer(
 
 // The dev keys are public in this repo, so anyone could sign with them. A deployed pod refuses them outright. The local and
 // E2E containers run the production image with the dev keys, so they are not deployed.
-function refuseDevKey(secret: string, devKey: string, name: string): void {
+function refuseDevKey(secret: string | undefined, devKey: string, name: string): void {
     if (parseJwtKeys(secret || '').includes(devKey)) {
         throw new Error(`recording-api refuses the public dev ${name} on a deployed environment`)
+    }
+}
+
+// A short staff key, or one shared with another key, would let the toolbox sign more than staff reads.
+function refuseWeakStaffKey(staffJwtSecret: string | undefined, otherSecrets: string[]): void {
+    const staffKeys = parseJwtKeys(staffJwtSecret || '')
+    if (staffKeys.some((key) => Buffer.byteLength(key) < MIN_HMAC_SECRET_BYTES)) {
+        throw new Error(`RECORDING_API_STAFF_JWT_SECRET keys must be at least ${MIN_HMAC_SECRET_BYTES} bytes`)
+    }
+    const otherKeys = new Set(otherSecrets.flatMap((secret) => parseJwtKeys(secret || '')))
+    if (staffKeys.some((key) => otherKeys.has(key))) {
+        throw new Error('RECORDING_API_STAFF_JWT_SECRET must not share a key with another recording-api secret')
     }
 }
 
@@ -91,9 +111,11 @@ export function assertRecordingApiAuthConfigured(opts: {
     isProd: boolean
     deployed?: boolean
     jwtSecret: string
+    staffJwtSecret?: string
 }): void {
     if (opts.deployed) {
         refuseDevKey(opts.jwtSecret, DEV_RECORDING_API_JWT_SECRET, 'RECORDING_API_JWT_SECRET')
+        refuseDevKey(opts.staffJwtSecret, DEV_RECORDING_API_STAFF_JWT_SECRET, 'RECORDING_API_STAFF_JWT_SECRET')
     }
     if (hasJwtKeys(opts.jwtSecret || '')) {
         return
@@ -118,6 +140,7 @@ export function assertRecordingApiRoleAuthConfigured(opts: {
     deployed?: boolean
     blocksJwtSecret: string
     jwtSecret: string
+    staffJwtSecret?: string
 }): void {
     if (opts.role !== 'internal' && opts.isProd && !hasJwtKeys(opts.blocksJwtSecret || '')) {
         throw new Error('recording-api serving browser blocks needs RECORDING_API_BLOCKS_JWT_SECRET in production')
@@ -125,10 +148,11 @@ export function assertRecordingApiRoleAuthConfigured(opts: {
     if (opts.role !== 'internal' && opts.deployed) {
         refuseDevKey(opts.blocksJwtSecret, DEV_RECORDING_API_BLOCKS_JWT_SECRET, 'RECORDING_API_BLOCKS_JWT_SECRET')
         // jsonwebtoken accepts an HMAC key of any length, and a short one can be guessed offline from one token.
-        if (parseJwtKeys(opts.blocksJwtSecret || '').some((key) => Buffer.byteLength(key) < MIN_BLOCKS_SECRET_BYTES)) {
-            throw new Error(`RECORDING_API_BLOCKS_JWT_SECRET keys must be at least ${MIN_BLOCKS_SECRET_BYTES} bytes`)
+        if (parseJwtKeys(opts.blocksJwtSecret || '').some((key) => Buffer.byteLength(key) < MIN_HMAC_SECRET_BYTES)) {
+            throw new Error(`RECORDING_API_BLOCKS_JWT_SECRET keys must be at least ${MIN_HMAC_SECRET_BYTES} bytes`)
         }
     }
+    refuseWeakStaffKey(opts.staffJwtSecret, [opts.jwtSecret, opts.blocksJwtSecret])
     if (opts.role !== 'public') {
         assertRecordingApiAuthConfigured(opts)
     }
@@ -140,11 +164,13 @@ export function internalApiAuthExcludedPathPrefixes(role: RecordingApiRole): str
 }
 
 export function createRecordingApiAuthMiddleware(options: RecordingApiAuthOptions) {
-    const { jwtSecret, op } = options
+    const { jwtSecret, op, staffJwtSecret } = options
     // Build the verifier once. Comma-separated keys give zero-downtime rotation (verify against all);
     // a malformed/empty value yields no keys and disables JWT (null) rather than throwing. `|| ''`
     // guards against a partial runtime config where the field is absent.
     const jwt = makeOptionalJwt(jwtSecret || '')
+    // Staff tokens only ever authorize reads, so the other operations never build this verifier.
+    const staffJwt = op === 'read' ? makeOptionalJwt(staffJwtSecret || '') : null
 
     return (req: Request, res: Response, next: NextFunction): void => {
         // No JWT secret configured (local dev): allow. Production refuses to boot in this state, see
@@ -155,6 +181,30 @@ export function createRecordingApiAuthMiddleware(options: RecordingApiAuthOption
         }
 
         const bearer = getBearerToken(req)
+        if (bearer && unverifiedAudience(bearer) === PosthogJwtAudience.RECORDING_API_STAFF) {
+            const staffClaims = staffJwt
+                ? verifyBearer(staffJwt, bearer, PosthogJwtAudience.RECORDING_API_STAFF, {
+                      maxAge: STAFF_TOKEN_MAX_AGE,
+                  })
+                : undefined
+            if (!staffClaims) {
+                res.status(401).json({ error: 'Unauthorized' })
+                return
+            }
+            if (!isStaffReadForTeam(staffClaims, pathTeamId(req)) || !STAFF_READ_PATH.test(requestPath(req))) {
+                logger.warn('Recording API staff token refused', { path: req.path })
+                res.status(403).json({ error: 'Forbidden: token not valid for this request' })
+                return
+            }
+            logger.info('Recording API staff read', {
+                team_id: staffClaims.team_id,
+                actor: staffClaims.actor,
+                reason: staffClaims.reason,
+                path: req.path,
+            })
+            next()
+            return
+        }
         if (bearer) {
             const claims = verifyBearer(jwt, bearer, PosthogJwtAudience.RECORDING_API)
             if (claims) {
@@ -177,6 +227,45 @@ export function createRecordingApiAuthMiddleware(options: RecordingApiAuthOption
 
         res.status(401).json({ error: 'Unauthorized' })
     }
+}
+
+// A staff token older than this is refused whatever its exp, matching the lifetime the minter gives it.
+const STAFF_TOKEN_MAX_AGE = '15m'
+// jsonwebtoken lets iat 0 through maxAge, so isStaffReadForTeam also bounds iat itself.
+const STAFF_TOKEN_MAX_AGE_SECONDS = 15 * 60
+
+// Staff tokens list blocks and read them by ref, never by raw key, so only that session's key can name a block.
+const STAFF_READ_PATH = /^\/api\/projects\/[^/]+\/recordings\/[^/]+\/blocks(\/[^/]+)?$/
+
+function requestPath(req: Request): string {
+    return (req.originalUrl ?? req.path ?? '').split('?')[0]
+}
+
+// Only picks which key verifies the token; the verify call that follows checks the signature and audience.
+function unverifiedAudience(token: string): unknown {
+    try {
+        const decoded = jsonwebtoken.decode(token)
+        return decoded && typeof decoded === 'object' ? decoded.aud : undefined
+    } catch {
+        return undefined
+    }
+}
+
+function isRecentIssue(iat: number): boolean {
+    const age = Date.now() / 1000 - iat
+    return age >= -CLOCK_TOLERANCE_SECONDS && age <= STAFF_TOKEN_MAX_AGE_SECONDS + CLOCK_TOLERANCE_SECONDS
+}
+
+function isStaffReadForTeam(claims: Record<string, unknown>, requestTeamId: number): boolean {
+    const nonEmpty = (value: unknown): boolean => typeof value === 'string' && value.trim() !== ''
+    return (
+        claims.team_id === requestTeamId &&
+        claims.op === 'read' &&
+        typeof claims.iat === 'number' &&
+        isRecentIssue(claims.iat) &&
+        nonEmpty(claims.actor) &&
+        nonEmpty(claims.reason)
+    )
 }
 
 // A browser block token older than this is refused whatever its exp, so a leaked one stops working soon.

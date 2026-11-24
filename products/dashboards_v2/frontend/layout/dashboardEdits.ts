@@ -1,6 +1,8 @@
 import {
+    type ContentWidgetParts,
     type Dashboard,
     GRID,
+    type SectionTile,
     type SectionWidget,
     type Tile,
     type TilePlace,
@@ -15,10 +17,13 @@ export type DashboardEdit =
     | { edit: 'moveTile'; id: string; grid: string; x?: number; y?: number }
     | { edit: 'addTile'; grid: string; widget: Widget }
     | { edit: 'removeTile'; id: string }
-    | { edit: 'updateSection'; id: string; patch: Partial<Pick<SectionWidget, 'title' | 'collapsed'>> }
+    | { edit: 'updateSection'; id: string; patch: Partial<Pick<SectionWidget, 'title'>> }
+    | { edit: 'setTileParts'; id: string; parts: ContentWidgetParts }
     | { edit: 'addTab'; title: string }
     | { edit: 'renameTab'; id: string; title: string }
     | { edit: 'removeTab'; id: string }
+    /** `before` is the tab it lands in front of; null puts it last. */
+    | { edit: 'moveTab'; id: string; before: string | null }
 
 function minWidthOf(tile: Tile): number {
     if (!isSection(tile)) {
@@ -67,7 +72,48 @@ function settleGrid(tiles: Tile[], cols: number): Tile[] {
     return withPlaces(sized, placeTiles(toPlacedItems(sized), cols))
 }
 
-/** Every edit ends here, so a saved dashboard never holds an overlap, a gap or a stale section height. */
+/** Every tile full width, one under another in reading order: top to bottom, then left to right. */
+export function stackTiles(tiles: Tile[], cols: number): Tile[] {
+    const ordered = [...tiles].sort((a, b) => a.place.y - b.place.y || a.place.x - b.place.x)
+    let y = 0
+    return ordered.map((tile) => {
+        const stacked = isSection(tile)
+            ? stackSection(tile, cols, y)
+            : { ...tile, place: { x: 0, y, w: cols, h: stackedRows(tile) } }
+        y += stacked.place.h
+        return stacked
+    })
+}
+
+function stackedRows(tile: Tile): number {
+    const range = widgetSize(tile.widget).stackedRows
+    if (!range) {
+        return tile.place.h
+    }
+    return Math.min(range.max, Math.max(range.min, tile.place.h))
+}
+
+function stackSection(tile: SectionTile, cols: number, y: number): Tile {
+    const widget = { ...tile.widget, tiles: stackTiles(tile.widget.tiles, cols) }
+    return { ...tile, widget, place: { x: 0, y, w: cols, h: sectionRows(widget) } }
+}
+
+/** The dashboard as one person sees it, with sections they opened or closed for themselves. Never saved. */
+export function withFolds(dashboard: Dashboard, folds: Record<string, boolean>): Dashboard {
+    const ids = Object.keys(folds)
+    if (ids.length === 0) {
+        return dashboard
+    }
+    const folded = ids.reduce(
+        (next, id) =>
+            changeTileEverywhere(next, id, (tile) =>
+                isSection(tile) ? { ...tile, widget: { ...tile.widget, collapsed: folds[id] } } : tile
+            ),
+        dashboard
+    )
+    return settleDashboard(folded)
+}
+
 export function settleDashboard(dashboard: Dashboard): Dashboard {
     return { ...dashboard, tabs: dashboard.tabs.map((tab) => ({ ...tab, tiles: settleGrid(tab.tiles, GRID.columns) })) }
 }
@@ -148,17 +194,26 @@ export function dropIntoGrid(tiles: Tile[], cols: number, tile: Tile, x: number,
     return withPlaces(next, placed)
 }
 
-function moveTile(dashboard: Dashboard, edit: Extract<DashboardEdit, { edit: 'moveTile' }>): Dashboard {
+function moveTile(dashboard: Dashboard, edit: Extract<DashboardEdit, { edit: 'moveTile' }>, view: View): Dashboard {
     const tile = findTile(dashboard, edit.id)
     // A section cannot go inside itself, so the target is looked up once the tile is out of the tree.
     // Settled first, so a section the tile left already has its new height when the drop cell is used.
     const without = settleDashboard(changeTileEverywhere(dashboard, edit.id, () => null))
-    const target = findGrid(without, edit.grid)
-    if (!tile || !target) {
+    // The drop cell is in the grid as the person saw it, folded and fitted, so the tile lands where its preview showed.
+    const shown = findGrid(view(without), edit.grid)
+    if (!tile || !shown) {
         return dashboard
     }
-    const y = edit.y ?? bottomOf(target.tiles.map((other) => other.place))
-    return changeGrid(without, edit.grid, (tiles) => dropIntoGrid(tiles, target.cols, tile, edit.x ?? 0, y))
+    const y = edit.y ?? bottomOf(shown.tiles.map((other) => other.place))
+    const landed = dropIntoGrid(shown.tiles, shown.cols, tile, edit.x ?? 0, y)
+    const places = new Map(landed.map((placed) => [placed.id, placed.place]))
+    // Only where each tile sits is saved. Heights stay as saved, and settling makes room for a folded section.
+    return changeGrid(without, edit.grid, (tiles) =>
+        [...tiles, tile].map((placed) => {
+            const place = places.get(placed.id)
+            return place ? { ...placed, place: { ...place, h: placed.place.h } } : placed
+        })
+    )
 }
 
 function addTile(dashboard: Dashboard, edit: Extract<DashboardEdit, { edit: 'addTile' }>): Dashboard {
@@ -181,14 +236,14 @@ function addTile(dashboard: Dashboard, edit: Extract<DashboardEdit, { edit: 'add
     return changeGrid(dashboard, edit.grid, (tiles) => [...tiles, tile])
 }
 
-function applyOnce(dashboard: Dashboard, edit: DashboardEdit): Dashboard {
+function applyOnce(dashboard: Dashboard, edit: DashboardEdit, view: View): Dashboard {
     switch (edit.edit) {
         case 'placeTiles':
             return changeGrid(dashboard, edit.grid, (tiles) =>
                 tiles.map((tile) => (edit.places[tile.id] ? { ...tile, place: edit.places[tile.id] } : tile))
             )
         case 'moveTile':
-            return moveTile(dashboard, edit)
+            return moveTile(dashboard, edit, view)
         case 'addTile':
             return addTile(dashboard, edit)
         case 'removeTile':
@@ -196,6 +251,10 @@ function applyOnce(dashboard: Dashboard, edit: DashboardEdit): Dashboard {
         case 'updateSection':
             return changeTileEverywhere(dashboard, edit.id, (tile) =>
                 isSection(tile) ? { ...tile, widget: { ...tile.widget, ...edit.patch } } : tile
+            )
+        case 'setTileParts':
+            return changeTileEverywhere(dashboard, edit.id, (tile) =>
+                isSection(tile) ? tile : { ...tile, widget: { ...tile.widget, parts: edit.parts } }
             )
         case 'addTab':
             return {
@@ -212,9 +271,24 @@ function applyOnce(dashboard: Dashboard, edit: DashboardEdit): Dashboard {
                 return dashboard
             }
             return { ...dashboard, tabs: dashboard.tabs.filter((tab) => tab.id !== edit.id) }
+        case 'moveTab': {
+            const tab = dashboard.tabs.find((candidate) => candidate.id === edit.id)
+            if (!tab) {
+                return dashboard
+            }
+            const rest = dashboard.tabs.filter((candidate) => candidate.id !== edit.id)
+            const index = edit.before === null ? rest.length : rest.findIndex((other) => other.id === edit.before)
+            if (index === -1) {
+                return dashboard
+            }
+            return { ...dashboard, tabs: [...rest.slice(0, index), tab, ...rest.slice(index)] }
+        }
     }
 }
 
-export function applyEdit(dashboard: Dashboard, edit: DashboardEdit): Dashboard {
-    return settleDashboard(applyOnce(dashboard, edit))
+/** How the person sees a dashboard, such as `withFolds`. An edit made on screen is placed against that view. */
+type View = (dashboard: Dashboard) => Dashboard
+
+export function applyEdit(dashboard: Dashboard, edit: DashboardEdit, view: View = (shown) => shown): Dashboard {
+    return settleDashboard(applyOnce(dashboard, edit, view))
 }

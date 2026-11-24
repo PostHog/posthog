@@ -13,6 +13,7 @@ from google.cloud import bigquery
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import (
+    BatchWriteOutcome,
     DestinationBatchContext,
     DestinationRunContext,
 )
@@ -292,6 +293,27 @@ class TestConfigValidation:
 
         with pytest.raises(DestinationConfigurationError, match="Enable billing"):
             await writer.prepare_run(_ctx())
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "sync_type,primary_keys",
+    [("full_refresh", ()), ("incremental", ("id",)), ("incremental", ())],
+    ids=["full_refresh", "merge", "append"],
+)
+async def test_bytes_written_sums_every_parquet_file_loaded(sync_type: str, primary_keys: tuple[str, ...]) -> None:
+    client = FakeBigQueryClient()
+    ctx = _ctx(sync_type=sync_type, primary_keys=primary_keys)
+    writer = LocalBigQueryWriter(ctx, client)
+
+    await writer.prepare_run(ctx)
+    outcome = await writer.write_batch(
+        _batches(_rows([1], ["a"]), _rows([2], ["b"])),
+        DestinationBatchContext(run=ctx, batch_index=0, is_final_batch=False),
+    )
+
+    assert len(client.uploaded_bytes) == 2
+    assert outcome == BatchWriteOutcome(rows_written=2, bytes_written=sum(client.uploaded_bytes))
 
 
 @pytest.mark.asyncio

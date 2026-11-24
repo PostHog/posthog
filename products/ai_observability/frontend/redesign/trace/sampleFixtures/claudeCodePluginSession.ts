@@ -319,6 +319,7 @@ export const claudeCodePluginSession: SampleTraceFixture = {
         person: { distinctId: 'user-1', label: 'user-1' },
         totals: traceNode.stats,
         totalsPartial: false,
+        costAndLatencyPartial: false,
     },
     tree: [traceNode],
     initialNodeId: lastStep.generationId,

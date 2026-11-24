@@ -126,7 +126,7 @@ def _web_analytics_team_selection_impl(
 @dagster.asset(
     name="web_analytics_team_selection",
     group_name="web_analytics_v2",
-    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+    tags={"owner": JobOwners.TEAM_ANALYTICS.value},
 )
 def web_analytics_team_selection(
     context: dagster.AssetExecutionContext,
@@ -142,7 +142,7 @@ def web_analytics_team_selection(
 @dagster.asset(
     name="web_analytics_high_volume_team_candidates",
     group_name="web_analytics_v2",
-    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+    tags={"owner": JobOwners.TEAM_ANALYTICS.value},
 )
 def web_analytics_high_volume_team_candidates(
     context: dagster.AssetExecutionContext,
@@ -203,7 +203,7 @@ def web_analytics_high_volume_team_candidates(
 web_analytics_team_candidates_job = dagster.define_asset_job(
     name="web_analytics_team_candidates_job",
     selection=["web_analytics_high_volume_team_candidates"],
-    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+    tags={"owner": JobOwners.TEAM_ANALYTICS.value},
 )
 
 
@@ -211,7 +211,7 @@ web_analytics_team_candidates_job = dagster.define_asset_job(
     cron_schedule="0 2 * * 1",  # Weekly on Monday at 2am UTC
     job=web_analytics_team_candidates_job,
     execution_timezone="UTC",
-    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+    tags={"owner": JobOwners.TEAM_ANALYTICS.value},
 )
 def web_analytics_team_candidates_schedule(context: dagster.ScheduleEvaluationContext):
     return dagster.RunRequest()

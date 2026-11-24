@@ -26,11 +26,14 @@ import type {
     NotebookRunStartResponseApi,
     NotebookRunStatusResponseApi,
     NotebookSQLV2InterruptResponseApi,
+    NotebookSQLV2PageResponseApi,
     NotebookSQLV2RunRequestApi,
     NotebookSQLV2RunResponseApi,
     NotebookSQLV2RunStatusResponseApi,
     NotebookSQLV2StateResponseApi,
     NotebooksListParams,
+    NotebooksSqlV2RunsPageRetrieveParams,
+    NotebooksSqlV2RunsRetrieveParams,
     NotebooksWidgetFrameParams,
     NotebooksWidgetSnapshotFrameParams,
     NotebooksWidgetSourceParams,
@@ -789,8 +792,25 @@ export const notebooksSqlV2RunCreate = async (
     })
 }
 
-export const getNotebooksSqlV2RunsRetrieveUrl = (projectId: string, shortId: string, runId: string) => {
-    return `/api/projects/${projectId}/notebooks/${shortId}/sql_v2/runs/${runId}/`
+export const getNotebooksSqlV2RunsRetrieveUrl = (
+    projectId: string,
+    shortId: string,
+    runId: string,
+    params?: NotebooksSqlV2RunsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/notebooks/${shortId}/sql_v2/runs/${runId}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/notebooks/${shortId}/sql_v2/runs/${runId}/`
 }
 
 /**
@@ -800,12 +820,16 @@ export const notebooksSqlV2RunsRetrieve = async (
     projectId: string,
     shortId: string,
     runId: string,
+    params?: NotebooksSqlV2RunsRetrieveParams,
     options?: RequestInit
 ): Promise<NotebookSQLV2RunStatusResponseApi> => {
-    return apiMutator<NotebookSQLV2RunStatusResponseApi>(getNotebooksSqlV2RunsRetrieveUrl(projectId, shortId, runId), {
-        ...options,
-        method: 'GET',
-    })
+    return apiMutator<NotebookSQLV2RunStatusResponseApi>(
+        getNotebooksSqlV2RunsRetrieveUrl(projectId, shortId, runId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getNotebooksSqlV2RunsInterruptCreateUrl = (projectId: string, shortId: string, runId: string) => {
@@ -826,6 +850,47 @@ export const notebooksSqlV2RunsInterruptCreate = async (
         {
             ...options,
             method: 'POST',
+        }
+    )
+}
+
+export const getNotebooksSqlV2RunsPageRetrieveUrl = (
+    projectId: string,
+    shortId: string,
+    runId: string,
+    params?: NotebooksSqlV2RunsPageRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/notebooks/${shortId}/sql_v2/runs/${runId}/page/?${stringifiedParams}`
+        : `/api/projects/${projectId}/notebooks/${shortId}/sql_v2/runs/${runId}/page/`
+}
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ * @summary Read a page of a notebook run's stored result frame
+ */
+export const notebooksSqlV2RunsPageRetrieve = async (
+    projectId: string,
+    shortId: string,
+    runId: string,
+    params?: NotebooksSqlV2RunsPageRetrieveParams,
+    options?: RequestInit
+): Promise<NotebookSQLV2PageResponseApi> => {
+    return apiMutator<NotebookSQLV2PageResponseApi>(
+        getNotebooksSqlV2RunsPageRetrieveUrl(projectId, shortId, runId, params),
+        {
+            ...options,
+            method: 'GET',
         }
     )
 }

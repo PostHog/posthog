@@ -2877,7 +2877,6 @@ describe('Hog Executor', () => {
                 jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
                     id: 1,
                     api_token: OWN_TOKEN,
-                    secret_api_token: null,
                 } as any)
             }
 
