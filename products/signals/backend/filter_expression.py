@@ -47,8 +47,14 @@ class FilterExpression:
         try:
             parsed = parse_expr(expression)
         except BaseHogQLError as error:
+            # The pinned Rust parser reports syntax positions in UTF-8 bytes, which differ from character
+            # offsets once non-ASCII text appears. Drop them until the pin includes #129245.
+            positioned = expression.isascii()
             raise FilterValidationError(
-                "syntax", "Enter a boolean HogQL expression.", start=error.start, end=error.end
+                "syntax",
+                "Enter a boolean HogQL expression.",
+                start=error.start if positioned else None,
+                end=error.end if positioned else None,
             ) from error
         except RecursionError as error:
             raise FilterValidationError("syntax", "Enter a boolean HogQL expression.") from error

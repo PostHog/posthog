@@ -115,6 +115,7 @@ class TestFilterExpression(SimpleTestCase):
             ("boolean_required", "project_name", "boolean_required", 0, 12),
             ("syntax_trailing_token", "project_name = 'Core' )", "syntax", 22, 23),
             ("syntax_ends_early", "project_name = ", "syntax", 15, 15),
+            ("syntax_after_non_ascii", "project_name = 'Cœur' )", "syntax", None, None),
             ("expression_limit", " " * 4097, "expression_limit", None, None),
         ]
     )
