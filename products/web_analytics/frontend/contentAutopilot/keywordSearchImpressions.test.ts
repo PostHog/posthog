@@ -32,5 +32,6 @@ describe('keywordSearchImpressions', () => {
         expect(query).toContain("['don\\'t track', 'pricing']")
         expect(query).toContain("toDate(date) >= toDate('2026-10-01') AND toDate(date) <= toDate('2026-10-07')")
         expect(query).toContain('FROM googlesearchconsole.search_analytics_by_query')
+        expect(query).toMatch(/LIMIT 2$/)
     })
 })
