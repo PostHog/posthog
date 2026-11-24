@@ -1,6 +1,5 @@
 import { MakeLogicType, actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -173,14 +172,7 @@ export const sharedMetricsLogic = kea<sharedMetricsLogicType>([
         setPage: async () => {
             actions.loadSharedMetrics()
         },
-        setFilters: async ({ filters }) => {
-            // pinned: analytics event name and properties, renaming breaks dashboards
-            posthog.capture('experiment shared metrics filtered', {
-                changed_filters: Object.keys(filters),
-                created_by_count: values.filters.created_by_id?.length ?? 0,
-                tags_count: values.filters.tags?.length ?? 0,
-                metric_type: values.filters.metric_type ?? null,
-            })
+        setFilters: async () => {
             actions.loadSharedMetrics()
         },
         setSearchTerm: async (_, breakpoint) => {
