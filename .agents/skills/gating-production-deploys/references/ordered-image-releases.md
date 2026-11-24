@@ -109,14 +109,14 @@ The table shows the waits on 2026-11-19 at `master` tip `adf1f847400`. It covers
 | `errorTrackingLifecycleWorker`        |              16.8% |      15 min |           1.6 h |          13.7 h |       36.3 h |
 | `videoExportWorker`                   |              50.0% |       5 min |          46 min |           5.1 h |       17.1 h |
 | `maxAiWorker`                         |              28.2% |       8 min |          60 min |           7.3 h |       24.4 h |
-| `sessionReplayWorker`                 |              16.1% |      15 min |           1.7 h |          14.4 h |       36.3 h |
-| `replayVisionWorker`                  |              19.3% |      12 min |           1.4 h |          12.3 h |       28.8 h |
-| `billingWorker`                       |              15.7% |      16 min |           1.6 h |          13.5 h |       36.3 h |
+| `sessionReplayWorker`                 |              16.2% |      15 min |           1.7 h |          14.5 h |       36.3 h |
+| `replayVisionWorker`                  |              19.4% |      12 min |           1.4 h |          12.3 h |       28.8 h |
+| `billingWorker`                       |              15.8% |      16 min |           1.6 h |          13.5 h |       36.3 h |
 | `billingUsageReportAggregationWorker` |              12.7% |      21 min |           1.9 h |          16.8 h |       37.9 h |
 | `weeklyDigestWorker`                  |              19.0% |      13 min |           1.4 h |          12.2 h |       33.1 h |
-| `logsAlertingWorker`                  |              17.0% |      15 min |           1.6 h |          14.0 h |       36.3 h |
-| `experimentsRecalculationWorker`      |              17.8% |      14 min |           1.5 h |          12.1 h |       33.1 h |
-| `stamphogWorker`                      |              16.8% |      15 min |           1.5 h |          14.0 h |       37.9 h |
+| `logsAlertingWorker`                  |              17.1% |      15 min |           1.6 h |          13.7 h |       36.3 h |
+| `experimentsRecalculationWorker`      |              17.9% |      14 min |           1.5 h |          12.1 h |       33.1 h |
+| `stamphogWorker`                      |              16.9% |      15 min |           1.5 h |          14.0 h |       37.9 h |
 
 When a change must reach a worker now, force its channel. Run `container-images-cd.yml` through `workflow_dispatch` on the default branch, with `shared-image-force` set to a JSON array of channel keys, for example `["posthog-cloud/wizard"]`. Force qualifies a newer build that the publication job evaluates when no row matches. The publisher's frontier, image identity and newer-revision checks still apply, as for any publication (see [Selective publication](#selective-publication)). A force dispatch runs the CD workflow under its manual-dispatch conditions, which skip the image boot check, so a successful force is not evidence that the image passed that check. No scheduled job forces a publication.
 

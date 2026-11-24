@@ -1942,6 +1942,8 @@ filters:
         - posthog/session_recordings/recordings/errors.py
         - posthog/session_recordings/recordings/recording_api_client.py
         - posthog/session_recordings/recordings/recording_api_jwt.py
+        - posthog/session_recordings/recordings/replay_blocks_jwt.py
+        - posthog/session_recordings/recordings/replay_proxy_jwt.py
         - posthog/helpers/session_recording_playlist_templates.py
         - products/exports/backend/analytics.py
         - products/exports/backend/source_authentication.py
@@ -1949,8 +1951,6 @@ filters:
         - products/exports/backend/models/exported_asset.py
         - products/batch_exports/backend/facade/contracts.py
         - products/batch_exports/backend/temporal/destinations/s3_batch_export.py
-        - products/experiments/backend/facade/replay.py
-        - products/experiments/backend/replay_linkage.py
         - products/actions/backend/facade/api.py
         - products/actions/backend/facade/contracts.py
         - products/actions/backend/logic/actions.py
@@ -1958,6 +1958,7 @@ filters:
         - products/cohorts/backend/models/cohort.py
         - 'products/event_definitions/backend/models/**'
         - products/access_control/backend/property_access_control.py
+        - products/access_control/backend/facade/subject_access_control.py
         - products/access_control/backend/facade/user_access_control.py
         - products/access_control/backend/facade/contracts.py
         - 'products/access_control/backend/models/**'
@@ -1967,6 +1968,7 @@ filters:
         - posthog/scoped_service_jwt.py
         - posthog/jwt.py
         - posthog/user_permissions.py
+        - posthog/query_creator_access.py
         - posthog/security/outbound_proxy.py
         - posthog/helpers/encrypted_fields.py
         - posthog/event_usage.py
@@ -1976,6 +1978,8 @@ filters:
         - posthog/hogql_queries/paginators.py
         - posthog/hogql_queries/legacy_compatibility/clean_properties.py
         - posthog/hogql_queries/utils/query_date_range.py
+        - 'posthog/credentials_service/**'
+        - 'posthog/integrations/**'
         - 'posthog/hogql/**'
         - 'posthog/clickhouse/**'
         - 'common/hogvm/**'
@@ -1996,7 +2000,6 @@ filters:
         - posthog/session_recordings/recordings/recording_api_client.py
         - posthog/session_recordings/recordings/recording_api_jwt.py
         - products/experiments/backend/facade/contracts.py
-        - products/experiments/backend/facade/launch_signals.py
         - products/experiments/backend/facade/replay.py
         - products/experiments/backend/replay_context.py
         - products/experiments/backend/replay_linkage.py
@@ -2008,6 +2011,7 @@ filters:
         - '!products/analytics_platform/backend/lazy_computation/tests/**'
         - 'products/analytics_platform/backend/models/**'
         - products/feature_flags/backend/models/feature_flag.py
+        - products/exports/backend/source_authentication.py
         - products/actions/backend/facade/api.py
         - products/actions/backend/facade/contracts.py
         - products/actions/backend/logic/actions.py
@@ -2016,6 +2020,7 @@ filters:
         - 'products/event_definitions/backend/models/**'
         - products/alerts/backend/facade/destinations.py
         - products/alerts/backend/logic/destinations.py
+        - products/alerts/backend/logic/insight_alert_destinations.py
         - products/alerts_platform/backend/facade/contracts.py
         - products/alerts_platform/backend/facade/lifecycle.py
         - products/alerts_platform/backend/facade/scheduling.py
@@ -2044,12 +2049,15 @@ filters:
         - products/signals/backend/free_trial.py
         - products/signals/backend/usage.py
         - products/signals/backend/facade/taxonomy.py
+        - products/tasks/backend/facade/access.py
         - products/access_control/backend/property_access_control.py
         - products/access_control/backend/facade/user_access_control.py
         - products/access_control/backend/facade/contracts.py
         - 'products/access_control/backend/models/**'
         - 'products/warehouse_sources/backend/models/**'
         - ee/billing/billing_manager.py
+        - ee/billing/access_token.py
+        - ee/billing/grants.py
         - ee/billing/quota_limiting.py
         - ee/models/license.py
         - ee/hogai/utils/untrusted.py
@@ -2078,6 +2086,7 @@ filters:
         - posthog/schema.py
         - posthog/sync.py
         - 'posthog/usage_ingestion/**'
+        - 'posthog/integrations/**'
         - 'posthog/hogql*/**'
         - 'posthog/clickhouse/**'
         - 'common/hogvm/**'
@@ -2107,6 +2116,7 @@ filters:
         - products/billing_alerts/backend/models.py
         - products/alerts/backend/facade/destinations.py
         - products/alerts/backend/logic/destinations.py
+        - products/alerts/backend/logic/insight_alert_destinations.py
         - products/alerts/backend/logic/destination_configs.py
         - products/alerts_platform/backend/facade/contracts.py
         - products/alerts_platform/backend/facade/lifecycle.py
@@ -2159,6 +2169,7 @@ filters:
         - products/warehouse_sources/backend/billing.py
         - products/warehouse_sources/backend/types.py
         - products/warehouse_sources/backend/facade/types.py
+        - products/warehouse_sources/backend/models/credential.py
         - products/warehouse_sources/backend/models/external_data_destination_delivery.py
         - products/warehouse_sources/backend/models/external_data_job.py
         - products/warehouse_sources/backend/models/external_data_schema.py
@@ -2166,6 +2177,8 @@ filters:
         - products/workflows/backend/facade/contracts.py
         - 'ee/billing/salesforce_enrichment/**'
         - ee/billing/billing_manager.py
+        - ee/billing/access_token.py
+        - ee/billing/grants.py
         - ee/billing/quota_limiting.py
         - ee/billing/quota_usage.py
         - ee/models/license.py
@@ -2184,6 +2197,7 @@ filters:
         - posthog/event_usage.py
         - posthog/sync.py
         - posthog/helpers/encrypted_fields.py
+        - posthog/plugins/plugin_server_api.py
         - posthog/hogql/escape_sql.py
         - 'posthog/clickhouse/**'
         - 'posthog/egress/harmonic/**'
@@ -2246,6 +2260,7 @@ filters:
         - products/error_tracking/backend/logic/__init__.py
         - products/error_tracking/backend/models.py
         - products/error_tracking/backend/weekly_digest.py
+        - products/error_tracking/backend/weekly_digest_delivery.py
         - 'products/event_definitions/backend/models/**'
         - products/experiments/backend/facade/api.py
         - products/experiments/backend/facade/contracts.py
@@ -2258,6 +2273,7 @@ filters:
         - products/product_analytics/backend/models/insight.py
         - products/signals/backend/facade/api.py
         - products/signals/backend/models.py
+        - products/tasks/backend/facade/access.py
         - products/tasks/backend/facade/api.py
         - products/tasks/backend/facade/contracts.py
         - products/tasks/backend/models.py
@@ -2308,11 +2324,14 @@ filters:
         - products/logs/backend/alert_signal_emitter.py
         - products/logs/backend/alert_state_machine.py
         - products/logs/backend/alert_utils.py
+        - products/logs/backend/column_expressions.py
         - products/logs/backend/logs_query_runner.py
         - products/logs/backend/logs_url_params.py
         - products/logs/backend/models.py
+        - products/logs/backend/platform_source_config.py
         - products/alerts/backend/facade/destinations.py
         - products/alerts/backend/logic/destinations.py
+        - products/alerts/backend/logic/insight_alert_destinations.py
         - products/alerts/backend/logic/destination_configs.py
         - products/alerts_platform/backend/facade/check_errors.py
         - products/alerts_platform/backend/facade/contracts.py
@@ -2338,22 +2357,27 @@ filters:
         - products/signals/backend/daily_limit.py
         - products/signals/backend/free_trial.py
         - products/signals/backend/usage.py
+        - products/tasks/backend/facade/access.py
         - products/access_control/backend/property_access_control.py
         - products/access_control/backend/facade/user_access_control.py
         - products/access_control/backend/facade/contracts.py
         - 'products/access_control/backend/models/**'
         - 'products/warehouse_sources/backend/models/**'
         - ee/billing/billing_manager.py
+        - ee/billing/access_token.py
+        - ee/billing/grants.py
         - ee/billing/quota_limiting.py
         - ee/models/license.py
         - posthog/interval_specs.py
         - posthog/helpers/encrypted_fields.py
+        - posthog/plugins/plugin_server_api.py
         - posthog/helpers/tiktoken_encoding.py
         - posthog/event_usage.py
         - posthog/errors.py
         - posthog/schema.py
         - posthog/sync.py
         - 'posthog/slo/**'
+        - 'posthog/integrations/**'
         - posthog/hogql_queries/utils/query_date_range.py
         - 'posthog/hogql/**'
         - 'posthog/clickhouse/**'
@@ -2401,14 +2425,17 @@ filters:
         - 'products/warehouse_sources/backend/models/**'
         - products/warehouse_sources/backend/facade/types.py
         - products/warehouse_sources/backend/logic/source_inputs.py
+        - products/warehouse_sources/backend/logic/source_credentials.py
+        - products/warehouse_sources/backend/logic/source_credentials_rollout.py
+        - products/warehouse_sources/backend/logic/credential_auth_types.py
         - posthog/helpers/encrypted_fields.py
         - posthog/event_usage.py
         - posthog/schema.py
         - posthog/sync.py
+        - 'posthog/integrations/**'
         - 'posthog/hogql*/**'
         - 'posthog/clickhouse/**'
         - 'common/hogvm/**'
-
     stamphogWorker:
         - *sharedWorkerBase
         - 'products/stamphog/backend/**'
@@ -2421,27 +2448,39 @@ filters:
         - products/review_hog/backend/receivers.py
         - products/review_hog/backend/facade/review_status.py
         - products/review_hog/backend/facade/review_status_types.py
+        - products/review_hog/backend/facade/contracts.py
+        - products/review_hog/backend/facade/enums.py
         - products/review_hog/backend/head_review_status.py
         - products/review_hog/backend/models.py
         - products/review_hog/backend/ownership.py
+        - products/review_hog/backend/reviewer/artefact_content.py
         - products/review_hog/backend/reviewer/constants.py
+        - products/review_hog/backend/reviewer/models/issues_review.py
+        - products/review_hog/backend/reviewer/models/split_pr_into_chunks.py
         - products/review_hog/backend/reviewer/persistence.py
         - products/review_hog/backend/reviewer/progress.py
         - products/review_hog/backend/reviewer/review_state.py
+        - products/review_hog/backend/reviewer/review_design.py
         - products/review_hog/backend/temporal/client.py
         - products/review_hog/backend/temporal/types.py
         - products/review_hog/backend/turn_coverage.py
+        - products/signals/backend/artefact_schemas.py
         - 'products/tasks/backend/**'
         - posthog/api/oauth/client_assertion.py
         - posthog/api/oauth/cimd.py
+        - posthog/api/oauth/provisioning_review.py
         - posthog/workload_identity/providers.py
         - posthog/ownership/github_files.py
         - posthog/ownership/repo_files.py
         - posthog/security/pinned_requests.py
+        - posthog/security/outbound_proxy.py
+        - posthog/security/oob_domains.py
+        - posthog/security/crosslang/oob_domains.json
         - posthog/jwt.py
         - posthog/llm/gateway_client.py
         - posthog/cache_utils.py
         - 'posthog/credentials_service/**'
+        - posthog/helpers/encrypted_fields.py
         - 'posthog/integrations/**'
         - 'posthog/egress/github/**'
         - 'posthog/egress/limiter/**'
@@ -2530,15 +2569,15 @@ images:
             session-replay:
                 repository: posthog-temporal-workers/session-replay
                 filter: sessionReplayWorker
-                bootstrapPolicyDigest: 67aca3e6c81677165123f57749fa209df25dfb830e54d98978549fc2998a4b46
+                bootstrapPolicyDigest: 97fd00ad9fa1b4213bf0df032dd08e58045a3f161576d24613f39c5236a942da
             replay-vision:
                 repository: posthog-temporal-workers/replay-vision
                 filter: replayVisionWorker
-                bootstrapPolicyDigest: 81ae3705e300f9b10340a5d2366c1790fc80bc726b9f11cfa8e6477418a56b4c
+                bootstrapPolicyDigest: 84dcb0c5120d8883fa915cf79755a66d0b3df0f85fa9ae6ad4f35754aaf94009
             billing:
                 repository: posthog-temporal-workers/billing
                 filter: billingWorker
-                bootstrapPolicyDigest: dcadcf3351f1169fb162e99b2d97cab04602540e0c849a178bc94707365918d9
+                bootstrapPolicyDigest: fa5f48c4629e81b53d68478dbb37e6c014f090bd4dc85019172d4419852ac20d
             billing-usage-report-aggregation:
                 repository: posthog-temporal-workers/billing-usage-report-aggregation
                 filter: billingUsageReportAggregationWorker
@@ -2546,16 +2585,16 @@ images:
             weekly-digest:
                 repository: posthog-temporal-workers/weekly-digest
                 filter: weeklyDigestWorker
-                bootstrapPolicyDigest: 0d5d98c04c366a4b5af8144d3cc2368853ab62b37134d75a9c76537cf79ee200
+                bootstrapPolicyDigest: 7bf16001f592144e9e052102776f40f9819116587ff78553fc9faaa5f309ed8a
             logs-alerting:
                 repository: posthog-temporal-workers/logs-alerting
                 filter: logsAlertingWorker
-                bootstrapPolicyDigest: 6bdccc1b4672c3d5d2ad77776361068ffb6e893048cbab955486a9341a537a4a
+                bootstrapPolicyDigest: 1c0d926c8f49ff324b6f4fa7c5b1d013ad06f6ad9a6cb36e864c6d4d489170fd
             experiments-recalculation:
                 repository: posthog-temporal-workers/experiments-recalculation
                 filter: experimentsRecalculationWorker
-                bootstrapPolicyDigest: 032bd2104447913f797c48102f3825c354f53845b33857d5bdf7d6a830f7d5c5
+                bootstrapPolicyDigest: e47f96b682234445154c1c9bf6f3a8a345cd2739fe7d0344f20203943cf51910
             stamphog:
                 repository: posthog-temporal-workers/stamphog
                 filter: stamphogWorker
-                bootstrapPolicyDigest: bad56a3864a4645250e53aeb671edeb43ec207fff394aea171a95074fae1d581
+                bootstrapPolicyDigest: 6d88372a5b3e198eced1b2e0d7d089a68ee40d5e203393135e3252239f916ec7
