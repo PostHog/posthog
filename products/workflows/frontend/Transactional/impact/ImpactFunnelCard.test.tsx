@@ -198,6 +198,12 @@ describe('ImpactFunnelCard', () => {
             /Saving failed$/,
             false,
         ],
+        [
+            'says so when the saved project still has it off, and offers it again',
+            [200, { ...teamWithLinkTagging(false) }],
+            /Link tracking did not turn on\. Try again\.$/,
+            false,
+        ],
     ] as const)('turns on link tracking from the funnel: %s', async (_, saveAnswer, outcome, turnedOn) => {
         const capture = jest.spyOn(posthog, 'capture')
         const team = teamWithLinkTagging(false)

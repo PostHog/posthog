@@ -15,6 +15,8 @@ import {
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -236,6 +238,10 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
                     const project = await organizationsProjectsPartialUpdate(team.organization, team.id, {
                         workflows_config: { email_workflow_run_link_tag_enabled: true },
                     })
+                    if (project.workflows_config?.email_workflow_run_link_tag_enabled !== true) {
+                        lemonToast.error('Link tracking did not turn on. Try again.')
+                        throw new Error('The saved project still has link tracking off.')
+                    }
                     // pinned: analytics event name - renaming breaks dashboards
                     posthog.capture('transactional email impact link tracking turned on')
                     // Leaving the Impact tab unmounts this logic mid-save, and its success listeners with it, so
@@ -243,17 +249,19 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
                     // Only the saved field is merged, into the team as it is when the save answers, so a workflows
                     // setting that changed while the save was in flight keeps its newer value.
                     const currentTeam = teamLogic.values.currentTeam
-                    if (project.workflows_config && currentTeam) {
-                        teamLogic.actions.loadCurrentTeamSuccess({
-                            ...currentTeam,
-                            workflows_config: {
-                                ...currentTeam.workflows_config,
-                                email_workflow_run_link_tag_enabled:
-                                    project.workflows_config.email_workflow_run_link_tag_enabled,
+                    if (currentTeam) {
+                        teamLogic.actions.updateCurrentTeamSuccess(
+                            {
+                                ...currentTeam,
+                                workflows_config: {
+                                    ...currentTeam.workflows_config,
+                                    email_workflow_run_link_tag_enabled: true,
+                                },
                             },
-                        })
+                            { workflows_config: { email_workflow_run_link_tag_enabled: true } }
+                        )
                     }
-                    return project.workflows_config ?? null
+                    return project.workflows_config
                 },
             },
         ],
