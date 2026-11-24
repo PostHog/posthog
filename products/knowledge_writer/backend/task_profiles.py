@@ -18,6 +18,8 @@ WRITER_ALLOWED_DOMAINS = (
     "objects.githubusercontent.com",
     "codeload.github.com",
     "registry.npmjs.org",
+    "pypi.org",
+    "files.pythonhosted.org",
     "posthog.com",
 )
 

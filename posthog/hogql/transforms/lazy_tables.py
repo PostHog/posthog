@@ -48,6 +48,29 @@ def _unexpanded_scan(join: ast.JoinExpr, table_type: ast.Type) -> UnexpandedScan
     return UnexpandedScan(scan, tuple(types))
 
 
+class _JoinFilterTaker(TraversingVisitor):
+    def visit_field(self, node: ast.Field):
+        # The inherited visit follows the field's type into shared CTE types, which takes exponential time.
+        pass
+
+    def visit_join_expr(self, node: ast.JoinExpr):
+        table = _lazy_table_of(node.type) if node.type is not None else None
+        if isinstance(table, ast.LazyTable):
+            table.take_join_filter(node)
+        super().visit_join_expr(node)
+
+
+def take_join_filters(node: ast.AST, context: HogQLContext) -> None:
+    """Removes the join-constraint predicates that a lazy table already holds a copy of in its `filter`.
+
+    The predicates stay in the tree until this runs, so every check on the resolved tree reads them. This runs after
+    those checks and before the property swapper, because the swapper handles the held copy once, in lazy table
+    resolution. This mutates the nodes.
+    """
+    if context.holds_join_filters:
+        _JoinFilterTaker().visit(node)
+
+
 # This mutates the nodes
 def resolve_lazy_tables(
     node: _T_AST,
@@ -56,6 +79,7 @@ def resolve_lazy_tables(
     context: HogQLContext,
     resolver_factory: ResolverFactory | None = None,
 ):
+    take_join_filters(node, context)
     LazyTableResolver(stack=stack, context=context, dialect=dialect, resolver_factory=resolver_factory).visit(node)
 
 
@@ -435,6 +459,9 @@ class LazyTableResolver(TraversingVisitor):
             # A SAMPLE clause applies to the table, not to the subquery that replaces it.
             select_from=ast.JoinExpr(
                 table=ast.Field(chain=list(join_ptr.table.chain)),
+                # The resolver would otherwise read a fresh table from the database, without the filter that it copied
+                # from the join.
+                table_schema=cast(ast.Table, _lazy_table_of(original_table_type)),
                 alias=table_alias,
                 sample=clone_expr(join_ptr.sample, clear_types=True) if join_ptr.sample is not None else None,
             ),
@@ -450,6 +477,8 @@ class LazyTableResolver(TraversingVisitor):
             resolve_types(subquery, self.context, self.dialect, [], resolver_factory=self.resolver_factory),
         )
         assert subquery.type is not None
+        # The filter that the table copied from its join may read a CTE of the enclosing query.
+        subquery.type.ctes = {**(select_type.ctes or {}), **(subquery.type.ctes or {})}
         columns = [cast(ast.Alias, column) for column in subquery.select]
         for column in columns:
             export = collector.exports[column.alias]
@@ -898,6 +927,7 @@ class LazyTableResolver(TraversingVisitor):
                     subquery, self.context, self.dialect, [select_type], resolver_factory=self.resolver_factory
                 ),
             )
+            take_join_filters(subquery, self.context)
             if self.context.property_swapper is not None:
                 subquery = PropertySwapper(
                     timezone=self.context.property_swapper.timezone,
@@ -976,6 +1006,7 @@ class LazyTableResolver(TraversingVisitor):
                     join_to_add, self.context, self.dialect, [select_type], resolver_factory=self.resolver_factory
                 ),
             )
+            take_join_filters(join_to_add, self.context)
             if self.context.property_swapper is not None:
                 join_to_add = PropertySwapper(
                     timezone=self.context.property_swapper.timezone,

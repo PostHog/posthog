@@ -445,11 +445,13 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> str | None:
 
     if input.message_id:
         person_message = (input.context or {}).get("person_message")
+        person_message_ts = (input.context or {}).get("person_message_ts")
         record_delivered_message(
             input.run_id,
             input.message_id,
             actor_slack_user_id=actor_slack_user_id,
             person_message=person_message if isinstance(person_message, str) else None,
+            person_message_ts=person_message_ts if isinstance(person_message_ts, str) else None,
         )
 
     result = send_user_message(

@@ -1,7 +1,5 @@
-import { IconExternal } from '@posthog/icons'
+import { IconPlus } from '@posthog/icons'
 import { LemonInputSelect, LemonSelect } from '@posthog/lemon-ui'
-
-import { urls } from 'scenes/urls'
 
 import { EmailSender, SenderDataAttrPrefix, fromWithSenders, selectedSenderIds } from './emailSenderFields'
 import type { SandboxSenderChoice } from './SandboxSenderChoiceContext'
@@ -20,10 +18,6 @@ function senderLabel(sender: EmailSender): string {
     return name && email ? `${name} <${email}>` : (email ?? sender.display_name ?? `Sender ${sender.id}`)
 }
 
-function openSenderSetup(): void {
-    window.open(urls.workflows('channels'), '_blank')
-}
-
 /** Picks the sender, or several senders when the email rotates between them. */
 export function EmailSenderPicker({
     from,
@@ -33,6 +27,7 @@ export function EmailSenderPicker({
     sandbox = null,
     onChooseSandbox,
     onChangeFrom,
+    onAddSender,
 }: {
     from: EmailTemplateFrom
     senders: EmailSender[]
@@ -43,6 +38,7 @@ export function EmailSenderPicker({
     sandbox?: SandboxSenderChoice | null
     onChooseSandbox?: () => void
     onChangeFrom: (from: EmailTemplateFrom) => void
+    onAddSender: () => void
 }): JSX.Element {
     const changeSenders = (integrationIds: number[]): void => {
         if (integrationIds.includes(SANDBOX_SENDER_VALUE)) {
@@ -71,7 +67,12 @@ export function EmailSenderPicker({
             onChange={changeSenders}
             fullWidth
             autoWidth={false}
-            action={{ children: 'Add new email sender', icon: <IconExternal />, onClick: openSenderSetup }}
+            action={{
+                children: 'Add new email sender',
+                icon: <IconPlus />,
+                onClick: onAddSender,
+                closesDropdown: true,
+            }}
             data-attr={`${dataAttrPrefix}-sender-select`}
         />
     ) : (
@@ -80,11 +81,11 @@ export function EmailSenderPicker({
             size="small"
             placeholder="Choose an email sender"
             value={selectedSenderValue(sandbox, from.integrationId)}
-            onChange={(id) => (id === ADD_SENDER ? openSenderSetup() : changeSenders([id]))}
+            onChange={(id) => (id === ADD_SENDER ? onAddSender() : changeSenders([id]))}
             options={[
                 { options: senders.map((candidate) => ({ value: candidate.id, label: senderLabel(candidate) })) },
                 ...sandboxSenderGroups(sandbox),
-                { options: [{ value: ADD_SENDER, label: 'Add new email sender', icon: <IconExternal /> }] },
+                { options: [{ value: ADD_SENDER, label: 'Add new email sender', icon: <IconPlus /> }] },
             ]}
             data-attr={`${dataAttrPrefix}-sender-select`}
         />

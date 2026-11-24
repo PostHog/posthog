@@ -11,7 +11,6 @@ from products.alerts.backend.logic.destination_eligibility import (
     classify_destinations_by_alert,
     classify_unbound_alert_destinations,
 )
-from products.alerts.backend.models.alert import AlertConfiguration
 
 
 def bucketed_destinations(
@@ -34,14 +33,6 @@ def bucketed_destinations(
                 # A function that excludes this alert also names its id, but it is unbound and reported once.
                 if eligibility.hog_function_id not in unbound_ids:
                     yield BucketedDestination(team_id=team_id, alert_id=alert_id, eligibility=eligibility)
-
-
-def enabled_insight_alerts(*, team_id: int | None = None) -> Iterator[tuple[int, str]]:
-    alerts = AlertConfiguration.objects.filter(enabled=True).order_by("team_id", "created_at")
-    if team_id is not None:
-        alerts = alerts.filter(team_id=team_id)
-    for alert_team_id, alert_id in alerts.values_list("team_id", "id").iterator():
-        yield alert_team_id, str(alert_id)
 
 
 def bucket_report_lines(team_alerts: Iterable[tuple[int, str]], *, allowed_event_ids: Collection[str]) -> Iterator[str]:
