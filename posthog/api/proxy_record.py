@@ -76,9 +76,13 @@ def _capture_proxy_event(request, record: ProxyRecord, event_type: str) -> None:
 
 @contextmanager
 def _lock_proxy_for_write(organization: Organization, record_id: UUID) -> Iterator[None]:
+    records = organization.proxy_records.filter(id=record_id)
+    if not records.exists():
+        raise NotFound()
+
     lock = cloudflare_proxy_lock(record_id)
     if not lock.acquire(blocking=False):
-        if not organization.proxy_records.filter(id=record_id).exists():
+        if not records.exists():
             raise NotFound()
         raise Throttled(wait=5, detail="This proxy is being updated.")
     try:
