@@ -323,6 +323,49 @@ class TestSelection(SimpleTestCase):
         self.assertEqual(explicit, [1.0] if named else [])
         self.assertEqual(capture.call_args.kwargs["properties"]["error_type"], "ReadTimeout" if rerank_fails else None)
 
+    @parameterized.expand(
+        [
+            ("same_url", "https://docs.example.com/self-host", frozenset(), "https://docs.example.com/self-host"),
+            ("different_urls", "https://docs.example.com/runbook/jobs", frozenset(), ""),
+            (
+                "one_copy_injected_before",
+                "https://docs.example.com/runbook/jobs",
+                frozenset({"business_knowledge:copy"}),
+                None,
+            ),
+        ]
+    )
+    def test_a_passage_stored_under_several_documents_is_one_candidate(
+        self, name: str, copy_url: str, exclude: frozenset[str], injected_url: str | None
+    ) -> None:
+        self.selector = ContextSelector(
+            self.run_record,
+            self.selector.actor,
+            SelectionInput(message_id="m", prompt="What is our activation?", exclude=exclude),
+            "Bearer fake",
+        )
+        passage: dict[str, object] = {
+            "chunk_id": "page",
+            "document_title": "Self-host",
+            "content": "Self-host passage",
+            "is_generated": False,
+            "document_id": "page-doc",
+            "ordinal": 0,
+            "url": "https://docs.example.com/self-host",
+        }
+        self.rows["business_knowledge/documents/search/"] = [
+            passage,
+            {**passage, "chunk_id": "copy", "document_id": "copy-doc", "url": copy_url},
+        ]
+        result = self.selector.prepare(time.monotonic() + 60)
+        reranked = self.states[-1]["candidates"].values()
+        self.assertEqual([c["kind"] for c in reranked].count("business_knowledge"), 1)
+        rendered = [json.loads(line) for line in result.context.splitlines() if line.startswith("{")]
+        self.assertEqual(
+            [record["url"] for record in rendered if record["kind"] == "business_knowledge"],
+            [] if injected_url is None else [injected_url],
+        )
+
     @parameterized.expand([(403,), (404,), (429,), (503,), (302,)])
     def test_denied_or_failed_sources_preserve_other_results(self, status: int) -> None:
         self.status = status
@@ -432,6 +475,16 @@ class TestSelection(SimpleTestCase):
         self.assertEqual(self.selector.actor.is_staff, False)
         if expected == "treatment":
             self.assertEqual(self.flag.call_args.args[1], str(self.run_record.task_id))
+
+    @parameterized.expand(
+        [
+            ("person", "Why did signups drop?", "treatment"),
+            ("sandbox_prompt", "[sandbox_prompt:repo_selection] Choose a repository", "disabled"),
+        ]
+    )
+    def test_title_eligibility(self, name, title, expected) -> None:
+        self.run_record.task.title = title
+        self.assertEqual(selection_flag(self.run_record, self.selector.actor).mode, expected)
 
     def test_gate_failure_preserves_delivery(self) -> None:
         self.model.decide.side_effect = RuntimeError

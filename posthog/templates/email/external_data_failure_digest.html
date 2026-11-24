@@ -54,55 +54,44 @@
                 {% for schema in group.list %}
                     <tr>
                         <td align="left"
-                            style="padding: 9px 8px 9px 0;
+                            style="padding: 9px 0;
                                    border-top: 1px solid #f3f4f6;
-                                   vertical-align: top;
                                    text-align: left;
-                                   white-space: nowrap">
+                                   word-break: break-word">
                             <a href="{{ schema.url }}"
                                target="_blank"
                                style="text-decoration: none;
                                       color: #111827;
                                       font-weight: 600;
                                       font-size: 0.9em">{{ schema.schema_name|truncatechars:32 }}</a>
-                        </td>
-                        <td align="left"
-                            style="padding: 9px 8px;
-                                   border-top: 1px solid #f3f4f6;
-                                   vertical-align: top;
-                                   text-align: left;
-                                   color: #6b7280;
-                                   font-size: 0.85em;
-                                   word-break: break-word">
-                            {% if schema.destination_name %}
-                                <a href="{{ schema.destination_url }}"
-                                   target="_blank"
-                                   style="color: #111827;
-                                          font-weight: 600">Delivery to {{ schema.destination_name }} failed</a>
-                                <br />
-                            {% endif %}
-                            {{ schema.error|truncatechars:90 }}
-                        </td>
-                        <td align="right"
-                            style="padding: 9px 0 9px 8px;
-                                   border-top: 1px solid #f3f4f6;
-                                   vertical-align: top;
-                                   text-align: right;
-                                   white-space: nowrap">
                             {% if schema.paused %}
-                                <span style="background-color: #fee2e2;
+                                <span style="display: inline-block;
+                                             white-space: nowrap;
+                                             background-color: #fee2e2;
                                              color: #b91c1c;
                                              border-radius: 9999px;
                                              padding: 2px 10px;
                                              font-size: 0.75em;
                                              font-weight: 600">Paused &mdash; action required</span>
                             {% else %}
-                                <span style="background-color: #f3f4f6;
+                                <span style="display: inline-block;
+                                             white-space: nowrap;
+                                             background-color: #f3f4f6;
                                              color: #6b7280;
                                              border-radius: 9999px;
                                              padding: 2px 10px;
                                              font-size: 0.75em">Will retry</span>
                             {% endif %}
+                            <div style="padding-top: 4px; color: #6b7280; font-size: 0.85em;">
+                                {% if schema.destination_name %}
+                                    <a href="{{ schema.destination_url }}"
+                                       target="_blank"
+                                       style="color: #111827;
+                                              font-weight: 600">Delivery to {{ schema.destination_name }} failed</a>
+                                    <br />
+                                {% endif %}
+                                {{ schema.error|truncatechars:90 }}
+                            </div>
                         </td>
                     </tr>
                 {% endfor %}

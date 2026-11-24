@@ -331,6 +331,24 @@ class SignalTeamConfig(ModelActivityMixin, UUIDModel):
         return self.autostart_base_branches.get(repository.lower()) or None
 
 
+UNCHOSEN_AUTOSTART_PRIORITY = AutonomyPriority.P2
+
+
+def effective_autostart_priority(config: SignalTeamConfig | None) -> AutonomyPriority:
+    """The project threshold that auto-start applies.
+
+    A project with no row, or with a null PR switch and the P4 column default, never chose a
+    threshold, so it gets `UNCHOSEN_AUTOSTART_PRIORITY`. P4 opens a PR for every report priority,
+    which nobody chose for these projects. A null switch with any other value keeps that value,
+    because a row only holds another value after a write.
+    """
+    if config is None:
+        return UNCHOSEN_AUTOSTART_PRIORITY
+    if config.autostart_enabled is None and config.default_autostart_priority == AutonomyPriority.P4:
+        return UNCHOSEN_AUTOSTART_PRIORITY
+    return AutonomyPriority(config.default_autostart_priority)
+
+
 class SignalUserAutonomyConfig(UUIDModel):
     user = models.OneToOneField("posthog.User", on_delete=models.CASCADE, related_name="signal_autonomy_config")
     autostart_priority = models.CharField(max_length=2, choices=AutonomyPriority, null=True, blank=True)
@@ -1229,8 +1247,8 @@ class SignalReport(UUIDModel):
 
     @staticmethod
     def pr_target_report_ids_for_tasks(team_id: int, task_ids: Iterable[Any]) -> set[str]:
-        """The reports the tasks' pull requests link to: each task's source report and its
-        pipeline, legacy and assignment associations.
+        """The reports the tasks' pull requests link to: each task's source report, the reports
+        the task attached a pull request to, and its pipeline, legacy and assignment associations.
 
         A claim alone associates a task with a report, so a triage task that claims many reports
         would link its PR to all of them, and the PR's merge or close would then resolve or
@@ -1266,6 +1284,10 @@ class SignalReport(UUIDModel):
             team_id=team_id, actor_kind=SignalActorKind.TASK, actor_task_id__in=task_ids
         ).values_list("actor_task_id", "report_id"):
             add(actor_task_id, report_id, None)
+        for task_id, report_id in SignalReportArtefact.objects.filter(
+            team_id=team_id, type=SignalReportArtefact.ArtefactType.PULL_REQUEST, task_id__in=task_ids
+        ).values_list("task_id", "report_id"):
+            add(task_id, report_id, None)
         for source_task_id, source_id in get_task_signal_report_source_ids(task_ids=task_ids, team_id=team_id).items():
             add(source_task_id, source_id, None)
 
@@ -1538,6 +1560,8 @@ class SignalReportPullRequest(TeamScopedRootMixin, UUIDModel):
     state = models.CharField(max_length=10, choices=State, default=State.UNKNOWN)
     review_decision = models.CharField(max_length=20, choices=ReviewDecision, null=True, blank=True)
     merged_at = models.DateTimeField(null=True, blank=True)
+    merged_by_login = models.CharField(max_length=255, null=True, blank=True)
+    merged_by_github_id = models.BigIntegerField(null=True, blank=True)
     checked_at = models.DateTimeField(null=True, blank=True)
     participant_ids = ArrayField(models.PositiveBigIntegerField(), null=True, blank=True)
     participant_logins = ArrayField(models.CharField(max_length=255), null=True, blank=True)
@@ -2949,6 +2973,12 @@ class SignalReportMonitoringAttempt(UUIDModel):
     tracker_issue_close_processed_at = models.DateTimeField(null=True, blank=True)
     tracker_issue_close_next_attempt_at = models.DateTimeField(null=True, blank=True)
     close_pr_on_resolve = models.BooleanField(null=True, blank=True)
+    # The person who completed the implementation. The automatic transition out of Monitoring names them,
+    # because nobody makes that transition by hand.
+    credited_user = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
+    )
+    credited_user_source = models.CharField(max_length=16, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -4760,7 +4790,7 @@ class PersonalInboxRanking(TeamScopedRootMixin, UUIDModel):
 
 
 class AnomalyScoringState(TeamScopedRootMixin, UUIDModel):
-    """The trained detector artifacts of one insight and scoring profile of the anomaly scoring tick.
+    """The trained detector artifacts of one insight and model profile of the anomaly scoring tick.
 
     A train step fits one artifact per series and writes them as one blob to object storage. A score
     step fetches only the newest buckets and scores them with the stored artifacts. See
@@ -4773,6 +4803,7 @@ class AnomalyScoringState(TeamScopedRootMixin, UUIDModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     # Not a foreign key: insights belong to another product. A deleted insight leaves a small row behind.
     insight_id = models.BigIntegerField()
+    # The model profile, which scoring profiles with the same local part share. See `ScoringProfile.model_profile`.
     profile = models.CharField(max_length=64)
     # The insight as the state was built for it. A change to any of them makes the next visit train.
     interval = models.CharField(max_length=16)

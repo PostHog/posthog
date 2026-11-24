@@ -11,6 +11,7 @@ import structlog
 from posthog.github.installations import installation_team_ids
 
 from products.signals.backend.models import SignalReportPullRequest
+from products.signals.backend.pull_request_merger import PullRequestMerger
 from products.signals.backend.report_assignments import update_assignments_for_pull_request
 from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
 
@@ -20,10 +21,22 @@ PULL_REQUEST_STATE_REREAD_DELAY_SECONDS = 60
 
 
 def reconcile_pull_request_state(
-    *, team_id: int, repository: str, pr_number: int, pr_state: str, merged_at: datetime | None
+    *,
+    team_id: int,
+    repository: str,
+    pr_number: int,
+    pr_state: str,
+    merged_at: datetime | None,
+    merged_by_login: str | None = None,
+    merged_by_github_id: int | None = None,
 ) -> None:
     update_assignments_for_pull_request(
-        team_ids=[team_id], repository=repository, pr_number=pr_number, pr_state=pr_state, merged_at=merged_at
+        team_ids=[team_id],
+        repository=repository,
+        pr_number=pr_number,
+        pr_state=pr_state,
+        merged_at=merged_at,
+        merged_by=PullRequestMerger(login=merged_by_login, github_id=merged_by_github_id) if merged_by_login else None,
     )
 
 
@@ -50,6 +63,7 @@ def update_pull_request_assignments(payload: dict, pr_state: str | None) -> None
             pr_number=int(number),
             pr_state=pr_state,
             merged_at=merged_at,
+            merged_by=PullRequestMerger.from_github(pull_request.get("merged_by")),
         )
         _schedule_pull_request_state_reread(team_ids, repository, int(number), pull_request.get("html_url"))
     except (TypeError, ValueError):

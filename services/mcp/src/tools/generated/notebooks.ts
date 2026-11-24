@@ -58,6 +58,7 @@ const NotebooksAppUpdateSchema = () => {
                 version: true,
                 deleted: true,
                 variables: true,
+                restore_previous_app_release: true,
                 _create_in_folder: true,
             }).shape
         )
@@ -305,6 +306,7 @@ const NotebooksPartialUpdateSchema = () => {
         NotebooksPartialUpdateParams.omit({ project_id: true })
             .extend(
                 NotebooksPartialUpdateBody.omit({
+                    restore_previous_app_release: true,
                     app_draft: true,
                     app_published: true,
                     app_revision: true,
@@ -385,13 +387,16 @@ const notebooksRunCellInterrupt = (): ToolBase<
 
 const NotebooksRunCellResultSchema = () => {
     const NotebooksSqlV2RunsRetrieveParams = orvalSchemas.NotebooksSqlV2RunsRetrieveParams()
+    const NotebooksSqlV2RunsRetrieveQueryParams = orvalSchemas.NotebooksSqlV2RunsRetrieveQueryParams()
     return z.preprocess(
         normalizeParamAliases({ short_id: ['notebook_id', 'notebookId', 'shortId', 'notebook_short_id'] }),
-        NotebooksSqlV2RunsRetrieveParams.omit({ project_id: true }).extend({
-            short_id: NotebooksSqlV2RunsRetrieveParams.shape['short_id'].describe(
-                "The notebook's short_id, the short alphanumeric id in its URL (e.g. `aBcD1234`) that `notebooks-list` returns; not the notebook's UUID `id`."
-            ),
-        })
+        NotebooksSqlV2RunsRetrieveParams.omit({ project_id: true })
+            .extend(NotebooksSqlV2RunsRetrieveQueryParams.shape)
+            .extend({
+                short_id: NotebooksSqlV2RunsRetrieveParams.shape['short_id'].describe(
+                    "The notebook's short_id, the short alphanumeric id in its URL (e.g. `aBcD1234`) that `notebooks-list` returns; not the notebook's UUID `id`."
+                ),
+            })
     )
 }
 
@@ -406,6 +411,9 @@ const notebooksRunCellResult = (): ToolBase<
         const result = await context.api.request<Schemas.NotebookSQLV2RunStatusResponse>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/notebooks/${encodeURIComponent(String(params.short_id))}/sql_v2/runs/${encodeURIComponent(String(params.run_id))}/`,
+            query: {
+                node_id: params.node_id,
+            },
         })
         const filtered = omitResponseFields(result, ['result.media.*.data']) as typeof result
         return withInformationalResponse(

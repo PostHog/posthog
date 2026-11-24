@@ -6669,7 +6669,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             team=self.team,
             created_by=self.user,
             key="purple_button",
-            filters={"multivariate": {"variants": [{"foo": "bar"}]}},
+            filters={"multivariate": {"variants": [{"key": "purple", "rollout_percentage": 100}]}},
         )
 
         filtered_flags_list_boolean = self.client.get(f"/api/projects/@current/feature_flags?type=boolean")

@@ -3,7 +3,11 @@ from datetime import UTC, date, datetime, time, timedelta
 from uuid import uuid4
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from parameterized import parameterized
 
 from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery, Edge, Node, NodeType
@@ -13,7 +17,7 @@ from products.warehouse_suggestions.backend.facade.enums import (
     WarehouseSuggestionStatus,
 )
 from products.warehouse_suggestions.backend.logic.job import TeamRunStatus, build_context, run_team
-from products.warehouse_suggestions.backend.logic.reads import RollupDays
+from products.warehouse_suggestions.backend.logic.reads import ReadWindow, RollupDays, TeamReads, read_team_reads
 from products.warehouse_suggestions.backend.logic.rules import RULES
 from products.warehouse_suggestions.backend.models import WarehouseSuggestion, WarehouseSuggestionTeamConfig
 from products.warehouse_suggestions.backend.tests.factories import team_reads
@@ -29,10 +33,19 @@ DAILY_COUNT_COLUMNS = {
     "day": {"hogql": "DateTimeDatabaseField", "clickhouse": "DateTime64(6, 'UTC')"},
     "c": {"hogql": "IntegerDatabaseField", "clickhouse": "UInt64"},
 }
+STAGE_SPANS = (
+    "warehouse_suggestions.run_team.read_team_reads",
+    "warehouse_suggestions.run_team.build_context",
+    "warehouse_suggestions.run_team.evaluate_candidates",
+    "warehouse_suggestions.run_team.apply_run",
+)
 FULL_ROLLUP = RollupDays(days_with_data=RULES.window_days, recent_days_with_data=RULES.lifecycle.expire_after_days)
 
 
 class TestRunTeam(ClickhouseTestMixin, BaseTest):
+    def _reads(self) -> TeamReads:
+        return read_team_reads(self.team.pk, ReadWindow.ending(TODAY, RULES), RULES, FULL_ROLLUP)
+
     def _view(
         self, name: str, dag: DAG, *, materialized: bool = False, created_at: datetime = BEFORE_THE_WINDOW
     ) -> tuple[DataWarehouseSavedQuery, Node]:
@@ -82,9 +95,17 @@ class TestRunTeam(ClickhouseTestMixin, BaseTest):
             ],
         )
 
-        result = run_team(self.team.pk, run_id="run-1", today=TODAY, rollup_days=FULL_ROLLUP, now=NOW)
+        exporter = InMemorySpanExporter()
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+
+        with patch("products.warehouse_suggestions.backend.logic.job.tracer", provider.get_tracer(__name__)):
+            result = run_team(self.team.pk, run_id="run-1", load_reads=self._reads, now=NOW)
 
         assert result.status == TeamRunStatus.PROCESSED
+        assert {
+            span.name: (span.attributes or {}).get("team_id") for span in exporter.get_finished_spans()
+        } == dict.fromkeys(STAGE_SPANS, self.team.pk)
         assert sorted(
             WarehouseSuggestion.objects.for_team(self.team.pk).values_list("kind", "subject_id", "status")
         ) == sorted(
@@ -141,7 +162,7 @@ class TestRunTeam(ClickhouseTestMixin, BaseTest):
             status=status, asset_outcome=asset_outcome
         )
 
-        result = run_team(self.team.pk, run_id="run-1", today=TODAY, rollup_days=FULL_ROLLUP, now=NOW)
+        result = run_team(self.team.pk, run_id="run-1", load_reads=self._reads, now=NOW)
 
         config = WarehouseSuggestionTeamConfig.objects.get(team_id=self.team.pk)
         about_a_deleted_view.refresh_from_db()
