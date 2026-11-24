@@ -371,10 +371,8 @@ class TestOAuthTokenExchange(ProvisioningTestBase):
         assert replay.status_code == 400
         assert replay.json()["error"] == "invalid_grant"
 
-    @parameterized.expand([("partner", True), ("partner_flag_cleared", False)])
-    def test_refresh_issues_partner_lifetime_token(self, _name: str, is_provisioning_partner: bool) -> None:
+    def test_refresh_issues_partner_lifetime_token(self) -> None:
         first = self._request_bearer_token().json()
-        OAuthApplication.objects.filter(pk=self.partner.pk).update(is_provisioning_partner=is_provisioning_partner)
 
         res = self._refresh(first["refresh_token"])
 
@@ -382,6 +380,18 @@ class TestOAuthTokenExchange(ProvisioningTestBase):
         assert res.json()["expires_in"] == PARTNER_TOKEN_EXPIRY_SECONDS
         token = OAuthAccessToken.objects.get(token=res.json()["access_token"])
         assert token.expires <= timezone.now() + timedelta(seconds=PARTNER_TOKEN_EXPIRY_SECONDS)
+
+    def test_refresh_rejects_partner_whose_flag_was_cleared(self) -> None:
+        first = self._request_bearer_token().json()
+        OAuthApplication.objects.filter(pk=self.partner.pk).update(is_provisioning_partner=False)
+
+        res = self._refresh(first["refresh_token"])
+
+        assert res.status_code == 400
+        assert res.json()["error"] == "invalid_grant"
+        refresh_token = OAuthRefreshToken.objects.get(token=first["refresh_token"])
+        assert refresh_token.revoked is None
+        assert OAuthAccessToken.objects.filter(token=first["access_token"]).exists()
 
     def test_refresh_rejects_token_of_app_that_is_not_a_partner(self) -> None:
         app = OAuthApplication.objects.create(
