@@ -438,6 +438,63 @@ describe('a transactional email sent from code on the sandbox sender', () => {
         }
     })
 
+    describe('in a batch', () => {
+        const sendBatchFromCode = (payload: Record<string, unknown>) =>
+            supertest(app)
+                .post(`/api/projects/${world.team.id}/hog_flows/${hogFlow.id}/transactional_email/send/batch`)
+                .set({
+                    Authorization: `Bearer ${jwt.sign(
+                        { team_id: world.team.id, hog_flow_id: hogFlow.id, kind: 'code_send_batch' },
+                        hub.WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET,
+                        { audience: 'posthog:workflows:send_transactional_email', expiresIn: '2m' }
+                    )}`,
+                })
+                .send(payload)
+        const batchTo = (...recipients: string[]) => ({
+            send: sandboxSend(),
+            recipients: recipients.map((to) => ({ to, distinct_id: to, idempotency_key: `key-${to}` })),
+        })
+        const intakeJobIds = (): string[] =>
+            recordsAtKafka<{ job: { id: string } }>(hub.CDP_INTAKE_TRANSACTIONAL_EMAIL_TOPIC).map(({ job }) => job.id)
+
+        beforeEach(() => {
+            hub.CDP_INTAKE_KAFKA_ASYNC_TEAMS = String(world.team.id)
+        })
+
+        afterEach(() => {
+            hub.CDP_INTAKE_KAFKA_ASYNC_TEAMS = ''
+        })
+
+        it('refuses only the recipients outside the organization, and queues the members as sandbox sends', async () => {
+            const outsider = `other-${new UUIDT().toString()}@example.com`
+
+            const res = await sendBatchFromCode(batchTo(outsider, member))
+
+            expect(res.status).toEqual(200)
+            expect(res.body.results).toEqual([
+                {
+                    status: 422,
+                    body: { error: 'sandbox_recipient_not_member', invocation_id: expect.any(String) },
+                },
+                {
+                    status: 202,
+                    body: expect.objectContaining({ status: 'queued', sender_kind: 'email_sandbox' }),
+                },
+            ])
+            expect(intakeJobIds()).toEqual([res.body.results[1].body.invocation_id])
+        })
+
+        it('refuses the whole batch when the sandbox sender is paused', async () => {
+            await world.setTenant('PAUSED', new Date())
+
+            const res = await sendBatchFromCode(batchTo(member))
+
+            expect(res.status).toEqual(403)
+            expect(res.body).toEqual({ error: 'sandbox_sender_unavailable' })
+            expect(intakeJobIds()).toEqual([])
+        })
+    })
+
     const runLogs = (results: CyclotronJobInvocationResult[]): string[] =>
         results.flatMap((result) => result.logs).map((log) => log.message)
 

@@ -20,12 +20,15 @@ const citedShare = (row: SearchRow): number => (row.answers ? row.cited / row.an
  *  prompts that ran it most. */
 export const ContentAutopilotPromptsSearchTable = ({
     rows,
-    days,
+    dateFrom,
+    dateTo,
     branded,
     onOpenPrompt,
 }: {
     rows: SearchRow[]
-    days: number
+    /** The window of the report, so a row opens the same answers the report counted. */
+    dateFrom: string
+    dateTo: string
     branded: BrandedSegmentEnumApi
     onOpenPrompt: (promptId: string) => void
 }): JSX.Element => {
@@ -35,9 +38,9 @@ export const ContentAutopilotPromptsSearchTable = ({
             key: 'query',
             render: (_, row) => (
                 <ContentAutopilotCitationsLink
-                    lookup={{ kind: 'search', value: row.query, days, branded }}
+                    lookup={{ kind: 'search', value: row.query, dateFrom, dateTo, branded }}
                     source="overview-searches"
-                    className="block max-w-120 truncate font-semibold"
+                    className="block min-w-32 max-w-120 break-words font-semibold"
                     title={row.query}
                 >
                     {row.query}
@@ -47,6 +50,8 @@ export const ContentAutopilotPromptsSearchTable = ({
         {
             title: 'Prompts',
             key: 'prompts',
+            // A narrow card has no room for it next to the engine marks, and the expanded row lists the prompts.
+            className: 'hidden @lg/searches:table-cell',
             align: 'right',
             tooltip: 'Different prompts whose answers ran this search.',
             sorter: (a, b) => a.prompts - b.prompts,
@@ -71,37 +76,39 @@ export const ContentAutopilotPromptsSearchTable = ({
         },
     ]
     return (
-        <LemonTable
-            size="small"
-            embedded
-            dataSource={rows}
-            rowKey="query"
-            columns={columns}
-            expandable={{
-                noIndent: true,
-                expandedRowRender: (row) => (
-                    <div className="px-3 py-2" data-attr="content-autopilot-prompts-overview-search-prompts">
-                        <div className="text-xs text-muted mb-1">
-                            {row.prompts > row.top_prompts.length
-                                ? `Top ${row.top_prompts.length} of ${pluralize(row.prompts, 'prompt')} that ran this search`
-                                : 'Prompts that ran this search'}
+        <div className="@container/searches">
+            <LemonTable
+                size="small"
+                embedded
+                dataSource={rows}
+                rowKey="query"
+                columns={columns}
+                expandable={{
+                    noIndent: true,
+                    expandedRowRender: (row) => (
+                        <div className="px-3 py-2" data-attr="content-autopilot-prompts-overview-search-prompts">
+                            <div className="text-xs text-muted mb-1">
+                                {row.prompts > row.top_prompts.length
+                                    ? `Top ${row.top_prompts.length} of ${pluralize(row.prompts, 'prompt')} that ran this search`
+                                    : 'Prompts that ran this search'}
+                            </div>
+                            <ul className="m-0 flex flex-col gap-1">
+                                {row.top_prompts.map((prompt) => (
+                                    <li key={prompt.id}>
+                                        <Link
+                                            onClick={() => onOpenPrompt(prompt.id)}
+                                            data-attr="content-autopilot-prompts-overview-search-prompt"
+                                        >
+                                            {prompt.text}
+                                        </Link>
+                                    </li>
+                                ))}
+                            </ul>
                         </div>
-                        <ul className="m-0 flex flex-col gap-1">
-                            {row.top_prompts.map((prompt) => (
-                                <li key={prompt.id}>
-                                    <Link
-                                        onClick={() => onOpenPrompt(prompt.id)}
-                                        data-attr="content-autopilot-prompts-overview-search-prompt"
-                                    >
-                                        {prompt.text}
-                                    </Link>
-                                </li>
-                            ))}
-                        </ul>
-                    </div>
-                ),
-            }}
-            emptyState={`No web searches in the last ${days} days. Only some engines report the searches they run.`}
-        />
+                    ),
+                }}
+                emptyState="No web searches in this date range. Only some engines report the searches they run."
+            />
+        </div>
     )
 }

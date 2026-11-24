@@ -6,6 +6,7 @@ from products.warehouse_sources.sources.rudderstack._config import RudderStackSo
 from products.warehouse_sources.sources.rudderstack.canonical_descriptions import CANONICAL_DESCRIPTIONS
 from products.warehouse_sources.sources.rudderstack.rudderstack import (
     RudderStackResumeConfig,
+    missing_organization_token_message,
     probe_credentials,
     rudderstack_source,
     token_for_endpoint,
@@ -263,7 +264,8 @@ class RudderStackSource(ResumableSource[RudderStackSourceConfig, RudderStackResu
                         required=False,
                         secret=True,
                         placeholder="",
-                        caption="Optional. Audit logs require an organization Service Access Token and the RudderStack Enterprise plan.",
+                        caption="Optional. Audit logs and event usage require an organization Service Access Token. "
+                        "Audit logs also require the RudderStack Enterprise plan.",
                     ),
                     SourceFieldSelectConfig(
                         name="region",
@@ -283,7 +285,7 @@ class RudderStackSource(ResumableSource[RudderStackSourceConfig, RudderStackResu
         return {
             "401 Client Error": "RudderStack rejected the access token. Replace the invalid or expired token.",
             "403 Client Error": "RudderStack denied access to this table. Check the token permissions and account plan.",
-            "Add an organization Service Access Token": "Add an organization Service Access Token to sync audit logs.",
+            "Add an organization Service Access Token": "Add an organization Service Access Token to sync this table.",
             "RudderStack catalog exceeds": "The catalog exceeds the RudderStack 50-page API limit. Contact RudderStack support.",
         }
 
@@ -301,10 +303,17 @@ class RudderStackSource(ResumableSource[RudderStackSourceConfig, RudderStackResu
     ) -> list[SourceSchema]:
         return build_endpoint_schemas(
             ENDPOINTS,
-            {},
+            {name: endpoint.incremental_fields for name, endpoint in ENDPOINTS.items()},
             names,
+            merge_only=[name for name, endpoint in ENDPOINTS.items() if endpoint.incremental_fields],
             descriptions={name: description["description"] for name, description in CANONICAL_DESCRIPTIONS.items()},
-            should_sync_default={"audit_logs": False, "retl_connections": False, "retl_syncs": False},
+            should_sync_default={
+                "audit_logs": False,
+                "retl_connections": False,
+                "retl_syncs": False,
+                "regulations": False,
+                "event_metrics_usage": False,
+            },
         )
 
     def get_endpoint_permissions(
@@ -315,8 +324,8 @@ class RudderStackSource(ResumableSource[RudderStackSourceConfig, RudderStackResu
         api_version: str | None = None,
     ) -> dict[str, str | None]:
         return {
-            name: "Add an organization Service Access Token to sync audit logs."
-            if name == "audit_logs" and not config.organization_access_token
+            name: missing_organization_token_message(name)
+            if name in ENDPOINTS and ENDPOINTS[name].organization_token and not config.organization_access_token
             else None
             for name in endpoints
         }

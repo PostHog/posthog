@@ -738,11 +738,13 @@ migrations:
         description: Run all database migrations (ClickHouse, Postgres, async) in parallel
         env:
             DEBUG: '1'
+            CLICKHOUSE_MIGRATIONS_WITH_PROD_GRANTS: '1'
     migrations:clickhouse:
         cmd: bin/migrate --scope=clickhouse
         description: Initialize ClickHouse - run all ClickHouse migrations (and sync replicated schema)
         env:
             DEBUG: '1'
+            CLICKHOUSE_MIGRATIONS_WITH_PROD_GRANTS: '1'
         services:
             - clickhouse
     migrations:check:
@@ -1391,4 +1393,8 @@ environment:
     devbox:worktree:hook:
         bin_script: devbox-worktree-hook
         description: 'Start or stop the devbox of this worktree from an app create or remove hook'
+        hidden: true
+    migrate:clickhouse:with:prod:grants:
+        bin_script: migrate-clickhouse-with-prod-grants
+        description: 'Apply ClickHouse migrations, running recent ones with the prod migrations user grants'
         hidden: true

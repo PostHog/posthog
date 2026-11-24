@@ -366,9 +366,9 @@ class TestCompileHogQLToTrinoSQL:
         assert compiled.sql == (
             'SELECT "org_catalog"."posthog"."events_production"."event" '
             'FROM "org_catalog"."posthog"."events_production" '
-            'WHERE ("org_catalog"."posthog"."events_production"."event" = %(hogql_val_0)s)' + trino_limit_clause
+            'WHERE ("org_catalog"."posthog"."events_production"."event" = \'signup\')' + trino_limit_clause
         )
-        assert compiled.values == {"hogql_val_0": "signup"}
+        assert compiled.values == {}
         assert compiled.hogql == "SELECT event FROM events WHERE equals(event, 'signup')" + limit_clause
 
     @pytest.mark.django_db
@@ -492,7 +492,7 @@ class TestCompileHogQLToTrinoSQL:
         assert (compiled.sql, compiled.values) == (without_diagnostics.sql, without_diagnostics.values)
         assert (round_trip.sql, round_trip.values) == (compiled.sql, compiled.values)
         assert '"org_catalog"."posthog"."events_production"' in compiled.sql
-        assert "signup" in compiled.values.values()
+        assert "'signup'" in compiled.sql
         assert "translation_source" in compiled.hogql
 
     def test_fails_closed_without_a_ready_catalog(self) -> None:
@@ -542,8 +542,8 @@ class TestPreparedTrinoCompiler:
             ) as build_database,
         ):
             compiler = prepare_hogql_to_trino_compiler(team.pk, team=team)
-            first = compiler.compile(HogQLQuery(query="SELECT {value}", values={"value": "first"}))
-            second = compiler.compile(HogQLQuery(query="SELECT {value}", values={"value": "second"}))
+            first = compiler.compile(HogQLQuery(query="SELECT {value}", values={"value": "fir\0st"}))
+            second = compiler.compile(HogQLQuery(query="SELECT {value}", values={"value": "sec\0ond"}))
             groups = compiler.compile(HogQLQuery(query="SELECT index, key, properties.name FROM groups"))
             raw_groups = compiler.compile(HogQLQuery(query="SELECT key, updated_at FROM raw_groups"))
 
@@ -553,8 +553,8 @@ class TestPreparedTrinoCompiler:
         assert compiler.team_id == team.pk
         assert compiler.organization_id == str(team.organization_id)
         assert compiler.catalog_name == "org_catalog"
-        assert first.values == {"hogql_val_0": "first"}
-        assert second.values == {"hogql_val_0": "second"}
+        assert first.values == {"hogql_val_0": "fir\0st"}
+        assert second.values == {"hogql_val_0": "sec\0ond"}
         for result in (groups, raw_groups):
             assert '"org_catalog"."posthog"."groups_production"' in result.sql
             assert "group_key" in result.sql
