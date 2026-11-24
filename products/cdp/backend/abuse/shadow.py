@@ -1,6 +1,7 @@
 """Shadow mode: score saved destinations and transformations with Jev and report each verdict. Nothing is blocked."""
 
 import json
+import math
 from collections.abc import Iterable
 from dataclasses import replace
 from enum import StrEnum
@@ -192,9 +193,15 @@ def _thresholds(payload: dict[str, Any], team_id: int) -> Thresholds:
         try:
             if isinstance(payload[key], bool):
                 raise TypeError(f"not a number: {payload[key]!r}")
-            values[field] = float(payload[key])
+            value = float(payload[key])
         except (TypeError, ValueError, OverflowError):
             logger.warning("cdp_abuse_classifier_threshold_unreadable", team_id=team_id, key=key)
+            continue
+        # A weak rule threshold above 1 is the switch-off. Every other threshold is a probability.
+        if not 0 <= value <= (math.inf if field == "weak_rule_control" else 1):
+            logger.warning("cdp_abuse_classifier_threshold_out_of_range", team_id=team_id, key=key)
+            continue
+        values[field] = value
     try:
         return Thresholds(**values)
     except ValueError:
@@ -260,7 +267,7 @@ def _scoring_for(team: Team) -> _Scoring:
 def _hash_key(hog_function_id: str) -> str:
     # Versioned with the format of `_cache_entry`, so workers on the previous format do not overwrite these entries
     # during a deploy, and each function scores once more after it.
-    return f"cdp:abuse_classifier:content_hash:v2:{hog_function_id}"
+    return f"cdp:abuse_classifier:content_hash:v3:{hog_function_id}"
 
 
 def _backfill_scored_key(run_id: str, hog_function_id: str) -> str:
@@ -407,7 +414,7 @@ def score(hog_function: HogFunction) -> ScoredHogFunction:
 def _hides_internal_host(
     runtime_content: HogFunctionContent, content: HogFunctionContent, rule_hits: tuple[rules.Rule, ...]
 ) -> bool:
-    if not rules.WEAK_RULES & set(rule_hits):
+    if not rule_hits or not set(rule_hits) <= rules.WEAK_RULES:
         return False
     return not rules.internal_reference_hosts(runtime_content) <= rules.internal_reference_hosts(content)
 
@@ -473,17 +480,17 @@ def _cache_entry(
     hidden_internal_host: bool,
     enabled: bool,
 ) -> str:
-    """The model sees only the public content, and secret inputs change only the rule hits and the outbound call.
-    Keeping all three means a secret change that matches a rule or adds a call scores the function again, while the
-    cache holds nothing more about a secret value than the event does. Only the established tier changes whether a
-    moderate score alerts, so an account that enters or leaves it scores again on its next save. Enabling a function
-    that was scored while disabled reports it again, so a probe that starts running alerts as enabled. A secret input
-    that names an internal host the public content does not decides whether a weak rule alerts, so it is kept too.
-    An enabled entry without a hidden host carries no suffix, so entries that earlier releases wrote stay valid."""
+    """The model sees only the public content. Secret inputs change the rule hits, the outbound call, and whether
+    they name an internal host the public content does not, which decides whether a weak rule alerts. Keeping all
+    three means a secret change that can change the verdict scores the function again, while the cache holds nothing
+    more about a secret value than the event does. Only the established tier changes whether a moderate score alerts,
+    so an account that enters or leaves it scores again on its next save. Enabling a function that was scored while
+    disabled reports it again, so a probe that starts running alerts as enabled."""
     established = account_tier is AccountTier.ESTABLISHED
-    entry = f"{public_content_hash}:{','.join(rule_hits)}:{int(outbound_call)}:{int(established)}"
-    if hidden_internal_host:
-        entry = f"{entry}:hidden_internal_host"
+    entry = (
+        f"{public_content_hash}:{','.join(rule_hits)}:{int(outbound_call)}:{int(established)}"
+        f":{int(hidden_internal_host)}"
+    )
     return entry if enabled else f"{entry}:disabled"
 
 

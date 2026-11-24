@@ -210,7 +210,7 @@ class TestAbuseClassification(AbuseClassificationTestCase):
                 False,
             ),
             (
-                "invalid_weak_rule_control_threshold_keeps_the_other_thresholds",
+                "unreadable_weak_rule_control_threshold_keeps_the_other_thresholds",
                 SCORES,
                 {"alert_threshold": 0.3, "block_threshold": 0.75, "weak_rule_control_threshold": "high"},
                 RULE_FREE_HOG,
@@ -218,6 +218,16 @@ class TestAbuseClassification(AbuseClassificationTestCase):
                 True,
                 True,
             ),
+            (
+                "negative_weak_rule_control_threshold_keeps_the_other_thresholds",
+                SCORES,
+                {"alert_threshold": 0.3, "block_threshold": 0.75, "weak_rule_control_threshold": -0.1},
+                RULE_FREE_HOG,
+                [],
+                True,
+                True,
+            ),
+            ("block_threshold_from_payload_alone", SCORES, {"block_threshold": 0.75}, RULE_FREE_HOG, [], True, True),
             (
                 "internal_host_reference_alerts_when_a_gated_risk_reaches_the_alert_threshold",
                 SCORES,
@@ -604,6 +614,19 @@ class TestAbuseClassification(AbuseClassificationTestCase):
         assert event["properties"]["rule_hits"] == ["internal_host_reference"]
         assert event["properties"]["would_alert"] is would_alert
 
+    def test_a_secret_rotation_that_hides_an_internal_host_reports_the_alert(self) -> None:
+        self.gateway.response = httpx.Response(200, json=decision_payload(CLEARLY_NORMAL_SCORES))
+        hog_function = self.create_destination(type="transformation", hog=LOCAL_URL_FILTER + "return event")
+
+        hog_function.inputs = {
+            **(hog_function.inputs or {}),
+            "api_key": {"value": LOCAL_URL_TEMPLATE.format(host="10.0.0.1")},
+        }
+        with self.committed():
+            hog_function.save()
+
+        assert [event["properties"]["would_alert"] for event in self.captured_events()] == [False, True]
+
     @parameterized.expand(
         [
             (
@@ -780,18 +803,6 @@ class TestAbuseClassification(AbuseClassificationTestCase):
                 },
                 2,
                 {"hog": "print(event)"},
-            ),
-            (
-                "secret_input_that_hides_another_internal_host",
-                {
-                    "inputs": {
-                        "url": {"value": "https://hooks.example.com/orders"},
-                        "api_key": {"value": LOCAL_URL_TEMPLATE.format(host="10.0.0.1")},
-                        "body": {"value": {"bytecode": "https://collector.example.net"}},
-                    }
-                },
-                2,
-                {"type": "transformation", "hog": LOCAL_URL_FILTER + "return event"},
             ),
         ]
     )
