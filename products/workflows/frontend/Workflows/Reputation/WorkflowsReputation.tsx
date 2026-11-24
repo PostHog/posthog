@@ -432,8 +432,10 @@ function NextAllowance({ allowance }: { allowance: EmailSendingAllowanceApi }): 
             <div className="text-lg font-semibold">{humanFriendlyNumber(next.emails_per_day)} emails a day</div>
             <LemonProgress percent={(next.days_reached / Math.max(next.days_required, 1)) * 100} className="mt-1" />
             <div className="text-xs text-secondary mt-1">
-                {next.days_reached} of {next.days_required} days with at least {humanFriendlyNumber(next.daily_target)}{' '}
-                emails{waitUntil && `, earliest ${waitUntil.format('MMM D')}`}
+                <span>
+                    {`${next.days_reached} of ${next.days_required} days with at least ${humanFriendlyNumber(next.daily_target)} emails`}
+                </span>
+                {waitUntil && <span>{`, can go up from ${waitUntil.format('MMM D')}`}</span>}
             </div>
         </div>
     )
@@ -484,7 +486,7 @@ function RecentRates({ rates, tier }: { rates: EmailSendingRecentRatesApi; tier:
         <div className="space-y-1" data-attr="workflows-sending-allowance-recent-rates">
             <MetricLabel
                 label={`Last ${rates.window_days} days`}
-                tooltip={`The daily check can lower your allowance when either rate goes over its limit over the last ${rates.window_days} days: ${formatRate(rates.max_bounce_rate)} for bounces, ${formatRate(rates.max_complaint_rate)} for spam complaints. The rates further down this page cover 30 days, so they can look fine while these do not. Based on ${pluralize(rates.emails_sent, 'email')}.`}
+                tooltip={`Based on ${pluralize(rates.emails_sent, 'email')}. The daily check can lower your allowance when either rate goes over its limit over the last ${rates.window_days} days: ${formatRate(rates.max_bounce_rate)} for bounces, ${formatRate(rates.max_complaint_rate)} for spam complaints. The rates further down this page cover 30 days, so they can look fine while these do not.`}
             />
             <RecentRateRow
                 label="Bounces"
@@ -520,7 +522,7 @@ function AllowanceChanges({ changes }: { changes: readonly EmailSendingAllowance
     if (!changes?.length) {
         return null
     }
-    const hidden = showAll ? 0 : changes.length - 1
+    const earlierCount = changes.length - 1
     return (
         <div className="mt-4 space-y-1" data-attr="workflows-sending-allowance-changes">
             <MetricLabel
@@ -541,15 +543,15 @@ function AllowanceChanges({ changes }: { changes: readonly EmailSendingAllowance
                     </span>
                 </div>
             ))}
-            {hidden > 0 && (
+            {earlierCount > 0 && (
                 <LemonButton
                     type="tertiary"
                     size="xsmall"
                     noPadding
-                    onClick={() => setShowAll(true)}
-                    data-attr="workflows-sending-allowance-changes-show-earlier"
+                    onClick={() => setShowAll(!showAll)}
+                    data-attr="workflows-sending-allowance-changes-toggle-earlier"
                 >
-                    Show {hidden} earlier
+                    {showAll ? 'Hide earlier changes' : `Show ${pluralize(earlierCount, 'earlier change')}`}
                 </LemonButton>
             )}
         </div>
@@ -565,8 +567,13 @@ function SendingAllowanceCard({ allowance }: { allowance: EmailSendingAllowanceA
             <div className="flex flex-wrap items-center justify-between gap-2">
                 <h3 className="mb-0 flex items-center gap-1">
                     Sending allowance
-                    <Tooltip title="Every project shares PostHog's sending infrastructure, so new senders start with a small daily allowance that grows with a clean sending record. Emails above the allowance are not dropped, they are sent later.">
-                        <IconInfo className="text-secondary text-base" />
+                    <Tooltip
+                        openOnClick
+                        title="Every project shares PostHog's sending infrastructure, so new senders start with a small daily allowance that grows with a clean sending record. Emails above the allowance are not dropped, they are sent later."
+                    >
+                        <button type="button" aria-label="About the sending allowance" className="inline-flex">
+                            <IconInfo className="text-secondary text-base" />
+                        </button>
                     </Tooltip>
                 </h3>
                 {canRequestSendingTierIncrease && (
