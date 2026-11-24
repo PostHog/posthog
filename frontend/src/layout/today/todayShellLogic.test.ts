@@ -43,7 +43,7 @@ describe('todayShellLogic', () => {
         ['/project/1/data-management/destinations', 'products', true],
         ['/project/1/sql', 'warehouse', true],
         ['/project/1/warehouse', 'warehouse', true],
-        ['/project/1/data-management/sources/abc/schemas', 'warehouse', true],
+        ['/project/1/data-management/sources/abc/schemas', 'products', true],
         ['/project/1/data-warehouse/new-source', 'warehouse', true],
         ['/project/1/data-warehouse/connect', 'warehouse', true],
         ['/project/1/data-warehouse/connect-destination', 'products', true],

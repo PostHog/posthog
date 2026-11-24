@@ -74,7 +74,7 @@ describe('todayWarehouseItems', () => {
     test.each([
         ['/sql', true],
         ['/data-catalog', true],
-        ['/data-management/sources', true],
+        ['/data-management/sources', false],
         ['/sql?open_query=abc', true],
         ['/etl', false],
         ['/data-management/destinations?tab=all', false],
