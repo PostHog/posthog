@@ -87,6 +87,25 @@ class TestUpdateTaskRunStatusActivity:
             assert test_task_run.completed_at is None
 
     @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize(
+        "status,agent_status_after",
+        [
+            pytest.param(TaskRun.Status.IN_PROGRESS, None, id="a_starting_run_has_no_agent_yet"),
+            pytest.param(TaskRun.Status.COMPLETED, TaskRun.AgentStatus.READY, id="a_finished_run_keeps_it"),
+        ],
+    )
+    def test_only_a_start_clears_the_agent_status(
+        self, activity_environment, test_task_run, status, agent_status_after
+    ):
+        TaskRun.objects.filter(id=test_task_run.id).update(agent_status=TaskRun.AgentStatus.READY)
+
+        input_data = UpdateTaskRunStatusInput(run_id=str(test_task_run.id), status=status)
+        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+
+        test_task_run.refresh_from_db()
+        assert test_task_run.agent_status == agent_status_after
+
+    @pytest.mark.django_db(transaction=True)
     def test_cancelled_run_is_not_resurrected_by_a_late_workflow_completion(self, activity_environment, test_task_run):
         # A run cancelled out of band (for example on owner deactivation) must stay
         # cancelled even if its own workflow finishes and reports completed afterward.

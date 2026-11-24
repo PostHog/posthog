@@ -24,13 +24,24 @@ from products.access_control.backend.facade.api import valid_role_member_user_id
 
 from .. import logic, weekly_digest, weekly_digest_delivery
 from ..indexed_embedding import DOCUMENT_EMBEDDINGS_BUFFER_SHARDED_TABLE, EMBEDDING_TABLES
-from ..logic import built_in_filters, external_references, github_external_references, rules, team_flags
+from ..logic import (
+    built_in_filters,
+    external_references,
+    github_external_references,
+    rules,
+    sentry_migration,
+    team_flags,
+)
 from ..logic.issue_summary_config import ISSUE_SUMMARY_FLAG
 from ..logic.issue_tags import (
     enabled as issue_tag_enabled,
     gate as issue_tag_gate,
     reader as issue_tag_reader,
     rules as issue_tag_rules,
+)
+from ..logic.sentry_migration import (
+    client as sentry_client,
+    errors as sentry_migration_errors,
 )
 from ..models import (
     ErrorTrackingIssue,
@@ -55,6 +66,8 @@ IssueTagRuleFiltersError = issue_tag_rules.IssueTagRuleFiltersError
 IssueTagRuleLimitError = issue_tag_rules.IssueTagRuleLimitError
 IssueTagsDisabledError = issue_tag_gate.IssueTagsDisabledError
 UnknownBuiltInFilterError = built_in_filters.UnknownBuiltInFilterError
+SentryApiError = sentry_client.SentryApiError
+SentryMigrationSelectionError = sentry_migration_errors.SentryMigrationSelectionError
 
 SOURCE_MAPS_DOCS_URL = contracts.SOURCE_MAPS_DOCS_URL
 
@@ -733,6 +746,25 @@ def list_built_in_filters(team_id: int) -> list[contracts.ErrorTrackingBuiltInFi
 
 def set_built_in_filter_enabled(team_id: int, key: str, *, enabled: bool) -> contracts.ErrorTrackingBuiltInFilter:
     return _to_built_in_filter(built_in_filters.set_built_in_filter_enabled(team_id, key, enabled=enabled))
+
+
+def list_sentry_projects(connection: contracts.SentryConnection) -> list[contracts.SentryProject]:
+    return sentry_migration.list_sentry_projects(connection)
+
+
+def preview_sentry_migration(
+    team_id: int, connection: contracts.SentryConnection, project: contracts.SentryProjectRef
+) -> list[contracts.SentryMigrationItem]:
+    return sentry_migration.preview_sentry_migration(team_id, connection, project)
+
+
+def apply_sentry_migration(
+    team_id: int,
+    connection: contracts.SentryConnection,
+    project: contracts.SentryProjectRef,
+    item_ids: list[str],
+) -> contracts.SentryMigrationResult:
+    return sentry_migration.apply_sentry_migration(team_id, connection, project, item_ids)
 
 
 def _to_bypass_rule(rule) -> contracts.ErrorTrackingBypassRule:

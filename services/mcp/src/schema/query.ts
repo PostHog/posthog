@@ -71,12 +71,15 @@ const HogQLFilters = z.object({
     filterTestAccounts: z.boolean().optional(),
 })
 
-const ChartAxis = z.object({
+// The chart objects keep keys they do not declare. An agent sends back the chart a cell or
+// insight already holds, so a key left out here, such as a conditional formatting rule, would
+// otherwise be stripped and deleted on save.
+const ChartAxis = z.looseObject({
     column: z.string().describe('Name of a column returned by the SQL query.'),
     settings: z
-        .object({
+        .looseObject({
             formatting: z
-                .object({
+                .looseObject({
                     style: z.enum(['none', 'number', 'short', 'percent']).optional(),
                     decimalPlaces: z.number().optional(),
                     prefix: z.string().optional(),
@@ -85,7 +88,7 @@ const ChartAxis = z.object({
                 .optional()
                 .describe('Display formatting for this axis, such as percent, decimals, prefix, or suffix.'),
             display: z
-                .object({
+                .looseObject({
                     label: z.string().optional(),
                     displayType: z.enum(['auto', 'line', 'bar', 'area']).optional(),
                     yAxisPosition: z.enum(['left', 'right']).optional(),
@@ -95,7 +98,7 @@ const ChartAxis = z.object({
         .optional(),
 })
 
-const ChartSettings = z.object({
+const ChartSettings = z.looseObject({
     xAxis: ChartAxis.optional().describe('Column used as the X axis, usually a time bucket or category.'),
     yAxis: z
         .array(ChartAxis)
@@ -113,7 +116,7 @@ const ChartSettings = z.object({
     stackBars100: z.boolean().optional(),
 })
 
-const TableSettings = z.object({
+const TableSettings = z.looseObject({
     columns: z.array(ChartAxis).optional().describe('Columns to display and their order.'),
     pinnedColumns: z.array(z.string()).optional(),
     transpose: z.boolean().optional(),

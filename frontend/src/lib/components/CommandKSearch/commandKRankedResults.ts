@@ -15,13 +15,23 @@ import {
     serverOnlyRank,
     tokenTypos,
 } from './commandKRanking'
-import type { CommandKRow, CommandKSection } from './commandKSections'
+import type { CommandKRow, CommandKSection, CommandKSectionKey } from './commandKSections'
 import { RESULTS_LIMIT } from './commandKSources'
 
 const BEST_MATCHES_LIMIT = 3
 const GROUP_LIMIT = 3
 const FLAT_LIST_LIMIT = 8
-const LOCAL_GROUPS = ['products', 'persons', 'settings', 'accounts']
+const LOCAL_GROUPS = ['products', 'sidebar', 'persons', 'settings', 'accounts']
+const ROW_SECTIONS = new Set<string>([
+    'results',
+    'persons',
+    'settings',
+    'accounts',
+    'sidebar',
+    'people',
+    'data-management',
+    'health',
+])
 
 interface RankedItem {
     item: SearchItem
@@ -38,6 +48,9 @@ function groupLabel(groupKey: string): string {
     }
     if (groupKey === 'settings') {
         return 'Settings'
+    }
+    if (groupKey === 'sidebar') {
+        return 'Sidebar'
     }
     return capitalizeFirstLetter(pluralTypeName(getItemTypeDisplayName(groupKey) ?? groupKey.replace(/_/g, ' ')))
 }
@@ -108,13 +121,7 @@ const itemRow = (
     kind: 'item',
     key: `${section}/${item.id}`,
     item,
-    section:
-        item.category === 'results' ||
-        item.category === 'persons' ||
-        item.category === 'settings' ||
-        item.category === 'accounts'
-            ? item.category
-            : 'products',
+    section: ROW_SECTIONS.has(item.category) ? (item.category as CommandKSectionKey) : 'products',
     highlightWords,
     ranked: true,
     showType,
@@ -229,6 +236,7 @@ interface RankedResultsInput {
     highlightWords: string[]
     results: SearchItem[]
     products: SearchItem[]
+    sidebar?: SearchItem[]
     persons?: SearchItem[]
     settings?: SearchItem[]
     unrankedSettings?: SearchItem[]
@@ -243,6 +251,7 @@ export function buildRankedResults({
     highlightWords,
     results,
     products,
+    sidebar = [],
     persons = [],
     settings = [],
     unrankedSettings = [],
@@ -254,6 +263,7 @@ export function buildRankedResults({
     const candidates: RankedItem[] = [
         ...rankItems(results, query, groupKeyFor),
         ...rankItems(products, query, () => 'products'),
+        ...rankItems(sidebar, query, () => 'sidebar'),
         ...rankItems(persons, query, () => 'persons'),
         ...rankItems(settings, query, () => 'settings'),
         ...rankItems(accounts, query, () => 'accounts'),

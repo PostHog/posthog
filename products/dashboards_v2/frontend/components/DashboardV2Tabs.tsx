@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconPencil, IconPlus, IconTrash } from '@posthog/icons'
+import { IconArrowLeft, IconArrowRight, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 import {
     Button,
     ContextMenu,
@@ -21,10 +21,32 @@ interface TabDraft {
     title: string
 }
 
+interface TabInsert {
+    id: string
+    side: 'before' | 'after'
+}
+
 export function DashboardV2Tabs(): JSX.Element | null {
     const { dashboard, activeTab, hasPermission, dropTarget, disabledReasonFor } = useValues(dashboardV2Logic)
     const { setActiveTab, applyDashboardEdit } = useActions(dashboardV2Logic)
     const [draft, setDraft] = useState<TabDraft | null>(null)
+    const [draggedId, setDraggedId] = useState<string | null>(null)
+    const [insert, setInsert] = useState<TabInsert | null>(null)
+    const canMove = hasPermission('moveTab')
+    const tabIds = dashboard.tabs.map((tab) => tab.id)
+
+    const endDrag = (): void => {
+        setDraggedId(null)
+        setInsert(null)
+    }
+
+    const dropTab = (): void => {
+        if (draggedId !== null && insert !== null) {
+            const before = insert.side === 'before' ? insert.id : (tabIds[tabIds.indexOf(insert.id) + 1] ?? null)
+            applyDashboardEdit({ edit: 'moveTab', id: draggedId, before })
+        }
+        endDrag()
+    }
 
     const renameDisabledReason = disabledReasonFor('renameTab')
     const addDisabledReason = disabledReasonFor('addTab')
@@ -56,7 +78,7 @@ export function DashboardV2Tabs(): JSX.Element | null {
         <div className="flex items-center gap-2 border-b">
             <Tabs value={activeTab.id} onValueChange={(value) => setActiveTab(String(value))}>
                 <TabsList variant="line" data-attr="dashboard-v2-tabs">
-                    {dashboard.tabs.map((tab) => {
+                    {dashboard.tabs.map((tab, position) => {
                         if (draft?.id === tab.id) {
                             return (
                                 <Input
@@ -71,6 +93,10 @@ export function DashboardV2Tabs(): JSX.Element | null {
                                     onChange={(event) => setDraft({ id: tab.id, title: event.target.value })}
                                     onBlur={commitRename}
                                     onKeyDown={(event) => {
+                                        // The tab list moves focus on these keys, which would blur and end the rename.
+                                        if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
+                                            event.stopPropagation()
+                                        }
                                         if (event.key === 'Enter') {
                                             commitRename()
                                         } else if (event.key === 'Escape') {
@@ -81,19 +107,63 @@ export function DashboardV2Tabs(): JSX.Element | null {
                             )
                         }
                         const isDropTarget = dropTarget?.grid === tab.id && tab.id !== activeTab.id
+                        const insertClass =
+                            insert?.id === tab.id ? `DashboardV2__tab--insert-${insert.side}` : undefined
+                        const moves = [
+                            {
+                                key: 'left',
+                                label: 'Move left',
+                                Icon: IconArrowLeft,
+                                disabled: position === 0,
+                                before: tabIds[position - 1] ?? null,
+                            },
+                            {
+                                key: 'right',
+                                label: 'Move right',
+                                Icon: IconArrowRight,
+                                disabled: position === tabIds.length - 1,
+                                before: tabIds[position + 2] ?? null,
+                            },
+                        ]
                         // A tile dropped on a tab moves to that tab; the drag looks for `data-dv2-tab`.
                         const trigger = (
                             <TabsTrigger
                                 key={tab.id}
                                 value={tab.id}
                                 data-dv2-tab={tab.id === activeTab.id ? undefined : tab.id}
-                                className={isDropTarget ? 'DashboardV2__tab--drop-target' : undefined}
+                                className={isDropTarget ? 'DashboardV2__tab--drop-target' : insertClass}
                                 onDoubleClick={() => startRename(tab.id, tab.title)}
+                                draggable={canMove}
+                                onDragStart={(event) => {
+                                    event.dataTransfer.effectAllowed = 'move'
+                                    event.dataTransfer.setData('text/plain', tab.title)
+                                    setDraggedId(tab.id)
+                                }}
+                                onDragOver={(event) => {
+                                    if (draggedId === null) {
+                                        return
+                                    }
+                                    if (tab.id === draggedId) {
+                                        setInsert(null)
+                                        return
+                                    }
+                                    event.preventDefault()
+                                    const rect = event.currentTarget.getBoundingClientRect()
+                                    const side = event.clientX < rect.left + rect.width / 2 ? 'before' : 'after'
+                                    if (insert?.id !== tab.id || insert.side !== side) {
+                                        setInsert({ id: tab.id, side })
+                                    }
+                                }}
+                                onDrop={(event) => {
+                                    event.preventDefault()
+                                    dropTab()
+                                }}
+                                onDragEnd={endDrag}
                             >
                                 {tab.title}
                             </TabsTrigger>
                         )
-                        if (!hasPermission('renameTab') && !hasPermission('removeTab')) {
+                        if (!hasPermission('renameTab') && !hasPermission('removeTab') && !canMove) {
                             return trigger
                         }
                         return (
@@ -109,6 +179,20 @@ export function DashboardV2Tabs(): JSX.Element | null {
                                         <IconPencil />
                                         Rename
                                     </ContextMenuItem>
+                                    {canMove &&
+                                        moves.map(({ key, label, Icon, disabled, before }) => (
+                                            <ContextMenuItem
+                                                key={key}
+                                                data-attr={`dashboard-v2-move-tab-${key}`}
+                                                disabled={disabled}
+                                                onClick={() =>
+                                                    applyDashboardEdit({ edit: 'moveTab', id: tab.id, before })
+                                                }
+                                            >
+                                                <Icon />
+                                                {label}
+                                            </ContextMenuItem>
+                                        ))}
                                     <ContextMenuItem
                                         variant="destructive"
                                         data-attr="dashboard-v2-delete-tab"
