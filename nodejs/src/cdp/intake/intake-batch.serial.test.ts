@@ -27,7 +27,7 @@ import {
 import { CyclotronJobInvocation } from '../types'
 import { EncryptedFields } from '../utils/encryption-utils'
 import { IntakeBatchServices, SHADOW_COPY_MAX_AGE_MS, insertIntakeBatch } from './intake-batch'
-import { IntakeOutput, IntakeProduceOutcome, IntakeProducer } from './intake-producer'
+import { IntakeOutput, IntakeProducer } from './intake-producer'
 import { encodeIntakeMessage } from './message'
 import { keyedRunId } from './run-intake'
 
@@ -205,84 +205,57 @@ describe('insertIntakeBatch', () => {
         ])
     })
 
-    const produceSealed = async (
-        contentState: Record<string, unknown>,
-        output?: IngestionOutput
-    ): Promise<{ id: string; produced: Buffer; outcome: IntakeProduceOutcome }> => {
-        const sealing = createInvocationSanitizer({
-            CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '',
-            CDP_SEAL_TRANSACTIONAL_EMAIL_STATE: true,
-            CDP_SEALED_STATE_KEYS,
-            ENCRYPTION_SALT_KEYS,
-        })
-        let produced: Buffer | undefined
-        const topic = new IngestionOutputs({
-            [CDP_INTAKE_TRANSACTIONAL_EMAIL_OUTPUT]: {
-                ...recorder(CDP_INTAKE_TRANSACTIONAL_EMAIL_OUTPUT),
-                produce: (message) => {
-                    produced = message.value as Buffer
-                    return output ? output.produce(message) : Promise.resolve()
-                },
-            },
-        })
-        const run = {
-            id: new UUIDT().toString(),
-            teamId: 7,
-            functionId: FLOW_ID,
-            queue: 'email',
-            queuePriority: 0,
-            state: {
-                event: {
-                    uuid: new UUIDT().toString(),
-                    event: '$transactional_email',
-                    properties: { to: 'ada@example.com' },
-                },
-                ...contentState,
-                actionStepCount: 0,
-            },
-        } as CyclotronJobInvocation
-
-        const outcome = await new IntakeProducer(
-            topic as IngestionOutputs<IntakeOutput>,
-            undefined,
-            sealing.seal
-        ).produce({ kind: 'transactional-email', invocation: run, fingerprint: 'fingerprint-a' }, 'async')
-        return { id: run.id, produced: produced!, outcome }
-    }
-
-    it('carries an encrypted send from the producer to Postgres, and still writes its recipient', async () => {
-        const code = 'fake-login-code-482913'
-        const { id, produced } = await produceSealed({ variables: { code } })
-
-        await insertIntakeBatch([kafkaMessage(produced)], services, OPTIONS)
-
-        expect(produced.toString()).not.toContain(code)
-        const [job] = await storedJobs([id])
-        expect(JSON.stringify(job.state)).not.toContain(code)
-        expect(job.state.sealed).toEqual(expect.any(String))
-        expect(emailStatuses()).toEqual([expect.objectContaining({ message_id: id, recipient: 'ada@example.com' })])
-    })
-
-    it('stores the file size of an encrypted send with files, whose files the token hides', async () => {
-        const attachment = (sizeBytes: number, sha: string): Record<string, unknown> => ({
-            filename: 'invoice.pdf',
-            contentType: 'application/pdf',
-            sizeBytes,
-            sha256: sha.repeat(64),
-        })
+    const sealedSendThroughKafka = async (
+        contentState: Record<string, unknown>
+    ): Promise<{ id: string; delivered: Message[] }> => {
         const topicName = createKafkaTestTopicName(KAFKA_CDP_INTAKE_TRANSACTIONAL_EMAIL)
-        await ensureKafkaTopics([topicName])
-        const producer = await KafkaProducerWrapper.create(undefined)
-        const consumer = new KafkaConsumer(
-            { topic: topicName, groupId: `intake-read-${topicName}`, autoCommit: false, autoOffsetStore: false },
-            { 'auto.offset.reset': 'earliest' } as never
-        )
+        let producer: KafkaProducerWrapper | undefined
+        let consumer: KafkaConsumer | undefined
+        let giveUp: NodeJS.Timeout | undefined
+        let roundTripFailed = true
         try {
-            const output = new SingleIngestionOutput('intake-file-bytes-test', topicName, producer, 'test')
-            const { id, outcome } = await produceSealed(
-                { send: { attachments: [attachment(700, 'a'), attachment(300, 'b')] } },
-                output
+            await ensureKafkaTopics([topicName])
+            producer = await KafkaProducerWrapper.create(undefined)
+            consumer = new KafkaConsumer(
+                { topic: topicName, groupId: `intake-read-${topicName}`, autoCommit: false, autoOffsetStore: false },
+                { 'auto.offset.reset': 'earliest' } as never
             )
+            const sealing = createInvocationSanitizer({
+                CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '',
+                CDP_SEAL_TRANSACTIONAL_EMAIL_STATE: true,
+                CDP_SEALED_STATE_KEYS,
+                ENCRYPTION_SALT_KEYS,
+            })
+            const topic = new IngestionOutputs({
+                [CDP_INTAKE_TRANSACTIONAL_EMAIL_OUTPUT]: new SingleIngestionOutput(
+                    'intake-test',
+                    topicName,
+                    producer,
+                    'test'
+                ),
+            })
+            const run = {
+                id: new UUIDT().toString(),
+                teamId: 7,
+                functionId: FLOW_ID,
+                queue: 'email',
+                queuePriority: 0,
+                state: {
+                    event: {
+                        uuid: new UUIDT().toString(),
+                        event: '$transactional_email',
+                        properties: { to: 'ada@example.com' },
+                    },
+                    ...contentState,
+                    actionStepCount: 0,
+                },
+            } as CyclotronJobInvocation
+
+            const outcome = await new IntakeProducer(
+                topic as IngestionOutputs<IntakeOutput>,
+                undefined,
+                sealing.seal
+            ).produce({ kind: 'transactional-email', invocation: run, fingerprint: 'fingerprint-a' }, 'async')
             expect(outcome).toBe('acked')
             await producer.flush()
 
@@ -294,26 +267,55 @@ describe('insertIntakeBatch', () => {
                 }
                 return Promise.resolve()
             })
-
-            // Bounded inside the test, so a message Kafka never delivers fails here and the finally block still
-            // closes the consumer, the producer and the topic.
-            let giveUp: NodeJS.Timeout | undefined
+            // Bounded here, so a message Kafka never delivers fails with its own error and the cleanup still runs.
             const nothingDelivered = new Promise<never>((_, reject) => {
                 giveUp = setTimeout(() => reject(new Error('Kafka delivered nothing in 30 s')), 30_000)
             })
-            try {
-                await insertIntakeBatch(await Promise.race([delivered, nothingDelivered]), services, OPTIONS)
-            } finally {
-                clearTimeout(giveUp)
-            }
-
-            const [job] = await storedJobs([id])
-            expect(job.fileBytes).toBe('1000')
+            const batch = await Promise.race([delivered, nothingDelivered])
+            roundTripFailed = false
+            return { id: run.id, delivered: batch }
         } finally {
-            await consumer.disconnect()
-            await producer.disconnect()
-            await deleteKafkaTopics([topicName])
+            clearTimeout(giveUp)
+            // The topic goes last, once both clients have let go of it, and no failed close skips another.
+            const closed = await Promise.allSettled([consumer, producer].map(async (client) => client?.disconnect()))
+            const deleted = await Promise.allSettled([deleteKafkaTopics([topicName])])
+            const cleanupErrors = [...closed, ...deleted].flatMap((result) =>
+                result.status === 'rejected' ? [result.reason] : []
+            )
+            if (cleanupErrors.length && !roundTripFailed) {
+                throw new AggregateError(cleanupErrors, 'Kafka cleanup failed')
+            }
         }
+    }
+
+    it('carries an encrypted send from the producer to Postgres, and still writes its recipient', async () => {
+        const code = 'fake-login-code-482913'
+        const { id, delivered } = await sealedSendThroughKafka({ variables: { code } })
+
+        await insertIntakeBatch(delivered, services, OPTIONS)
+
+        expect(delivered.map((message) => message.value!.toString())).toEqual([expect.not.stringContaining(code)])
+        const [job] = await storedJobs([id])
+        expect(JSON.stringify(job.state)).not.toContain(code)
+        expect(job.state.sealed).toEqual(expect.any(String))
+        expect(emailStatuses()).toEqual([expect.objectContaining({ message_id: id, recipient: 'ada@example.com' })])
+    }, 60_000)
+
+    it('stores the file size of an encrypted send with files, whose files the token hides', async () => {
+        const attachment = (sizeBytes: number, sha: string): Record<string, unknown> => ({
+            filename: 'invoice.pdf',
+            contentType: 'application/pdf',
+            sizeBytes,
+            sha256: sha.repeat(64),
+        })
+        const { id, delivered } = await sealedSendThroughKafka({
+            send: { attachments: [attachment(700, 'a'), attachment(300, 'b')] },
+        })
+
+        await insertIntakeBatch(delivered, services, OPTIONS)
+
+        const [job] = await storedJobs([id])
+        expect(job.fileBytes).toBe('1000')
     }, 60_000)
 
     it('writes the queued status of a keyed send, dated by its trigger event', async () => {
