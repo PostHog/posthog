@@ -10,7 +10,6 @@ from pathlib import Path
 
 from . import (
     __doc__ as PACKAGE_DOC,
-    served_skills,
     skill_builder,
 )
 
@@ -105,10 +104,6 @@ def _run_init(builder: skill_builder.SkillBuilder, args: argparse.Namespace, par
     try:
         skill_file = builder.init_skill(args.product, args.name, template=args.j2)
         print(f"Created {skill_file.relative_to(REPO_ROOT)}")
-        print(
-            f'Say who it is for: add "{args.name}": {{}} to {served_skills.SERVED_SKILLS_FILE} for a customer\'s agent, '
-            f"or `audience: {served_skills.INTERNAL_AUDIENCE}` under `metadata` in its frontmatter for a PostHog job or for staff."
-        )
     except (FileNotFoundError, FileExistsError) as e:
         print(f"ERROR: {e}", file=sys.stderr)
         sys.exit(1)

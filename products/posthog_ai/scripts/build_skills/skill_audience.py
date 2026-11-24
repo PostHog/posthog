@@ -38,7 +38,7 @@ def _skill_audience(skill: skill_manifest.DiscoveredSkill) -> str | None:
     return None if audience is None else str(audience)
 
 
-def _check_served_skills(repo_root: Path, skills: list[skill_manifest.DiscoveredSkill]) -> list[str]:
+def _check_skill_audience(repo_root: Path, skills: list[skill_manifest.DiscoveredSkill]) -> list[str]:
     """Return one error for each skill with no audience, or with two, and for each listed name with no skill."""
     served_names = _load_served_skill_names(repo_root)
     if served_names is None:
