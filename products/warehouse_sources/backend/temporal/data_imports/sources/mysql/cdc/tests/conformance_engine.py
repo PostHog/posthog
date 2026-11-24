@@ -7,6 +7,7 @@ connections, the catalog key lookups and the app-database write of a confirmed p
 
 from __future__ import annotations
 
+import datetime as dt
 from collections.abc import Iterator
 from contextlib import contextmanager, nullcontext
 from typing import Any
@@ -130,10 +131,20 @@ class _SimulatedBinlog:
         database, name = change.table.split(".", 1)
         if change.op == "U":
             assert change.old_row is not None
-            kind, rows = UpdateRowsEvent, [{"before_values": dict(change.old_row), "after_values": dict(change.row)}]
+            kind, rows = (
+                UpdateRowsEvent,
+                [
+                    {
+                        "before_values": dict(change.old_row),
+                        "before_none_sources": {},
+                        "after_values": dict(change.row),
+                        "after_none_sources": {},
+                    }
+                ],
+            )
         else:
             kind = WriteRowsEvent if change.op == "I" else DeleteRowsEvent
-            rows = [{"values": dict(change.row)}]
+            rows = [{"values": dict(change.row), "none_sources": {}}]
         return _event(
             kind,
             schema=database,
@@ -195,9 +206,10 @@ class SimulatedMySQL:
         if self._db.stream_lost:
             raise binlog.BinlogStreamLostError("The binlog file was purged before PostHog read it")
 
-    def _store_position(self, reader: MySQLCDCStreamReader, position: BinlogPosition) -> None:
+    def _store_position(self, reader: MySQLCDCStreamReader, position: BinlogPosition) -> BinlogPosition:
         self._db.confirm(position.offset // _STEP)
         SourceInputsStore.update_runtime(reader._source, {POSITION_KEY: position.serialize()})
+        return position
 
     def _index_columns(
         self, _reader: MySQLCDCStreamReader, database: str, tables: list[str]
@@ -210,6 +222,7 @@ class SimulatedMySQL:
         with (
             patch(f"{_READER}.BinLogStreamReader", side_effect=lambda **kwargs: _SimulatedDump(self._server, **kwargs)),
             patch(f"{_READER}._connect_with_transient_retry", return_value=MagicMock()),
+            patch(f"{_READER}.server_time_zone", return_value=dt.UTC),
             patch.object(MySQLImplementation, "connection_kwargs", lambda *_, **__: nullcontext({})),
             patch.object(MySQLImplementation, "connect", lambda *_, **__: nullcontext(MagicMock())),
             patch.object(binlog, "visible_position", self._visible_position),
