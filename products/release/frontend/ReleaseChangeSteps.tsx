@@ -71,11 +71,8 @@ export const ReleaseChangeSteps = memo(function ReleaseChangeSteps({
                             style={{ width: DIAMOND, height: DIAMOND, backgroundColor: color }}
                         />
                     </TooltipTrigger>
-                    <TooltipContent
-                        sideOffset={6}
-                        className="max-h-[min(20rem,var(--available-height,20rem))] max-w-72 overflow-y-auto overscroll-contain"
-                    >
-                        <div className="flex flex-col gap-2 text-xs">
+                    <TooltipContent sideOffset={6} className="max-w-72">
+                        <div className="flex max-h-[min(20rem,var(--available-height,20rem))] flex-col gap-2 overflow-y-auto overscroll-contain text-xs">
                             {group.map((change) => (
                                 <div key={change.key} className="flex flex-col gap-0.5">
                                     {change.lines.map((line) => (
