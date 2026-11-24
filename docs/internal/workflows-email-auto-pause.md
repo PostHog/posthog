@@ -63,7 +63,7 @@ Staff admin actions write regardless of the flag, which is the intended dogfood 
 3. Validate the machinery with one staff pause on an internal workflow: worker skip, admin email, banner, resume.
 4. Check that a staff alert fires on `would_pause_workflow_email_sending` with `mode="transactional"`, using a synthetic log line, since a real breach logs `mode="dry_run"` until enforcement is on. Without the alert, a transactional breach reaches only the project's admins.
 5. Set `WORKFLOW_EMAIL_AUTO_PAUSE_ENFORCE=true` per region via `posthog/charts`, once this release runs in both regions.
-6. To back out, unset `WORKFLOW_EMAIL_AUTO_PAUSE_ENFORCE`; existing pauses stay until resumed. A rollback to an older release falls back to dry run by itself. Before rolling back to a release without the transactional warning, let the email queue drain: an older worker drops a transactional warning, and its cooldown is already saved.
+6. To back out, unset `WORKFLOW_EMAIL_AUTO_PAUSE_ENFORCE`; existing pauses stay until resumed. After a CDP rollback, unset it too, and set it again only once 24 hours have passed: complaints counted twice during the rollback stay inside the detector's 24-hour window until then. A rollback to an older release falls back to dry run by itself. Before rolling back to a release without the transactional warning, let the email queue drain: an older worker drops a transactional warning, and its cooldown is already saved.
 
 `WORKFLOW_EMAIL_AUTO_PAUSE_EXEMPT_WORKFLOW_IDS` takes a comma-separated list of workflow ids that stay in dry run while the flag is on.
 The detector still logs their own breaches, with `mode="exempt"`, and writes nothing.
