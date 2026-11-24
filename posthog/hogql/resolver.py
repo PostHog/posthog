@@ -1192,7 +1192,15 @@ class Resolver(CloningVisitor):
             if dependency not in pending:
                 break
             # A FROM column takes precedence, so do not pre-resolve a same-named alias.
-            if lookup_field_by_name(owner, dependency, self.context):
+            saved_tables, saved_anonymous = dict(owner.tables), list(owner.anonymous_tables)
+            self._hide_later_join_tables(owner)
+            try:
+                is_column = lookup_field_by_name(owner, dependency, self.context)
+            finally:
+                owner.tables.clear()
+                owner.tables.update(saved_tables)
+                owner.anonymous_tables[:] = saved_anonymous
+            if is_column:
                 break
             current = dependency
         for dependency in reversed(chain):

@@ -1088,6 +1088,14 @@ class TestResolver(BaseTest):
         resolved = resolve_types(self._select(query), self.context, dialect="clickhouse")
         self.assertIsInstance(resolved.type, ast.SelectQueryType)
 
+    def test_alias_chain_column_precedence_ignores_later_joins(self):
+        query = (
+            "WITH e0.event AS event, event AS ev SELECT ev FROM events e0 "
+            "JOIN groups g0 ON ev = g0.key JOIN events e1 ON 1 = 1"
+        )
+        resolved = resolve_types(self._select(query), self.context, dialect="clickhouse")
+        self.assertIsInstance(resolved.type, ast.SelectQueryType)
+
     def test_cached_alias_cannot_read_later_join_from_earlier_constraint(self):
         with self.assertRaisesRegex(QueryError, "later JOIN"):
             resolve_types(
