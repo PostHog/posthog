@@ -416,6 +416,18 @@ class TestAudienceCountsHonorPropertyAccess(ClickhouseTestMixin, BaseTest):
         with pytest.raises(ValidationError):
             self._size(self.restricted_member, {"properties": [{"key": "id", "type": "cohort", "value": cohort.pk}]})
 
+    def test_audience_size_refuses_a_test_account_filter_on_the_restricted_property(self):
+        self.team.test_account_filters = [EMAIL_FILTER]
+        self.team.save()
+
+        with pytest.raises(ValidationError):
+            self._size(self.restricted_member, {"properties": [], "filter_test_accounts": True})
+
+    def test_audience_size_allows_a_static_cohort(self):
+        cohort = Cohort.objects.create(team=self.team, is_static=True)
+
+        self._size(self.restricted_member, {"properties": [{"key": "id", "type": "cohort", "value": cohort.pk}]})
+
     def test_refusal_lifts_once_the_rule_is_removed(self):
         filters = {"properties": [EMAIL_FILTER]}
         assert self._size(self.other_member, filters) == 1

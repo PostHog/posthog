@@ -131,7 +131,8 @@ def reject_audience_reading_restricted_properties(team: Team, filters: dict, use
     The send selects recipients without a user, so only the team's default property rules mask it. The preview
     runs as the user, so their member and role rules mask it too. The two match only when every filter reads
     properties that the user's rules and the default rules mask the same way. A filter this check cannot read
-    the keys of, such as HogQL or an event filter, could read any property, so it counts as a mismatch.
+    the keys of, such as HogQL or an event filter, could read any property, so it counts as a mismatch. A
+    filter on stored cohort membership reads no property, so it never counts as one.
     """
     user_names = access_control_api.split_restricted_property_names(
         access_control_api.get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team.pk)
@@ -147,7 +148,13 @@ def reject_audience_reading_restricted_properties(team: Team, filters: dict, use
     if not person_diff and not any(group_diff.values()) and not user_names.event ^ send_names.event:
         return
 
-    for prop in expand_cohort_properties(parse_property_group_data((filters or {}).get("properties")), team).flat:
+    # The counts and the send read the same expanded filter, which includes the team's test account filters.
+    with unevaluable_filters_as_validation_errors():
+        prop_group = expand_cohort_properties(replace_proxy_properties(team, filters or {}), team)
+    for prop in prop_group.flat:
+        if prop.type in ("static-cohort", "precalculated-cohort"):
+            # These read stored cohort membership, which no property rule masks.
+            continue
         if prop.type == "person" and not key_read_overlaps_restriction(str(prop.key), person_diff):
             continue
         if prop.type == "group" and (
