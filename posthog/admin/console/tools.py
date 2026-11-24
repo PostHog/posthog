@@ -44,27 +44,31 @@ class ProgressPart:
 
 @frozen
 class Progress:
-    """How much of a known total is done, as a bar above a table. `parts` fill it in order, and the rest stays gray.
+    """How much of a known total is done, as a bar above a table. `parts` fill it in order, then `moving` pulses.
 
-    Set `active` only while the work can still move, so the bar does not pulse for a part that will never fill.
+    Count in `moving` only what can still finish, so the bar does not pulse for a part that will never fill.
     """
 
     text: str
     total: int
     parts: tuple[ProgressPart, ...]
-    active: bool = False
+    moving: int = 0
 
     def __post_init__(self) -> None:
-        if not 0 < self.total or any(part.count < 0 for part in self.parts) or self.filled > self.total:
-            raise ValueError(f"Progress parts {[part.count for part in self.parts]} do not fit a total of {self.total}")
+        counts = [*(part.count for part in self.parts), self.moving]
+        if self.total <= 0 or min(counts) < 0 or sum(counts) > self.total:
+            raise ValueError(f"Progress parts {counts} do not fit a total of {self.total}")
 
     @property
     def filled(self) -> int:
         return sum(part.count for part in self.parts)
 
+    # Strings, because a template would write a float with a decimal comma in some locales.
     def bars(self) -> list[tuple[Tone, str]]:
-        # Strings, because a template would write a float with a decimal comma in some locales.
         return [(part.tone, f"{part.count / self.total * 100:.3f}") for part in self.parts if part.count]
+
+    def moving_percent(self) -> str:
+        return f"{self.moving / self.total * 100:.3f}"
 
 
 @frozen

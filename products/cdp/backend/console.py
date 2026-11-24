@@ -106,8 +106,10 @@ def _count(value: int, singular: str, plural: str | None = None) -> str:
     return f"{value:,} {singular if value == 1 else (plural or singular + 's')}"
 
 
-def _delivery_progress(counts: dict[OutcomeStatus, int], *, active: bool) -> Progress:
-    total = sum(counts.values())
+def _delivery_progress(counts: dict[OutcomeStatus, int], *, planned: int, sending: bool, waiting: bool) -> Progress:
+    queued = sum(counts.values())
+    # The counts hold only the runs of requests that went out, so until the last one they would read as complete.
+    total = max(planned, queued) if sending else queued
     delivered = counts.get("succeeded", 0)
     failed = counts.get("failed", 0)
     text = f"{delivered:,} of {_count(total, 'run')} delivered"
@@ -118,7 +120,7 @@ def _delivery_progress(counts: dict[OutcomeStatus, int], *, active: bool) -> Pro
             ProgressPart(count=delivered, tone=Tone.SUCCESS),
             ProgressPart(count=failed, tone=Tone.DESTRUCTIVE),
         ),
-        active=active,
+        moving=counts.get("running", 0) + counts.get("waiting", 0) + total - queued if waiting else 0,
     )
 
 
@@ -541,7 +543,12 @@ class ReplayStatus:
                 columns=("Latest attempt", "Runs"),
                 numeric_columns=(1,),
                 rows=tuple(rows),
-                progress=_delivery_progress(outcome.counts, active=refresh_seconds is not None),
+                progress=_delivery_progress(
+                    outcome.counts,
+                    planned=self.state["invocation_count"],
+                    sending=bool(self.refresh_seconds),
+                    waiting=refresh_seconds is not None,
+                ),
             ),
             refresh_seconds=refresh_seconds,
         )
