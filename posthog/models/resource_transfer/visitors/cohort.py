@@ -38,6 +38,7 @@ class CohortVisitor(
         "population_claimed_at",
         "population_copy_started",
         "population_first_marker",
+        "population_run_failed",
         "last_replace_marker",
         "last_replace_floor",
         "people",

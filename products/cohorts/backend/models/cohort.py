@@ -76,6 +76,7 @@ STATIC_POPULATION_RUN_FIELDS = frozenset(
         "population_claimed_at",
         "population_copy_started",
         "population_first_marker",
+        "population_run_failed",
         "last_replace_marker",
         "last_replace_floor",
     }
@@ -87,6 +88,7 @@ PENDING_POPULATION_CLEARED: dict[str, Any] = {
     "population_claimed_at": None,
     "population_copy_started": False,
     "population_first_marker": None,
+    "population_run_failed": False,
 }
 
 
@@ -364,6 +366,11 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         null=True,
         blank=True,
         help_text="ClickHouse _timestamp of the first attempt in the current replace run. Kept across retries and sweep redispatches so failed-attempt cleanup deletes only this run's rows.",
+    )
+    population_run_failed = models.BooleanField(
+        default=False,
+        db_default=False,
+        help_text="Whether the current static population already recorded a final failure, and only the cleanup of its ClickHouse rows is left. The stuck sweep then retries the cleanup and releases the cohort, and never runs the population again.",
     )
 
     is_static = models.BooleanField(default=False)

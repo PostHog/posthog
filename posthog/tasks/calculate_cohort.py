@@ -310,7 +310,12 @@ def get_stuck_static_cohort_candidates_queryset() -> QuerySet:
             | Q(newest_attempt_finished_at__isnull=False)
             | Q(newest_attempt_started_at__lt=attempt_live_since)
         )
-        .filter(Q(population_claimed_at__isnull=True) | Q(population_claimed_at__lt=claim_live_since))
+        # A run that already recorded a final failure is waiting only for its ClickHouse cleanup, not for a queue slot.
+        .filter(
+            Q(population_run_failed=True)
+            | Q(population_claimed_at__isnull=True)
+            | Q(population_claimed_at__lt=claim_live_since)
+        )
     )
 
 
@@ -433,7 +438,7 @@ def reset_stuck_cohorts() -> None:
     ]:
         supported_source = static_cohort_has_supported_population_source(cohort)
         errors_after_reset = cohort.errors_calculating + 1
-        gives_up = not supported_source or errors_after_reset > MAX_ERRORS_CALCULATING
+        gives_up = not supported_source or errors_after_reset > MAX_ERRORS_CALCULATING or cohort.population_run_failed
         if gives_up:
             # Nothing will run this replace again, so its rows are deleted now if it never copied, or HogQL keeps
             # counting them. Decided and done before the save below releases is_calculating and clears the
@@ -472,6 +477,12 @@ def reset_stuck_cohorts() -> None:
         # redispatched as a replace.
         cohort.errors_calculating = errors_after_reset
         if gives_up:
+            if cohort.population_run_failed:
+                logger.warning(
+                    "reset_failed_static_cohort_after_cleanup",
+                    cohort_id=cohort.pk,
+                    team_id=cohort.team_id,
+                )
             _end_pending_population(cohort.pk)
         else:
             logger.warning(
@@ -1218,6 +1229,9 @@ def _populate_static_cohort(
             team_id = cohort.team_id
         if _static_population_obsolete(task, cohort):
             return
+        if cohort.population_run_failed:
+            logger.info(f"{log_prefix}_skipped_failed_run", cohort_id=cohort_id, team_id=team_id)
+            return
         # NULL means append: the create path and workflows never claim, so they never write a mode.
         if append_only and cohort.pending_population_mode == CohortPopulationMode.REPLACE:
             # The replace was requested after this run was queued, and its own task runs it. Stopping
@@ -1253,6 +1267,8 @@ def _populate_static_cohort(
         # The finalize clears the run fields only while the stored mode and marker still match this attempt's.
         # A newer claim writes its own mode, so the compare-and-clear at the end can't take that claim's fields.
         claimed_mode = cohort.pending_population_mode
+        if cohort.population_run_failed:
+            raise PopulationSuperseded(cohort_id)
         if append_only and claimed_mode == CohortPopulationMode.REPLACE:
             # A replace claimed the cohort between the check above and this attempt's claim.
             raise PopulationSuperseded(cohort_id)
@@ -1447,6 +1463,19 @@ def _populate_static_cohort(
                         is_calculating=claimed.is_calculating,
                         errors_calculating=claimed.errors_calculating,
                     )
+            elif owns_cohort is True:
+                from products.cohorts.backend.models.util import _owned_population_run
+
+                save_recovery_bookkeeping(
+                    lambda: _owned_population_run(
+                        claimed,
+                        marker=claimed.population_marker,
+                        mode=claimed_mode,
+                        claimed_at=claimed.population_claimed_at,
+                    ).update(population_run_failed=True),
+                    cohort_id=cohort_id,
+                    team_id=claimed.team_id,
+                )
     if settings.DEBUG and processing_error is not None:
         raise processing_error
 

@@ -56,6 +56,15 @@ class Migration(migrations.Migration):
         ),
         migrations.AddField(
             model_name="cohort",
+            name="population_run_failed",
+            field=models.BooleanField(
+                db_default=False,
+                default=False,
+                help_text="Whether the current static population already recorded a final failure, and only the cleanup of its ClickHouse rows is left. The stuck sweep then retries the cleanup and releases the cohort, and never runs the population again.",
+            ),
+        ),
+        migrations.AddField(
+            model_name="cohort",
             name="last_replace_marker",
             field=models.DateTimeField(
                 blank=True,

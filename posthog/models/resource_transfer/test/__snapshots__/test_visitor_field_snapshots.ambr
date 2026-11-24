@@ -37,6 +37,7 @@
     'population_copy_started',
     'population_first_marker',
     'population_marker',
+    'population_run_failed',
     'realtime_enabled_at',
     'version',
   ])
@@ -578,6 +579,7 @@
     'population_copy_started',
     'population_first_marker',
     'population_marker',
+    'population_run_failed',
     'properties',
     'realtime_enabled',
     'realtime_enabled_at',
