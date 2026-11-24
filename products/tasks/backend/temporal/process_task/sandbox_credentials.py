@@ -353,6 +353,17 @@ def _live_sandboxes_for_user_integration(user_integration_id: int) -> list[LiveS
             continue
         if (run.state or {}).get("github_token_scope"):
             continue
+        state = run.state or {}
+        if is_slack_interaction_state(state) and "slack_actor_user_id" in state:
+            actor_user_id = state["slack_actor_user_id"]
+            if (
+                not isinstance(actor_user_id, int)
+                or isinstance(actor_user_id, bool)
+                or actor_user_id != run.task.created_by_id
+            ):
+                # This integration belongs to the task creator. Never propagate their rotating
+                # token into a Slack run that another member is steering.
+                continue
         if _loop_owner_credentials_revoked(run.task, run.state):
             continue
         # This loop carries the owner's token; skip a sandbox a per-message transition rebound to

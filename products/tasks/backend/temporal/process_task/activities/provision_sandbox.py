@@ -97,6 +97,7 @@ from products.tasks.backend.temporal.process_task.sandbox_connection import (
 )
 from products.tasks.backend.temporal.process_task.sandbox_credentials import (
     apply_github_credentials_to_sandbox,
+    clear_github_env_from_gitlab_sandbox,
     replace_sandbox_credentials,
     sandbox_credential_lock,
     set_git_remote_token,
@@ -472,9 +473,9 @@ def _resolve_sandbox_github_token(
     connected can carry the team integration, so has_github_credentials is true for it. Resolved the
     other way around, the write-capable installation token would reach a run that asked for
     read-only. Repository selection does not grant write access. The read-only mint is best-effort
-    (empty string on failure, never the full token). A repo-less run can continue without GitHub
-    when user auth needs reauthorization; a repo-backed run still fails because it cannot work
-    without credentials.
+    (empty string on failure, never the full token). A fresh repo-less run can continue without
+    GitHub when user auth needs reauthorization; a repo-backed run still fails because it cannot
+    work without credentials.
 
     Everything else follows the attached integration, including a repo-less signals run: a scout or
     scout-chat task never gets one (`github_resolution_allowed` in `Task._build_task` refuses to
@@ -1595,7 +1596,9 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
 
     This activity always fetches fresh tokens (rather than trusting whatever
     the workflow previously cached in its inputs) and persists them to the
-    in-sandbox locations that Modal secrets cannot refresh.
+    in-sandbox locations that Modal secrets cannot refresh. A repo-less snapshot
+    can still contain ad-hoc clones, so this activity strips GitHub credentials
+    from every restored remote before it continues.
     """
     ctx = input.context
 
@@ -1629,14 +1632,13 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
                     or ""
                 )
             except ReauthorizationRequired as e:
-                if not has_repository:
-                    _log_github_unavailable_without_repository(ctx.run_id)
-                else:
+                if has_repository:
                     raise CredentialUnavailableError(
                         "GitHub user integration for this run requires reauthorization",
                         {"github_integration_id": ctx.github_integration_id, "task_id": ctx.task_id},
                         cause=e,
                     )
+                _log_github_unavailable_without_repository(ctx.run_id)
             except Exception as e:
                 raise _github_token_error(
                     e,
@@ -1658,6 +1660,9 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
             )
 
         sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
+
+        if not has_repository and not clear_github_env_from_gitlab_sandbox(sandbox):
+            raise RuntimeError("Failed to clear GitHub credentials from repo-less snapshot")
 
         # Every clone embeds the token in its own `origin`, so a multi-repository run has to rewrite
         # each of them or the secondary checkouts keep the snapshot's expired token.
