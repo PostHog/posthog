@@ -165,7 +165,7 @@ their token or their name.
 
 Return:
 - "intro": one short, warm sentence to the person that leads into the items below it. When there are summary \
-items, name what they cover, such as "👀 Since yesterday: pricing calls, a workflows check and two database fixes." \
+items, name only what those items cover, such as "👀 Since yesterday: pricing calls, a workflows check and two database fixes." \
 When there are none, lead into the suggestions, such as "👀 A couple of asks for you came in." Never call the items \
 the person's own work unless the person did them. Start it with one fitting emoji. At most 120 characters.
 - "suggestions": at most 3 tasks that PostHog could do for them, the most useful first. Each task has:
@@ -177,11 +177,15 @@ ignore edited query parameters, and open a pull request with the fix." At most 5
 - "summary": at most 5 one-line items on what happened in the threads, the ones the person is in first, then the \
 most consequential. Each item has:
   - "text": one plain sentence of at most 110 characters that starts with who did it and says what was decided, \
-reported, launched or asked. When the person did it, start with "You". Refer to people only with the `<@U…>` tokens exactly as they appear, which Slack \
+reported, launched or asked. When the person did it, start with "You". Credit work to whoever did it: when a \
+thread says an AI agent such as Claude found or wrote something, say the agent did, not the person. Refer to people only with the `<@U…>` tokens exactly as they appear, which Slack \
 shows as names. Do not name the channel; it is added after the sentence.
   - "source": the number of the thread the item comes from.
-  Leave out a thread that is only chat or a status note, and a thread that already became a suggestion. Return an \
-empty list when no threads are given.
+  Write one item for every thread, up to 5, and do not choose a subset: the threads were already picked for this \
+person. Leave out only a thread that is just chat, a thread that is just a \
+status note such as someone being heads down, and a thread that already became a suggestion. An open problem, a \
+blocker or a request is never just a status note, even when its latest message is a status update. Return an empty \
+list when no threads are given.
 
 Keep it short and friendly, with no other emoji and no em dashes. Never quote a message, never write a person's name, \
 and never copy private details. Never offer work that someone handed to PostHog, another AI agent or another app, or \
