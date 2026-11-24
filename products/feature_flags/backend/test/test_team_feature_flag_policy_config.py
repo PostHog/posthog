@@ -141,7 +141,7 @@ class TestTeamFeatureFlagPolicyConfig(APIBaseTest):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         self.url = f"/api/environments/{self.team.id}/"
-        flag_patch = patch("posthog.api.team.team_config.feature_enabled_or_false", return_value=True)
+        flag_patch = patch("posthog.api.team.team_config.posthog_feature_flag_enabled", return_value=True)
         self.allowlist_flag = flag_patch.start()
         self.addCleanup(flag_patch.stop)
 
@@ -242,12 +242,12 @@ class TestTeamFeatureFlagPolicyConfig(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("environment_hosts", "environments", {"allowed_hosts": ["example.com"]}),
-            ("environment_ips", "environments", {"allowed_ips": ["203.0.113.7"]}),
-            ("project_ips", "projects", {"allowed_ips": ["203.0.113.7"]}),
+            ("environment_hosts", "environments", {"allowed_hosts": ["example.com", "example.org"]}),
+            ("environment_ips", "environments", {"allowed_ips": ["203.0.113.7", "203.0.113.8"]}),
+            ("project_ips", "projects", {"allowed_ips": ["203.0.113.7", "203.0.113.8"]}),
         ]
     )
-    def test_allowed_lists_need_the_feature_flag(self, _name: str, scope: str, policy: dict) -> None:
+    def test_new_allowed_entries_need_the_feature_flag(self, _name: str, scope: str, policy: dict) -> None:
         url = f"/api/{scope}/{self.team.id}/"
         self.allowlist_flag.return_value = False
 
@@ -258,8 +258,17 @@ class TestTeamFeatureFlagPolicyConfig(APIBaseTest):
         self.allowlist_flag.return_value = True
         response = self.client.patch(url, {"feature_flag_policy_config": policy}, format="json")
         assert response.status_code == status.HTTP_200_OK, response.json()
+        assert self.allowlist_flag.call_args.kwargs["team_id"] == self.team.id
 
         self.allowlist_flag.return_value = False
+        [(field, entries)] = policy.items()
+        for kept in (entries, entries[:1]):
+            response = self.client.patch(url, {"feature_flag_policy_config": {field: kept}}, format="json")
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            assert response.json()["feature_flag_policy_config"][field] == kept
+        response = self.client.patch(url, {"feature_flag_policy_config": policy}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
         cleared = {"blocked_hosts": ["example.org"], **dict.fromkeys(policy, [])}
         response = self.client.patch(url, {"feature_flag_policy_config": cleared}, format="json")
 

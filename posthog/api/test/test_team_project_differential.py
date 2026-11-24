@@ -224,7 +224,7 @@ FIELD_VALUES: dict[str, Any] = {
 class TestWriteParity(DifferentialParityBase):
     def setUp(self):
         super().setUp()
-        flag_patch = patch("posthog.api.team.team_config.feature_enabled_or_false", return_value=True)
+        flag_patch = patch("posthog.api.team.team_config.posthog_feature_flag_enabled", return_value=True)
         flag_patch.start()
         self.addCleanup(flag_patch.stop)
 

@@ -10,7 +10,7 @@ from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models import Team, TeamRevenueAnalyticsConfig
 from posthog.models.property import validate_group_type_index
 from posthog.models.user import User
-from posthog.ph_client import feature_enabled_or_false
+from posthog.permissions import posthog_feature_flag_enabled
 
 from products.access_control.backend.facade.api import organization_role_names
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
@@ -570,31 +570,40 @@ class TeamFeatureFlagPolicyConfigSerializer(serializers.ModelSerializer, UserAcc
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         attrs = super().validate(attrs)
-        added = [field for field in ("allowed_hosts", "allowed_ips") if attrs.get(field)]
-        # The team serializers run this serializer again without a request to write the same data.
-        # An empty list always saves, so a project can clear its lists after the flag is turned off.
-        if added and self.parent and not self._allowlist_enabled():
+        # Only the pass nested under the team or project serializer checks the flag. The reruns have no
+        # parent and write data that pass already checked.
+        if self.parent:
+            self._refuse_new_allowed_entries_without_flag(attrs)
+        return attrs
+
+    def _refuse_new_allowed_entries_without_flag(self, attrs: dict[str, Any]) -> None:
+        lists = {field: set(attrs[field]) for field in ("allowed_hosts", "allowed_ips") if attrs.get(field)}
+        if not lists:
+            return
+        instance = self.root.instance
+        team = getattr(instance, "passthrough_team", instance)
+        # The flags service enforces saved entries whatever the flag says, so a project can always remove some.
+        saved = TeamFeatureFlagPolicyConfig.objects.filter(team_id=team.pk).first() if team else None
+        added = [field for field, entries in lists.items() if entries - set(getattr(saved, field, []))]
+        if added and not self._allowlist_enabled(team):
             raise serializers.ValidationError(
                 dict.fromkeys(
                     added,
-                    "Allowed domains and IP addresses aren't available for this project yet. Leave this list empty.",
+                    "Allowed domains and IP addresses aren't available for this project yet. "
+                    "You can only remove saved entries.",
                 )
             )
-        return attrs
 
-    def _allowlist_enabled(self) -> bool:
+    def _allowlist_enabled(self, team: Team | None) -> bool:
         user = self.context["request"].user
-        if not isinstance(user, User):
+        if team is None or not isinstance(user, User):
             return False
-        organization_id = getattr(self.root.instance, "organization_id", None)
-        organization = {"organization": str(organization_id)} if organization_id else None
-        return feature_enabled_or_false(
+        return posthog_feature_flag_enabled(
             REQUEST_ALLOWLIST_FEATURE_FLAG,
             str(user.distinct_id),
-            groups=organization,
+            organization_id=team.organization_id,
+            team_id=team.pk,
             person_properties={"email": user.email},
-            group_properties={"organization": {"id": str(organization_id)}} if organization_id else None,
-            send_feature_flag_events=False,
         )
 
 

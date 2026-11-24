@@ -87,6 +87,7 @@ import { SuppressionRules } from 'products/error_tracking/frontend/scenes/ErrorT
 import { MAX_LOOKBACK_DAYS, MIN_LOOKBACK_DAYS } from 'products/experiments/frontend/constants'
 import { FeatureFlagRequestAllowlist } from 'products/feature_flags/frontend/FeatureFlagRequestAllowlist'
 import { FeatureFlagRequestBlocklist } from 'products/feature_flags/frontend/FeatureFlagRequestBlocklist'
+import { isRequestAllowlistVisible } from 'products/feature_flags/frontend/isRequestAllowlistVisible'
 import { LogsAlertingSection } from 'products/logs/frontend/components/LogsAlerting/LogsAlertingSection'
 import { LogsMetricRulesSection } from 'products/logs/frontend/components/LogsMetricRules/LogsMetricRulesSection'
 import { LogsSamplingSection } from 'products/logs/frontend/components/LogsSampling/LogsSamplingSection'
@@ -1215,7 +1216,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     "When a list has entries, feature flag requests that don't match it get an empty response and are not billed. The domain list skips requests with no Origin or Referer header, such as those from server-side and mobile SDKs. When both lists have entries, a request must match both. Blocked domains and IP addresses still apply.",
                 component: <FeatureFlagRequestAllowlist />,
-                flag: 'FEATURE_FLAG_REQUEST_ALLOWLIST',
+                allowForTeam: isRequestAllowlistVisible,
                 keywords: ['allow', 'allowlist', 'domain', 'ip', 'origin', 'abuse', 'token'],
             },
             {

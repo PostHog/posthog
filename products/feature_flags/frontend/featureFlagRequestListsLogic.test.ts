@@ -74,7 +74,7 @@ describe('featureFlagRequestListsLogic', () => {
         ],
         [
             'an allowed IP address',
-            () => logic.actions.setAllowedIps(['198.51.100.0/24']),
+            () => logic.actions.confirmFirstAllowedIps(['198.51.100.0/24']),
             { allowed_ips: ['198.51.100.0/24'] },
             { blockedHosts: ['saved.example.com'], allowedHosts: [], allowedIps: ['198.51.100.0/24'] },
         ],
@@ -82,6 +82,25 @@ describe('featureFlagRequestListsLogic', () => {
         await expectLogic(logic, edit).toDispatchActions(teamLogic, ['updateCurrentTeamSuccess']).toMatchValues(shown)
 
         expect(patchedPayload?.feature_flag_policy_config).toEqual(sent)
+    })
+
+    it('asks before it saves the first allowed IP address, and not after that', async () => {
+        await expectLogic(logic, () => logic.actions.setAllowedIps(['198.51.100.1'])).toMatchValues({
+            firstAllowedIps: ['198.51.100.1'],
+            allowedIps: [],
+        })
+        await expectLogic(logic, () => logic.actions.cancelFirstAllowedIps())
+            .toFinishAllListeners()
+            .toMatchValues({ firstAllowedIps: null })
+        expect(patchedPayload).toBeUndefined()
+
+        teamLogic.actions.loadCurrentTeamSuccess({
+            ...MOCK_DEFAULT_TEAM,
+            feature_flag_policy_config: { require_tags: false, allowed_ips: ['198.51.100.1'] },
+        })
+        await expectLogic(logic, () => logic.actions.setAllowedIps(['198.51.100.1', '198.51.100.2']))
+            .toDispatchActions(teamLogic, ['updateCurrentTeamSuccess'])
+            .toMatchValues({ firstAllowedIps: null, allowedIps: ['198.51.100.1', '198.51.100.2'] })
     })
 
     it('shows the saved list when the API rejects an entry', async () => {
