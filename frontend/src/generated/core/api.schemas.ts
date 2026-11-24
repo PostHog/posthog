@@ -4949,7 +4949,11 @@ export interface SharePasswordApi {
      * @nullable
      */
     note?: string | null
-    readonly created_by_email: string
+    /**
+     * Email address of the user who created the password, or "deleted user" when that user no longer exists. Null for a service account without a contact email.
+     * @nullable
+     */
+    readonly created_by_email: string | null
     readonly is_active: boolean
 }
 

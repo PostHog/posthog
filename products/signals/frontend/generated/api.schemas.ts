@@ -14159,8 +14159,11 @@ export type SignalsReportsAvailableReviewersRetrieve200 = {
     [key: string]: {
         /** Member's full name. */
         name: string
-        /** Member's email address. */
-        email: string
+        /**
+         * Member's email address. Null for a service account without a contact email.
+         * @nullable
+         */
+        email: string | null
     }
 }
 

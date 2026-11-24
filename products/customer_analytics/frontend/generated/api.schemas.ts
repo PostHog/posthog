@@ -218,8 +218,11 @@ export interface ExternalAccountCreateApi {
 export interface ExternalAccountListAssignmentApi {
     /** PostHog user id of the assigned user. */
     user_id: number
-    /** Current email address of the assigned user. */
-    email: string
+    /**
+     * Current email address of the assigned user. Null for a service account without a contact email.
+     * @nullable
+     */
+    email: string | null
     /**
      * Current display name of the assigned user, or null when the user has no name set.
      * @nullable

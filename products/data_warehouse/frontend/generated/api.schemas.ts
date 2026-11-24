@@ -279,8 +279,11 @@ export interface HoglakeCredentialApi {
     kind?: string
     /** A personal credential's owner */
     owner_user_uuid?: string
-    /** The owner's email, while they are a member */
-    owner_email?: string
+    /**
+     * The owner's email, while they are a member. Null for a service account without a contact email.
+     * @nullable
+     */
+    owner_email?: string | null
     /** The owner's name, while they are a member */
     owner_name?: string
     /** A personal credential's projects */

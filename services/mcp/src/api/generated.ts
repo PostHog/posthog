@@ -38559,7 +38559,8 @@ export namespace Schemas {
 
     export interface UserBasicType {
       distinct_id: string;
-      email: string;
+      /** Null for a service account without a contact email. */
+      email: string | null;
       first_name: string;
       hedgehog_config?: MinimalHedgehogConfig | null;
       id: number;
@@ -54235,8 +54236,11 @@ export namespace Schemas {
     export interface ExternalAccountListAssignment {
       /** PostHog user id of the assigned user. */
       user_id: number;
-      /** Current email address of the assigned user. */
-      email: string;
+      /**
+         * Current email address of the assigned user. Null for a service account without a contact email.
+         * @nullable
+         */
+      email: string | null;
       /**
          * Current display name of the assigned user, or null when the user has no name set.
          * @nullable
@@ -65400,8 +65404,11 @@ export namespace Schemas {
       kind?: string;
       /** A personal credential's owner */
       owner_user_uuid?: string;
-      /** The owner's email, while they are a member */
-      owner_email?: string;
+      /**
+         * The owner's email, while they are a member. Null for a service account without a contact email.
+         * @nullable
+         */
+      owner_email?: string | null;
       /** The owner's name, while they are a member */
       owner_name?: string;
       /** A personal credential's projects */
@@ -119516,7 +119523,11 @@ export namespace Schemas {
          * @nullable
          */
       note?: string | null;
-      readonly created_by_email: string;
+      /**
+         * Email address of the user who created the password, or "deleted user" when that user no longer exists. Null for a service account without a contact email.
+         * @nullable
+         */
+      readonly created_by_email: string | null;
       readonly is_active: boolean;
     }
 
@@ -150439,8 +150450,11 @@ export namespace Schemas {
     export type SignalsReportsAvailableReviewersRetrieve200 = {[key: string]: {
       /** Member's full name. */
       name: string;
-      /** Member's email address. */
-      email: string;
+      /**
+         * Member's email address. Null for a service account without a contact email.
+         * @nullable
+         */
+      email: string | null;
     }};
 
     export type SignalsReportsForMeRetrieveParams = {
