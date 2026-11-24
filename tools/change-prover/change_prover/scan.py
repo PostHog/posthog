@@ -221,7 +221,8 @@ def not_scanned(package: Package, reason: str) -> Finding:
 def scan(package: Package, deadline: float) -> Finding:
     for attempt in range(1, DOWNLOAD_ATTEMPTS + 1):
         finding, download_failed = scan_once(package, deadline)
-        if not download_failed or attempt == DOWNLOAD_ATTEMPTS:
+        retry_fits = deadline - time.monotonic() > DOWNLOAD_RETRY_SECONDS
+        if not download_failed or attempt == DOWNLOAD_ATTEMPTS or not retry_fits:
             return finding
         time.sleep(DOWNLOAD_RETRY_SECONDS)
     raise AssertionError("unreachable")
