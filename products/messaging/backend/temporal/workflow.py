@@ -69,7 +69,7 @@ CHUNK_RETRY_POLICY = RetryPolicy(
     initial_interval=timedelta(seconds=10),
     backoff_coefficient=2.0,
     maximum_interval=timedelta(minutes=5),
-    non_retryable_error_types=["ContactsImportAccessLost", "ContactsCohortGone"],
+    non_retryable_error_types=["ContactsImportAccessLost", "ContactsCohortGone", "ContactsPartMissing"],
 )
 
 
