@@ -313,7 +313,7 @@ export const FEATURE_FLAGS = {
     DASHBOARD_V2: 'dashboard-v2', // owner: @DanielVisca, aggregated by project. Loads and refreshes only the dashboard tiles on screen, and queues metrics tiles apart from analytics tiles
     DASHBOARD_V2_USERS: 'dashboard-v2-users', // owner: @DanielVisca, aggregated by person. Who sees dashboard-v2 behaviour in the UI; it applies only together with DASHBOARD_V2
     DASHBOARDS_V2: 'dashboards-v2', // owner: #team-dashboards-and-charts, gates the dashboards v2 scene with nested layout containers
-    DATA_AREA: 'data-area', // owner: #team-platform-ux, the Data rail entry under today-rail-nav, which groups sources, pipelines, the warehouse, definitions and setup tools
+    DATA_AREA: 'data-area', // owner: #team-platform-ux, the Data and Automate rail entries under today-rail-nav. Data groups sources, pipelines, the warehouse, definitions and setup tools; Automate groups workflows, transactional email, destinations, subscriptions and scouts
     DATA_CATALOG_RESTRUCTURE: 'data-catalog-restructure', // owner: #team-data-modeling, moves lineage and data quality from Models into the Data catalog
     DATA_CATALOG_REVIEW_QUEUE: 'data-catalog-review-queue', // owner: #team-data-modeling, gates the data catalog lifecycle strip and review queue
     DATA_CATALOG_USAGE: 'data-catalog-usage', // owner: #team-data-modeling, the usage tab on the data catalog scene and the metric page
@@ -340,6 +340,7 @@ export const FEATURE_FLAGS = {
     ERROR_TRACKING_RATE_LIMITING_BYPASS: 'error-tracking-rate-limiting-bypass', // owner: @ablaszkiewicz #team-error-tracking
     ERROR_TRACKING_RATE_LIMITING_PER_ISSUE: 'error-tracking-rate-limiting-per-issue', // owner: @ablaszkiewicz #team-error-tracking
     ERROR_TRACKING_RELATED_ISSUES: 'error-tracking-related-issues', // owner: #team-error-tracking
+    ERROR_TRACKING_SENTRY_MIGRATION: 'error-tracking-sentry-migration', // owner: @ablaszkiewicz #team-error-tracking
     ERROR_TRACKING_WEEKLY_DIGEST: 'error-tracking-weekly-digest', // owner: #team-error-tracking
     EXPERIMENT_BEHAVIOR_COMPARISON: 'experiment-behavior-comparison', // owner: @mp-hog #team-experiments
     EXPERIMENT_HEALTH_FINDINGS: 'experiment-health-findings', // owner: @mp-hog #team-experiments, shows the server's health findings as the health panel instead of the page's own warnings

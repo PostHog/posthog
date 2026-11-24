@@ -107,10 +107,12 @@ _RECOVERY_PROMPTS = {
 _NOT_STARTED_STAGES = ("Waking up the hedgehog", "Stretching the little legs", "Brewing the hedgehog's coffee")
 _QUEUED_STAGES = ("Waiting in line for a sandbox", "Queued behind other hedgehogs", "Saving a spot in the sandbox line")
 _IN_PROGRESS_STAGES = (
-    "Paws on the keyboard",
-    "Nose in the code",
-    "Digging through the code",
-    "Building, one quill at a time",
+    "Working on it",
+    "Making progress",
+    "Continuing",
+    "Still working",
+    "Getting it done",
+    "Taking care of it",
 )
 
 SLACK_DENIAL_STOP_MESSAGE = "Stopped, because you said no. Reply here to try a different way."
@@ -273,7 +275,12 @@ def _post_pr_opened_notification_once(
     )
     from products.slack_app.backend.models import SlackThreadTaskMapping
     from products.tasks.backend.facade.api import _is_pull_request_url_for_task
+    from products.tasks.backend.logic.services.compute_quota import organization_deactivated
     from products.tasks.backend.logic.services.slack_pr_cards import pr_card_reply_target
+
+    if organization_deactivated(task_run.team_id):
+        handler.delete_progress()
+        return
 
     mapping = SlackThreadTaskMapping.objects.filter(task_run=task_run).first()
     already_delivered = mapping is not None and report_slack_thread_pr_notified(

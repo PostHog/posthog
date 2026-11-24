@@ -47,6 +47,7 @@ from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.sources_cache import clear_sources_cache
 from posthog.hogql.printer import prepare_and_print_ast
+from posthog.hogql.team_first_prewhere import _events_last_year_cache, _recent_events_last_year
 from posthog.hogql.visitor import clone_expr
 
 from posthog import rate_limit, redis
@@ -770,6 +771,14 @@ class PostHogTestCase(SimpleTestCase):
             _setup_test_project_and_team(self)
         elif not self.CLASS_DATA_LEVEL_SETUP:
             _setup_test_data(self)
+
+        # The team event volume cache is keyed on team ids, which repeat across tests, so clear it.
+        # Then warm it for this test's team. The cold read compares `computed_at` with the wall clock,
+        # so inside an assertNumQueries or query snapshot block it would add a query whose text
+        # changes on every run. A test that writes a TeamEventVolume row clears the cache again.
+        _events_last_year_cache.clear()
+        if self.team is not None:
+            _recent_events_last_year(self.team.pk)
 
     def tearDown(self):
         from posthog.test.persons import has_unflushed_persons, reset_persons_state

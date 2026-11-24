@@ -1133,6 +1133,53 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual((["2020-01-12"], 4), (response.results[0]["days"], response.results[0]["count"]))
 
+    def test_metric_display_formula_totals_cover_the_breakdown_values_of_the_sparklines(self):
+        # Chrome has more daily users in sum, and Safari has more unique users across the range
+        self._create_events(
+            [
+                SeriesFixture(
+                    distinct_id="p1",
+                    events=[
+                        Series(
+                            event="$pageview",
+                            timestamps=["2020-01-15T12:00:00Z", "2020-01-16T12:00:00Z", "2020-01-17T12:00:00Z"],
+                        ),
+                        Series(event="$pageleave", timestamps=["2020-01-15T12:00:00Z"]),
+                    ],
+                    properties={"$browser": "Chrome"},
+                ),
+                *[
+                    SeriesFixture(
+                        distinct_id=distinct_id,
+                        events=[Series(event="$pageview", timestamps=["2020-01-15T12:00:00Z"])],
+                        properties={"$browser": "Safari"},
+                    )
+                    for distinct_id in ("p2", "p3", "p4")
+                ],
+            ]
+        )
+
+        response = self._run_trends_query(
+            "2020-01-15",
+            "2020-01-19",
+            IntervalType.DAY,
+            [
+                EventsNode(event="$pageview", math=BaseMathType.DAU),
+                EventsNode(event="$pageleave", math=BaseMathType.DAU),
+            ],
+            TrendsFilter(display=ChartDisplayType.METRIC, formula="A+B"),
+            BreakdownFilter(breakdown_type=BreakdownType.EVENT, breakdown="$browser", breakdown_limit=1),
+        )
+
+        self.assertCountEqual(
+            [("Chrome", 2), ("$$_posthog_breakdown_other_$$", 3)],
+            [
+                (result["breakdown_value"], result["count"])
+                for result in response.results
+                if result["compare_label"] == "current"
+            ],
+        )
+
     def test_formula_with_compare_to_week(self):
         self._create_test_events()
 
@@ -1953,7 +2000,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             limit_context=LimitContext.QUERY_ASYNC,
         )
 
-        self.assertEqual(mock_sync_execute.call_count, 2)
+        self.assertEqual(mock_sync_execute.call_count, 3)
         for mock_execute_call_args in mock_sync_execute.call_args_list:
             self.assertIn(f" max_execution_time={HOGQL_INCREASED_MAX_EXECUTION_TIME},", mock_execute_call_args[0][0])
 

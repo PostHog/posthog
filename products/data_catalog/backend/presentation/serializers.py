@@ -567,11 +567,6 @@ class TopicClusterSerializer(serializers.Serializer):
     coverage = TopicCoverageSerializer(help_text="What the sessions that asked for a metric ended up with.")
 
 
-class TopicDefinitionSerializer(serializers.Serializer):
-    title = serializers.CharField(help_text="Short name of the subject.")
-    description = serializers.CharField(allow_blank=True, help_text="One sentence on what the topic covers.")
-
-
 class TableSourceSerializer(serializers.Serializer):
     name = serializers.CharField(help_text="Name of the table or view, as the agent's search returned it.")
     sessions = serializers.IntegerField(
@@ -686,12 +681,6 @@ class UsageSnapshotPayloadSerializer(serializers.Serializer):
         many=True, allow_null=True, help_text="Agent queries that re-derived a metric. Null until judged."
     )
     topics = TopicClusterSerializer(many=True, allow_null=True, help_text="Agent session topics. Null until grouped.")
-    topic_definitions = TopicDefinitionSerializer(
-        many=True,
-        allow_null=True,
-        help_text="The whole topic list that the next scan keeps, including topics with no sessions in this scan. "
-        "Null until grouped.",
-    )
     topic_sessions = TopicSessionCountsSerializer(
         allow_null=True, help_text="What the sampled sessions were about, by kind. Null until grouped."
     )
@@ -726,6 +715,10 @@ class UsageSnapshotSummarySerializer(serializers.Serializer):
 
 class UsageSnapshotSerializer(UsageSnapshotSummarySerializer):
     payload = UsageSnapshotPayloadSerializer(help_text="The scan result, one key per section.")
+    hidden_topics = serializers.IntegerField(
+        help_text="How many of the scan's topics the payload leaves out for this reader. A topic is left out when "
+        "its sessions read a table or view the reader is denied, or read data the scan could not trace to tables."
+    )
 
 
 class MetricUsageSerializer(serializers.Serializer):

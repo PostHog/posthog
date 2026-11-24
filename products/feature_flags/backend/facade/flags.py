@@ -47,7 +47,8 @@ class FlagEvaluationsConfig:
         return self.mode == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY and not self.keeps_events_writes
 
 
-_DEFAULT_CONFIG = FlagEvaluationsConfig(mode=FlagEvaluationsMode.EVENTS, keeps_events_writes=False)
+# Readers treat an organization without a config row as on EVENTS, with events writes not kept.
+NO_ROW_CONFIG = FlagEvaluationsConfig(mode=FlagEvaluationsMode.EVENTS, keeps_events_writes=False)
 
 
 def get_organization_flag_evaluations_config(organization_id: UUID) -> FlagEvaluationsConfig:
@@ -58,7 +59,7 @@ def get_organization_flag_evaluations_config(organization_id: UUID) -> FlagEvalu
         .values_list("flag_evaluations_mode", "keep_writing_flag_calls_to_events")
         .first()
     )
-    return _DEFAULT_CONFIG if row is None else FlagEvaluationsConfig(mode=row[0], keeps_events_writes=row[1])
+    return NO_ROW_CONFIG if row is None else FlagEvaluationsConfig(mode=row[0], keeps_events_writes=row[1])
 
 
 def get_organization_flag_evaluations_configs(
@@ -72,7 +73,7 @@ def get_organization_flag_evaluations_configs(
             organization_id__in=organization_ids
         ).values_list("organization_id", "flag_evaluations_mode", "keep_writing_flag_calls_to_events")
     }
-    return {organization_id: stored.get(organization_id, _DEFAULT_CONFIG) for organization_id in organization_ids}
+    return {organization_id: stored.get(organization_id, NO_ROW_CONFIG) for organization_id in organization_ids}
 
 
 def get_organization_flag_evaluations_mode(organization_id: UUID) -> int:

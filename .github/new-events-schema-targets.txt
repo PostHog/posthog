@@ -44,6 +44,7 @@ products/ai_observability/backend/tests/logic/evaluations
 products/ai_observability/backend/tests/logic/traces
 products/ai_observability/backend/tests/test_facade_api.py
 products/ai_observability/backend/tests/test_facade_list_traces.py
+products/ai_observability/backend/tests/test_facade_trace_metrics.py
 products/ai_observability/backend/tests/presentation/views
 products/cohorts
 products/customer_analytics/backend/hogql_queries
@@ -90,7 +91,6 @@ posthog/tasks/test/test_ai_observability_usage_report.py
 posthog/tasks/test/test_team_event_volume.py
 posthog/tasks/test/test_usage_report.py
 posthog/temporal/tests/test_clickhouse.py
-posthog/temporal/tests/session_replay/copy_recording/test_activities.py
 posthog/temporal/ai_observability/eval_reports/test/test_activities.py
 posthog/temporal/ai_observability/test_run_trace_evaluation.py
 posthog/temporal/ai_observability/trace_summarization/tests/test_fetch_and_format.py

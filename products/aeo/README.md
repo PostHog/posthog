@@ -87,7 +87,7 @@ curl -X POST "$HOST/api/projects/<id>/aeo_prompts/bulk_import/" \
 - `external_visibility` (0-100) is the share of answers that mention the brand, as reported by the tool the set came from. It is kept in the prompt's evidence to benchmark against our own rates.
 - A prompt is branded when its text names the brand: a brand name from `brand.py` (the registrable name of one of the project's own domains) as a word, case ignored.
   Each check stores it as `prompt_branded` for the prompt as it ran, and the reconcile after an own-brand change rewrites it across the whole history. The prompt list computes it when read. Without an own brand every prompt is non-branded.
-  `GET overview/` and `GET rankings/` take `?branded=all|branded|non_branded` (default `all`), which keeps the checks whose prompt, as it ran, names the brand or does not.
+  `GET overview/`, `GET rankings/` and `GET movers/` take `?branded=all|branded|non_branded` (default `all`), which keeps the checks whose prompt, as it ran, names the brand or does not.
   Every count uses the same checks, the window before included. The overview also returns `branded_answers` and `non_branded_answers`, the answered checks on each side in the current window.
 
 ### Weekly dashboard

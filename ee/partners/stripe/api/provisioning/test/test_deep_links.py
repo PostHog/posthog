@@ -3,8 +3,11 @@ from urllib.parse import parse_qs, urlparse
 from unittest.mock import patch
 
 from django.core.cache import cache
+from django.test import override_settings
 
 from parameterized import parameterized
+
+from posthog.test.normal_login import GOOGLE_SSO_SETTINGS, NormalLoginRequirement, require_normal_login
 
 from ee.partners.stripe.api.provisioning import DEEP_LINK_CACHE_PREFIX
 from ee.partners.stripe.api.provisioning.test.base import BASE_PATH, StripeProvisioningTestBase
@@ -84,6 +87,21 @@ class TestDeepLinks(StripeProvisioningTestBase):
             res = self.client.get(f"{LOGIN_URL}?token=stripe_blocked_token")
         assert res.status_code == 302
         assert res["Location"] == "/login?error_code=access_blocked"
+        assert self.client.get("/api/users/@me/").status_code == 401
+
+    @parameterized.expand([(requirement,) for requirement in NormalLoginRequirement])
+    @override_settings(**GOOGLE_SSO_SETTINGS)
+    def test_user_who_needs_normal_login_lands_on_login_without_a_session(self, requirement: NormalLoginRequirement):
+        self.user.is_email_verified = True
+        self.user.save(update_fields=["is_email_verified"])
+        require_normal_login(self.user, self.organization, requirement)
+        self.client.logout()
+        self._cache_deep_link_token("stripe_normal_login_token")
+
+        res = self.client.get(f"{LOGIN_URL}?token=stripe_normal_login_token")
+
+        assert res.status_code == 302
+        assert res["Location"] == f"/login?next=%2Fproject%2F{self.team.id}"
         assert self.client.get("/api/users/@me/").status_code == 401
 
     def test_deep_link_refused_when_an_access_rule_blocks_the_account(self):
