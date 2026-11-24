@@ -122,11 +122,10 @@ for (const pkg of forbiddenHits) {
 // 3. Tailwind generates classes from the files it scans, not from the bundle, so a bundled file
 //    outside the scan renders with its classes missing.
 const tailwindConfigPath = path.join(frontendDir, 'src/toolbar/shared/tailwind.config.js')
-const themeCssPath = path.join(frontendDir, '../common/tailwind/theme.css')
+const require = createRequire(import.meta.url)
+const themeCssPath = require.resolve('@posthog/tailwind/theme.css')
 const tailwindGlobs = [
-    ...createRequire(import.meta.url)(tailwindConfigPath).content.map((glob) =>
-        resolveGlob(path.dirname(tailwindConfigPath), glob)
-    ),
+    ...require(tailwindConfigPath).content.map((glob) => resolveGlob(path.dirname(tailwindConfigPath), glob)),
     ...[...fs.readFileSync(themeCssPath, 'utf-8').matchAll(/^@source\s+"([^"]+)";/gm)].map(([, glob]) =>
         resolveGlob(path.dirname(themeCssPath), glob)
     ),

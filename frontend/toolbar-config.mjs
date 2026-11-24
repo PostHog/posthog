@@ -4,6 +4,8 @@ import * as path from 'path'
 
 import { commonConfig, copyRRWebWorkerFiles, createHashlessEntrypoints, esbuildBuild, isDev } from '@posthog/esbuilder'
 
+import { escapeRegExp } from './bin/quillImports.mjs'
+
 // `TOOLBAR_PUBLIC_PATH`, when set, overrides the default `publicPath` so the
 // toolbar bundle and its assets can be hosted under a versioned, content-pinned
 // URL on the posthog-js CDN. Used by posthog-js's release workflow to ship a
@@ -57,6 +59,29 @@ const deniedPaths = [
 // pulls in app-only logics and, through scenes/billing, the app's billing scene graph.
 const deniedPatterns = [/scenes\/billing/, /lib\/logic\/billing\//]
 
+// A match-all filter sends every import in the bundle through the JS callback, which is slow.
+// The callback still decides, so this only has to match a superset of what it replaces.
+function moduleReplacementFilter(allDeniedPatterns) {
+    const shimNames = Object.keys(shimmedModules).map((alias) => escapeRegExp(path.basename(alias)))
+    const alternatives = [
+        `^(~/)?(${Object.keys(shimmedModules).map(escapeRegExp).join('|')})$`,
+        `^\\..*\\b(${shimNames.join('|')})(\\.(tsx|ts|jsx|js))?$`,
+        `^(${deniedPaths.map(escapeRegExp).join('|')})$`,
+        ...allDeniedPatterns.map((pattern) => pattern.source),
+    ]
+    const filter = new RegExp(alternatives.map((alternative) => `(${alternative})`).join('|'))
+    // A path the filter misses never reaches the callback, so its shim or denial silently stops working.
+    const replaceablePaths = [
+        ...Object.keys(shimmedModules).flatMap((alias) => [alias, `~/${alias}`, `./${path.basename(alias)}`]),
+        ...deniedPaths,
+    ]
+    const missed = replaceablePaths.filter((importPath) => !filter.test(importPath))
+    if (missed.length) {
+        throw new Error(`toolbar-module-replacements: the onResolve filter misses ${missed.join(', ')}`)
+    }
+    return filter
+}
+
 /**
  * The toolbar shares lib/ code with the main app, and that code reaches app-only modules
  * the toolbar must not ship. Tree shaking can't drop them (the shared packages aren't marked
@@ -74,23 +99,8 @@ const deniedPatterns = [/scenes\/billing/, /lib\/logic\/billing\//]
  *
  * The enforced invariants live in bin/check-toolbar-size.mjs (eager-chunk budget, per-file
  * CloudFront limit), bin/check-toolbar-graph.mjs (boundary edges, forbidden packages, source
- * budget), and bin/check-toolbar-csp-eval.mjs (no eval on customer pages).
+ * budget, Tailwind scan coverage), and bin/check-toolbar-csp-eval.mjs (no eval on customer pages).
  */
-const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-
-// A match-all filter sends every import in the bundle through the JS callback, which is slow.
-// The callback still decides, so this only has to match a superset of what it replaces.
-function moduleReplacementFilter(allDeniedPatterns) {
-    const shimNames = Object.keys(shimmedModules).map((alias) => escapeRegExp(path.basename(alias)))
-    const alternatives = [
-        `^(~/)?(${Object.keys(shimmedModules).map(escapeRegExp).join('|')})$`,
-        `^\\..*\\b(${shimNames.join('|')})(\\.(tsx|ts|jsx|js))?$`,
-        `^(${deniedPaths.map(escapeRegExp).join('|')})$`,
-        ...allDeniedPatterns.map((pattern) => pattern.source),
-    ]
-    return new RegExp(alternatives.map((alternative) => `(${alternative})`).join('|'))
-}
-
 function createToolbarModulePlugin(dirname, extraDeniedPatterns = []) {
     // Shims must also catch relative imports of the same modules (e.g. dataThemeLogic's
     // `./teamLogic`), otherwise the real logic and its whole app graph leak into the bundle.
