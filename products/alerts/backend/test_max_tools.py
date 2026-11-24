@@ -828,7 +828,7 @@ class TestUpsertAlertTool(BaseTest):
         await sync_to_async(AlertConfiguration.objects.filter(id=alert.id).update)(skip_weekend=True)
 
         content, _ = await self._setup_tool()._arun_impl(
-            action=UpdateAlertAction(alert_id=str(alert.id), upper_threshold=200.0)
+            action=UpdateAlertAction(alert_id=str(alert.id), name="Signups out of range", upper_threshold=200.0)
         )
 
         assert "updated successfully" in content
@@ -847,6 +847,13 @@ class TestUpsertAlertTool(BaseTest):
         row = await AlertConfiguration.objects.select_related("threshold").aget(id=alert.id)
         assert row.threshold is not None
         assert (row.skip_weekend, row.threshold.configuration["bounds"]) == (True, {"lower": 100.0})
+        logged = {
+            entry.detail["type"]: (entry.user_id, [change["field"] for change in entry.detail["changes"]])
+            async for entry in ActivityLog.objects.filter(
+                team_id=self.team.id, scope="AlertConfiguration", item_id=str(alert.id), activity="updated"
+            )
+        }
+        assert logged == {None: (self.user.id, ["name"]), "threshold_change": (self.user.id, ["configuration"])}
 
     @pytest.mark.django_db
     @pytest.mark.asyncio

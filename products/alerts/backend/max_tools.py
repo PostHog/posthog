@@ -1,3 +1,4 @@
+import copy
 from textwrap import dedent
 from typing import Any, Literal, Union, cast
 from uuid import UUID
@@ -28,6 +29,7 @@ from posthog.schema_migrations.upgrade_manager import upgrade_insight
 from posthog.scopes.catalog import APIScopeObject
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel
+from products.alerts.backend.activity_logging import log_platform_alert_edit
 from products.alerts.backend.evaluation.validation import THRESHOLD_BOUNDS_REQUIRED_MESSAGE, validate_alert_config
 from products.alerts.backend.facade.api import LLMAlertWrite, admit_llm_alert_write, is_llm_detector_config
 from products.alerts.backend.facade.contracts import PlatformCannotOwn
@@ -422,6 +424,10 @@ class UpsertAlertTool(MaxTool):
             moved = alert.platform_owned
             if moved and not show_locked_copy(alert):
                 return _SaveRefusal(message=f"Alert '{alert.id}' not found.", error_code="alert_not_found")
+            before = copy.copy(alert)
+            if moved:
+                # The threshold is edited in place, so the snapshot needs its own copy of it.
+                before.threshold = copy.copy(alert.threshold)
             new_interval = action.calculation_interval or alert.calculation_interval
             new_enabled = action.enabled if action.enabled is not None else alert.enabled
             if refusal := self._admission_refusal(alert, action, new_interval=new_interval, new_enabled=new_enabled):
@@ -496,6 +502,8 @@ class UpsertAlertTool(MaxTool):
                 except (PlatformCannotOwn, InvalidPlatformAlertEdit) as error:
                     transaction.set_rollback(True)
                     return _SaveRefusal(message=str(error), error_code="validation_failed")
+                # Only the platform's copy changes, so the row's activity receivers never run.
+                log_platform_alert_edit(before, alert, user=self._user, was_impersonated=False)
             else:
                 alert.save(update_fields=update_fields)
             # Again under the lock, because the check above counted without it and another update can race.
