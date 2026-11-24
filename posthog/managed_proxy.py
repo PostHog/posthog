@@ -62,6 +62,24 @@ def _deprovision_cloudflare_proxy(record: ProxyRecord) -> None:
     ProxyRecord.objects.filter(pk=record.pk).update(cloudflare_deprovisioned=True)
 
 
+def recover_cloudflare_certificate_hostname(organization_id: UUID, proxy_record_id: UUID) -> bool:
+    with cloudflare_proxy_lock(proxy_record_id):
+        record = (
+            ProxyRecord.objects.filter(
+                organization_id=organization_id,
+                pk=proxy_record_id,
+                status__in=(ProxyRecord.Status.ISSUING, ProxyRecord.Status.ERRORING),
+                needs_activation_recovery=True,
+            )
+            .exclude(organization__is_active=False)
+            .first()
+        )
+        if record is None or not is_cloudflare_proxy(record) or not proxy_domain_can_be_provisioned(record):
+            return False
+        _restore_cloudflare_proxy(record)
+        return True
+
+
 def reconcile_cloudflare_proxy(
     organization_id: str | UUID, proxy_record_id: str | UUID, *, from_sweep: bool = False
 ) -> bool:
