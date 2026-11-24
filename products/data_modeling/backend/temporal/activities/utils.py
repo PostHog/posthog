@@ -1,12 +1,18 @@
 import re
+import time
 import datetime as dt
+import contextlib
+from collections.abc import AsyncIterator, Awaitable
 from typing import TYPE_CHECKING
 from uuid import UUID
 
 from django.db import transaction
+from django.db.models import F
+from django.db.models.functions import Coalesce
 
 from structlog.contextvars import bind_contextvars
 
+from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.asyncpa import INVALID_MESSAGE_FORMAT_ERROR, InvalidMessageFormat
 from posthog.temporal.common.logger import get_logger
@@ -42,6 +48,7 @@ __all__ = [
     "is_node_suspended",
     "mark_node_suspended",
     "maybe_suspend_node_for_engine",
+    "record_worker_time",
     "starts_a_failure_streak",
     "strip_hostname_from_error",
     "update_node_system_properties",
@@ -57,6 +64,48 @@ CONSECUTIVE_FAILURES_TO_SUSPEND = 5
 
 # Shared with quality_block_materialization so the counter below can recognize its job rows.
 QUALITY_BLOCKED_ERROR_PREFIX = "Not published:"
+
+
+# QuerySet.update skips auto_now, and the warehouse mirror syncs rows by updated_at, so both writes set it.
+@database_sync_to_async_pool
+def _record_attempt(team_id: int, job_id: str, attempt: int) -> None:
+    DataModelingJob.objects.filter(id=job_id, team_id=team_id).update(
+        attempts=attempt, updated_at=dt.datetime.now(dt.UTC)
+    )
+
+
+@database_sync_to_async_pool
+def _add_worker_time(team_id: int, job_id: str, seconds: float) -> None:
+    # An increment in SQL, because the activities of one run each add their own time and an
+    # assignment from a job loaded earlier would drop what another one added.
+    DataModelingJob.objects.filter(id=job_id, team_id=team_id).update(
+        worker_seconds=Coalesce(F("worker_seconds"), 0.0) + seconds, updated_at=dt.datetime.now(dt.UTC)
+    )
+
+
+async def _report_failure(write: Awaitable[None]) -> None:
+    try:
+        await write
+    except Exception as error:
+        capture_exception(error)
+
+
+@contextlib.asynccontextmanager
+async def record_worker_time(team_id: int, job_id: str, *, attempt: int | None = None) -> AsyncIterator[None]:
+    """Add the wall-clock time of the block to the job's ``worker_seconds``, however the block ends.
+
+    ``attempt`` is the Temporal attempt number of the activity that defines the job's ``attempts``.
+    It is saved before the block runs, because a killed worker never reaches the end of the block.
+    Both numbers are measurements, so a failed write is reported and never replaces the block's own
+    result or error.
+    """
+    if attempt is not None:
+        await _report_failure(_record_attempt(team_id, job_id, attempt))
+    started = time.monotonic()
+    try:
+        yield
+    finally:
+        await _report_failure(_add_worker_time(team_id, job_id, time.monotonic() - started))
 
 
 def get_previous_jobs(

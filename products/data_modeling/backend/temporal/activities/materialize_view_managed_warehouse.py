@@ -65,6 +65,7 @@ from .utils import (
     bind_data_modeling_log_context,
     clear_node_suspension_for_engine,
     maybe_suspend_node_for_engine,
+    record_worker_time,
 )
 
 LOGGER = get_logger(__name__)
@@ -507,7 +508,8 @@ def _trino_incremental_write(plan: WritePlan) -> TrinoIncrementalWrite | None:
 async def materialize_view_managed_warehouse_activity(
     inputs: ManagedWarehouseShadowInputs,
 ) -> ManagedWarehouseShadowResult:
-    if inputs.use_trino:
-        async with Heartbeater():
-            return await _materialize_view_managed_warehouse(inputs)
-    return await _materialize_view_managed_warehouse(inputs)
+    async with record_worker_time(inputs.team_id, inputs.job_id, attempt=activity.info().attempt):
+        if inputs.use_trino:
+            async with Heartbeater():
+                return await _materialize_view_managed_warehouse(inputs)
+        return await _materialize_view_managed_warehouse(inputs)

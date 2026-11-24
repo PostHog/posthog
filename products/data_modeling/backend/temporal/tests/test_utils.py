@@ -1,6 +1,17 @@
+import types
+
+import pytest
+from unittest.mock import patch
+
+from django.core.exceptions import ValidationError
+from django.db import DataError
+
 from parameterized import parameterized
 
-from products.data_modeling.backend.temporal.activities.utils import strip_hostname_from_error
+from posthog.sync import database_sync_to_async
+
+from products.data_modeling.backend.temporal.activities import utils
+from products.data_modeling.backend.temporal.activities.utils import record_worker_time, strip_hostname_from_error
 
 
 class TestStripHostnameFromError:
@@ -66,3 +77,49 @@ class TestStripHostnameFromError:
     def test_strip_hostname_patterns(self, input_error: str, expected_output: str) -> None:
         result = strip_hostname_from_error(input_error)
         assert result == expected_output
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_record_worker_time_adds_up_over_blocks_and_keeps_a_failed_one(ateam, ajob) -> None:
+    readings = iter([100.0, 105.0, 200.0, 207.0, 300.0, 301.0])
+    # Only this module's view of the clock is replaced, because the event loop reads time.monotonic too.
+    clock = types.SimpleNamespace(monotonic=lambda: next(readings))
+
+    with patch.object(utils, "time", clock):
+        async with record_worker_time(ateam.pk, str(ajob.id), attempt=1):
+            await database_sync_to_async(ajob.refresh_from_db)()
+            attempts_while_running = ajob.attempts
+        with pytest.raises(ValueError, match="query failed"):
+            async with record_worker_time(ateam.pk, str(ajob.id), attempt=2):
+                raise ValueError("query failed")
+        async with record_worker_time(ateam.pk, str(ajob.id)):
+            pass
+
+    await database_sync_to_async(ajob.refresh_from_db)()
+    assert attempts_while_running == 1
+    assert (ajob.worker_seconds, ajob.attempts) == (13.0, 2)
+
+
+@pytest.mark.parametrize(
+    "job_exists,attempt,reported_error",
+    [
+        # Postgres refuses the attempt number before the block runs, because it does not fit the integer column.
+        (True, 2**40, DataError),
+        # The time write fails after the block, on a job id that Django cannot read as a UUID.
+        (False, None, ValidationError),
+    ],
+)
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_record_worker_time_keeps_the_block_error_when_its_write_fails(
+    ateam, ajob, job_exists, attempt, reported_error
+) -> None:
+    job_id = str(ajob.id) if job_exists else "not-a-job-id"
+
+    with patch.object(utils, "capture_exception") as report:
+        with pytest.raises(ValueError, match="query failed"):
+            async with record_worker_time(ateam.pk, job_id, attempt=attempt):
+                raise ValueError("query failed")
+
+    assert [type(call.args[0]) for call in report.call_args_list] == [reported_error]
