@@ -104,6 +104,7 @@ export enum Scene {
     StripeConfirmInstall = 'StripeConfirmInstall',
     IngestionWarnings = 'IngestionWarnings',
     IdentityProviderConfig = 'IdentityProviderConfig',
+    OAuthApplication = 'OAuthApplication',
     InviteSignup = 'InviteSignup',
     BusinessKnowledge = 'BusinessKnowledge',
     BusinessKnowledgeLibraries = 'BusinessKnowledgeLibraries',

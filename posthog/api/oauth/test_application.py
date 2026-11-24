@@ -1,3 +1,5 @@
+import json
+
 from posthog.test.base import APIBaseTest
 
 from django.test import SimpleTestCase
@@ -236,6 +238,33 @@ class TestOrganizationOAuthApplicationViewSet(APIBaseTest):
             self.assertEqual(review.run_log, [])
         app.refresh_from_db()
         self.assertEqual((app.provisioning.active, app.provisioning.disabled), (False, disabled))
+
+    def test_detail_shows_what_posthog_read_from_the_metadata_document(self):
+        app = self._create_app(self.organization, is_provisioning_partner=True)
+        document = {
+            "client_name": "Example Builder",
+            "client_uri": "https://builder.example.com",
+            "contacts": ["security@builder.example.com"],
+            "redirect_uris": ["https://builder.example.com/callback"],
+            "com.posthog": {"provisioning": True},
+        }
+        CIMDProvisioningReview.objects.create(application=app, domain="example.com", metadata_document=document)
+
+        detail = self.client.get(f"/api/organizations/@current/oauth_applications/{app.id}/").json()
+        listed = self.client.get("/api/organizations/@current/oauth_applications/").json()["results"][0]
+
+        registration = detail["registration"]
+        self.assertEqual(
+            {key: registration[key] for key in ("client_uri", "contacts", "redirect_uris", "organization_link")},
+            {
+                "client_uri": "https://builder.example.com",
+                "contacts": ["security@builder.example.com"],
+                "redirect_uris": ["https://builder.example.com/callback"],
+                "organization_link": "this_organization",
+            },
+        )
+        self.assertEqual(json.loads(registration["metadata_document"]), document)
+        self.assertNotIn("registration", listed)
 
     def test_timeline_shows_decisions_messages_and_notes_without_internal_reasons(self):
         app = self._create_app(self.organization, is_provisioning_partner=True)

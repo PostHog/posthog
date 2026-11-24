@@ -2,52 +2,33 @@ import { useActions } from 'kea'
 
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
-import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-
-import { OrganizationOAuthApplicationApi } from '~/generated/core/api.schemas'
+import { OrganizationOAuthApplicationDetailApi } from '~/generated/core/api.schemas'
 
 import {
     PROVISIONING_STATUS_LABELS,
     PROVISIONING_STATUS_NEXT_STEPS,
     PROVISIONING_STATUS_TAG_TYPES,
     oauthAppActions,
-} from './oauthAppProvisioningStatus'
+} from '../oauthAppProvisioningStatus'
+import { oauthAppsLogic } from '../oauthAppsLogic'
 import { OAuthAppReviewNoteForm } from './OAuthAppReviewNoteForm'
 import { OAuthAppReviewProgress } from './OAuthAppReviewProgress'
 import { OAuthAppReviewTimeline } from './OAuthAppReviewTimeline'
-import { oauthAppsLogic } from './oauthAppsLogic'
 
-export function OAuthAppDetails({ app }: { app: OrganizationOAuthApplicationApi }): JSX.Element {
+export function OAuthApplicationReview({ app }: { app: OrganizationOAuthApplicationDetailApi }): JSX.Element {
     const { contactSupport } = useActions(oauthAppsLogic)
+    const { takesANote, needsSupport, canRequestVerification } = oauthAppActions(app)
     const review = app.provisioning_review
-    const { showsProvisioning, takesANote, needsSupport, canRequestVerification } = oauthAppActions(app)
-    const redirectUris = app.redirect_uris_list ?? []
 
     return (
-        <div className="flex flex-col gap-3 p-2">
-            <div className="flex flex-col gap-1">
-                <span className="font-semibold">Redirect URIs</span>
-                {redirectUris.length === 0 ? (
-                    <span className="text-muted">None</span>
-                ) : (
-                    redirectUris.map((uri) => (
-                        <CopyToClipboardInline key={uri} description="redirect URI" className="font-mono text-xs">
-                            {uri}
-                        </CopyToClipboardInline>
-                    ))
-                )}
+        <section className="flex flex-col gap-3">
+            <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-lg font-semibold m-0">Provisioning review</h2>
+                <LemonTag type={PROVISIONING_STATUS_TAG_TYPES[app.provisioning_status]}>
+                    {PROVISIONING_STATUS_LABELS[app.provisioning_status]}
+                </LemonTag>
             </div>
-            {showsProvisioning && (
-                <>
-                    <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-semibold">Provisioning</span>
-                        <LemonTag type={PROVISIONING_STATUS_TAG_TYPES[app.provisioning_status]}>
-                            {PROVISIONING_STATUS_LABELS[app.provisioning_status]}
-                        </LemonTag>
-                    </div>
-                    <p className="m-0 text-secondary">{PROVISIONING_STATUS_NEXT_STEPS[app.provisioning_status]}</p>
-                </>
-            )}
+            <p className="m-0 text-secondary">{PROVISIONING_STATUS_NEXT_STEPS[app.provisioning_status]}</p>
             {review && <OAuthAppReviewProgress review={review} />}
             {review && <OAuthAppReviewTimeline events={review.timeline} />}
             {takesANote && <OAuthAppReviewNoteForm app={app} />}
@@ -76,6 +57,6 @@ export function OAuthAppDetails({ app }: { app: OrganizationOAuthApplicationApi 
                     )}
                 </div>
             )}
-        </div>
+        </section>
     )
 }

@@ -893,6 +893,104 @@ export interface PaginatedOrganizationOAuthApplicationListApi {
     results: OrganizationOAuthApplicationApi[]
 }
 
+/**
+ * * `none` - Public client, PKCE only
+ * * `client_secret_post` - Client secret
+ * * `private_key_jwt` - Signs with a private key
+ */
+export type PartnerAuthenticationEnumApi =
+    (typeof PartnerAuthenticationEnumApi)[keyof typeof PartnerAuthenticationEnumApi]
+
+export const PartnerAuthenticationEnumApi = {
+    None: 'none',
+    ClientSecretPost: 'client_secret_post',
+    PrivateKeyJwt: 'private_key_jwt',
+} as const
+
+/**
+ * * `this_organization` - Linked to this organization
+ * * `other_region` - Linked to an organization in another region
+ * * `not_linked` - Not linked
+ */
+export type OrganizationLinkStateEnumApi =
+    (typeof OrganizationLinkStateEnumApi)[keyof typeof OrganizationLinkStateEnumApi]
+
+export const OrganizationLinkStateEnumApi = {
+    ThisOrganization: 'this_organization',
+    OtherRegion: 'other_region',
+    NotLinked: 'not_linked',
+} as const
+
+export interface RegisteredPartnerDetailsApi {
+    /** The name the metadata document gives the app. */
+    readonly client_name: string
+    /** The app's homepage. Empty when the document has none. */
+    readonly client_uri: string
+    /** The app's logo. Empty when the document has none. */
+    readonly logo_uri: string
+    /** The app's terms of service. Empty when it has none. */
+    readonly tos_uri: string
+    /** The app's privacy policy. Empty when it has none. */
+    readonly policy_uri: string
+    /** Contact emails the document lists. */
+    readonly contacts: readonly string[]
+    /** Where PostHog may send people after they sign in. */
+    readonly redirect_uris: readonly string[]
+    /** Where the app publishes the public keys it signs with. Empty for a public client. */
+    readonly jwks_uri: string
+    /** How the app authenticates: none (public client), client_secret_post, or private_key_jwt.
+     *
+     * * `none` - Public client, PKCE only
+     * * `client_secret_post` - Client secret
+     * * `private_key_jwt` - Signs with a private key */
+    readonly authentication: PartnerAuthenticationEnumApi
+    /** The scopes the app can ask people to grant. */
+    readonly scopes: readonly string[]
+    /** Whether the app can create PostHog accounts once provisioning is on. */
+    readonly can_create_accounts: boolean
+    /** Whether the app can create projects and resources once provisioning is on. */
+    readonly can_provision_resources: boolean
+    /** Whether a verification token links the app to this organization, to one in another region, or to none.
+     *
+     * * `this_organization` - Linked to this organization
+     * * `other_region` - Linked to an organization in another region
+     * * `not_linked` - Not linked */
+    readonly organization_link: OrganizationLinkStateEnumApi
+    /** The metadata document PostHog registered the app from, as formatted JSON. Empty when PostHog kept none. */
+    readonly metadata_document: string
+}
+
+/**
+ * One application, with what PostHog read from its metadata document.
+ */
+export interface OrganizationOAuthApplicationDetailApi {
+    readonly id: string
+    /** @maxLength 255 */
+    name?: string
+    /** @maxLength 2048 */
+    client_id?: string
+    readonly redirect_uris_list: readonly string[]
+    /** True if this application has been verified by PostHog */
+    is_verified?: boolean
+    /** True when the app registered itself from a client ID metadata document (CIMD). */
+    readonly is_cimd_client: boolean
+    /** Whether the app can create accounts and provision resources through the agentic provisioning API. in_review and waiting_for_staff mean its review has not finished.
+     *
+     * * `not_a_partner` - Not a provisioning partner
+     * * `in_review` - In review
+     * * `waiting_for_staff` - Waiting for PostHog staff
+     * * `changes_requested` - Changes requested
+     * * `declined` - Declined
+     * * `on` - On
+     * * `off` - Off
+     * * `blocked` - Blocked */
+    readonly provisioning_status: PartnerProvisioningStatusEnumApi
+    readonly provisioning_review: PartnerReviewApi | null
+    readonly created: string
+    readonly updated: string
+    readonly registration: RegisteredPartnerDetailsApi
+}
+
 export interface PartnerReviewNoteApi {
     /**
      * What PostHog staff should know about the application: what it does, why it provisions, and what changed since the last decision. Sending a note on a declined review, or one that asked for changes, asks for another review.

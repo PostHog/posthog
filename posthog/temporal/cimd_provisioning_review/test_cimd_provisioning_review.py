@@ -279,6 +279,7 @@ class TestSendPartnerReviewEmail(APIBaseTest):
         assert sent[0].template_name == template_name
         assert sent[0].template_name in WORKFLOWS_TEMPLATE_ID_MAP
         assert "Add a homepage to your metadata document." in sent[0].html_body
+        assert f"/settings/organization-oauth-apps/{review.application_id}" in sent[0].html_body
 
     @parameterized.expand(
         [

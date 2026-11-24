@@ -61,6 +61,20 @@ class PartnerReviewEventKind(models.TextChoices):
     PARTNER_NOTE = "partner_note", "Note from the partner"
 
 
+class PartnerAuthentication(models.TextChoices):
+    """How the app authenticates at the token endpoint, as its owners see it."""
+
+    NONE = "none", "Public client, PKCE only"
+    CLIENT_SECRET_POST = "client_secret_post", "Client secret"
+    PRIVATE_KEY_JWT = "private_key_jwt", "Signs with a private key"
+
+
+class OrganizationLinkState(models.TextChoices):
+    THIS_ORGANIZATION = "this_organization", "Linked to this organization"
+    OTHER_REGION = "other_region", "Linked to an organization in another region"
+    NOT_LINKED = "not_linked", "Not linked"
+
+
 class CIMDProvisioningReview(UUIDModel):
     application = models.OneToOneField(
         "posthog.OAuthApplication", on_delete=models.CASCADE, related_name="provisioning_review"

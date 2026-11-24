@@ -1,22 +1,21 @@
-import { useValues } from 'kea'
+import { useActions } from 'kea'
 import { Form, Field as KeaField } from 'kea-forms'
 
 import { Button, Field, FieldDescription, FieldError, FieldLabel, Textarea } from '@posthog/quill'
 
-import { OrganizationOAuthApplicationApi } from '~/generated/core/api.schemas'
+import { OrganizationOAuthApplicationDetailApi } from '~/generated/core/api.schemas'
 
-import { REVIEW_NOTE_SUBMIT_LABELS } from './oauthAppProvisioningStatus'
 import { REVIEW_NOTE_MAX_LENGTH, oauthAppReviewNoteLogic } from './oauthAppReviewNoteLogic'
+import { QuillOAuthAppReviewNotePreview } from './QuillOAuthAppReviewNotePreview'
 
-export function QuillOAuthAppReviewNoteForm({ app }: { app: OrganizationOAuthApplicationApi }): JSX.Element {
-    const { isReviewNoteSubmitting } = useValues(oauthAppReviewNoteLogic({ appId: app.id }))
+export function QuillOAuthAppReviewNoteForm({ app }: { app: OrganizationOAuthApplicationDetailApi }): JSX.Element {
+    const { openNotePreview } = useActions(oauthAppReviewNoteLogic({ appId: app.id }))
 
     return (
         <Form
             logic={oauthAppReviewNoteLogic}
             props={{ appId: app.id }}
             formKey="reviewNote"
-            enableFormOnSubmit
             className="flex flex-col gap-2"
         >
             <KeaField name="note" noStyle>
@@ -39,15 +38,11 @@ export function QuillOAuthAppReviewNoteForm({ app }: { app: OrganizationOAuthApp
                 )}
             </KeaField>
             <div>
-                <Button
-                    type="submit"
-                    variant="primary"
-                    loading={isReviewNoteSubmitting}
-                    data-attr="oauth-app-review-note-submit"
-                >
-                    {REVIEW_NOTE_SUBMIT_LABELS[app.provisioning_status] ?? 'Send note'}
+                <Button variant="primary" onClick={openNotePreview} data-attr="oauth-app-review-note-preview">
+                    Review before sending
                 </Button>
             </div>
+            <QuillOAuthAppReviewNotePreview app={app} />
         </Form>
     )
 }

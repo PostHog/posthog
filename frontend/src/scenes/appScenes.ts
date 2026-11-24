@@ -116,6 +116,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Settings]: () => import('./settings/SettingsScene'),
     [Scene.IdentityProviderConfig]: () =>
         import('./settings/organization/IdentityProviderConfig/IdentityProviderConfigScene'),
+    [Scene.OAuthApplication]: () => import('./settings/organization/OAuthApplication/OAuthApplicationScene'),
     [Scene.Signup]: () => import('./authentication/auth/Auth'),
     [Scene.Site]: () => import('./sites/Site'),
     [Scene.StartupProgram]: () => import('./startups/StartupProgram'),
