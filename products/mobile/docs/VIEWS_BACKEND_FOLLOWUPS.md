@@ -41,7 +41,7 @@ Dashboards already refresh on open. A server-side check would honor the refresh 
 
 **What the app does today:**
 
-- [Dashboards refresh on open and return](VIEWS.md#refresh). Other automatic reads use `blocking`.
+- [Dashboards refresh on open, return, and app resume](VIEWS.md#refresh). Other automatic reads use `blocking`.
 - Pull and tile refresh read immediately, bypassing the device's automatic minute floor. They send `force_blocking` only for items whose `next_allowed_client_refresh` has passed, in server time with a 2 s margin, and honor the dashboard's shared rule based on `Dashboard.last_refresh`.
 - Items inside their window, or without a known window, read cached results. The app adds no device-local five-minute floor.
 - One queue (`src/features/views/refreshQueue.ts`) allows 2 requests in flight and one automatic request per item per 60 s. Manual reads still join existing requests, respect budgets and pause on `Retry-After`.

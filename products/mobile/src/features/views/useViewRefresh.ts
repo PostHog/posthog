@@ -153,6 +153,25 @@ function blockedFor(options: ViewRefreshOptions, now: number = serverNow()): Blo
     })
 }
 
+function canRefreshDashboard(options: ViewRefreshOptions, read: JobResult | null, now: number): boolean {
+    const { container } = options
+    if (!container) {
+        return false
+    }
+    // A pinned preview can already have read this dashboard within the automatic minute floor.
+    const hasRecentRead = read
+        ? read.status === 'ok'
+        : !readFloorPassed(container.readAt()) && !useItemErrors.getState().errors[container.key]
+    return hasRecentRead && !blockedFor(options, now).blocked
+}
+
+function dashboardReadMode(snapshot: Freshness | undefined, canRefresh: boolean, now: number): RefreshMode | null {
+    if (!hasGoodValue(snapshot) || cacheTargetPassed(snapshot, now)) {
+        return 'blocking'
+    }
+    return canRefresh && isEligible(snapshot, now) ? 'force_blocking' : null
+}
+
 export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
     const optionsRef = useRef(options)
     optionsRef.current = options
@@ -320,16 +339,11 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
             if (!stillActive(generation, passGroup)) {
                 return
             }
-            let canRefreshDashboard = false
+            let canRefresh = false
             const now = serverNow()
-            const container = current.container
-            if (container && dashboardOpenGroup.current === passGroup && fresh.length > 0) {
+            if (current.container && dashboardOpenGroup.current === passGroup && fresh.length > 0) {
                 dashboardOpenGroup.current = null
-                // A pinned preview can already have read this dashboard within the automatic minute floor.
-                const hasRecentRead = containerRead
-                    ? containerRead.status === 'ok'
-                    : !readFloorPassed(container.readAt()) && !useItemErrors.getState().errors[container.key]
-                canRefreshDashboard = hasRecentRead && !blockedFor(optionsRef.current, now).blocked
+                canRefresh = canRefreshDashboard(optionsRef.current, containerRead, now)
             }
             for (const item of fresh) {
                 const previous = recovering ? await itemReads.current.get(item.key) : undefined
@@ -344,15 +358,15 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
                 if (!drawable(item)) {
                     continue
                 }
-                if (
-                    failed ||
-                    (current.container
-                        ? !hasGoodValue(snapshot) || cacheTargetPassed(snapshot, now)
-                        : (item.openDue?.() ?? isDue(snapshot)))
-                ) {
-                    send(counters, item.key, item.family, 'blocking', item.read, failed)
-                } else if (canRefreshDashboard && isEligible(snapshot, now)) {
-                    send(counters, item.key, item.family, 'force_blocking', item.read)
+                if (failed) {
+                    send(counters, item.key, item.family, 'blocking', item.read, true)
+                } else if (current.container) {
+                    const mode = dashboardReadMode(snapshot, canRefresh, now)
+                    if (mode) {
+                        send(counters, item.key, item.family, mode, item.read)
+                    }
+                } else if (item.openDue?.() ?? isDue(snapshot)) {
+                    send(counters, item.key, item.family, 'blocking', item.read)
                 }
             }
             await report(trigger, counters, startedAt, age, null)
@@ -378,16 +392,22 @@ export function useViewRefresh(options: ViewRefreshOptions): ViewRefresh {
             void refetchLists(RECHECK_MS)
             if (current.container) {
                 const readAt = current.container.readAt()
-                if (!readAt || Date.now() - readAt >= RECHECK_MS) {
-                    await readContainer(counters, current.container)
-                }
+                const shouldRead =
+                    trigger === 'foreground' ? readFloorPassed(readAt) : !readAt || Date.now() - readAt >= RECHECK_MS
+                const containerRead = shouldRead ? await readContainer(counters, current.container) : null
                 if (!stillActive(generation, passGroup)) {
                     return
                 }
-                for (const item of visibleOf(optionsRef.current)) {
-                    const snapshot = item.snapshot()
-                    if (drawable(item) && (!hasGoodValue(snapshot) || cacheTargetPassed(snapshot))) {
-                        send(counters, item.key, item.family, 'blocking', item.read)
+                const latest = optionsRef.current
+                const now = serverNow()
+                const canRefresh = trigger === 'foreground' && canRefreshDashboard(latest, containerRead, now)
+                for (const item of visibleOf(latest)) {
+                    if (!drawable(item)) {
+                        continue
+                    }
+                    const mode = dashboardReadMode(item.snapshot(), canRefresh, now)
+                    if (mode) {
+                        send(counters, item.key, item.family, mode, item.read)
                     }
                 }
             } else {

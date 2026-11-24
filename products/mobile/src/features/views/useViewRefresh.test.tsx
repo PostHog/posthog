@@ -373,6 +373,51 @@ describe('useViewRefresh on a dashboard', () => {
         }
     })
 
+    test('a visible dashboard refreshes eligible tiles after a minute in the background', async () => {
+        jest.useFakeTimers()
+        const now = Date.now()
+        const snapshot: Freshness = {
+            ...oldValue(),
+            cacheTargetAge: new Date(now + 600_000).toISOString(),
+            nextAllowedRefreshAt: new Date(now + 30_000).toISOString(),
+        }
+        const itemRead = jest.fn(async (_mode: RefreshMode) => OK)
+        const items = tiles('7d', 1, false).map((item) => ({ ...item, snapshot: () => snapshot, read: itemRead }))
+        let readAt: number | null = null
+        const container: RefreshContainer = {
+            ...dashboard('7d'),
+            readAt: () => readAt,
+            read: async () => {
+                readAt = Date.now()
+                return read('7d-dashboard', false)()
+            },
+        }
+        const { unmount } = renderHook(() => useViewRefresh({ ...options('7d', items), container }))
+        try {
+            await flush()
+            expect(reads).toEqual(['7d-dashboard'])
+            expect(itemRead).not.toHaveBeenCalled()
+
+            act(() => focusManager.setFocused(false))
+            await act(async () => jest.advanceTimersByTimeAsync(READ_FLOOR_MS - 1))
+            act(() => focusManager.setFocused(true))
+            await flush()
+            expect(reads).toEqual(['7d-dashboard'])
+            expect(itemRead).not.toHaveBeenCalled()
+
+            act(() => focusManager.setFocused(false))
+            await act(async () => jest.advanceTimersByTimeAsync(READ_FLOOR_MS))
+            act(() => focusManager.setFocused(true))
+            await flush()
+            expect(reads).toEqual(['7d-dashboard', '7d-dashboard'])
+            expect(itemRead.mock.calls.map(([mode]) => mode)).toEqual(['force_blocking'])
+        } finally {
+            unmount()
+            focusManager.setFocused(undefined)
+            jest.useRealTimers()
+        }
+    })
+
     test.each(['fresh list', 'refresh window', 'fast list', 'slow list', 'failed list'] as const)(
         'a pull gives feedback and settles with %s',
         async (scenario) => {
