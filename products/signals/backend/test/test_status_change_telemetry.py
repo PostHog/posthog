@@ -75,49 +75,67 @@ class TestCaptureStatusChangeAnalytics(BaseTest):
 
     @parameterized.expand(
         [
-            ("pipeline_without_actor", None, "system", False, None, None),
-            ("user", "user", "user", True, None, None),
-            ("external_agent", "agent", "agent", True, "codex", None),
-            ("internal_task", "task", "task", False, None, "11111111-1111-1111-1111-111111111111"),
+            ("pipeline_without_actor", None, "system", None, None),
+            ("user", "user", "user", "request", None),
+            ("external_agent", "agent", "agent", "request", "codex"),
+            ("task_with_no_creator", "orphan_task", "task", None, None),
+            ("task_called_by_its_creator", "own_task", "task", "task_creator", None),
+            ("task_named_by_another_caller", "borrowed_task", "task", None, None),
         ]
     )
-    def test_label_carries_transition_actor(
-        self, _name, actor_kind, expected_kind, expects_user, expected_agent, expected_task_id
-    ):
+    def test_label_carries_transition_actor(self, _name, actor_key, expected_kind, expected_source, expected_agent):
+        task = Task.objects.create(
+            team=self.team, title="Fix", description="", origin_product="signals", created_by=self.user
+        )
+        other = User.objects.create_and_join(self.organization, "other@example.com", None)
         actors = {
             None: None,
             "user": ArtefactAttribution.from_user(self.user.id),
             "agent": ArtefactAttribution.from_agent(self.user.id, "codex"),
-            "task": ArtefactAttribution.from_task("11111111-1111-1111-1111-111111111111"),
+            "orphan_task": ArtefactAttribution.from_task("11111111-1111-1111-1111-111111111111"),
+            "own_task": ArtefactAttribution.from_task(str(task.id), request_user_id=self.user.id),
+            "borrowed_task": ArtefactAttribution.from_task(str(task.id), request_user_id=other.id),
         }
+        actor = actors[actor_key]
         report = self._create_report()
-        if actors[actor_kind] is not None:
-            report._transition_actor = actors[actor_kind]  # type: ignore[attr-defined]
+        if actor is not None:
+            report._transition_actor = actor  # type: ignore[attr-defined]
         with patch("products.signals.backend.receivers.posthoganalytics.capture") as mock_capture:
             with self.captureOnCommitCallbacks(execute=True):
                 report.save(update_fields=report.transition_to(SignalReport.Status.SUPPRESSED))
         kwargs = mock_capture.call_args.kwargs
-        assert kwargs["distinct_id"] == str(self.team.uuid)
+        names_user = expected_source is not None
+        assert kwargs["distinct_id"] == (self.user.distinct_id if names_user else str(self.team.uuid))
         actor_properties = {key: value for key, value in kwargs["properties"].items() if key.startswith("actor_")}
         assert actor_properties == {
             "actor_kind": expected_kind,
-            "actor_user_uuid": str(self.user.uuid) if expects_user else None,
-            "actor_distinct_id": self.user.distinct_id if expects_user else None,
+            "actor_user_uuid": str(self.user.uuid) if names_user else None,
+            "actor_distinct_id": self.user.distinct_id if names_user else None,
+            "actor_user_source": expected_source,
             "actor_agent": expected_agent,
-            "actor_task_id": expected_task_id,
+            "actor_task_id": actor.task_id if actor is not None else None,
         }
 
     @parameterized.expand(
         [
-            ("merge_credits_claim_holder", "merged", "claimer", "attacher", None, "claimer"),
-            ("merge_credits_pr_attacher_without_claim", "merged", None, "attacher", None, "attacher"),
-            ("merge_credits_task_creator_without_claim", "merged", None, None, "attacher", "attacher"),
-            ("merge_without_owner_names_nobody", "merged", None, None, None, None),
-            ("close_credits_claim_holder", "closed", "claimer", None, None, "claimer"),
+            ("merge_credits_claim_holder", "merged", "claimer", "attacher", None, "claimer", "claim"),
+            ("merge_credits_pr_attacher_without_claim", "merged", None, "attacher", None, "attacher", "pr_attacher"),
+            ("merge_credits_task_creator_without_claim", "merged", None, None, "attacher", "attacher", "task_creator"),
+            (
+                "merge_credits_task_claim_as_task_creator",
+                "merged",
+                "task",
+                None,
+                "attacher",
+                "attacher",
+                "task_creator",
+            ),
+            ("merge_without_owner_names_nobody", "merged", None, None, None, None, None),
+            ("close_credits_claim_holder", "closed", "claimer", None, None, "claimer", "claim"),
         ]
     )
     def test_pr_state_transition_credits_work_owner_as_system_actor(
-        self, _name, pr_state, claimer, attacher, task_creator, expected
+        self, _name, pr_state, claimer, attacher, task_creator, expected, expected_source
     ):
         users = {
             "claimer": User.objects.create_and_join(self.organization, "claimer@example.com", None),
@@ -125,7 +143,23 @@ class TestCaptureStatusChangeAnalytics(BaseTest):
             None: None,
         }
         report = self._create_report()
-        if claimer:
+        task = (
+            Task.objects.create(
+                team=self.team, title="Fix", description="", origin_product="signals", created_by=users[task_creator]
+            )
+            if task_creator
+            else None
+        )
+        if claimer == "task":
+            SignalReportArtefact.objects.create(
+                team=self.team,
+                report=report,
+                type="work_claim",
+                content=WorkClaim(display_name="Task").model_dump_json(),
+                actor_kind="task",
+                task_id=task.id if task else None,
+            )
+        elif claimer:
             SignalReportArtefact.objects.create(
                 team=self.team,
                 report=report,
@@ -134,13 +168,6 @@ class TestCaptureStatusChangeAnalytics(BaseTest):
                 actor_kind="user",
                 created_by=users[claimer],
             )
-        task = (
-            Task.objects.create(
-                team=self.team, title="Fix", description="", origin_product="signals", created_by=users[task_creator]
-            )
-            if task_creator
-            else None
-        )
         pr = SignalReportPullRequest.objects.create(
             team=self.team,
             repository="example/app",
@@ -159,15 +186,18 @@ class TestCaptureStatusChangeAnalytics(BaseTest):
         with patch("products.signals.backend.receivers.posthoganalytics.capture") as mock_capture:
             with self.captureOnCommitCallbacks(execute=True):
                 apply_report_completion(report)
-        [properties] = [
-            call.kwargs["properties"]
+        [status_change] = [
+            call.kwargs
             for call in mock_capture.call_args_list
             if call.kwargs["event"] == "signal_report_status_changed"
         ]
+        properties = status_change["properties"]
         credited = users[expected]
+        assert status_change["distinct_id"] == (credited.distinct_id if credited else str(self.team.uuid))
         assert properties["actor_kind"] == "system"
         assert properties["actor_user_uuid"] == (str(credited.uuid) if credited else None)
         assert properties["actor_distinct_id"] == (credited.distinct_id if credited else None)
+        assert properties["actor_user_source"] == expected_source
         if pr_state == "merged":
             assert properties["resolution_reason"] == "pr_merged"
         else:

@@ -25,6 +25,8 @@ from products.signals.backend.report_content_gates import team_report_monitoring
 if TYPE_CHECKING:
     from posthog.models import User
 
+    from products.signals.backend.transition_credit import TransitionCredit
+
 
 def check_definition_version(check: SignalReportCheck) -> str:
     definition = {
@@ -67,7 +69,7 @@ def complete_implementation(
     monitoring_started_at: datetime | None,
     attribution: ArtefactAttribution | None = None,
     actor_user: User | None = None,
-    credited_user: User | None = None,
+    credit: TransitionCredit | None = None,
     close_pr_on_resolve: bool = False,
     from_pr_merge: bool = False,
     restart_monitoring: bool = False,
@@ -82,7 +84,7 @@ def complete_implementation(
         report = SignalReport.objects.select_for_update(no_key=True).get(team_id=team_id, id=report_id)
         report._transition_actor = attribution  # type: ignore[attr-defined]
         report._transition_actor_user = actor_user  # type: ignore[attr-defined]
-        report._credited_user = credited_user  # type: ignore[attr-defined]
+        report._transition_credit = credit  # type: ignore[attr-defined]
         report._status_from_pr_state = from_pr_merge  # type: ignore[attr-defined]
         if report.status in {SignalReport.Status.RESOLVED, SignalReport.Status.CLOSED}:
             return None
