@@ -42,6 +42,8 @@ from .schema_operations import ExternalDataSourceSchemaOperationsMixin
 from .source_setup import ExternalDataSourceSetupMixin
 from .webhook_setup import ExternalDataSourceWebhookSetupMixin
 
+ACTIONS_WITHOUT_SCHEMA_COLUMNS = frozenset({"list", "jobs"})
+
 
 class ExternalDataSourceExistsSerializer(serializers.Serializer):
     exists = serializers.BooleanField(help_text="Whether the project has any accessible external data sources.")
@@ -305,7 +307,11 @@ class ExternalDataSourceViewSet(
         # Building the full HogQL Database and serializing per-schema table columns is expensive
         # and only needed when a caller reads `schemas[].table.columns` — which the source list view
         # never does (it only reads name/row_count). Gate both to single-source reads.
-        include_columns = self.action != "list" and not read_query["compact"] and read_query["include_schemas"]
+        include_columns = (
+            self.action not in ACTIONS_WITHOUT_SCHEMA_COLUMNS
+            and not read_query["compact"]
+            and read_query["include_schemas"]
+        )
         context["include_columns"] = include_columns
         # The list serializes a trimmed per-schema shape; single-source reads serialize the full one.
         context["schemas_list_only"] = self.action == "list"
