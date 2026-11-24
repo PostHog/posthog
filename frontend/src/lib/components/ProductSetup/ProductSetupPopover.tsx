@@ -217,8 +217,13 @@ export function ProductSetupPopover({
                 padded={false}
                 additionalRefs={[hintPopoverRef]}
                 overlay={
-                    <div className="relative w-80 max-h-[70vh]" role="dialog" aria-label="Quick start guide">
-                        <div className="flex flex-col h-full">
+                    <div
+                        className="relative w-80 max-h-[70vh] flex flex-col"
+                        role="dialog"
+                        aria-label="Quick start guide"
+                    >
+                        {/* Flex, not h-full, so the 70vh cap reaches the task list and only it scrolls */}
+                        <div className="flex flex-col flex-auto min-h-0">
                             {/* Screen reader announcements */}
                             <div className="sr-only" aria-live="polite" aria-atomic="true">
                                 {announcement}
@@ -236,7 +241,7 @@ export function ProductSetupPopover({
                                 totalTasks={totalTasks}
                             />
 
-                            <div className="flex-1 overflow-y-auto" onMouseLeave={() => handleTaskHover(null)}>
+                            <div className="flex-1 min-h-0 overflow-y-auto" onMouseLeave={() => handleTaskHover(null)}>
                                 {isSetupComplete ? (
                                     <ProductSuggestions
                                         products={otherProductsWithTasks}
