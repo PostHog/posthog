@@ -181,6 +181,7 @@ describe('sendDeadlineMsFor', () => {
         ['files at the size limit', LARGEST_SEND_FILE_BYTES, 45_000, undefined],
         ['files past the size limit', LARGEST_SEND_FILE_BYTES * 2, 45_000, undefined],
         ['empty files, under a small-send deadline of 20 s', 0, 20_000, 20_000],
+        ['files half the size limit, under a small-send deadline of 20 s', LARGEST_SEND_FILE_BYTES / 2, 32_500, 20_000],
         ['files at the size limit, under a small-send deadline of 20 s', LARGEST_SEND_FILE_BYTES, 45_000, 20_000],
         ['empty files, under a small-send deadline past the largest', 0, 45_000, 50_000],
     ])('gives a send with %s its deadline', (_case, fileBytes, deadlineMs, smallestMs) => {
@@ -2724,6 +2725,14 @@ describe('EmailService', () => {
                     19_000,
                     retriedLoad,
                     0,
+                ],
+                [
+                    'a download answered after 19 s, a small send under a configured 30 s deadline, sends',
+                    () => Promise.resolve(pdf),
+                    30_000,
+                    19_000,
+                    sent,
+                    1,
                 ],
                 [
                     'a download answered after 20 s, a send of half the size limit, whose deadline is 31 s, sends',

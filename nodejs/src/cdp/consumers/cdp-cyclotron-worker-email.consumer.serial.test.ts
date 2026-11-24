@@ -10,6 +10,7 @@ import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import {
     BucketProxy,
     EmailQueueOfOneTest,
+    HeldQuery,
     PostgresProxy,
     StoredFile,
     attachmentStoreConfig,
@@ -59,6 +60,7 @@ const completes = (request: string): boolean => request.includes("SET status = '
 const fails = (request: string): boolean => request.includes("SET status = 'failed'")
 const dequeues = (request: string): boolean => request.includes("SET status = 'running'")
 const defers = (request: string): boolean => request.includes('dequeue_seq = COALESCE')
+const reschedules = (request: string): boolean => request.includes("SET status = 'available'") && !defers(request)
 const checksOwnership = (request: string): boolean =>
     request.includes('SELECT 1 FROM cyclotron_jobs WHERE id = $1 AND lock_id = $2')
 const writeOf =
@@ -690,6 +692,8 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
                 Buffer.alloc(LARGEST_SEND_FILE_BYTES / 2)
             )
             const [running] = await enqueue(transactionalSend([report.metadata]))
+            let retryWrite: HeldQuery | undefined
+            void cyclotron.hold(writeOf(reschedules, running)).then((held) => (retryWrite = held))
             const clockStarted = Date.now()
             useFakeClock()
             let callStarted = false
@@ -714,6 +718,14 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
                 stopReturned: false,
                 status: 'running',
             })
+            const write = await onTheFakeClock(() => {
+                expect(retryWrite).toBeDefined()
+                return Promise.resolve(retryWrite!)
+            }, stopStarted + 53_000)
+            expect(stopReturned).toBe(false)
+            await jest.advanceTimersByTimeAsync(stopStarted + 50_000 - Date.now())
+            expect(stopReturned).toBe(false)
+            write.release()
             await onTheFakeClock(() => Promise.resolve(expect(stopReturned).toBe(true)), stopStarted + 53_000)
 
             const row = await jobRow(running)
