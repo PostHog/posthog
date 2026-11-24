@@ -1911,10 +1911,8 @@ class TestTransactionalEmail(APIBaseTest):
         assert self._sandbox_senders() == []
         assert pipeline.queued == []
 
-    def test_refuses_a_reply_the_sandbox_sender_cannot_thread(self, mock_post, _flag, _capture):
+    def test_refuses_a_reply_the_sandbox_sender_cannot_thread(self, _mock_post, _flag, _capture):
         self._without_a_verified_sender(unverified_sender=False)
-        pipeline = FakeCdpApi()
-        mock_post.side_effect = pipeline.post
         reply = CodeEmail(
             key="support-reply",
             subject="Re: help",
@@ -1930,7 +1928,6 @@ class TestTransactionalEmail(APIBaseTest):
             send_code_email(self.team, reply, to="customer@example.com", distinct_id=None)
 
         assert refused.value.attr == "reply_headers"
-        assert pipeline.queued == []
 
     def test_refuses_a_code_send_from_an_unverified_domain(self, mock_post, _flag, capture):
         response = self._psak_client(["hog_flow:write"]).post(

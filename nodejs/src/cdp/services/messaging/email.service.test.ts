@@ -4092,16 +4092,19 @@ describe('EmailService', () => {
             expect(references.length).toBeLessThan(ids.length)
         })
 
-        it('ends References with the parent a reply answers', async () => {
+        it.each([
+            [[], '<parent@mail.example.com>'],
+            [['<root@mail.example.com>'], '<root@mail.example.com> <parent@mail.example.com>'],
+        ])('ends References %j with the parent a reply answers', async (references, expected) => {
             invocation.queueParameters = createEmailParams({
                 from: { integrationId: 1 },
-                thread: { inReplyTo: '<parent@mail.example.com>', references: ['<root@mail.example.com>'] },
+                thread: { inReplyTo: '<parent@mail.example.com>', references },
             })
 
             const result = await service.executeSendEmail(invocation)
 
             expect(result.error).toBeUndefined()
-            expect(ses.sent[0].headers['References']).toEqual('<root@mail.example.com> <parent@mail.example.com>')
+            expect(ses.sent[0].headers['References']).toEqual(expected)
         })
 
         it('attaches the X-PostHog-Tracking-Code header carrying the full signed code', async () => {
