@@ -36,6 +36,7 @@ from products.context_layer.backend.presentation.selection import ContextSelecti
 from products.context_layer.backend.selection import (
     MAX_CONTEXT_CHARS,
     MAX_SOURCE_TEXT,
+    SOURCE_DESCRIPTIONS,
     Candidate,
     ContextSelector,
     FlagDecision,
@@ -238,7 +239,10 @@ class TestSelection(SimpleTestCase):
             records["certification"]["proposed_status"], "deprecated" if long_source == "certification" else "trusted"
         )
         self.assertEqual(records["relationship"]["status"], "proposed")
-        for candidate in self.model.decide.call_args.kwargs["state"]["candidates"].values():
+        rerank_state = self.model.decide.call_args.kwargs["state"]
+        reranked_kinds = {candidate["kind"] for candidate in rerank_state["candidates"].values()}
+        self.assertEqual(rerank_state["sources"], {kind: SOURCE_DESCRIPTIONS[kind] for kind in reranked_kinds})
+        for candidate in rerank_state["candidates"].values():
             self.assertLessEqual(len(candidate["text"]), MAX_SOURCE_TEXT)
             if candidate["kind"] == "skill" and long_source == "skill":
                 self.assertEqual(json.loads(candidate["text"])["matches"], self.skill["matches"])

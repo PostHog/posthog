@@ -35,7 +35,7 @@ MISSING_SESSION_ID_MIN_UNUSABLE = 100
 class MissingSessionIdCheck(RollupHealthCheck):
     name = "missing_session_id"
     kind = "missing_session_id"
-    owner = JobOwners.TEAM_WEB_ANALYTICS
+    owner = JobOwners.TEAM_ANALYTICS
     product = Product.WEB_ANALYTICS
     schedule = "0 6 * * *"
     active_since_days = 30

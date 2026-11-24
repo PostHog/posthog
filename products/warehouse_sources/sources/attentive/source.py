@@ -8,9 +8,12 @@ from asgiref.sync import async_to_sync
 
 from products.warehouse_sources.sources.attentive import api_client
 from products.warehouse_sources.sources.attentive._config import AttentiveSourceConfig
+from products.warehouse_sources.sources.attentive.api_client import AttentiveResumeConfig
 from products.warehouse_sources.sources.attentive.constants import (
     ATTENTIVE_WEBHOOK_SCHEMA_NAMES,
     RESOURCE_TO_ATTENTIVE_EVENT_TYPE,
+    SEGMENTS_INCREMENTAL_FIELD,
+    SEGMENTS_SCHEMA_NAME,
 )
 from products.warehouse_sources.sources.sdk import (
     CanonicalDescriptions,
@@ -18,8 +21,11 @@ from products.warehouse_sources.sources.sdk import (
     ExternalDataSourceType,
     ExternalWebhookInfo,
     FieldType,
+    IncrementalField,
+    IncrementalFieldType,
     ReleaseStatus,
-    SimpleSource,
+    ResumableSource,
+    ResumableSourceManager,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
@@ -33,6 +39,7 @@ from products.warehouse_sources.sources.sdk import (
     WebhookSourceManager,
     WebhookSyncResult,
     detect,
+    format_datetime,
 )
 from products.warehouse_sources.sources.sdk.internals import table_from_py_list
 
@@ -61,9 +68,29 @@ def _webhook_table_transformer(table: pa.Table) -> pa.Table:
     return table_from_py_list(rows)
 
 
+def _segments_response(
+    config: AttentiveSourceConfig,
+    resumable_source_manager: ResumableSourceManager[AttentiveResumeConfig],
+    inputs: SourceInputs,
+) -> SourceResponse:
+    last_value = inputs.db_incremental_field_last_value if inputs.should_use_incremental_field else None
+    updated_since = format_datetime(last_value, "iso_z") if last_value is not None else None
+
+    return SourceResponse(
+        name=inputs.schema_name,
+        items=lambda: api_client.iter_segments(config.api_key, updated_since, resumable_source_manager),
+        primary_keys=["externalId"],
+        partition_count=1,
+        partition_size=1,
+        partition_mode="datetime",
+        partition_format="month",
+        partition_keys=["created"],
+    )
+
+
 @SourceRegistry.register
 class AttentiveSource(
-    SimpleSource[AttentiveSourceConfig],
+    ResumableSource[AttentiveSourceConfig, AttentiveResumeConfig],
     WebhookSource[AttentiveSourceConfig],
 ):
     codebase_detection = detect(
@@ -100,8 +127,9 @@ class AttentiveSource(
             label="Attentive",
             caption=(
                 "Connect your Attentive account using a private app API key (Marketplace > Create app). "
-                "Attentive's API has no bulk read endpoints, so all tables are populated from webhook "
-                "events as they happen — history before the connection date is not backfilled."
+                "Event tables are populated from webhook events as they happen, so history before the "
+                "connection date is not backfilled. The segments table is read from the API and needs "
+                "the Segments read permission."
             ),
             iconPath="/static/services/attentive.com.png",
             docsUrl="https://posthog.com/docs/cdp/sources/attentive",
@@ -161,6 +189,7 @@ class AttentiveSource(
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
+            api_client.SEGMENTS_PERMISSION_ERROR: None,
             "401 Client Error: Unauthorized": api_client.API_KEY_REJECTED_ERROR,
             "403 Client Error: Forbidden": api_client.WEBHOOKS_PERMISSION_ERROR,
         }
@@ -174,9 +203,8 @@ class AttentiveSource(
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # All tables are webhook-only: Attentive's REST API has no list
-        # endpoints to poll, so user-facing append/full-refresh toggles don't
-        # apply and there is nothing for the polling sync to fetch.
+        # The event tables are webhook-only: Attentive's REST API has no list
+        # endpoints for them, so append/full-refresh toggles don't apply.
         schemas = [
             SourceSchema(
                 name=name,
@@ -187,10 +215,34 @@ class AttentiveSource(
             )
             for name in ATTENTIVE_WEBHOOK_SCHEMA_NAMES
         ]
+        schemas.append(
+            SourceSchema(
+                name=SEGMENTS_SCHEMA_NAME,
+                # Needs the beta segments:read scope, which source creation does not check.
+                should_sync_default=False,
+                supports_incremental=True,
+                supports_append=False,
+                incremental_fields=[
+                    IncrementalField(
+                        label=SEGMENTS_INCREMENTAL_FIELD,
+                        type=IncrementalFieldType.DateTime,
+                        field=SEGMENTS_INCREMENTAL_FIELD,
+                        field_type=IncrementalFieldType.DateTime,
+                    )
+                ],
+            )
+        )
         if names is not None:
             names_set = set(names)
             schemas = [s for s in schemas if s.name in names_set]
         return schemas
+
+    def resume_covers_run(self, *, incremental_or_append: bool, schema_name: str | None = None) -> bool:
+        # Only the segments table pages by a saved cursor. The webhook tables never save one.
+        return schema_name == SEGMENTS_SCHEMA_NAME
+
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[AttentiveResumeConfig]:
+        return ResumableSourceManager[AttentiveResumeConfig](inputs, AttentiveResumeConfig)
 
     def get_webhook_source_manager(self, inputs: SourceInputs) -> WebhookSourceManager:
         return WebhookSourceManager(inputs, inputs.logger)
@@ -248,7 +300,15 @@ class AttentiveSource(
     ) -> WebhookDeletionResult:
         return api_client.delete_webhook(config.api_key, webhook_url)
 
-    def source_for_pipeline(self, config: AttentiveSourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def source_for_pipeline(
+        self,
+        config: AttentiveSourceConfig,
+        resumable_source_manager: ResumableSourceManager[AttentiveResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
+        if inputs.schema_name == SEGMENTS_SCHEMA_NAME:
+            return _segments_response(config, resumable_source_manager, inputs)
+
         webhook_source_manager = self.get_webhook_source_manager(inputs)
         webhook_enabled = async_to_sync(webhook_source_manager.webhook_enabled)(webhook_only=True)
 
@@ -268,4 +328,5 @@ class AttentiveSource(
             partition_format="week",
             partition_keys=["created_at"],
             webhook_only=True,
+            supports_resume=False,
         )

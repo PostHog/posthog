@@ -221,12 +221,13 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_INTAKE_TRANSACTIONAL_EMAIL_TOPIC: string
     CDP_INTAKE_WORKFLOW_WEBHOOK_TOPIC: string
     CDP_INTAKE_DLQ_TOPIC: string
+    CDP_INTAKE_DLQ_DRAIN: boolean
     // An intake consumer's dead letters, on the cluster it reads from.
     CDP_INTAKE_DLQ_PRODUCER: CdpProducerName
-    // Teams whose routes produce accepted runs to the intake topics: a list of team ids, or `*`. Shadow still inserts
-    // each run itself and only measures the produce. Async answers on the broker's ack. Async wins over shadow.
-    CDP_INTAKE_KAFKA_SHADOW_TEAMS: string
+    // Teams whose routes answer accepted runs on the intake topic's ack: a list of team ids, or `*`.
     CDP_INTAKE_KAFKA_ASYNC_TEAMS: string
+    // Per pod: batch email requests in flight. A batch over the cap gets 503 over_capacity.
+    CDP_TRANSACTIONAL_EMAIL_BATCH_MAX_REQUESTS: number
     CDP_INTAKE_MSK_PRODUCER: CdpProducerName
     // Replay worker. Scaled to zero replicas; an operator scales it up to drain the topic.
     CDP_DLQ_REPLAY_TOPIC: string
@@ -533,9 +534,10 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_INTAKE_TRANSACTIONAL_EMAIL_TOPIC: KAFKA_CDP_INTAKE_TRANSACTIONAL_EMAIL,
         CDP_INTAKE_WORKFLOW_WEBHOOK_TOPIC: KAFKA_CDP_INTAKE_WORKFLOW_WEBHOOK,
         CDP_INTAKE_DLQ_TOPIC: KAFKA_CDP_INTAKE_DLQ,
+        CDP_INTAKE_DLQ_DRAIN: false,
         CDP_INTAKE_DLQ_PRODUCER: MSK_CDP_INTAKE_PRODUCER,
-        CDP_INTAKE_KAFKA_SHADOW_TEAMS: '',
         CDP_INTAKE_KAFKA_ASYNC_TEAMS: '',
+        CDP_TRANSACTIONAL_EMAIL_BATCH_MAX_REQUESTS: 8,
         CDP_INTAKE_MSK_PRODUCER: MSK_CDP_INTAKE_PRODUCER,
         CDP_DLQ_REPLAY_TOPIC: KAFKA_CDP_EVENTS_DLQ,
 

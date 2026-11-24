@@ -1,3 +1,4 @@
+import { COUNTRY_NAMES } from '@/model/countries'
 import type { WebBreakdown, WebFilter, WebPropertyFilter, WebTileId } from '../views'
 
 // The web analytics breakdown tiles and how a row becomes a filter. Ported from the web's
@@ -89,64 +90,6 @@ export function breakdownFilters(breakdown: WebBreakdown): boolean {
 }
 
 const NOT_SET = '(not set)'
-
-// A small fallback for runtimes without `Intl.DisplayNames`, such as Hermes. Other codes show as the code.
-const COUNTRY_NAMES: Record<string, string> = {
-    AE: 'United Arab Emirates',
-    AR: 'Argentina',
-    AT: 'Austria',
-    AU: 'Australia',
-    BD: 'Bangladesh',
-    BE: 'Belgium',
-    BG: 'Bulgaria',
-    BR: 'Brazil',
-    CA: 'Canada',
-    CH: 'Switzerland',
-    CL: 'Chile',
-    CN: 'China',
-    CO: 'Colombia',
-    CZ: 'Czechia',
-    DE: 'Germany',
-    DK: 'Denmark',
-    EG: 'Egypt',
-    ES: 'Spain',
-    FI: 'Finland',
-    FR: 'France',
-    GB: 'United Kingdom',
-    GR: 'Greece',
-    HK: 'Hong Kong',
-    HU: 'Hungary',
-    ID: 'Indonesia',
-    IE: 'Ireland',
-    IL: 'Israel',
-    IN: 'India',
-    IT: 'Italy',
-    JP: 'Japan',
-    KE: 'Kenya',
-    KR: 'South Korea',
-    MX: 'Mexico',
-    MY: 'Malaysia',
-    NG: 'Nigeria',
-    NL: 'Netherlands',
-    NO: 'Norway',
-    NZ: 'New Zealand',
-    PH: 'Philippines',
-    PK: 'Pakistan',
-    PL: 'Poland',
-    PT: 'Portugal',
-    RO: 'Romania',
-    RU: 'Russia',
-    SA: 'Saudi Arabia',
-    SE: 'Sweden',
-    SG: 'Singapore',
-    TH: 'Thailand',
-    TR: 'Türkiye',
-    TW: 'Taiwan',
-    UA: 'Ukraine',
-    US: 'United States',
-    VN: 'Vietnam',
-    ZA: 'South Africa',
-}
 
 const LANGUAGE_NAMES: Record<string, string> = {
     ar: 'Arabic',
