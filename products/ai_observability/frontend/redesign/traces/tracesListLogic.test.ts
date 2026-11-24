@@ -133,6 +133,11 @@ describe('tracesListLogic', () => {
             () => shellScopeLogic.actions.setDateRange('-24h', null),
             { ...FIRST_PAGE_PARAMS, date_from: '-24h' },
         ],
+        [
+            "the shell's test accounts switch",
+            () => shellScopeLogic.actions.setFilterTestAccounts(true),
+            { ...FIRST_PAGE_PARAMS, filter_test_accounts: 'true' },
+        ],
     ])('drops the pages and reads page one when %s changes', async (_name, change, params) => {
         await mountAt(LIST_PATH)
         logic.actions.showNextPage()
@@ -290,6 +295,13 @@ describe('tracesListLogic', () => {
         await mountAt(`${LIST_PATH}?${query}`, [SEARCH_FLAG])
 
         expect(logic.values.state).toEqual(state)
+    })
+
+    it("sends the shell's filterTestAccounts", async () => {
+        await mountAt(`${LIST_PATH}?filter_test_accounts=true`)
+
+        expect(logic.values.filterTestAccounts).toBe(true)
+        expect(requests).toEqual([{ ...FIRST_PAGE_PARAMS, filter_test_accounts: 'true' }])
     })
 
     it('tracks each first page once with its row count', async () => {
