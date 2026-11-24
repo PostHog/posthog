@@ -12,6 +12,8 @@ from posthog.models.property import GroupTypeIndex
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.access_control.backend.facade import api as access_control_api
+from products.access_control.backend.facade.property_access import restriction_fingerprint
 from products.feature_flags.backend.person_sampling import bounded_memory_settings
 from products.feature_flags.backend.user_blast_radius import (
     BlastRadiusResult,
@@ -86,9 +88,17 @@ def _cached_count_audience(
     dedupe_key: str | None,
     user: User | None,
 ) -> BlastRadiusResult:
-    # Users share a cached count. get_audience_size first refuses any filter that the user's property rules mask
-    # differently from the default rules, so every count that reaches here is the same for every user.
-    audience = json.dumps([filters, group_type_index, dedupe_key], sort_keys=True, default=str)
+    # get_audience_size first refuses any filter that the user's property rules mask differently from the
+    # default rules, so a count that reaches here depends only on the default rules. Their fingerprint in the key
+    # drops a cached count once a default rule changes.
+    default_restrictions = access_control_api.get_restricted_properties_with_group_type_index_for_team(
+        user=None, team_id=team.pk
+    )
+    audience = json.dumps(
+        [filters, group_type_index, dedupe_key, restriction_fingerprint(default_restrictions)],
+        sort_keys=True,
+        default=str,
+    )
     cache_key = f"workflows:audience_count:{team.pk}:{hashlib.sha256(audience.encode()).hexdigest()}"
     cached = cache.get(cache_key)
     if isinstance(cached, tuple) and len(cached) == 2:

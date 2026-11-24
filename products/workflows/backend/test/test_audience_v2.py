@@ -456,6 +456,18 @@ class TestAudienceCountsHonorPropertyAccess(ClickhouseTestMixin, BaseTest):
         with pytest.raises(ValidationError) if refused else nullcontext():
             self._size(self.restricted_member, filters)
 
+    def test_cached_count_is_dropped_when_a_default_rule_changes(self):
+        filters = {"properties": [EMAIL_FILTER]}
+        assert self._size(self.other_member, filters) == 1
+
+        create_property_access_control(
+            team_id=self.team.pk,
+            property_definition_id=PropertyDefinition.objects.get(team=self.team, name="email").id,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+
+        assert self._size(self.other_member, filters) == 0
+
     def test_refusal_lifts_once_the_rule_is_removed(self):
         filters = {"properties": [EMAIL_FILTER]}
         assert self._size(self.other_member, filters) == 1
