@@ -52,7 +52,7 @@ export function QuillCountsAsToggles({
                         }
                         disabledReason={disabledReason}
                     />
-                    <FieldLabel htmlFor={adsConversionId}>Google Ads conversion</FieldLabel>
+                    <FieldLabel htmlFor={adsConversionId}>Use for recommendations</FieldLabel>
                 </Field>
             )}
         </div>

@@ -62,7 +62,7 @@ function CountsAsToggles({
             {recommendationsEnabled && (
                 <LemonCheckbox
                     size="small"
-                    label="Google Ads conversion"
+                    label="Use for recommendations"
                     checked={!!goal.use_in_recommendations}
                     onChange={(use_in_recommendations) => onChange({ ...goal, use_in_recommendations })}
                     disabledReason={disabledReason}
@@ -342,7 +342,7 @@ export function ConversionGoalsConfiguration({
                                 const flags = [
                                     goal.counts_as_revenue && 'Revenue',
                                     goal.counts_as_customer && 'Customer',
-                                    recommendationsEnabled && goal.use_in_recommendations && 'Google Ads conversion',
+                                    recommendationsEnabled && goal.use_in_recommendations && 'Recommendations',
                                 ].filter(Boolean)
                                 return flags.length ? (
                                     <span className="text-xs">{flags.join(', ')}</span>
