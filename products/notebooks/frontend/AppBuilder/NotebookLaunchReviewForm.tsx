@@ -1,8 +1,7 @@
 import { useValues } from 'kea'
-import posthog from 'posthog-js'
 import { useState } from 'react'
 
-import { LemonButton, LemonInput, LemonModal, LemonSelect } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInput, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -39,10 +38,20 @@ function eventFunnel(entry: string, adoption: string): FunnelsQuery | undefined 
     }
 }
 
-export function NotebookLaunchReviewStarter({ shortId }: { shortId: string }): JSX.Element {
+export function NotebookLaunchReviewForm({
+    shortId,
+    emptyApp,
+    saving,
+    onClose,
+}: {
+    shortId: string
+    emptyApp: boolean
+    saving: boolean
+    onClose: () => void
+}): JSX.Element {
     const logic = notebookAppLogic({ shortId })
-    const { cells, savedNotebookLoading } = useValues(logic)
-    const [open, setOpen] = useState(false)
+    const { cells } = useValues(logic)
+    const [saveError, setSaveError] = useState<string | null>(null)
     const [picker, setPicker] = useState<'flag' | 'entry' | 'adoption' | null>(null)
     const [flag, setFlag] = useState<{ id: number; key: string; values: string[] } | null>(null)
     const [flagValue, setFlagValue] = useState('')
@@ -103,62 +112,14 @@ export function NotebookLaunchReviewStarter({ shortId }: { shortId: string }): J
 
     return (
         <>
-            <LemonButton
-                size="small"
-                type="secondary"
-                fullWidth
-                data-attr="notebook-launch-review-start"
-                onClick={() => {
-                    setOpen(true)
-                    posthog.capture('notebook app launch review started', { short_id: shortId })
-                }}
-            >
-                Feature launch review
-            </LemonButton>
-            <LemonModal
-                title="Feature launch review"
-                isOpen={open}
-                onClose={() => {
-                    setOpen(false)
-                    setPicker(null)
-                }}
-                footer={
-                    <>
-                        <LemonButton type="secondary" onClick={() => setOpen(false)}>
-                            Cancel
-                        </LemonButton>
-                        <LemonButton
-                            type="primary"
-                            data-attr="notebook-launch-review-create"
-                            loading={savedNotebookLoading}
-                            disabledReason={
-                                !flag || !flagValue.trim() || !funnel
-                                    ? 'Choose a flag, its value, and both funnel steps.'
-                                    : undefined
-                            }
-                            onClick={() => {
-                                if (flag && funnel) {
-                                    logic.actions.createLaunchReview({
-                                        flagId: flag.id,
-                                        flagKey: flag.key,
-                                        flagValue: flagValue.trim(),
-                                        funnel,
-                                    })
-                                    setOpen(false)
-                                    setPicker(null)
-                                }
-                            }}
-                        >
-                            Create draft
-                        </LemonButton>
-                    </>
-                }
-            >
-                <div className="flex flex-col gap-4">
+            <LemonModal.Content>
+                <fieldset disabled={saving} className="m-0 flex flex-col gap-4 border-0 p-0">
                     <p className="m-0">
-                        Build an adoption funnel for people who entered with the selected flag value, then watch their
-                        recordings.
+                        {emptyApp
+                            ? 'Save the flag, adoption funnel, and recordings to your draft and their source cells to the notebook.'
+                            : 'Add a Launch review tab and save the whole draft, including your current edits. Source cells are saved to the notebook.'}
                     </p>
+                    {saveError && <LemonBanner type="error">{saveError}</LemonBanner>}
                     {field('flag', 'Feature flag', flag?.key ?? '')}
                     {flag && (
                         <label className="flex flex-col gap-1 font-medium">
@@ -196,8 +157,43 @@ export function NotebookLaunchReviewStarter({ shortId }: { shortId: string }): J
                             {field('adoption', 'Adoption event', adoption)}
                         </>
                     )}
-                </div>
-            </LemonModal>
+                </fieldset>
+            </LemonModal.Content>
+            <LemonModal.Footer>
+                <LemonButton
+                    type="secondary"
+                    onClick={onClose}
+                    disabledReason={saving ? 'Saving your draft.' : undefined}
+                >
+                    Cancel
+                </LemonButton>
+                <LemonButton
+                    type="primary"
+                    data-attr="notebook-launch-review-create"
+                    loading={saving}
+                    disabledReason={
+                        !flag || !flagValue.trim() || !funnel ? 'Choose a flag, its value, and a funnel.' : undefined
+                    }
+                    onClick={async () => {
+                        if (flag && funnel) {
+                            setSaveError(null)
+                            await logic.asyncActions.createLaunchReview({
+                                flagId: flag.id,
+                                flagKey: flag.key,
+                                flagValue: flagValue.trim(),
+                                funnel,
+                            })
+                            if (logic.values.error) {
+                                setSaveError(logic.values.error)
+                            } else {
+                                onClose()
+                            }
+                        }
+                    }}
+                >
+                    Save to draft
+                </LemonButton>
+            </LemonModal.Footer>
         </>
     )
 }

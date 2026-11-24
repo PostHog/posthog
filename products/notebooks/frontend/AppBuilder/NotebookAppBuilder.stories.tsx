@@ -64,6 +64,7 @@ let saved: Omit<typeof notebook, 'app_draft' | 'app_published'> & {
     app_published: typeof layout | null
 } = structuredClone(notebook)
 let failNextQuery = false
+let failNextDraftSave = false
 
 const meta: Meta = {
     component: App,
@@ -71,6 +72,7 @@ const meta: Meta = {
     beforeEach: () => {
         saved = structuredClone(notebook)
         failNextQuery = false
+        failNextDraftSave = false
         runNumber = 0
         results = appBuilderDemoResults(appBuilderDemoVariables)
     },
@@ -149,6 +151,10 @@ const meta: Meta = {
             patch: {
                 '/api/projects/:team_id/notebooks/app-builder-demo': async ({ request }) => {
                     const body = (await request.json()) as Partial<typeof notebook>
+                    if (failNextDraftSave) {
+                        failNextDraftSave = false
+                        return [409, { detail: 'The notebook changed. Try saving the draft again.' }]
+                    }
                     saved = { ...saved, ...body, app_revision: saved.app_revision + 1 }
                     return [200, saved]
                 },
@@ -235,6 +241,11 @@ export const PublicationReview: Story = {
         const review = await canvas.findByRole('button', { name: 'Review and publish' }, { timeout: 60000 })
         await userEvent.click(review)
         await waitFor(() => expect(canvas.getByText('Ready to publish')).toBeVisible())
+        await userEvent.click(canvas.getByLabelText('More app actions'))
+        const body = within(document.body)
+        await waitFor(() => expect(body.getByText('Open notebook')).toBeVisible())
+        expect(body.queryByText('Add from template…')).not.toBeInTheDocument()
+        await userEvent.keyboard('{Escape}')
         expect(canvas.getByText(/Oldest displayed result ran/)).toBeVisible()
         expect(canvas.getByRole('button', { name: 'Publish release' })).toBeEnabled()
         await userEvent.click(canvas.getByRole('button', { name: 'Restore previous release' }))
@@ -305,11 +316,25 @@ export const Published: Story = {
 }
 export const Notebook: Story = {
     parameters: { pageUrl: urls.notebook(SHORT_ID), testOptions: { waitForSelector: '.MarkdownNotebook' } },
+    beforeEach: () => {
+        saved.app_draft = { ...layout, tabs: [...layout.tabs, { id: 'notes', title: 'Review notes' }] }
+    },
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
         await userEvent.click(await canvas.findByRole('button', { name: 'App builder' }, { timeout: 60000 }))
         const menu = within(document.body)
         await waitFor(() => expect(canvas.getByLabelText('App components')).toBeVisible(), { timeout: 60000 })
+        await userEvent.click(canvas.getByText('Review notes', { exact: true }))
+        expect(await canvas.findByText('Build your app')).toBeVisible()
+        expect(canvas.queryByRole('button', { name: 'Start from a template' })).not.toBeInTheDocument()
+        await userEvent.click(canvas.getByLabelText('More app actions'))
+        await userEvent.click(await menu.findByText('Add from template…'))
+        const dialog = within(await menu.findByRole('dialog'))
+        await waitFor(() => expect(dialog.getByRole('heading', { name: 'Choose a template' })).toBeVisible())
+        await userEvent.click(dialog.getByRole('button', { name: 'Feature launch review' }))
+        expect(dialog.getByText(/Add a Launch review tab and save the whole draft/)).toBeVisible()
+        await userEvent.click(dialog.getByRole('button', { name: 'Cancel' }))
+        expect(saved.app_revision).toBe(1)
         await userEvent.click(canvas.getByLabelText('More app actions'))
         await userEvent.click(await menu.findByText('Open notebook'))
         await waitFor(() => expect(canvasElement.querySelector('.MarkdownNotebook')).toBeVisible(), { timeout: 60000 })
@@ -422,7 +447,13 @@ export const LaunchReview: Story = {
         const canvas = within(canvasElement)
         const body = within(document.body)
         await userEvent.click(await canvas.findByRole('button', { name: 'Create app' }, { timeout: 60000 }))
-        await userEvent.click(await canvas.findByRole('button', { name: 'Feature launch review' }, { timeout: 60000 }))
+        const start = await canvas.findByRole('button', { name: 'Start from a template' }, { timeout: 60000 })
+        expect(canvas.queryByRole('button', { name: 'Feature launch review' })).not.toBeInTheDocument()
+        await userEvent.click(start)
+        const dialog = within(await body.findByRole('dialog'))
+        await waitFor(() => expect(dialog.getByRole('heading', { name: 'Choose a template' })).toBeVisible())
+        expect(dialog.queryByRole('button', { name: 'Feature flag' })).not.toBeInTheDocument()
+        await userEvent.click(dialog.getByRole('button', { name: 'Feature launch review' }))
         for (const [field, value] of [
             ['Feature flag', demoFlag.key],
             ['Entry event', launchEvents[0]],
@@ -431,7 +462,13 @@ export const LaunchReview: Story = {
             await userEvent.click(body.getByRole('button', { name: field }))
             await userEvent.click(await body.findByText(value, { exact: true }))
         }
-        await userEvent.click(body.getByRole('button', { name: 'Create draft' }))
+        expect(saved.app_draft).toBeNull()
+        failNextDraftSave = true
+        await userEvent.click(dialog.getByRole('button', { name: 'Save to draft' }))
+        expect(await dialog.findByText('The notebook changed. Try saving the draft again.')).toBeVisible()
+        expect(dialog.getByRole('button', { name: 'Feature flag' })).toHaveTextContent(demoFlag.key)
+        expect(saved.app_draft).toBeNull()
+        await userEvent.click(dialog.getByRole('button', { name: 'Save to draft' }))
         await waitFor(() => expect(saved.app_draft?.blocks).toHaveLength(3))
         expect(saved.app_published).toBeNull()
         await waitFor(() => expect(canvas.getByRole('button', { name: 'View drop-off recordings' })).toBeVisible(), {

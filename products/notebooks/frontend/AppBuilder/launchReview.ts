@@ -14,7 +14,7 @@ import {
 } from '~/types'
 
 import type { NotebookAppLayoutApi } from '../generated/api.schemas'
-import { appSourceCells, newAppBlock, pinAppCell } from './notebookAppLayout'
+import { appSourceCells, isEmptyAppLayout, newAppBlock, pinAppCell } from './notebookAppLayout'
 
 export interface LaunchReviewSources {
     flagId: number
@@ -45,7 +45,7 @@ export function buildLaunchReview(
     layout: NotebookAppLayoutApi,
     { flagId, flagKey, flagValue, funnel }: LaunchReviewSources
 ): { markdown: string; layout: NotebookAppLayoutApi; tabId: string } {
-    const hasContent = layout.blocks.length > 0 || layout.tabs.length > 1
+    const hasContent = !isEmptyAppLayout(layout)
     if (layout.blocks.length > 97 || (hasContent && layout.tabs.length >= 20)) {
         throw new Error('Make room for a tab and three components before adding a launch review.')
     }
