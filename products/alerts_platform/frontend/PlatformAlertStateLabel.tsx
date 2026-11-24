@@ -4,7 +4,12 @@ import { IconErrorOutline } from 'lib/lemon-ui/icons'
 
 import { PlatformAlertConfigurationStatus } from './platformAlertFormat'
 
-const STATUS_CONFIG: Record<PlatformAlertConfigurationStatus, { label: string; icon: JSX.Element }> = {
+interface StatusDisplay {
+    label: string
+    icon: JSX.Element
+}
+
+const STATUS_CONFIG: Partial<Record<PlatformAlertConfigurationStatus, StatusDisplay>> = {
     not_firing: { label: 'OK', icon: <IconCheckCircle className="text-success" /> },
     firing: { label: 'Firing', icon: <IconErrorOutline className="text-danger" /> },
     errored: { label: 'Errored', icon: <IconXCircle className="text-warning" /> },
@@ -14,6 +19,8 @@ const STATUS_CONFIG: Record<PlatformAlertConfigurationStatus, { label: string; i
     not_checked: { label: 'Not checked yet', icon: <IconCircleDashed className="text-muted" /> },
 }
 
+const UNKNOWN_STATUS_DISPLAY: Omit<StatusDisplay, 'label'> = { icon: <IconCircleDashed /> }
+
 export function PlatformAlertStateLabel({
     status,
     count,
@@ -22,7 +29,7 @@ export function PlatformAlertStateLabel({
     count?: number
 }): JSX.Element {
     // A state added on the backend before this map knows it still renders.
-    const { label, icon } = STATUS_CONFIG[status] ?? { label: status, icon: <IconCircleDashed /> }
+    const { label, icon } = STATUS_CONFIG[status] ?? { ...UNKNOWN_STATUS_DISPLAY, label: status }
     return (
         <span
             className="flex items-center gap-1 whitespace-nowrap"

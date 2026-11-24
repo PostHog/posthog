@@ -299,7 +299,7 @@ export const ListGroupsExpanded: Story = {
     parameters: { pageUrl: urls.platformAlerts() },
     // A native click rather than userEvent, for the reason in DetailGroupedSnoozeMenuOpen.
     play: async ({ canvasElement }) => {
-        await within(canvasElement).findByText('Errors per service above 50')
+        await within(canvasElement).findByText('Errors per service above 100')
         canvasElement.querySelector<HTMLElement>('[data-attr="platform-alerts-row-toggle-groups"]')?.click()
         await within(canvasElement).findByText('service_name=checkout severity_text=error')
     },

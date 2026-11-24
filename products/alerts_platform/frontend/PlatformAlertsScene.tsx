@@ -43,11 +43,11 @@ function listColumns(
         {
             title: 'Type',
             width: 0,
-            render: (_, { configuration, group }) => {
-                if (group) {
+            render: (_, row) => {
+                if (row.kind === 'group') {
                     return null
                 }
-                const { label, iconType } = SOURCE_KINDS[configuration.source_kind]
+                const { label, iconType } = SOURCE_KINDS[row.configuration.source_kind]
                 return (
                     <Tooltip title={label} placement="top-start">
                         <span
@@ -64,15 +64,13 @@ function listColumns(
         },
         {
             title: 'Name',
-            render: (_, { configuration, group }) => {
-                if (group) {
-                    const name = describeGroup(group, configuration.grouping.keys ?? [])
+            render: (_, row) => {
+                const { configuration } = row
+                if (row.kind === 'group') {
                     return (
-                        <Tooltip title={name}>
-                            <span className="block w-0 min-w-full truncate pl-7 font-mono text-xs" translate="no">
-                                {name}
-                            </span>
-                        </Tooltip>
+                        <span className="block w-0 min-w-full break-all pl-7 font-mono text-xs" translate="no">
+                            {describeGroup(row.group, configuration.grouping.keys ?? [])}
+                        </span>
                     )
                 }
                 const expanded = expandedIds.includes(configuration.id)
@@ -99,42 +97,44 @@ function listColumns(
         },
         {
             title: 'State',
-            render: (_, { configuration, group }) =>
-                group ? (
+            render: (_, row) =>
+                row.kind === 'group' ? (
                     <div className="flex flex-wrap items-center gap-x-2">
-                        <PlatformAlertStateLabel status={group.state} />
-                        {group.state === 'firing' && group.firing_started_at && (
+                        <PlatformAlertStateLabel status={row.group.state} />
+                        {row.group.state === 'firing' && row.group.firing_started_at && (
                             <span className="inline-flex items-center gap-1 whitespace-nowrap text-muted">
                                 <span>since</span>
-                                <TZLabel time={group.firing_started_at} />
+                                <TZLabel time={row.group.firing_started_at} />
                             </span>
                         )}
                     </div>
                 ) : (
-                    <PlatformAlertStateSummary configuration={configuration} />
+                    <PlatformAlertStateSummary configuration={row.configuration} />
                 ),
         },
         {
             title: 'Condition',
-            render: (_, { configuration, group }) => (group ? null : describeCondition(configuration)),
+            render: (_, row) => (row.kind === 'group' ? null : describeCondition(row.configuration)),
         },
         {
             title: 'Interval',
-            render: (_, { configuration, group }) =>
-                group ? null : (
-                    <Tooltip title={describeSchedule(configuration)}>
-                        <span className="border-dotted border-b">{describeInterval(configuration)}</span>
+            render: (_, row) =>
+                row.kind === 'group' ? null : (
+                    <Tooltip title={describeSchedule(row.configuration)}>
+                        <span className="border-dotted border-b">{describeInterval(row.configuration)}</span>
                     </Tooltip>
                 ),
         },
         {
             title: 'Groups',
-            render: (_, { configuration, group }) => (group ? null : configuration.alerts.length),
+            render: (_, row) => (row.kind === 'group' ? null : row.configuration.alerts.length),
         },
         {
             title: 'Next check',
-            render: (_, { configuration, group }) =>
-                group ? null : <OptionalTimeLabel time={configuration.next_check_at} fallback="Not scheduled" />,
+            render: (_, row) =>
+                row.kind === 'group' ? null : (
+                    <OptionalTimeLabel time={row.configuration.next_check_at} fallback="Not scheduled" />
+                ),
         },
     ]
 }
@@ -153,7 +153,7 @@ export function PlatformAlertsScene(): JSX.Element {
     const { loadConfigurations, setPage, setActiveTab, toggleExpanded } = useActions(platformAlertsLogic)
     const columns = useMemo(() => listColumns(expandedIds, toggleExpanded), [expandedIds, toggleExpanded])
     // The table's own pagination counts its rows, and an open alert adds a row for each group.
-    const paginationState = usePagination(configurationsPage?.results ?? [], {
+    const alertPagination = usePagination(configurationsPage?.results ?? [], {
         controlled: true,
         pageSize: PLATFORM_ALERTS_PAGE_SIZE,
         currentPage: page,
@@ -183,11 +183,11 @@ export function PlatformAlertsScene(): JSX.Element {
                 dataSource={listRows}
                 columns={columns}
                 loading={configurationsPageLoading || configurationsPage === null}
-                rowKey={({ configuration, group }) => group?.id ?? configuration.id}
-                rowClassName={({ group }) => (group ? 'bg-surface-secondary' : null)}
+                rowKey={(row) => (row.kind === 'group' ? row.group.id : row.configuration.id)}
+                rowClassName={(row) => (row.kind === 'group' ? 'bg-surface-secondary' : null)}
                 emptyState="No alert configurations on the platform for this project yet."
             />
-            <PaginationControl {...paginationState} nouns={['alert', 'alerts']} bordered />
+            <PaginationControl {...alertPagination} nouns={['alert', 'alerts']} bordered />
         </div>
     )
 

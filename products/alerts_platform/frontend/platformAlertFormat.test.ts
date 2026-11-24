@@ -101,10 +101,10 @@ describe('platformAlertFormat', () => {
         const open = makeConfiguration({ id: 'open', alerts: groups })
         const closed = makeConfiguration({ id: 'closed', alerts: groups })
         expect(configurationListRows([open, closed], ['open'])).toEqual([
-            { configuration: open, group: null },
-            { configuration: open, group: groups[0] },
-            { configuration: open, group: groups[1] },
-            { configuration: closed, group: null },
+            { kind: 'alert', configuration: open },
+            { kind: 'group', configuration: open, group: groups[0] },
+            { kind: 'group', configuration: open, group: groups[1] },
+            { kind: 'alert', configuration: closed },
         ])
     })
 

@@ -185,19 +185,18 @@ export function groupLabels(alert: PlatformAlertApi, groupingKeys: readonly stri
     }))
 }
 
-export interface PlatformAlertListRow {
-    configuration: PlatformAlertConfigurationApi
-    group: PlatformAlertApi | null
-}
+export type PlatformAlertListRow =
+    | { kind: 'alert'; configuration: PlatformAlertConfigurationApi }
+    | { kind: 'group'; configuration: PlatformAlertConfigurationApi; group: PlatformAlertApi }
 
 export function configurationListRows(
     configurations: readonly PlatformAlertConfigurationApi[],
     expandedIds: readonly string[]
 ): PlatformAlertListRow[] {
-    return configurations.flatMap((configuration) => [
-        { configuration, group: null },
+    return configurations.flatMap((configuration): PlatformAlertListRow[] => [
+        { kind: 'alert', configuration },
         ...(expandedIds.includes(configuration.id)
-            ? configuration.alerts.map((group) => ({ configuration, group }))
+            ? configuration.alerts.map((group): PlatformAlertListRow => ({ kind: 'group', configuration, group }))
             : []),
     ])
 }
