@@ -1385,6 +1385,7 @@ class TestSystemTablesTeamIsolation(NonAtomicBaseTest):
             ("running_but_disabled", [("Completed", True), ("Running", False)]),
             ("billing_limit", [("Completed", True), ("BillingLimitReached", True)]),
             ("all_disabled", [("Completed", False)]),
+            ("failed_but_deleted", [("Completed", True), ("Failed", True, True)]),
         ]
     )
     def test_data_warehouse_sources_status_matches_the_source_api(self, _name, schema_states):
@@ -1393,16 +1394,32 @@ class TestSystemTablesTeamIsolation(NonAtomicBaseTest):
         )
         schemas = [
             ExternalDataSchema.objects.create(
-                team=self.team, source=source, name=f"schema_{index}", should_sync=should_sync, status=status
+                team=self.team,
+                source=source,
+                name=f"schema_{index}",
+                should_sync=state[1],
+                status=state[0],
+                deleted=state[2] if len(state) > 2 else False,
             )
-            for index, (status, should_sync) in enumerate(schema_states)
+            for index, state in enumerate(schema_states)
         ]
+        # A second source keeps its own rollup: the join must not mix schemas across sources.
+        other = ExternalDataSource.objects.create(
+            team=self.team, source_id="other", connection_id="other", status="Running", source_type="Stripe"
+        )
+        ExternalDataSchema.objects.create(team=self.team, source=other, name="other", should_sync=True, status="Failed")
+        live = [schema for schema in schemas if not schema.deleted]
 
         response = execute_hogql_query(
-            "SELECT status FROM system.data_warehouse_sources", team=self.team, user=self.user
+            "SELECT id, status FROM system.data_warehouse_sources", team=self.team, user=self.user
         )
 
-        assert response.results == [(effective_source_status(schemas, fallback=source.status),)]
+        assert {str(source_id): status for source_id, status in response.results} == {
+            str(source.id): effective_source_status(
+                [schema for schema in live if schema.should_sync], has_schemas=bool(live), fallback=source.status
+            ),
+            str(other.id): "Failed",
+        }
 
     def test_data_deletion_requests_excludes_non_query_backed_requests(self):
         self._authorize_data_deletion_requests()

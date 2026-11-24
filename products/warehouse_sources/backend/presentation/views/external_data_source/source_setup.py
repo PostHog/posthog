@@ -564,19 +564,32 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             return None
         return [schema for schema in prefetched if not schema.deleted]
 
-    def _live_schemas(self, instance: ExternalDataSource) -> list[ExternalDataSchema]:
-        """The non-deleted schemas, from the single `schemas` prefetch when the list loaded it."""
+    def _enabled_schemas(self, instance: ExternalDataSource) -> tuple[list[ExternalDataSchema], bool]:
+        """The enabled live schemas and whether the source has any live schema at all.
+
+        Read from the `schemas` prefetch when the list loaded it. Otherwise only the enabled rows are
+        loaded, once for both the status and the error, since a source can discover thousands of tables.
+        """
+        cached = getattr(instance, "_enabled_schemas", None)
+        if cached is not None:
+            return cached
         prefetched = self._prefetched_schemas(instance)
         if prefetched is not None:
-            return prefetched
-        return list(instance.schemas.exclude(deleted=True).only("status", "should_sync", "latest_error", "updated_at"))
+            result = ([schema for schema in prefetched if schema.should_sync], bool(prefetched))
+        else:
+            live = instance.schemas.exclude(deleted=True)
+            enabled = list(live.filter(should_sync=True).only("status", "should_sync", "latest_error", "updated_at"))
+            result = (enabled, bool(enabled) or live.exists())
+        instance._enabled_schemas = result  # type: ignore[attr-defined]
+        return result
 
     def get_status(self, instance: ExternalDataSource) -> str:
-        return effective_source_status(self._live_schemas(instance), fallback=instance.status)
+        enabled, has_schemas = self._enabled_schemas(instance)
+        return effective_source_status(enabled, has_schemas=has_schemas, fallback=instance.status)
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_latest_error(self, instance: ExternalDataSource):
-        latest_error = latest_source_error(self._live_schemas(instance))
+        latest_error = latest_source_error(self._enabled_schemas(instance)[0])
         if latest_error is None:
             return None
         redacted = helpers.redact_error_message(latest_error, self._error_redaction_values(instance))

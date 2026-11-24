@@ -343,7 +343,7 @@ def list_source_health(team_id: int) -> list[contracts.ExternalDataSourceHealth]
         contracts.ExternalDataSourceHealth(
             source_type=row["source_type"],
             status=effective_source_status(
-                syncing_by_source[row["id"]], fallback=row["status"], has_schemas=row["has_schemas"]
+                syncing_by_source[row["id"]], has_schemas=row["has_schemas"], fallback=row["status"]
             ),
             prefix=row["prefix"],
             created_at=row["created_at"],
