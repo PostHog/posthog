@@ -93,7 +93,7 @@ describe('contentAutopilotPromptDetailLogic', () => {
         expect(router.values.location.pathname).toContain(urls.webAnalyticsContentAutopilotPrompt(PROMPT.id))
     })
 
-    it.each(['prompts', 'drafts'] as const)('leaves the prompt page for the %s tab', async (tab) => {
+    it.each(['prompts', 'keywords'] as const)('leaves the prompt page for the %s tab', async (tab) => {
         router.actions.push(urls.webAnalyticsContentAutopilotPrompt(PROMPT.id))
         await expectLogic(logic).toDispatchActions(['openPromptDetail']).toFinishAllListeners()
 

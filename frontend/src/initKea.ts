@@ -131,9 +131,6 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     loadPreview: 'products.metrics.frontend.components.metricVariableEditorLogic', // The variable editor shows the error under the preview
     loadSiteProfiles: 'products.webAnalytics.contentAutopilot.contentAutopilotLogic',
     loadSiteSnapshot: 'products.surveys.draftReview.surveySiteSnapshotLogic', // The preview falls back to its generic frame
-    loadProposals: 'products.webAnalytics.contentAutopilot.contentAutopilotLogic',
-    loadOpportunities: 'products.webAnalytics.contentAutopilot.contentAutopilotLogic',
-    refreshOpportunities: 'products.webAnalytics.contentAutopilot.contentAutopilotLogic',
     // The prompts view shows its own error
     loadAeoPrompts: 'products.webAnalytics.contentAutopilot.contentAutopilotPromptsLogic',
     // The AI visibility filter bar shows a retry in place of the topic filter
