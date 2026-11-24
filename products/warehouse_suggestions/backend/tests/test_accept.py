@@ -48,6 +48,7 @@ from .test_suggestions import make_draft
 
 FLAG = "products.warehouse_suggestions.backend.presentation.views.is_warehouse_suggestions_enabled"
 DAY_SECONDS = 24 * 60 * 60
+ACCEPT_TRANSITION = "products.warehouse_suggestions.backend.logic.accept.transition_to"
 DELETION_DEPENDENTS_CHECK = "products.data_modeling.backend.logic.saved_query_deletion.check_saved_query_deletable"
 DAY_KEYS = {"refresh_mode": "incremental", "incremental_key": "day", "unique_key": ["day"]}
 DAILY_COUNTS = "SELECT toStartOfDay(timestamp) AS day, count() AS c FROM events GROUP BY day"
@@ -550,6 +551,34 @@ class TestAcceptSuggestion(APIBaseTest):
         self.view.refresh_from_db()
         assert (second["http_status"], bool(self.view.deleted)) == (expected_http_status, False), second
         assert self._certification_status() == (CertificationStatus.DEPRECATED if not first_body else None)
+
+    @parameterized.expand(
+        [
+            ("still_applying_when_read", False, None),
+            ("still_applying_at_the_lock", True, None),
+            ("marked_deprecated_at_the_lock", True, {"certification_id": "cert-1", "stopped_materialization": True}),
+        ]
+    )
+    def test_an_accept_racing_another_choice_does_not_report_success(
+        self, _name: str, lost_at_the_lock: bool, winner_asset: dict | None
+    ) -> None:
+        materialize_in_place(self.view)
+        suggestion = self._suggest_deprecate()
+        suggestions = WarehouseSuggestion.objects.for_team(self.team.id).filter(id=suggestion.id)
+
+        def another_request_accepts_first(*args: object, **kwargs: object) -> WarehouseSuggestion:
+            suggestions.update(status=WarehouseSuggestionStatus.ACCEPTED, created_asset=winner_asset)
+            raise SuggestionAlreadyDecidedError(WarehouseSuggestionStatus.ACCEPTED, WarehouseSuggestionStatus.ACCEPTED)
+
+        if lost_at_the_lock:
+            with patch(ACCEPT_TRANSITION, side_effect=another_request_accepts_first):
+                accepted = self._accept(suggestion.id, {"mark_deprecated": False})
+        else:
+            suggestions.update(status=WarehouseSuggestionStatus.ACCEPTED, created_asset=winner_asset)
+            accepted = self._accept(suggestion.id, {"mark_deprecated": False})
+
+        self.view.refresh_from_db()
+        assert (accepted["http_status"], self.view.is_materialized) == (status.HTTP_409_CONFLICT, True), accepted
 
     def test_delete_refuses_a_view_with_dependents_when_the_check_inside_the_delete_fails(self) -> None:
         suggestion = self._suggest_deprecate()

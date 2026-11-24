@@ -112,6 +112,7 @@ DELETE_NEEDS_EVERY_DAY_OF_READS = (
 ALREADY_MARKED_DEPRECATED = (
     "This suggestion was already accepted by marking the view deprecated. Change the view from its page instead."
 )
+ACCEPTED_BY_ANOTHER_REQUEST = "Another request just accepted this suggestion. Reload it to see what changed."
 ALREADY_STOPPED_REFRESHES = (
     "This suggestion was already accepted by stopping the view's refreshes without marking it deprecated. "
     "Change the view from its page instead."
@@ -537,6 +538,7 @@ def _accept(team_id: int, suggestion_id: UUID, request: AcceptRequest) -> Accept
         current = WarehouseSuggestion.objects.for_team(team_id).get(id=suggestion_id)
         if current.status != WarehouseSuggestionStatus.ACCEPTED:
             raise
+        _refuse_a_different_deprecate_choice(current, request.options)
         return AcceptOutcome(suggestion=current, newly_accepted=False)
     try:
         created_asset = acceptor.accept(claimed, payload, request)
@@ -578,17 +580,19 @@ def _refuse_options_the_kind_ignores(acceptor: Acceptor, kind: WarehouseSuggesti
 
 
 def _refuse_a_different_deprecate_choice(suggestion: WarehouseSuggestion, options: AcceptOptions) -> None:
-    accepted_choice = _accepted_deprecate_choice(suggestion)
+    if suggestion.kind != WarehouseSuggestionKind.DEPRECATE:
+        return
+    if suggestion.created_asset is None:
+        raise SuggestionOutdatedError(ACCEPTED_BY_ANOTHER_REQUEST)
+    accepted_choice = _accepted_deprecate_choice(suggestion.created_asset)
     if accepted_choice is not None and accepted_choice != _requested_deprecate_choice(options):
         raise SuggestionOutdatedError(ALREADY_ACCEPTED_AS[accepted_choice])
 
 
-def _accepted_deprecate_choice(suggestion: WarehouseSuggestion) -> DeprecateChoice | None:
-    if suggestion.kind != WarehouseSuggestionKind.DEPRECATE:
-        return None
-    if "certification_id" in (suggestion.created_asset or {}):
+def _accepted_deprecate_choice(created_asset: Mapping[str, object]) -> DeprecateChoice | None:
+    if "certification_id" in created_asset:
         return DeprecateChoice.MARK_DEPRECATED
-    if only_stopped_materializing(suggestion.created_asset):
+    if only_stopped_materializing(created_asset):
         return DeprecateChoice.ONLY_STOP_REFRESHES
     return None
 
