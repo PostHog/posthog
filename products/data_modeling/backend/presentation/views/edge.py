@@ -1,4 +1,5 @@
 from typing import Any, cast
+from uuid import UUID
 
 from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, serializers, viewsets
@@ -79,6 +80,7 @@ class EdgeViewSet(
     queryset = Edge.objects.select_related("dag", "source__saved_query", "target__saved_query").all()
     serializer_class = EdgeSerializer
     pagination_class = EdgePagination
+    path_parameters = {"pk": UUID}
 
     def get_serializer_context(self) -> dict[str, Any]:
         return super().get_serializer_context()

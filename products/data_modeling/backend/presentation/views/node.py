@@ -141,6 +141,8 @@ class LineageLookupError(Exception):
     """Raised when the lineage request names no node, or names one with an unparseable id."""
 
 
+_LOOKUPS_KEYED_BY_UUID: frozenset[NodeLookup | None] = frozenset({None, NodeLookup.SAVED_QUERY, NodeLookup.METRIC})
+
 _LINEAGE_LOOKUPS: dict[str, NodeLookup | None] = {
     "node_id": None,
     "saved_query_id": NodeLookup.SAVED_QUERY,
@@ -761,11 +763,17 @@ class NodeViewSet(
             lookup = NodeLookup(requested_lookup) if requested_lookup else None
         except ValueError:
             raise serializers.ValidationError({"lookup": f"Unsupported node lookup: {requested_lookup}"})
+        key = self.kwargs["pk"]
+        if lookup in _LOOKUPS_KEYED_BY_UUID:
+            try:
+                key = UUID(key)
+            except ValueError:
+                raise NotFound()
         is_unwatch = self.action == "unwatch"
         return get_node(
             self.team,
             self.user_access_control,
-            key=self.kwargs["pk"],
+            key=key,
             lookup=lookup,
             include_hidden=is_unwatch,
             include_run_state=not is_unwatch,

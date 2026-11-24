@@ -126,6 +126,12 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["id"], str(expected_node.id))
 
+    @parameterized.expand([("node_id", ""), ("saved_query", "?lookup=saved_query"), ("metric", "?lookup=metric")])
+    def test_retrieve_with_a_malformed_uuid_returns_404(self, _name, query):
+        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/not-a-uuid/{query}")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
     def test_soft_deleting_a_saved_query_deletes_its_node_and_unread_parents(self):
         with self.captureOnCommitCallbacks(execute=True):
             self.saved_query.soft_delete()
@@ -1813,6 +1819,11 @@ class TestEdgeViewSet(APIBaseTest):
         edge = response.json()["results"][0]
         self.assertEqual(edge["source_id"], str(self.source_node.id))
         self.assertEqual(edge["target_id"], str(self.target_node.id))
+
+    def test_retrieve_edge_with_a_malformed_uuid_returns_404(self):
+        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_edges/not-a-uuid/")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_list_edges_query_count_does_not_grow_with_edges(self):
         url = f"/api/environments/{self.team.id}/data_modeling_edges/"
