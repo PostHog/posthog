@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import { EmailSides } from '../../emailDocument'
+import { numberOrUnset } from './numberOrUnset'
 
 const SIDES: { name: keyof EmailSides; title: string }[] = [
     { name: 'top', title: 'Top' },
@@ -34,12 +35,9 @@ export function EmailSidesField({
 }): JSX.Element {
     const shown = value ?? placeholder
     const uneven = shown.top !== shown.right || shown.top !== shown.bottom || shown.top !== shown.left
-    const [expanded, setExpanded] = useState(uneven)
-    useEffect(() => {
-        if (uneven) {
-            setExpanded(true)
-        }
-    }, [uneven])
+    // Opened by a person, so sides that become equal while they are edited stay open.
+    const [opened, setOpened] = useState(false)
+    const expanded = opened || uneven
 
     return (
         <div className="flex flex-col gap-1">
@@ -58,7 +56,7 @@ export function EmailSidesField({
                             value={shown.top}
                             suffix={<span className="text-xs text-secondary">px</span>}
                             onChange={(next) => {
-                                const all = next ?? 0
+                                const all = numberOrUnset(next) ?? 0
                                 onChange({ top: all, right: all, bottom: all, left: all })
                             }}
                             data-attr={attr}
@@ -76,7 +74,7 @@ export function EmailSidesField({
                             if (expanded) {
                                 onChange({ top: shown.top, right: shown.top, bottom: shown.top, left: shown.top })
                             }
-                            setExpanded(!expanded)
+                            setOpened(!expanded)
                         }}
                         data-attr={attr ? `${attr}-toggle` : undefined}
                     >
@@ -94,7 +92,10 @@ export function EmailSidesField({
                                 min={0}
                                 aria-label={`${label} ${title}`}
                                 value={shown[name]}
-                                onChange={(next) => onChange({ ...shown, [name]: next ?? 0 })}
+                                onChange={(next) => {
+                                    setOpened(true)
+                                    onChange({ ...shown, [name]: numberOrUnset(next) ?? 0 })
+                                }}
                                 data-attr={attr ? `${attr}-${name}` : undefined}
                             />
                             {title}
