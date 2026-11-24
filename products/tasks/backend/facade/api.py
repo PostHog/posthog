@@ -2650,8 +2650,12 @@ def record_local_task_run_heartbeat(
         return "not_live_local"
     warm_done_mode(task)
     with transaction.atomic():
-        locked_task = Task.objects.select_for_update().only("id", "team_id", "profile", "status").get(pk=task.pk)
+        locked_task = (
+            Task.objects.select_for_update().only("id", "team_id", "profile", "status", "state").get(pk=task.pk)
+        )
         locked_run = TaskRun.objects.select_for_update().get(pk=run.pk)
+        if not locked_run.matches_task_ownership(locked_task):
+            return "not_found"
         if locked_run.status == TaskRun.Status.COMPLETED:
             if wake_refusal(locked_task, source="local_run_heartbeat") is not None:
                 return "not_live_local"

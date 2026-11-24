@@ -355,6 +355,20 @@ class TestFacadeReadsAndMappers(TestCase):
         other_run.refresh_from_db()
         self.assertIsNone(other_run.last_heartbeat_at)
 
+    @parameterized.expand([("completed", TaskRun.Status.COMPLETED), ("queued", TaskRun.Status.QUEUED)])
+    def test_heartbeat_does_not_reach_a_run_from_before_a_handoff(self, _name: str, run_status: str) -> None:
+        task = self._make_task(state={TASK_OWNERSHIP_VERSION_STATE_KEY: "current-version"})
+        run = TaskRun.objects.create(
+            task=task, team=self.team, status=run_status, environment=TaskRun.Environment.LOCAL, state={}
+        )
+
+        outcome = facade.record_local_task_run_heartbeat(run.id, task.id, self.team.id)
+
+        self.assertEqual(outcome, "not_found")
+        run.refresh_from_db()
+        self.assertEqual(run.status, run_status)
+        self.assertIsNone(run.last_heartbeat_at)
+
     @parameterized.expand(
         [
             ("the_sandbox", True, True),
