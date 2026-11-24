@@ -256,6 +256,19 @@ HONEYBADGER_ENDPOINTS: dict[str, HoneybadgerEndpointConfig] = {
         # Listing account users can need an admin role on the account — opt-in only.
         should_sync_default=False,
     ),
+    "status_pages": HoneybadgerEndpointConfig(
+        name="status_pages",
+        path="/accounts/{account_id}/status_pages",
+        primary_keys=["account_id", "id"],
+        # The status pages list has no server-side timestamp filter.
+        incremental_fields=[],
+        partition_key="created_at",
+        parent_fields={"name": "account_name"},
+        root_fan_out_parent="accounts",
+        paginated=False,
+        # Status pages are an uptime monitoring add-on that not every account uses — opt-in only.
+        should_sync_default=False,
+    ),
     "team_members": HoneybadgerEndpointConfig(
         name="team_members",
         path="/teams/{team_id}/team_members",
