@@ -14314,6 +14314,34 @@ export namespace Schemas {
     }
 
     /**
+     * * `searching_metrics` - Searching Metrics
+     * * `reading_labels` - Reading Labels
+     * * `reading_label_values` - Reading Label Values
+     * * `running_query` - Running Query
+     * * `checking_panels` - Checking Panels
+     * * `exploring_logs` - Exploring Logs
+     * * `exploring_traces` - Exploring Traces
+     * * `reading_dashboard` - Reading Dashboard
+     * * `thinking` - Thinking
+     * * `working` - Working
+     */
+    export type AgentActivityKindEnum = typeof AgentActivityKindEnum[keyof typeof AgentActivityKindEnum];
+
+
+    export const AgentActivityKindEnum = {
+      SearchingMetrics: 'searching_metrics',
+      ReadingLabels: 'reading_labels',
+      ReadingLabelValues: 'reading_label_values',
+      RunningQuery: 'running_query',
+      CheckingPanels: 'checking_panels',
+      ExploringLogs: 'exploring_logs',
+      ExploringTraces: 'exploring_traces',
+      ReadingDashboard: 'reading_dashboard',
+      Thinking: 'thinking',
+      Working: 'working',
+    } as const;
+
+    /**
      * A check a scout run answers: re-probe the report's claim and record one verdict.
      *
      * The kind for a claim no single number settles. A resolved error-tracking report is the usual
@@ -35623,6 +35651,36 @@ export namespace Schemas {
       state: PanelProgressStateEnum;
     }
 
+    export interface DashboardImportAgentActivity {
+      /** What the agent does now, from its latest tool call. 'thinking' is the time between tool calls.
+       *
+       * * `searching_metrics` - Searching Metrics
+       * * `reading_labels` - Reading Labels
+       * * `reading_label_values` - Reading Label Values
+       * * `running_query` - Running Query
+       * * `checking_panels` - Checking Panels
+       * * `exploring_logs` - Exploring Logs
+       * * `exploring_traces` - Exploring Traces
+       * * `reading_dashboard` - Reading Dashboard
+       * * `thinking` - Thinking
+       * * `working` - Working */
+      kind: AgentActivityKindEnum;
+      /** Seconds since the action started. */
+      seconds: number;
+      /** Seconds since the agent's last logged activity. A high value can mean that the agent is stuck. */
+      idle_seconds: number;
+      /**
+         * The search term, metric name or attribute key that the action works on, when it has one.
+         * @nullable
+         */
+      subject: string | null;
+      /**
+         * Number of panels that a 'checking_panels' action checks.
+         * @nullable
+         */
+      panel_count: number | null;
+    }
+
     export interface DashboardImportSummary {
       /** Number of panels in the input. */
       total: number;
@@ -35696,6 +35754,8 @@ export namespace Schemas {
       phase: DashboardImportPhaseEnum | null;
       /** Where each panel is, while the import runs. */
       panel_progress: DashboardImportPanelProgress[];
+      /** The agent's latest action, while the phase is 'matching'. Null otherwise. */
+      agent_activity: DashboardImportAgentActivity | null;
       /**
          * How many pictures of the dashboard the import compares with the screenshot, at most. Null when the import does not check the layout.
          * @nullable
@@ -143939,6 +143999,7 @@ export namespace Schemas {
     event?: string;
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
