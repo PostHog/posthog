@@ -11,6 +11,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 from pydantic import ValidationError
+from rest_framework.test import APIClient
 
 from posthog.constants import AvailableFeature
 from posthog.egress.github.transport import GitHubRateLimitError
@@ -231,6 +232,14 @@ class TestMonitorPR(APIBaseTest):
         if scenario == "unmeasurable":
             assert report.status == SignalReport.Status.PENDING_INPUT
             assert not SignalReportCheck.objects.for_team(self.team.id).filter(report=report).exists()
+            initiator_artefacts = self.client.get(
+                f"/api/projects/{self.team.id}/signals/reports/{report.id}/artefacts/"
+            ).json()["results"]
+            assert any(
+                "Instrument checkout completion first." in row["content"]["note"]
+                for row in initiator_artefacts
+                if row["type"] == "note"
+            )
             raw_inbox_only = generate_random_token_personal()
             PersonalAPIKey.objects.create(
                 label="inbox-only",
@@ -239,10 +248,14 @@ class TestMonitorPR(APIBaseTest):
                 scopes=["inbox:read"],
                 scoped_teams=[self.team.id],
             )
-            inbox_only_artefacts = self.client.get(
-                f"/api/projects/{self.team.id}/signals/reports/{report.id}/artefacts/",
-                HTTP_AUTHORIZATION=f"Bearer {raw_inbox_only}",
-            ).json()["results"]
+            inbox_only_artefacts = (
+                APIClient()
+                .get(
+                    f"/api/projects/{self.team.id}/signals/reports/{report.id}/artefacts/",
+                    HTTP_AUTHORIZATION=f"Bearer {raw_inbox_only}",
+                )
+                .json()["results"]
+            )
             assert [row["content"]["note"] for row in inbox_only_artefacts if row["type"] == "note"] == [
                 "You don't have access to this assessment's evidence."
             ]
@@ -563,6 +576,8 @@ class TestMonitorPR(APIBaseTest):
             assert captured_start["analytics_query_context"] == [{}]
             assert captured_start["context"].github_read_access is False
             assert captured_start["context"].github_token_scope == "read"
+            assert "person:read" not in captured_start["context"].posthog_mcp_scopes
+            assert "session_recording:read" not in captured_start["context"].posthog_mcp_scopes
             assert ended_runs == [("completed", None)]
             report.refresh_from_db()
             assert report.status == SignalReport.Status.READY
@@ -572,6 +587,59 @@ class TestMonitorPR(APIBaseTest):
             assert check.title == "Post-merge check for example/widget#42"
             assert check.rationale == ""
             assert check.config["unit"] == "ms"
+            narrow_raw = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="narrow-monitor",
+                user=self.user,
+                secure_value=hash_key_value(narrow_raw),
+                scopes=["inbox:read", "inbox:write", "task:write", "query:read", "event_definition:read"],
+                scoped_teams=[self.team.id],
+            )
+            api_client = APIClient()
+            narrow_artefacts = api_client.get(
+                f"/api/projects/{self.team.id}/signals/reports/{report.id}/artefacts/",
+                HTTP_AUTHORIZATION=f"Bearer {narrow_raw}",
+            ).json()["results"]
+            assert [row["content"]["note"] for row in narrow_artefacts if row["type"] == "note"] == [
+                "You don't have access to this assessment's evidence.",
+                "Private launch target",
+            ]
+            narrow_res = api_client.post(
+                self.url,
+                {"pr_url": "https://github.com/example/widget/pull/44"},
+                HTTP_AUTHORIZATION=f"Bearer {narrow_raw}",
+            )
+            assert narrow_res.status_code == 202, narrow_res.json()
+            narrow_inputs = self.dispatched[-1][1]
+            narrow_ctx = _context(narrow_inputs)
+            assert narrow_ctx is not None
+            assert isinstance(narrow_ctx.posthog_mcp_scopes, list)
+            assert "action:read" not in narrow_ctx.posthog_mcp_scopes
+            action_output = PRMonitoringOutput.model_validate(
+                {
+                    **_valid_output_payload(),
+                    "metric": {
+                        **_valid_output_payload()["metric"],
+                        "query": trends_metric_query(series=[{"kind": "ActionsNode", "id": 1}]),
+                    },
+                }
+            )
+            with self.assertRaises(ValueError):
+                finish_monitoring_research(
+                    narrow_inputs, action_output, load_pull_request(self.team.id, narrow_inputs.pr_url)
+                )
+            finish_monitoring_research(
+                narrow_inputs, self.output(), load_pull_request(self.team.id, narrow_inputs.pr_url)
+            )
+            narrow_own_notes = api_client.get(
+                f"/api/projects/{self.team.id}/signals/reports/{narrow_inputs.report_id}/artefacts/",
+                HTTP_AUTHORIZATION=f"Bearer {narrow_raw}",
+            ).json()["results"]
+            assert any(
+                "Checkout completion after the PR" in row["content"]["note"]
+                for row in narrow_own_notes
+                if row["type"] == "note"
+            )
             teammate = User.objects.create_and_join(self.organization, email="teammate@example.com", password="test")
             self.client.force_login(teammate)
             artefacts = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/artefacts/").json()[

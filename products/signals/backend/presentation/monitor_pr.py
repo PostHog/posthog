@@ -15,7 +15,7 @@ from posthog.egress.transport.transport import EgressBudgetExhausted
 from posthog.models import User
 from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.oauth_provenance import is_sandbox_origin_request
-from posthog.permissions import APIScopePermission
+from posthog.permissions import APIScopePermission, get_authenticator_scopes
 
 from products.signals.backend.facade.monitor_pr import (
     REPORT_STATUS_CHOICES,
@@ -138,12 +138,14 @@ class MonitorPRViewSet(_BasePRViewSet):
         summary="Monitor a pull request",
     )
     def create(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        scopes = get_authenticator_scopes(request.successful_authenticator)
         try:
             result = request_pr_monitoring(
                 team=self.team,
                 user=cast(User, request.user),
                 pr_url=request.validated_data["pr_url"],
                 note=request.validated_data["note"],
+                token_scopes=tuple(scopes) if scopes is not None else None,
             )
         except InvalidPullRequest as error:
             raise exceptions.ValidationError({"pr_url": str(error)}) from error

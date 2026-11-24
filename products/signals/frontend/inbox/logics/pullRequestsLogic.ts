@@ -118,9 +118,14 @@ export const pullRequestsLogic = kea<pullRequestsLogicType>([
                     if (!projectId) {
                         return null
                     }
-                    const page = await signalsPullRequestsList(projectId)
-                    breakpoint()
-                    return page
+                    try {
+                        const page = await signalsPullRequestsList(projectId)
+                        breakpoint()
+                        return page
+                    } catch (error) {
+                        breakpoint()
+                        throw error
+                    }
                 },
             },
         ],

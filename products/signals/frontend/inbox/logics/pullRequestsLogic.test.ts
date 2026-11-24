@@ -148,4 +148,58 @@ describe('pullRequestsLogic', () => {
         expect(monitorPayloads).toEqual([{ pr_url: 'https://github.com/example/widget/pull/3' }])
         expect(logic.values.page?.results[2].report?.status).toBe('in_progress')
     })
+
+    it('discards failed requests from a previous mount while surfacing active failures', async () => {
+        let markFirstLoadStarted!: () => void
+        const firstLoadStarted = new Promise<void>((resolve) => {
+            markFirstLoadStarted = resolve
+        })
+        let rejectFirstLoad!: (error: Error) => void
+        let callCount = 0
+        useMocks({
+            get: {
+                [PULL_REQUESTS_URL]: () => {
+                    callCount += 1
+                    if (callCount === 1) {
+                        markFirstLoadStarted()
+                        return new Promise((_resolve, reject) => {
+                            rejectFirstLoad = reject
+                        })
+                    }
+                    if (callCount === 2) {
+                        return [
+                            200,
+                            {
+                                results: [makePR(10)],
+                                github_login: 'example-author',
+                                has_integration: true,
+                            },
+                        ]
+                    }
+                    return [503, { detail: 'GitHub unavailable' }]
+                },
+            },
+        })
+
+        logic = pullRequestsLogic()
+        logic.mount()
+        await firstLoadStarted
+        logic.unmount()
+
+        logic = pullRequestsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadPullRequestsSuccess'])
+        expect(logic.values.filteredPRs.map((pr) => pr.number)).toEqual([10])
+        expect(logic.values.listError).toBe(false)
+
+        rejectFirstLoad(new Error('stale mount failed'))
+        await Promise.resolve()
+        await Promise.resolve()
+        expect(logic.values.listError).toBe(false)
+        expect(logic.values.filteredPRs.map((pr) => pr.number)).toEqual([10])
+
+        logic.actions.loadPullRequests()
+        await expectLogic(logic).toDispatchActions(['loadPullRequestsFailure'])
+        expect(logic.values.listError).toBe(true)
+    })
 })

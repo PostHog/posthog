@@ -115,7 +115,11 @@ def report_agent_texts(
                 parsed = json.loads(content)
             except (json.JSONDecodeError, ValueError):
                 parsed = None
-            if isinstance(parsed, dict) and {"analytics_query_context", "restricted_to_user_id"}.intersection(parsed):
+            if isinstance(parsed, dict) and {
+                "analytics_query_context",
+                "required_read_scopes",
+                "restricted_to_user_id",
+            }.intersection(parsed):
                 continue
         texts.append(
             ReportArtefactText(artefact_id=str(artefact_id), type=artefact_type, content=content, created_at=created_at)

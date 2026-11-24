@@ -1,4 +1,5 @@
 import asyncio
+from collections.abc import Mapping
 from datetime import timedelta
 
 from posthog.test.base import BaseTest
@@ -35,14 +36,22 @@ class _FakeTemporal:
 
 
 class TestRecoverStuckResearchReports(BaseTest):
-    def _in_progress_report(self, started_ago: timedelta, *, scout_idempotency_key: str | None = None) -> SignalReport:
+    def _in_progress_report(
+        self,
+        started_ago: timedelta,
+        *,
+        scout_idempotency_key: str | None = None,
+        run_count: int = 2,
+        self_driving_funding: Mapping[str, object] | None = None,
+    ) -> SignalReport:
         return SignalReport.objects.create(
             team=self.team,
             status=SignalReport.Status.IN_PROGRESS,
             signal_count=3,
-            run_count=2,
+            run_count=run_count,
             last_run_at=timezone.now() - started_ago,
             scout_idempotency_key=scout_idempotency_key,
+            self_driving_funding=dict(self_driving_funding) if self_driving_funding else {},
         )
 
     def _sweep(self, temporal: _FakeTemporal) -> int:
@@ -99,6 +108,7 @@ class TestRecoverStuckResearchReports(BaseTest):
                 WorkflowExecutionStatus.TERMINATED,
                 SignalReport.Status.FAILED,
                 "monitor-pr:1:abc",
+                False,
             ),
             (
                 "monitor_pr_running_preserved",
@@ -106,6 +116,15 @@ class TestRecoverStuckResearchReports(BaseTest):
                 WorkflowExecutionStatus.RUNNING,
                 SignalReport.Status.IN_PROGRESS,
                 "monitor-pr:1:abc",
+                False,
+            ),
+            (
+                "monitor_pr_later_summary_attempt_reverts_to_candidate",
+                STUCK_RESEARCH_CUTOFF + timedelta(minutes=1),
+                WorkflowExecutionStatus.TERMINATED,
+                SignalReport.Status.CANDIDATE,
+                "monitor-pr:1:abc",
+                True,
             ),
         ]
     )
@@ -116,13 +135,21 @@ class TestRecoverStuckResearchReports(BaseTest):
         workflow_status: WorkflowExecutionStatus | RPCStatusCode | None,
         expected_status: SignalReport.Status,
         scout_idempotency_key: str | None,
+        later_summary_attempt: bool = False,
     ) -> None:
-        report = self._in_progress_report(started_ago, scout_idempotency_key=scout_idempotency_key)
+        expected_run_count = 0 if (scout_idempotency_key and not later_summary_attempt) else 2
+        funding = {"funding": "existing", "report_pass_key": "report-pass:summary-1"} if later_summary_attempt else None
+        report = self._in_progress_report(
+            started_ago,
+            scout_idempotency_key=scout_idempotency_key,
+            run_count=expected_run_count,
+            self_driving_funding=funding,
+        )
         workflows = {}
         if workflow_status is not None:
             workflow_id = (
                 monitor_pr_workflow_id(self.team.id, str(report.id), attempt_key(report))
-                if scout_idempotency_key
+                if scout_idempotency_key and not later_summary_attempt
                 else SignalReportSummaryWorkflow.workflow_id_for(self.team.id, str(report.id))
             )
             workflows[workflow_id] = workflow_status
@@ -133,7 +160,7 @@ class TestRecoverStuckResearchReports(BaseTest):
         assert report.status == expected_status
         assert recovered == (0 if expected_status == SignalReport.Status.IN_PROGRESS else 1)
         # run_count feeds Temporal workflow IDs and must never roll back.
-        assert report.run_count == 2
+        assert report.run_count == expected_run_count
 
     def test_sweep_keeps_a_run_that_started_after_the_sweep_read_the_report(self) -> None:
         report = self._in_progress_report(STUCK_RESEARCH_CUTOFF + timedelta(minutes=1))

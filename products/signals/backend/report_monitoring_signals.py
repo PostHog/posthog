@@ -51,7 +51,9 @@ def _is_restricted_note(artefact_type: str, content: str) -> bool:
         parsed = json.loads(content)
     except ValueError:
         return True
-    return isinstance(parsed, dict) and bool({"analytics_query_context", "restricted_to_user_id"} & parsed.keys())
+    return isinstance(parsed, dict) and bool(
+        {"analytics_query_context", "required_read_scopes", "restricted_to_user_id"} & parsed.keys()
+    )
 
 
 def _public_evidence_artefacts(team_id: int, report_id: UUID, field_chars: int) -> list[Mapping[str, object]]:

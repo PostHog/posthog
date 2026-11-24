@@ -819,6 +819,11 @@ class NoteArtefact(BaseModel):
         exclude_if=lambda value: value is None,
         description="Frozen source queries that gate access to the note's evidence.",
     )
+    required_read_scopes: list[str] | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+        description="Read scopes required to view research prose.",
+    )
     restricted_to_user_id: int | None = Field(
         default=None,
         exclude_if=lambda value: value is None,

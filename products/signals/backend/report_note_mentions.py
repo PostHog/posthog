@@ -248,7 +248,11 @@ def _mentionable_note_text(artefact: SignalReportArtefact) -> str | None:
         parsed = parse_artefact_content(artefact.type, artefact.content)
     except Exception:
         return None
-    if isinstance(parsed, NoteArtefact) and parsed.analytics_query_context is not None:
+    if isinstance(parsed, NoteArtefact) and (
+        parsed.analytics_query_context is not None
+        or parsed.required_read_scopes is not None
+        or parsed.restricted_to_user_id is not None
+    ):
         return None
     note = getattr(parsed, "note", None)
     return note if isinstance(note, str) else None

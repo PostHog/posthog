@@ -551,6 +551,13 @@ class TestUpdateActivitySummary(BaseTest):
         )
         self._artefact(pricing, "note", {"note": "agent wrote this"}, days_ago=0.5, actor_kind="agent")
         self._artefact(
+            pricing,
+            "note",
+            {"note": "private monitoring target", "analytics_query_context": [], "restricted_to_user_id": self.user.id},
+            days_ago=0.4,
+            actor_kind="user",
+        )
+        self._artefact(
             self._report("Batch export retries"),
             "reviewer_corrections",
             {"pinned": [{"user_uuid": str(uuid.uuid4())}], "excluded": [{"user_uuid": str(self.user.uuid)}]},
@@ -569,6 +576,7 @@ class TestUpdateActivitySummary(BaseTest):
         ) in result.rendered_input
         assert '- 2026-10-17 "Batch export retries": removed themselves as reviewer' in result.rendered_input
         assert "agent wrote this" not in result.rendered_input and "Deleted report" not in result.rendered_input
+        assert "private monitoring target" not in result.rendered_input
         stored = self._stored()
         assert stored is not None
         assert (stored.inputs_used["inbox_lines"], stored.inputs_used["drops"]) == (2, {"inbox_agent_actor": 1})

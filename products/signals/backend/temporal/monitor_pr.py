@@ -38,12 +38,16 @@ class MonitorPRWorkflow:
                 research_monitored_pr_activity,
                 inputs,
                 start_to_close_timeout=timedelta(minutes=40),
+                schedule_to_close_timeout=timedelta(minutes=50),
                 heartbeat_timeout=timedelta(minutes=2),
                 retry_policy=RetryPolicy(maximum_attempts=1),
             )
         except ActivityError:
             await workflow.execute_activity(
-                fail_monitored_pr_activity, inputs, start_to_close_timeout=timedelta(minutes=1)
+                fail_monitored_pr_activity,
+                inputs,
+                start_to_close_timeout=timedelta(minutes=1),
+                schedule_to_close_timeout=timedelta(minutes=5),
             )
             raise
 
@@ -56,6 +60,7 @@ async def start_pr_monitoring(inputs: MonitorPRInput) -> None:
             inputs,
             id=monitor_pr_workflow_id(inputs.team_id, inputs.report_id, inputs.attempt_key),
             task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+            execution_timeout=timedelta(minutes=60),
             id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
             id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
             rpc_timeout=timedelta(seconds=5),

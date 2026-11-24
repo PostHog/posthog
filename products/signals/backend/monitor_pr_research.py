@@ -20,14 +20,15 @@ from products.signals.backend.monitor_pr import (
     finish_monitoring_research,
     load_pull_request,
 )
-from products.signals.backend.quota import self_driving_quota_gate
-from products.signals.backend.task_profiles import PR_MONITORING
+from products.signals.backend.quota import prepare_self_driving_admission
+from products.signals.backend.task_profiles import PR_MONITORING, pr_monitoring_data_scopes, pr_monitoring_mcp_scopes
 from products.signals.backend.task_run_artefacts import (
     SIGNALS_PRODUCT,
     TASK_RUN_TYPE_RESEARCH,
     append_task_run_artefact,
 )
 from products.signals.backend.temporal.agentic import get_or_create_signals_sandbox_env
+from products.signals.backend.trial.reports import report_funding, trial_report_activity
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext, MultiTurnSession
 from products.tasks.backend.facade.api import get_task_id_for_run
 from products.tasks.backend.facade.profiles import SourceKind, TaskSource
@@ -82,7 +83,14 @@ def _context(inputs: MonitorPRInput) -> CustomPromptSandboxContext | None:
         or not access.check_access_level_for_resource("task", "editor")
     ):
         raise ValueError("The initiating user can no longer start PR research in this project")
-    gate = self_driving_quota_gate(report.team)
+    data_scopes = pr_monitoring_data_scopes(inputs.token_scopes)
+    if not {"query:read", "event_definition:read"}.issubset(data_scopes):
+        raise ValueError("The initiating credential lacks required analytics read scopes")
+    funding = report_funding(report.team, report.id)
+    gate = prepare_self_driving_admission(
+        report.team,
+        parent=funding if funding is not None and funding.grant_id is not None else None,
+    ).gate
     if gate.limited and gate.enforced:
         raise ValueError("This project has reached its self-driving usage limit")
     runtime = resolve_agent_runtime(inputs.team_id, STEP_RESEARCH)
@@ -90,7 +98,7 @@ def _context(inputs: MonitorPRInput) -> CustomPromptSandboxContext | None:
         team_id=inputs.team_id,
         user_id=inputs.user_id,
         sandbox_environment_id=get_or_create_signals_sandbox_env(inputs.team_id, "PR monitoring", PR_MONITORING),
-        posthog_mcp_scopes="signals_assessment",
+        posthog_mcp_scopes=pr_monitoring_mcp_scopes(inputs.token_scopes),
         model=runtime.model,
         runtime=runtime.runtime,
         runtime_adapter=runtime.runtime_adapter,
@@ -104,6 +112,7 @@ def _context(inputs: MonitorPRInput) -> CustomPromptSandboxContext | None:
     )
 
 
+@trial_report_activity
 async def research_pull_request(inputs: MonitorPRInput) -> None:
     context = await database_sync_to_async_pool(_context)(inputs)
     if context is None:
