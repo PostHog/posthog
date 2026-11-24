@@ -1,4 +1,5 @@
-"""Deletes the alerts with no insight row whose insight was deleted, off the request that deleted it.
+"""Deletes the platform's alerts on a deleted insight, off the request that deleted it: the ones that
+never had an insight row, and the copies whose row went with the insight.
 
 The platform's delete resolves each alert's open incidents before it removes the destinations, so it
 can call slow providers. A workflow runs it with retries. Kept out of the workflow modules, which
@@ -6,7 +7,7 @@ Temporal loads into its sandbox, because this connects a client.
 """
 
 import hashlib
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from uuid import UUID
 
 from django.conf import settings
@@ -19,7 +20,11 @@ from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.client import async_connect
 
-from products.alerts_platform.backend.facade.api import delete_configuration, native_configuration_ids
+from products.alerts.backend.models.alert import AlertConfiguration
+from products.alerts_platform.backend.facade.api import (
+    delete_owned_configuration,
+    owned_configuration_ids_without_source_rows,
+)
 from products.alerts_platform.backend.facade.contracts import SourceKind
 
 logger = structlog.get_logger(__name__)
@@ -36,20 +41,25 @@ class NativeCleanupInputs:
 def native_alert_ids(inputs: NativeCleanupInputs) -> list[str]:
     return [
         str(configuration_id)
-        for configuration_id in native_configuration_ids(
+        for configuration_id in owned_configuration_ids_without_source_rows(
             team_id=inputs.team_id,
             source_kind=SourceKind.INSIGHT,
             source_config_key="insight_id",
             values=inputs.insight_ids,
+            existing_source_ids=_existing_alert_ids,
         )
     ]
 
 
 def delete_native_alert(team_id: int, configuration_id: str) -> None:
     """Raises on failure, so a retry deletes it. An alert already gone is not a failure."""
-    delete_configuration(
-        team_id=team_id, source_kinds=[SourceKind.INSIGHT.value], configuration_id=UUID(configuration_id)
-    )
+    delete_owned_configuration(team_id=team_id, configuration_id=UUID(configuration_id))
+
+
+def _existing_alert_ids(alert_ids: Collection[UUID]) -> set[UUID]:
+    # The ids come from the team's own copies.
+    # nosemgrep: idor-lookup-without-team
+    return set(AlertConfiguration.objects.filter(id__in=list(alert_ids)).values_list("id", flat=True))
 
 
 def start_native_cleanup(insights_by_team: Mapping[int, Sequence[int]]) -> None:
@@ -69,7 +79,9 @@ def delete_inline(inputs: NativeCleanupInputs) -> None:
         try:
             delete_native_alert(inputs.team_id, configuration_id)
         except Exception:
-            logger.exception("Failed to delete an insight alert with no insight row", configuration_id=configuration_id)
+            logger.exception(
+                "Failed to delete an insight alert left on a deleted insight", configuration_id=configuration_id
+            )
 
 
 def cleanup_workflow_id(inputs: NativeCleanupInputs) -> str:

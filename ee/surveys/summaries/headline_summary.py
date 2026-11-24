@@ -177,8 +177,8 @@ def generate_survey_headline(
         logger.info("[survey_headline_summary] starting LLM call", survey_id=str(survey.id))
         try:
             completion = _headline_client(survey, team, user).chat.completions.create(
-                model="gpt-4.1-mini",
-                temperature=0.3,
+                model="gpt-6-luna",
+                reasoning_effort="low",
                 messages=[
                     {"role": "system", "content": HEADLINE_SYSTEM_PROMPT},
                     {

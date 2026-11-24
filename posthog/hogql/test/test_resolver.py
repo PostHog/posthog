@@ -182,6 +182,19 @@ class TestInheritedCtes(SimpleTestCase):
             with self.assertRaises(QueryError):
                 resolve_types(query, context, "clickhouse", scopes=[parent.type])
 
+    @parameterized.expand(
+        [
+            ("SELECT team_id, event FROM events", ["team_id", "event"]),
+            ("SELECT team_id, id FROM system.batch_exports", ["team_id", "id"]),
+        ]
+    )
+    def test_asterisk_over_cte_keeps_every_selected_column(self, cte_body: str, expected: list[str]) -> None:
+        context = HogQLContext(database=Database(), enable_select_queries=True)
+        query = resolve_types(parse_select(f"WITH c AS ({cte_body}) SELECT * FROM c"), context, "clickhouse")
+
+        assert isinstance(query.type, ast.SelectQueryType)
+        assert list(query.type.columns) == expected
+
 
 class TestResolver(BaseTest):
     maxDiff = None
@@ -869,7 +882,7 @@ class TestResolver(BaseTest):
     ):
         scope = ast.SelectQueryType(tables=tables)
 
-        with self.assertRaises(ResolutionError) as context:
+        with self.assertRaises(QueryError) as context:
             lookup_field_by_name(scope, "properties", self.context)
 
         self.assertEqual(
@@ -1479,7 +1492,9 @@ class TestResolver(BaseTest):
             name="person_properties", nullable=False
         )
 
-        node = self._select("SELECT event, person.id, person.properties, person.created_at FROM events")
+        node = self._select(
+            "SELECT event, person.id, person.properties, person.created_at, poe.id, poe.created_at FROM events"
+        )
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
 
         # all columns resolve to a type in the end
@@ -1504,6 +1519,24 @@ class TestResolver(BaseTest):
             nullable=False,
             description="When the person was first seen by PostHog.",
         )
+        for person_index, poe_index in ((1, 4), (3, 5)):
+            assert cast(ast.FieldType, node.select[poe_index].type).resolve_database_field(self.context) == cast(
+                ast.FieldType, node.select[person_index].type
+            ).resolve_database_field(self.context)
+
+        with self.assertRaises(QueryError):
+            resolve_types(self._select("SELECT event.`..`.uuid FROM events"), self.context, dialect="clickhouse")
+
+    @parameterized.expand(
+        [
+            ("direct_virtual", "SELECT poe.`..` FROM events"),
+            ("qualified_virtual", "SELECT events.poe.`..` FROM events"),
+            ("traverser", "SELECT person.`..` FROM events"),
+        ]
+    )
+    def test_field_traverser_trailing_double_dot(self, _name, query):
+        with self.assertRaisesRegex(QueryError, "Expected a field after '\\.\\.'"):
+            resolve_types(self._select(query), self.context, dialect="clickhouse")
 
     def test_visit_hogqlx_tag(self):
         node = self._select("select event from <HogQLQuery query='select event from events' />")
@@ -1543,7 +1576,8 @@ class TestResolver(BaseTest):
             "(SELECT id, properties.email AS email FROM "
             "(SELECT DISTINCT person_id FROM events) "
             "AS source INNER JOIN "
-            "persons ON equals(persons.id, source.person_id) ORDER BY id ASC) "
+            "persons ON and(equals(persons.id, source.person_id), globalIn(persons.id, "
+            "(SELECT source.person_id FROM (SELECT DISTINCT person_id FROM events) AS source))) ORDER BY id ASC) "
             f"LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
 

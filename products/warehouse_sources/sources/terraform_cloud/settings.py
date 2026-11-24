@@ -13,6 +13,19 @@ CREATED_AT_INCREMENTAL_FIELDS: list[IncrementalField] = [
     },
 ]
 
+RUN_CREATED_AT_INCREMENTAL_FIELDS: list[IncrementalField] = [
+    {
+        "label": "run_created_at",
+        "type": IncrementalFieldType.DateTime,
+        "field": "run_created_at",
+        "field_type": IncrementalFieldType.DateTime,
+    },
+]
+
+# Signed log-archive URLs on plans and applies. They grant read access to the raw run logs
+# without any HCP Terraform authorization, so they must never reach the warehouse.
+_LOG_URL_FIELDS = ("log_read_url",)
+
 
 @dataclass(frozen=False)
 class TerraformCloudEndpointConfig:
@@ -43,6 +56,16 @@ class TerraformCloudEndpointConfig:
     # the table could otherwise read or write raw Terraform state, including its secrets,
     # without any HCP Terraform authorization.
     drop_fields: tuple[str, ...] = ()
+    # Plans and applies have no list endpoint. They come from the runs list with this value as
+    # `include`, and each row is the included resource that the run's relationship of the same
+    # name points at, stamped with run_id and run_created_at.
+    run_included_relationship: Optional[str] = None
+    # Show-only resources that a workspace points at through this relationship. `path` takes
+    # `{resource_id}`, and a workspace whose relationship is empty costs no request.
+    workspace_relationship: Optional[str] = None
+    # Workspace attribute holding when the related resource last changed. An incremental sync
+    # skips the request for a workspace whose value predates the watermark.
+    workspace_relationship_updated_at: Optional[str] = None
 
 
 TERRAFORM_CLOUD_ENDPOINTS: dict[str, TerraformCloudEndpointConfig] = {
@@ -99,6 +122,49 @@ TERRAFORM_CLOUD_ENDPOINTS: dict[str, TerraformCloudEndpointConfig] = {
             "hosted_state_upload_url",
             "hosted_json_state_upload_url",
         ),
+    ),
+    "plans": TerraformCloudEndpointConfig(
+        name="plans",
+        path="/workspaces/{workspace_id}/runs",
+        params={"include": "plan"},
+        partition_key="run_created_at",
+        incremental_fields=RUN_CREATED_AT_INCREMENTAL_FIELDS,
+        sort_mode="desc",
+        fan_out_over_workspaces=True,
+        incremental_lookback=timedelta(hours=24),
+        drop_fields=_LOG_URL_FIELDS,
+        run_included_relationship="plan",
+    ),
+    "applies": TerraformCloudEndpointConfig(
+        name="applies",
+        path="/workspaces/{workspace_id}/runs",
+        params={"include": "apply"},
+        partition_key="run_created_at",
+        incremental_fields=RUN_CREATED_AT_INCREMENTAL_FIELDS,
+        sort_mode="desc",
+        fan_out_over_workspaces=True,
+        incremental_lookback=timedelta(hours=24),
+        drop_fields=_LOG_URL_FIELDS,
+        run_included_relationship="apply",
+    ),
+    "assessment_results": TerraformCloudEndpointConfig(
+        name="assessment_results",
+        # There is no list endpoint: only the workspace's current result is reachable. Merge
+        # syncs keep earlier results, so the table builds a history over time.
+        path="/assessment-results/{resource_id}",
+        partition_key="created_at",
+        incremental_fields=CREATED_AT_INCREMENTAL_FIELDS,
+        sort_mode="desc",
+        fan_out_over_workspaces=True,
+        workspace_relationship="current-assessment-result",
+        workspace_relationship_updated_at="last-assessment-result-at",
+    ),
+    "workspace_resources": TerraformCloudEndpointConfig(
+        name="workspace_resources",
+        path="/workspaces/{workspace_id}/resources",
+        # Resource ids are only documented per workspace.
+        primary_keys=["workspace_id", "id"],
+        fan_out_over_workspaces=True,
     ),
 }
 

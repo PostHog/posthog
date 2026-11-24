@@ -16,7 +16,7 @@ widget_specs/configs.py          Pydantic *WidgetConfig per type (+ shared commo
         ├─► registry.py          WIDGET_SPECS manifest + validate_widget_config() (config, catalog labels, run_*)
         └─► widget_catalog.py    config_schema = model_json_schema() (for agents)
 
-bin/build-dashboard-widget-types.py  (hogli build:widget-types — step 1)
+products/dashboards/scripts/build_widget_types.py  (hogli build:widget-types — step 1)
         ├─► widget-date-from-options.json   date preset values + labels (from `constants.py`)
         └─► widget-form-fields.json         modal `.pick()` fields (from `WidgetSpec.form_fields`)
 
@@ -30,14 +30,14 @@ hogli build:openapi
         └─► services/mcp/...
 ```
 
-| File                                | Role                                                                                                                                       |
-| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `configs.py`                        | Per-type Pydantic config models — **edit here first** for field changes                                                                    |
-| `common.py`                         | Shared `dateRange`, `widgetFilters`, `filterTestAccounts`                                                                                  |
-| `registry.py`                       | `WIDGET_SPECS` + `validate_widget_config()` — per-type manifest (Pydantic model, `run_*`, scopes, RBAC, agent catalog labels/availability) |
-| `widgets/config.py`                 | Query-time only — `resolve_filter_test_accounts(config, team)` (validation lives in Pydantic)                                              |
-| `openapi.py`                        | Polymorphic OpenAPI for catalog `config_schema` and dashboard PATCH — built from `WIDGET_SPECS` (no per-type hand wiring)                  |
-| `api/widget_openapi_serializers.py` | Stable re-export surface for `dashboard.api` imports (implementation in `widget_specs/openapi.py`)                                         |
+| File                                         | Role                                                                                                                                       |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `configs.py`                                 | Per-type Pydantic config models — **edit here first** for field changes                                                                    |
+| `common.py`                                  | Shared `dateRange`, `widgetFilters`, `filterTestAccounts`                                                                                  |
+| `registry.py`                                | `WIDGET_SPECS` + `validate_widget_config()` — per-type manifest (Pydantic model, `run_*`, scopes, RBAC, agent catalog labels/availability) |
+| `widgets/config.py`                          | Query-time only — `resolve_filter_test_accounts(config, team)` (validation lives in Pydantic)                                              |
+| `openapi.py`                                 | Polymorphic OpenAPI for catalog `config_schema` and dashboard PATCH — built from `WIDGET_SPECS` (no per-type hand wiring)                  |
+| `presentation/widget_openapi_serializers.py` | Stable re-export surface for `presentation/views/dashboard.py` imports (implementation in `widget_specs/openapi.py`)                       |
 
 **Frontend config layering** (do not duplicate the full schema by hand):
 
@@ -46,8 +46,8 @@ hogli build:openapi
 | `generated/widget-config-schemas/*.zod.ts`   | Per-component Orval Zod (`ErrorTrackingListWidgetConfig`, shared `WidgetDateRange`, etc.)                                  |
 | `generated/widget-configs.zod.ts`            | Friendly re-exports, inferred types, form `.pick()` schemas (`hogli build:widget-types`)                                   |
 | `generated/widget-config-property-keys.json` | Per-type top-level config keys from catalog OpenAPI slice (`generate-widget-config-zod.mjs`)                               |
-| `generated/widget-date-from-options.json`    | Date preset value + label pairs from `constants.py` (`build-dashboard-widget-types.py`)                                    |
-| `generated/widget-form-fields.json`          | Per-widget modal field manifest from `WidgetSpec.form_fields` (`build-dashboard-widget-types.py`)                          |
+| `generated/widget-date-from-options.json`    | Date preset value + label pairs from `constants.py` (`build_widget_types.py`)                                              |
+| `generated/widget-form-fields.json`          | Per-widget modal field manifest from `WidgetSpec.form_fields` (`build_widget_types.py`)                                    |
 | `widgets/widgetConfigValidation.ts`          | Shared HogQL filter helpers + `parseWidgetConfigApiError` — not the per-type schema                                        |
 | `widget_types/widgetConfigShared.ts`         | Re-exports date select options from generated JSON + `resolveWidgetFilterTestAccounts`                                     |
 | `widgets/*/*WidgetConfigValidation.ts`       | Import generated form schema; API error parsing only (colocated with validation)                                           |
@@ -78,18 +78,18 @@ Widget config Zod is product-scoped: `products/dashboards/frontend/bin/generate-
 **Schema parity tests** (cheap drift guards — run when touching `widget_specs/`):
 
 ```bash
-hogli test products/dashboards/backend/api/test/test_widget_config_schema_parity.py
+hogli test products/dashboards/backend/tests/api/test_widget_config_schema_parity.py
 hogli test products/dashboards/frontend/widgets/widgetConfigSchemaParity.test.ts
 ```
 
 ## Footguns (config / codegen)
 
-| Mistake                                                                | Fix                                                                                                                                                                                                                                                                                                                                                                              |
-| ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Slimming `PatchedDashboardOpenApiSerializer` when adding widget fields | `extend_schema(request=...)` **replaces** the whole PATCH schema — extend the class, never rewrite from scratch; CI: `test_dashboard_openapi.py` compares runtime `DashboardSerializer` writables (minus `api/test/dashboard_openapi_test_helpers.py` exclusions) to serializer + spectacular output; MCP test chains `dashboard-update` schema to `DashboardsPartialUpdateBody` |
-| Nested per-type widget config serializer on dashboard PATCH            | Keep tile `config` as `JSONField` on runtime serializers — typed OpenAPI lives in `widget_specs/openapi.py` (`PatchedDashboardOpenApiSerializer`) only                                                                                                                                                                                                                           |
-| Hand-writing FE Zod config schemas                                     | `widget-configs.zod.ts` from codegen; add Pydantic `*WidgetConfig` + `form_fields` on `WidgetSpec` in `registry.py`                                                                                                                                                                                                                                                              |
-| Importing shared `posthog.schema` models into widget config            | Prefer local Pydantic models in `configs.py` (e.g. `WidgetAssigneeFilter`) — avoids OpenAPI component name collisions in spectacular                                                                                                                                                                                                                                             |
-| Duplicating catalog `config_schema` by hand                            | BE catalog uses `config_model.model_json_schema()` — agents get bounds/choices/descriptions, not just default values                                                                                                                                                                                                                                                             |
-| Editing generated Zod/TS without regen                                 | Run `hogli build:openapi`, commit `products/dashboards/frontend/generated/*` — CI `check-openapi-types` diffs and fails or auto-commits                                                                                                                                                                                                                                          |
-| `hogli build:openapi-schema` fails on warnings                         | `--fail-on-warn` — use `find_enum_collisions` + `ENUM_NAME_OVERRIDES`; see [§ Codegen & CI](#codegen--ci)                                                                                                                                                                                                                                                                        |
+| Mistake                                                                | Fix                                                                                                                                                                                                                                                                                                                                                                               |
+| ---------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Slimming `PatchedDashboardOpenApiSerializer` when adding widget fields | `extend_schema(request=...)` **replaces** the whole PATCH schema — extend the class, never rewrite from scratch; CI: `test_dashboard_openapi.py` compares runtime `DashboardSerializer` writables (minus `tests/api/dashboard_openapi_test_helpers.py` exclusions) to serializer + spectacular output; MCP test chains `dashboard-update` schema to `DashboardsPartialUpdateBody` |
+| Nested per-type widget config serializer on dashboard PATCH            | Keep tile `config` as `JSONField` on runtime serializers — typed OpenAPI lives in `widget_specs/openapi.py` (`PatchedDashboardOpenApiSerializer`) only                                                                                                                                                                                                                            |
+| Hand-writing FE Zod config schemas                                     | `widget-configs.zod.ts` from codegen; add Pydantic `*WidgetConfig` + `form_fields` on `WidgetSpec` in `registry.py`                                                                                                                                                                                                                                                               |
+| Importing shared `posthog.schema` models into widget config            | Prefer local Pydantic models in `configs.py` (e.g. `WidgetAssigneeFilter`) — avoids OpenAPI component name collisions in spectacular                                                                                                                                                                                                                                              |
+| Duplicating catalog `config_schema` by hand                            | BE catalog uses `config_model.model_json_schema()` — agents get bounds/choices/descriptions, not just default values                                                                                                                                                                                                                                                              |
+| Editing generated Zod/TS without regen                                 | Run `hogli build:openapi`, commit `products/dashboards/frontend/generated/*` — CI `check-openapi-types` diffs and fails or auto-commits                                                                                                                                                                                                                                           |
+| `hogli build:openapi-schema` fails on warnings                         | `--fail-on-warn` — use `find_enum_collisions` + `ENUM_NAME_OVERRIDES`; see [§ Codegen & CI](#codegen--ci)                                                                                                                                                                                                                                                                         |

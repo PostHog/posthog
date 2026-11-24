@@ -58,6 +58,14 @@ ZERO_ROLLOUT_SHIPPED_VARIANT = {
         "variants": [{"key": "control", "rollout_percentage": 0}, {"key": "test", "rollout_percentage": 100}]
     },
 }
+EMAIL_FILTER = {"key": "email", "value": "x", "type": "person"}
+FORCED_TEST_ONLY = {
+    **MULTIVARIANT,
+    "groups": [
+        {"properties": [EMAIL_FILTER], "rollout_percentage": 100, "variant": "test"},
+        {"properties": [], "rollout_percentage": 0},
+    ],
+}
 SHIPPED_TO_SOME = {
     "groups": [{"properties": [{"key": "email", "value": "x", "type": "person"}], "rollout_percentage": 100}],
     "multivariate": SHIPPED_VARIANT["multivariate"],
@@ -233,6 +241,11 @@ class TestFlagState(TestCase):
             ("ended_flag_disabled", _context(ENDED, active=False, filters=MULTIVARIANT), None),
             ("ended_single_variant_shipped", _context(ENDED, active=True, filters=SHIPPED_VARIANT), None),
             (
+                "ended_flag_forces_one_variant_on_its_only_open_set",
+                _context(ENDED, active=True, filters=FORCED_TEST_ONLY, flag_called_after_end=True),
+                None,
+            ),
+            (
                 "archived_ended_flag_distributing_variants",
                 _context(ENDED, active=True, filters=MULTIVARIANT, archived=True, flag_called_after_end=True),
                 (ExperimentHealthFindingCode.FLAG_LIVE_AFTER_END, "ended_but_multiple_variants_rolled_out", None),
@@ -240,6 +253,30 @@ class TestFlagState(TestCase):
             (
                 "draft_flag_distributing_variants",
                 _context(DRAFT, active=True, filters=MULTIVARIANT),
+                (
+                    ExperimentHealthFindingCode.FLAG_LIVE_BEFORE_LAUNCH,
+                    "not_started_but_multiple_variants_rolled_out",
+                    None,
+                ),
+            ),
+            (
+                "draft_flag_forces_one_variant_on_its_only_open_set",
+                _context(DRAFT, active=True, filters=FORCED_TEST_ONLY),
+                None,
+            ),
+            (
+                "draft_flag_forces_different_variants_by_set",
+                _context(
+                    DRAFT,
+                    active=True,
+                    filters={
+                        **MULTIVARIANT,
+                        "groups": [
+                            {"properties": [EMAIL_FILTER], "rollout_percentage": 100, "variant": "control"},
+                            {"properties": [], "rollout_percentage": 100, "variant": "test"},
+                        ],
+                    },
+                ),
                 (
                     ExperimentHealthFindingCode.FLAG_LIVE_BEFORE_LAUNCH,
                     "not_started_but_multiple_variants_rolled_out",
@@ -543,10 +580,11 @@ class TestFlagStateOfAnEndedExperiment(BaseTest):
         [
             ("running_experiment_on_the_flag", False, not_applicable(OTHER_EXPERIMENT_DECIDES)),
             ("deleted_experiment_on_the_flag", True, "ended_but_multiple_variants_rolled_out"),
+            ("a_reader_who_cant_read_the_calls", True, "ended_flag_calls_unknown", False),
         ]
     )
-    def test_reads_the_other_experiments_on_the_flag(
-        self, _name: str, other_deleted: bool, expected: str | CheckSkip
+    def test_reads_the_flag_and_its_other_experiments(
+        self, _name: str, other_deleted: bool, expected: str | CheckSkip, can_read_flag_calls: bool = True
     ) -> None:
         flag = FeatureFlag.objects.create(
             team=self.team,
@@ -574,6 +612,6 @@ class TestFlagStateOfAnEndedExperiment(BaseTest):
             override_settings(FEATURE_FLAG_LAST_CALLED_AT_SYNC_SOURCE="events"),
             time_machine.travel(datetime(2026, 10, 20, 12, 0, tzinfo=UTC), tick=False),
         ):
-            finding = flag_state(load_health_context(experiment))
+            finding = flag_state(load_health_context(experiment, can_read_flag_calls=can_read_flag_calls))
 
         self.assertEqual(finding.subcode if isinstance(finding, ExperimentHealthFinding) else finding, expected)

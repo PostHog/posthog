@@ -1,3 +1,4 @@
+import { isColumnLayoutNode } from './columnLayout'
 import { getMarkdownNotebookVisualGroups } from './documentModel'
 import type { NotebookBlockNode } from './types'
 
@@ -18,26 +19,28 @@ export function getNotebookJupyterCells(
     nodes: NotebookBlockNode[],
     isCodeCell: (node: NotebookBlockNode) => boolean
 ): NotebookJupyterCell[] {
-    return getMarkdownNotebookVisualGroups(nodes).map((group) => {
-        if (group.type === 'text') {
-            const first = group.items[0]
-            const last = group.items[group.items.length - 1]
-            return {
-                id: first.node.id,
-                kind: 'markdown',
-                nodeIds: group.items.map((item) => item.node.id),
-                startIndex: first.index,
-                endIndex: last.index,
+    return getMarkdownNotebookVisualGroups(nodes)
+        .filter((group) => group.type !== 'block' || !isColumnLayoutNode(group.node))
+        .map((group) => {
+            if (group.type === 'text') {
+                const first = group.items[0]
+                const last = group.items[group.items.length - 1]
+                return {
+                    id: first.node.id,
+                    kind: 'markdown',
+                    nodeIds: group.items.map((item) => item.node.id),
+                    startIndex: first.index,
+                    endIndex: last.index,
+                }
             }
-        }
-        return {
-            id: group.node.id,
-            kind: isCodeCell(group.node) ? 'code' : 'block',
-            nodeIds: [group.node.id],
-            startIndex: group.index,
-            endIndex: group.index,
-        }
-    })
+            return {
+                id: group.node.id,
+                kind: isCodeCell(group.node) ? 'code' : 'block',
+                nodeIds: [group.node.id],
+                startIndex: group.index,
+                endIndex: group.index,
+            }
+        })
 }
 
 export function findNotebookJupyterCellIndex(cells: NotebookJupyterCell[], nodeId: string | null): number {

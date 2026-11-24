@@ -13,6 +13,8 @@ from rest_framework.response import Response
 
 from posthog.schema import CachedInboxUsageQueryResponse, DateRange, InboxUsageQuery
 
+from posthog.hogql.errors import QueryError
+
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
@@ -69,6 +71,9 @@ class ReportSpendSerializer(serializers.Serializer):
     shared_scout_runs = SpendAmountSerializer(
         help_text="Full usage of scout runs that authored this report. Shared with all other output of those runs."
     )
+    scout_authored = serializers.BooleanField(
+        help_text="Whether a scout run authored this report directly. Such a report has no generation usage of its own."
+    )
 
 
 class SignalSpendViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -99,7 +104,7 @@ class MonthlyUsageQuerySerializer(serializers.Serializer):
     month = serializers.RegexField(
         r"^[0-9]{4}-(0[1-9]|1[0-2])$",
         required=False,
-        help_text="UTC calendar month in YYYY-MM format, from 2026-10 onward. Defaults to the current month. Usage is grouped by finalization time.",
+        help_text="UTC calendar month in YYYY-MM format, from 2026-10 onward and entirely within the last three calendar months. Defaults to the current month. Usage is grouped by finalization time.",
     )
 
     def validate_month(self, value: str) -> date:
@@ -217,17 +222,20 @@ class SignalMonthlyUsageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
     def list(self, request: ValidatedRequest, **kwargs: object) -> Response:
         month = request.validated_query_data.get("month") or timezone.now().astimezone(UTC).date().replace(day=1)
         user = cast("User", request.user)
-        usage = InboxUsageQueryRunner(
-            query=InboxUsageQuery(
-                dateRange=DateRange(
-                    date_from=month.isoformat(),
-                    date_to=(month + relativedelta(months=1)).isoformat(),
-                    explicitDate=True,
-                )
-            ),
-            team=self.team.parent_team or self.team,
-            user=user,
-            workload=Workload.ONLINE,
-        ).run(user=user)
+        try:
+            usage = InboxUsageQueryRunner(
+                query=InboxUsageQuery(
+                    dateRange=DateRange(
+                        date_from=month.isoformat(),
+                        date_to=(month + relativedelta(months=1)).isoformat(),
+                        explicitDate=True,
+                    )
+                ),
+                team=self.team.parent_team or self.team,
+                user=user,
+                workload=Workload.ONLINE,
+            ).run(user=user)
+        except QueryError as error:
+            raise serializers.ValidationError({"month": str(error)}) from error
         assert isinstance(usage, CachedInboxUsageQueryResponse)
         return Response(MonthlyUsageSerializer(usage.results).data)

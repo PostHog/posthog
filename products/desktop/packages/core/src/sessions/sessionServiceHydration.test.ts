@@ -33,7 +33,11 @@ function agentMessage(text: string, ts: number): AcpMessage {
   };
 }
 
-function agentMessageChunk(text: string, ts: number): AcpMessage {
+function agentMessageChunk(
+  text: string,
+  ts: number,
+  parentToolCallId?: string,
+): AcpMessage {
   return {
     type: "acp_message",
     ts,
@@ -44,6 +48,9 @@ function agentMessageChunk(text: string, ts: number): AcpMessage {
         update: {
           sessionUpdate: "agent_message_chunk",
           content: { type: "text", text },
+          ...(parentToolCallId
+            ? { _meta: { claudeCode: { parentToolCallId } } }
+            : {}),
         },
       },
     },
@@ -248,5 +255,21 @@ describe("resume hydration reconciliation", () => {
     expect(
       reconcileLiveEventsWithHydratedEvents(staleLiveTail, hydratedEvents),
     ).toEqual([]);
+  });
+
+  it("keeps a second subagent's live chunks when history holds only the first", () => {
+    // The writer stores each subagent's chunk run as its own message, so a
+    // history with only A's message has not stored B's text yet.
+    const chunkA = agentMessageChunk("from A", 20, "task-a");
+    const chunkB = agentMessageChunk("from B", 21, "task-b");
+    const hydratedEvents = [prompt(1, "ask", 10), agentMessage("from A", 22)];
+
+    const reconciled = reconcileLiveEventsWithHydratedEvents(
+      [prompt(1, "ask", 10), chunkA, chunkB],
+      hydratedEvents,
+    );
+
+    expect(reconciled).toContainEqual(chunkB);
+    expect(reconciled).not.toContainEqual(chunkA);
   });
 });

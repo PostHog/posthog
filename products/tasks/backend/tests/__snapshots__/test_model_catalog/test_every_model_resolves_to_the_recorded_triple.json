@@ -84,6 +84,28 @@
       "runtime_adapter": "codex"
     },
     {
+      "prefix": "gpt-6.2-sol",
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "runtime_adapter": "codex"
+    },
+    {
+      "prefix": "gpt-6.2-astra",
+      "reasoning_efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "runtime_adapter": "codex"
+    },
+    {
       "prefix": "gpt-6-luna",
       "reasoning_efforts": [
         "low",
@@ -324,6 +346,13 @@
         },
         "moonshotai/kimi-k3": {
           "cost_multiplier": "1.5×",
+          "offered": false,
+          "reasoning_efforts": [],
+          "supports_1m_context": false,
+          "supports_fast_mode": false
+        },
+        "moonshotai/kimi-k3.1-pro": {
+          "cost_multiplier": "1×",
           "offered": true,
           "reasoning_efforts": [],
           "supports_1m_context": false,
@@ -363,7 +392,7 @@
       "provider": "anthropic"
     },
     "codex": {
-      "default_model": "gpt-6.1-sol",
+      "default_model": "gpt-6.2-sol",
       "fallback_reasoning_efforts": [
         "low",
         "medium",
@@ -487,6 +516,32 @@
         "gpt-6.1-terra": {
           "cost_multiplier": "0.5× base",
           "offered": false,
+          "reasoning_efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "supports_1m_context": false,
+          "supports_fast_mode": false
+        },
+        "gpt-6.2-astra": {
+          "cost_multiplier": "4×",
+          "offered": true,
+          "reasoning_efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "supports_1m_context": false,
+          "supports_fast_mode": false
+        },
+        "gpt-6.2-sol": {
+          "cost_multiplier": "1×",
+          "offered": true,
           "reasoning_efforts": [
             "low",
             "medium",

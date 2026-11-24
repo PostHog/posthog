@@ -22,6 +22,7 @@ from products.warehouse_sources.sources.kernel.settings import (
 from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SourceResponse,
+    format_datetime,
     frozen,
     make_tracked_session,
     retry_with_deadline,
@@ -121,10 +122,6 @@ def _parse_datetime(value: Any) -> Optional[datetime]:
     if not isinstance(value, datetime):
         return None
     return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
-
-
-def _format_datetime(value: datetime) -> str:
-    return value.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
 
 def _add_audit_log_ids(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -234,7 +231,11 @@ def _fetch_audit_log_page(
     page_token: Optional[str],
     logger: FilteringBoundLogger,
 ) -> tuple[list[dict[str, Any]], Optional[str]]:
-    params: dict[str, Any] = {"start": _format_datetime(start), "end": _format_datetime(end), "limit": PAGE_SIZE}
+    params: dict[str, Any] = {
+        "start": format_datetime(start, "iso_z_micros"),
+        "end": format_datetime(end, "iso_z_micros"),
+        "limit": PAGE_SIZE,
+    }
     if page_token:
         params["page_token"] = page_token
     response = _fetch_page(session, _build_url(KERNEL_ENDPOINTS[AUDIT_LOGS_ENDPOINT].path, params), headers, logger)
@@ -296,7 +297,7 @@ def get_audit_log_rows(
     if resume_start is not None and resume_start > start:
         start = resume_start
     for window_end, rows in _iter_audit_log_windows(session, headers, start, end, logger, manager):
-        manager.save_state(KernelResumeConfig(audit_log_start=_format_datetime(window_end)))
+        manager.save_state(KernelResumeConfig(audit_log_start=format_datetime(window_end, "iso_z_micros")))
         if rows:
             # One item per window, so a window and the cursor past it commit together.
             yield rows

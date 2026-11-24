@@ -241,20 +241,27 @@ describe('update-feature-flag preserving groups', () => {
                 code: 'cross_field.group_property_type_index_mismatch',
                 fix: 'Ask the user which group type the condition should target',
             },
-        ])('names the rejected property and its fix for the $shape rejection', async ({ detail, code, fix }) => {
-            const { request } = rejectPatchWith(detail, code)
+        ])(
+            'names the rejected filter and its fix without echoing values for the $shape rejection',
+            async ({ detail, code, fix }) => {
+                const privateDetail = `${detail}: private-person@example.com`
+                const { request } = rejectPatchWith(privateDetail, code)
 
-            const rejection: unknown = await tool.handler(createMockContext(request), params).catch((e: unknown) => e)
+                const rejection: unknown = await tool
+                    .handler(createMockContext(request), params)
+                    .catch((e: unknown) => e)
 
-            expect(rejection).toBeInstanceOf(PostHogValidationError)
-            expect(rejection).toMatchObject({ attr: 'filters', code, method: 'PATCH' })
-            const { message } = rejection as PostHogValidationError
-            expect(message).toContain(detail)
-            expect(message).toContain('filters.groups[1].properties[0]')
-            expect(message).toContain('"plan"')
-            expect(message).toContain(fix)
-            expect(message).not.toContain('"email"')
-        })
+                expect(rejection).toBeInstanceOf(PostHogValidationError)
+                expect(rejection).toMatchObject({ attr: 'filters', code, method: 'PATCH', detail: privateDetail })
+                const { message } = rejection as PostHogValidationError
+                expect(message).not.toContain(privateDetail)
+                expect(message).not.toContain('private-person@example.com')
+                expect(message).toContain('filters.groups[1].properties[0]')
+                expect(message).not.toContain('"plan"')
+                expect(message).toContain(fix)
+                expect(message).not.toContain('"email"')
+            }
+        )
 
         it.each([
             {

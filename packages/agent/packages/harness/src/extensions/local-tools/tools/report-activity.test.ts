@@ -169,16 +169,16 @@ describe("reportActivityTool", () => {
     await rm(cwd, { recursive: true, force: true });
   });
 
-  it("is gated to cloud task_analysis runs", () => {
+  it("is gated to cloud runs that report activity", () => {
     const meta = {
       environment: "cloud" as const,
-      taskOriginProduct: "task_analysis",
+      reportActivityTool: true,
     };
     expect(reportActivityTool.isEnabled(ctx(cwd), meta)).toBe(true);
     expect(
       reportActivityTool.isEnabled(ctx(cwd), {
         ...meta,
-        taskOriginProduct: "user_created",
+        reportActivityTool: false,
       }),
     ).toBe(false);
     expect(

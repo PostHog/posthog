@@ -1,7 +1,12 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { waitFor, within } from '@testing-library/dom'
+
+import { FEATURE_FLAGS } from 'lib/constants'
 
 import { useStorybookMocks } from '~/mocks/browser'
 import externalDataSourceResponseMock from '~/mocks/fixtures/api/projects/team_id/external_data_sources/externalDataSource.json'
+
+import { expect, userEvent } from 'storybook/test'
 
 import { SchemasTab, SchemasTabProps } from './SchemasTab'
 
@@ -93,5 +98,56 @@ export const IncrementalSyncBlocked: Story = {
         })
 
         return <SchemasTab {...props} />
+    },
+}
+
+const objectStorageSourceMock = {
+    ...externalDataSourceResponseMock,
+    source_type: 'AmazonS3',
+    prefix: 's3_',
+    job_inputs: { url_pattern: 's3://my-bucket/events/*.parquet' },
+    supports_adding_tables: true,
+    table_root: 'my-bucket/events/',
+    supports_table_discovery: true,
+}
+
+const objectStorageParameters = { featureFlags: [FEATURE_FLAGS.WAREHOUSE_OBJECT_STORAGE_ADD_TABLE] }
+
+function renderWithSource(source: Record<string, any>): NonNullable<Story['render']> {
+    return (props) => {
+        useStorybookMocks({
+            get: {
+                '/api/environments/:team_id/external_data_sources/:id': () => [200, source],
+            },
+        })
+
+        return <SchemasTab {...props} />
+    }
+}
+
+// Object storage sources replace "Pull new schemas" with "Add table", and keep discovery in its menu.
+export const ObjectStorage: Story = {
+    parameters: objectStorageParameters,
+    render: renderWithSource(objectStorageSourceMock),
+}
+
+// A migrated source reads the whole bucket, so it gets Add table without the flag and has no discovery menu.
+export const ObjectStorageMigrated: Story = {
+    render: renderWithSource({ ...objectStorageSourceMock, supports_table_discovery: false }),
+}
+
+export const AddTableModalOpen: Story = {
+    parameters: objectStorageParameters,
+    render: renderWithSource(objectStorageSourceMock),
+    play: async ({ canvasElement }) => {
+        const body = within(canvasElement.ownerDocument.body)
+        await waitFor(async () => {
+            if (!body.queryByText('Enter a path inside', { exact: false })) {
+                const button = canvasElement.querySelector<HTMLElement>('[data-attr="schemas-tab-add-table"]')
+                expect(button).toBeVisible()
+                await userEvent.click(button!)
+            }
+            expect(body.getByText('Enter a path inside', { exact: false })).toBeVisible()
+        })
     },
 }

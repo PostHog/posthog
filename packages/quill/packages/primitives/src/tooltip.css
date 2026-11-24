@@ -57,14 +57,29 @@
     }
 
     .quill-tooltip__arrow {
+        --quill-tooltip-arrow-size: 0.625rem;
+
         z-index: 50;
-        width: 0.625rem;
-        height: 0.625rem;
+        width: var(--quill-tooltip-arrow-size);
+        height: var(--quill-tooltip-arrow-size);
         background-color: var(--foreground);
         border-radius: 1px;
         fill: var(--foreground);
         rotate: 45deg;
         translate: 0 calc(-50% - 2px);
+    }
+
+    /*
+     * A start-aligned tooltip, such as a disabled reason, points from its start edge rather than the
+     * anchor's middle: 1rem in, or the middle of an anchor narrower than 2rem. Floating UI sets the
+     * arrow's position inline, so this needs !important.
+     */
+    .quill-tooltip__arrow[data-align='start']:is([data-side='top'], [data-side='bottom']) {
+        inset-inline-start: calc(
+            min(var(--anchor-width, 2rem) / 2, 1rem) - var(--quill-tooltip-arrow-size) / 2
+        ) !important;
+        right: auto !important;
+        left: auto !important;
     }
 
     @media (prefers-reduced-motion: reduce) {

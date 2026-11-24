@@ -13,6 +13,7 @@ from uuid import UUID
 from posthog.dataclasses import frozen
 
 from .enums import (
+    WizardPullRequestState,
     WizardRunArtifactType,
     WizardRunEnvironment,
     WizardRunStage,
@@ -284,6 +285,10 @@ class WizardRunPullRequestArtifactDTO:
     head_branch: str
     base_branch: str
     created_at: datetime
+    # None for artifacts stored before the pull request state was tracked.
+    state: WizardPullRequestState | None = None
+    merged_at: datetime | None = None
+    closed_at: datetime | None = None
 
 
 type WizardRunArtifactDTO = WizardRunGitDiffArtifactDTO | WizardRunPullRequestArtifactDTO

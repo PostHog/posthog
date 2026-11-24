@@ -19,6 +19,7 @@ from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SinglePagePaginator,
     SourceResponse,
+    flatten_jsonapi,
     make_tracked_session,
     rest_api_resource,
     rest_api_resources,
@@ -118,12 +119,7 @@ def _next_page_url(host: str, payload: Any) -> str | None:
 
 def _flatten_item(item: dict[str, Any]) -> dict[str, Any]:
     """Lift a JSON:API record's ``attributes`` object to the root, keeping ``id``/``type``."""
-    attributes = item.get("attributes")
-    if isinstance(attributes, dict):
-        item.pop("attributes")
-        for key, value in attributes.items():
-            item.setdefault(key, value)
-    return item
+    return flatten_jsonapi(item, relationships_as_ids=False)
 
 
 def _validated_org_id(organization_id: str) -> str:

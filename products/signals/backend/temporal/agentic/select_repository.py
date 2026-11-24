@@ -23,6 +23,7 @@ from products.signals.backend.report_generation.select_repo import (
     RepoSelectionResult,
     persisted_repo_selection,
     resolve_team_github_integration,
+    saved_repository_connected,
     select_repository_for_report,
 )
 from products.signals.backend.report_monitoring_provenance import monitoring_repository_sources
@@ -74,10 +75,7 @@ def _pilot_code_availability(team_id: int) -> ReportResearchContext:
     adapters = [
         GitHubIntegration(item, source="signals_report_research", priority=Priority.NORMAL) for item in integrations
     ]
-    if all(
-        adapter.integration.repository_cache_updated_at and adapter.integration.repository_cache == []
-        for adapter in adapters
-    ):
+    if all(adapter.repository_cache_confirmed_empty() for adapter in adapters):
         return ReportResearchContext(mode="data_only", repository_status="no_repositories")
     if not team_has_code_access(team_id):
         return ReportResearchContext(mode="data_only", repository_status="github_unavailable")
@@ -224,6 +222,21 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
             ):
                 logger.info(
                     "signals repo selection reuse skipped: no GitHub integration",
+                    report_id=input.report_id,
+                    team_id=input.team_id,
+                    repository=previous.repository,
+                )
+                previous = None
+            if (
+                previous is not None
+                and previous.repository is not None
+                and not input.github_optional
+                and not await database_sync_to_async(saved_repository_connected, thread_sensitive=False)(
+                    input.team_id, previous.repository
+                )
+            ):
+                logger.info(
+                    "signals repo selection reuse skipped: repository no longer connected",
                     report_id=input.report_id,
                     team_id=input.team_id,
                     repository=previous.repository,

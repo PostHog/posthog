@@ -1,7 +1,7 @@
 import posthog from 'posthog-js'
 
 import { resolveAiBlobUrl } from './aiBlob'
-import { captureNormalizationFailure, normalizeMessages } from './messageNormalization'
+import { normalizeMessage, normalizeMessages } from './messageNormalization'
 
 jest.mock('posthog-js', () => ({ __esModule: true, default: { capture: jest.fn() } }))
 
@@ -14,6 +14,17 @@ describe('messageNormalization', () => {
         it("never captures — reporting a failure is the caller's decision", () => {
             normalizeMessages({ file_path: 'src/index.ts' }, 'user')
             expect(capture).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('inputs JSON cannot encode', () => {
+        it('renders a Vercel AI SDK tool result whose output is circular', () => {
+            const circular: Record<string, unknown> = { key: 'value' }
+            circular.self = circular
+            const message = { type: 'tool-result', toolCallId: 'tc_circ', toolName: 'bad_tool', output: circular }
+            expect(normalizeMessage(message, 'assistant')).toEqual([
+                { role: 'assistant (tool result)', content: '[object Object]', tool_call_id: 'tc_circ' },
+            ])
         })
     })
 
@@ -47,24 +58,6 @@ describe('messageNormalization', () => {
 
             expect(images).toHaveLength(1)
             expect(resolveAiBlobUrl(images[0], 1)).toBe(`/api/projects/1/ai_blob/v1/sha256/${HASH}`)
-        })
-    })
-
-    describe('captureNormalizationFailure', () => {
-        it('reports an object payload with its keys and type', () => {
-            captureNormalizationFailure({ file_path: 'src/index.ts' })
-            expect(capture).toHaveBeenCalledWith('llma message normalization failed', {
-                message_keys: ['file_path'],
-                message_type: 'object',
-            })
-        })
-
-        it('reports a scalar payload with no keys', () => {
-            captureNormalizationFailure('opaque')
-            expect(capture).toHaveBeenCalledWith('llma message normalization failed', {
-                message_keys: [],
-                message_type: 'string',
-            })
         })
     })
 })

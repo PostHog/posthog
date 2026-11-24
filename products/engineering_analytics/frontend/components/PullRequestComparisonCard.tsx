@@ -1,6 +1,3 @@
-// One pull request's ready-to-merged time next to the medians of the pull requests merged in the 30 days
-// before it: its author's, the author's own team's, and the repository's.
-
 import { useValues } from 'kea'
 
 import { dayjs } from 'lib/dayjs'

@@ -25,6 +25,8 @@ FLOWLU_ENDPOINTS: dict[str, FlowluEndpointConfig] = {
     "pipelines": FlowluEndpointConfig(name="pipelines", path="/crm/pipeline/list"),
     "pipeline_stages": FlowluEndpointConfig(name="pipeline_stages", path="/crm/pipeline_stage/list"),
     "lead_sources": FlowluEndpointConfig(name="lead_sources", path="/crm/source/list"),
+    # Resolves `account_category_id` on accounts.
+    "account_categories": FlowluEndpointConfig(name="account_categories", path="/crm/account_category/list"),
     # Resolves `closing_status_id` on closed-lost opportunities.
     "loss_reasons": FlowluEndpointConfig(name="loss_reasons", path="/crm/loss_reason/list"),
     "tasks": FlowluEndpointConfig(name="tasks", path="/task/tasks/list"),
@@ -39,6 +41,12 @@ FLOWLU_ENDPOINTS: dict[str, FlowluEndpointConfig] = {
     "estimate_items": FlowluEndpointConfig(name="estimate_items", path="/fin/estimate_item/list"),
     "customer_payments": FlowluEndpointConfig(name="customer_payments", path="/fin/customer_payment/list"),
     "transactions": FlowluEndpointConfig(name="transactions", path="/fin/transaction/list"),
+    # Resolves `category_id` on transactions.
+    "transaction_categories": FlowluEndpointConfig(name="transaction_categories", path="/fin/categories/list"),
+    # Resolves `org_account_id` on transactions.
+    "bank_accounts": FlowluEndpointConfig(name="bank_accounts", path="/fin/bank_account/list"),
+    # Resolves `business_line_id` on transactions.
+    "business_lines": FlowluEndpointConfig(name="business_lines", path="/fin/business_line/list"),
     # The account's own billing entities, resolving `org_id` on invoices, estimates, and transactions.
     "billing_organizations": FlowluEndpointConfig(name="billing_organizations", path="/fin/organization/list"),
     "agile_issues": FlowluEndpointConfig(name="agile_issues", path="/agile/issues/list"),

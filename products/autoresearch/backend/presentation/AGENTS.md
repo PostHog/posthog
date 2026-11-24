@@ -13,6 +13,7 @@ The `autoresearch-*` MCP tools that expose this API to the sandbox agent are dec
   Five viewsets, registered in `../routes.py` under `project_autoresearch_*` basenames and nested pipeline-first.
   - `AutoresearchPipelineViewSet` — full CRUD plus the lifecycle actions: `train`, `score`, `validate_online`, `archive`, `pause`, `resume`, the pre-create helpers `templates`, `resolve-template`, `validate`, the read-only `online_performance`, which returns realized metrics per model per validated date from the validation runs, and the read-only `limits`, which returns the project's limits from `../limits.py` with its current usage.
   - `AutoresearchTrainingRunViewSet` — read plus create, and **the agent's entire write surface**: `iterations`, `materialize-features`, `complete`, `artifacts`, `artifacts/upload`, `artifacts/get`, `artifacts/delete`, plus `history`.
+    It also holds `stop`, which a person calls to end a live run through `../training/stop.py`. The training agent's sandbox gets a 403 from `stop`.
   - `AutoresearchModelViewSet`, `AutoresearchRunViewSet` — read-only.
   - `AutoresearchSuggestionViewSet` — human or agent hypotheses, plus `respond`.
 - `views/serializers.py`
@@ -23,6 +24,7 @@ The `autoresearch-*` MCP tools that expose this API to the sandbox agent are dec
 
 Every viewset sets `scope_object = "autoresearch"` and splits `scope_object_read_actions` / `scope_object_write_actions`, so custom actions are classified explicitly rather than inheriting a default.
 `AutoresearchAccessPermission` gates on the `autoresearch` feature flag via `../access.py`.
+`train` also calls `access_refusal()` from `../access.py`, the gate the sweep's kickoff uses. It refuses a deactivated organization with a 403 whose `code` is `organization_deactivated`, because session auth passes `ActiveOrganizationPermission`.
 
 **A new `@action` must be added to one of those two lists.** Omitting it is not a compile error and not a test failure — it is a permissions bug.
 

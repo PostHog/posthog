@@ -51,6 +51,7 @@
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_data_processing_locked",
          "posthog_organization"."is_ai_training_opted_in",
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
@@ -189,6 +190,7 @@
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_data_processing_locked",
          "posthog_organization"."is_ai_training_opted_in",
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
@@ -327,6 +329,7 @@
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_data_processing_locked",
          "posthog_organization"."is_ai_training_opted_in",
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
@@ -381,6 +384,7 @@
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_data_processing_locked",
          "posthog_organization"."is_ai_training_opted_in",
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
@@ -439,7 +443,6 @@
          "posthog_action"."embedding_version",
          "posthog_action"."is_calculating",
          "posthog_action"."last_calculated_at",
-         COUNT("posthog_action_events"."event_id") AS "count",
          "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -481,20 +484,16 @@
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_action"
-  LEFT OUTER JOIN "posthog_action_events" ON ("posthog_action"."id" = "posthog_action_events"."action_id")
   INNER JOIN "posthog_team" ON ("posthog_action"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_action"."created_by_id" = "posthog_user"."id")
-  WHERE (NOT "posthog_action"."deleted"
-         AND ("posthog_action"."team_id" =
-                (SELECT "U0"."parent_team_id" AS "parent_team_id"
-                 FROM "posthog_team" "U0"
-                 WHERE "U0"."id" = 99999
-                 LIMIT 1)
-              OR ("posthog_team"."parent_team_id" IS NULL
-                  AND "posthog_action"."team_id" = 99999))
-         AND "posthog_team"."project_id" = 99999)
-  GROUP BY "posthog_action"."id",
-           "posthog_user"."id"
+  WHERE (("posthog_action"."team_id" =
+            (SELECT "U0"."parent_team_id" AS "parent_team_id"
+             FROM "posthog_team" "U0"
+             WHERE "U0"."id" = 99999
+             LIMIT 1)
+          OR ("posthog_team"."parent_team_id" IS NULL
+              AND "posthog_action"."team_id" = 99999))
+         AND NOT "posthog_action"."deleted")
   ORDER BY "posthog_action"."last_calculated_at" DESC,
            "posthog_action"."name" ASC
   '''
@@ -540,6 +539,7 @@
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_data_processing_locked",
          "posthog_organization"."is_ai_training_opted_in",
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
@@ -598,7 +598,6 @@
          "posthog_action"."embedding_version",
          "posthog_action"."is_calculating",
          "posthog_action"."last_calculated_at",
-         COUNT("posthog_action_events"."event_id") AS "count",
          "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -640,20 +639,16 @@
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_action"
-  LEFT OUTER JOIN "posthog_action_events" ON ("posthog_action"."id" = "posthog_action_events"."action_id")
   INNER JOIN "posthog_team" ON ("posthog_action"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_action"."created_by_id" = "posthog_user"."id")
-  WHERE (NOT "posthog_action"."deleted"
-         AND ("posthog_action"."team_id" =
-                (SELECT "U0"."parent_team_id" AS "parent_team_id"
-                 FROM "posthog_team" "U0"
-                 WHERE "U0"."id" = 99999
-                 LIMIT 1)
-              OR ("posthog_team"."parent_team_id" IS NULL
-                  AND "posthog_action"."team_id" = 99999))
-         AND "posthog_team"."project_id" = 99999)
-  GROUP BY "posthog_action"."id",
-           "posthog_user"."id"
+  WHERE (("posthog_action"."team_id" =
+            (SELECT "U0"."parent_team_id" AS "parent_team_id"
+             FROM "posthog_team" "U0"
+             WHERE "U0"."id" = 99999
+             LIMIT 1)
+          OR ("posthog_team"."parent_team_id" IS NULL
+              AND "posthog_action"."team_id" = 99999))
+         AND NOT "posthog_action"."deleted")
   ORDER BY "posthog_action"."last_calculated_at" DESC,
            "posthog_action"."name" ASC
   '''
@@ -710,6 +705,7 @@
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_data_processing_locked",
          "posthog_organization"."is_ai_training_opted_in",
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
@@ -848,6 +844,7 @@
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_data_processing_locked",
          "posthog_organization"."is_ai_training_opted_in",
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
@@ -902,6 +899,7 @@
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_data_processing_locked",
          "posthog_organization"."is_ai_training_opted_in",
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
@@ -960,7 +958,6 @@
          "posthog_action"."embedding_version",
          "posthog_action"."is_calculating",
          "posthog_action"."last_calculated_at",
-         COUNT("posthog_action_events"."event_id") AS "count",
          "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -1002,20 +999,16 @@
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_action"
-  LEFT OUTER JOIN "posthog_action_events" ON ("posthog_action"."id" = "posthog_action_events"."action_id")
   INNER JOIN "posthog_team" ON ("posthog_action"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_action"."created_by_id" = "posthog_user"."id")
-  WHERE (NOT "posthog_action"."deleted"
-         AND ("posthog_action"."team_id" =
-                (SELECT "U0"."parent_team_id" AS "parent_team_id"
-                 FROM "posthog_team" "U0"
-                 WHERE "U0"."id" = 99999
-                 LIMIT 1)
-              OR ("posthog_team"."parent_team_id" IS NULL
-                  AND "posthog_action"."team_id" = 99999))
-         AND "posthog_team"."project_id" = 99999)
-  GROUP BY "posthog_action"."id",
-           "posthog_user"."id"
+  WHERE (("posthog_action"."team_id" =
+            (SELECT "U0"."parent_team_id" AS "parent_team_id"
+             FROM "posthog_team" "U0"
+             WHERE "U0"."id" = 99999
+             LIMIT 1)
+          OR ("posthog_team"."parent_team_id" IS NULL
+              AND "posthog_action"."team_id" = 99999))
+         AND NOT "posthog_action"."deleted")
   ORDER BY "posthog_action"."last_calculated_at" DESC,
            "posthog_action"."name" ASC
   '''
@@ -1093,6 +1086,7 @@
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_data_processing_locked",
          "posthog_organization"."is_ai_training_opted_in",
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",

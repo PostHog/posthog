@@ -7,7 +7,7 @@
   FROM events
   WHERE timestamp >= '2022-01-10 00:00:00'
     AND timestamp < '2022-01-10 02:00:00'
-    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow']
+    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow', '$recording_observed']
     AND NOT startsWith(event, '$ai_')
   GROUP BY team_id
   '''
@@ -20,7 +20,7 @@
   FROM events
   WHERE timestamp >= '2022-01-10 02:00:00'
     AND timestamp < '2022-01-10 04:00:00'
-    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow']
+    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow', '$recording_observed']
     AND NOT startsWith(event, '$ai_')
   GROUP BY team_id
   '''
@@ -33,7 +33,7 @@
   FROM events
   WHERE timestamp >= '2022-01-10 20:00:00'
     AND timestamp < '2022-01-10 22:00:00'
-    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow']
+    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow', '$recording_observed']
     AND NOT startsWith(event, '$ai_')
   GROUP BY team_id
   '''
@@ -104,7 +104,7 @@
   FROM events
   WHERE timestamp >= '2022-01-10 22:00:00'
     AND timestamp < '2022-01-10 23:59:59'
-    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow']
+    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow', '$recording_observed']
     AND NOT startsWith(event, '$ai_')
   GROUP BY team_id
   '''
@@ -117,7 +117,7 @@
   FROM events
   WHERE timestamp >= '2022-01-10 00:00:00'
     AND timestamp < '2022-01-10 02:00:00'
-    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow']
+    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow', '$recording_observed']
     AND NOT startsWith(event, '$ai_')
     AND person_mode IN ('full',
                         'force_upgrade')
@@ -132,7 +132,7 @@
   FROM events
   WHERE timestamp >= '2022-01-10 02:00:00'
     AND timestamp < '2022-01-10 04:00:00'
-    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow']
+    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow', '$recording_observed']
     AND NOT startsWith(event, '$ai_')
     AND person_mode IN ('full',
                         'force_upgrade')
@@ -147,7 +147,7 @@
   FROM events
   WHERE timestamp >= '2022-01-10 04:00:00'
     AND timestamp < '2022-01-10 06:00:00'
-    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow']
+    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow', '$recording_observed']
     AND NOT startsWith(event, '$ai_')
     AND person_mode IN ('full',
                         'force_upgrade')
@@ -162,7 +162,7 @@
   FROM events
   WHERE timestamp >= '2022-01-10 06:00:00'
     AND timestamp < '2022-01-10 08:00:00'
-    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow']
+    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow', '$recording_observed']
     AND NOT startsWith(event, '$ai_')
     AND person_mode IN ('full',
                         'force_upgrade')
@@ -177,7 +177,7 @@
   FROM events
   WHERE timestamp >= '2022-01-10 08:00:00'
     AND timestamp < '2022-01-10 10:00:00'
-    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow']
+    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow', '$recording_observed']
     AND NOT startsWith(event, '$ai_')
     AND person_mode IN ('full',
                         'force_upgrade')
@@ -192,7 +192,7 @@
   FROM events
   WHERE timestamp >= '2022-01-10 10:00:00'
     AND timestamp < '2022-01-10 12:00:00'
-    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow']
+    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow', '$recording_observed']
     AND NOT startsWith(event, '$ai_')
     AND person_mode IN ('full',
                         'force_upgrade')
@@ -207,7 +207,7 @@
   FROM events
   WHERE timestamp >= '2022-01-10 12:00:00'
     AND timestamp < '2022-01-10 14:00:00'
-    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow']
+    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow', '$recording_observed']
     AND NOT startsWith(event, '$ai_')
     AND person_mode IN ('full',
                         'force_upgrade')
@@ -222,7 +222,7 @@
   FROM events
   WHERE timestamp >= '2022-01-10 14:00:00'
     AND timestamp < '2022-01-10 16:00:00'
-    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow']
+    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow', '$recording_observed']
     AND NOT startsWith(event, '$ai_')
     AND person_mode IN ('full',
                         'force_upgrade')
@@ -237,7 +237,7 @@
   FROM events
   WHERE timestamp >= '2022-01-10 04:00:00'
     AND timestamp < '2022-01-10 06:00:00'
-    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow']
+    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow', '$recording_observed']
     AND NOT startsWith(event, '$ai_')
   GROUP BY team_id
   '''
@@ -250,7 +250,7 @@
   FROM events
   WHERE timestamp >= '2022-01-10 16:00:00'
     AND timestamp < '2022-01-10 18:00:00'
-    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow']
+    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow', '$recording_observed']
     AND NOT startsWith(event, '$ai_')
     AND person_mode IN ('full',
                         'force_upgrade')
@@ -265,7 +265,7 @@
   FROM events
   WHERE timestamp >= '2022-01-10 18:00:00'
     AND timestamp < '2022-01-10 20:00:00'
-    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow']
+    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow', '$recording_observed']
     AND NOT startsWith(event, '$ai_')
     AND person_mode IN ('full',
                         'force_upgrade')
@@ -280,7 +280,7 @@
   FROM events
   WHERE timestamp >= '2022-01-10 20:00:00'
     AND timestamp < '2022-01-10 22:00:00'
-    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow']
+    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow', '$recording_observed']
     AND NOT startsWith(event, '$ai_')
     AND person_mode IN ('full',
                         'force_upgrade')
@@ -295,7 +295,7 @@
   FROM events
   WHERE timestamp >= '2022-01-10 22:00:00'
     AND timestamp < '2022-01-10 23:59:59'
-    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow']
+    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow', '$recording_observed']
     AND NOT startsWith(event, '$ai_')
     AND person_mode IN ('full',
                         'force_upgrade')
@@ -421,14 +421,13 @@
   '''
   
   SELECT team_id,
-         multiIf(replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'web', 'web', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'js', 'web_lite', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node', 'node', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-edge', 'node', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-android', 'android', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-flutter', 'flutter', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ios', 'ios', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go', 'go', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-java', 'java', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-server', 'java', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-react-native', 'react_native', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby', 'ruby', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python', 'python', 'unknown') AS library,
-         count(1) as total
+         sum(greatest(least(toInt64OrZero(replaceRegexpAll(JSONExtractRaw(properties, '$ai_event_bytes'), '^"|"$', '')), 48000000), 100000) - 100000) AS overage_bytes
   FROM events
-  WHERE event = '$exception'
+  WHERE startsWith(event, '$ai_')
     AND timestamp >= '2022-01-10 00:00:00'
     AND timestamp < '2022-01-10 23:59:59'
-  GROUP BY team_id,
-           library
+  GROUP BY team_id
+  HAVING overage_bytes > 0
   '''
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.3
@@ -439,12 +438,26 @@
   FROM events
   WHERE timestamp >= '2022-01-10 06:00:00'
     AND timestamp < '2022-01-10 08:00:00'
-    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow']
+    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow', '$recording_observed']
     AND NOT startsWith(event, '$ai_')
   GROUP BY team_id
   '''
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.30
+  '''
+  
+  SELECT team_id,
+         multiIf(replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'web', 'web', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'js', 'web_lite', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node', 'node', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-edge', 'node', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-android', 'android', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-flutter', 'flutter', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ios', 'ios', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go', 'go', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-java', 'java', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-server', 'java', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-react-native', 'react_native', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby', 'ruby', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python', 'python', 'unknown') AS library,
+         count(1) as total
+  FROM events
+  WHERE event = '$exception'
+    AND timestamp >= '2022-01-10 00:00:00'
+    AND timestamp < '2022-01-10 23:59:59'
+  GROUP BY team_id,
+           library
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.31
   '''
   
   SELECT team_id,
@@ -457,7 +470,7 @@
   GROUP BY team_id
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.31
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.32
   '''
   
   SELECT distinct_id as team,
@@ -471,7 +484,7 @@
   GROUP BY team
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.32
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.33
   '''
   
   SELECT distinct_id as team,
@@ -485,7 +498,7 @@
   GROUP BY team
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.33
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.34
   '''
   
   SELECT distinct_id as team,
@@ -499,7 +512,7 @@
   GROUP BY team
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.34
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.35
   '''
   
   SELECT team_id,
@@ -513,7 +526,7 @@
   GROUP BY team_id
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.35
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.36
   '''
   
   SELECT team_id,
@@ -527,7 +540,7 @@
   GROUP BY team_id
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.36
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.37
   '''
   
   SELECT team_id,
@@ -541,7 +554,7 @@
   GROUP BY team_id
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.37
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.38
   '''
   
   SELECT team_id,
@@ -556,7 +569,7 @@
   GROUP BY team_id
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.38
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.39
   '''
   
   SELECT team_id,
@@ -569,7 +582,20 @@
   GROUP BY team_id
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.39
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.4
+  '''
+  
+  SELECT team_id,
+         count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
+  FROM events
+  WHERE timestamp >= '2022-01-10 08:00:00'
+    AND timestamp < '2022-01-10 10:00:00'
+    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow', '$recording_observed']
+    AND NOT startsWith(event, '$ai_')
+  GROUP BY team_id
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.40
   '''
   
   SELECT team_id,
@@ -586,20 +612,7 @@
            metric_name
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.4
-  '''
-  
-  SELECT team_id,
-         count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
-  FROM events
-  WHERE timestamp >= '2022-01-10 08:00:00'
-    AND timestamp < '2022-01-10 10:00:00'
-    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow']
-    AND NOT startsWith(event, '$ai_')
-  GROUP BY team_id
-  '''
-# ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.40
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.41
   '''
   
   SELECT team_id,
@@ -612,11 +625,16 @@
   GROUP BY team_id
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.41
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.42
   '''
   
   SELECT team_id,
-         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'web', 'web_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'js', 'web_lite_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node', 'node_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node-mcp', 'node_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python-mcp', 'python_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs-mcp', 'rust_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go-mcp', 'go_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby-mcp', 'ruby_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-edge', 'edge_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-convex', 'convex_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-android', 'android_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-kmp', 'kmp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-flutter', 'flutter_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ios', 'ios_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go', 'go_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-java', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-server', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-react-native', 'react_native_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rails', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python', 'python_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-php', 'php_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-laravel', 'laravel_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-dotnet', 'dotnet_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-aspnetcore', 'dotnet_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-elixir', 'elixir_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-unity', 'unity_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-godot', 'godot_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-unreal', 'unreal_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-roblox', 'roblox_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs', 'rust_events', 'other') AS metric,
+         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', startsWith(event, '$mcp_')
+                 AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-node', 'posthog-node-mcp'), 'node_mcp_events', startsWith(event, '$mcp_')
+                 AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-python', 'posthog-python-mcp'), 'python_mcp_events', startsWith(event, '$mcp_')
+                 AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-rs', 'posthog-rs-mcp'), 'rust_mcp_events', startsWith(event, '$mcp_')
+                 AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-go', 'posthog-go-mcp'), 'go_mcp_events', startsWith(event, '$mcp_')
+                 AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-ruby', 'posthog-rails', 'posthog-ruby-mcp'), 'ruby_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'web', 'web_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'js', 'web_lite_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node', 'node_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node-mcp', 'node_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python-mcp', 'python_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs-mcp', 'rust_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go-mcp', 'go_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby-mcp', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-edge', 'edge_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-convex', 'convex_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-android', 'android_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-kmp', 'kmp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-flutter', 'flutter_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ios', 'ios_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go', 'go_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-java', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-server', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-react-native', 'react_native_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rails', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python', 'python_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-php', 'php_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-laravel', 'laravel_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-dotnet', 'dotnet_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-aspnetcore', 'dotnet_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-elixir', 'elixir_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-unity', 'unity_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-godot', 'godot_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-unreal', 'unreal_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-roblox', 'roblox_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs', 'rust_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs-ffi', 'rust_ffi_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-electron', 'electron_events', 'other') AS metric,
          count(1) as count
   FROM events PREWHERE timestamp >= '2022-01-10 00:00:00'
   AND timestamp < '2022-01-10 02:00:00'
@@ -654,16 +672,23 @@
                                                                                   'posthog-godot',
                                                                                   'posthog-unreal',
                                                                                   'posthog-roblox',
-                                                                                  'posthog-rs'))
+                                                                                  'posthog-rs',
+                                                                                  'posthog-rs-ffi',
+                                                                                  'posthog-electron'))
   GROUP BY team_id,
            metric
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.42
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.43
   '''
   
   SELECT team_id,
-         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'web', 'web_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'js', 'web_lite_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node', 'node_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node-mcp', 'node_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python-mcp', 'python_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs-mcp', 'rust_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go-mcp', 'go_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby-mcp', 'ruby_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-edge', 'edge_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-convex', 'convex_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-android', 'android_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-kmp', 'kmp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-flutter', 'flutter_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ios', 'ios_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go', 'go_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-java', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-server', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-react-native', 'react_native_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rails', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python', 'python_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-php', 'php_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-laravel', 'laravel_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-dotnet', 'dotnet_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-aspnetcore', 'dotnet_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-elixir', 'elixir_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-unity', 'unity_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-godot', 'godot_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-unreal', 'unreal_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-roblox', 'roblox_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs', 'rust_events', 'other') AS metric,
+         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', startsWith(event, '$mcp_')
+                 AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-node', 'posthog-node-mcp'), 'node_mcp_events', startsWith(event, '$mcp_')
+                 AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-python', 'posthog-python-mcp'), 'python_mcp_events', startsWith(event, '$mcp_')
+                 AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-rs', 'posthog-rs-mcp'), 'rust_mcp_events', startsWith(event, '$mcp_')
+                 AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-go', 'posthog-go-mcp'), 'go_mcp_events', startsWith(event, '$mcp_')
+                 AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-ruby', 'posthog-rails', 'posthog-ruby-mcp'), 'ruby_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'web', 'web_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'js', 'web_lite_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node', 'node_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node-mcp', 'node_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python-mcp', 'python_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs-mcp', 'rust_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go-mcp', 'go_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby-mcp', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-edge', 'edge_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-convex', 'convex_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-android', 'android_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-kmp', 'kmp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-flutter', 'flutter_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ios', 'ios_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go', 'go_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-java', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-server', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-react-native', 'react_native_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rails', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python', 'python_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-php', 'php_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-laravel', 'laravel_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-dotnet', 'dotnet_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-aspnetcore', 'dotnet_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-elixir', 'elixir_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-unity', 'unity_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-godot', 'godot_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-unreal', 'unreal_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-roblox', 'roblox_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs', 'rust_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs-ffi', 'rust_ffi_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-electron', 'electron_events', 'other') AS metric,
          count(1) as count
   FROM events PREWHERE timestamp >= '2022-01-10 02:00:00'
   AND timestamp < '2022-01-10 04:00:00'
@@ -701,16 +726,23 @@
                                                                                   'posthog-godot',
                                                                                   'posthog-unreal',
                                                                                   'posthog-roblox',
-                                                                                  'posthog-rs'))
+                                                                                  'posthog-rs',
+                                                                                  'posthog-rs-ffi',
+                                                                                  'posthog-electron'))
   GROUP BY team_id,
            metric
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.43
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.44
   '''
   
   SELECT team_id,
-         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'web', 'web_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'js', 'web_lite_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node', 'node_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node-mcp', 'node_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python-mcp', 'python_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs-mcp', 'rust_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go-mcp', 'go_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby-mcp', 'ruby_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-edge', 'edge_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-convex', 'convex_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-android', 'android_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-kmp', 'kmp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-flutter', 'flutter_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ios', 'ios_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go', 'go_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-java', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-server', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-react-native', 'react_native_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rails', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python', 'python_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-php', 'php_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-laravel', 'laravel_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-dotnet', 'dotnet_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-aspnetcore', 'dotnet_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-elixir', 'elixir_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-unity', 'unity_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-godot', 'godot_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-unreal', 'unreal_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-roblox', 'roblox_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs', 'rust_events', 'other') AS metric,
+         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', startsWith(event, '$mcp_')
+                 AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-node', 'posthog-node-mcp'), 'node_mcp_events', startsWith(event, '$mcp_')
+                 AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-python', 'posthog-python-mcp'), 'python_mcp_events', startsWith(event, '$mcp_')
+                 AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-rs', 'posthog-rs-mcp'), 'rust_mcp_events', startsWith(event, '$mcp_')
+                 AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-go', 'posthog-go-mcp'), 'go_mcp_events', startsWith(event, '$mcp_')
+                 AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-ruby', 'posthog-rails', 'posthog-ruby-mcp'), 'ruby_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'web', 'web_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'js', 'web_lite_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node', 'node_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node-mcp', 'node_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python-mcp', 'python_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs-mcp', 'rust_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go-mcp', 'go_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby-mcp', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-edge', 'edge_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-convex', 'convex_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-android', 'android_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-kmp', 'kmp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-flutter', 'flutter_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ios', 'ios_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go', 'go_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-java', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-server', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-react-native', 'react_native_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rails', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python', 'python_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-php', 'php_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-laravel', 'laravel_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-dotnet', 'dotnet_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-aspnetcore', 'dotnet_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-elixir', 'elixir_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-unity', 'unity_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-godot', 'godot_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-unreal', 'unreal_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-roblox', 'roblox_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs', 'rust_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs-ffi', 'rust_ffi_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-electron', 'electron_events', 'other') AS metric,
          count(1) as count
   FROM events PREWHERE timestamp >= '2022-01-10 04:00:00'
   AND timestamp < '2022-01-10 06:00:00'
@@ -748,16 +780,23 @@
                                                                                   'posthog-godot',
                                                                                   'posthog-unreal',
                                                                                   'posthog-roblox',
-                                                                                  'posthog-rs'))
+                                                                                  'posthog-rs',
+                                                                                  'posthog-rs-ffi',
+                                                                                  'posthog-electron'))
   GROUP BY team_id,
            metric
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.44
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.45
   '''
   
   SELECT team_id,
-         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'web', 'web_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'js', 'web_lite_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node', 'node_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node-mcp', 'node_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python-mcp', 'python_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs-mcp', 'rust_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go-mcp', 'go_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby-mcp', 'ruby_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-edge', 'edge_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-convex', 'convex_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-android', 'android_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-kmp', 'kmp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-flutter', 'flutter_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ios', 'ios_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go', 'go_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-java', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-server', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-react-native', 'react_native_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rails', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python', 'python_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-php', 'php_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-laravel', 'laravel_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-dotnet', 'dotnet_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-aspnetcore', 'dotnet_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-elixir', 'elixir_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-unity', 'unity_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-godot', 'godot_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-unreal', 'unreal_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-roblox', 'roblox_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs', 'rust_events', 'other') AS metric,
+         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', startsWith(event, '$mcp_')
+                 AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-node', 'posthog-node-mcp'), 'node_mcp_events', startsWith(event, '$mcp_')
+                 AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-python', 'posthog-python-mcp'), 'python_mcp_events', startsWith(event, '$mcp_')
+                 AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-rs', 'posthog-rs-mcp'), 'rust_mcp_events', startsWith(event, '$mcp_')
+                 AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-go', 'posthog-go-mcp'), 'go_mcp_events', startsWith(event, '$mcp_')
+                 AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-ruby', 'posthog-rails', 'posthog-ruby-mcp'), 'ruby_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'web', 'web_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'js', 'web_lite_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node', 'node_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node-mcp', 'node_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python-mcp', 'python_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs-mcp', 'rust_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go-mcp', 'go_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby-mcp', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-edge', 'edge_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-convex', 'convex_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-android', 'android_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-kmp', 'kmp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-flutter', 'flutter_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ios', 'ios_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go', 'go_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-java', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-server', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-react-native', 'react_native_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rails', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python', 'python_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-php', 'php_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-laravel', 'laravel_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-dotnet', 'dotnet_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-aspnetcore', 'dotnet_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-elixir', 'elixir_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-unity', 'unity_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-godot', 'godot_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-unreal', 'unreal_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-roblox', 'roblox_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs', 'rust_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs-ffi', 'rust_ffi_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-electron', 'electron_events', 'other') AS metric,
          count(1) as count
   FROM events PREWHERE timestamp >= '2022-01-10 06:00:00'
   AND timestamp < '2022-01-10 08:00:00'
@@ -795,16 +834,23 @@
                                                                                   'posthog-godot',
                                                                                   'posthog-unreal',
                                                                                   'posthog-roblox',
-                                                                                  'posthog-rs'))
+                                                                                  'posthog-rs',
+                                                                                  'posthog-rs-ffi',
+                                                                                  'posthog-electron'))
   GROUP BY team_id,
            metric
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.45
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.46
   '''
   
   SELECT team_id,
-         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'web', 'web_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'js', 'web_lite_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node', 'node_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node-mcp', 'node_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python-mcp', 'python_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs-mcp', 'rust_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go-mcp', 'go_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby-mcp', 'ruby_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-edge', 'edge_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-convex', 'convex_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-android', 'android_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-kmp', 'kmp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-flutter', 'flutter_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ios', 'ios_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go', 'go_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-java', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-server', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-react-native', 'react_native_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rails', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python', 'python_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-php', 'php_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-laravel', 'laravel_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-dotnet', 'dotnet_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-aspnetcore', 'dotnet_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-elixir', 'elixir_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-unity', 'unity_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-godot', 'godot_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-unreal', 'unreal_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-roblox', 'roblox_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs', 'rust_events', 'other') AS metric,
+         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', startsWith(event, '$mcp_')
+                 AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-node', 'posthog-node-mcp'), 'node_mcp_events', startsWith(event, '$mcp_')
+                 AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-python', 'posthog-python-mcp'), 'python_mcp_events', startsWith(event, '$mcp_')
+                 AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-rs', 'posthog-rs-mcp'), 'rust_mcp_events', startsWith(event, '$mcp_')
+                 AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-go', 'posthog-go-mcp'), 'go_mcp_events', startsWith(event, '$mcp_')
+                 AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-ruby', 'posthog-rails', 'posthog-ruby-mcp'), 'ruby_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'web', 'web_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'js', 'web_lite_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node', 'node_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node-mcp', 'node_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python-mcp', 'python_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs-mcp', 'rust_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go-mcp', 'go_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby-mcp', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-edge', 'edge_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-convex', 'convex_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-android', 'android_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-kmp', 'kmp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-flutter', 'flutter_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ios', 'ios_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go', 'go_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-java', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-server', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-react-native', 'react_native_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rails', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python', 'python_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-php', 'php_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-laravel', 'laravel_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-dotnet', 'dotnet_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-aspnetcore', 'dotnet_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-elixir', 'elixir_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-unity', 'unity_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-godot', 'godot_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-unreal', 'unreal_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-roblox', 'roblox_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs', 'rust_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs-ffi', 'rust_ffi_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-electron', 'electron_events', 'other') AS metric,
          count(1) as count
   FROM events PREWHERE timestamp >= '2022-01-10 08:00:00'
   AND timestamp < '2022-01-10 10:00:00'
@@ -842,16 +888,23 @@
                                                                                   'posthog-godot',
                                                                                   'posthog-unreal',
                                                                                   'posthog-roblox',
-                                                                                  'posthog-rs'))
+                                                                                  'posthog-rs',
+                                                                                  'posthog-rs-ffi',
+                                                                                  'posthog-electron'))
   GROUP BY team_id,
            metric
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.46
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.47
   '''
   
   SELECT team_id,
-         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'web', 'web_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'js', 'web_lite_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node', 'node_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node-mcp', 'node_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python-mcp', 'python_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs-mcp', 'rust_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go-mcp', 'go_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby-mcp', 'ruby_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-edge', 'edge_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-convex', 'convex_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-android', 'android_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-kmp', 'kmp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-flutter', 'flutter_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ios', 'ios_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go', 'go_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-java', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-server', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-react-native', 'react_native_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rails', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python', 'python_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-php', 'php_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-laravel', 'laravel_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-dotnet', 'dotnet_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-aspnetcore', 'dotnet_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-elixir', 'elixir_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-unity', 'unity_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-godot', 'godot_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-unreal', 'unreal_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-roblox', 'roblox_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs', 'rust_events', 'other') AS metric,
+         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', startsWith(event, '$mcp_')
+                 AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-node', 'posthog-node-mcp'), 'node_mcp_events', startsWith(event, '$mcp_')
+                 AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-python', 'posthog-python-mcp'), 'python_mcp_events', startsWith(event, '$mcp_')
+                 AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-rs', 'posthog-rs-mcp'), 'rust_mcp_events', startsWith(event, '$mcp_')
+                 AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-go', 'posthog-go-mcp'), 'go_mcp_events', startsWith(event, '$mcp_')
+                 AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-ruby', 'posthog-rails', 'posthog-ruby-mcp'), 'ruby_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'web', 'web_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'js', 'web_lite_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node', 'node_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node-mcp', 'node_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python-mcp', 'python_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs-mcp', 'rust_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go-mcp', 'go_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby-mcp', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-edge', 'edge_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-convex', 'convex_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-android', 'android_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-kmp', 'kmp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-flutter', 'flutter_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ios', 'ios_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go', 'go_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-java', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-server', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-react-native', 'react_native_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rails', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python', 'python_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-php', 'php_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-laravel', 'laravel_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-dotnet', 'dotnet_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-aspnetcore', 'dotnet_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-elixir', 'elixir_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-unity', 'unity_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-godot', 'godot_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-unreal', 'unreal_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-roblox', 'roblox_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs', 'rust_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs-ffi', 'rust_ffi_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-electron', 'electron_events', 'other') AS metric,
          count(1) as count
   FROM events PREWHERE timestamp >= '2022-01-10 10:00:00'
   AND timestamp < '2022-01-10 12:00:00'
@@ -889,16 +942,23 @@
                                                                                   'posthog-godot',
                                                                                   'posthog-unreal',
                                                                                   'posthog-roblox',
-                                                                                  'posthog-rs'))
+                                                                                  'posthog-rs',
+                                                                                  'posthog-rs-ffi',
+                                                                                  'posthog-electron'))
   GROUP BY team_id,
            metric
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.47
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.48
   '''
   
   SELECT team_id,
-         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'web', 'web_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'js', 'web_lite_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node', 'node_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node-mcp', 'node_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python-mcp', 'python_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs-mcp', 'rust_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go-mcp', 'go_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby-mcp', 'ruby_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-edge', 'edge_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-convex', 'convex_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-android', 'android_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-kmp', 'kmp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-flutter', 'flutter_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ios', 'ios_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go', 'go_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-java', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-server', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-react-native', 'react_native_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rails', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python', 'python_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-php', 'php_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-laravel', 'laravel_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-dotnet', 'dotnet_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-aspnetcore', 'dotnet_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-elixir', 'elixir_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-unity', 'unity_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-godot', 'godot_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-unreal', 'unreal_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-roblox', 'roblox_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs', 'rust_events', 'other') AS metric,
+         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', startsWith(event, '$mcp_')
+                 AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-node', 'posthog-node-mcp'), 'node_mcp_events', startsWith(event, '$mcp_')
+                 AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-python', 'posthog-python-mcp'), 'python_mcp_events', startsWith(event, '$mcp_')
+                 AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-rs', 'posthog-rs-mcp'), 'rust_mcp_events', startsWith(event, '$mcp_')
+                 AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-go', 'posthog-go-mcp'), 'go_mcp_events', startsWith(event, '$mcp_')
+                 AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-ruby', 'posthog-rails', 'posthog-ruby-mcp'), 'ruby_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'web', 'web_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'js', 'web_lite_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node', 'node_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node-mcp', 'node_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python-mcp', 'python_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs-mcp', 'rust_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go-mcp', 'go_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby-mcp', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-edge', 'edge_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-convex', 'convex_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-android', 'android_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-kmp', 'kmp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-flutter', 'flutter_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ios', 'ios_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go', 'go_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-java', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-server', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-react-native', 'react_native_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rails', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python', 'python_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-php', 'php_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-laravel', 'laravel_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-dotnet', 'dotnet_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-aspnetcore', 'dotnet_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-elixir', 'elixir_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-unity', 'unity_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-godot', 'godot_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-unreal', 'unreal_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-roblox', 'roblox_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs', 'rust_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs-ffi', 'rust_ffi_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-electron', 'electron_events', 'other') AS metric,
          count(1) as count
   FROM events PREWHERE timestamp >= '2022-01-10 12:00:00'
   AND timestamp < '2022-01-10 14:00:00'
@@ -936,16 +996,23 @@
                                                                                   'posthog-godot',
                                                                                   'posthog-unreal',
                                                                                   'posthog-roblox',
-                                                                                  'posthog-rs'))
+                                                                                  'posthog-rs',
+                                                                                  'posthog-rs-ffi',
+                                                                                  'posthog-electron'))
   GROUP BY team_id,
            metric
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.48
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.49
   '''
   
   SELECT team_id,
-         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'web', 'web_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'js', 'web_lite_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node', 'node_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node-mcp', 'node_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python-mcp', 'python_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs-mcp', 'rust_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go-mcp', 'go_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby-mcp', 'ruby_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-edge', 'edge_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-convex', 'convex_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-android', 'android_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-kmp', 'kmp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-flutter', 'flutter_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ios', 'ios_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go', 'go_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-java', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-server', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-react-native', 'react_native_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rails', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python', 'python_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-php', 'php_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-laravel', 'laravel_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-dotnet', 'dotnet_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-aspnetcore', 'dotnet_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-elixir', 'elixir_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-unity', 'unity_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-godot', 'godot_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-unreal', 'unreal_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-roblox', 'roblox_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs', 'rust_events', 'other') AS metric,
+         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', startsWith(event, '$mcp_')
+                 AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-node', 'posthog-node-mcp'), 'node_mcp_events', startsWith(event, '$mcp_')
+                 AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-python', 'posthog-python-mcp'), 'python_mcp_events', startsWith(event, '$mcp_')
+                 AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-rs', 'posthog-rs-mcp'), 'rust_mcp_events', startsWith(event, '$mcp_')
+                 AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-go', 'posthog-go-mcp'), 'go_mcp_events', startsWith(event, '$mcp_')
+                 AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-ruby', 'posthog-rails', 'posthog-ruby-mcp'), 'ruby_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'web', 'web_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'js', 'web_lite_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node', 'node_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node-mcp', 'node_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python-mcp', 'python_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs-mcp', 'rust_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go-mcp', 'go_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby-mcp', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-edge', 'edge_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-convex', 'convex_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-android', 'android_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-kmp', 'kmp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-flutter', 'flutter_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ios', 'ios_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go', 'go_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-java', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-server', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-react-native', 'react_native_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rails', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python', 'python_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-php', 'php_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-laravel', 'laravel_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-dotnet', 'dotnet_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-aspnetcore', 'dotnet_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-elixir', 'elixir_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-unity', 'unity_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-godot', 'godot_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-unreal', 'unreal_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-roblox', 'roblox_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs', 'rust_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs-ffi', 'rust_ffi_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-electron', 'electron_events', 'other') AS metric,
          count(1) as count
   FROM events PREWHERE timestamp >= '2022-01-10 14:00:00'
   AND timestamp < '2022-01-10 16:00:00'
@@ -983,16 +1050,36 @@
                                                                                   'posthog-godot',
                                                                                   'posthog-unreal',
                                                                                   'posthog-roblox',
-                                                                                  'posthog-rs'))
+                                                                                  'posthog-rs',
+                                                                                  'posthog-rs-ffi',
+                                                                                  'posthog-electron'))
   GROUP BY team_id,
            metric
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.49
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.5
   '''
   
   SELECT team_id,
-         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'web', 'web_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'js', 'web_lite_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node', 'node_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node-mcp', 'node_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python-mcp', 'python_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs-mcp', 'rust_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go-mcp', 'go_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby-mcp', 'ruby_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-edge', 'edge_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-convex', 'convex_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-android', 'android_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-kmp', 'kmp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-flutter', 'flutter_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ios', 'ios_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go', 'go_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-java', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-server', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-react-native', 'react_native_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rails', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python', 'python_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-php', 'php_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-laravel', 'laravel_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-dotnet', 'dotnet_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-aspnetcore', 'dotnet_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-elixir', 'elixir_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-unity', 'unity_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-godot', 'godot_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-unreal', 'unreal_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-roblox', 'roblox_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs', 'rust_events', 'other') AS metric,
+         count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
+  FROM events
+  WHERE timestamp >= '2022-01-10 10:00:00'
+    AND timestamp < '2022-01-10 12:00:00'
+    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow', '$recording_observed']
+    AND NOT startsWith(event, '$ai_')
+  GROUP BY team_id
+  '''
+# ---
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.50
+  '''
+  
+  SELECT team_id,
+         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', startsWith(event, '$mcp_')
+                 AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-node', 'posthog-node-mcp'), 'node_mcp_events', startsWith(event, '$mcp_')
+                 AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-python', 'posthog-python-mcp'), 'python_mcp_events', startsWith(event, '$mcp_')
+                 AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-rs', 'posthog-rs-mcp'), 'rust_mcp_events', startsWith(event, '$mcp_')
+                 AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-go', 'posthog-go-mcp'), 'go_mcp_events', startsWith(event, '$mcp_')
+                 AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-ruby', 'posthog-rails', 'posthog-ruby-mcp'), 'ruby_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'web', 'web_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'js', 'web_lite_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node', 'node_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node-mcp', 'node_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python-mcp', 'python_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs-mcp', 'rust_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go-mcp', 'go_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby-mcp', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-edge', 'edge_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-convex', 'convex_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-android', 'android_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-kmp', 'kmp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-flutter', 'flutter_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ios', 'ios_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go', 'go_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-java', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-server', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-react-native', 'react_native_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rails', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python', 'python_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-php', 'php_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-laravel', 'laravel_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-dotnet', 'dotnet_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-aspnetcore', 'dotnet_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-elixir', 'elixir_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-unity', 'unity_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-godot', 'godot_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-unreal', 'unreal_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-roblox', 'roblox_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs', 'rust_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs-ffi', 'rust_ffi_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-electron', 'electron_events', 'other') AS metric,
          count(1) as count
   FROM events PREWHERE timestamp >= '2022-01-10 16:00:00'
   AND timestamp < '2022-01-10 18:00:00'
@@ -1030,29 +1117,23 @@
                                                                                   'posthog-godot',
                                                                                   'posthog-unreal',
                                                                                   'posthog-roblox',
-                                                                                  'posthog-rs'))
+                                                                                  'posthog-rs',
+                                                                                  'posthog-rs-ffi',
+                                                                                  'posthog-electron'))
   GROUP BY team_id,
            metric
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.5
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.51
   '''
   
   SELECT team_id,
-         count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
-  FROM events
-  WHERE timestamp >= '2022-01-10 10:00:00'
-    AND timestamp < '2022-01-10 12:00:00'
-    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow']
-    AND NOT startsWith(event, '$ai_')
-  GROUP BY team_id
-  '''
-# ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.50
-  '''
-  
-  SELECT team_id,
-         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'web', 'web_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'js', 'web_lite_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node', 'node_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node-mcp', 'node_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python-mcp', 'python_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs-mcp', 'rust_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go-mcp', 'go_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby-mcp', 'ruby_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-edge', 'edge_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-convex', 'convex_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-android', 'android_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-kmp', 'kmp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-flutter', 'flutter_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ios', 'ios_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go', 'go_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-java', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-server', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-react-native', 'react_native_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rails', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python', 'python_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-php', 'php_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-laravel', 'laravel_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-dotnet', 'dotnet_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-aspnetcore', 'dotnet_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-elixir', 'elixir_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-unity', 'unity_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-godot', 'godot_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-unreal', 'unreal_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-roblox', 'roblox_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs', 'rust_events', 'other') AS metric,
+         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', startsWith(event, '$mcp_')
+                 AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-node', 'posthog-node-mcp'), 'node_mcp_events', startsWith(event, '$mcp_')
+                 AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-python', 'posthog-python-mcp'), 'python_mcp_events', startsWith(event, '$mcp_')
+                 AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-rs', 'posthog-rs-mcp'), 'rust_mcp_events', startsWith(event, '$mcp_')
+                 AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-go', 'posthog-go-mcp'), 'go_mcp_events', startsWith(event, '$mcp_')
+                 AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-ruby', 'posthog-rails', 'posthog-ruby-mcp'), 'ruby_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'web', 'web_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'js', 'web_lite_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node', 'node_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node-mcp', 'node_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python-mcp', 'python_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs-mcp', 'rust_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go-mcp', 'go_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby-mcp', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-edge', 'edge_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-convex', 'convex_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-android', 'android_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-kmp', 'kmp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-flutter', 'flutter_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ios', 'ios_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go', 'go_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-java', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-server', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-react-native', 'react_native_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rails', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python', 'python_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-php', 'php_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-laravel', 'laravel_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-dotnet', 'dotnet_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-aspnetcore', 'dotnet_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-elixir', 'elixir_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-unity', 'unity_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-godot', 'godot_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-unreal', 'unreal_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-roblox', 'roblox_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs', 'rust_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs-ffi', 'rust_ffi_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-electron', 'electron_events', 'other') AS metric,
          count(1) as count
   FROM events PREWHERE timestamp >= '2022-01-10 18:00:00'
   AND timestamp < '2022-01-10 20:00:00'
@@ -1090,16 +1171,23 @@
                                                                                   'posthog-godot',
                                                                                   'posthog-unreal',
                                                                                   'posthog-roblox',
-                                                                                  'posthog-rs'))
+                                                                                  'posthog-rs',
+                                                                                  'posthog-rs-ffi',
+                                                                                  'posthog-electron'))
   GROUP BY team_id,
            metric
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.51
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.52
   '''
   
   SELECT team_id,
-         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'web', 'web_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'js', 'web_lite_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node', 'node_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node-mcp', 'node_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python-mcp', 'python_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs-mcp', 'rust_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go-mcp', 'go_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby-mcp', 'ruby_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-edge', 'edge_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-convex', 'convex_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-android', 'android_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-kmp', 'kmp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-flutter', 'flutter_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ios', 'ios_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go', 'go_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-java', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-server', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-react-native', 'react_native_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rails', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python', 'python_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-php', 'php_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-laravel', 'laravel_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-dotnet', 'dotnet_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-aspnetcore', 'dotnet_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-elixir', 'elixir_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-unity', 'unity_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-godot', 'godot_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-unreal', 'unreal_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-roblox', 'roblox_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs', 'rust_events', 'other') AS metric,
+         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', startsWith(event, '$mcp_')
+                 AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-node', 'posthog-node-mcp'), 'node_mcp_events', startsWith(event, '$mcp_')
+                 AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-python', 'posthog-python-mcp'), 'python_mcp_events', startsWith(event, '$mcp_')
+                 AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-rs', 'posthog-rs-mcp'), 'rust_mcp_events', startsWith(event, '$mcp_')
+                 AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-go', 'posthog-go-mcp'), 'go_mcp_events', startsWith(event, '$mcp_')
+                 AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-ruby', 'posthog-rails', 'posthog-ruby-mcp'), 'ruby_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'web', 'web_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'js', 'web_lite_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node', 'node_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node-mcp', 'node_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python-mcp', 'python_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs-mcp', 'rust_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go-mcp', 'go_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby-mcp', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-edge', 'edge_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-convex', 'convex_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-android', 'android_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-kmp', 'kmp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-flutter', 'flutter_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ios', 'ios_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go', 'go_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-java', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-server', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-react-native', 'react_native_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rails', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python', 'python_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-php', 'php_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-laravel', 'laravel_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-dotnet', 'dotnet_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-aspnetcore', 'dotnet_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-elixir', 'elixir_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-unity', 'unity_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-godot', 'godot_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-unreal', 'unreal_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-roblox', 'roblox_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs', 'rust_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs-ffi', 'rust_ffi_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-electron', 'electron_events', 'other') AS metric,
          count(1) as count
   FROM events PREWHERE timestamp >= '2022-01-10 20:00:00'
   AND timestamp < '2022-01-10 22:00:00'
@@ -1137,16 +1225,23 @@
                                                                                   'posthog-godot',
                                                                                   'posthog-unreal',
                                                                                   'posthog-roblox',
-                                                                                  'posthog-rs'))
+                                                                                  'posthog-rs',
+                                                                                  'posthog-rs-ffi',
+                                                                                  'posthog-electron'))
   GROUP BY team_id,
            metric
   '''
 # ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.52
+# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.53
   '''
   
   SELECT team_id,
-         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'web', 'web_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'js', 'web_lite_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node', 'node_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node-mcp', 'node_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python-mcp', 'python_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs-mcp', 'rust_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go-mcp', 'go_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby-mcp', 'ruby_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-edge', 'edge_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-convex', 'convex_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-android', 'android_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-kmp', 'kmp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-flutter', 'flutter_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ios', 'ios_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go', 'go_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-java', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-server', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-react-native', 'react_native_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rails', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python', 'python_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-php', 'php_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-laravel', 'laravel_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-dotnet', 'dotnet_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-aspnetcore', 'dotnet_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-elixir', 'elixir_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-unity', 'unity_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-godot', 'godot_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-unreal', 'unreal_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-roblox', 'roblox_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs', 'rust_events', 'other') AS metric,
+         multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', startsWith(event, '$mcp_')
+                 AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-node', 'posthog-node-mcp'), 'node_mcp_events', startsWith(event, '$mcp_')
+                 AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-python', 'posthog-python-mcp'), 'python_mcp_events', startsWith(event, '$mcp_')
+                 AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-rs', 'posthog-rs-mcp'), 'rust_mcp_events', startsWith(event, '$mcp_')
+                 AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-go', 'posthog-go-mcp'), 'go_mcp_events', startsWith(event, '$mcp_')
+                 AND replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-ruby', 'posthog-rails', 'posthog-ruby-mcp'), 'ruby_mcp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'web', 'web_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'js', 'web_lite_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node', 'node_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node-mcp', 'node_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python-mcp', 'python_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs-mcp', 'rust_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go-mcp', 'go_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby-mcp', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-edge', 'edge_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-convex', 'convex_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-android', 'android_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-kmp', 'kmp_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-flutter', 'flutter_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ios', 'ios_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go', 'go_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-java', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-server', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-react-native', 'react_native_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rails', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python', 'python_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-php', 'php_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-laravel', 'laravel_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-dotnet', 'dotnet_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-aspnetcore', 'dotnet_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-elixir', 'elixir_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-unity', 'unity_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-godot', 'godot_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-unreal', 'unreal_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-roblox', 'roblox_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs', 'rust_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs-ffi', 'rust_ffi_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-electron', 'electron_events', 'other') AS metric,
          count(1) as count
   FROM events PREWHERE timestamp >= '2022-01-10 22:00:00'
   AND timestamp < '2022-01-10 23:59:59'
@@ -1184,20 +1279,11 @@
                                                                                   'posthog-godot',
                                                                                   'posthog-unreal',
                                                                                   'posthog-roblox',
-                                                                                  'posthog-rs'))
+                                                                                  'posthog-rs',
+                                                                                  'posthog-rs-ffi',
+                                                                                  'posthog-electron'))
   GROUP BY team_id,
            metric
-  '''
-# ---
-# name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.53
-  '''
-  
-  SELECT team_id,
-         uniqExact(tuple(toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid))) AS count
-  FROM events PREWHERE timestamp >= '2022-01-10 00:00:00'
-  AND timestamp < '2022-01-10 23:59:59'
-  WHERE event = '$mcp_tool_call'
-  GROUP BY team_id
   '''
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.54
@@ -1211,6 +1297,8 @@
   AND timestamp < '2022-01-10 02:00:00'
   AND startsWith(event, '$ai_')
   WHERE replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-node',
+                                                                              'posthog-node-mcp',
+                                                                              'posthog-python-mcp',
                                                                               'posthog-python',
                                                                               'posthog-dotnet',
                                                                               'posthog-aspnetcore')
@@ -1234,6 +1322,8 @@
   AND timestamp < '2022-01-10 04:00:00'
   AND startsWith(event, '$ai_')
   WHERE replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-node',
+                                                                              'posthog-node-mcp',
+                                                                              'posthog-python-mcp',
                                                                               'posthog-python',
                                                                               'posthog-dotnet',
                                                                               'posthog-aspnetcore')
@@ -1257,6 +1347,8 @@
   AND timestamp < '2022-01-10 06:00:00'
   AND startsWith(event, '$ai_')
   WHERE replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-node',
+                                                                              'posthog-node-mcp',
+                                                                              'posthog-python-mcp',
                                                                               'posthog-python',
                                                                               'posthog-dotnet',
                                                                               'posthog-aspnetcore')
@@ -1280,6 +1372,8 @@
   AND timestamp < '2022-01-10 08:00:00'
   AND startsWith(event, '$ai_')
   WHERE replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-node',
+                                                                              'posthog-node-mcp',
+                                                                              'posthog-python-mcp',
                                                                               'posthog-python',
                                                                               'posthog-dotnet',
                                                                               'posthog-aspnetcore')
@@ -1303,6 +1397,8 @@
   AND timestamp < '2022-01-10 10:00:00'
   AND startsWith(event, '$ai_')
   WHERE replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-node',
+                                                                              'posthog-node-mcp',
+                                                                              'posthog-python-mcp',
                                                                               'posthog-python',
                                                                               'posthog-dotnet',
                                                                               'posthog-aspnetcore')
@@ -1326,6 +1422,8 @@
   AND timestamp < '2022-01-10 12:00:00'
   AND startsWith(event, '$ai_')
   WHERE replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-node',
+                                                                              'posthog-node-mcp',
+                                                                              'posthog-python-mcp',
                                                                               'posthog-python',
                                                                               'posthog-dotnet',
                                                                               'posthog-aspnetcore')
@@ -1346,7 +1444,7 @@
   FROM events
   WHERE timestamp >= '2022-01-10 12:00:00'
     AND timestamp < '2022-01-10 14:00:00'
-    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow']
+    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow', '$recording_observed']
     AND NOT startsWith(event, '$ai_')
   GROUP BY team_id
   '''
@@ -1362,6 +1460,8 @@
   AND timestamp < '2022-01-10 14:00:00'
   AND startsWith(event, '$ai_')
   WHERE replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-node',
+                                                                              'posthog-node-mcp',
+                                                                              'posthog-python-mcp',
                                                                               'posthog-python',
                                                                               'posthog-dotnet',
                                                                               'posthog-aspnetcore')
@@ -1385,6 +1485,8 @@
   AND timestamp < '2022-01-10 16:00:00'
   AND startsWith(event, '$ai_')
   WHERE replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-node',
+                                                                              'posthog-node-mcp',
+                                                                              'posthog-python-mcp',
                                                                               'posthog-python',
                                                                               'posthog-dotnet',
                                                                               'posthog-aspnetcore')
@@ -1408,6 +1510,8 @@
   AND timestamp < '2022-01-10 18:00:00'
   AND startsWith(event, '$ai_')
   WHERE replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-node',
+                                                                              'posthog-node-mcp',
+                                                                              'posthog-python-mcp',
                                                                               'posthog-python',
                                                                               'posthog-dotnet',
                                                                               'posthog-aspnetcore')
@@ -1431,6 +1535,8 @@
   AND timestamp < '2022-01-10 20:00:00'
   AND startsWith(event, '$ai_')
   WHERE replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-node',
+                                                                              'posthog-node-mcp',
+                                                                              'posthog-python-mcp',
                                                                               'posthog-python',
                                                                               'posthog-dotnet',
                                                                               'posthog-aspnetcore')
@@ -1454,6 +1560,8 @@
   AND timestamp < '2022-01-10 22:00:00'
   AND startsWith(event, '$ai_')
   WHERE replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-node',
+                                                                              'posthog-node-mcp',
+                                                                              'posthog-python-mcp',
                                                                               'posthog-python',
                                                                               'posthog-dotnet',
                                                                               'posthog-aspnetcore')
@@ -1477,6 +1585,8 @@
   AND timestamp < '2022-01-10 23:59:59'
   AND startsWith(event, '$ai_')
   WHERE replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') IN ('posthog-node',
+                                                                              'posthog-node-mcp',
+                                                                              'posthog-python-mcp',
                                                                               'posthog-python',
                                                                               'posthog-dotnet',
                                                                               'posthog-aspnetcore')
@@ -1491,21 +1601,21 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.66
   '''
-  
+  WITH tuple(toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) AS event_key
   SELECT team_id,
-         event,
-         uniqExact(tuple(toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid))) AS count
+         uniqExactIf(event_key, event = '$mcp_tool_call') AS mcp_tool_call_events,
+         uniqExactIf(event_key, event = '$mcp_missing_capability') AS mcp_missing_capability_events,
+         uniqExactIf(event_key, event = '$mcp_initialize') AS mcp_initialize_events,
+         uniqExactIf(event_key, event = '$mcp_tools_list') AS mcp_tools_list_events,
+         uniqExactIf(event_key, event = '$mcp_resource_read') AS mcp_resource_read_events,
+         uniqExactIf(event_key, event = '$mcp_resources_list') AS mcp_resources_list_events,
+         uniqExactIf(event_key, event = '$mcp_prompt_get') AS mcp_prompt_get_events,
+         uniqExactIf(event_key, event = '$mcp_prompts_list') AS mcp_prompts_list_events,
+         uniqExactIf(event_key, if(replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'web', replaceRegexpAll(JSONExtractRaw(properties, '$mcp_interface'), '^"|"$', '') = 'webmcp', 0)) AS web_mcp_events
   FROM events PREWHERE timestamp >= '2022-01-10 00:00:00'
   AND timestamp < '2022-01-10 23:59:59'
-  WHERE event IN ('$mcp_missing_capability',
-                  '$mcp_initialize',
-                  '$mcp_tools_list',
-                  '$mcp_resource_read',
-                  '$mcp_resources_list',
-                  '$mcp_prompt_get',
-                  '$mcp_prompts_list')
-  GROUP BY team_id,
-           event
+  AND startsWith(event, '$mcp_')
+  GROUP BY team_id
   '''
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.67
@@ -1561,7 +1671,7 @@
   FROM events
   WHERE timestamp >= '2022-01-10 14:00:00'
     AND timestamp < '2022-01-10 16:00:00'
-    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow']
+    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow', '$recording_observed']
     AND NOT startsWith(event, '$ai_')
   GROUP BY team_id
   '''
@@ -1590,7 +1700,7 @@
   FROM events
   WHERE timestamp >= '2022-01-10 00:00:00'
     AND timestamp < '2022-01-10 02:00:00'
-    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow']
+    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow', '$recording_observed']
     AND NOT startsWith(event, '$ai_')
     AND ($group_0 != ''
          OR $group_1 != ''
@@ -1608,7 +1718,7 @@
   FROM events
   WHERE timestamp >= '2022-01-10 02:00:00'
     AND timestamp < '2022-01-10 04:00:00'
-    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow']
+    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow', '$recording_observed']
     AND NOT startsWith(event, '$ai_')
     AND ($group_0 != ''
          OR $group_1 != ''
@@ -1626,7 +1736,7 @@
   FROM events
   WHERE timestamp >= '2022-01-10 04:00:00'
     AND timestamp < '2022-01-10 06:00:00'
-    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow']
+    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow', '$recording_observed']
     AND NOT startsWith(event, '$ai_')
     AND ($group_0 != ''
          OR $group_1 != ''
@@ -1644,7 +1754,7 @@
   FROM events
   WHERE timestamp >= '2022-01-10 06:00:00'
     AND timestamp < '2022-01-10 08:00:00'
-    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow']
+    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow', '$recording_observed']
     AND NOT startsWith(event, '$ai_')
     AND ($group_0 != ''
          OR $group_1 != ''
@@ -1662,7 +1772,7 @@
   FROM events
   WHERE timestamp >= '2022-01-10 08:00:00'
     AND timestamp < '2022-01-10 10:00:00'
-    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow']
+    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow', '$recording_observed']
     AND NOT startsWith(event, '$ai_')
     AND ($group_0 != ''
          OR $group_1 != ''
@@ -1680,7 +1790,7 @@
   FROM events
   WHERE timestamp >= '2022-01-10 10:00:00'
     AND timestamp < '2022-01-10 12:00:00'
-    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow']
+    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow', '$recording_observed']
     AND NOT startsWith(event, '$ai_')
     AND ($group_0 != ''
          OR $group_1 != ''
@@ -1698,7 +1808,7 @@
   FROM events
   WHERE timestamp >= '2022-01-10 12:00:00'
     AND timestamp < '2022-01-10 14:00:00'
-    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow']
+    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow', '$recording_observed']
     AND NOT startsWith(event, '$ai_')
     AND ($group_0 != ''
          OR $group_1 != ''
@@ -1716,7 +1826,7 @@
   FROM events
   WHERE timestamp >= '2022-01-10 14:00:00'
     AND timestamp < '2022-01-10 16:00:00'
-    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow']
+    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow', '$recording_observed']
     AND NOT startsWith(event, '$ai_')
     AND ($group_0 != ''
          OR $group_1 != ''
@@ -1734,7 +1844,7 @@
   FROM events
   WHERE timestamp >= '2022-01-10 16:00:00'
     AND timestamp < '2022-01-10 18:00:00'
-    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow']
+    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow', '$recording_observed']
     AND NOT startsWith(event, '$ai_')
     AND ($group_0 != ''
          OR $group_1 != ''
@@ -1752,7 +1862,7 @@
   FROM events
   WHERE timestamp >= '2022-01-10 16:00:00'
     AND timestamp < '2022-01-10 18:00:00'
-    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow']
+    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow', '$recording_observed']
     AND NOT startsWith(event, '$ai_')
   GROUP BY team_id
   '''
@@ -1765,7 +1875,7 @@
   FROM events
   WHERE timestamp >= '2022-01-10 18:00:00'
     AND timestamp < '2022-01-10 20:00:00'
-    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow']
+    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow', '$recording_observed']
     AND NOT startsWith(event, '$ai_')
     AND ($group_0 != ''
          OR $group_1 != ''
@@ -1783,7 +1893,7 @@
   FROM events
   WHERE timestamp >= '2022-01-10 20:00:00'
     AND timestamp < '2022-01-10 22:00:00'
-    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow']
+    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow', '$recording_observed']
     AND NOT startsWith(event, '$ai_')
     AND ($group_0 != ''
          OR $group_1 != ''
@@ -1801,7 +1911,7 @@
   FROM events
   WHERE timestamp >= '2022-01-10 22:00:00'
     AND timestamp < '2022-01-10 23:59:59'
-    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow']
+    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow', '$recording_observed']
     AND NOT startsWith(event, '$ai_')
     AND ($group_0 != ''
          OR $group_1 != ''
@@ -1958,7 +2068,7 @@
   FROM events
   WHERE timestamp >= '2022-01-10 18:00:00'
     AND timestamp < '2022-01-10 20:00:00'
-    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow']
+    AND event NOT IN ['$feature_flag_called', '$experiment_exposure', 'survey sent', 'survey shown', 'survey dismissed', '$exception', '$llm_prompt_fetched', '$conversations_loaded', '$conversations_widget_loaded', '$conversations_message_sent', '$conversations_user_identified', '$conversations_restore_link_requested', '$conversations_widget_state_changed', '$conversations_back_to_tickets', '$anomaly_score', '$anomaly_score_shadow', '$recording_observed']
     AND NOT startsWith(event, '$ai_')
   GROUP BY team_id
   '''

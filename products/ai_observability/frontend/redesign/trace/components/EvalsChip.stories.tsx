@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
-import { FIXTURE_EVALS_CHIP } from '../storyFixtures'
+import { FIXTURE_EVALS_SUMMARY } from '../storyFixtures'
 import { EvalsChip } from './EvalsChip'
 
 const meta: Meta<typeof EvalsChip> = {
@@ -12,6 +12,6 @@ export default meta
 
 type Story = StoryObj<typeof EvalsChip>
 
-export const SomeFailed: Story = { args: { chip: FIXTURE_EVALS_CHIP } }
-export const AllPassed: Story = { args: { chip: { passed: 5, graded: 5, unrated: 0 } } }
-export const OnlyUnrated: Story = { args: { chip: { passed: 0, graded: 0, unrated: 3 } } }
+export const SomeFailed: Story = { args: { summary: FIXTURE_EVALS_SUMMARY } }
+export const AllPassed: Story = { args: { summary: { passed: 5, failed: 0, unrated: 0, nodes: [] } } }
+export const OnlyUnrated: Story = { args: { summary: { passed: 0, failed: 0, unrated: 3, nodes: [] } } }

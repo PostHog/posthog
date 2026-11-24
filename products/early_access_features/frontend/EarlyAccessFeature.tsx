@@ -84,6 +84,8 @@ import { AssigneeSelect } from 'products/error_tracking/frontend/components/Assi
 import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 import { MessageAudienceButton } from 'products/workflows/frontend/MessageAudience/MessageAudienceButton'
 
+import { EarlyAccessFeatureImageInput } from './EarlyAccessFeatureImageInput'
+import { EarlyAccessFeatureImagePreview } from './EarlyAccessFeatureImagePreview'
 import { EarlyAccessFeatureLogicProps, earlyAccessFeatureLogic } from './earlyAccessFeatureLogic'
 import { enrolledPeopleAudience } from './enrolledPeopleAudience'
 import { InstructionsModal } from './InstructionsModal'
@@ -159,6 +161,7 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
         earlyAccessFeatureMissing,
         implementOptInInstructionsModal,
         originalEarlyAccessFeatureStage,
+        saveDisabledReason,
     } = useValues(earlyAccessFeatureLogic)
     const {
         loadEarlyAccessFeature,
@@ -170,6 +173,7 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
         saveEarlyAccessFeature,
         setEarlyAccessFeatureValue,
         submitEarlyAccessFeature,
+        setImageUploading,
     } = useActions(earlyAccessFeatureLogic)
     const { currentTeamId } = useValues(teamLogic)
     const { canCopyToProject } = useValues(interProjectCopyLogic)
@@ -341,6 +345,7 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                                                     onClick={submitEarlyAccessFeature}
                                                     data-attr="save-feature"
                                                     loading={isEarlyAccessFeatureSubmitting}
+                                                    disabledReason={saveDisabledReason}
                                                     size="small"
                                                 >
                                                     {isNewEarlyAccessFeature ? 'Save as draft' : 'Save'}
@@ -693,24 +698,44 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                 ) : null}
 
                 {isEditingFeature || isNewEarlyAccessFeature ? (
-                    <div className="max-w-prose">
-                        <LemonField name="documentation_url" label="Documentation URL" showOptional>
-                            <LemonInput autoComplete="off" autoCapitalize="off" autoCorrect="off" spellCheck={false} />
-                        </LemonField>
-                    </div>
-                ) : (
-                    <div>
-                        <b>Documentation URL</b>
-                        <div>
-                            {earlyAccessFeature.documentation_url ? (
-                                <Link to={earlyAccessFeature.documentation_url} target="_blank">
-                                    {earlyAccessFeature.documentation_url}
-                                </Link>
-                            ) : (
-                                <span className="text-secondary">No documentation URL</span>
-                            )}
+                    <>
+                        <div className="max-w-prose">
+                            <LemonField name="documentation_url" label="Documentation URL" showOptional>
+                                <LemonInput
+                                    autoComplete="off"
+                                    autoCapitalize="off"
+                                    autoCorrect="off"
+                                    spellCheck={false}
+                                />
+                            </LemonField>
                         </div>
-                    </div>
+                        <div className="max-w-prose">
+                            <LemonField
+                                name="image_url"
+                                label="Image"
+                                showOptional
+                                help="Shown on the feature's card in the opt-in UI. A screenshot or short GIF of the feature works well."
+                            >
+                                <EarlyAccessFeatureImageInput onUploadingChange={setImageUploading} />
+                            </LemonField>
+                        </div>
+                    </>
+                ) : (
+                    <>
+                        <div>
+                            <b>Documentation URL</b>
+                            <div>
+                                {earlyAccessFeature.documentation_url ? (
+                                    <Link to={earlyAccessFeature.documentation_url} target="_blank">
+                                        {earlyAccessFeature.documentation_url}
+                                    </Link>
+                                ) : (
+                                    <span className="text-secondary">No documentation URL</span>
+                                )}
+                            </div>
+                        </div>
+                        <EarlyAccessFeatureImagePreview imageUrl={earlyAccessFeature.image_url} />
+                    </>
                 )}
 
                 {isEditingFeature || isNewEarlyAccessFeature ? (

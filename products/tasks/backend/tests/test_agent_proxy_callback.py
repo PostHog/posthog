@@ -123,6 +123,7 @@ class TestAgentProxyCallback(TestCase):
         self.assertEqual(response.status_code, 401)
 
     def test_token_run_mismatch_returns_403(self) -> None:
+        TaskRun.objects.filter(id=self.task_run.id).update(status=TaskRun.Status.COMPLETED)
         other_run = self.task.create_run()
         response = self._post(self._body(), token=self._token(other_run))
         self.assertEqual(response.status_code, 403)
@@ -284,6 +285,29 @@ class TestAgentProxyCallback(TestCase):
         self.assertTrue(response.json()["dispatched"])
         heartbeat.assert_called_once_with(agent_active=True, force=bool(activity_started))
 
+    @parameterized.expand(
+        [
+            ("live_run", TaskRun.Status.IN_PROGRESS, 0),
+            ("completed_run", TaskRun.Status.COMPLETED, 1),
+            ("failed_run", TaskRun.Status.FAILED, 1),
+            ("cancelled_run", TaskRun.Status.CANCELLED, 1),
+        ]
+    )
+    def test_callback_for_an_ended_run_is_counted_and_still_served(
+        self, _name: str, run_status: str, expected_count: int
+    ) -> None:
+        TaskRun.objects.filter(id=self.task_run.id).update(status=run_status)
+        labels = {"surface": "agent_proxy_callback"}
+        metric = "posthog_tasks_ended_run_credential_used_total"
+        counted_before = REGISTRY.get_sample_value(metric, labels) or 0
+
+        with patch.object(TaskRun, "heartbeat_workflow"):
+            response = self._post(self._body(kind="heartbeat", agent_active=True), token=self._token())
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["dispatched"])
+        self.assertEqual((REGISTRY.get_sample_value(metric, labels) or 0) - counted_before, expected_count)
+
     def test_heartbeat_not_dispatched_when_inactive(self) -> None:
         with patch.object(TaskRun, "heartbeat_workflow") as heartbeat:
             response = self._post(self._body(kind="heartbeat", agent_active=False), token=self._token())
@@ -310,6 +334,7 @@ class TestAgentProxyCallback(TestCase):
 
     @parameterized.expand([("omitted", None), ("completed", True), ("idle_resume", False)])
     def test_awaiting_input_dispatches_for_interactive_run(self, _name: str, turn_completed: bool | None) -> None:
+        TaskRun.objects.filter(id=self.task_run.id).update(status=TaskRun.Status.COMPLETED)
         run = self.task.create_run(mode="interactive")
         body = self._body(kind="awaiting_input", agent_active=False)
         if turn_completed is not None:
@@ -357,6 +382,7 @@ class TestAgentProxyCallback(TestCase):
 
     @parameterized.expand([("interactive", True), ("background", False)])
     def test_permission_requested_pushes_only_for_interactive_run(self, mode: str, expect_push: bool) -> None:
+        TaskRun.objects.filter(id=self.task_run.id).update(status=TaskRun.Status.COMPLETED)
         run = self.task.create_run(mode=mode)
         body = self._body(kind="permission_requested", agent_active=False, sequence=3, request_id="request-1")
         with patch(
@@ -392,6 +418,7 @@ class TestAgentProxyCallback(TestCase):
         ]
     )
     def test_unknown_run_returns_200_not_dispatched(self, kind: str, overrides: dict[str, Any]) -> None:
+        TaskRun.objects.filter(id=self.task_run.id).update(status=TaskRun.Status.COMPLETED)
         run = self.task.create_run()
         run_id = str(run.id)
         token = self._token(run)

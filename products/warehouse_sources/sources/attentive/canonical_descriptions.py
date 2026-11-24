@@ -1,9 +1,10 @@
 """Canonical, documentation-sourced descriptions for Attentive webhook event tables and columns.
 
 Sourced from the official Attentive webhooks reference (https://docs.attentive.com/pages/program-setup/webhooks/).
-Attentive has no bulk read API, so every table is populated from webhook events; keys match the
-webhook-backed schema names in `constants.py` `RESOURCE_TO_ATTENTIVE_EVENT_TYPE`, which match the
-`ExternalDataSchema.name` of a synced Attentive table. Columns absent here fall back to LLM enrichment.
+Event tables are populated from webhook events; their keys match the webhook-backed schema names in
+`constants.py` `RESOURCE_TO_ATTENTIVE_EVENT_TYPE`. The `segments` table is read from the List segments
+endpoint (https://docs.attentive.com/reference/listsegments.md). Keys match the `ExternalDataSchema.name`
+of a synced Attentive table. Columns absent here fall back to LLM enrichment.
 """
 
 from products.warehouse_sources.sources.sdk import CanonicalDescriptions
@@ -88,5 +89,16 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             user="The subscriber the attribute was set on, including external identifiers.",
             properties="The custom attribute key-value pairs that were set.",
         ),
+    },
+    "segments": {
+        "description": "Segment definitions in the Attentive account. Members are not included.",
+        "docs_url": "https://docs.attentive.com/reference/listsegments.md",
+        "columns": {
+            "externalId": "The external segment ID, the client-facing identifier of the segment.",
+            "name": "The name of the segment.",
+            "description": "The description of the segment.",
+            "created": "When the segment was created (ISO 8601).",
+            "updated": "When the segment was last updated (ISO 8601).",
+        },
     },
 }

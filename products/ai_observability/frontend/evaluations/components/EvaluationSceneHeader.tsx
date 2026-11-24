@@ -133,6 +133,7 @@ export function EvaluationSceneHeader({
                                     onClick={onSave}
                                     disabledReason={saveDisabledReason}
                                     loading={evaluationFormSubmitting}
+                                    data-attr="llma-evaluation-save-bottom"
                                 >
                                     Save changes
                                 </LemonButton>

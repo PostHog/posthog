@@ -266,12 +266,21 @@ describe('notebookNodeStalenessLogic', () => {
             ],
         }
 
+        stalenessLogic.actions.registerWidgetInputs('widget', ['c'])
+        stalenessLogic.actions.registerWidgetInputs('unrelated-widget', ['x'])
         stalenessLogic.actions.variablesChanged(['threshold'], variableContent)
         await expectLogic(stalenessLogic).toFinishAllListeners()
 
         // `a` does not read it and `x` is unrelated, so neither is disturbed. The reason rides
         // along so the cell's banner names the variable rather than an upstream re-run.
-        expect(stalenessLogic.values.staleNodeIds).toEqual({ b: 'variable', c: 'variable' })
+        expect(stalenessLogic.values.staleNodeIds).toEqual({ b: 'variable', c: 'variable', widget: 'variable' })
+        stalenessLogic.actions.clearNodeStale('b')
+        expect(stalenessLogic.values.staleNodeIds).toEqual({ c: 'variable', widget: 'variable' })
+        stalenessLogic.actions.clearNodeStale('c')
+        expect(stalenessLogic.values.staleNodeIds).toEqual({})
+        stalenessLogic.actions.markStaleNodeIds(['c'])
+        stalenessLogic.actions.unregisterWidgetInputs('widget')
+        expect(stalenessLogic.values.staleNodeIds).toEqual({ c: 'upstream' })
     })
 
     it('changing a variable no cell reads marks nothing stale', async () => {

@@ -3,7 +3,7 @@ import json
 import time
 import uuid
 import hashlib
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager, suppress
 from datetime import timedelta
 from functools import lru_cache
@@ -13,6 +13,7 @@ from django.conf import settings
 from django.core.cache import cache, caches
 from django.urls import resolve
 from django.utils import timezone
+from django.utils.connection import ConnectionProxy
 
 from prometheus_client import Counter
 from redis.exceptions import RedisError
@@ -167,7 +168,17 @@ def hashed_personal_api_key_for_throttling(request: "Request") -> str | None:
     return hash_key_value(key_with_source[0]) if key_with_source is not None else None
 
 
+THROTTLE_HISTORY_CACHE_ALIAS = "throttle_history"
+
+
 class PersonalApiKeyRateThrottle(SimpleRateThrottle):
+    DRF_UNITS_PER_REQUEST = 1
+    reads_history_from_primary = False
+    primary_cache = ConnectionProxy(caches, THROTTLE_HISTORY_CACHE_ALIAS)
+    units_to_check: int | None = None
+    units_to_charge = 0
+    retry_wait = 0.0
+
     @staticmethod
     def safely_get_team_id_from_view(view):
         """
@@ -211,6 +222,55 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
 
         self.num_requests, self.duration = self.parse_rate(self.rate)
 
+    def allow_units(self, request: "Request", view: "APIView", units: int) -> bool:
+        self.units_to_check = units
+        try:
+            return self.allow_request(request, view)
+        finally:
+            self.units_to_check = None
+
+    def charge_units(self) -> None:
+        if not self.units_to_charge:
+            return
+        try:
+            self.cache.set(self.key, [self.now] * self.units_to_charge + self.history, self.duration)
+        except Exception as e:
+            capture_exception(e)
+
+    def _has_room_for_units(self, request: "Request", view: "APIView", units: int) -> bool:
+        self.key = None
+        num_requests, duration = self.num_requests, self.duration
+        if num_requests is None or duration is None:
+            return True
+        self.key = self.get_cache_key(request, view)
+        if self.key is None:
+            return True
+        history = self.primary_cache.get(self.key, [])
+        self.now = self.timer()
+        self.history = [hit for hit in history if hit > self.now - duration]
+        self.retry_wait = self._wait_for_room(units + self.DRF_UNITS_PER_REQUEST, num_requests, duration)
+        if len(self.history) + units > num_requests:
+            return False
+        self.units_to_charge = units
+        return True
+
+    def _wait_for_room(self, units: int, num_requests: int, duration: int) -> float:
+        expiries_needed = len(self.history) + units - num_requests
+        if expiries_needed <= 0:
+            return 0.0
+        if expiries_needed > len(self.history):
+            return float(duration)
+        return self.history[-expiries_needed] + duration - self.now
+
+    def _would_allow(self, request: "Request", view: "APIView") -> bool:
+        if self.units_to_check is not None:
+            return self._has_room_for_units(request, view, self.units_to_check)
+        if not self.reads_history_from_primary:
+            return SimpleRateThrottle.allow_request(self, request, view)
+        if not self._has_room_for_units(request, view, self.DRF_UNITS_PER_REQUEST):
+            return False
+        return self.key is None or self.throttle_success()
+
     def _allow_request_internal(self, request, view, *, personal_api_key_only: bool) -> bool:
         if not is_rate_limit_enabled(round(time.time() / 60)):
             return True
@@ -224,7 +284,7 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
             if team_id is not None and self.scope == HogQLQueryThrottle.scope:
                 self.load_team_rate_limit(team_id)
 
-            request_would_be_allowed = SimpleRateThrottle.allow_request(self, request, view)
+            request_would_be_allowed = self._would_allow(request, view)
             if request_would_be_allowed:
                 return True
 
@@ -542,6 +602,33 @@ class WorkloadSubjectLookupThrottle(UserRateThrottle):
     rate = "30/minute"
 
 
+class _OrganizationPersonalAPIKeyBulkActionThrottle(SimpleRateThrottle):
+    """One bucket per organization, shared by the roll all and revoke all actions.
+
+    Each bulk action writes every key that reaches the organization and emails each key owner. The bucket is per
+    organization, so a second admin gets no new budget. This is a plain `SimpleRateThrottle`, so it applies to session
+    requests and does not depend on the RATE_LIMIT_ENABLED instance setting.
+
+    The rates allow the incident path: a run, retries after a partial failure, and a revoke after a roll. The actions
+    on one key do not use this bucket, so an admin can still roll or revoke a single key when the bucket is empty.
+    """
+
+    def get_cache_key(self, request: "Request", view: "APIView") -> str:
+        organization_id = PersonalApiKeyRateThrottle.safely_get_organization_id_from_view(view)
+        ident = organization_id or (request.user.pk if request.user.is_authenticated else self.get_ident(request))
+        return self.cache_format % {"scope": self.scope, "ident": ident}
+
+
+class OrganizationPersonalAPIKeyBulkActionBurstThrottle(_OrganizationPersonalAPIKeyBulkActionThrottle):
+    scope = "organization_personal_api_key_bulk_action_burst"
+    rate = "3/minute"
+
+
+class OrganizationPersonalAPIKeyBulkActionSustainedThrottle(_OrganizationPersonalAPIKeyBulkActionThrottle):
+    scope = "organization_personal_api_key_bulk_action_sustained"
+    rate = "10/hour"
+
+
 class BurstRateThrottle(PersonalApiKeyRateThrottle):
     # Throttle class that's applied on all endpoints (except for capture + decide)
     # Intended to block quick bursts of requests, per project
@@ -603,6 +690,21 @@ class ProjectSecretApiKeyTeamRateThrottle(PersonalApiKeyRateThrottle):
     def get_cache_key(self, request, view):
         team_id = request.successful_authenticator.project_secret_api_key.team_id
         return self.cache_format % {"scope": self.scope, "ident": f"psak-team:{team_id}"}
+
+
+def reserve_units(
+    throttles: Sequence[PersonalOrProjectSecretApiKeyRateThrottle | ProjectSecretApiKeyTeamRateThrottle],
+    request: "Request",
+    view: "APIView",
+    units: int,
+) -> None:
+    if units < 1:
+        return
+    admitted = [throttle.allow_units(request, view, units) for throttle in throttles]
+    if not all(admitted):
+        raise exceptions.Throttled(wait=max(throttle.retry_wait for throttle in throttles))
+    for throttle in throttles:
+        throttle.charge_units()
 
 
 class ClickHouseBurstRateThrottle(PersonalApiKeyRateThrottle):
@@ -693,6 +795,22 @@ class _UserBucketRateThrottle(PersonalApiKeyOrUserRateThrottle):
         return self.cache_format % {"scope": self.scope, "ident": ident}
 
 
+def exhausted_throttle_wait(throttle: PersonalApiKeyRateThrottle, request: "Request", view: "APIView") -> float | None:
+    if throttle.num_requests is None or throttle.duration is None:
+        return None
+    throttle.key = throttle.get_cache_key(request, view)
+    throttle.now = throttle.timer()
+    try:
+        cached_history = throttle.cache.get(throttle.key, [])
+    except Exception as e:
+        capture_exception(e)
+        return None
+    throttle.history = [hit for hit in cached_history if hit > throttle.now - throttle.duration]
+    if len(throttle.history) < throttle.num_requests:
+        return None
+    return throttle.wait()
+
+
 # The heatmap page pre-flight makes one outbound fetch of a caller-supplied page per uncached probe,
 # holding a web worker for as long as that page takes to answer, so its budget is about worker
 # occupancy rather than about protecting our own datastores. A legitimate caller needs one probe per
@@ -706,6 +824,21 @@ class HeatmapPreflightBurstRateThrottle(_TeamBucketRateThrottle):
 class HeatmapPreflightSustainedRateThrottle(_TeamBucketRateThrottle):
     scope = "heatmap_preflight_sustained"
     rate = "300/hour"
+
+
+class DataQualityRunBurstRateThrottle(_UserBucketRateThrottle):
+    scope = "data_quality_run_burst"
+    rate = "20/minute"
+
+
+class DataQualityRunSustainedRateThrottle(_UserBucketRateThrottle):
+    scope = "data_quality_run_sustained"
+    rate = "60/hour"
+
+
+class DataQualityRunProjectRateThrottle(_TeamBucketRateThrottle):
+    scope = "data_quality_run_project"
+    rate = "180/hour"
 
 
 # The llms.txt fetch pulls a caller-supplied file of up to 1 MB from an arbitrary host, holding a web
@@ -722,6 +855,31 @@ class LlmsTxtFetchBurstRateThrottle(_TeamBucketRateThrottle):
 class LlmsTxtFetchSustainedRateThrottle(_TeamBucketRateThrottle):
     scope = "llms_txt_fetch_sustained"
     rate = "200/hour"
+
+
+# A metric catalog search can embed its query through the shared embedding worker, which spends model
+# provider budget on every call. The project-global pair skips session-authenticated requests, so this
+# team bucket caps browser and agent callers alike. An agent makes a few searches per question.
+class MetricSearchBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "metric_search_burst"
+    rate = "60/minute"
+
+
+class MetricSearchSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "metric_search_sustained"
+    rate = "1200/hour"
+
+
+# A metric write that changes its name, description or unit schedules an embedding call, so writes get
+# the same kind of team bucket. Setting up a catalog creates a few dozen metrics at a time.
+class MetricWriteBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "metric_write_burst"
+    rate = "60/minute"
+
+
+class MetricWriteSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "metric_write_sustained"
+    rate = "600/hour"
 
 
 # Site discovery can fetch several small public resources per request and holds the web worker for
@@ -747,6 +905,42 @@ class AEOPromptSuggestionsBurstRateThrottle(_TeamBucketRateThrottle):
 class AEOPromptSuggestionsSustainedRateThrottle(_TeamBucketRateThrottle):
     scope = "aeo_prompt_suggestions_sustained"
     rate = "30/hour"
+
+
+# AEO keyword suggestions queue the same kind of Celery job, so they get the same limits in a bucket of their own.
+class AEOKeywordSuggestionsBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "aeo_keyword_suggestions_burst"
+    rate = "5/minute"
+
+
+class AEOKeywordSuggestionsSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "aeo_keyword_suggestions_sustained"
+    rate = "30/hour"
+
+
+# AEO setup runs a prompt and a keyword suggestion call in one job, so it gets tighter limits of its own.
+class AEOSetupBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "aeo_setup_burst"
+    rate = "3/minute"
+
+
+class AEOSetupSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "aeo_setup_sustained"
+    rate = "10/hour"
+
+
+# The AEO keyword report and modifiers recompute their numbers from every answered check in the window
+# on each request, matching each keyword against each answer text in Postgres or scanning every search in
+# Python. The project-global Burst/Sustained pair never throttles the session-authenticated UI, so this
+# team bucket bounds how often a browser or a script can start that work. The two endpoints share it.
+class AEOKeywordReportBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "aeo_keyword_report_burst"
+    rate = "30/minute"
+
+
+class AEOKeywordReportSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "aeo_keyword_report_sustained"
+    rate = "300/hour"
 
 
 # The batch session-context endpoint computes experiment context for up to 20 recordings per
@@ -1135,6 +1329,20 @@ class AIObservabilityBackfillCreateSustainedThrottle(_TeamBucketRateThrottle):
     rate = "100/hour"
 
 
+# Each `test_on_sample` call runs up to three judge calls on the team's own provider key, so a loop
+# spends the customer's model quota and holds a web worker per call. Per credential, so one user
+# testing a prompt cannot lock the rest of the team out, with a team bucket capping the total.
+# Both windows are a minute, so someone who hits a limit waits seconds, not an hour.
+class AIObservabilityEvaluationJudgeTestThrottle(_UserBucketRateThrottle):
+    scope = "llma_eval_judge_test"
+    rate = "10/minute"
+
+
+class AIObservabilityEvaluationJudgeTestTeamThrottle(_TeamBucketRateThrottle):
+    scope = "llma_eval_judge_test_team"
+    rate = "30/minute"
+
+
 class _CustomSourceAIBuilderThrottle(PersonalApiKeyOrUserRateThrottle):
     """Per-team throttle for the (paid, Opus-backed) custom-source AI manifest builder.
 
@@ -1235,33 +1443,21 @@ class CodeBasedVerificationThrottle(UserOrEmailRateThrottle):
     rate = "6/20minutes"
 
     def get_cache_key(self, request, view):
-        # Key on the pending login's user id (from the session), not on request data. The base class
-        # would fall back to a request-body "email" field, which the code-verification request never
-        # legitimately carries - letting an attacker mint a fresh throttle bucket per guess by varying
-        # it. The session is the source of truth for who is being verified.
+        # An unproven IdP subject must not spend another subject's or a password login's budget.
+        # Session state also prevents request-body email changes from minting fresh buckets per guess.
         from posthog.helpers.two_factor_session import code_based_verifier
 
-        user_id = code_based_verifier.get_pending_code_based_verification_user_id(request)
-        if user_id:
-            ident = hashlib.sha256(str(user_id).encode()).hexdigest()
+        identity = code_based_verifier.get_pending_budget_identity(request)
+        if identity:
+            ident = hashlib.sha256(identity.encode()).hexdigest()
             return self.cache_format % {"scope": self.scope, "ident": ident}
 
         return super().get_cache_key(request, view)
 
 
-class CodeBasedVerificationResendThrottle(UserOrEmailRateThrottle):
+class CodeBasedVerificationResendThrottle(CodeBasedVerificationThrottle):
     scope = "code_based_verification_resend"
     rate = "1/minute"
-
-    def get_cache_key(self, request, view):
-        from posthog.helpers.two_factor_session import code_based_verifier
-
-        user_id = code_based_verifier.get_pending_code_based_verification_user_id(request)
-        if user_id:
-            ident = hashlib.sha256(str(user_id).encode()).hexdigest()
-            return self.cache_format % {"scope": self.scope, "ident": ident}
-
-        return super().get_cache_key(request, view)
 
 
 class TwoFactorThrottle(UserOrEmailRateThrottle):
@@ -1884,7 +2080,7 @@ class AlertTestDeliveryThrottle(PersonalApiKeyOrUserRateThrottle):
 
 
 def _is_llm_alert_simulation(request) -> bool:
-    """Whether an alert simulation request would make a billable model call.
+    """Whether an alert simulation request would make a billable model call: the AI and forecast detectors do.
 
     Reads the same field the simulate serializer parses. A form-encoded body carries
     ``detector_config`` as a JSON string that the serializer's JSONField decodes later, so
@@ -1899,11 +2095,11 @@ def _is_llm_alert_simulation(request) -> bool:
             detector_config = json.loads(detector_config)
         except ValueError:
             return False
-    return isinstance(detector_config, dict) and detector_config.get("type") == "llm"
+    return isinstance(detector_config, dict) and detector_config.get("type") in ("llm", "forecast")
 
 
 class _AlertLLMSimulationThrottle(PersonalApiKeyOrUserRateThrottle):
-    """Per-team cap on billable AI alert simulations.
+    """Per-team cap on billable AI and forecast alert simulations.
 
     Keyed per team so extra API keys or members do not multiply it, and applied to every
     authenticated caller: the generic burst and sustained throttles skip session users, so
@@ -2033,6 +2229,19 @@ class PushTokenImportThrottle(PersonalApiKeyOrUserRateThrottle):
         team_id = self.safely_get_team_id_from_view(view)
         if team_id:
             return self.cache_format % {"scope": self.scope, "ident": f"team_{team_id}"}
+        return super().get_cache_key(request, view)
+
+
+class EmailSenderCreateThrottle(PersonalApiKeyOrUserRateThrottle):
+    # A new sender domain creates an identity at the email provider, which caps identities per region for
+    # all customers together. Keyed per organization, so new projects or keys do not add to the budget.
+    scope = "email_sender_create"
+    rate = "20/hour"
+
+    def get_cache_key(self, request, view):
+        organization_id = self.safely_get_organization_id_from_view(view)
+        if organization_id:
+            return self.cache_format % {"scope": self.scope, "ident": f"organization_{organization_id}"}
         return super().get_cache_key(request, view)
 
 

@@ -1,6 +1,7 @@
 import { defineCommand } from '@/core/command'
 import { plural } from '@/core/text'
-import { inject, select } from '@/error-tracking/run'
+import { injectPairs } from '@/error-tracking/pairs'
+import { select } from '@/error-tracking/run'
 
 import {
     DRY_RUN_OPTION,
@@ -8,8 +9,8 @@ import {
     readOptions,
     RELEASE_OPTIONS,
     renderInjected,
-    renderNotes,
-    renderRelease,
+    releaseLines,
+    warningLines,
 } from './shared'
 
 export default defineCommand({
@@ -35,7 +36,7 @@ export default defineCommand({
     async run({ args, options, ctx }) {
         const settings = await readOptions(options, ctx)
         const selection = await select(ctx, args.paths ?? [], settings)
-        const report = await inject(ctx, selection, settings)
+        const report = await injectPairs(ctx, selection, settings)
         return {
             dryRun: settings.dryRun,
             release: report.release,
@@ -46,17 +47,16 @@ export default defineCommand({
     },
 
     human({ result, out }) {
-        renderRelease(out, result.release)
-        renderInjected(out, result.injected)
-        renderNotes(out, result)
         const changed = result.injected.filter((item) => item.action !== 'unchanged').length
-        out.line(
-            out.style(
-                result.dryRun
-                    ? `Dry run: ${changed} of ${plural(result.injected.length, 'bundle')} would change. No file was written.`
-                    : `${changed} of ${plural(result.injected.length, 'bundle')} changed.`,
-                'dim'
-            )
-        )
+        const bundles = plural(result.injected.length, 'bundle')
+        out.report({
+            status: result.dryRun || changed === 0 ? 'unchanged' : 'done',
+            result: result.dryRun
+                ? `Dry run: ${changed} of ${bundles} would change. No file was written`
+                : `Injected chunk IDs into ${changed} of ${bundles}`,
+            effects: releaseLines(out, result.release),
+        })
+        renderInjected(out, result.injected)
+        out.notes({ warnings: warningLines(result) })
     },
 })

@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Literal, Optional
 
 from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType
 
@@ -30,6 +30,13 @@ class WordpressEndpointConfig:
     partition_key: Optional[str] = None
     primary_key: str = "id"
     page_size: int = 100  # WordPress caps per_page at 100; larger values 400
+    sort_mode: Optional[Literal["asc"]] = "asc"
+    # The endpoint returns one JSON object keyed by slug, with no pagination (post types, taxonomies).
+    keyed_object_response: bool = False
+    # Fan-out child: `path` holds a `{parent_id}` placeholder filled from each row of `parent_path`.
+    # For a child, `incremental_filter_params` bound the parent request, not the child request.
+    parent_path: Optional[str] = None
+    requires_credentials: bool = False
 
 
 # Core REST API (wp/v2) collections the canonical WordPress connectors (Airbyte/Fivetran) expose.
@@ -101,6 +108,45 @@ WORDPRESS_ENDPOINTS: dict[str, WordpressEndpointConfig] = {
         name="users",
         path="/users",
         stable_order_by="id",
+    ),
+    # Revisions have no timestamp filter of their own. Saving a revision bumps the parent's
+    # `modified`, so an incremental run only fans out over parents modified since the watermark.
+    # Revision ids are wp_posts ids, so they are unique across parents.
+    "post_revisions": WordpressEndpointConfig(
+        name="post_revisions",
+        path="/posts/{parent_id}/revisions",
+        parent_path="/posts",
+        incremental_fields=[_datetime_incremental_field("date")],
+        default_incremental_field="date",
+        incremental_filter_params={"date": "modified_after"},
+        partition_key="date",
+        sort_mode=None,
+        requires_credentials=True,
+    ),
+    "page_revisions": WordpressEndpointConfig(
+        name="page_revisions",
+        path="/pages/{parent_id}/revisions",
+        parent_path="/pages",
+        incremental_fields=[_datetime_incremental_field("date")],
+        default_incremental_field="date",
+        incremental_filter_params={"date": "modified_after"},
+        partition_key="date",
+        sort_mode=None,
+        requires_credentials=True,
+    ),
+    "post_types": WordpressEndpointConfig(
+        name="post_types",
+        path="/types",
+        primary_key="slug",
+        sort_mode=None,
+        keyed_object_response=True,
+    ),
+    "taxonomies": WordpressEndpointConfig(
+        name="taxonomies",
+        path="/taxonomies",
+        primary_key="slug",
+        sort_mode=None,
+        keyed_object_response=True,
     ),
 }
 

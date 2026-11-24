@@ -15,6 +15,7 @@ import { TodayHomeHeading } from './TodayHomeHeading'
 import { todayLogic } from './todayLogic'
 import { TodayNewProjectForYou } from './TodayNewProjectForYou'
 import { reportWorkKind } from './todayNextStep'
+import { TodayProductPushRow } from './TodayProductPushRow'
 import { TodayReportRow } from './TodayReportRow'
 
 function TodayRowsSkeleton(): JSX.Element {
@@ -39,6 +40,8 @@ function renderRow(row: TodayForYouRow): JSX.Element {
             return <TodayReportRow key={row.key} report={row.report} source={row.source} done={row.done} />
         case 'highlight':
             return <TodayHighlightRow key={row.key} item={row.item} position={row.position} done={row.done} />
+        case 'product_push':
+            return <TodayProductPushRow key={row.key} campaign={row.campaign} />
     }
 }
 
@@ -57,11 +60,11 @@ function TodayForYouBody(): JSX.Element | null {
     }
     const fixCount = countFixes(forYouRows.rows)
     return (
-        <>
+        <ol className="TodayRows">
             <TodayAiRow />
             {fixCount > 0 ? <TodayGitHubRow fixCount={fixCount} /> : null}
-            <ol className="TodayRows">{forYouVisibleRows.map(renderRow)}</ol>
-        </>
+            {forYouVisibleRows.map(renderRow)}
+        </ol>
     )
 }
 

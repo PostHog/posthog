@@ -11,7 +11,7 @@ import {
     IconSidebarOpen,
     IconTrends,
 } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonTabs, LemonSelect, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTabs, Link } from '@posthog/lemon-ui'
 
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -27,13 +27,15 @@ import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxSceneLogic } from '../../inboxSceneLogic'
 import { inboxDetailLayoutLogic } from '../../logics/inboxDetailLayoutLogic'
+import { inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalCard } from '../../SignalCard'
 import { SignalReport, SignalReportStatus } from '../../types'
+import { inboxReportBackLabel } from '../../utils/inboxReportUrls'
 import { canCreateImplementationPr } from '../../utils/reportActions'
 import { displayConventionalCommitTitle, parsePrUrlParts, safeHttpUrl } from '../../utils/reportPresentation'
 import { reportPullRequests } from '../../utils/reportPullRequests'
-import { parseReportSummary } from '../../utils/reportSummary'
+import { ReportTagChips } from '../badges/ReportTagChips'
 import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabilityBadge'
 import { SignalReportBillingBadge } from '../badges/SignalReportBillingBadge'
 import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
@@ -175,7 +177,8 @@ interface InboxDetailFrameProps {
     report: SignalReport
     /** Content closing the evidence rail, after Activity (e.g. the PR conversation). */
     asideFooter?: ReactNode
-    /** Extra primary action(s) rendered after the shared report actions. */
+    /** The pull request's "Open in GitHub" action. When it is set, the frame does not show the implement
+     * action: "View task" adds nothing next to the pull request, and the runs section still links the task. */
     primaryAction?: ReactNode
     /** Whether the report column gets the Summary / Files changed tab bar. Driven by whether the report has
      * a PR (known immediately), not by whether the diff has loaded, so the bar doesn't pop in a beat later
@@ -187,8 +190,6 @@ interface InboxDetailFrameProps {
     diffStat?: ReactNode
     /** Note that a pull request with the fix is open, placed under the summary's Solution section. */
     pullRequestNote?: ReactNode
-    /** Extra sections (Tasks, Reviewers) – defaults applied by callers. */
-    children?: ReactNode
 }
 
 /**
@@ -209,7 +210,6 @@ export function InboxDetailFrame({
     diffSection,
     diffStat,
     pullRequestNote,
-    children,
 }: InboxDetailFrameProps): JSX.Element {
     const reportContextGroup = `inbox_report:${report.id}`
     useAttachedContext([
@@ -232,11 +232,7 @@ export function InboxDetailFrame({
     const rawBack = searchParams.back
     const backOverride =
         typeof rawBack === 'string' && rawBack.startsWith('/') && !rawBack.startsWith('//') ? rawBack : null
-    const backLabel = backOverride
-        ? backOverride.startsWith(urls.inboxTriage())
-            ? 'Triage'
-            : 'Back'
-        : 'Self-driving inbox'
+    const backLabel = backOverride ? inboxReportBackLabel(backOverride) : 'Self-driving inbox'
     const logicProps = { reportId: report.id, report }
     const {
         reportSignals,
@@ -252,14 +248,25 @@ export function InboxDetailFrame({
         reportChecks,
         reportChecksError,
         prioritySaving,
+        repositorySaving,
+        actionabilitySaving,
+        decisionAttributions,
         reportClaimant,
         isClaimedByMe,
         report: currentReport,
+        selectedPullRequest,
     } = useValues(inboxReportDetailLogic(logicProps))
-    const { setDetailTab, expandEvidence, collapseEvidence, updatePriority } = useActions(
-        inboxReportDetailLogic(logicProps)
-    )
+    const {
+        setDetailTab,
+        expandEvidence,
+        collapseEvidence,
+        updatePriority,
+        updateRepository,
+        updateActionability,
+        selectPullRequest,
+    } = useActions(inboxReportDetailLogic(logicProps))
     const { evidenceRailCollapsed } = useValues(inboxDetailLayoutLogic)
+    const { tagFilterAvailable } = useValues(inboxFiltersLogic)
     const { toggleEvidenceRail } = useActions(inboxDetailLayoutLogic)
     const { linkImplementReportId } = useValues(inboxSceneLogic)
     const { setLinkImplementReportId } = useActions(inboxSceneLogic)
@@ -290,19 +297,16 @@ export function InboxDetailFrame({
 
     const reportActions = useReportDetailActions(report)
     const showCreatePr = canCreateImplementationPr(report)
-    const implementButton =
-        showCreatePr || reportTaskToOpen ? (
-            <ImplementButton
-                report={report}
-                reportTaskToOpen={reportTaskToOpen}
-                implementationDisabledReason={implementationDisabledReason}
-                openChoicesFromLink={linkImplementReportId === report.id}
-                onChoicesOpenedFromLink={() => setLinkImplementReportId(null)}
-            />
-        ) : null
-    const summaryHasSolution = parseReportSummary(report.summary).sections.some(
-        (section) => section.kind === 'solution'
-    )
+    const hasImplementButton = !primaryAction && (showCreatePr || !!reportTaskToOpen)
+    const implementButton = hasImplementButton ? (
+        <ImplementButton
+            report={report}
+            reportTaskToOpen={reportTaskToOpen}
+            implementationDisabledReason={implementationDisabledReason}
+            openChoicesFromLink={linkImplementReportId === report.id}
+            onChoicesOpenedFromLink={() => setLinkImplementReportId(null)}
+        />
+    ) : null
     const overflowMenuItems: LemonMenuItem[] = reportActions.map((action) => ({
         label: action.label,
         icon: action.icon,
@@ -389,6 +393,7 @@ export function InboxDetailFrame({
             )}
             <div className="flex flex-col gap-2">
                 {titleHeading}
+                {tagFilterAvailable && <ReportTagChips report={report} surface="detail" />}
                 {claimPill}
             </div>
 
@@ -398,7 +403,6 @@ export function InboxDetailFrame({
                         <ReportSummaryBody
                             summary={report.summary}
                             chartPlacements={chartPlacements}
-                            implementButton={implementButton}
                             pullRequestNote={pullRequestNote}
                             impactMetrics={impactMetrics}
                             expectedImpact={expectedImpact}
@@ -478,8 +482,32 @@ export function InboxDetailFrame({
                     <aside className={DETAIL_ASIDE_CLASS}>
                         <ReportStatusSection
                             report={currentReport ?? report}
-                            onPriorityChange={updatePriority}
+                            onPriorityChange={(priority) => {
+                                captureInboxReportAction({
+                                    report,
+                                    actionType: 'change_priority',
+                                    surface: 'detail_pane',
+                                    extra: { new_priority: priority },
+                                })
+                                updatePriority(priority)
+                            }}
                             prioritySaving={prioritySaving}
+                            onRepositoryChange={updateRepository}
+                            repositorySaving={repositorySaving}
+                            onActionabilityChange={updateActionability}
+                            actionabilitySaving={actionabilitySaving}
+                            decisionAttributions={decisionAttributions}
+                            selectedPullRequestUrl={selectedPullRequest.url}
+                            onSelectPullRequest={(url) => {
+                                captureInboxReportAction({
+                                    report,
+                                    actionType: 'select_pull_request',
+                                    surface: 'detail_pane',
+                                    extra: { pull_request_count: reportPullRequests(currentReport ?? report).length },
+                                })
+                                selectPullRequest(url)
+                            }}
+                            onToggleAgentDecisions={captureSectionToggle('agent_decisions')}
                         />
                         {isMonitoring && <ReportChecksSection report={report} />}
                         {/* The observation leads, then the evidence its claims rest on. */}
@@ -528,11 +556,12 @@ export function InboxDetailFrame({
                                 )}
                             </DetailSection>
                         )}
-                        {/* The pull request picker (when present), then reviewers, runs, and activity. */}
-                        {children}
                         <SuggestedReviewersSection report={report} />
                         <FlaggedFeature flag={FEATURE_FLAGS.SELF_DRIVING_USAGE_DISPLAY}>
-                            <ReportSpendSection reportId={report.id} />
+                            <ReportSpendSection
+                                reportId={report.id}
+                                onToggleCollapsed={captureSectionToggle('usage')}
+                            />
                         </FlaggedFeature>
                         <ReportTasksSection report={report} />
                         {!isMonitoring && <ReportChecksSection report={report} />}
@@ -612,9 +641,9 @@ export function InboxDetailFrame({
                     </LemonButton>
                     {railToggleButton}
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
                     {primaryAction}
-                    {!summaryHasSolution && implementButton}
+                    {implementButton}
                     {/* Discuss is always available and stays inline as its own dropdown button. */}
                     <DiscussReportButton report={report} reportUrl={reportUrl} />
                     {/* Buttons inline on wide layouts; collapse into a standard LemonMenu kebab below @4xl. */}
@@ -693,7 +722,6 @@ function OpenPullRequestButton({
 export function ReportDetail({ report }: { report: SignalReport }): JSX.Element {
     const logic = inboxReportDetailLogic({ reportId: report.id, report })
     const { latestCommitArtefact, reportArtefacts, selectedPullRequest } = useValues(logic)
-    const { selectPullRequest } = useActions(logic)
 
     const prUrl = safeHttpUrl(selectedPullRequest.url)
     const prRef = prUrl ? parsePrUrlParts(prUrl) : null
@@ -775,18 +803,6 @@ export function ReportDetail({ report }: { report: SignalReport }): JSX.Element 
                     </>
                 ) : undefined
             }
-        >
-            {reportPullRequests(report).length > 1 && (
-                <LemonSelect
-                    value={selectedPullRequest.url}
-                    onChange={selectPullRequest}
-                    options={reportPullRequests(report).map((pr) => ({
-                        value: pr.url,
-                        label: `${parsePrUrlParts(pr.url)?.repoSlug}#${parsePrUrlParts(pr.url)?.number} (${pr.state})`,
-                    }))}
-                    data-attr="inbox-report-select-pull-request"
-                />
-            )}
-        </InboxDetailFrame>
+        />
     )
 }

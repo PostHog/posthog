@@ -35,7 +35,7 @@ import { captureException } from '../../utils/posthog'
 import { retryIfRetriable } from '../../utils/retries'
 import { promisifyCallback } from '../../utils/utils'
 import { ensureTopicExists } from '../admin'
-import { getKafkaConfigFromEnv, stripClassicProtocolConfig } from '../config'
+import { getKafkaConfigFromEnv, redactKafkaConfig, stripClassicProtocolConfig } from '../config'
 import { parseBrokerStatistics, trackBrokerMetrics } from '../kafka-client-metrics'
 import {
     consumedBatchBackgroundDuration,
@@ -118,6 +118,8 @@ export type KafkaConsumerConfig = {
      * deployment value that can drift away from the assumption without anything noticing.
      */
     fetchBatchSize?: number
+    /** Background tasks in flight before the consumer waits for the oldest one, overriding CONSUMER_MAX_BACKGROUND_TASKS. */
+    maxBackgroundTasks?: number
 }
 
 export type RdKafkaConsumerConfig = Omit<
@@ -141,6 +143,9 @@ export class KafkaConsumer {
     private maxBackgroundTasks: number
     private consumerLoop: Promise<void> | undefined
     private backgroundTask: { promise: Promise<void>; createdAt: number }[]
+    // Set when a background task rejects. Kafka redelivers the failed batch only if no offset at or past it
+    // is committed. Once this is set, the consumer stores no more offsets and the consume loop rethrows it.
+    private fatalError: Error | undefined
     private podName: string
     private lastBackgroundTaskCompletionTime: number
     private consumerId: string
@@ -170,7 +175,7 @@ export class KafkaConsumer {
         this.config.autoCommit ??= true
         this.config.autoOffsetStore ??= true
         this.config.callEachBatchWhenEmpty ??= false
-        this.maxBackgroundTasks = defaultConfig.CONSUMER_MAX_BACKGROUND_TASKS
+        this.maxBackgroundTasks = config.maxBackgroundTasks ?? defaultConfig.CONSUMER_MAX_BACKGROUND_TASKS
         this.fetchBatchSize = config.fetchBatchSize ?? defaultConfig.CONSUMER_BATCH_SIZE
         this.maxHealthHeartbeatIntervalMs =
             defaultConfig.CONSUMER_MAX_HEARTBEAT_INTERVAL_MS || MAX_HEALTH_HEARTBEAT_INTERVAL_MS
@@ -347,6 +352,9 @@ export class KafkaConsumer {
     }
 
     public offsetsStore(topicPartitionOffsets: TopicPartitionOffset[]): void {
+        if (this.fatalError) {
+            throw new Error('Refusing to store offsets after a background task failed', { cause: this.fatalError })
+        }
         return this.rdKafkaConsumer.offsetsStore(topicPartitionOffsets)
     }
 
@@ -561,11 +569,18 @@ export class KafkaConsumer {
         })
 
         consumer.on('subscribed', (topics) => {
-            logger.info('📝', 'librdkafka consumer subscribed', { topics, config: this.consumerConfig })
+            logger.info('📝', 'librdkafka consumer subscribed', {
+                topics,
+                config: redactKafkaConfig(this.consumerConfig),
+            })
         })
 
         consumer.on('connection.failure', (error: LibrdKafkaError, metrics: ClientMetrics) => {
-            logger.error('📝', 'librdkafka connection failure', { error, metrics, config: this.consumerConfig })
+            logger.error('📝', 'librdkafka connection failure', {
+                error,
+                metrics,
+                config: redactKafkaConfig(this.consumerConfig),
+            })
         })
 
         consumer.on('offset.commit', (error: LibrdKafkaError, topicPartitionOffsets: TopicPartitionOffset[]) => {
@@ -644,6 +659,10 @@ export class KafkaConsumer {
                     // Track that the consumer loop is alive
                     this.lastConsumerLoopTime = Date.now()
                     logger.debug('🔁', 'main_loop_consuming')
+
+                    if (this.fatalError) {
+                        throw this.fatalError
+                    }
 
                     // If we're rebalancing, skip consuming to avoid processing messages
                     // during rebalancing when background tasks might be running
@@ -728,7 +747,7 @@ export class KafkaConsumer {
                     // Pull out the offsets to commit from the messages so we can release the messages reference
                     const topicPartitionOffsetsToCommit = findOffsetsToCommit(messages)
 
-                    void backgroundTask.finally(async () => {
+                    const settle = async (): Promise<void> => {
                         // Track that we made progress
                         this.lastBackgroundTaskCompletionTime = Date.now()
 
@@ -738,22 +757,34 @@ export class KafkaConsumer {
                         const index = this.backgroundTask.findIndex((t) => t.promise === backgroundTask)
 
                         // CRITICAL: If task not found, this indicates some bigger problem
+                        // Without a position in the queue we cannot show that the batches ahead of us finished.
                         if (index < 0) {
                             captureException(new Error('Background task not found in array during cleanup'))
+                            return
                         }
 
                         // TRICKY: We need to wait for all promises ahead of us in the queue before we store the offsets
                         // Important: capture the promises BEFORE removing the task, as the array changes after splice
-                        if (index >= 0) {
-                            // Task found - capture promises to wait for, then remove the task
-                            const promisesToWait = this.backgroundTask.slice(0, index).map((t) => t.promise)
-                            this.backgroundTask.splice(index, 1)
-                            await Promise.all(promisesToWait)
-                        }
+                        const promisesToWait = this.backgroundTask.slice(0, index).map((t) => t.promise)
+                        this.backgroundTask.splice(index, 1)
+                        // A rejected task ahead of us has already set fatalError when this resumes,
+                        // because its rejection handler below was attached before this wait.
+                        await Promise.allSettled(promisesToWait)
 
-                        if (this.config.autoCommit && this.config.autoOffsetStore) {
+                        if (!this.fatalError && this.config.autoCommit && this.config.autoOffsetStore) {
                             this.storeOffsetsForMessages(topicPartitionOffsetsToCommit)
                         }
+                    }
+
+                    // settle must run in the same tick as the task settles, on both paths.
+                    // A later batch that settles afterwards then no longer finds this task in the queue,
+                    // which keeps offsets stored in batch order.
+                    void backgroundTask.then(settle, (error) => {
+                        logger.error('🔥', 'kafka_consumer_background_task_failed', { error: String(error) })
+                        captureException(error)
+                        this.fatalError ??=
+                            error instanceof Error ? error : new Error(`Background task rejected with ${String(error)}`)
+                        return settle()
                     })
 
                     // At first we just add the background work to the queue with metadata
@@ -787,7 +818,8 @@ export class KafkaConsumer {
                     isFatal: (error as any)?.isFatal,
                     isRetriable: (error as any)?.isRetriable,
                 })
-                throw error
+                // A background task that rejected with a falsy value would otherwise stop the process with exit code 0.
+                throw this.fatalError ?? error
             } finally {
                 logger.info('🔁', 'main_loop_stopping')
 
@@ -807,7 +839,7 @@ export class KafkaConsumer {
                 isFatal: (error as any)?.isFatal,
                 isRetriable: (error as any)?.isRetriable,
                 config: this.config,
-                consumerConfig: this.consumerConfig,
+                consumerConfig: redactKafkaConfig(this.consumerConfig),
             })
             // We re-throw the error as that way it will be caught in server.ts and trigger a full shutdown
             throw error
@@ -839,7 +871,7 @@ export class KafkaConsumer {
                     isFatal: (error as any)?.isFatal,
                     isRetriable: (error as any)?.isRetriable,
                     config: this.config,
-                    consumerConfig: this.consumerConfig,
+                    consumerConfig: redactKafkaConfig(this.consumerConfig),
                 })
             })
         }

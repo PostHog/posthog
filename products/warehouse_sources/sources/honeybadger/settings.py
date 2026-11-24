@@ -7,12 +7,14 @@ from products.warehouse_sources.sources.sdk import IncrementalField, Incremental
 @dataclass(frozen=True)
 class HoneybadgerEndpointConfig:
     name: str
-    # Path template under the v2 base URL; `{project_id}` / `{fault_id}` / `{site_id}` are filled in by the fan-out.
+    # Path template under the v2 base URL; `{project_id}` / `{fault_id}` / `{site_id}` / `{team_id}` /
+    # `{account_id}` are filled in by the fan-out.
     path: str
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
     incremental_fields: list[IncrementalField] = field(default_factory=list)
-    # Incremental field name -> query param that server-side filters on it (Unix timestamp).
+    # Incremental field name -> query param that server-side filters on it.
     incremental_params: dict[str, str] = field(default_factory=dict)
+    incremental_param_format: Literal["unix", "iso8601"] = "unix"
     default_incremental_field: str | None = None
     # Incremental field name -> query param on the fan-out parent list that the watermark also bounds.
     parent_incremental_params: dict[str, str] = field(default_factory=dict)
@@ -21,12 +23,18 @@ class HoneybadgerEndpointConfig:
     partition_key: str | None = None  # Stable creation-time field; never a mutating timestamp
     # Two-level fan-out: projects -> {parent} -> {endpoint}
     fan_out_parent: Literal["faults", "sites", "alarms"] | None = None
+    # One-level fan-out over a list that isn't scoped to a project: {parent} -> {endpoint}
+    root_fan_out_parent: Literal["teams", "accounts"] | None = None
     # False for endpoints that return a bare JSON array with no `limit` / `links.next` paging.
     paginated: bool = True
     # Key of the row array in a wrapped response.
     data_selector: str = "results"
-    # Response is `[epoch_seconds, count]` pairs instead of objects.
+    # Response is `[key, count]` pairs instead of objects; the key lands in `pair_key`.
     time_series: bool = False
+    pair_key: str = "bucket_start"
+    pair_key_format: Literal["epoch", "iso8601", "text"] = "epoch"
+    # Report endpoints take an ISO 8601 `start`; send one this many days back so the window is explicit.
+    report_window_days: int | None = None
     query_params: dict[str, str] = field(default_factory=dict)
     should_sync_default: bool = True
 
@@ -192,6 +200,71 @@ HONEYBADGER_ENDPOINTS: dict[str, HoneybadgerEndpointConfig] = {
         fan_out_parent="alarms",
         data_selector="triggers",
         # Alarms are part of Honeybadger Insights, which not every account uses — opt-in only.
+        should_sync_default=False,
+    ),
+    "notices_per_day": HoneybadgerEndpointConfig(
+        name="notices_per_day",
+        path="/projects/{project_id}/reports/notices_per_day",
+        primary_keys=["project_id", "day"],
+        # `start` filters the report server-side. The watermark is the last day already synced,
+        # so that (still growing) day is pulled again and merged on the primary key.
+        incremental_fields=[
+            {
+                "label": "day",
+                "type": IncrementalFieldType.DateTime,
+                "field": "day",
+                "field_type": IncrementalFieldType.DateTime,
+            }
+        ],
+        incremental_params={"day": "start"},
+        incremental_param_format="iso8601",
+        default_incremental_field="day",
+        partition_key="day",
+        paginated=False,
+        time_series=True,
+        pair_key="day",
+        pair_key_format="iso8601",
+        report_window_days=30,
+    ),
+    "notices_by_class": HoneybadgerEndpointConfig(
+        name="notices_by_class",
+        path="/projects/{project_id}/reports/notices_by_class",
+        primary_keys=["project_id", "klass"],
+        # Counts over a rolling window, so each sync replaces the table.
+        incremental_fields=[],
+        paginated=False,
+        time_series=True,
+        pair_key="klass",
+        pair_key_format="text",
+        report_window_days=30,
+    ),
+    "accounts": HoneybadgerEndpointConfig(
+        name="accounts",
+        path="/accounts",
+        # The accounts list has no server-side timestamp filter.
+        incremental_fields=[],
+        paginated=False,
+    ),
+    "account_users": HoneybadgerEndpointConfig(
+        name="account_users",
+        path="/accounts/{account_id}/users",
+        primary_keys=["account_id", "id"],
+        incremental_fields=[],
+        parent_fields={"name": "account_name"},
+        root_fan_out_parent="accounts",
+        paginated=False,
+        # Listing account users can need an admin role on the account — opt-in only.
+        should_sync_default=False,
+    ),
+    "team_members": HoneybadgerEndpointConfig(
+        name="team_members",
+        path="/teams/{team_id}/team_members",
+        primary_keys=["team_id", "id"],
+        incremental_fields=[],
+        parent_fields={"name": "team_name"},
+        root_fan_out_parent="teams",
+        paginated=False,
+        # Listing team members can need an admin role on the team — opt-in only.
         should_sync_default=False,
     ),
 }

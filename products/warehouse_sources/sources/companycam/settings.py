@@ -64,6 +64,16 @@ def _project_fanout() -> DependentEndpointConfig:
     )
 
 
+def _photo_fanout() -> DependentEndpointConfig:
+    return DependentEndpointConfig(
+        parent_name="Photos",
+        resolve_param="photo_id",
+        resolve_field="id",
+        include_from_parent=["id"],
+        parent_field_renames={"id": "photo_id"},
+    )
+
+
 COMPANYCAM_ENDPOINTS: dict[str, CompanycamEndpointConfig] = {
     "Projects": CompanycamEndpointConfig(
         name="Projects",
@@ -127,17 +137,30 @@ COMPANYCAM_ENDPOINTS: dict[str, CompanycamEndpointConfig] = {
         primary_keys=["project_id", "id"],
         fanout=_project_fanout(),
     ),
+    "ProjectCollaborators": CompanycamEndpointConfig(
+        name="ProjectCollaborators",
+        path="/projects/{project_id}/collaborators",
+        primary_keys=["project_id", "id"],
+        fanout=_project_fanout(),
+    ),
+    "ProjectComments": CompanycamEndpointConfig(
+        name="ProjectComments",
+        path="/projects/{project_id}/comments",
+        primary_keys=["project_id", "id"],
+        fanout=_project_fanout(),
+    ),
     "PhotoTags": CompanycamEndpointConfig(
         name="PhotoTags",
         path="/photos/{photo_id}/tags",
         primary_keys=["photo_id", "id"],
-        fanout=DependentEndpointConfig(
-            parent_name="Photos",
-            resolve_param="photo_id",
-            resolve_field="id",
-            include_from_parent=["id"],
-            parent_field_renames={"id": "photo_id"},
-        ),
+        fanout=_photo_fanout(),
+        should_sync_default=False,
+    ),
+    "PhotoComments": CompanycamEndpointConfig(
+        name="PhotoComments",
+        path="/photos/{photo_id}/comments",
+        primary_keys=["photo_id", "id"],
+        fanout=_photo_fanout(),
         should_sync_default=False,
     ),
 }

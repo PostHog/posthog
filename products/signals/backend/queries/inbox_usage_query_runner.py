@@ -32,7 +32,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.signals.backend.facade.constants import SIGNAL_USAGE_START
+from products.signals.backend.facade.constants import SIGNAL_SPEND_RETENTION, SIGNAL_USAGE_START
 from products.signals.backend.models import SignalScoutRun, SignalSpend
 from products.signals.backend.pricing import SIGNALS_CREDITS_PER_DOLLAR
 from products.signals.backend.signal_metadata import EMBEDDING_MODEL, _deduped_signals_subquery, _signals_query_context
@@ -94,6 +94,12 @@ class InboxUsageQueryRunner(AnalyticsQueryRunner[InboxUsageQueryResponse]):
         self.ch_user = ClickHouseUser.SIGNALS
         if self.team.parent_team_id and self.team.parent_team_id != self.team.id:
             raise QueryError("Run the usage query in the parent project that owns the spend records.")
+        earliest_retained = self.as_of - SIGNAL_SPEND_RETENTION
+        if self.period_start < earliest_retained:
+            raise QueryError(
+                f"Usage receipts expire after three calendar months. Choose a date range starting on or after "
+                f"{earliest_retained.isoformat()}."
+            )
 
     def _reads_events_route(self) -> bool:
         return False

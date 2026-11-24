@@ -38,10 +38,60 @@ function getDuration(timings, relativePath, browser) {
     return entry[browser] ?? entry.chromium ?? Object.values(entry)[0] ?? null
 }
 
+function readTagFilter(name, fallback) {
+    return process.env[name] ? process.env[name].split(',').map((tag) => tag.trim()) : fallback
+}
+
+function runnableStoryFilter() {
+    const included = readTagFilter('STORYBOOK_INCLUDE_TAGS', ['test'])
+    const omitted = [
+        ...readTagFilter('STORYBOOK_EXCLUDE_TAGS', []),
+        ...readTagFilter('STORYBOOK_SKIP_TAGS', ['test-skip']),
+    ]
+    return (entry) =>
+        entry.type === 'story' &&
+        (included.length === 0 || included.some((tag) => entry.tags?.includes(tag))) &&
+        !omitted.some((tag) => entry.tags?.includes(tag))
+}
+
+function loadStoryCounts() {
+    try {
+        const index = JSON.parse(fs.readFileSync(path.join(__dirname, 'dist/index.json'), 'utf8'))
+        const isRunnable = runnableStoryFilter()
+        const counts = new Map()
+        for (const entry of Object.values(index.entries)) {
+            if (!isRunnable(entry)) {
+                continue
+            }
+            const file = path.resolve(__dirname, entry.importPath)
+            counts.set(file, (counts.get(file) || 0) + 1)
+        }
+        return counts
+    } catch {
+        return new Map()
+    }
+}
+
+function medianDuration(durations, fallback) {
+    durations.sort((a, b) => b - a)
+    return durations.length ? durations[Math.floor(durations.length / 2)] : fallback
+}
+
+function estimateStoryDuration(tests, timings, browser, counts) {
+    const durations = []
+    for (const test of tests) {
+        const duration = getDuration(timings, getRelativePath(test), browser)
+        const count = counts.get(test.path)
+        if (duration !== null && count > 0) {
+            durations.push(duration / count)
+        }
+    }
+    return medianDuration(durations, null)
+}
+
 // Greedy bin-packing: assign each test (longest first) to the lightest shard.
-// Tests without timing data go into a separate pool and are spread evenly
-// after the known tests are placed.
-function binPackShard(tests, shardCount, shardIndex, timings, browser) {
+// The built index lets new suites enter the same duration ordering before their first timing refresh.
+function binPackShard(tests, shardCount, shardIndex, timings, browser, counts) {
     // Canonical path order upfront — makes the entire partition deterministic
     // regardless of readdir order on the CI runner's filesystem.
     const sorted = [...tests].sort((a, b) => {
@@ -50,12 +100,21 @@ function binPackShard(tests, shardCount, shardIndex, timings, browser) {
         return pa < pb ? -1 : pa > pb ? 1 : 0
     })
 
+    const secondsPerStory = estimateStoryDuration(sorted, timings, browser, counts)
+    const fallbackDuration = medianDuration(
+        sorted
+            .map((test) => getDuration(timings, getRelativePath(test), browser))
+            .filter((duration) => duration !== null),
+        10
+    )
     const known = []
     const unknown = []
 
     for (const test of sorted) {
         const rel = getRelativePath(test)
-        const duration = getDuration(timings, rel, browser)
+        const measured = getDuration(timings, rel, browser)
+        const count = counts.get(test.path)
+        const duration = measured ?? (secondsPerStory !== null && count > 0 ? secondsPerStory * count : null)
         if (duration !== null) {
             known.push({ test, duration })
         } else {
@@ -91,8 +150,7 @@ function binPackShard(tests, shardCount, shardIndex, timings, browser) {
         }
         shardTests[lightest].push(test)
         // Use median duration as estimate for unknown tests
-        const median = known.length > 0 ? known[Math.floor(known.length / 2)].duration : 10
-        shardTotals[lightest] += median
+        shardTotals[lightest] += fallbackDuration
     }
 
     // shardIndex is 1-based
@@ -109,7 +167,7 @@ class BalancedSequencer extends Sequencer {
         }
 
         const browser = (process.env.TEST_BROWSERS || 'chromium').split(',')[0].trim()
-        return binPackShard(tests, options.shardCount, options.shardIndex, timings, browser)
+        return binPackShard(tests, options.shardCount, options.shardIndex, timings, browser, loadStoryCounts())
     }
 
     // Keep default sort() — it uses Jest's built-in perf cache for

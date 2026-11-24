@@ -428,6 +428,22 @@ export const WizardRunPullRequestArtifactApiArtifactType = {
     PullRequest: 'pull_request',
 } as const
 
+/**
+ * * `open` - open
+ * * `draft` - draft
+ * * `merged` - merged
+ * * `closed` - closed
+ */
+export type WizardPullRequestStateEnumApi =
+    (typeof WizardPullRequestStateEnumApi)[keyof typeof WizardPullRequestStateEnumApi]
+
+export const WizardPullRequestStateEnumApi = {
+    Open: 'open',
+    Draft: 'draft',
+    Merged: 'merged',
+    Closed: 'closed',
+} as const
+
 export interface WizardRunPullRequestArtifactApi {
     /** Unique ID of the run artifact. */
     readonly id: string
@@ -451,6 +467,23 @@ export interface WizardRunPullRequestArtifactApi {
     readonly base_branch: string
     /** Time when the artifact was stored. */
     readonly created_at: string
+    /** Last known state of the pull request on GitHub. Null when no state has been recorded.
+     *
+     * * `open` - open
+     * * `draft` - draft
+     * * `merged` - merged
+     * * `closed` - closed */
+    readonly state: WizardPullRequestStateEnumApi | null
+    /**
+     * Time when the pull request was merged, if it was.
+     * @nullable
+     */
+    readonly merged_at: string | null
+    /**
+     * Time when the pull request was closed or merged. Null while it is open.
+     * @nullable
+     */
+    readonly closed_at: string | null
 }
 
 export type WizardRunArtifactApi = WizardRunGitDiffArtifactApi | WizardRunPullRequestArtifactApi
@@ -795,6 +828,7 @@ export interface UpsertWizardSessionRequestApi {
  * * `Databricks` - Databricks
  * * `AzureBlob` - Azure Blob
  * * `S3` - S3
+ * * `MotherDuck` - MotherDuck
  */
 export type UserCreatableDestinationTypeEnumApi =
     (typeof UserCreatableDestinationTypeEnumApi)[keyof typeof UserCreatableDestinationTypeEnumApi]
@@ -807,6 +841,7 @@ export const UserCreatableDestinationTypeEnumApi = {
     Databricks: 'Databricks',
     AzureBlob: 'AzureBlob',
     S3: 'S3',
+    MotherDuck: 'MotherDuck',
 } as const
 
 /**
@@ -852,7 +887,8 @@ export interface WizardCatalogToolApi {
      * * `Postgres` - Postgres
      * * `Databricks` - Databricks
      * * `AzureBlob` - Azure Blob
-     * * `S3` - S3 */
+     * * `S3` - S3
+     * * `MotherDuck` - MotherDuck */
     warehouse_destination_type: UserCreatableDestinationTypeEnumApi | null
     /** How the wizard sets up the source: in the terminal or in the app. Null for a tool with no warehouse source.
      *

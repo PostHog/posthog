@@ -159,6 +159,39 @@ database "posthog" {
     }
   }
 
+  table "kafka_error_tracking_issue_tags" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "issue_id" {
+      type = "UUID"
+    }
+    column "key" {
+      type = "String"
+    }
+    column "value" {
+      type = "Nullable(Int8)"
+    }
+    column "is_deleted" {
+      type = "Int8"
+    }
+    column "version" {
+      type = "Int64"
+    }
+    engine "kafka" {
+      collection           = "warpstream_shared"
+      topic_list           = "clickhouse_error_tracking_issue_tags"
+      group_name           = "clickhouse_error_tracking_issue_tags"
+      format               = "JSONEachRow"
+      num_consumers        = 1
+      max_block_size       = 100000
+      skip_broken_messages = 100
+      thread_per_consumer  = true
+      poll_timeout_ms      = 10000
+      flush_interval_ms    = 7500
+    }
+  }
+
   table "kafka_events_dead_letter_queue" {
     column "id" {
       type = "UUID"
@@ -566,9 +599,6 @@ database "posthog" {
     column "ai_highlighted" {
       type = "UInt8"
     }
-    column "surfacing_score" {
-      type = "Nullable(Float32)"
-    }
     engine "kafka" {
       collection = "msk_cluster"
       topic_list = "clickhouse_session_replay_events"
@@ -792,6 +822,41 @@ database "posthog" {
       cluster_name    = "posthog_single_shard"
       remote_database = "posthog"
       remote_table    = "error_tracking_issue_fingerprint_overrides"
+    }
+  }
+
+  table "writable_error_tracking_issue_tags" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "issue_id" {
+      type = "UUID"
+    }
+    column "key" {
+      type = "String"
+    }
+    column "value" {
+      type = "Nullable(Int8)"
+    }
+    column "is_deleted" {
+      type = "Int8"
+    }
+    column "version" {
+      type = "Int64"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "raw_error_tracking_issue_tags"
     }
   }
 
@@ -1441,6 +1506,51 @@ SQL
     }
   }
 
+  materialized_view "error_tracking_issue_tags_mv" {
+    to_table = "posthog.writable_error_tracking_issue_tags"
+    query    = <<SQL
+SELECT
+  team_id,
+  issue_id,
+  key,
+  value,
+  is_deleted,
+  version,
+  _timestamp,
+  _offset,
+  _partition
+FROM posthog.kafka_error_tracking_issue_tags
+SQL
+
+    column "team_id" {
+      type = "Int64"
+    }
+    column "issue_id" {
+      type = "UUID"
+    }
+    column "key" {
+      type = "String"
+    }
+    column "value" {
+      type = "Nullable(Int8)"
+    }
+    column "is_deleted" {
+      type = "Int8"
+    }
+    column "version" {
+      type = "Int64"
+    }
+    column "_timestamp" {
+      type = "Nullable(DateTime)"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+  }
+
   materialized_view "events_dead_letter_queue_mv" {
     to_table = "posthog.writable_events_dead_letter_queue"
     query    = <<SQL
@@ -1974,7 +2084,6 @@ SELECT
   groupUniqArrayArray(ai_tags_fixed) AS ai_tags_fixed,
   groupUniqArrayArray(ai_tags_freeform) AS ai_tags_freeform,
   max(ai_highlighted) AS ai_highlighted,
-  max(surfacing_score) AS surfacing_score,
   argMinState(replay.snapshot_mode, first_timestamp) AS snapshot_mode_v2
 FROM posthog.kafka_session_replay_events AS replay
 GROUP BY
@@ -2067,9 +2176,6 @@ SQL
     }
     column "ai_highlighted" {
       type = "SimpleAggregateFunction(max, UInt8)"
-    }
-    column "surfacing_score" {
-      type = "SimpleAggregateFunction(max, Nullable(Float32))"
     }
   }
 

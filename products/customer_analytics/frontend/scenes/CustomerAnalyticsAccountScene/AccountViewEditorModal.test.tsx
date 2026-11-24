@@ -3,9 +3,6 @@ import '@testing-library/jest-dom'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { resetContext } from 'kea'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
 import { accountViewsList, accountViewsPartialUpdate, userCustomerAnalyticsConfigRetrieve } from '../../generated/api'
 import type { AccountViewApi } from '../../generated/api.schemas'
 import { createAccountViewContent } from './accountViewDocument'
@@ -49,8 +46,6 @@ const mockUserCustomerAnalyticsConfigRetrieve = userCustomerAnalyticsConfigRetri
 describe('AccountViewEditorModal', () => {
     beforeEach(() => {
         resetContext()
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_VIEWS]: true })
         mockAccountViewsList.mockResolvedValue([visibilityOnlyTeamView])
         mockAccountViewsPartialUpdate.mockResolvedValue({
             ...visibilityOnlyTeamView,
@@ -59,6 +54,8 @@ describe('AccountViewEditorModal', () => {
         })
         mockUserCustomerAnalyticsConfigRetrieve.mockResolvedValue({
             pinned_properties: [],
+            pinned_properties_source: { kind: 'personal', roles: [] },
+            available_default_pinned_properties: [],
             task_digest: { enabled: false, send_time: '09:00', cadence: 'weekdays' },
             account_detail_tabs: { ordered_tab_ids: [], hidden_tab_ids: [], default_tab_id: null },
         })
@@ -67,7 +64,6 @@ describe('AccountViewEditorModal', () => {
 
     afterEach(() => {
         cleanup()
-        featureFlagLogic.unmount()
     })
 
     it('shows the actual value for a stored custom tile span', async () => {

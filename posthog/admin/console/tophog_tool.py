@@ -305,7 +305,7 @@ class TopHogTool(ConsoleTool):
     key = "tophog"
     title = "TopHog"
     owner = INGESTION
-    group = "Data"
+    group = "Ingestion"
     description = "The top keys of each ingestion metric, and the restrictions that cover them."
 
     def page(self, request: HttpRequest) -> Page:
@@ -409,3 +409,7 @@ class TopHogTool(ConsoleTool):
                 )
             )
         return operations
+
+
+console.register_moved_page(old_path="admin/tophog/", title="TopHog", url=TOOL_URL)
+console.register_moved_page(old_path="admin/tophog/restrictions/", title="TopHog restrictions", url=TOOL_URL)

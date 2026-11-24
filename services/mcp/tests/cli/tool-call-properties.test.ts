@@ -29,15 +29,15 @@ describe('buildToolCallProperties', () => {
     }
 
     it('never forwards error_message or input, only a value-free classification', () => {
-        expect(buildToolCallProperties('notebook-edit', base)).toEqual({
-            tool_name: 'notebook-edit',
-            $mcp_tool_name: 'notebook-edit',
+        expect(buildToolCallProperties('notebooks-update-cell', base)).toEqual({
+            tool_name: 'notebooks-update-cell',
+            $mcp_tool_name: 'notebooks-update-cell',
             $mcp_duration_ms: 42,
             $mcp_is_error: true,
             output_format: 'text',
             error_class: 'error',
             $mcp_error_type: 'internal',
-            ...catalogMetadata('notebook-edit'),
+            ...catalogMetadata('notebooks-update-cell'),
         })
     })
 

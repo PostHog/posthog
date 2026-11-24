@@ -24,11 +24,11 @@ const PUBLIC: &str = "public:";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ImageDecline {
-    /// The dataset keeps no AVIF image, inline or fetched.
+    /// An AVIF the image scrub does not decode, such as an animation.
     Avif,
     OverLimit,
     Undecodable,
-    /// Bytes of another format than PNG, JPEG, GIF or WebP, the formats the image scrub reads.
+    /// Bytes of another format than PNG, JPEG, GIF, WebP or still AVIF, the formats the image scrub reads.
     Unsupported,
 }
 
@@ -84,7 +84,7 @@ pub struct Ref<'a> {
     pub kind: RefKind,
     /// Positive, because a PostHog team id starts at 1.
     pub team_id: i64,
-    /// The UTC month of the write, as `YYYY-MM`.
+    /// The key month of the session that holds the reference, as `YYYY-MM`.
     pub key_month: &'a str,
     pub hash: &'a str,
 }

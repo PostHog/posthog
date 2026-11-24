@@ -39,7 +39,7 @@ function expectNoSecrets(payload: unknown): void {
 
 describe('project tools do not expose credentials', () => {
     it('derives a non-empty secret set that excludes the public token', () => {
-        expect(SECRET_FIELDS).toContain('secret_api_token')
+        expect(SECRET_FIELDS).toContain('live_events_token')
         expect(SECRET_FIELDS).not.toContain('api_token')
     })
 

@@ -80,6 +80,9 @@ class SloHandle:
         self.outcome_override = SloOutcome.FAILURE
         self.tag(**props)
 
+    def fail_with_error(self, exc: Exception) -> None:
+        self.fail(**_error_properties(exc))
+
 
 _current_slo: ContextVar[SloHandle | None] = ContextVar("current_slo", default=None)
 
@@ -109,6 +112,14 @@ def _build_error_origin(exc: Exception) -> str | None:
 
     origin = next((frame for frame in reversed(frames) if _is_repo_frame(frame.filename)), frames[-1])
     return f"{origin.filename}:{origin.lineno} in {origin.name}"
+
+
+def _error_properties(exc: Exception) -> dict[str, JsonValue]:
+    return {
+        "error_type": type(exc).__name__,
+        "error_message": str(exc),
+        "error_origin": _build_error_origin(exc),
+    }
 
 
 @contextmanager
@@ -161,9 +172,8 @@ def slo_operation(
             # Skip the dict mutations + traceback walk on the sampled-out path —
             # nothing downstream consumes completion_properties when we don't emit.
             if should_emit:
-                handle.completion_properties.setdefault("error_type", type(exc).__name__)
-                handle.completion_properties.setdefault("error_message", str(exc))
-                handle.completion_properties.setdefault("error_origin", _build_error_origin(exc))
+                for key, value in _error_properties(exc).items():
+                    handle.completion_properties.setdefault(key, value)
             outcome = handle.outcome_override or SloOutcome.FAILURE
             raise
         finally:

@@ -280,7 +280,7 @@ It never replaces the required live query.
 - **Never author a snapshot-only or queryless row.** Those shapes are legacy or malformed, and the server always redacts them.
 - **Leave `comparison` unset.** The server does not yet keep an adjacent comparison window live, so an authored comparison is stored and never shown.
 
-A refresh replaces `value`, `value_at`, and `series`, and clears `comparison`.
+A refresh replaces `value`, `value_at`, and `series`, records each bucket's label in `series_buckets`, and clears `comparison`.
 It runs only when a client posts to the report's `refresh_metrics` endpoint; reading a report does not refresh anything on its own.
 Listing reports never executes a metric query: a row carries the metric metadata and any readable cached snapshot, but no query definition.
 
@@ -411,7 +411,7 @@ Cap is **20 charts per report** (and a combined query-size budget), which is far
 ### Suggesting follow-up prompts
 
 `suggested_prompts` are prompts the inbox offers above the report's `Ask AI` box: follow-up questions, and next-step actions the reader can send as a request.
-Clicking one fills the box with it; nothing is sent on the click, so the reader can send it as written or edit it first.
+Clicking one sends it at once to an agent run that gets the report as context. The reader cannot edit it first, so write each prompt as the exact request to send.
 You did the research and know which threads you left open and what should happen next, so this hands the reader that knowledge instead of leaving them to invent a prompt from an empty box.
 
 Optional, and worth it only when you can name a prompt worth an agent run.
@@ -456,19 +456,20 @@ It's opt-in per report via three more `emit_report` fields; supply them only whe
 
 | Field                  | Type        | Notes                                                                                                                                                                       |
 | ---------------------- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `repository`           | string      | `"owner/repo"` targets that repo; **omitting it** falls back to free-form selection; the `NO_REPO` sentinel opts out. See _Choosing a repository_ below.                    |
+| `repository`           | string      | `"owner/repo"` targets that repo; **omitting it** records no repository for autostart; the `NO_REPO` sentinel opts out. See _Choosing a repository_ below.                  |
 | `priority`             | `P0`-`P4`   | Required for a PR. Pair with `priority_explanation`.                                                                                                                        |
 | `priority_explanation` | string      | Required when `priority` is set.                                                                                                                                            |
 | `suggested_reviewers`  | list of obj | Reviewers to consider, each `{github_login?, user_uuid?}` (at least one per entry; see the section below). A PR opens only if at least one clears their autonomy threshold. |
 
-**Choosing a repository.** Prefer `owner/repo` whenever you can say where a fix would land, including on a `requires_human_input` report — a repository does not open a PR by itself, it is what lets a person open one from the inbox later.
-Omit the field when your team has several repositories and you can't tell which one, so selection can find it; that is the slow path on a many-repo team, since it spawns a selection sandbox.
+**Choosing a repository.** The repository is your decision, like the reviewers and the priority. Nothing selects one for you.
+Before you emit a report, decide where a fix would land and pass it as `owner/repo`, also on a `requires_human_input` report — a repository does not open a PR by itself, it is what lets autostart or a person open one.
+Use the evidence you already hold: the `gh` CLI when the run has it (`gh api /installation/repositories` lists the repositories you can reach), a pinned checkout, and the `repository` on comparable reports.
+A report that must open a draft PR on its own must name a repository.
+Omit the field when you cannot tell. The report still surfaces, and a person picks the repository when they open a PR.
 Keep `NO_REPO` for the rare report where nothing under version control could change, such as a staffing finding or a data question with no artifact.
 A skill body, a config file, and a doc all live in a repository, so "not code" is not the test.
 
-Full repo selection only runs when you signal PR intent — an explicit `repository`, or both `priority` and `suggested_reviewers`.
-A report that supplies none of these just surfaces in the inbox: no repo sandbox, and no PR.
-It still gets a repo target when its own text links exactly one repository the team has connected on GitHub, so someone reading it can click Create PR.
+A report with no `repository` gets a repo target only when its own text links exactly one repository the team has connected on GitHub, so someone reading it can click Create PR.
 That inferred target is for a person to act on — it never opens a PR by itself, and rewriting the report's title or summary to link a different connected repository moves it.
 Adding a qualifying reviewer later is a person asking for the PR, so the report can open a draft one from then on.
 Autostart itself still no-ops unless the report is `immediately_actionable`, has a repo + priority, and a reviewer qualifies — so these fields are safe to omit for an informational report.

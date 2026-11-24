@@ -4,10 +4,12 @@ import { router } from 'kea-router'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconCheck, IconExternal, IconLock, IconTarget } from '@posthog/icons'
-import { LemonButton, LemonSelect, Link } from '@posthog/lemon-ui'
 
 import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
 import { SetupTaskId } from 'lib/components/ProductSetup'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { Link } from 'lib/lemon-ui/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { addProductIntent } from 'lib/utils/product-intents'
@@ -215,8 +217,13 @@ export function ProductSetupPopover({
                 padded={false}
                 additionalRefs={[hintPopoverRef]}
                 overlay={
-                    <div className="relative w-80 max-h-[70vh]" role="dialog" aria-label="Quick start guide">
-                        <div className="flex flex-col h-full">
+                    <div
+                        className="relative w-80 max-h-[70vh] flex flex-col"
+                        role="dialog"
+                        aria-label="Quick start guide"
+                    >
+                        {/* Flex, not h-full, so the 70vh cap reaches the task list and only it scrolls */}
+                        <div className="flex flex-col flex-auto min-h-0">
                             {/* Screen reader announcements */}
                             <div className="sr-only" aria-live="polite" aria-atomic="true">
                                 {announcement}
@@ -234,7 +241,7 @@ export function ProductSetupPopover({
                                 totalTasks={totalTasks}
                             />
 
-                            <div className="flex-1 overflow-y-auto" onMouseLeave={() => handleTaskHover(null)}>
+                            <div className="flex-1 min-h-0 overflow-y-auto" onMouseLeave={() => handleTaskHover(null)}>
                                 {isSetupComplete ? (
                                     <ProductSuggestions
                                         products={otherProductsWithTasks}
@@ -321,7 +328,9 @@ export function ProductSetupPopover({
                                 visible
                                 referenceElement={hoveredTaskElement}
                                 placement="left-start"
-                                fallbackPlacements={['left-end', 'left']}
+                                // The quick start popover can open near the left edge of the window,
+                                // so the hint needs a right-side fallback to stay on screen
+                                fallbackPlacements={['left-end', 'left', 'right-start', 'right-end', 'right']}
                                 padded={false}
                                 floatingRef={hintPopoverRef}
                                 middleware={[offset(8)]}

@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import { HogError } from '@/core/errors'
+import { EXIT_NEEDS_PERSON, HogError, type ErrorPatch } from '@/core/errors'
 import { parseLosslessJson } from '@/core/json'
 import type { RuntimeFetch } from '@/core/runtime'
 import { parseOrThrow, type Schema } from '@/core/schema'
@@ -60,7 +60,7 @@ export async function sendRequest(fetchFn: RuntimeFetch, url: URL, request: Http
     } catch (error) {
         throw new HogError(
             'network_error',
-            `hog couldn't reach ${url.origin}: ${error instanceof Error ? error.message : String(error)}`,
+            `hog couldn't reach ${url.origin}${transportReason(error)}.`,
             'Check the host and your network connection.'
         )
     }
@@ -69,22 +69,59 @@ export async function sendRequest(fetchFn: RuntimeFetch, url: URL, request: Http
     return { status: response.status, ok: response.ok, json, text, headers: response.headers }
 }
 
-// A non-2xx answer from PostHog. `type` is the DRF error type, such as `validation_error`.
+// Bun's fetch message can hold a request header value, such as the whole Authorization header when
+// the token has a character a header can't carry. So the reason comes only from the error's name or
+// its code, like ENOTFOUND or CERT_HAS_EXPIRED, never from its message.
+function transportReason(error: unknown): string {
+    if (error instanceof Error && error.name === 'TimeoutError') {
+        return ' (timed out)'
+    }
+    const code = error instanceof Error ? (error as Error & { code?: unknown }).code : undefined
+    return typeof code === 'string' && /^[A-Z][A-Za-z0-9_]*$/.test(code) ? ` (${code})` : ''
+}
+
+export interface ApiErrorOptions {
+    type?: string
+    hint?: string
+    details?: Readonly<Record<string, unknown>>
+    serverDetail?: string
+    exitCode?: number
+    body?: unknown
+}
+
 export class ApiError extends HogError {
+    readonly type: string | undefined
+    readonly body: unknown
+
     constructor(
         readonly status: number,
-        readonly type: string | undefined,
         code: string,
         message: string,
-        hint?: string,
-        details?: Readonly<Record<string, unknown>>
+        { type, hint, details, serverDetail, exitCode, body }: ApiErrorOptions = {}
     ) {
-        super(code, message, hint, undefined, details)
+        super(code, message, hint, exitCode, details, serverDetail)
+        this.type = type
+        this.body = body
     }
 
-    override withHint(hint: string): ApiError {
-        return new ApiError(this.status, this.type, this.code, this.message, hint, this.details)
+    protected override copy(patch: ErrorPatch): ApiError {
+        return new ApiError(this.status, this.code, patch.message ?? this.message, {
+            type: this.type,
+            hint: patch.hint ?? this.hint,
+            details: this.details,
+            serverDetail: this.serverDetail,
+            exitCode: this.exitCode,
+            body: this.body,
+        })
     }
+}
+
+export function isTransient(error: HogError): boolean {
+    return (
+        error.code === 'network_error' ||
+        error.code === 'refresh_failed' ||
+        (error instanceof ApiError && (error.status === 429 || error.status >= 500))
+    )
 }
 
 export type StepUp = (scopes: readonly string[]) => Promise<boolean>
@@ -96,14 +133,10 @@ export function stepUpRequired(
 ): ApiError {
     const named = scopes.filter(isScopeName)
     const command = stepUpCommand(named, host)
-    return new ApiError(
-        403,
-        undefined,
-        'step_up_required',
-        message,
-        `Run \`${command}\` to add the scopes to your login, then run the command again.`,
-        { scopes: named, command }
-    )
+    return new ApiError(403, 'step_up_required', message, {
+        hint: `Run \`${command}\` to add the scopes to your login, then run the command again.`,
+        details: { scopes: named, command },
+    })
 }
 
 // A DRF error body. `type` is the DRF error type, such as `validation_error`.
@@ -177,13 +210,10 @@ export class PostHogApi {
             missing = await this.missingScopes(response)
         }
         if (missing && workload) {
-            throw new ApiError(
-                403,
-                undefined,
-                'missing_scopes',
-                `The job's token needs ${missing.join(', ')} for this.`,
-                workloadScopesHint(missing)
-            )
+            throw new ApiError(403, 'missing_scopes', `The job's token needs ${missing.join(', ')} for this.`, {
+                hint: workloadScopesHint(missing),
+                exitCode: EXIT_NEEDS_PERSON,
+            })
         }
         if (missing) {
             throw stepUpRequired(missing, { host: this.session.current.host })
@@ -193,7 +223,7 @@ export class PostHogApi {
             const hint = response.status === 404 ? 'Check the host and the project ID.' : undefined
             throw response.ok
                 ? new HogError('unexpected_response', message, hint)
-                : new ApiError(response.status, undefined, 'unexpected_response', message, hint)
+                : new ApiError(response.status, 'unexpected_response', message, { hint })
         }
         if (!response.ok) {
             throw this.failure(response.status, response.json)
@@ -229,12 +259,11 @@ export class PostHogApi {
             403: 'Check that the personal API key has access to this project.',
             404: 'Check the host and the project ID.',
         }
-        return new ApiError(
-            status,
-            error.type,
-            error.code ?? `http_${status}`,
-            error.detail ?? `PostHog answered with HTTP ${status}.`,
-            hints[status]
-        )
+        return new ApiError(status, error.code ?? `http_${status}`, `PostHog answered with HTTP ${status}.`, {
+            type: error.type,
+            hint: hints[status],
+            serverDetail: error.detail,
+            body,
+        })
     }
 }

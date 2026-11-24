@@ -1,15 +1,21 @@
 from datetime import timedelta
 
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
 from posthog.models.integration import Integration
 
+from products.review_hog.backend.deep_follow_up import DeepFollowUp
 from products.review_hog.backend.facade.review_status_types import HeadReviewState
 from products.review_hog.backend.head_review_status import HeadReviewStatusLookup
-from products.review_hog.backend.models import ReviewInstallationClaim, ReviewReport, ReviewReportArtefact
+from products.review_hog.backend.models import (
+    ReviewInstallationClaim,
+    ReviewReport,
+    ReviewReportArtefact,
+    ReviewRepository,
+)
 from products.review_hog.backend.receivers import review_evidence_for_stamphog
 from products.review_hog.backend.reviewer.artefact_content import (
     ReviewIssueFinding,
@@ -26,7 +32,9 @@ from products.review_hog.backend.reviewer.models.issues_review import IssuePrior
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk, ChunksList, FileInfo
 from products.review_hog.backend.reviewer.persistence import persist_chunk_set, persist_perspective_results
 from products.review_hog.backend.reviewer.progress import record_run_outcome
-from products.review_hog.backend.temporal.client import QueuedReviewHeads
+from products.review_hog.backend.silent_stamphog import finish_standard_automatic_turn, start_silent_stamphog
+from products.review_hog.backend.temporal.client import QueuedReviewHeads, QueuedReviewModes, QueuedReviewRequest
+from products.review_hog.backend.temporal.types import FinishedStandardAutomaticTurn
 from products.signals.backend.facade.taxonomy import ArtefactAttribution
 from products.stamphog.backend.facade.review_evidence import ReviewEvidenceState, get_review_evidence_providers
 
@@ -34,6 +42,14 @@ REPOSITORY = "PostHog/posthog"
 HEAD = "sha1"
 OLDER_HEAD = "sha0"
 _QUEUE = "products.review_hog.backend.head_review_status.queued_review_heads"
+_QUEUED_MODES = "products.review_hog.backend.temporal.client.queued_review_modes"
+_START = "products.review_hog.backend.temporal.client.start_review_pr_workflow"
+
+
+def _answer(queue: QueuedReviewModes | Exception) -> QueuedReviewModes:
+    if isinstance(queue, Exception):
+        raise queue
+    return queue
 
 
 class TestHeadReviewStatus(BaseTest):
@@ -51,7 +67,12 @@ class TestHeadReviewStatus(BaseTest):
         return ReviewReport.objects.for_team(self.team.id).create(**values)
 
     def _completed_turn(
-        self, review_mode: str, head_sha: str = HEAD, publishes: bool = True, **fields: object
+        self,
+        review_mode: str,
+        head_sha: str = HEAD,
+        publishes: bool = True,
+        skipped_paths: tuple[str, ...] = ("pnpm-lock.yaml",),
+        **fields: object,
     ) -> ReviewReport:
         report = self._report(run_count=1, head_sha=head_sha, completed_head_sha=head_sha, **fields)
         ReviewReportArtefact.add_turn_marker(
@@ -66,7 +87,7 @@ class TestHeadReviewStatus(BaseTest):
                 publishes=publishes,
                 base_branch="main",
                 base_sha="b" * 40,
-                skipped_paths=["pnpm-lock.yaml"],
+                skipped_paths=list(skipped_paths),
             ),
             attribution=ArtefactAttribution.system(),
         )
@@ -78,7 +99,9 @@ class TestHeadReviewStatus(BaseTest):
         marker = artefacts.get(type=ReviewReportArtefact.ArtefactType.TURN_MARKER)
         artefacts.filter(type=ReviewReportArtefact.ArtefactType.NOTE).update(created_at=marker.created_at + offset)
 
-    def _finding(self, report: ReviewReport, key: str, *, is_valid: bool) -> None:
+    def _finding(
+        self, report: ReviewReport, key: str, *, is_valid: bool, priority: IssuePriority = IssuePriority.MUST_FIX
+    ) -> None:
         ReviewReportArtefact.append_finding(
             team_id=self.team.id,
             report_id=str(report.id),
@@ -90,7 +113,7 @@ class TestHeadReviewStatus(BaseTest):
                 lines=[LineRange(start=1)],
                 body="b",
                 suggestion="s",
-                priority=IssuePriority.MUST_FIX,
+                priority=priority,
             ),
             attribution=ArtefactAttribution.system(),
         )
@@ -275,3 +298,205 @@ class TestHeadReviewStatus(BaseTest):
 
         assert status is not None
         assert (status.state, status.skipped_paths) == (HeadReviewState.COMPLETED, expected_skipped)
+
+    def _add_marker(self, report: ReviewReport, run_index: int, review_mode: str) -> ReviewReportArtefact:
+        return ReviewReportArtefact.add_turn_marker(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=TurnMarkerArtefact(
+                head_sha=HEAD,
+                run_index=run_index,
+                review_mode=review_mode,
+                reviewhog_version="v",
+                reviewhog_fingerprint="f",
+                publishes=True,
+                skipped_paths=[],
+            ),
+            attribution=ArtefactAttribution.system(),
+        )
+
+    def _chunk_read_only_by_an_earlier_turn(self) -> ReviewReport:
+        report = self._completed_turn(REVIEW_MODE_FULL, skipped_paths=())
+        ReviewReport.objects.for_team(self.team.id).filter(id=report.id).update(run_count=2)
+        chunks = ChunksList(
+            chunks=[
+                Chunk(chunk_id=1, files=[FileInfo(filename="a.py")]),
+                Chunk(chunk_id=2, files=[FileInfo(filename="b.py")]),
+            ]
+        )
+        persist_chunk_set(team_id=self.team.id, report_id=str(report.id), head_sha=HEAD, chunks=chunks)
+        persist_perspective_results(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            head_sha=HEAD,
+            results={(1, 1): IssuesReview(), (1, 2): IssuesReview()},
+            review_arm=FLASH_ARM,
+        )
+        marker = self._add_marker(report, 2, REVIEW_MODE_FLASH)
+        persist_perspective_results(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            head_sha=HEAD,
+            results={(1, 1): IssuesReview()},
+            review_arm=FLASH_ARM,
+        )
+        # Two writes in a row can share a timestamp, so the test sets the order: the earlier turn's
+        # reads before the marker of turn 2, and turn 2's read of chunk 1 after it.
+        artefacts = ReviewReportArtefact.objects.for_team(self.team.id).filter(report_id=report.id)
+        results = artefacts.filter(type=ReviewReportArtefact.ArtefactType.PERSPECTIVE_RESULT).order_by(
+            "created_at", "id"
+        )
+        earlier_reads, own_read = list(results[:2]), results[2]
+        artefacts.filter(id__in=[row.id for row in earlier_reads]).update(
+            created_at=marker.created_at - timedelta(minutes=1)
+        )
+        artefacts.filter(id=own_read.id).update(created_at=marker.created_at + timedelta(minutes=1))
+        return report
+
+    @parameterized.expand(
+        [
+            ("clean", "clean", 1, False, True),
+            ("valid_finding_below_the_threshold", "finding", 1, False, False),
+            ("invalid_finding", "invalid_finding", 1, False, True),
+            ("skipped_paths", "skipped_paths", 1, False, False),
+            ("capped_lens_parts", "clean", 1, True, False),
+            ("turn_without_a_marker", "no_marker", 1, False, False),
+            ("chunk_read_only_by_an_earlier_turn_on_the_head", "earlier_read", 2, False, False),
+            ("newer_deep_turn_on_the_head", "newer_deep_turn", 1, False, True),
+            ("finding_without_a_verdict", "unjudged_finding", 1, False, False),
+            ("delta_review", "delta_review", 1, False, False),
+        ]
+    )
+    @patch("products.review_hog.backend.silent_stamphog.queue_routing_after_external_review")
+    @patch("products.review_hog.backend.silent_stamphog.queue_silent_review")
+    def test_silent_stamphog_starts_only_for_a_head_whose_automatic_turn_recorded_clean_full_coverage(
+        self,
+        _name: str,
+        setup: str,
+        run_index: int,
+        lens_chunks_capped: bool,
+        expect_queued: bool,
+        queue_silent_review: MagicMock,
+        queue_routing: MagicMock,
+    ) -> None:
+        if setup == "no_marker":
+            report = self._report(run_count=1, head_sha=HEAD, completed_head_sha=HEAD)
+        elif setup == "earlier_read":
+            report = self._chunk_read_only_by_an_earlier_turn()
+        else:
+            report = self._completed_turn(
+                REVIEW_MODE_FLASH, skipped_paths=("pnpm-lock.yaml",) if setup == "skipped_paths" else ()
+            )
+        if setup == "finding":
+            self._finding(report, "1-a", is_valid=True, priority=IssuePriority.CONSIDER)
+        if setup == "invalid_finding":
+            self._finding(report, "1-a", is_valid=False)
+        if setup == "unjudged_finding":
+            ReviewReportArtefact.append_finding(
+                team_id=self.team.id,
+                report_id=str(report.id),
+                content=ReviewIssueFinding(
+                    issue_key="1-a",
+                    run_index=1,
+                    title="t",
+                    file="f.py",
+                    lines=[LineRange(start=1)],
+                    body="b",
+                    suggestion="s",
+                    priority=IssuePriority.CONSIDER,
+                ),
+                attribution=ArtefactAttribution.system(),
+            )
+
+        finish_standard_automatic_turn(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            repository=REPOSITORY,
+            pr_number=5,
+            head_sha=HEAD,
+            run_index=run_index,
+            lens_chunks_capped=lens_chunks_capped,
+            delta_review=setup == "delta_review",
+            marks_ready=False,
+        )
+        if setup == "newer_deep_turn":
+            self._add_marker(report, 2, REVIEW_MODE_FULL)
+            ReviewReport.objects.for_team(self.team.id).filter(id=report.id).update(run_count=2)
+        start_silent_stamphog(team_id=self.team.id, repository=REPOSITORY, pr_number=5, head_sha=HEAD)
+
+        queued, not_queued = (
+            (queue_silent_review, queue_routing) if expect_queued else (queue_routing, queue_silent_review)
+        )
+        queued.assert_called_once_with(team_id=self.team.id, repository=REPOSITORY, pr_number=5, head_sha=HEAD)
+        not_queued.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("must_fix_finding", True, IssuePriority.MUST_FIX, False, QueuedReviewModes(), True),
+            ("switch_off", False, IssuePriority.MUST_FIX, False, QueuedReviewModes(), False),
+            ("should_fix_finding_only", True, IssuePriority.SHOULD_FIX, False, QueuedReviewModes(), False),
+            ("draft", True, IssuePriority.MUST_FIX, True, QueuedReviewModes(), False),
+            (
+                "deep_review_already_requested",
+                True,
+                IssuePriority.MUST_FIX,
+                False,
+                QueuedReviewModes(pending=(QueuedReviewRequest(review_mode=REVIEW_MODE_FULL, automatic=False),)),
+                False,
+            ),
+            ("queue_does_not_answer", True, IssuePriority.MUST_FIX, False, RuntimeError("down"), False),
+        ]
+    )
+    def test_deep_follow_up_starts_once_after_a_must_fix_finding_in_an_opted_in_repository(
+        self,
+        _name: str,
+        switch_on: bool,
+        priority: IssuePriority,
+        draft: bool,
+        queue: QueuedReviewModes | Exception,
+        expect_started: bool,
+    ) -> None:
+        ReviewRepository.objects.for_team(self.team.id).create(
+            team=self.team,
+            installation_id="1",
+            github_repo_id=7,
+            full_name=REPOSITORY,
+            selected=True,
+            deep_review_gated_prs=switch_on,
+        )
+        report = self._completed_turn(REVIEW_MODE_FLASH)
+        self._finding(report, "1-a", is_valid=True, priority=priority)
+        turn = FinishedStandardAutomaticTurn(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            repository=REPOSITORY,
+            pr_number=5,
+            head_sha=HEAD,
+            run_index=1,
+            lens_chunks_capped=False,
+            delta_review=False,
+            marks_ready=False,
+            draft=draft,
+            user_id=self.user.id,
+        )
+
+        with patch(_QUEUED_MODES, side_effect=lambda *_args, **_kwargs: _answer(queue)), patch(_START) as start:
+            DeepFollowUp(turn).start()
+
+        if expect_started:
+            start.assert_called_once_with(
+                pr_url="https://github.com/PostHog/posthog/pull/5",
+                team_id=self.team.id,
+                user_id=self.user.id,
+                acting_user_id=self.user.id,
+                publish=True,
+                resolve_comments=False,
+                review_mode=REVIEW_MODE_FULL,
+                trigger_source="automatic",
+                trigger_action="deep_follow_up",
+                requested_head_sha=HEAD,
+                installation_id="1",
+                github_repo_id=7,
+            )
+        else:
+            start.assert_not_called()

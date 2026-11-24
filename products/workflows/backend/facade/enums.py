@@ -46,6 +46,12 @@ class HogFlowBatchJobState(LabeledStrEnum):
     FAILED = "failed"
 
 
+class HogFlowBatchJobAudienceStatus(LabeledStrEnum):
+    RESOLVING = "resolving"
+    READY = "ready"
+    FAILED = "failed"
+
+
 class HogFlowScheduleStatus(LabeledStrEnum):
     ACTIVE = "active"
     PAUSED = "paused"
@@ -72,6 +78,11 @@ class WorkflowIdeaSource(LabeledStrEnum):
 
 class WorkflowImportSource(LabeledStrEnum):
     CUSTOMERIO = "customerio", "Customer.io"
+    RESEND = "resend", "Resend"
+
+
+class WorkflowImportRequestSource(LabeledStrEnum):
+    CUSTOMERIO = "customerio", "Customer.io"
 
 
 class WorkflowImportNoteLevel(LabeledStrEnum):
@@ -91,10 +102,21 @@ class WorkflowImportStatus(LabeledStrEnum):
     FAILED = "failed", "Failed"
 
 
+class WorkflowImportSegmentCohortStatus(LabeledStrEnum):
+    CREATED = "created", "Created"
+    REUSED = "reused", "Reused"
+    WOULD_CREATE = "would_create", "Would create"
+    NOT_CONVERTED = "not_converted", "Not converted"
+
+
 class HogFlowState(LabeledStrEnum):
     DRAFT = "draft"
     ACTIVE = "active"
     ARCHIVED = "archived"
+
+
+class HogFlowWarningCode(LabeledStrEnum):
+    TEST_SENDER_LIVE = "test_sender_live", "Test sender live"
 
 
 class HogFlowOriginProduct(LabeledStrEnum):
@@ -104,6 +126,7 @@ class HogFlowOriginProduct(LabeledStrEnum):
     BROADCASTS = "broadcasts", "Broadcasts"
     TRANSACTIONAL_EMAILS = "transactional_emails", "Transactional emails"
     TRANSACTIONAL_EMAIL_KEYS = "transactional_email_keys", "Transactional email keys"
+    TRANSACTIONAL_PUSH = "transactional_push", "Transactional push notifications"
 
 
 class HogFlowEmailSendingPausedBy(LabeledStrEnum):
@@ -182,6 +205,7 @@ class EmailDomainSetupRecordKind(LabeledStrEnum):
     MAIL_FROM_MX = "mail_from_mx", "MAIL FROM MX"
     MAIL_FROM_SPF = "mail_from_spf", "MAIL FROM SPF"
     DMARC = "dmarc", "DMARC"
+    ORGANIZATION = "organization", "Organization ownership"
 
 
 class EmailDomainSetupRecordType(LabeledStrEnum):

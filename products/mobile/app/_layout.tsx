@@ -21,7 +21,9 @@ import { configureNotifications } from '@/features/notifications/pushRegistratio
 import { useNotificationRouting } from '@/features/notifications/useNotificationRouting'
 import { usePushRegistration } from '@/features/notifications/usePushRegistration'
 import { installOfflineCache } from '@/features/offlineCache'
+import { useSnoozeReminderPreferences } from '@/features/snooze/useSnoozeReminderPreferences'
 import { useAutomaticUpdates } from '@/features/updates/useAutomaticUpdates'
+import { useViewRangeStore, viewRangesLoaded } from '@/features/views/rangeStore'
 import { useChartWidgetSync } from '@/features/widgets/useChartWidgetSync'
 import { track } from '@/lib/analytics'
 import { initAnalytics } from '@/lib/posthogClient'
@@ -50,13 +52,19 @@ function hideNativeSplash(): void {
     SplashScreen.hideAsync().catch(() => undefined)
 }
 
+function SnoozeReminderPreferences(): null {
+    useSnoozeReminderPreferences()
+    return null
+}
+
 export default function RootLayout(): ReactElement {
     const demoHydrated = useDemoHydrated()
     const demoEnabled = useDemoMode((state) => state.enabled)
     const appearanceHydrated = useAppearanceHydrated()
     const authStatus = useAuthStore((state) => state.status)
+    const [rangesReady, setRangesReady] = useState(useViewRangeStore.persist.hasHydrated)
     // Screens wait for the saved appearance too, so a Light or Dark override never paints a frame in the device scheme.
-    const ready = demoHydrated && appearanceHydrated && authStatus !== 'loading'
+    const ready = demoHydrated && appearanceHydrated && rangesReady && authStatus !== 'loading'
     const firstScreenReady = useBootGate((state) => state.firstScreenReady)
     const segments = useSegments()
     const { colors, scheme } = useTheme()
@@ -82,6 +90,12 @@ export default function RootLayout(): ReactElement {
     useEffect(() => {
         void useAuthStore.getState().restore()
     }, [])
+
+    useEffect(() => {
+        if (!rangesReady) {
+            void viewRangesLoaded.then(() => setRangesReady(true))
+        }
+    }, [rangesReady])
 
     useEffect(() => {
         if (!ready) {
@@ -127,6 +141,7 @@ export default function RootLayout(): ReactElement {
                     <SceneFrame>
                         <KeyboardProvider>
                             <QueryClientProvider client={queryClient}>
+                                {ready ? <SnoozeReminderPreferences /> : null}
                                 <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
                                 {/* Screens mount only after the session loads, so no query runs without a token. */}
                                 {ready ? (

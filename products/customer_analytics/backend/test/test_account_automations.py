@@ -23,7 +23,10 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
 from products.cdp.backend.facade.clickhouse import INSERT_HOG_INVOCATION_RESULT_SQL
-from products.customer_analytics.backend.logic.account_automations import get_workflow_steps
+from products.customer_analytics.backend.logic.account_automations import (
+    ACCOUNT_AUTOMATION_WORKFLOW_TAG,
+    get_workflow_steps,
+)
 from products.customer_analytics.backend.test.factories import create_account
 from products.workflows.backend.facade.testing import create_workflow_for_test
 
@@ -35,7 +38,10 @@ class TestAccountAutomations(ClickhouseTestMixin, NonAtomicAPIBaseTest):
         super().setUp()
         self.account = create_account(team_id=self.team.pk, name="Example", external_id="example")
         self.flow = create_workflow_for_test(
-            team_id=self.team.pk, name="Welcome", actions=[{"id": "wait", "type": "delay"}, {"id": "a", "type": "exit"}]
+            team_id=self.team.pk,
+            name="Welcome",
+            actions=[{"id": "wait", "type": "delay"}, {"id": "a", "type": "exit"}],
+            tags=[ACCOUNT_AUTOMATION_WORKFLOW_TAG],
         )
         self.url = f"/api/projects/{self.team.pk}/accounts/{self.account.id}/automations/"
 
@@ -145,6 +151,7 @@ class TestAccountAutomations(ClickhouseTestMixin, NonAtomicAPIBaseTest):
             team_id=self.team.pk,
             name="Batch workflow",
             actions=[{"id": "a", "type": "exit", **({"name": step_name} if step_name else {})}],
+            tags=[ACCOUNT_AUTOMATION_WORKFLOW_TAG],
         )
         batch_id, person_id = str(uuid4()), str(uuid4())
         self.seed(
@@ -303,6 +310,8 @@ class TestAccountAutomations(ClickhouseTestMixin, NonAtomicAPIBaseTest):
             properties={"account_id": str(uuid4()), "account_external_id": "example"},
             compressed=compressed,
         )
+        self.flow = create_workflow_for_test(team_id=self.team.pk, name="Untagged")
+        self.seed(str(uuid4()), distinct_id=f"account:{self.account.id}", compressed=compressed)
         response = self.client.get(self.url, {"limit": 1, "offset": 1})
         assert response.status_code == 200, response.content
         assert response.json()["count"] == 3
@@ -320,7 +329,7 @@ class TestAccountAutomations(ClickhouseTestMixin, NonAtomicAPIBaseTest):
         reader = User.objects.create_and_join(self.organization, "reader@example.com", "testtest")
         member = OrganizationMembership.objects.get(user=reader, organization=self.organization)
         AccessControl.objects.create(team=self.team, resource="hog_flow", access_level="none")
-        visible = create_workflow_for_test(team_id=self.team.pk, name="Visible")
+        visible = create_workflow_for_test(team_id=self.team.pk, name="Visible", tags=[ACCOUNT_AUTOMATION_WORKFLOW_TAG])
         AccessControl.objects.create(
             team=self.team,
             resource="hog_flow",

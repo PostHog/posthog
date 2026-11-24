@@ -37,7 +37,7 @@ function TraceSpanListContent({ data, app }: { data: TraceSpanListData; app: App
             try {
                 const result = await app.callServerTool({
                     name: 'apm-trace-get',
-                    arguments: { trace_id: item.trace_id },
+                    arguments: { trace_id: item.trace_id, summary: false },
                 })
                 if (result.isError || !result.structuredContent) {
                     fallbackToChat(item.name)

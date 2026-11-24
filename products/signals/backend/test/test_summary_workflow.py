@@ -19,6 +19,7 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.models import Organization, Team
 from posthog.sync import database_sync_to_async
+from posthog.test.cascade_delete import delete_skipping_empty_tables
 
 from products.signals.backend.daily_limit import DailyReportLimitGate
 from products.signals.backend.models import SignalReport
@@ -84,7 +85,7 @@ async def aorganization():
         name=f"SummaryWorkflowOrg-{random.randint(1, 99999)}",
     )
     yield organization
-    await sync_to_async(organization.delete)()
+    await sync_to_async(delete_skipping_empty_tables)(organization)
 
 
 @pytest_asyncio.fixture
@@ -94,7 +95,7 @@ async def ateam(aorganization):
         name=f"SummaryWorkflowTeam-{random.randint(1, 99999)}",
     )
     yield team
-    await sync_to_async(team.delete)()
+    await sync_to_async(delete_skipping_empty_tables)(team)
 
 
 # ---------------------------------------------------------------------------
@@ -200,6 +201,7 @@ class _Recorder:
         self.checks_snapshot = checks_snapshot
         self.checks_summary: str | None = None
         self.checks_error: str | None = None
+        self.unsafe_prose_explanation: str | None = None
         self.checks_monitoring_enabled = False
         self.selected_repository = selected_repository
         self.research_errors = list(research_errors or [])
@@ -329,6 +331,7 @@ async def _run_summary_workflow(recorder: _Recorder, *, operator_rerun: bool = F
             checks_monitoring_enabled=recorder.checks_monitoring_enabled,
             checks_summary=recorder.checks_summary,
             checks_error=recorder.checks_error,
+            unsafe_prose_explanation=recorder.unsafe_prose_explanation,
         )
 
     @activity.defn(name="mark_report_pending_input_activity")
@@ -456,6 +459,17 @@ async def test_open_gates_let_the_run_flow_through(spend_failures: int) -> None:
     assert recorder.spend_publications == spend_failures + 1
     assert recorder.reverts == 0
     assert recorder.failures == 0
+
+
+@pytest.mark.asyncio
+async def test_research_text_that_fails_the_safety_judge_fails_the_report() -> None:
+    recorder = _Recorder()
+    recorder.unsafe_prose_explanation = "Remote code execution in the summary."
+    await _run_summary_workflow(recorder)
+    assert recorder.researches == 1
+    assert recorder.failure_reasons == ["research_safety_judge_rejected"]
+    assert recorder.ready_inputs == []
+    assert recorder.pending_inputs == []
 
 
 def _sandbox_unavailable() -> ApplicationError:

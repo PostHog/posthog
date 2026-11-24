@@ -8,6 +8,7 @@ import { AccessDenied } from 'lib/components/AccessDenied'
 import { dashboardTileScreenshotKey } from 'lib/components/Cards/InsightCard/insightCardImageCapture'
 import { NotFound } from 'lib/components/NotFound'
 import { ScreenShotEditor } from 'lib/components/TakeScreenshot/ScreenShotEditor'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -20,6 +21,7 @@ import { InsightErrorState } from 'scenes/insights/EmptyStates'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { isSharedView } from '~/exporter/exporterViewLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -27,12 +29,12 @@ import { DashboardPlacement, DashboardType, DataColorThemeModel } from '~/types'
 
 import { addInsightToDashboardLogic } from 'products/dashboards/frontend/addInsightToDashboardModalLogic'
 import { DashboardFilterBar } from 'products/dashboards/frontend/DashboardFilters'
-import { DashboardFlagCalledBanner } from 'products/dashboards/frontend/DashboardFlagCalledBanner'
 import { DashboardEmbeddedShareButton } from 'products/dashboards/frontend/DashboardHeaderActions'
 import { DashboardItems } from 'products/dashboards/frontend/DashboardItems'
 import { DashboardModalLoading } from 'products/dashboards/frontend/DashboardModalLoading'
 import { dashboardPerformanceLogic } from 'products/dashboards/frontend/dashboardPerformanceLogic'
 import { DashboardQueryScanBanner } from 'products/dashboards/frontend/DashboardQueryScanBanner'
+import { DashboardQuerySharingDebug } from 'products/dashboards/frontend/DashboardQuerySharingDebug'
 import { DashboardRetentionBanner } from 'products/dashboards/frontend/DashboardRetentionBanner'
 import { dashboardSubscribeNudgeLogic } from 'products/dashboards/frontend/dashboardSubscribeNudgeLogic'
 import { DashboardWarehouseSyncBanner } from 'products/dashboards/frontend/DashboardWarehouseSyncBanner'
@@ -140,6 +142,7 @@ function DashboardScene({
 }): JSX.Element {
     const {
         placement,
+        isPreview,
         dashboard,
         canEditDashboard,
         tiles,
@@ -151,6 +154,9 @@ function DashboardScene({
         accessDeniedToDashboard,
         error404,
         hasInvalidDashboardId,
+        featureFlags,
+        querySharingDebug,
+        querySharingDebugSummary,
     } = useValues(dashboardLogic)
     const { id: dashboardId } = useMountedLogic(dashboardLogic).props
     useMountedLogic(dashboardPerformanceLogic({ dashboardId, placement }))
@@ -166,19 +172,29 @@ function DashboardScene({
     }
 
     useAttachedContext(
-        dashboard ? [{ type: 'dashboard', key: dashboard.id, label: dashboard.name ?? undefined }] : null
+        dashboard ? [{ type: 'dashboard', key: dashboard.id, label: dashboard.name ?? undefined }] : null,
+        // The home page renders its primary dashboard as a preview, which the home composer should not pick up
+        { active: placement !== DashboardPlacement.ProjectHomepage }
     )
 
     useFileSystemLogView({
         type: 'dashboard',
         ref: dashboard?.id,
-        enabled: Boolean(currentTeamId && dashboard?.id && !dashboardFailedToLoad && !accessDeniedToDashboard),
+        enabled: Boolean(
+            !isPreview && currentTeamId && dashboard?.id && !dashboardFailedToLoad && !accessDeniedToDashboard
+        ),
     })
 
     useOnMountEffect(() => {
-        reportDashboardViewed()
+        if (!isPreview) {
+            reportDashboardViewed()
+        }
 
         // request cancellation of any running insight, widget and tile group loads when this component is no longer in the dom
+        // A preview shares its logic with the dashboard it opens, whose mount changes the placement before this cleanup runs
+        if (isPreview) {
+            return
+        }
         return () => cancelDashboardRefresh()
     })
 
@@ -229,7 +245,7 @@ function DashboardScene({
                 </Suspense>
             )}
             {/* Lets a tile copied as a PNG be annotated before it is shared. Export placement renders headlessly. */}
-            {placement !== DashboardPlacement.Export && (
+            {placement !== DashboardPlacement.Export && !isPreview && (
                 <ScreenShotEditor screenshotKey={dashboardTileScreenshotKey(dashboard?.id)} />
             )}
             <DashboardEmbeddedShareButton dashboard={dashboard} placement={placement} />
@@ -252,11 +268,7 @@ function DashboardScene({
             ) : !tiles || tiles.length === 0 ? (
                 <EmptyDashboardComponent loading={itemsLoading || !dashboard} canEdit={canEditDashboard} />
             ) : (
-                <div
-                    className={cn({
-                        '-mt-4': placement == DashboardPlacement.ProjectHomepage,
-                    })}
-                >
+                <div>
                     {dashboardFailedToLoad && (
                         <LemonBanner
                             type="warning"
@@ -275,15 +287,30 @@ function DashboardScene({
                             This dashboard couldn't finish loading.
                         </LemonBanner>
                     )}
-                    <DashboardRetentionBanner />
-                    <DashboardFlagCalledBanner />
-                    <DashboardQueryScanBanner />
-                    <DashboardWarehouseSyncBanner />
+                    {!isPreview && (
+                        <>
+                            <DashboardRetentionBanner />
+                            <DashboardQueryScanBanner />
+                            <DashboardWarehouseSyncBanner />
 
-                    <SceneStickyBar showBorderBottom={false} className={cn('flex gap-2 space-y-0', compact && 'py-1')}>
-                        <DashboardFilterBar backTo={backTo} />
-                    </SceneStickyBar>
+                            <SceneStickyBar
+                                showBorderBottom={false}
+                                className={cn('flex gap-2 space-y-0', compact && 'py-1')}
+                            >
+                                <DashboardFilterBar backTo={backTo} />
+                            </SceneStickyBar>
+                        </>
+                    )}
 
+                    {placement === DashboardPlacement.Dashboard &&
+                        !isSharedView() &&
+                        featureFlags[FEATURE_FLAGS.HOGQL_QUERY_SHARING] === true && (
+                            <DashboardQuerySharingDebug
+                                dashboardName={dashboard?.name || 'Dashboard'}
+                                run={querySharingDebug}
+                                summary={querySharingDebugSummary}
+                            />
+                        )}
                     <DashboardItems showCreateAnomalyAlertButton={showCreateAnomalyAlertButton} />
                 </div>
             )}

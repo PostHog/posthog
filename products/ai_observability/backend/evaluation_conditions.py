@@ -41,6 +41,17 @@ def _rollout_bucket(unit_key: ast.Expr) -> ast.Expr:
     )
 
 
+def rollout_percentage(condition: dict[str, Any]) -> float:
+    """A condition set's sampling share. One saved without a rollout runs on all matching traffic, as in the API."""
+    value = condition.get("rollout_percentage")
+    return 100.0 if value is None else float(value)
+
+
+def runs_on_traffic(condition: dict[str, Any]) -> bool:
+    """Whether a condition set can run at all. One at 0% rollout matches events but never grades them."""
+    return rollout_percentage(condition) > 0
+
+
 def _sampling_predicate(unit_key: ast.Expr, rollout_percentage: float) -> ast.Expr | None:
     if rollout_percentage >= 100:
         return None
@@ -62,7 +73,7 @@ def build_condition_filter(
         if props:
             parts.append(property_to_expr(props, team))
         if unit_key is not None:
-            sampling = _sampling_predicate(unit_key, float(condition.get("rollout_percentage", 100)))
+            sampling = _sampling_predicate(unit_key, rollout_percentage(condition))
             if sampling is not None:
                 parts.append(sampling)
         if len(parts) > 1:

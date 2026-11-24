@@ -12,7 +12,6 @@ import { v4 as uuidv4 } from 'uuid'
 import { defaultConfig, overrideWithEnv } from '~/common/config/config'
 import {
     KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
-    KAFKA_CLICKHOUSE_SESSION_REPLAY_FEATURES,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
 } from '~/common/config/kafka-topics'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
@@ -30,7 +29,7 @@ import { REDIS_KEY_PREFIX, RedisRestrictionType } from '~/common/utils/event-ing
 import { parseJSON } from '~/common/utils/json-parse'
 import { SessionRecordingIngester } from '~/ingestion/pipelines/sessionreplay/consumer'
 import { MouseInteractions, RRWebEventSource, RRWebEventType } from '~/ingestion/pipelines/sessionreplay/rrweb-types'
-import { REPLAY_EVENTS_OUTPUT, SESSION_FEATURES_OUTPUT } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
+import { REPLAY_EVENTS_OUTPUT } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
 import { Clickhouse } from '~/tests/helpers/clickhouse'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { IngestionTestInfra, createIngestionTestInfra } from '~/tests/helpers/ingestion-e2e'
@@ -887,12 +886,6 @@ describe('Session Recording Consumer Integration', () => {
             [REPLAY_EVENTS_OUTPUT]: new SingleIngestionOutput(
                 REPLAY_EVENTS_OUTPUT,
                 KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
-                kafkaMetadataProducer,
-                'test'
-            ),
-            [SESSION_FEATURES_OUTPUT]: new SingleIngestionOutput(
-                SESSION_FEATURES_OUTPUT,
-                KAFKA_CLICKHOUSE_SESSION_REPLAY_FEATURES,
                 kafkaMetadataProducer,
                 'test'
             ),

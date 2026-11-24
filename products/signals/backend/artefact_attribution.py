@@ -6,6 +6,7 @@ import it without dragging in the models module. Re-exported from `models.py` fo
 
 from __future__ import annotations
 
+from dataclasses import field
 from typing import Literal
 
 from posthog.dataclasses import frozen
@@ -27,8 +28,13 @@ class ArtefactAttribution:
     task_id: str | None = None
     # The external coding client, such as Codex, paired with its user principal.
     agent_name: str | None = None
+    # The authenticated principal of the request that named this task. Not stored: the task id header is
+    # caller-supplied, so claim checks need to know who sent it.
+    request_user_id: int | None = field(default=None, compare=False)
 
     def __post_init__(self) -> None:
+        if self.kind != "task" and self.request_user_id is not None:
+            raise ValueError("Only a task attribution carries a request principal")
         match self.kind:
             case "user":
                 valid = self.user_id is not None and self.task_id is None and self.agent_name is None
@@ -46,8 +52,8 @@ class ArtefactAttribution:
         return cls(kind="user", user_id=user_id)
 
     @classmethod
-    def from_task(cls, task_id: str) -> ArtefactAttribution:
-        return cls(kind="task", task_id=str(task_id))
+    def from_task(cls, task_id: str, *, request_user_id: int | None = None) -> ArtefactAttribution:
+        return cls(kind="task", task_id=str(task_id), request_user_id=request_user_id)
 
     @classmethod
     def from_agent(cls, user_id: int, agent_name: str) -> ArtefactAttribution:

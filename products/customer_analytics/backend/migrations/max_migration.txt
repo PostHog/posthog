@@ -1,1 +1,1 @@
-0066_squash_2026_11_02_schema_addons
+0068_team_config_role_default_pinned_properties

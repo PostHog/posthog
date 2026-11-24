@@ -32,6 +32,7 @@ from django.conf import settings
 from posthog.schema import HogQLQueryModifiers, SessionTableVersion
 
 from posthog.hogql import ast
+from posthog.hogql.database.schema.sessions_v3 import SESSIONS_V3_COVERAGE_START_BY_REGION
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
 
@@ -109,6 +110,7 @@ SELECT
     has_fbclid AS has_fbclid,
     mat_metadata_backend AS mat_metadata_backend,
     mat_metadata_loggedIn AS mat_metadata_loggedIn,
+    channel_type AS channel_type,
     uniqState(session_person_id) AS persons_uniq_state,
     uniqState(session_id) AS sessions_uniq_state,
     sumState(pageview_count) AS pageviews_count_state
@@ -141,6 +143,7 @@ FROM (
         any(and(notEmpty(coalesce(session.$entry_fbclid, '')), notEquals(coalesce(session.$entry_fbclid, ''), 'null'))) AS has_fbclid,
         {mat_logged_in_inner} AS mat_metadata_loggedIn,
         {mat_backend_inner} AS mat_metadata_backend,
+        any(session.$channel_type) AS channel_type,
         assumeNotNull(toInt(countIf(or(equals(events.event, '$pageview'), equals(events.event, '$screen'))))) AS pageview_count
     FROM events
     WHERE and(
@@ -192,7 +195,8 @@ GROUP BY
     has_gad_source_paid_search,
     has_fbclid,
     mat_metadata_backend,
-    mat_metadata_loggedIn
+    mat_metadata_loggedIn,
+    channel_type
 """
 
 
@@ -225,6 +229,7 @@ SELECT
     has_fbclid AS has_fbclid,
     mat_metadata_backend AS mat_metadata_backend,
     mat_metadata_loggedIn AS mat_metadata_loggedIn,
+    channel_type AS channel_type,
     uniqState(session_person_id) AS persons_uniq_state,
     uniqState(session_id) AS sessions_uniq_state,
     sumState(pageview_count) AS pageviews_count_state,
@@ -259,6 +264,7 @@ FROM (
         any(and(notEmpty(coalesce(session.$entry_fbclid, '')), notEquals(coalesce(session.$entry_fbclid, ''), 'null'))) AS has_fbclid,
         {mat_logged_in_inner} AS mat_metadata_loggedIn,
         {mat_backend_inner} AS mat_metadata_backend,
+        any(session.$channel_type) AS channel_type,
         any(session.$is_bounce) AS is_bounce,
         assumeNotNull(toInt(any(session.$session_duration))) AS session_duration,
         assumeNotNull(toInt(countIf(or(equals(events.event, '$pageview'), equals(events.event, '$screen'))))) AS pageview_count
@@ -299,7 +305,8 @@ GROUP BY
     has_gad_source_paid_search,
     has_fbclid,
     mat_metadata_backend,
-    mat_metadata_loggedIn
+    mat_metadata_loggedIn,
+    channel_type
 """
 
 
@@ -360,6 +367,7 @@ DIMENSIONAL_SESSION_BUFFER_MINUTES = 25 * 60
 DIMENSIONAL_SEMANTIC_MODIFIER_FIELDS: tuple[str, ...] = (
     "bounceRateDurationSeconds",
     "bounceRatePageViewMode",
+    "customChannelTypeRules",
     "materializationMode",
     "personsOnEventsMode",
     "sessionsV2JoinMode",
@@ -367,15 +375,11 @@ DIMENSIONAL_SEMANTIC_MODIFIER_FIELDS: tuple[str, ...] = (
 )
 
 
-# The sessions v3 table holds every session only from the day its backfill reached, per Cloud region.
-# A region missing here has no complete v3 history yet, so a v3 team there gets no dimensional days.
-SESSIONS_V3_COVERAGE_START_BY_REGION: dict[str, datetime] = {
-    "US": datetime(2026, 10, 1, tzinfo=UTC),
-}
 _NO_SESSIONS_COVERAGE = datetime.max.replace(tzinfo=UTC)
 
 
 def sessions_coverage_floor(modifiers: HogQLQueryModifiers) -> datetime | None:
+    # A v3 team in a region without an entry in SESSIONS_V3_COVERAGE_START_BY_REGION gets no dimensional days.
     # A window before the floor builds as if no sessions existed: empty for the stats template, and
     # without entry dimensions or bounces for the rest. The writer must not build it and reads must
     # not serve it. Off Cloud the v3 materialized view fills the table natively, so it has no floor.

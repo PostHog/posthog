@@ -4,7 +4,7 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { makeFeedback, makeTraceResource } from './adapter/testFixtures'
+import { makeFeedback, makeFeedbackScore, makeTraceResource } from './testFixtures'
 import { traceFeedbackLogic } from './traceFeedbackLogic'
 import { traceViewLogic } from './traceViewLogic'
 
@@ -89,5 +89,39 @@ describe('traceFeedbackLogic', () => {
             .toDispatchActions(['loadTraceFeedbackSuccess'])
             .toMatchValues({ traceFeedback: makeFeedback(), traceFeedbackFailed: false })
         expect(feedbackHints).toEqual([expectedHint, expectedHint])
+    })
+
+    it('indexes the feedback of each step by node id', async () => {
+        useMocks({
+            get: {
+                [FEEDBACK_URL]: () => [
+                    200,
+                    makeFeedback({
+                        steps: [
+                            { nodeId: 'gen-1', scores: [makeFeedbackScore()], responseCount: 0, total: 1 },
+                            { nodeId: 'constructor', scores: [], responseCount: 1, total: 2 },
+                        ],
+                    }),
+                ],
+            },
+        })
+        const logic = mount('2026-09-01T10:15:00Z')
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect([...logic.values.stepFeedback].map(([nodeId, step]) => [nodeId, step.total])).toEqual([
+            ['gen-1', 1],
+            ['constructor', 2],
+        ])
+    })
+
+    it('has no step feedback after the feedback read fails', async () => {
+        silenceKeaLoadersErrors()
+        feedbackStatus = 500
+        const logic = mount('2026-09-01T10:15:00Z')
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values).toMatchObject({ stepFeedback: new Map(), traceFeedbackFailed: true })
     })
 })

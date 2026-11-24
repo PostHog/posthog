@@ -9,10 +9,8 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingSeverity,
     ExperimentHealthValueKey,
 )
-from products.experiments.backend.health.checks.bias_risk import MULTIPLE_VARIANT_KEY
-from products.experiments.backend.health.checks.forced_variant import assigns_nobody_by_split
 from products.experiments.backend.health.context import ExposureTotals, FlagState, HealthContext
-from products.experiments.backend.health.pinned_share import pinned_variant_keys
+from products.experiments.backend.health.pinned_share import assigns_nobody_by_split, pinned_variant_keys
 from products.experiments.backend.health.skips import (
     RUNS_AFTER_LAUNCH,
     CheckOutcome,
@@ -23,6 +21,7 @@ from products.experiments.backend.health.skips import (
     not_checked,
 )
 from products.experiments.backend.health.split_changes import format_change_time
+from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 
 # pinned: the finding's subcodes. The page sends them as `finding_subcode` on the health finding events.
 FLAG_OFF = "flag_off"

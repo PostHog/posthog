@@ -18,7 +18,7 @@ import json
 import time
 import dataclasses
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import structlog
 from prometheus_client import Counter, Histogram
@@ -46,6 +46,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.per
     record_started_runs,
     run_person_property_backfill,
 )
+
+if TYPE_CHECKING:
+    from posthog.temporal.common.registration import ActivityDefinition
 
 logger = structlog.get_logger(__name__)
 
@@ -261,7 +264,7 @@ class BackfillWarehousePersonPropertiesWorkflow(PostHogWorkflow):
 
 
 PERSON_PROPERTY_BACKFILL_WORKFLOWS: list[type[PostHogWorkflow]] = [BackfillWarehousePersonPropertiesWorkflow]
-PERSON_PROPERTY_BACKFILL_ACTIVITIES = [
+PERSON_PROPERTY_BACKFILL_ACTIVITIES: list[ActivityDefinition] = [
     backfill_warehouse_person_properties_activity,
     record_failed_person_property_backfill_runs_activity,
 ]

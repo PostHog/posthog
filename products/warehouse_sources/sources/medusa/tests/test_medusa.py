@@ -119,7 +119,7 @@ class TestMedusaTransport:
 
         assert resource["endpoint"]["params"].get("fields") == expected_fields
 
-    @pytest.mark.parametrize("endpoint", ["PriceLists", "InventoryItems"])
+    @pytest.mark.parametrize("endpoint", ["PriceLists", "InventoryItems", "Campaigns"])
     def test_incremental_rejected_for_endpoint_without_timestamp_filters(self, endpoint: str) -> None:
         with pytest.raises(ValueError, match="does not support incremental"):
             get_resource(MEDUSA_ENDPOINTS[endpoint], should_use_incremental_field=True)

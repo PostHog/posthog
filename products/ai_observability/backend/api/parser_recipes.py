@@ -4,7 +4,6 @@ from typing import cast
 
 from django.db.models import QuerySet
 
-import yaml
 from rest_framework import serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
 
@@ -14,6 +13,7 @@ from posthog.models import User
 from posthog.permissions import AccessControlPermission
 
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
+from products.ai_observability.backend.facade import api as ai_observability_api
 from products.ai_observability.backend.models.parser_recipe import MAX_SOURCE_LENGTH, ParserRecipe
 
 
@@ -41,17 +41,15 @@ class ParserRecipeSerializer(serializers.ModelSerializer):
                 # Preserve the YAML verbatim
                 "trim_whitespace": False,
                 "max_length": MAX_SOURCE_LENGTH,
-                "help_text": "Raw YAML recipe source. Must parse as YAML; recipe semantics are compiled and validated client-side.",
+                "help_text": "Raw YAML recipe source. Must compile as a parser recipe; a 400 response names the first problem found.",
             },
         }
 
     def validate_source(self, value: str) -> str:
-        # The DSL compiler only exists in the frontend; the API guarantees just the floor every
-        # writer shares: parseable YAML. PyYAML raises RecursionError on deep nesting.
         try:
-            yaml.safe_load(value)
-        except (yaml.YAMLError, RecursionError) as e:
-            raise serializers.ValidationError(f"Recipe source is not valid YAML: {e}")
+            ai_observability_api.validate_parser_recipe_source(value)
+        except ai_observability_api.RecipeCompileError as error:
+            raise serializers.ValidationError(str(error))
         return value
 
 

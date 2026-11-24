@@ -86,13 +86,24 @@ function parseAttrs(raw: string): Record<string, string> {
 
 /** CommonMark inline code on one line: a run of N backticks closes on the next run of exactly N. */
 function inlineCodeSpans(line: string, offset: number): Span[] {
+    if (!line.includes('`')) {
+        return []
+    }
     const runs = Array.from(line.matchAll(RE_BACKTICK_RUN))
+    // The next run of the same length for each run, found in one pass from the right, because a search
+    // from the start of the line for each opener is quadratic on many backtick pairs.
+    const nextSameLength = runs.map(() => -1)
+    const lastSeenAt = new Map<number, number>()
+    for (let i = runs.length - 1; i >= 0; i--) {
+        const length = runs[i][0].length
+        nextSameLength[i] = lastSeenAt.get(length) ?? -1
+        lastSeenAt.set(length, i)
+    }
     const spans: Span[] = []
     let index = 0
     while (index < runs.length) {
         const opener = runs[index]
-        const length = opener[0].length
-        const closerIndex = runs.findIndex((run, i) => i > index && run[0].length === length)
+        const closerIndex = nextSameLength[index]
         if (closerIndex === -1) {
             index += 1
             continue
@@ -102,6 +113,12 @@ function inlineCodeSpans(line: string, offset: number): Span[] {
         index = closerIndex + 1
     }
     return spans
+}
+
+// A backtick fence cannot carry a backtick in its info string. This is not a lookahead in
+// RE_FENCE_LINE, because the regex would then rescan the line for each shorter run.
+function opensFence(line: string, fence: RegExpExecArray): boolean {
+    return fence[1][0] !== '`' || !line.includes('`', fence[0].length)
 }
 
 /**
@@ -128,7 +145,7 @@ function scanCode(text: string): Span[] {
                 spans.push({ start: fenceStart, end: offset + line.length })
                 fenceChar = ''
             }
-        } else if (fence) {
+        } else if (fence !== null && opensFence(line, fence)) {
             fenceChar = fence[1][0]
             fenceLength = fence[1].length
             fenceStart = offset
@@ -458,9 +475,14 @@ function heldSuffixStart(text: string, spans: Span[], searchFrom: number): numbe
  *
  * `projectBase` is the app path every object link hangs off, e.g. `/project/2`.
  * Text with no tags passes through unchanged, so the transform is safe to run
- * on every render, including on text it already rewrote.
+ * on every render, including on text it already rewrote. A trailing tag that may
+ * still be streaming in is held back; pass `streaming: false` for complete text.
  */
-export function rewriteAgentObjectTags(text: string, projectBase: string): string {
+export function rewriteAgentObjectTags(
+    text: string,
+    projectBase: string,
+    { streaming = true }: { streaming?: boolean } = {}
+): string {
     text = expandStandaloneSqlLinks(text)
     if (!text.includes('<')) {
         return text
@@ -470,7 +492,7 @@ export function rewriteAgentObjectTags(text: string, projectBase: string): strin
     // Complete tags all end before the held region starts, so the slice below
     // cannot invalidate them.
     const searchFrom = tags.length > 0 ? tags[tags.length - 1].end : 0
-    const held = heldSuffixStart(text, spans, searchFrom)
+    const held = streaming ? heldSuffixStart(text, spans, searchFrom) : null
     if (held !== null && text.length - held <= MAX_HELD_SUFFIX) {
         text = text.slice(0, held)
     }

@@ -4,7 +4,6 @@ use std::time::Duration;
 
 use assignment_coordination::store::{EtcdStore, StoreConfig};
 use axum::{routing::get, Router};
-use common_kafka::kafka_producer::{create_kafka_producer, spawn_bounded_flush_on_shutdown};
 use common_metrics::{setup_metrics_routes_with_overrides, Matcher};
 use dashmap::DashMap;
 use envconfig::Envconfig;
@@ -43,7 +42,9 @@ use personhog_leader::fencing::{
 };
 use personhog_leader::inflight::InflightTracker;
 use personhog_leader::migration::SealDuty;
-use personhog_leader::pg::{validate_table_name, LifecycleTables, PgFallback};
+use personhog_leader::pg::{
+    validate_table_name, LifecycleTables, PgFallback, STATEMENT_TIMEOUT_MS,
+};
 use personhog_leader::recovery::{ChangelogRecovery, RecoveryConfig};
 use personhog_leader::service::{sweep_idle_locks, PersonHogLeaderService, PropertySizeLimits};
 use personhog_leader::settle::{prune_and_settle_tick, retired_topic};
@@ -74,6 +75,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     config
         .validate_shutdown_budgets()
         .expect("Invalid shutdown configuration");
+    config
+        .validate_cache_fill()
+        .expect("Invalid cache fill configuration");
     validate_table_name(&config.fallback_table).expect("Invalid FALLBACK_TABLE");
     validate_table_name(&config.lifecycle_op_table).expect("Invalid LIFECYCLE_OP_TABLE");
     validate_table_name(&config.lifecycle_op_person_table)
@@ -135,15 +139,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "coordination",
         ComponentOptions::new().with_graceful_shutdown(config.coordination_graceful_shutdown()),
     );
-    let kafka_handle = manager.register(
-        "kafka-producer",
-        // The graceful window is the ceiling; the bounded flush task
-        // spawned after the producer is built normally completes well
-        // inside it.
-        ComponentOptions::new()
-            .with_graceful_shutdown(config.phase1_graceful_shutdown())
-            .with_shutdown_phase(1),
-    );
 
     let authority_metrics_handle = manager.register(
         "authority-metrics",
@@ -186,6 +181,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // visible before messages start getting rejected.
     const CHANGELOG_PRODUCE_SIZE_BUCKETS_BYTES: &[f64] = &[
         256.0, 1024.0, 4096.0, 16384.0, 65536.0, 262144.0, 524288.0, 1048576.0, 2097152.0,
+    ];
+    const PG_LOAD_AGE_BUCKETS_SECONDS: &[f64] = &[
+        60.0, 300.0, 900.0, 3600.0, 14400.0, 43200.0, 86400.0, 259200.0, 604800.0, 2592000.0,
+        7776000.0, 31536000.0,
     ];
     // The write path and warms are tuned in single-digit milliseconds;
     // the default ladder's 10 → 50 ms step blurs exactly the spans the
@@ -232,6 +231,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 WRITE_PATH_LATENCY_BUCKETS_MS,
             ),
             (
+                Matcher::Full("personhog_leader_pg_fallback_duration_ms".into()),
+                WRITE_PATH_LATENCY_BUCKETS_MS,
+            ),
+            (
                 Matcher::Full("personhog_leader_fenced_producer_window_ms".into()),
                 WRITE_PATH_LATENCY_BUCKETS_MS,
             ),
@@ -254,6 +257,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             (
                 Matcher::Full("personhog_leader_kafka_produce_bytes".into()),
                 CHANGELOG_PRODUCE_SIZE_BUCKETS_BYTES,
+            ),
+            (
+                Matcher::Full("personhog_leader_pg_load_person_age_seconds".into()),
+                PG_LOAD_AGE_BUCKETS_SECONDS,
+            ),
+            (
+                Matcher::Full("personhog_leader_pg_load_last_seen_age_seconds".into()),
+                PG_LOAD_AGE_BUCKETS_SECONDS,
             ),
         ],
     );
@@ -300,27 +311,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .expect("Metrics server error");
     });
 
-    // Initialize partitioned cache and Kafka producer
     let cache = Arc::new(
         PartitionedCache::new(config.cache_memory_capacity_bytes)
             .with_properties_compression(config.cache_properties_compression_enabled),
-    );
-
-    let kafka_producer = match create_kafka_producer(&config.kafka, kafka_handle.clone()).await {
-        Ok(producer) => producer,
-        Err(e) => {
-            tracing::error!(error = %e, "failed to create Kafka producer");
-            return Err(e.into());
-        }
-    };
-    // Runs at phase 1, after the coordination drain, so the drain's last
-    // records are in the queue it flushes. The changelog path awaits each
-    // record's delivery before acking, so a timed-out flush drops only
-    // records nobody acked.
-    spawn_bounded_flush_on_shutdown(
-        kafka_producer.clone(),
-        kafka_handle,
-        Duration::from_secs(10),
     );
 
     // PG fallback pool for cache misses (optional, disabled if URL is empty)
@@ -333,14 +326,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             max_connections: config.fallback_pg_max_connections,
             min_connections: config.fallback_pg_min_connections,
             pool_name: Some("personhog-leader-fallback".to_string()),
-            statement_timeout_ms: Some(5_000),
+            statement_timeout_ms: Some(STATEMENT_TIMEOUT_MS),
             ..Default::default()
         };
+        let mut options = common_database::pool_options(pool_config);
+        if let Some(min_idle) = config.fallback_pg_ping_idle_after() {
+            tracing::info!(
+                ?min_idle,
+                "Pinging fallback connections only after an idle period"
+            );
+            options = common_database::install_idle_ping(options, min_idle);
+        }
         let fallback = PgFallback {
-            pool: common_database::get_pool_with_config(
-                &config.fallback_database_url,
-                pool_config,
-            )?,
+            pool: options.connect_lazy(&config.fallback_database_url)?,
             table: config.fallback_table.clone(),
             lifecycle: LifecycleTables::new(
                 &config.lifecycle_op_table,
@@ -436,6 +434,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             pod_name: config.pod_name.clone(),
             recv_timeout: Duration::from_secs(config.recovery_recv_timeout_secs),
             pool_size: config.recovery_pool_size,
+            cluster: live_cluster.clone().map(Arc::new),
         })
         .expect("Failed to build changelog recovery consumer pool"),
     );
@@ -594,7 +593,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Arc::clone(&fenced),
         Arc::clone(&authority),
         Arc::clone(&emitted_versions),
-    );
+    )
+    .with_fill(config.cache_fill(), config.cache_fill_schedule());
     let advertise_address =
         personhog_leader::config::derive_advertise_address(&config.grpc_address, &config.pod_ip)
             .expect("Invalid advertise address configuration");

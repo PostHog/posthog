@@ -4,10 +4,9 @@ import { select, upload } from '@/error-tracking/run'
 
 import {
     DRY_RUN_OPTION,
-    PATHS,
+    PATHS_OR_STDIN,
     readOptions,
     RELEASE_OPTIONS,
-    renderRelease,
     renderUpload,
     SELECTION_OPTIONS,
     UPLOAD_OPTIONS,
@@ -16,7 +15,7 @@ import {
 
 export default defineCommand({
     description: 'Upload symbols so PostHog can show readable stack traces',
-    args: PATHS,
+    args: PATHS_OR_STDIN,
     options: { ...SELECTION_OPTIONS, ...UPLOAD_OPTIONS, ...RELEASE_OPTIONS, ...DRY_RUN_OPTION },
     scopes: UPLOAD_SCOPES,
     notes: [
@@ -48,7 +47,6 @@ export default defineCommand({
     },
 
     human({ result, out }) {
-        renderRelease(out, result.release)
         renderUpload(out, result)
     },
 })
