@@ -49,10 +49,11 @@ class TestPagination:
 
 
 class TestIncrementalFilter:
-    def test_filter_sent_on_every_page(self) -> None:
+    @parameterized.expand([("customers",), ("po_additional_cost_rows",), ("sales_order_addresses",)])
+    def test_filter_sent_on_every_page(self, endpoint: str) -> None:
         full_page = [{"id": i} for i in range(PAGE_SIZE)]
         result = _driver().run(
-            "customers",
+            endpoint,
             [_page(full_page), _page([])],
             db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
             incremental_field="updated_at",
@@ -68,10 +69,17 @@ class TestIncrementalFilter:
         assert result.raised is None
         assert result.params("updated_at_min") == [None]
 
-    def test_full_refresh_endpoint_never_filters(self) -> None:
+    @parameterized.expand(
+        [
+            ("inventory", {"variant_id": 1, "location_id": 2}),
+            # Accepts created_at/updated_at filters, but its rows carry no cursor field to read back.
+            ("manufacturing_order_production_ingredients", {"id": 1, "production_id": 3}),
+        ]
+    )
+    def test_full_refresh_endpoint_never_filters(self, endpoint: str, row: dict[str, Any]) -> None:
         result = _driver().run(
-            "inventory",
-            [_page([{"variant_id": 1, "location_id": 2}])],
+            endpoint,
+            [_page([row])],
             db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
             incremental_field="updated_at",
         )
@@ -141,6 +149,13 @@ class TestKatanaSourceResponse:
             ("sales_order_fulfillments", ["id"], "created_at"),
             ("manufacturing_order_operation_rows", ["id"], "created_at"),
             ("sales_return_rows", ["id"], "created_at"),
+            ("manufacturing_order_production_ingredients", ["id"], None),
+            ("additional_costs", ["id"], "created_at"),
+            ("po_additional_cost_rows", ["id"], "created_at"),
+            ("product_operation_rows", ["product_operation_row_id", "product_variant_id"], "created_at"),
+            ("sales_order_addresses", ["id"], "created_at"),
+            ("customer_addresses", ["id"], "created_at"),
+            ("supplier_addresses", ["id"], "created_at"),
         ]
     )
     def test_source_response_shape(self, endpoint: str, expected_pk: list[str], partition_key: str | None) -> None:

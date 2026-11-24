@@ -85,6 +85,32 @@ KATANA_ENDPOINTS: dict[str, KatanaEndpointConfig] = {
     "sales_return_rows": KatanaEndpointConfig(
         name="sales_return_rows", path="/sales_return_rows", incremental_fields=_UPDATED_AND_CREATED
     ),
+    # --- Landed costs ---
+    "additional_costs": KatanaEndpointConfig(
+        name="additional_costs", path="/additional_costs", incremental_fields=_UPDATED_AND_CREATED
+    ),
+    "po_additional_cost_rows": KatanaEndpointConfig(
+        name="po_additional_cost_rows", path="/po_additional_cost_rows", incremental_fields=_UPDATED_AND_CREATED
+    ),
+    # --- Product routing ---
+    # Has no id: one product operation row applies to each variant of the product, so the row id
+    # repeats once per variant.
+    "product_operation_rows": KatanaEndpointConfig(
+        name="product_operation_rows",
+        path="/product_operation_rows",
+        primary_keys=["product_operation_row_id", "product_variant_id"],
+        incremental_fields=_UPDATED_AND_CREATED,
+    ),
+    # --- Addresses ---
+    "sales_order_addresses": KatanaEndpointConfig(
+        name="sales_order_addresses", path="/sales_order_addresses", incremental_fields=_UPDATED_AND_CREATED
+    ),
+    "customer_addresses": KatanaEndpointConfig(
+        name="customer_addresses", path="/customer_addresses", incremental_fields=_UPDATED_AND_CREATED
+    ),
+    "supplier_addresses": KatanaEndpointConfig(
+        name="supplier_addresses", path="/supplier_addresses", incremental_fields=_UPDATED_AND_CREATED
+    ),
     # --- Stock movements ---
     "stock_adjustments": KatanaEndpointConfig(
         name="stock_adjustments", path="/stock_adjustments", incremental_fields=_UPDATED_AND_CREATED
@@ -135,6 +161,14 @@ KATANA_ENDPOINTS: dict[str, KatanaEndpointConfig] = {
         name="operators", path="/operators", incremental_fields=[], partition_key=None, data_selector=None
     ),
     "tax_rates": KatanaEndpointConfig(name="tax_rates", path="/tax_rates", incremental_fields=[], partition_key=None),
+    # The endpoint accepts created_at/updated_at filters, but its rows carry neither field, so there
+    # is no cursor to read back and no stable column to partition on.
+    "manufacturing_order_production_ingredients": KatanaEndpointConfig(
+        name="manufacturing_order_production_ingredients",
+        path="/manufacturing_order_production_ingredients",
+        incremental_fields=[],
+        partition_key=None,
+    ),
 }
 
 ENDPOINTS = tuple(KATANA_ENDPOINTS.keys())
