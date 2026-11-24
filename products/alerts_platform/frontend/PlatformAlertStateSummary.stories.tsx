@@ -48,6 +48,7 @@ function configuration(
         check_status: 'ok',
         overflowed_groups: 0,
         overflow_is_lower_bound: false,
+        on_missing_data: 'resolve',
         owner: 'platform',
         created_at: '2026-10-01T00:00:00Z',
         updated_at: '2026-10-01T00:00:00Z',
