@@ -36,6 +36,7 @@ from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, get_query_tags, tag_queries, tags_context
+from posthog.dataclasses import frozen
 from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import QueryRunner
@@ -122,6 +123,15 @@ HEALTH_QUERY_TIMEOUT_SECONDS = 60
 HEALTH_QUERY_CACHE_SECONDS = 60 * 60
 # The exposure health checks read the flag's calls and the exposure events. A warehouse has neither.
 NOT_ON_WAREHOUSE_NATIVE = "Couldn't check because the exposures come from a warehouse, which isn't supported yet"
+
+
+@frozen
+class ExposureDayCount:
+    """The entities first exposed to one variant on one day, as the warehouse counted them."""
+
+    day: date
+    variant: str
+    count: int
 
 
 def build_experiment_exposure_query(experiment: Experiment) -> ExperimentExposureQuery:
@@ -625,7 +635,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
 
     def _evaluate_warehouse_native_exposures(
         self, multiple_variant_handling: MultipleVariantHandling
-    ) -> list[tuple[date, str, int]]:
+    ) -> list[ExposureDayCount]:
         """Runs the exposure query in the customer's warehouse. One row per day and variant comes back."""
         assert self.warehouse_native_exposure is not None
         connection_id = self._validate_warehouse_native_exposure(self.user)
@@ -647,11 +657,15 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             timings=self.timings,
             settings=HogQLGlobalSettings(max_execution_time=600),
         )
-        rows: list[tuple[date, str, int]] = []
-        for day, variant, count in response.results or []:
-            # The BigQuery client returns a DATE column as a date. A response that went through JSON carries text.
-            rows.append((day if isinstance(day, date) else date.fromisoformat(str(day)[:10]), str(variant), int(count)))
-        return rows
+        return [
+            ExposureDayCount(
+                # The BigQuery client returns a DATE column as a date. A response that went through JSON carries text.
+                day=day if isinstance(day, date) else date.fromisoformat(str(day)[:10]),
+                variant=str(variant),
+                count=int(count),
+            )
+            for day, variant, count in response.results or []
+        ]
 
     @experiment_error_handler
     def _calculate(self) -> ExperimentExposureQueryResponse:
@@ -671,7 +685,12 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         if self.warehouse_native_exposure is not None:
             multiple_variant_handling = get_multiple_variant_handling_from_experiment(self.exposure_criteria)
             exposed_by_library = None
-            results = self._fill_date_gaps(self._evaluate_warehouse_native_exposures(multiple_variant_handling))
+            results = self._fill_date_gaps(
+                [
+                    (row.day, row.variant, row.count)
+                    for row in self._evaluate_warehouse_native_exposures(multiple_variant_handling)
+                ]
+            )
         else:
             exposure_params = get_exposure_config_params_for_builder(
                 self.exposure_criteria, self.team, self.experiment.start_date
