@@ -12,22 +12,18 @@ const LINKS = [
     { target: 'data-catalog', label: 'Data catalog', to: urls.dataCatalog() },
 ]
 
+/** The pages that work without a managed warehouse, which the hidden sidebar would otherwise link. */
 export function WarehouseExplainerAvailable(): JSX.Element {
     return (
-        <section aria-labelledby="warehouse-explainer-available" className="flex flex-col gap-1.5">
-            <Text size="sm" weight="semibold" render={<h2 id="warehouse-explainer-available" className="m-0" />}>
-                Available now
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-1">
+            <Text size="xs" variant="muted" render={<span />}>
+                Works without a warehouse
             </Text>
-            <Text size="xs" variant="muted">
-                These work without a managed warehouse.
-            </Text>
-            <div className="flex flex-wrap gap-x-4 gap-y-1">
-                {LINKS.map((link) => (
-                    <WarehouseExplainerLink key={link.target} to={link.to} target={link.target}>
-                        {link.label}
-                    </WarehouseExplainerLink>
-                ))}
-            </div>
-        </section>
+            {LINKS.map((link) => (
+                <WarehouseExplainerLink key={link.target} to={link.to} target={link.target}>
+                    {link.label}
+                </WarehouseExplainerLink>
+            ))}
+        </div>
     )
 }
