@@ -394,6 +394,7 @@ class HogQLQueryRecordBatchModel(RecordBatchModel):
             self.parsed_hogql_query
         )
         self._use_new_events_schema = False
+        self._cap_flag_call_memory = False
 
     async def get_hogql_context(self) -> HogQLContext:
         team = await Team.objects.aget(id=self.team_id)
@@ -414,9 +415,12 @@ class HogQLQueryRecordBatchModel(RecordBatchModel):
         self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime | None, output_format: str | None
     ) -> tuple[str, HogQLContext]:
         try:
-            return await super()._print_query(data_interval_start, data_interval_end, output_format)
+            printed, context = await super()._print_query(data_interval_start, data_interval_end, output_format)
         except ExposedHogQLError as e:
             raise UnsupportedHogQLQueryError(f"Invalid HogQL query: {e}") from e
+        # The query prints without settings, so the printer cannot apply this cap itself.
+        self._cap_flag_call_memory = context.cap_flag_call_memory
+        return printed, context
 
     def get_hogql_query(
         self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime | None
@@ -437,7 +441,7 @@ class HogQLQueryRecordBatchModel(RecordBatchModel):
         # Sent with the request instead of set on the query AST, because the user query may
         # not parse to a simple `ast.SelectQuery` (e.g. a UNION parses to an
         # `ast.SelectSetQuery`, which has no `settings` field to attach these to).
-        query_settings = get_user_hogql_batch_export_query_settings()
+        query_settings = get_user_hogql_batch_export_query_settings(self._cap_flag_call_memory)
         if self._use_new_events_schema:
             # The query prints without settings, so the printer cannot attach the native read setting itself.
             query_settings.json_type_escape_dots_in_keys = True

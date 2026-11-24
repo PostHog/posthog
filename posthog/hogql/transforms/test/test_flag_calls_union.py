@@ -32,6 +32,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import DatabaseField, FieldTraverser, LazyJoin, StringJSONDatabaseField, VirtualTable
@@ -1327,6 +1328,23 @@ class TestReadFlagCallsWithUnion(BaseTest):
 
         assert (UNKEYED_READ_MEMORY_CAP in sql) is capped
         assert (re.search(r"FROM flag_evaluations\b", sql) is not None) is (mode is not READ or new_events_schema)
+
+    @parameterized.expand(
+        [("no_limit", None, UNKEYED_READ_MEMORY_CAP), ("lower_limit", 1024**3, "max_memory_usage=1073741824")]
+    )
+    def test_printing_with_settings_caps_an_unkeyed_feature_property_read(
+        self, _name: str, max_memory_usage: int | None, expected: str
+    ):
+        _set_mode(self.organization, ONLY)
+        with _enabled_flags(union=False), _flag_evaluations_table_in_catalog():
+            sql, _ = prepare_and_print_ast(
+                parse_select(UNKEYED_FEATURE_PROPERTY),
+                context=HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+                dialect="clickhouse",
+                settings=HogQLGlobalSettings(max_memory_usage=max_memory_usage),
+            )
+
+        assert expected in sql
 
     @parameterized.expand(
         [

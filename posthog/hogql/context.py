@@ -191,7 +191,8 @@ class HogQLContext:
     # The flag-call rewrites that this query applied. `read_tags` reports them to ClickHouse.
     flag_calls_read: set["FlagCallsRead"] = field(default_factory=set)
     # Set when a swapped scan reads a `$feature/<key>` property with no `flag_key` predicate, so ClickHouse parses the
-    # JSON of every flag call. The executor then caps the query's memory instead of refusing it.
+    # JSON of every flag call. The printer then caps `max_memory_usage` in the top-level settings instead of refusing
+    # the query. A caller that sends settings outside the query must apply the cap itself.
     cap_flag_call_memory: bool = False
     # Set when the resolver gives a lazy table a copy of a join predicate. `take_join_filters` skips its walk without it.
     holds_join_filters: bool = field(default=False, compare=False, repr=False)

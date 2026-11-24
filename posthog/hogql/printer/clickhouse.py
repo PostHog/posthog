@@ -9,7 +9,7 @@ from django.conf import settings as django_settings
 
 from posthog.hogql import ast
 from posthog.hogql.ast import AST, Constant, StringType
-from posthog.hogql.constants import HogQLDialect
+from posthog.hogql.constants import HogQLDialect, cap_flag_call_max_memory_usage
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.direct_sql_table import DirectSQLTable
 from posthog.hogql.database.models import (
@@ -506,6 +506,8 @@ class ClickHousePrinter(BasePrinter):
             if not isinstance(node, ast.SelectQuery) and not isinstance(node, ast.SelectSetQuery):
                 raise QueryError("Settings can only be applied to SELECT queries")
             merged = self._merge_table_top_level_settings(self.settings)
+            if self.context.cap_flag_call_memory:
+                merged["max_memory_usage"] = cap_flag_call_max_memory_usage(merged.get("max_memory_usage"))
             # ClickHouse turns the `%2E` in a stored dotted key back into `.` only when the reading query sets this
             # too, so a query that formats the native JSON columns as text without it prints `a%2Eb`. It rides with
             # the global settings, not the table's required settings, so a query printed without settings keeps its

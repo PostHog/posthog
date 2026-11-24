@@ -10,6 +10,7 @@ from django.test import override_settings
 
 import pyarrow as pa
 
+from posthog.hogql.constants import FLAG_CALLS_UNKEYED_FEATURE_READ_MAX_MEMORY_BYTES
 from posthog.hogql.hogql import ast
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 
@@ -593,6 +594,23 @@ class TestHogQLQueryRecordBatchModel:
         await model.as_query_with_context(None, None)
 
         assert model.get_clickhouse_request_settings()["json_type_escape_dots_in_keys"] == "1"
+
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True, BATCH_EXPORT_HOGQL_MAX_MEMORY_USAGE=30_000_000_000)
+    async def test_request_settings_cap_memory_for_an_unkeyed_flag_call_feature_read(
+        self, ateam: "Team", auser: User
+    ) -> None:
+        model = HogQLQueryRecordBatchModel(
+            team_id=ateam.pk,
+            hogql_query="SELECT event AS event FROM events "
+            "WHERE event = '$feature_flag_called' AND properties.`$feature/new-checkout` = 'true'",
+            user_id=auser.pk,
+        )
+        with patch("products.feature_flags.backend.facade.flags.is_flag_evaluations_table_enabled", return_value=True):
+            await model.as_query_with_context(None, None)
+
+        settings = model.get_clickhouse_request_settings()
+        assert settings["max_memory_usage"] == str(FLAG_CALLS_UNKEYED_FEATURE_READ_MAX_MEMORY_BYTES)
+        assert settings["max_bytes_before_external_sort"] == str(FLAG_CALLS_UNKEYED_FEATURE_READ_MAX_MEMORY_BYTES // 2)
 
     @pytest.mark.parametrize(
         "hogql_query,expected_message",
