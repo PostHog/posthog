@@ -646,6 +646,7 @@ class TestExternalDataSource(APIBaseTest):
                 "status",
                 "sync_type",
                 "last_synced_at",
+                "last_checked_at",
                 "sync_frequency",
                 "latest_error",
                 "table",
@@ -817,6 +818,7 @@ class TestExternalDataSource(APIBaseTest):
                 "should_sync": True,
                 "status": ExternalDataSchema.Status.FAILED,
                 "last_synced_at": None,
+                "last_checked_at": None,
                 "latest_error": "boom",
             }
         else:
@@ -3996,6 +3998,7 @@ class TestExternalDataSource(APIBaseTest):
                     "incremental_field_type": None,
                     "incremental_field_lookback_seconds": None,
                     "last_synced_at": schema.last_synced_at,
+                    "last_checked_at": None,
                     "name": schema.name,
                     "label": schema.label,
                     "latest_error": schema.latest_error,

@@ -6,6 +6,8 @@
 }
 
 .DashboardV2__card {
+    // Anchors the menu button of a tile without a header.
+    position: relative;
     width: 100%;
     height: 100%;
 }
@@ -144,8 +146,8 @@
     }
 
     // Resize handles are grab zones along each edge, shown only by the cursor. Each reaches 6px out, half the gap, so
-    // neighbouring tiles' zones never overlap, and the rest of its width sits over the tile's own edge. The bottom right
-    // corner alone draws a grip, inside the tile, so no bar runs along a tile's side.
+    // neighbouring tiles' zones never overlap, and the rest of its width sits over the tile's own edge. No handle draws a
+    // grip, so no bar or corner mark shows on a tile.
     // The selectors are this long, and each edge resets its own transform, to win over the grid library's own
     // handle styles, which rotate each handle.
     .react-grid-item > .react-resizable-handle {
@@ -266,14 +268,7 @@
             transform: none;
 
             &::after {
-                right: 4px;
-                bottom: 4px;
-                width: 8px;
-                height: 8px;
-                background: none;
-                border-right: 2px solid var(--color-text-tertiary, currentColor);
-                border-bottom: 2px solid var(--color-text-tertiary, currentColor);
-                border-radius: 0 0 3px;
+                display: none;
             }
         }
     }

@@ -119,6 +119,7 @@ export const ONE_GRID_TAB = 'A dashboard needs at least one tab with tiles'
 export const dashboardSchema = z.strictObject({
     version: z.literal(2),
     title: z.string(),
+    description: z.string().optional(),
     /** The viewer's access to this dashboard, as v1 dashboards carry it. Missing means the project-wide level. */
     user_access_level: z.enum(AccessControlLevel).optional(),
     tabs: z.array(dashboardTabSchema).refine((tabs) => tabs.some((tab) => 'tiles' in tab), ONE_GRID_TAB),
