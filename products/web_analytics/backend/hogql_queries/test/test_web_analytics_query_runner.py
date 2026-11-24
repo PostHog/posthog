@@ -35,6 +35,7 @@ from posthog.hogql.database.database import Database
 from posthog.clickhouse.query_tagging import Feature, reset_query_tags, tag_queries
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.scoping import team_scope
+from posthog.models.utils import uuid7
 
 from products.actions.backend.facade.testing import create_action
 from products.data_tools.backend.models.expression import DataWarehouseExpression
@@ -352,6 +353,7 @@ class TestFlagCallConversionGoalOnFlagEvaluationsOnly(ClickhouseTestMixin, APIBa
         [
             ("overview_custom_event_goal", "overview", "custom_event"),
             ("overview_action_goal", "overview", "action"),
+            ("overview_joined_custom_event_goal", "overview_joined", "custom_event"),
             ("stats_table_custom_event_goal", "stats_table", "custom_event"),
             ("stats_table_action_goal", "stats_table", "action"),
         ]
@@ -364,7 +366,7 @@ class TestFlagCallConversionGoalOnFlagEvaluationsOnly(ClickhouseTestMixin, APIBa
         person = _create_person(team_id=self.team.pk, distinct_ids=["visitor"])
         timestamp = datetime.now(UTC) - timedelta(hours=1)
         page = {
-            "$session_id": "0190a8d1-3f7a-7b00-8000-000000000001",
+            "$session_id": str(uuid7(int(timestamp.timestamp() * 1000))),
             "$pathname": "/",
             "$current_url": "https://example.com/",
             "$host": "example.com",
@@ -395,10 +397,16 @@ class TestFlagCallConversionGoalOnFlagEvaluationsOnly(ClickhouseTestMixin, APIBa
             conversion_goal = CustomEventConversionGoal(customEventName="$feature_flag_called")
         date_range = DateRange(date_from="-7d")
 
-        if kind == "overview":
+        if kind in ("overview", "overview_joined"):
+            # A session filter keeps the overview off the split conversion-goal path.
+            properties = (
+                [SessionPropertyFilter(key="$entry_pathname", value="/", operator=PropertyOperator.EXACT)]
+                if kind == "overview_joined"
+                else []
+            )
             overview = WebOverviewQueryRunner(
                 team=self.team,
-                query=WebOverviewQuery(dateRange=date_range, properties=[], conversionGoal=conversion_goal),
+                query=WebOverviewQuery(dateRange=date_range, properties=properties, conversionGoal=conversion_goal),
             ).calculate()
             values = {item.key: item.value for item in overview.results}
             assert (values["total conversions"], values["unique conversions"]) == (1, 1)
