@@ -75,9 +75,11 @@ def _to_session_experiments(items: list[session_context.ExperimentSessionContext
     )
 
 
-def _experiment(team_id: int, experiment_id: int) -> Experiment | None:
+def _experiment(project_id: int, experiment_id: int) -> Experiment | None:
+    # Scoped by project, as the experiments API scopes it. `RootTeamQuerySet` resolves a `team_id=` filter to one
+    # team, the parent team or the team itself, so it misses an experiment stored on another team of the project.
     return (
-        Experiment.objects.filter(team_id=team_id, pk=experiment_id, deleted=False)
+        Experiment.live_objects.filter(team__project_id=project_id, pk=experiment_id)
         .select_related("feature_flag")
         .first()
     )
@@ -116,12 +118,12 @@ def get_experiment_session_bucket(
     limit: int,
 ) -> SessionBucketScan | None:
     """The experiment's exposed sessions that match `bucket`, most recent first, for `finalize_session_bucket`. None
-    when the team has no live experiment with this id.
+    when the project has no live experiment with this id.
 
     Raises SessionBucketUnavailable when the bucket can't be computed for the experiment. See
     `session_buckets.get_experiment_session_bucket`.
     """
-    experiment = _experiment(team.pk, experiment_id)
+    experiment = _experiment(team.project_id, experiment_id)
     if experiment is None:
         return None
     return session_buckets.get_experiment_session_bucket(
@@ -131,12 +133,12 @@ def get_experiment_session_bucket(
 
 def get_experiment_session_event_deltas(*, team: Team, user: User, experiment_id: int) -> ExperimentWatchResult | None:
     """The recordings worth watching for the experiment, grouped into cards, for `finalize_watch_cards`. None when
-    the team has no live experiment with this id.
+    the project has no live experiment with this id.
 
     Raises SessionEventDeltasUnavailable when nothing can be compared. See
     `session_event_deltas.get_experiment_session_event_deltas`.
     """
-    experiment = _experiment(team.pk, experiment_id)
+    experiment = _experiment(team.project_id, experiment_id)
     if experiment is None:
         return None
     return session_event_deltas.get_experiment_session_event_deltas(team, user, experiment)

@@ -142,6 +142,7 @@ class TestExperimentSessionBuckets(ClickhouseTestMixin, APILicensedTest):
         exposure_criteria: Optional[dict[str, Any]] = None,
         team: Optional[Team] = None,
         created_by: Optional[User] = None,
+        deleted: Optional[bool] = False,
     ) -> Experiment:
         team = team or self.team
         flag = FeatureFlag.objects.create(
@@ -166,6 +167,7 @@ class TestExperimentSessionBuckets(ClickhouseTestMixin, APILicensedTest):
             start_date=start_date,
             exposure_criteria=exposure_criteria or {},
             metrics=metrics or [],
+            deleted=deleted,
         )
 
     def _session(
@@ -262,8 +264,12 @@ class TestExperimentSessionBuckets(ClickhouseTestMixin, APILicensedTest):
         assert data["excluded_metrics"] == []
         assert data["used_exposure_fallback"] is False
 
-    def test_no_metric_activity_returns_exposed_sessions_without_any_considered_metric(self) -> None:
-        experiment = self._create_experiment(metrics=[PURCHASE_METRIC, SIGNUP_METRIC])
+    # The column is nullable and the API counts a null as live, so the endpoint must serve that row too.
+    @parameterized.expand([("live", False), ("null_deleted", None)])
+    def test_no_metric_activity_returns_exposed_sessions_without_any_considered_metric(
+        self, _name: str, deleted: Optional[bool]
+    ) -> None:
+        experiment = self._create_experiment(metrics=[PURCHASE_METRIC, SIGNUP_METRIC], deleted=deleted)
         quiet = self._session()
         self._session(events=[("purchase", datetime(2026, 1, 9, 10, 5, tzinfo=UTC))])
         self._session(events=[("signup", datetime(2026, 1, 9, 10, 5, tzinfo=UTC))])
