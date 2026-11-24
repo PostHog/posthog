@@ -3217,9 +3217,15 @@ describe('EmailService', () => {
                 finished: true,
                 error: expect.stringMatching(/^Failed to send email via SES: An earlier attempt reached SES/),
                 delivered: 1,
+                sesMayHaveSentResults: 1,
             }
 
-            const deliveredOnceWithoutAnError = { finished: true, error: undefined, delivered: 1 }
+            const deliveredOnceWithoutAnError = {
+                finished: true,
+                error: undefined,
+                delivered: 1,
+                sesMayHaveSentResults: 0,
+            }
 
             it.each([
                 ['SES refuses the connection', refusedOn(['127.0.0.1']), deliveredOnceWithoutAnError],
@@ -3276,6 +3282,8 @@ describe('EmailService', () => {
                     const deadlines = jest
                         .spyOn(AbortSignal, 'timeout')
                         .mockImplementation(() => new AbortController().signal)
+                    const sesMayHaveSent = { result: 'SesMayHaveSentError' }
+                    const sesMayHaveSentBefore = await metricValue('cdp_ses_send_results_total', sesMayHaveSent)
                     try {
                         const result = await emailService.executeSendEmail(invocation)
 
@@ -3283,6 +3291,9 @@ describe('EmailService', () => {
                             finished: result.finished,
                             error: result.error,
                             delivered: deliveredTo(ses, recipient).length,
+                            sesMayHaveSentResults:
+                                (await metricValue('cdp_ses_send_results_total', sesMayHaveSent)) -
+                                sesMayHaveSentBefore,
                         }).toEqual(expected)
                     } finally {
                         deadlines.mockRestore()
