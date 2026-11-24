@@ -52,6 +52,7 @@ export interface Judge {
     open(seed: Pick<SeedState, 'teamIds'>): Promise<void>
     record(unit: JournalEntry): void
     converge(withinMs: number, signal: AbortSignal): Promise<Convergence>
+    settle(converged: Convergence): Convergence
     check(
         invariants: Named[],
         gates: Record<string, number>,
@@ -112,6 +113,8 @@ export function createJudge({
     let cursor = 0
     let teams: number[] = []
     let unread: string | undefined
+    let idleAtMs: number | undefined
+    let lastJobs: number | null = null
 
     const pullTruth = async (): Promise<void> => {
         for (;;) {
@@ -132,7 +135,7 @@ export function createJudge({
                 const page = await retried(() => source.after(cursor, FINAL), finalRead, signal)
                 const records = page.records.filter(({ seq }) => seq <= head!)
                 if (records.length === 0) {
-                    return
+                    throw new Error(`the edge answered no records past ${cursor}`)
                 }
                 truth.push(...records)
                 cursor = records.at(-1)!.seq
@@ -175,6 +178,7 @@ export function createJudge({
             cursor = await source.head()
             truth = []
             unread = undefined
+            idleAtMs = undefined
             teams = [...seed.teamIds]
         },
 
@@ -184,24 +188,51 @@ export function createJudge({
 
         async converge(withinMs, signal) {
             const startedAt = now()
+            idleAtMs = undefined
             for (;;) {
-                const polled = await read(async () => {
-                    await pullTruth()
-                    return probe.unfinishedJobs({ teams, queues: ['hogflow', 'email'] })
-                })
+                await read(pullTruth)
+                const counted = await probe.unfinishedJobs({ teams, queues: ['hogflow', 'email'] }).then(
+                    (jobs) => ({ jobs, unread: undefined }),
+                    (error: unknown) => ({ jobs: null, unread: messageOf(error) })
+                )
+                lastJobs = counted.jobs
                 const unrecorded = unrecordedUnits()
                 const tookMs = now() - startedAt
-                const converged = polled === 0 && unrecorded.length === 0 && tookMs <= withinMs
+                if (counted.jobs !== 0) {
+                    idleAtMs = undefined
+                } else if (tookMs <= withinMs) {
+                    idleAtMs ??= tookMs
+                }
+                const failed = counted.unread ?? unread
+                const converged =
+                    counted.jobs === 0 && unrecorded.length === 0 && failed === undefined && tookMs <= withinMs
                 if (converged || tookMs >= withinMs || signal.aborted) {
                     return {
                         converged,
-                        unfinishedJobs: polled ?? null,
+                        unfinishedJobs: failed === undefined ? counted.jobs : null,
                         unrecorded,
                         tookMs,
-                        ...(unread !== undefined && { unread }),
+                        ...(failed !== undefined && { unread: failed }),
                     }
                 }
                 await sleep(Math.min(pollMs, withinMs - tookMs), undefined, { signal }).catch(() => undefined)
+            }
+        },
+
+        settle(converged) {
+            if (unread !== undefined) {
+                return { ...converged, unread }
+            }
+            if (converged.unread === undefined || lastJobs === null) {
+                return converged
+            }
+            const unrecorded = unrecordedUnits()
+            const idle = idleAtMs !== undefined && unrecorded.length === 0
+            return {
+                converged: idle,
+                unfinishedJobs: lastJobs,
+                unrecorded,
+                tookMs: idle ? idleAtMs! : converged.tookMs,
             }
         },
 
