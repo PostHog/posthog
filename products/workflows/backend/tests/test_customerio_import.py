@@ -1349,6 +1349,7 @@ class TestWorkflowImportAPI(APIBaseTest):
             ("lone_surrogate_in_text", "<p>\ud800</p>", "{}"),
             ("nul", "<p>\x00</p>", "{}"),
             ("escaped_in_a_webhook_body", "<p>Hi</p>", r'{"a": "\u0000", "b": "\ud800"}'),
+            ("deep_in_a_webhook_body", "<p>Hi</p>", r'{"a": ' + "[" * 250 + r'"\u0000"' + "]" * 250 + "}"),
         ]
     )
     @patch("products.workflows.backend.services.email_images.requests.get", return_value=MagicMock(status_code=404))
@@ -1356,8 +1357,13 @@ class TestWorkflowImportAPI(APIBaseTest):
         self, _name: str, body: str, webhook_body: str, _mock_get: MagicMock
     ) -> None:
         source = _onboarding_campaign()
-        webhook = {"id": "15", "url": "https://crm.example.com", "request_method": "POST", "body": webhook_body}
-        campaigns = [
+        webhook: dict[str, Any] = {
+            "id": "15",
+            "url": "https://crm.example.com",
+            "request_method": "POST",
+            "body": webhook_body,
+        }
+        campaigns: list[dict[str, Any]] = [
             {
                 "campaign": {**source.campaign, "id": campaign_id},
                 "actions": [
@@ -1367,7 +1373,7 @@ class TestWorkflowImportAPI(APIBaseTest):
                     for action in source.actions
                 ],
                 "templates": [
-                    {**source.templates["11"], "body": campaign_body},
+                    dict[str, Any](source.templates["11"], body=campaign_body),
                     *list(source.templates.values())[1:],
                     webhook if campaign_id == "43" else {**webhook, "body": "{}"},
                 ],
