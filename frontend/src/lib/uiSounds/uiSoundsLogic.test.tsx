@@ -8,10 +8,11 @@ import { initKeaTests } from '~/test/init'
 import { uiSoundsLogic } from './uiSoundsLogic'
 
 const mockPlayedSounds: string[] = []
+const mockLoadedSounds: string[] = []
 
 jest.mock('button-sounds', () => ({
     setPath: () => {},
-    load: () => {},
+    load: (name: string) => mockLoadedSounds.push(name),
     press: (name: string) => mockPlayedSounds.push(name),
     release: () => {},
 }))
@@ -20,6 +21,7 @@ describe('uiSoundsLogic', () => {
     let logic: ReturnType<typeof uiSoundsLogic.build>
 
     beforeEach(() => {
+        localStorage.clear()
         initKeaTests()
         logic = uiSoundsLogic()
         logic.mount()
@@ -29,6 +31,7 @@ describe('uiSoundsLogic', () => {
         logic.unmount()
         cleanup()
         mockPlayedSounds.length = 0
+        mockLoadedSounds.length = 0
     })
 
     it('plays sounds only while the setting is on', async () => {
@@ -57,5 +60,30 @@ describe('uiSoundsLogic', () => {
         pressSwitch()
 
         await waitFor(() => expect(mockPlayedSounds).toEqual(['hi75-soft', 'lock-closed']))
+    })
+
+    it('loads only the samples of a control the pointer reaches, and only while the setting is on', async () => {
+        const { container } = render(
+            <>
+                <LemonSwitch checked={false} onChange={() => {}} />
+                <LemonButton>Save</LemonButton>
+            </>
+        )
+        const hoverSwitch = (): boolean =>
+            fireEvent(container.querySelector('[role="switch"]')!, new MouseEvent('pointerover', { bubbles: true }))
+        const pressButton = (): boolean =>
+            fireEvent(
+                container.querySelector('.LemonButton')!,
+                new MouseEvent('pointerdown', { bubbles: true, button: 0 })
+            )
+
+        hoverSwitch()
+        logic.actions.setUiSoundsEnabled(true)
+        hoverSwitch()
+        pressButton()
+
+        // The press resolves after the hover, so the first hover's samples would already be in the list.
+        await waitFor(() => expect(mockPlayedSounds).toEqual(['hi75-soft']))
+        expect(mockLoadedSounds).toEqual(['lock-closed', 'lock-open'])
     })
 })

@@ -25,9 +25,16 @@ function loadButtonSounds(): Promise<typeof import('button-sounds')> {
     return buttonSounds
 }
 
-/** Fetches every sample up front, so the first press does not wait for its file to download. */
-export function preloadUiSounds(): void {
-    void loadButtonSounds().then(({ load }) => Object.values(SOUND_NAMES).forEach(load))
+// A switch plays both of its samples over time, so reaching one loads the pair.
+const WARM_UP_NAMES: Record<UiSound, SoundName[]> = {
+    click: ['hi75-soft'],
+    'toggle-on': ['lock-closed', 'lock-open'],
+    'toggle-off': ['lock-closed', 'lock-open'],
+}
+
+/** Downloads the samples a control needs when the pointer reaches it, before the press that plays them. */
+export function warmUpUiSound(sound: UiSound): void {
+    void loadButtonSounds().then(({ load }) => WARM_UP_NAMES[sound].forEach((name) => load(name)))
 }
 
 export function playUiSound(sound: UiSound): void {

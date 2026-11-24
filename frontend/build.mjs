@@ -372,13 +372,11 @@ function copyEmojibaseData() {
 }
 
 // uiSoundsLogic loads these from /static/button-sounds, so keep them in sync with playUiSound.ts and the Vite plugin.
-const BUTTON_SOUND_FILES = ['hi75-soft.mp3', 'lock-closed.mp3', 'lock-open.mp3']
-
 function copyButtonSounds() {
     const from = path.resolve(__dirname, 'node_modules', 'button-sounds', 'assets')
     const to = path.resolve(__dirname, 'dist', 'button-sounds')
     fs.mkdirSync(to, { recursive: true })
-    for (const file of BUTTON_SOUND_FILES) {
+    for (const file of ['hi75-soft.mp3', 'lock-closed.mp3', 'lock-open.mp3']) {
         fs.copyFileSync(path.resolve(from, file), path.resolve(to, file))
     }
 }
