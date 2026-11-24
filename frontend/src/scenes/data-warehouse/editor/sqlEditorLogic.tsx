@@ -429,6 +429,12 @@ export function normalizeRawQuerySource(source: HogQLQuery): HogQLQuery {
     }
 }
 
+// Only editor state is dropped. Connection and engine fields stay, so a non-ClickHouse query fails to save.
+function metricDefinitionFromSource(source: HogQLQuery, query: string): Record<string, unknown> {
+    const { variables: _variables, filters: _filters, ...definition } = normalizeRawQuerySource({ ...source, query })
+    return definition
+}
+
 export function viewHasLineage(view: DataWarehouseSavedQuery): boolean {
     return viewEngine(view).capabilities.lineage.available
 }
@@ -3216,10 +3222,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     const created = await createMetricAsUser(
                         {
                             ...fields,
-                            definition: normalizeRawQuerySource({
-                                ...(values.sourceQuery.source as HogQLQuery),
-                                query: queryOverride ?? values.queryInput ?? '',
-                            }) as unknown as Record<string, unknown>,
+                            definition: metricDefinitionFromSource(
+                                values.sourceQuery.source,
+                                queryOverride ?? values.queryInput ?? ''
+                            ),
                             overwrite,
                         },
                         approve
@@ -3292,10 +3298,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         String(ApiConfig.getCurrentTeamId()),
                         values.editingMetricName,
                         {
-                            definition: normalizeRawQuerySource({
-                                ...(values.sourceQuery.source as HogQLQuery),
-                                query: values.queryInput ?? '',
-                            }) as unknown as Record<string, unknown>,
+                            definition: metricDefinitionFromSource(values.sourceQuery.source, values.queryInput ?? ''),
                         }
                     )
                     captureBIEditorQuerySaved(biEditorState, 'metric', 'update')
@@ -3951,6 +3954,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         source: {
                             ...normalizeRawQuerySource(query.source),
                             filters: normalizeFiltersForUrl(query.source.filters),
+                            variables: query.source.variables ?? {},
                         },
                     })
                 const currentQuery = { ...sourceQuery, source: { ...sourceQuery.source, query: queryInput } }

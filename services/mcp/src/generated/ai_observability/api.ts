@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 103 enabled ops
+ * PostHog API - MCP 101 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -4321,75 +4321,4 @@ export const LlmPromptsNameLabelsDestroyParams = () => zod.object({
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
     prompt_name: zod.string().regex(llmPromptsNameLabelsDestroyPathPromptNameRegExp),
-})
-
-export const TaggersListParams = () => zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-})
-
-export const TaggersListQueryParams = () => zod.object({
-    enabled: zod.boolean().optional().describe('Filter by enabled status'),
-    id__in: zod.array(zod.string()).optional().describe('Multiple values may be separated by commas.'),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
-    migrated_to_evaluation_id: zod.string().optional().describe('Only the tagger that was migrated to this evaluation'),
-    offset: zod.number().optional().describe('The initial index from which to return the results.'),
-    order_by: zod
-        .array(zod.string())
-        .optional()
-        .describe(
-            'Ordering\n\n\* `created_at` - Created At\n\* `-created_at` - Created At (descending)\n\* `updated_at` - Updated At\n\* `-updated_at` - Updated At (descending)\n\* `name` - Name\n\* `-name` - Name (descending)'
-        ),
-    search: zod.string().optional().describe('Search in name or description'),
-})
-
-/**
- * Test Hog tagger code against sample events without saving.
- */
-export const TaggersTestHogCreateParams = () => zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-})
-
-export const taggersTestHogCreateBodySampleCountDefault = 5
-export const taggersTestHogCreateBodySampleCountMax = 10
-
-export const taggersTestHogCreateBodyTagsItemNameMax = 100
-
-export const taggersTestHogCreateBodyTagsItemDescriptionDefault = ``
-export const taggersTestHogCreateBodyTagsItemDescriptionMax = 500
-
-export const TaggersTestHogCreateBody = () => zod.object({
-    source: zod
-        .string()
-        .min(1)
-        .describe('Hog source code to test. Return a tag name string, a list of tag name strings, or null.'),
-    sample_count: zod
-        .number()
-        .min(1)
-        .max(taggersTestHogCreateBodySampleCountMax)
-        .default(taggersTestHogCreateBodySampleCountDefault)
-        .describe('Number of recent $ai_generation events to test against (1-10, default 5).'),
-    tags: zod
-        .array(
-            zod.object({
-                name: zod
-                    .string()
-                    .max(taggersTestHogCreateBodyTagsItemNameMax)
-                    .describe('Tag identifier to allow in Hog test results.'),
-                description: zod
-                    .string()
-                    .max(taggersTestHogCreateBodyTagsItemDescriptionMax)
-                    .default(taggersTestHogCreateBodyTagsItemDescriptionDefault)
-                    .describe('Optional description for the tag.'),
-            })
-        )
-        .optional()
-        .describe('Optional tag whitelist. Returned tags outside this list are filtered out.'),
 })

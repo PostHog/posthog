@@ -60,6 +60,31 @@
             "description": "Only insights whose name contains this text, ignoring case.",
             "maxLength": 200,
             "type": "string"
+        },
+        "viewed_within_days": {
+            "anyOf": [
+                {
+                    "const": 7,
+                    "type": "number"
+                },
+                {
+                    "const": 14,
+                    "type": "number"
+                },
+                {
+                    "const": 30,
+                    "type": "number"
+                },
+                {
+                    "const": 45,
+                    "type": "number"
+                },
+                {
+                    "const": 90,
+                    "type": "number"
+                }
+            ],
+            "description": "Only the insights the caller viewed in this many days: insights they opened, and insights on the dashboards they opened, with the tiles those dashboards have now. Views count only in the web app, not through the API or an MCP tool. Without it the search covers every insight in the project. When the caller viewed no insight in the window, the search covers every insight and `viewed_scope_empty` is true.\n\n* `7` - 7\n* `14` - 14\n* `30` - 30\n* `45` - 45\n* `90` - 90"
         }
     },
     "type": "object"

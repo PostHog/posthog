@@ -1556,9 +1556,9 @@ class StamphogGitHubClient:
     def remove_pr_label(self, repo: str, number: int, label: str) -> None:
         """Remove a label from a PR (``DELETE .../issues/{number}/labels/{label}``).
 
-        Strips the trigger label after a refused/escalated verdict in label-triggered review mode, so
-        the author re-adds it to request another review — Action parity. A 404 means the label is
-        already gone (benign, swallowed); any other non-success raises so the activity can retry.
+        Strips the trigger label after a refused/escalated verdict, so the author adds it to request
+        another review — Action parity. A 404 means the label is already gone or was never on the PR
+        (benign, swallowed); any other non-success raises so the activity can retry.
         """
         path = f"/repos/{repo}/issues/{number}/labels/{quote(label, safe='')}"
         response = self._request(

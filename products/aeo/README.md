@@ -28,11 +28,14 @@ Environment (all default empty — the runner is a no-op until configured):
 | `AI_GATEWAY_URL` / `AI_GATEWAY_API_KEY`    | Existing gateway settings; enable the Claude + OpenAI engines.                                                                 |
 | `EXA_API_KEY`                              | Enables the Exa engine.                                                                                                        |
 | `AEO_PERPLEXITY_ENABLED`                   | Default false. Runs Perplexity via the gateway once legal signs off; dry-run steps in [Perplexity engine](#perplexity-engine). |
-| `AEO_CITATION_TEAM_IDS`                    | Comma-separated team ids the scheduled runner covers.                                                                          |
 | `AEO_ANTHROPIC_MODEL` / `AEO_OPENAI_MODEL` | Engine model overrides.                                                                                                        |
 | `AEO_PERPLEXITY_MODEL`                     | Perplexity model on the gateway (default `posthog/perplexity/sonar`, the gateway id for Perplexity's `perplexity/sonar`).      |
 
-The scheduled task is additionally gated per team by the `aeo-citation-tracking` feature flag.
+The scheduled tasks cover the teams with active prompts whose organization is active, not pending deletion, and approved AI data processing.
+The API, MCP tools and page are gated per user by the `web-analytics-content-autopilot` flag, which the early-access feature controls, so only those users can add or turn on prompts.
+The `aeo-citation-tracking` feature flag picks which organizations get scheduled runs, evaluated per organization group.
+PostHog pays for every engine call and nothing caps a team's active prompts yet, so add organizations to it by hand and do not roll it out widely.
+Removing an organization from it stops that organization's runs.
 
 Each project decides which domains count as "us" through its own brands: the rows of its brand catalog with kind `own` that nobody ignored.
 Add one before the first run, with `POST /api/projects/<id>/aeo_brands/` (`{"domain": "example.com", "kind": "own"}`) or the `aeo-brands-create` MCP tool.
@@ -54,7 +57,7 @@ python manage.py seed_aeo_prompts --team-id <id> --csv control_prompts.csv --csv
 # 2. Smoke test — 3 prompts, real engine calls, nothing captured:
 python manage.py run_aeo_citation_checks --team-id <id> --limit 3 --dry-run
 
-# 3. Real run (also runs daily via celery beat for allowlisted+flagged teams):
+# 3. Real run (also runs daily via celery beat for enabled teams):
 python manage.py run_aeo_citation_checks --team-id <id>
 
 ```
@@ -72,7 +75,7 @@ The MCP tools for it are `aeo-prompts-suggest` and `aeo-prompts-suggestion-get`.
 
 ### Import over the API
 
-`/api/projects/<id>/aeo_prompts/` lists the prompt set (filter with `?topic=`, `?active=true|false` and `?branded=true|false`; archived prompts are left out unless `?include_archived=true`; each prompt carries `latest_checks`, its newest check per engine, its `current_version` and `version_count`, and `branded`), lists topics with `GET topics/`, sums up the whole set with `GET overview/?days=30` (prompts tracked, checks, citation and mention rates against the window before, the same per engine and per topic, and the domains the engines cite most), lists the answers across the set that cited a page, cited a site (subdomains included) or ran a search with `GET citations/?url=`, `?domain=` or `?search=` (exactly one, with `days`, `branded` and `engine` as filters), returns one prompt's check history with `GET <prompt_id>/checks/` (newest first, filter with `?engine=` and `?version=`) and its per-engine totals and 30-day daily counts with `GET <prompt_id>/stats/`, lists its versions with `GET <prompt_id>/versions/` (newest first), edits a prompt with `PATCH <prompt_id>/`, archives one with `DELETE <prompt_id>/`, and imports prompts with `POST bulk_import/`. It is gated by the `aeo-citation-tracking` flag and accepts personal API keys with `web_analytics:write`:
+`/api/projects/<id>/aeo_prompts/` lists the prompt set (filter with `?topic=`, `?active=true|false` and `?branded=true|false`; archived prompts are left out unless `?include_archived=true`; each prompt carries `latest_checks`, its newest check per engine, its `current_version` and `version_count`, and `branded`), lists topics with `GET topics/`, sums up the whole set with `GET overview/?date_from=-30d` (prompts tracked, checks, citation and mention rates against the window before, the same per engine and per topic, and the domains the engines cite most), lists the answers across the set that cited a page, cited a site (subdomains included) or ran a search with `GET citations/?url=`, `?domain=` or `?search=` (exactly one, with `date_from`, `date_to`, `branded` and `engine` as filters), returns one prompt's check history with `GET <prompt_id>/checks/` (newest first, filter with `?engine=` and `?version=`) and its per-engine totals and 30-day daily counts with `GET <prompt_id>/stats/`, lists its versions with `GET <prompt_id>/versions/` (newest first), edits a prompt with `PATCH <prompt_id>/`, archives one with `DELETE <prompt_id>/`, and imports prompts with `POST bulk_import/`. It is gated by the `web-analytics-content-autopilot` flag and accepts personal API keys with `web_analytics:write`:
 
 ```bash
 curl -X POST "$HOST/api/projects/<id>/aeo_prompts/bulk_import/" \
@@ -87,7 +90,7 @@ curl -X POST "$HOST/api/projects/<id>/aeo_prompts/bulk_import/" \
 - `external_visibility` (0-100) is the share of answers that mention the brand, as reported by the tool the set came from. It is kept in the prompt's evidence to benchmark against our own rates.
 - A prompt is branded when its text names the brand: a brand name from `brand.py` (the registrable name of one of the project's own domains) as a word, case ignored.
   Each check stores it as `prompt_branded` for the prompt as it ran, and the reconcile after an own-brand change rewrites it across the whole history. The prompt list computes it when read. Without an own brand every prompt is non-branded.
-  `GET overview/` and `GET rankings/` take `?branded=all|branded|non_branded` (default `all`), which keeps the checks whose prompt, as it ran, names the brand or does not.
+  `GET overview/`, `GET rankings/` and `GET movers/` take `?branded=all|branded|non_branded` (default `all`), which keeps the checks whose prompt, as it ran, names the brand or does not.
   Every count uses the same checks, the window before included. The overview also returns `branded_answers` and `non_branded_answers`, the answered checks on each side in the current window.
 
 ### Weekly dashboard
@@ -102,7 +105,7 @@ People get it weekly through a regular dashboard subscription, in Slack or email
 
 A prompt keeps its id, so its checks, stats and detail view stay in one place. Its text lives in numbered versions (`posthog_aeo_prompt_version`), and `current_version` points at the one the runner sends. Version rows never change.
 
-- `PATCH {"active": false}` turns a prompt off, and `PATCH {"topic": "..."}` changes its topic in place. Past checks keep the topic they ran with.
+- `PATCH {"active": false}` turns a prompt off, and `PATCH {"topic": "..."}` changes its topic in place. Past checks keep the topic they ran with. Topics that differ only in letter case are one topic in the overview, `GET topics/`, the `?topic=` filter and the dashboard.
 - `PATCH {"prompt": "...", "version_description": "..."}` adds the next version and makes it current. A change of case or whitespace only adds no version. The edit fails with 409 when another prompt in the set, archived ones included, already has the text.
 - `PATCH {"current_version": 1}` makes an existing version current again, for example to roll back a reword. It fails with 400 when the version does not exist.
 - `DELETE` or `PATCH {"archived": true}` archives a prompt: it is turned off, never runs, and keeps its versions and checks. `PATCH {"archived": false}` restores it, and it stays off unless the same request sends `"active": true`. An archived prompt accepts no other change until it is restored.
@@ -201,15 +204,15 @@ People review the catalog over the API (`/api/projects/<id>/aeo_brands/`) or the
 Keywords belong to the project, not to a prompt. Each one is measured over the checks already stored, as a case-insensitive phrase match, in three places: the prompts, the engines' web searches and the answers.
 
 - `GET /api/projects/<id>/aeo_keywords/` lists the keywords, `POST` with `{"keywords": [...]}` adds many at once and reports `created` and `skipped` (blank entries and keywords already listed are skipped, and passing the cap fails with 400), and `DELETE <keyword_id>/` removes one.
-- `GET aeo_keywords/report/?days=7` (at most 30, in the project's timezone) returns one row per keyword over answered checks: the prompts that contain it with their mention and citation rates, how often the engines searched for it and the citation rate in those answers, and how often answers use it, with the brand-mention rate, the citation position and how early the brand is named.
-- `GET aeo_keywords/modifiers/?days=7&keyword=` returns the words and two-word phrases the engines added to their searches beyond the prompt, each counted once per answer, with a kind (freshness, pricing, comparison, docs, site, competitor or other), its citation rate against the baseline, the engines that used it and example searches. `keyword` restricts it to answers whose searches contain that keyword. The kinds come from a fixed word list in `keywords.py`, and competitor terms come from the brand catalog.
+- `GET aeo_keywords/report/?date_from=-7d` (at most 91 days, in the project's timezone) returns one row per keyword over answered checks: the prompts that contain it with their mention and citation rates, how often the engines searched for it and the citation rate in those answers, and how often answers use it, with the brand-mention rate, the citation position and how early the brand is named.
+- `GET aeo_keywords/modifiers/?date_from=-7d&keyword=` returns the words and two-word phrases the engines added to their searches beyond the prompt, each counted once per answer, with a kind (freshness, pricing, comparison, docs, site, competitor or other), its citation rate against the baseline, the engines that used it and example searches. `keyword` restricts it to answers whose searches contain that keyword. The kinds come from a fixed word list in `keywords.py`, and competitor terms come from the brand catalog.
 - The MCP tools are `aeo-keywords-list`, `aeo-keywords-get`, `aeo-keywords-create`, `aeo-keywords-delete`, `aeo-keywords-report-get` and `aeo-keywords-modifiers-get`.
 
 The AI visibility page has a Keywords tab with the list, the report and the modifiers.
 
 ## Content autopilot
 
-Web analytics' Content autopilot (`/web/ai-visibility`, flag `web-analytics-content-autopilot`) reads this table through `list_citation_gaps` in `facade/api.py`. Each active prompt that an engine answered without citing a target domain becomes a content opportunity, and a person picks which ones to draft. Its Prompts tab opens with an overview of the last 30 days against the 30 days before (prompts tracked, checks run, mention and citation rates), the citation rate per engine per day, the mention rate per topic (a row filters the list to that topic), and the sites the engines cite most. Below it lists the prompt set with each prompt's latest result per engine, and a switch on each row turns the prompt on or off. A "Show archived" switch adds archived prompts to the list. Clicking a prompt opens its detail: its current version, citation rate per engine, a 30-day grid of results, the latest answer per engine, its versions when it has more than one, and the full check history with the version each check ran. The detail can archive and restore the prompt. Adding prompts or changing their text goes through the API or the MCP tools. Drafting and its review flow live in `products/web_analytics/backend/content_autopilot/`.
+Web analytics' Content autopilot (`/web/ai-visibility`, flag `web-analytics-content-autopilot`) reads this table through `list_citation_gaps` in `facade/api.py`. Each active prompt that an engine answered without citing a target domain becomes a content opportunity, and a person picks which ones to draft. Its Prompts tab opens with an overview of the date range picked in the filter bar (the last 30 days by default) against the range of the same length before (prompts tracked, checks run, mention and citation rates), the citation rate per engine per day, the mention rate per topic (a row filters the list to that topic), and the sites the engines cite most. Below it lists the prompt set with each prompt's latest result per engine, and a switch on each row turns the prompt on or off. A "Show archived" switch adds archived prompts to the list. Clicking a prompt opens its detail: its current version, citation rate per engine, a 30-day grid of results, the latest answer per engine, its versions when it has more than one, and the full check history with the version each check ran. The detail can archive and restore the prompt. Adding prompts or changing their text goes through the API or the MCP tools. Drafting and its review flow live in `products/web_analytics/backend/content_autopilot/`.
 
 ## Cost
 

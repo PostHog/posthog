@@ -19,7 +19,7 @@ describe('releaseStage', () => {
         ['CustomerAnalyticsAccount', 'Acme Inc', null],
         ['Dashboard', 'Dashboard', null],
         ['AIObservability', 'AI observability', null],
-        ['AIObservabilityTags', 'Taggers', 'alpha'],
+        ['Autoresearch', 'Autoresearch', 'alpha'],
         ['SQLEditor', 'SQL editor', null],
         ['Pulse', undefined, null],
         [null, 'Pulse', null],

@@ -12,9 +12,8 @@ class TestLagoSource:
         # The API key is sent to api_url, so retargeting it must re-require the key.
         assert self.source.connection_host_fields == ["api_url"]
 
-    def test_all_schemas_are_full_refresh(self):
-        # Lago exposes no universal server-side cursor, so every stream ships full-refresh only.
+    def test_only_activity_logs_sync_incrementally_and_never_append(self):
+        # The lookback re-reads an overlap and `from_date` is inclusive, so append would duplicate rows.
         schemas = self.source.get_schemas(self.config, self.team_id)
-        assert all(s.supports_incremental is False for s in schemas)
-        assert all(s.supports_append is False for s in schemas)
-        assert all(s.incremental_fields == [] for s in schemas)
+        assert [s.name for s in schemas if s.supports_incremental] == ["activity_logs"]
+        assert not any(s.supports_append for s in schemas)

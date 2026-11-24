@@ -97,6 +97,7 @@ def forced_variant_values(ctx: HealthContext) -> CheckValues:
         ExperimentHealthValueKey.FLAG_SERVICE_CALL_PERCENTAGE: (
             round(traffic.remotely_evaluated_calls / traffic.calls * 100, 2) if traffic.calls else None
         ),
+        ExperimentHealthValueKey.FILTERS_TEST_ACCOUNTS: traffic.filters_test_accounts,
     }
 
 

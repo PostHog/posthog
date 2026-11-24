@@ -44,7 +44,8 @@
 # ---
 # name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.1
   '''
-  SELECT "feature_flags_organizationfeatureflagsconfig"."flag_evaluations_mode" AS "flag_evaluations_mode"
+  SELECT "feature_flags_organizationfeatureflagsconfig"."flag_evaluations_mode" AS "flag_evaluations_mode",
+         "feature_flags_organizationfeatureflagsconfig"."keep_writing_flag_calls_to_events" AS "keep_writing_flag_calls_to_events"
   FROM "feature_flags_organizationfeatureflagsconfig"
   WHERE "feature_flags_organizationfeatureflagsconfig"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
   ORDER BY "feature_flags_organizationfeatureflagsconfig"."organization_id" ASC
@@ -376,7 +377,8 @@
 # ---
 # name: TestDatabase.test_database_with_warehouse_tables_and_saved_queries_n_plus_1.8
   '''
-  SELECT "feature_flags_organizationfeatureflagsconfig"."flag_evaluations_mode" AS "flag_evaluations_mode"
+  SELECT "feature_flags_organizationfeatureflagsconfig"."flag_evaluations_mode" AS "flag_evaluations_mode",
+         "feature_flags_organizationfeatureflagsconfig"."keep_writing_flag_calls_to_events" AS "keep_writing_flag_calls_to_events"
   FROM "feature_flags_organizationfeatureflagsconfig"
   WHERE "feature_flags_organizationfeatureflagsconfig"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
   ORDER BY "feature_flags_organizationfeatureflagsconfig"."organization_id" ASC
@@ -2602,6 +2604,17 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "integer"
+              },
+              "warehouse_table_ids": {
+                  "chain": null,
+                  "description": "Ids of the warehouse tables a HogQL query read. Empty for other queries, when it read none, and after about one month.",
+                  "fields": null,
+                  "hogql_value": "warehouse_table_ids",
+                  "id": null,
+                  "name": "warehouse_table_ids",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "array"
               }
           },
           "id": "query_log",
@@ -9660,17 +9673,6 @@
                   "table": null,
                   "type": "string"
               },
-              "confidence": {
-                  "chain": null,
-                  "description": "Discovery confidence retained from the accepted proposal behind this active join, 0-1.",
-                  "fields": null,
-                  "hogql_value": "confidence",
-                  "id": null,
-                  "name": "confidence",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "float"
-              },
               "reasoning": {
                   "chain": null,
                   "description": "Why a join was proposed; retained on the active join after acceptance.",
@@ -10095,17 +10097,6 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
-              },
-              "confidence": {
-                  "chain": null,
-                  "description": "Discovery confidence in the proposed join, 0-1.",
-                  "fields": null,
-                  "hogql_value": "confidence",
-                  "id": null,
-                  "name": "confidence",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "float"
               },
               "reasoning": {
                   "chain": null,
@@ -15036,11 +15027,22 @@
               },
               "last_synced_at": {
                   "chain": null,
-                  "description": "When this table last finished syncing.",
+                  "description": "When this table last loaded new rows. A sync that finds nothing new can leave it unchanged, so judge staleness with last_checked_at.",
                   "fields": null,
                   "hogql_value": "last_synced_at",
                   "id": null,
                   "name": "last_synced_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "last_checked_at": {
+                  "chain": null,
+                  "description": "When a sync last checked the source successfully, including runs that found no new rows. Use this, not last_synced_at, to judge whether an enabled table is stale.",
+                  "fields": null,
+                  "hogql_value": "last_checked_at",
+                  "id": null,
+                  "name": "last_checked_at",
                   "schema_valid": true,
                   "table": null,
                   "type": "datetime"
@@ -19560,6 +19562,17 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "integer"
+              },
+              "warehouse_table_ids": {
+                  "chain": null,
+                  "description": "Ids of the warehouse tables a HogQL query read. Empty for other queries, when it read none, and after about one month.",
+                  "fields": null,
+                  "hogql_value": "warehouse_table_ids",
+                  "id": null,
+                  "name": "warehouse_table_ids",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "array"
               }
           },
           "id": "query_log",
@@ -26618,17 +26631,6 @@
                   "table": null,
                   "type": "string"
               },
-              "confidence": {
-                  "chain": null,
-                  "description": "Discovery confidence retained from the accepted proposal behind this active join, 0-1.",
-                  "fields": null,
-                  "hogql_value": "confidence",
-                  "id": null,
-                  "name": "confidence",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "float"
-              },
               "reasoning": {
                   "chain": null,
                   "description": "Why a join was proposed; retained on the active join after acceptance.",
@@ -27053,17 +27055,6 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
-              },
-              "confidence": {
-                  "chain": null,
-                  "description": "Discovery confidence in the proposed join, 0-1.",
-                  "fields": null,
-                  "hogql_value": "confidence",
-                  "id": null,
-                  "name": "confidence",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "float"
               },
               "reasoning": {
                   "chain": null,
@@ -31994,11 +31985,22 @@
               },
               "last_synced_at": {
                   "chain": null,
-                  "description": "When this table last finished syncing.",
+                  "description": "When this table last loaded new rows. A sync that finds nothing new can leave it unchanged, so judge staleness with last_checked_at.",
                   "fields": null,
                   "hogql_value": "last_synced_at",
                   "id": null,
                   "name": "last_synced_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "last_checked_at": {
+                  "chain": null,
+                  "description": "When a sync last checked the source successfully, including runs that found no new rows. Use this, not last_synced_at, to judge whether an enabled table is stale.",
+                  "fields": null,
+                  "hogql_value": "last_checked_at",
+                  "id": null,
+                  "name": "last_checked_at",
                   "schema_valid": true,
                   "table": null,
                   "type": "datetime"

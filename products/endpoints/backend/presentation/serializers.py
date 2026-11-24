@@ -135,6 +135,17 @@ class EndpointColumnSerializer(serializers.Serializer):
     )
 
 
+class EndpointPlanClampSerializer(serializers.Serializer):
+    previous_data_freshness_seconds = serializers.IntegerField(
+        allow_null=True,
+        help_text="The data freshness, in seconds, the endpoint had before the rewrite. Null when it had none.",
+    )
+    plan_floor_seconds = serializers.IntegerField(
+        help_text="The data freshness, in seconds, the endpoint was set to: the fastest the organization's plan allowed.",
+    )
+    at = serializers.DateTimeField(help_text="When the data freshness was rewritten.")
+
+
 class EndpointResponseSerializer(serializers.Serializer):
     """Full endpoint representation returned by list/retrieve/create/update."""
 
@@ -163,6 +174,14 @@ class EndpointResponseSerializer(serializers.Serializer):
             "The fastest data freshness, in seconds, the organization's plan allows for a materialized "
             "endpoint. A faster value can't be saved while the endpoint is materialized. Null when the "
             "plan sets no minimum."
+        ),
+    )
+    plan_clamp = EndpointPlanClampSerializer(
+        allow_null=True,
+        help_text=(
+            "Set when a scheduled run slowed this materialized endpoint's data freshness to the fastest one the "
+            "organization's plan allows. Saving a different data freshness clears it. Null when no such rewrite "
+            "stands."
         ),
     )
     endpoint_path = serializers.CharField(
