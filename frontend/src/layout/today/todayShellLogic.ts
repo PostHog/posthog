@@ -183,7 +183,7 @@ export function railPaneForPath(pathname: string, featureFlags: FeatureFlagsSet)
     if (isUnderPath(path, '/settings') || settingsSectionSceneForPath(path)) {
         return 'settings'
     }
-    // Source and destination setup pages live under /data-warehouse, apart from the Sources and Destinations they belong to.
+    // Setup pages live under /data-warehouse, apart from the Sources and Destinations they belong to.
     if (
         isUnderPath(path, urls.library()) ||
         isUnderPath(path, urls.tools()) ||

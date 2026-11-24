@@ -1,9 +1,7 @@
 import { FEATURE_FLAGS } from 'lib/constants'
-import { DEFINITIONS_TABS } from 'scenes/data-management/definitionsSceneTabsLogic'
 
 import {
     WAREHOUSE_ITEMS,
-    hrefPath,
     isWarehouseToolHref,
     visibleWarehouseItems,
     warehouseItemForLocation,
@@ -19,7 +17,6 @@ describe('todayWarehouseItems', () => {
     })
 
     test.each([
-        ...DEFINITIONS_TABS.map((tab): [string, string | null] => [hrefPath(tab.url), 'definitions']),
         ['/sql', 'sql_editor'],
         ['/data-management/sources/abc/schemas', 'sources'],
         ['/models', 'models'],
@@ -27,13 +24,13 @@ describe('todayWarehouseItems', () => {
         ['/warehouse', 'home'],
         ['/data-warehouse/new-source', null],
         ['/insights/abc', null],
-        ['/data-management/properties/abc', 'definitions'],
-        ['/data-management/events', 'definitions'],
-        ['/pipeline/batch-exports/abc', 'destinations'],
-        ['/data-management/ingestion-warnings-v2', 'ingestion_warnings'],
         ['/endpoints/my-endpoint', null],
         ['/bi', null],
         ['/data-management/annotations', null],
+        ['/data-management/events', null],
+        ['/data-management/ingestion-warnings', null],
+        ['/pipeline/batch-exports/abc', null],
+        ['/data-management/destinations', null],
     ])('marks %s as %s', (path, key) => {
         expect(warehouseItemForLocation(path, WAREHOUSE_ITEMS)?.key ?? null).toBe(key)
     })
@@ -41,12 +38,12 @@ describe('todayWarehouseItems', () => {
     test.each([
         ['/sql', true],
         ['/data-catalog', true],
-        ['/data-management/variables', true],
         ['/sql?open_query=abc', true],
-        ['/etl', true],
-        ['/data-management/destinations?tab=all', true],
+        ['/etl', false],
+        ['/data-management/destinations?tab=all', false],
+        ['/data-management/variables', false],
         ['/bi', false],
-        ['/data-management/schema', true],
+        ['/data-management/schema', false],
         ['/data-management/annotations', false],
     ])('treats the %s tool as a warehouse tool: %s', (href, expected) => {
         expect(isWarehouseToolHref(href)).toBe(expected)

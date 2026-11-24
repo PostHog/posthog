@@ -16,9 +16,7 @@ import {
     Text,
 } from '@posthog/quill'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { WarehouseHealthIssueRow } from './WarehouseHealthIssueRow'
@@ -30,8 +28,6 @@ import { HEALTH_ISSUES_LIMIT, warehouseHomeLogic } from './warehouseHomeLogic'
 export function WarehouseHealth(): JSX.Element {
     const { warehouseIssues, issueCountsByStatus, healthIssuesFailed } = useValues(warehouseHomeLogic)
     const { loadWarehouseHomeHealthIssues } = useActions(warehouseHomeLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const viewAllUrl = featureFlags[FEATURE_FLAGS.WAREHOUSE_MULTI_DESTINATION] ? urls.etlOverview() : urls.sources()
 
     let content: JSX.Element
     if (warehouseIssues === null && !healthIssuesFailed) {
@@ -73,7 +69,7 @@ export function WarehouseHealth(): JSX.Element {
                     <Button
                         variant="link"
                         nativeButton={false}
-                        render={<LinkPrimitive to={viewAllUrl} />}
+                        render={<LinkPrimitive to={urls.sources()} />}
                         data-attr="warehouse-home-health-view-all"
                         onClick={() => {
                             posthog.capture('warehouse overview link clicked', { target: 'issues' })
