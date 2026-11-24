@@ -144,10 +144,12 @@ class TestFetchRecordingBlocksCommand(BaseTest):
             self._fetch(session_id)
         assert not self.out.exists()
 
-    def test_refuses_an_output_directory_that_holds_files(self) -> None:
+    @parameterized.expand([("empty", False), ("holding_files", True)])
+    def test_refuses_an_output_directory_that_exists(self, _name: str, holds_files: bool) -> None:
         self.out.mkdir()
-        (self.out / "0007.jsonl").write_text("from an earlier run")
+        if holds_files:
+            (self.out / "0007.jsonl").write_text("from an earlier run")
 
-        with self.assertRaisesMessage(CommandError, "is not empty"):
+        with self.assertRaisesMessage(CommandError, "already exists"):
             self._fetch()
         assert FakeRecordingApi.seen_tokens == []
