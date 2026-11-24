@@ -215,6 +215,7 @@ def takes_reasoning_effort(runtime_adapter: str, model: str, effort: str) -> boo
         return effort in _undescribed_efforts(runtime_adapter, model)
     if _runtime_adapter(listed) != runtime_adapter:
         return False
+    # The gateway omits reasoning for some models that take efforts, and shipped clients send those efforts.
     if listed.reasoning_efforts is None:
         return effort in _undescribed_efforts(runtime_adapter, model)
     return effort in _efforts(listed)
