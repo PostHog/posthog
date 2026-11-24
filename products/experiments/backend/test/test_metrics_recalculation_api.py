@@ -488,6 +488,10 @@ class TestMetricsRecalculationAPI(APIBaseTest):
             assert self.client.get(self._latest_url(exp.id)).status_code == status.HTTP_403_FORBIDDEN
             running_time = self.client.get(f"/api/projects/{self.team.id}/experiments/{exp.id}/running_time_target/")
             assert running_time.status_code == status.HTTP_403_FORBIDDEN
+            timeseries_results = self.client.get(
+                f"/api/projects/{self.team.id}/experiments/{exp.id}/timeseries_results/?metric_uuid=m1"
+            )
+            assert timeseries_results.status_code == status.HTTP_403_FORBIDDEN
             # Nor may that member start a run, which would query the warehouse with no user.
             recalculation = self.client.post(self._post_url(exp.id), {"trigger": "manual"})
             assert recalculation.status_code == status.HTTP_400_BAD_REQUEST

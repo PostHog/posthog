@@ -1618,6 +1618,7 @@ class EnterpriseExperimentsViewSet(
     @action(methods=["GET"], detail=True, required_scopes=["experiment:read"])
     def timeseries_results(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         experiment = self.get_object()
+        _check_warehouse_native_result_access(experiment, self.team, request.user)
         metric_uuid = request.query_params.get("metric_uuid")
 
         if not metric_uuid:
