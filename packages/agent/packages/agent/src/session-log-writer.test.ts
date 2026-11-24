@@ -317,6 +317,73 @@ describe("SessionLogWriter", () => {
       expect(sent[1].event_id).toBe("e5");
     });
 
+    it("keeps every good entry when bad entries outlast the split budget", async () => {
+      const sessionId = "s1";
+      logWriter.register(sessionId, { taskId: "t1", runId: sessionId });
+      const persisted: StoredNotification[] = [];
+      mockAppendLog.mockImplementation(
+        async (
+          _taskId: string,
+          _runId: string,
+          batch: StoredNotification[],
+        ) => {
+          if (batch.some((entry) => entry.notification.method === "bad")) {
+            throw new PostHogAPIError("Failed request: [400]", 400);
+          }
+          persisted.push(...batch);
+        },
+      );
+
+      for (let i = 0; i < 128; i++) {
+        const method = i % 2 === 0 ? "good" : "bad";
+        logWriter.appendRawLine(sessionId, JSON.stringify({ method }));
+      }
+      for (let i = 0; i < 20; i++) {
+        await logWriter.flush(sessionId);
+      }
+
+      const methods = persisted.map((entry) => entry.notification.method);
+      expect(methods.filter((method) => method === "good")).toHaveLength(64);
+      expect(
+        persisted
+          .filter(
+            (entry) => entry.notification.method === "_posthog/session_log_gap",
+          )
+          .reduce(
+            (total, entry) =>
+              total + (entry.notification.params?.droppedCount as number),
+            0,
+          ),
+      ).toBe(64);
+    });
+
+    it("orders the gap range oldest first when a failed batch is evicted after newer entries", async () => {
+      const sessionId = "s1";
+      logWriter.register(sessionId, { taskId: "t1", runId: sessionId });
+      const entriesMax = 10_000;
+      const append = (prefix: string, index: number) =>
+        logWriter.appendRawLine(
+          sessionId,
+          JSON.stringify({ method: "test" }),
+          `${prefix}${index}`,
+        );
+      mockAppendLog.mockImplementationOnce(async () => {
+        for (let i = 0; i <= entriesMax; i++) append("f", i);
+        throw new Error("network error");
+      });
+
+      for (let i = 0; i < entriesMax; i++) append("e", i);
+      await logWriter.flush(sessionId);
+      await logWriter.flush(sessionId);
+
+      const sent: StoredNotification[] = mockAppendLog.mock.calls[1][2];
+      expect(sent[0].notification.params).toEqual({
+        droppedCount: entriesMax + 1,
+        firstEventId: "e0",
+        lastEventId: "f0",
+      });
+    });
+
     it("splits a backlog larger than one request into ordered requests", async () => {
       const sessionId = "s1";
       logWriter.register(sessionId, { taskId: "t1", runId: sessionId });
@@ -482,6 +549,30 @@ describe("SessionLogWriter", () => {
         .flatMap((call) => call[2])
         .map((entry: StoredNotification) => entry.notification.method);
       expect(persistedMethods).toContain("_posthog/turn_complete");
+    });
+
+    it("reports dropped entries to sinks before the next flush", async () => {
+      const sink = { append: vi.fn() };
+      const writer = new SessionLogWriter({
+        posthogAPI: mockPosthogAPI,
+        sinks: [sink],
+      });
+      writer.register("run-1", { taskId: "task-1", runId: "run-1" });
+      mockAppendLog.mockRejectedValueOnce(
+        new PostHogAPIError("Failed request: [404]", 404),
+      );
+
+      writer.appendRawLine("run-1", JSON.stringify({ method: "test" }), "e0");
+      await writer.flush("run-1");
+
+      const gaps = sink.append.mock.calls
+        .map((call) => call[1] as StoredNotification)
+        .filter(
+          (entry) => entry.notification.method === "_posthog/session_log_gap",
+        );
+      expect(gaps.map((entry) => entry.notification.params)).toEqual([
+        { droppedCount: 1, firstEventId: "e0", lastEventId: "e0" },
+      ]);
     });
   });
 
