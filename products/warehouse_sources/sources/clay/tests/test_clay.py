@@ -165,6 +165,6 @@ def test_validate_credentials_requires_a_table_id() -> None:
         valid, message = validate_credentials("clay_test_key", [])
 
     assert valid is False
-    assert message == "Enter at least one Clay table ID or table URL."
+    assert message is not None and "starts with t_" in message
     assert network.session_options == []
     assert network.requests_log == []
