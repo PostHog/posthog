@@ -144989,6 +144989,13 @@ export namespace Schemas {
     page?: number;
     };
 
+    export type ExperimentsHealthRetrieveParams = {
+    /**
+     * Check a draft as it will be when its launch succeeds. The checks that run only after launch also run, as if the experiment launched now with no exposures, calculation or flag change yet. Has no effect on a launched experiment.
+     */
+    at_launch?: boolean;
+    };
+
     export type ExperimentsRunningTimeTargetRetrieveParams = {
     /**
      * The running time mode to size the target for. Defaults to the experiment's saved mode. 'automatic' sizes it from the results, also for an experiment saved in manual mode.

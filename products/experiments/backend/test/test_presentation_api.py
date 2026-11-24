@@ -1246,6 +1246,54 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             [expected],
         )
 
+    @parameterized.expand(
+        [
+            ("draft", "", {}, "no_metric", ("not_applicable", "Runs after launch")),
+            ("draft_at_launch", "?at_launch=true", {}, "no_metric", ("finding", None)),
+            (
+                "matured_users_at_launch",
+                "?at_launch=true",
+                {
+                    "metrics": [{**_HEALTH_METRIC, "conversion_window": 7, "conversion_window_unit": "day"}],
+                    "only_count_matured_users": True,
+                },
+                "metrics_not_matured",
+                ("finding", None),
+            ),
+        ]
+    )
+    def test_health_checks_a_draft_at_launch_on_request(
+        self,
+        _name: str,
+        query: str,
+        experiment_fields: dict[str, Any],
+        check_key: str,
+        expected: tuple[str, str | None],
+    ) -> None:
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key=f"health-at-launch-{_name}",
+            created_by=self.user,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "test", "rollout_percentage": 50},
+                    ]
+                },
+            },
+        )
+        experiment = Experiment.objects.create(
+            team=self.team, name=f"health-at-launch-{_name}", feature_flag=flag, **experiment_fields
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}/health/{query}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        check = next(check for check in response.json()["checks"] if check["key"] == check_key)
+        self.assertEqual((check["status"], check["reason"]), expected)
+
     def _deny_event_property(self, name: str) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}

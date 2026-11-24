@@ -40,6 +40,7 @@ from products.experiments.backend.health.registry import (
     HealthCheck,
     evaluate,
 )
+from products.experiments.backend.health.skips import RUNS_AFTER_LAUNCH
 from products.experiments.backend.health.test.factories import DRAFT, RUNNING_CONTEXT, flag_history
 from products.experiments.backend.hogql_queries.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
 from products.feature_flags.backend.facade.edits import FlagVariant
@@ -336,6 +337,45 @@ class TestEvaluate(TestCase):
         self.assertEqual(
             sorted(finding.check for finding in health.findings if finding.check),
             sorted(check.key for check in health.checks if check.status == Status.FINDING),
+        )
+
+    @parameterized.expand(
+        [
+            ("no_metric_waits_for_the_launch", 0, False, Status.NOT_APPLICABLE),
+            ("no_metric_at_launch", 0, True, Status.FINDING),
+            ("a_metric_passes_at_launch", 1, True, Status.PASSED),
+        ]
+    )
+    def test_a_draft_at_launch_runs_the_checks_after_launch(
+        self, _name: str, metric_count: int, at_launch: bool, no_metric: Status
+    ) -> None:
+        draft = replace(
+            RUNNING_UNEVEN_SPLIT,
+            **DRAFT,
+            flag=replace(UNEVEN_FLAG, active=False),
+            exposures=None,
+            hours_since_launch=None,
+            hours_since_start=None,
+            primary_metric_count=metric_count,
+        )
+        launched = replace(draft, is_launched=True, is_running=True, hours_since_launch=0.0, hours_since_start=0.0)
+
+        health = evaluate(draft, EXPERIMENT_HEALTH_CHECKS, launched=launched if at_launch else None)
+
+        checks = {check.key: check for check in health.checks}
+        self.assertEqual(checks[Key.NO_METRIC].status, no_metric)
+        self.assertEqual(
+            [finding.check for finding in health.findings], [Key.NO_METRIC] if no_metric == Status.FINDING else []
+        )
+        self.assertEqual(
+            {
+                key: (checks[key].status, checks[key].reason)
+                for key in (Key.SPLIT_CHANGED_MID_RUN, Key.METRIC_CALCULATION_FAILED)
+            },
+            {
+                Key.SPLIT_CHANGED_MID_RUN: (Status.NOT_APPLICABLE, RUNS_AFTER_LAUNCH),
+                Key.METRIC_CALCULATION_FAILED: (Status.NOT_APPLICABLE, RUNS_AFTER_LAUNCH),
+            },
         )
 
     @parameterized.expand(
