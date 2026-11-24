@@ -86,7 +86,7 @@ class MessageTemplate(FileSystemSyncMixin, Taggable, UUIDTModel):
             type="message_template",
             ref=str(self.id),
             name=self.name or "Untitled",
-            href=f"/workflows/library/templates/{self.id}",
+            href=f"/transactional/push/{self.id}" if self.type == "push" else f"/workflows/library/templates/{self.id}",
             meta={"created_at": str(self.created_at), "created_by": self.created_by_id},
             should_delete=self.deleted,
         )

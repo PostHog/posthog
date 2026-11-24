@@ -142,6 +142,11 @@ class TestTransactionalPushTemplates(APIBaseTest):
         assert response.json()["code"] == "template_not_sendable"
         cdp_post.assert_not_called()
 
+    def test_the_project_tree_links_a_push_to_its_own_page(self, _flag):
+        template = self._template()
+
+        assert template.get_file_system_representation().href == f"/transactional/push/{template.id}"
+
     def test_a_transactional_template_cannot_change_between_email_and_push(self, _flag):
         template = self._template()
         self._make_transactional(template)
