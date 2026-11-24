@@ -109,8 +109,11 @@ export function arrangeInColumns(tiles: Tile[], cols: number, columns: number, s
             rowHeight = 0
         }
         rowHeight = Math.max(rowHeight, tile.place.h)
-        const x = widths.slice(0, column).reduce((sum, width) => sum + width, 0)
-        const w = Math.min(cols - x, Math.max(widths[column], minWidthOf(tile, sizeOf)))
+        const w = Math.min(cols, Math.max(widths[column], minWidthOf(tile, sizeOf)))
+        const x = Math.min(
+            cols - w,
+            widths.slice(0, column).reduce((sum, width) => sum + width, 0)
+        )
         return { ...tile, place: { x, y, w, h: tile.place.h } }
     })
 }

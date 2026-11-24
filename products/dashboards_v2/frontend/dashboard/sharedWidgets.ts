@@ -16,7 +16,7 @@ function loadTiles(tiles: DocumentTile[], widgets: Record<string, SharedWidget>)
         if ('type' in widget) {
             return [{ ...tile, widget }]
         }
-        const shared = widgets[widget.ref]
+        const shared = Object.hasOwn(widgets, widget.ref) ? widgets[widget.ref] : undefined
         // `validateDashboard` reports a reference to a missing widget. Loading leaves the tile out.
         return shared ? [{ ...tile, widget: { ...shared, ...widget } }] : []
     })
@@ -41,7 +41,10 @@ function saveTiles(tiles: Tile[], widgets: Record<string, SharedWidget>): Docume
             return tile
         }
         const { ref, parts, appearance, ...content } = widget
-        widgets[ref] ??= content
+        // A ref such as `constructor` would otherwise find the object's prototype and never be stored.
+        if (!Object.hasOwn(widgets, ref)) {
+            widgets[ref] = content
+        }
         return { ...tile, widget: { ref, ...(parts && { parts }), ...(appearance && { appearance }) } }
     })
 }

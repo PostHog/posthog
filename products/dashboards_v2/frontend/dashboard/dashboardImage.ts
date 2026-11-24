@@ -27,6 +27,9 @@ async function waitUntilReady(root: HTMLElement): Promise<void> {
     do {
         await new Promise((resolve) => setTimeout(resolve, POLL_MS))
     } while (root.querySelector(NOT_READY) && Date.now() < deadline)
+    if (root.querySelector(NOT_READY)) {
+        throw new Error('The dashboard did not finish loading in time to capture it.')
+    }
 }
 
 export async function downloadDashboardImage(root: HTMLElement, title: string, format: ImageFormat): Promise<void> {

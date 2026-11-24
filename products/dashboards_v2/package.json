@@ -4,6 +4,7 @@
         "@posthog/quill": "workspace:*",
         "kea": "catalog:",
         "kea-router": "catalog:",
+        "posthog-js": "catalog:",
         "react-grid-layout": "^2.3.0"
     },
     "devDependencies": {

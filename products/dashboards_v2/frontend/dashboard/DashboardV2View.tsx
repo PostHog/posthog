@@ -10,7 +10,7 @@ import type { DashboardV2Action } from '../access/dashboardV2Access'
 import type { DropTarget } from '../grid/dropTargets'
 import { GridDragContext, type GridDragState } from '../grid/gridDrag'
 import { stackTiles } from '../grid/gridTiles'
-import { TileMountContext, createTileMountScheduler } from '../grid/tileMounting'
+import { CapturingTileContext, TileMountContext, createTileMountScheduler } from '../grid/tileMounting'
 import { DashboardTileGrid } from '../tiles/DashboardTileGrid'
 import { DEFAULT_TIME_RANGE, TimeRangeContext } from '../widgets/timeRangeContext'
 import { sizeOfWidgets } from '../widgets/widgetSpec'
@@ -83,8 +83,9 @@ export function DashboardV2View({ controller, header }: DashboardV2ViewProps): J
         []
     )
     const rootRef = useRef<HTMLDivElement>(null)
-    // While set, every tile mounts, so the image has no placeholders.
-    const [downloadingImage, setDownloadingImage] = useState(false)
+    // A capture mounts what it shows, so the image has no placeholders: the whole tab, or with `tileId` that tile only.
+    const [capturing, setCapturing] = useState<{ tileId?: string } | null>(null)
+    const downloadingImage = capturing !== null
     const downloadImage = useCallback(
         async (format: ImageFormat, tileId?: string): Promise<void> => {
             const page = rootRef.current
@@ -92,7 +93,7 @@ export function DashboardV2View({ controller, header }: DashboardV2ViewProps): J
             if (!root) {
                 return
             }
-            setDownloadingImage(true)
+            setCapturing({ tileId })
             try {
                 const words = imageWords(controller.dashboard, controller.activeTabId, tileId)
                 await lemonToast.promise(downloadDashboardImage(root, words.file, format), {
@@ -103,7 +104,7 @@ export function DashboardV2View({ controller, header }: DashboardV2ViewProps): J
             } catch {
                 // The toast already says it failed.
             } finally {
-                setDownloadingImage(false)
+                setCapturing(null)
             }
         },
         [controller]
@@ -165,30 +166,35 @@ export function DashboardV2View({ controller, header }: DashboardV2ViewProps): J
         <DashboardV2StateContext.Provider value={state}>
             <GridDragContext.Provider value={drag}>
                 <TimeRangeContext.Provider value={controller.dashboard.time ?? DEFAULT_TIME_RANGE}>
-                    <TileMountContext.Provider value={downloadingImage ? null : mountScheduler}>
-                        <div
-                            ref={rootRef}
-                            data-quill
-                            className={clsx(
-                                'DashboardV2 flex shrink-0 flex-col gap-4 p-4 min-h-full bg-background text-foreground',
-                                downloadingImage && 'DashboardV2View--capturing'
-                            )}
-                        >
-                            {header}
-                            <DashboardV2Tabs />
-                            <div ref={containerRef as RefObject<HTMLDivElement>} className="DashboardV2View__canvas">
-                                {mounted && width > 0 && (
-                                    <DashboardTileGrid
-                                        key={`${activeTab.id}-${stacked ? 'stacked' : 'grid'}`}
-                                        gridId={activeTab.id}
-                                        tiles={tiles}
-                                        cols={GRID.columns}
-                                        width={width}
-                                        editable={can('placeTiles')}
-                                    />
+                    <TileMountContext.Provider value={capturing && !capturing.tileId ? null : mountScheduler}>
+                        <CapturingTileContext.Provider value={capturing?.tileId ?? null}>
+                            <div
+                                ref={rootRef}
+                                data-quill
+                                className={clsx(
+                                    'DashboardV2 flex shrink-0 flex-col gap-4 p-4 min-h-full bg-background text-foreground',
+                                    downloadingImage && 'DashboardV2View--capturing'
                                 )}
+                            >
+                                {header}
+                                <DashboardV2Tabs />
+                                <div
+                                    ref={containerRef as RefObject<HTMLDivElement>}
+                                    className="DashboardV2View__canvas"
+                                >
+                                    {mounted && width > 0 && (
+                                        <DashboardTileGrid
+                                            key={`${activeTab.id}-${stacked ? 'stacked' : 'grid'}`}
+                                            gridId={activeTab.id}
+                                            tiles={tiles}
+                                            cols={GRID.columns}
+                                            width={width}
+                                            editable={can('placeTiles')}
+                                        />
+                                    )}
+                                </div>
                             </div>
-                        </div>
+                        </CapturingTileContext.Provider>
                     </TileMountContext.Provider>
                 </TimeRangeContext.Provider>
             </GridDragContext.Provider>

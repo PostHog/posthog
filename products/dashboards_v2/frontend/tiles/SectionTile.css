@@ -64,3 +64,8 @@
         box-shadow: 0 0 0 1px var(--color-border-primary);
     }
 }
+
+/* A quill card clips what overflows it, which would cut off a tile dragged out of this section at its edge. */
+.SectionTile:has(.react-draggable-dragging) {
+    overflow: visible;
+}

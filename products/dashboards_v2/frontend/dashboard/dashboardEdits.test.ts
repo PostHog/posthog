@@ -224,6 +224,18 @@ describe('dashboardEdits', () => {
         ])
     })
 
+    it('keeps a tile at its minimum width when auto layout gives it a narrower column', () => {
+        const board = dashboard([
+            section('s', 0, 0, 8, [text('a', 0, 0, 3, 4), text('b', 3, 0, 3, 4), text('c', 6, 0, 2, 4)]),
+        ])
+        const arranged = applyEdit(board, { edit: 'autoLayout', grid: 's', columns: 3 }, sizeOf)
+        expect(places(gridTabs(arranged)[0].tiles, 'first').slice(1)).toEqual([
+            'a@s: 0,0,3,4',
+            'b@s: 3,0,3,4',
+            'c@s: 5,4,3,4',
+        ])
+    })
+
     it('shows a tile on another tab, and a config change on either tile reaches both', () => {
         const board = dashboard([text('a', 0, 0, 8, 8)])
         const shared = applyEdit(board, { edit: 'addToGrid', id: 'a', grid: 'second' }, sizeOf)
