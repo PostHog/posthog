@@ -52,6 +52,7 @@ class TestProductEnablementAPI(APIBaseTest):
                 {"maskAllInputs": True, "mobile": {"maskAllText": True}},
             ),
             ("empty", {}, {"maskAllInputs": True}),
+            ("non_dict", "legacy", {"maskAllInputs": True}),
             (
                 "web_key_present",
                 {"maskTextSelector": "*", "mobile": {"maskAllText": True}},

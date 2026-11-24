@@ -80,8 +80,9 @@ def _enable_conversations(team: Team, touched: set[str]) -> str:
     return "enabled"
 
 
-# Companion defaults the server writes only when the field is unset: they pin a conservative floor
-# rather than express a caller's choice, so they never require admin even where the Team API gates them.
+# Companion defaults the server writes only where the team has set nothing (for masking: no web key).
+# They pin a conservative floor rather than express a caller's choice, so they never require admin
+# even where the Team API gates them.
 SERVER_DEFAULT_FIELDS: frozenset[str] = frozenset({"session_recording_masking_config", "conversations_settings"})
 
 RECIPES: dict[str, Recipe] = {
