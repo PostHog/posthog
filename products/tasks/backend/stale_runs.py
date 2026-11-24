@@ -22,7 +22,7 @@ from posthog.models.team.team import Team
 
 from products.tasks.backend.facade.profiles import find_task_profile
 from products.tasks.backend.models import ENDED_BY_STALE_SWEEP_STATE_KEY, LIVE_RUN_STALE_AFTER, Task, TaskRun
-from products.tasks.backend.task_done import wake_refusal
+from products.tasks.backend.task_done import wake_refusal, warm_done_mode
 
 logger = structlog.get_logger(__name__)
 
@@ -320,6 +320,9 @@ def _is_still_the_run_to_reopen(task: Task, run: TaskRun) -> bool:
 
 
 def reopen_swept_run(run_id: UUID, task_id: UUID, team_id: int, *, dry_run: bool = False) -> bool:
+    unlocked_task = Task.objects.filter(pk=task_id, team_id=team_id).only("id", "team_id", "profile", "status").first()
+    if unlocked_task is not None:
+        warm_done_mode(unlocked_task)
     with transaction.atomic():
         task = Task.objects.select_for_update().filter(pk=task_id, team_id=team_id, deleted=False).first()
         if task is None:
