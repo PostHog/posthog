@@ -20,8 +20,8 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { TodayAutomateRecent } from '~/layout/today/todayAutomateRecents'
-import { isTodayPaneEnabled } from '~/layout/today/todayPaneFlags'
 import { TODAY_RECENT_KEY } from '~/layout/today/todayRecents'
+import { TodayRailPane, todayShellLogic } from '~/layout/today/todayShellLogic'
 import { Breadcrumb } from '~/types'
 import type { UserType } from '~/types'
 
@@ -556,6 +556,8 @@ function flushOpenReport(
 export interface inboxSceneLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     scoutConfigs: SignalScoutConfig[] | null // scoutFleetLogic
+    activePane: TodayRailPane // todayShellLogic
+    todayRailEnabled: boolean // todayShellLogic
     user: UserType | null // userLogic
     activeTab: InboxTabKey
     activeTabState: InboxTabKey | null
@@ -684,7 +686,8 @@ export interface inboxSceneLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         activeTab: (activeTabState: InboxTabKey | null) => InboxTabKey
         scoutsInAutomate: (
-            featureFlags: FeatureFlagsSet,
+            todayRailEnabled: boolean,
+            activePane: TodayRailPane,
             activeTab: InboxTabKey,
             selectedScoutSkillName: string | null
         ) => boolean
@@ -731,7 +734,16 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         // is dispatched through an unmounted logic, so the scene keeps it alive instead of relying on
         // a component (the list toolbar, the detail actions) having rendered first.
         logic: [inboxFiltersLogic, inboxBulkActionsLogic],
-        values: [userLogic, ['user'], featureFlagLogic, ['featureFlags'], scoutFleetLogic, ['scoutConfigs']],
+        values: [
+            userLogic,
+            ['user'],
+            featureFlagLogic,
+            ['featureFlags'],
+            scoutFleetLogic,
+            ['scoutConfigs'],
+            todayShellLogic,
+            ['todayRailEnabled', 'activePane'],
+        ],
         actions: [signalSourcesLogic, ['loadSourceConfigs']],
     })),
 
@@ -975,13 +987,17 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             (activeTabState: InboxTabKey | null): InboxTabKey =>
                 activeTabState && isInboxTabKey(activeTabState) ? activeTabState : 'reports',
         ],
-        // Under the new navigation Scouts is its own Automate row, so its pages drop the inbox tabs and title.
+        // Scouts is its own row in the Automate pane, so while that pane is open its pages drop the inbox tabs and
+        // title. Opened as a tab of the inbox from any other pane, the tabs stay so the other inbox tabs stay reachable.
         scoutsInAutomate: [
-            (s) => [s.featureFlags, s.activeTab, s.selectedScoutSkillName],
-            (featureFlags: FeatureFlagsSet, activeTab: InboxTabKey, selectedScoutSkillName: string | null): boolean =>
-                !!featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV] &&
-                isTodayPaneEnabled('automate', featureFlags) &&
-                (activeTab === 'scouts' || !!selectedScoutSkillName),
+            (s) => [s.todayRailEnabled, s.activePane, s.activeTab, s.selectedScoutSkillName],
+            (
+                todayRailEnabled: boolean,
+                activePane: TodayRailPane,
+                activeTab: InboxTabKey,
+                selectedScoutSkillName: string | null
+            ): boolean =>
+                todayRailEnabled && activePane === 'automate' && (activeTab === 'scouts' || !!selectedScoutSkillName),
         ],
         selectedScoutConfig: [
             (s) => [s.selectedScoutSkillName, s.scoutConfigs],
