@@ -741,7 +741,7 @@ jobs:
               continue-on-error: true
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
-                  path: clickhouse-schema.tar.gz
+                  path: clickhouse-schema-snapshot
                   # Exact matches first, then the newest snapshot; the load step checks that one
                   # migration by migration. Only master writes the master namespace.
                   key: posthog-ch-schema-${{ env.CH_SCHEMA_CACHE_EPOCH }}-${{ github.event_name == 'pull_request' && format('pr{0}', github.event.pull_request.number) || 'master' }}-${{ steps.ch-fingerprint.outputs.digest }}
@@ -755,15 +755,15 @@ jobs:
               if: steps.ch-fingerprint.outputs.digest != ''
               run: |
                   echo "restored=false" >> "$GITHUB_OUTPUT"
-                  if [ ! -f clickhouse-schema.tar.gz ]; then
+                  if [ ! -f clickhouse-schema-snapshot/fingerprint.json ]; then
                       echo "::notice::ClickHouse schema cache miss; migrate_clickhouse will build the schema from scratch"
                       exit 0
                   fi
                   if python .github/scripts/clickhouse_schema_cache.py load \
-                      --archive clickhouse-schema.tar.gz --checkout .ci-clickhouse-schema/checkout.json; then
+                      --snapshot clickhouse-schema-snapshot --checkout .ci-clickhouse-schema/checkout.json; then
                       echo "restored=true" >> "$GITHUB_OUTPUT"
                   fi
-                  rm -f clickhouse-schema.tar.gz
+                  rm -rf clickhouse-schema-snapshot
 
             - name: Snapshot ClickHouse before migrations
               id: ch-before
@@ -804,23 +804,23 @@ jobs:
                   DATABASE_URL: postgres://posthog:posthog@localhost:5432/test_posthog
               run: |
                   python .github/scripts/clickhouse_schema_cache.py save --checkout .ci-clickhouse-schema/checkout.json \
-                      --before .ci-clickhouse-schema/before.tsv --archive clickhouse-schema.tar.gz
+                      --before .ci-clickhouse-schema/before.tsv --out clickhouse-schema-snapshot
 
             - name: Save ClickHouse schema snapshot for master
-              if: github.ref == 'refs/heads/master' && hashFiles('clickhouse-schema.tar.gz') != ''
+              if: github.ref == 'refs/heads/master' && hashFiles('clickhouse-schema-snapshot/fingerprint.json') != ''
               continue-on-error: true
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
-                  path: clickhouse-schema.tar.gz
+                  path: clickhouse-schema-snapshot
                   key: posthog-ch-schema-${{ env.CH_SCHEMA_CACHE_EPOCH }}-master-${{ steps.ch-fingerprint.outputs.digest }}
 
             - name: Save ClickHouse schema snapshot for this pull request
               # Its own namespace, which only this PR's runs read, so a re-run can measure the restore.
-              if: github.event_name == 'pull_request' && hashFiles('clickhouse-schema.tar.gz') != ''
+              if: github.event_name == 'pull_request' && hashFiles('clickhouse-schema-snapshot/fingerprint.json') != ''
               continue-on-error: true
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
-                  path: clickhouse-schema.tar.gz
+                  path: clickhouse-schema-snapshot
                   key: posthog-ch-schema-${{ env.CH_SCHEMA_CACHE_EPOCH }}-pr${{ github.event.pull_request.number }}-${{ steps.ch-fingerprint.outputs.digest }}
 
             - name: Restore test durations from cache

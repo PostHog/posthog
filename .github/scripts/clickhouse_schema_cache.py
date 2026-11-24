@@ -8,18 +8,16 @@ the checkout's extra migrations on top. Anything else is a miss and migrates fro
 
 The snapshot is a ClickHouse BACKUP of the test database, which keeps dictionary credentials,
 dependency order and seed rows, plus the SQL user-defined functions, which live outside it.
-`save` only writes an archive after restoring it and finding the schema identical to the one
+`save` only writes the snapshot directory after restoring it and finding the schema identical to the one
 the full migrate built.
 """
 
-import io
 import os
 import re
 import sys
 import json
 import shutil
 import hashlib
-import tarfile
 import argparse
 import tempfile
 import subprocess
@@ -115,14 +113,29 @@ def incompatibility(cached: dict, checkout: dict) -> str | None:
 # --- ClickHouse ---------------------------------------------------------------------------------
 
 
+COMPOSE = ("docker", "compose", "-f", "docker-compose.dev.yml")
+SERVICE = "clickhouse"
+
+
+def _run(command: list[str], stdin: bytes | None = None) -> bytes:
+    result = subprocess.run(command, input=stdin, capture_output=True, timeout=600, check=False)
+    if result.returncode != 0:
+        raise SnapshotError(
+            f"{' '.join(command)[:200]} failed: {result.stderr.decode(errors='replace').strip()[-2000:]}"
+        )
+    return result.stdout
+
+
 def _container(*args: str, stdin: bytes | None = None, user: str | None = None) -> bytes:
-    command = ["docker", "compose", "-f", "docker-compose.dev.yml", "exec", "-T"]
+    command = [*COMPOSE, "exec", "-T"]
     if user:
         command += ["--user", user]
-    result = subprocess.run([*command, "clickhouse", *args], input=stdin, capture_output=True, timeout=600, check=False)
-    if result.returncode != 0:
-        raise SnapshotError(f"{' '.join(args)[:200]} failed: {result.stderr.decode(errors='replace').strip()[-2000:]}")
-    return result.stdout
+    return _run([*command, SERVICE, *args], stdin=stdin)
+
+
+def _copy(source: str, destination: str) -> None:
+    # `docker compose cp` streams the files itself, so no archive is unpacked on the runner.
+    _run([*COMPOSE, "cp", source, destination])
 
 
 def _query(sql: str) -> str:
@@ -148,18 +161,9 @@ def reset() -> None:
 
 
 def _restore(directory: Path) -> None:
-    with tempfile.TemporaryFile() as archive:
-        with tarfile.open(fileobj=archive, mode="w") as tar:
-            tar.add(directory / BACKUP_NAME, arcname=BACKUP_NAME)
-        archive.seek(0)
-        _container(
-            "sh",
-            "-c",
-            f"rm -rf {BACKUP_DIR}/{BACKUP_NAME} && mkdir -p {BACKUP_DIR} && tar -xf - -C {BACKUP_DIR} "
-            f"&& chown -R clickhouse:clickhouse {BACKUP_DIR}",
-            stdin=archive.read(),
-            user="root",
-        )
+    _container("sh", "-c", f"rm -rf {BACKUP_DIR}/{BACKUP_NAME} && mkdir -p {BACKUP_DIR}", user="root")
+    _copy(str(directory / BACKUP_NAME), f"{SERVICE}:{BACKUP_DIR}/{BACKUP_NAME}")
+    _container("chown", "-R", "clickhouse:clickhouse", BACKUP_DIR, user="root")
     # Tables can call SQL functions, so the functions go first.
     functions = (directory / "functions.sql").read_text()
     if functions.strip():
@@ -167,26 +171,22 @@ def _restore(directory: Path) -> None:
     _query(f"RESTORE DATABASE {DATABASE} FROM Disk('{BACKUP_DISK}', '{BACKUP_NAME}')")
 
 
-def load(archive: Path, checkout: Path) -> bool:
-    with tempfile.TemporaryDirectory() as work:
-        directory = Path(work)
-        try:
-            with tarfile.open(archive) as tar:
-                tar.extractall(directory, filter="data")
-            reason = incompatibility(
-                json.loads((directory / "fingerprint.json").read_text()), json.loads(checkout.read_text())
-            )
-        except Exception as error:
-            reason = f"cannot read the snapshot: {type(error).__name__}: {error}"
-        if reason is not None:
-            _notice(f"Discarded cached ClickHouse schema: {reason}; migrating from scratch")
-            return False
-        try:
-            _restore(directory)
-        except Exception as error:
-            _notice(f"ClickHouse schema restore failed ({error}); migrating from scratch")
-            reset()
-            return False
+def load(directory: Path, checkout: Path) -> bool:
+    try:
+        reason = incompatibility(
+            json.loads((directory / "fingerprint.json").read_text()), json.loads(checkout.read_text())
+        )
+    except Exception as error:
+        reason = f"cannot read the snapshot: {type(error).__name__}: {error}"
+    if reason is not None:
+        _notice(f"Discarded cached ClickHouse schema: {reason}; migrating from scratch")
+        return False
+    try:
+        _restore(directory)
+    except Exception as error:
+        _notice(f"ClickHouse schema restore failed ({error}); migrating from scratch")
+        reset()
+        return False
     sys.stdout.write("Restored the cached ClickHouse schema; migrate_clickhouse applies what it lacks\n")
     return True
 
@@ -197,14 +197,16 @@ def _other_databases(text: str) -> list[str]:
     return ["\t".join(row) for row in rows if row[0] != "function" and row[1:2] != [DATABASE]]
 
 
-def save(checkout: Path, before: Path, archive: Path) -> None:
-    """Archive the migrated schema, once a restore of it has been proven identical.
+def save(checkout: Path, before: Path, out: Path) -> None:
+    """Write the migrated schema to `out`, once a restore of it has been proven identical.
 
-    Never fails while the migrated schema is intact. Once it has been dropped, a failure
-    rebuilds it from scratch, and only a failed rebuild fails the job.
+    `out` appears only when the snapshot is complete. Never fails while the migrated schema is
+    intact. Once it has been dropped, a failure rebuilds it from scratch, and only a failed
+    rebuild fails the job.
     """
-    with tempfile.TemporaryDirectory() as work:
-        directory = Path(work)
+    with tempfile.TemporaryDirectory(dir=out.parent) as work:
+        directory = Path(work) / "snapshot"
+        directory.mkdir()
         try:
             migrated = _backup(directory, checkout, before)
         except Exception as error:
@@ -226,10 +228,9 @@ def save(checkout: Path, before: Path, archive: Path) -> None:
             _notice(f"Not caching the ClickHouse schema: the restore differs from the migrate in {len(diff)} rows")
             _rebuild()
             return
-        with tarfile.open(archive, "w:gz") as tar:
-            for path in sorted(directory.iterdir()):
-                tar.add(path, arcname=path.name)
-    sys.stdout.write(f"Restore reproduced the migrated schema ({len(migrated.splitlines())} rows); archived it\n")
+        shutil.rmtree(out, ignore_errors=True)
+        directory.rename(out)
+    sys.stdout.write(f"Restore reproduced the migrated schema ({len(migrated.splitlines())} rows); saved it\n")
 
 
 def _backup(directory: Path, checkout: Path, before: Path) -> str:
@@ -244,9 +245,7 @@ def _backup(directory: Path, checkout: Path, before: Path) -> str:
     )
     (directory / "functions.sql").write_text(functions)
     shutil.copy(checkout, directory / "fingerprint.json")
-    backup = _container("tar", "-cf", "-", "-C", BACKUP_DIR, BACKUP_NAME, user="root")
-    with tarfile.open(fileobj=io.BytesIO(backup)) as tar:
-        tar.extractall(directory, filter="data")
+    _copy(f"{SERVICE}:{BACKUP_DIR}/{BACKUP_NAME}", str(directory / BACKUP_NAME))
     return migrated
 
 
@@ -265,12 +264,12 @@ def main() -> None:
     snap = commands.add_parser("snapshot", help="Write the normalized schema of every user database")
     snap.add_argument("--out", type=Path, required=True)
     ld = commands.add_parser("load", help="Restore a compatible snapshot; exit 1 on a miss, leaving no schema")
-    ld.add_argument("--archive", type=Path, required=True)
+    ld.add_argument("--snapshot", type=Path, required=True)
     ld.add_argument("--checkout", type=Path, required=True)
-    sv = commands.add_parser("save", help="Archive the migrated schema after proving a restore reproduces it")
+    sv = commands.add_parser("save", help="Save the migrated schema after proving a restore reproduces it")
     sv.add_argument("--checkout", type=Path, required=True)
     sv.add_argument("--before", type=Path, required=True)
-    sv.add_argument("--archive", type=Path, required=True)
+    sv.add_argument("--out", type=Path, required=True)
     commands.add_parser("reset", help="Drop the test database and SQL functions")
     args = parser.parse_args()
 
@@ -281,9 +280,9 @@ def main() -> None:
     elif args.command == "snapshot":
         args.out.write_text(snapshot())
     elif args.command == "load":
-        sys.exit(0 if load(args.archive, args.checkout) else 1)
+        sys.exit(0 if load(args.snapshot, args.checkout) else 1)
     elif args.command == "save":
-        save(args.checkout, args.before, args.archive)
+        save(args.checkout, args.before, args.out)
     else:
         reset()
 
