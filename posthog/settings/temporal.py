@@ -363,6 +363,9 @@ DATA_WAREHOUSE_IMPORT_SHUTDOWN_GRACE_SECONDS: float = get_from_env(
 DATA_WAREHOUSE_APPEND_ROLLBACK_ENABLED: bool = get_from_env(
     "DATA_WAREHOUSE_APPEND_ROLLBACK_ENABLED", False, type_cast=str_to_bool
 )
+DATA_MODELING_MAX_CONCURRENT_CLICKHOUSE_QUERIES: int = get_from_env(
+    "DATA_MODELING_MAX_CONCURRENT_CLICKHOUSE_QUERIES", 7, type_cast=int
+)
 MAX_AI_TASK_QUEUE = _set_temporal_task_queue("max-ai-task-queue")
 BATCH_EXPORTS_TASK_QUEUE = _set_temporal_task_queue("batch-exports-task-queue")
 DATA_MODELING_TASK_QUEUE = _set_temporal_task_queue("data-modeling-task-queue")
