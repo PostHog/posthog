@@ -104,7 +104,7 @@ export interface errorTrackingBannersLogicMeta {
         sourceMapsRecommendation: (recommendations: ErrorTrackingRecommendationApi[]) => SourceMapsRecommendation | null
         issueSummariesRecommendation: (
             recommendations: ErrorTrackingRecommendationApi[],
-            currentTeam: TeamType | TeamPublicType | null
+            currentTeam: TeamPublicType | TeamType | null
         ) => IssueSummariesRecommendation | null
         alertsRecommendation: (recommendations: ErrorTrackingRecommendationApi[]) => AlertsRecommendation | null
         rateLimitsRecommendation: (recommendations: ErrorTrackingRecommendationApi[]) => RateLimitsRecommendation | null
@@ -209,7 +209,7 @@ export const errorTrackingBannersLogic = kea<errorTrackingBannersLogicType>([
             (s) => [s.recommendations, s.currentTeam],
             (
                 recommendations: ErrorTrackingRecommendationApi[],
-                currentTeam: TeamType | TeamPublicType | null
+                currentTeam: TeamPublicType | TeamType | null
             ): IssueSummariesRecommendation | null =>
                 // The banner links to the AI features settings section, which shows only for a team with this feature.
                 currentTeam?.available_error_tracking_ai_features?.includes(
