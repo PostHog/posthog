@@ -53,6 +53,7 @@ const CONFIGURATION: PlatformAlertConfigurationApi = {
     consecutive_failures: 0,
     legacy_configuration_id: null,
     grouping: { mode: 'by_result_labels', keys: ['service_name'], max_instances: 10, on_overflow: 'degrade_visible' },
+    on_missing_data: 'resolve',
     snooze_until: null,
     check_status: 'ok',
     overflowed_groups: 0,
