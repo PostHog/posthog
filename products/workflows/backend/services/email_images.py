@@ -57,7 +57,7 @@ def copy_images(
 ) -> Mapping[str, str]:
     """Source URL to media library URL, for every image that is in the library now."""
     copied: dict[str, str] = {}
-    names = {url: file_name(url, source) for url in urls}
+    names = {url: file_name(url, source) for url in urls if is_hosted(url, source)}
     existing: dict[str, UploadedMedia] = {}
     # Anyone with media access can upload under these names, so only copies this user saved count as the import's own.
     for media in (
@@ -100,7 +100,7 @@ def copy_images(
             if time.monotonic() >= budget.deadline:
                 break
             futures = {
-                pool.submit(_download, url, source, budget.deadline): url
+                pool.submit(_download, url, budget.deadline): url
                 for url in to_download[start : start + _DOWNLOAD_THREADS]
             }
             done, _ = wait(futures, timeout=max(budget.deadline - time.monotonic(), 0))
@@ -118,9 +118,7 @@ def copy_images(
     return copied
 
 
-def _download(url: str, source: EmailImageSource, deadline: float) -> bytes | None:
-    if not is_hosted(url, source):
-        return None
+def _download(url: str, deadline: float) -> bytes | None:
     deadline = min(deadline, time.monotonic() + _MAX_SECONDS_PER_IMAGE)
     try:
         with requests.get(

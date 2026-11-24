@@ -1338,6 +1338,53 @@ class TestWorkflowImportAPI(APIBaseTest):
         assert any(hero_webp in n["message"] for n in taken_down["notes"])
         assert [call.args[0] for call in mock_get.call_args_list].count(hero_webp) == 1
 
+    @parameterized.expand(
+        [
+            (
+                "lone_surrogate_in_an_image_url",
+                '<img src="https://userimg-assets.customeriomail.com/a/\ud800.png">',
+                "{}",
+            ),
+            ("lone_surrogate_in_text", "<p>\ud800</p>", "{}"),
+            ("nul", "<p>\x00</p>", "{}"),
+            ("escaped_in_a_webhook_body", "<p>Hi</p>", r'{"a": "\u0000", "b": "\ud800"}'),
+        ]
+    )
+    @patch("products.workflows.backend.services.email_images.requests.get", return_value=MagicMock(status_code=404))
+    def test_a_character_postgres_refuses_stops_no_automation(
+        self, _name: str, body: str, webhook_body: str, _mock_get: MagicMock
+    ) -> None:
+        source = _onboarding_campaign()
+        webhook = {"id": "15", "url": "https://crm.example.com", "request_method": "POST", "body": webhook_body}
+        campaigns = [
+            {
+                "campaign": {**source.campaign, "id": campaign_id},
+                "actions": [
+                    {"id": "2", "type": "webhook_action", "name": "CRM", "template_id": "15"}
+                    if action["id"] == "2"
+                    else action
+                    for action in source.actions
+                ],
+                "templates": [
+                    {**source.templates["11"], "body": campaign_body},
+                    *list(source.templates.values())[1:],
+                    webhook if campaign_id == "43" else {**webhook, "body": "{}"},
+                ],
+            }
+            for campaign_id, campaign_body in (("42", "<p>Hi</p>"), ("43", body), ("44", "<p>Hi</p>"))
+        ]
+
+        # The test client's own JSON renderer refuses a lone surrogate, so the body goes out as a JSON escape.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/workflow_imports/",
+            data=json.dumps({"source": "customerio", "campaigns": campaigns, "snippets": {"footer": "x"}}),
+            content_type="application/json",
+        )
+
+        assert response.status_code == 200
+        assert [result["status"] for result in response.json()["results"]] == ["created"] * 3
+        assert HogFlow.objects.filter(team=self.team).count() == 3
+
     @patch("products.workflows.backend.presentation.views.workflow_import_drafts._REQUEST_SECONDS", 0)
     @patch("products.workflows.backend.services.email_images.requests.get")
     def test_no_image_downloads_start_after_the_deadline(self, mock_get: MagicMock) -> None:
