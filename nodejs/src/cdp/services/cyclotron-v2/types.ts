@@ -124,6 +124,9 @@ export interface CyclotronV2DequeuedJob {
     // responsible for terminating it (cancel() plus its own telemetry) instead of
     // executing it.
     readonly cancelRequestedAt: DateTime | null
+    // The overdue poll claimed this send with files because the worker had no room for it. That poll takes no SES
+    // token, so the consumer must fail the send as overdue and never start it.
+    readonly claimedOverdue: boolean
 
     ack(): Promise<void>
     fail(): Promise<void>

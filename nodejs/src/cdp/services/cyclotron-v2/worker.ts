@@ -418,17 +418,17 @@ export class CyclotronV2Worker {
                 }
                 const room = Math.min(sendsWithFiles.room(), this.batchMaxSize)
                 const decision = room > 0 ? await this.filesBatchLimit(room) : { limit: 0 }
-                const rows =
-                    room === 0
-                        ? await this.dequeueOverdueFiles(sendsWithFiles.overdueAfterMs)
-                        : decision.limit > 0
-                          ? await this.dequeueFiles(decision.limit)
-                          : []
+                const claimedOverdue = room === 0
+                const rows = claimedOverdue
+                    ? await this.dequeueOverdueFiles(sendsWithFiles.overdueAfterMs)
+                    : decision.limit > 0
+                      ? await this.dequeueFiles(decision.limit)
+                      : []
                 if (rows.length === 0) {
                     await this.sleepUntilStopped(decision.sleepMs ?? this.pollDelayMaxMs)
                     continue
                 }
-                await processBatch(rows.map((row) => this.wrapJob(row)))
+                await processBatch(rows.map((row) => this.wrapJob(row, claimedOverdue)))
             } catch (err) {
                 consumerLoopErrorsCounter.labels({ queue: this.queueName }).inc()
                 logger.error('CyclotronV2Worker files loop error', { error: String(err) })
@@ -587,7 +587,7 @@ export class CyclotronV2Worker {
         return result.rows
     }
 
-    protected wrapJob(row: RawJobRow): CyclotronV2DequeuedJob {
+    protected wrapJob(row: RawJobRow, claimedOverdue = false): CyclotronV2DequeuedJob {
         const pool = this.pool
         const dbUrl = this.config.pool.dbUrl
         const releaseRetrySlots = this.releaseRetrySlots
@@ -765,6 +765,7 @@ export class CyclotronV2Worker {
             cancelRequestedAt: row.cancel_requested_at
                 ? DateTime.fromISO(row.cancel_requested_at, { zone: 'utc' })
                 : null,
+            claimedOverdue,
 
             ack: releaseWrite('ack', (db) =>
                 db.query(

@@ -98,8 +98,9 @@ export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
             }
             const overdue = Date.now() - firstDueAt(invocation, Date.now()) >= LONGEST_WAIT_FOR_ROOM_MS
             // Fail an overdue send before admission, so it ends the same way whether the files poll took it with a slot
-            // free or with every slot taken.
-            if (overdue && this.pollsFilesApart()) {
+            // free or with every slot taken. A send the overdue poll claimed fails even when this clock reads it as not
+            // yet overdue, because Postgres's clock decided the claim and the claim took no SES token.
+            if (invocation.queueClaimedOverdue || (overdue && this.pollsFilesApart())) {
                 waitedTooLongForRoom.add(invocation)
                 plain.push(invocation)
                 continue

@@ -387,6 +387,9 @@ export type CyclotronJobInvocation = {
     fileBytesBeforeSealing?: number
     // The stored token could not be opened, so the state holds only its plaintext fields and must not run.
     stateUnreadable?: true
+    // The queue claimed this send with files only because it waited too long for room, without an SES token, so it
+    // must fail as overdue and never send. The queue sets this on dequeue and never stores it.
+    queueClaimedOverdue?: true
 }
 
 // The result of an execution
