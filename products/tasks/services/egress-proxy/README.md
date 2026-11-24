@@ -131,7 +131,9 @@ Tasks retains ownership of the VM
 
 The sidecar reserve takes 1 GiB from the main VM for its whole lifetime, even if observation never starts. A 2 GiB VM leaves the guest 1 GiB. Match guest memory allocations before comparing performance with an unobserved run. [Modal resource configuration](https://modal.com/docs/guide/sandbox-sidecars#resource-configuration).
 
-Each execution has its own relay name and capability file, so delayed writes or cleanup cannot affect a replacement. Observation lasts at most the configured 600 seconds. Tasks stops it before teardown, VM rotation or workflow continuation; it does not restart on the replacement or continuation. Attached cleanup gets one attempt and a ten-second activity deadline, including queue time. Failure is logged so Tasks can continue; authority expires with its lease if revocation cannot finish.
+Each execution has its own relay name and capability file, so delayed writes or cleanup cannot affect a replacement. Bounded observation lasts at most the configured 600 seconds and stops before teardown, VM rotation or workflow continuation. Only run-lifetime enrollment restarts after a handoff. Attached cleanup gets one attempt and a ten-second activity deadline, including queue time. Failure is logged so Tasks can continue; authority expires with its lease if revocation cannot finish.
+
+If the previous execution still owns a live lease, replacement enrollment retries after 30 seconds within its existing three-minute provisioning deadline. It cannot take over a live lease. Configuration errors still stop enrollment immediately.
 
 Cleanup stops the relay and removes its guest capability file when Modal is reachable. The guest deliberately holds a bounded run capability; relay keys and upstream credentials belong outside it. This probe only authorizes `/v1/probe` and does not demonstrate an upstream credential adapter. An actor change invalidates its authorization through the registry.
 
@@ -169,10 +171,11 @@ The relay retains its private key. The CA signing key stays with the worker. Ren
 Selected TaskRun -> ordinary VM provision and agent launch
   attach relay -> register execution -> publish bounded capability
   renew lease, capability and certificate until the selected deadline
-  parent ends / replaces VM / continues as new -> revoke and close relay
+  parent ends -> revoke and close relay
+  maintained enrollment handoff -> revoke old execution, enroll a fresh relay
 ```
 
-Enrollment uses the existing probe lifecycle and authorizes only `/v1/probe`. It requires a fresh, noninteractive Modal VM with full network access. It skips snapshots and reserves 1 GiB for the sidecar. Existing agent routing, credentials and agentsh behavior remain unchanged.
+Enrollment uses the existing probe lifecycle and authorizes only `/v1/probe`. Initial enrollment requires a fresh, noninteractive Modal VM with full network access. It skips snapshots and reserves 1 GiB for the sidecar. Existing agent routing, credentials and agentsh behavior remain unchanged.
 
 Deploy the matching proxy image before enabling enrollment. Each proxy replica limits a relay's authenticated TLS key to 32 requests/second with a burst of 512, including requests with missing or invalid capabilities. This covers the configured 256-request probe rounds with room for startup. Changing tokens, connections or identity headers does not create another budget; certificate renewal with the same key and verifier reload preserve it. Budgets are replica-local and reset on process restart, so capacity scales with the replica count. The budget table is bounded by `cache_entries`; new keys are refused when all entries are live.
 
@@ -194,7 +197,13 @@ The parent supplies the sandbox's absolute expiry. The relay process uses its re
 
 In run-lifetime mode, a failed certificate delivery leaves the deadline due for another attempt on the next renewal tick. Capability refresh runs first when both are due. Retries require a valid current certificate and live registration; certificate expiry, a changed key or lost authority ends enrollment. Only acknowledged delivery advances the saved certificate expiry and refresh deadline. A renewal activity that exhausts its timeout still ends enrollment.
 
-Both modes stop before sandbox replacement or workflow continuation and do not re-enroll afterward. Restrict this pilot to one sandbox generation until handoff is implemented. Enrollment failure is logged and does not fail the agent run; this still authorizes only synthetic probes.
+Both modes stop before sandbox replacement or workflow continuation. Run-lifetime enrollment then creates a fresh execution, relay key and capability on the selected sandbox. Continuation rechecks the current flag, configuration and sandbox binding, and keeps the sandbox's original expiry. A successful rotation uses the replacement's expiry; an abandoned rotation re-enrolls the original only if its routing was restored. Bounded observation does not restart.
+
+Maintained rotation explicitly permits a directory resume snapshot at the approved workspace mount and reserves relay memory on the new VM. Ordinary observation still rejects snapshots; full-filesystem snapshots and other mount paths are not accepted for this handoff.
+
+This is stop-and-re-enroll, with a fail-closed gap rather than uninterrupted traffic. Old authority is revoked or expires with its lease; a failed handoff cannot restore it. Delayed cleanup targets only its own execution and relay. Enrollment failure is logged and does not fail the agent run; this still authorizes only synthetic probes. Validate continuation and snapshot rotation on the deployed worker before expanding the cohort.
+
+Automatic snapshot rotation currently serves interactive runs, which enrollment excludes. The handoff supports that path without widening eligibility; a live rotation canary needs an eligible cohort first.
 
 ## Run the processes
 
