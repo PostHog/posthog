@@ -51,10 +51,25 @@
                             ]
                         },
                         "email": {
-                            "format": "email",
-                            "maxLength": 254,
-                            "pattern": "^(?!\\.)(?!.*\\.\\.)([A-Za-z0-9_'+\\-\\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$",
-                            "type": "string"
+                            "anyOf": [
+                                {
+                                    "anyOf": [
+                                        {
+                                            "format": "email",
+                                            "maxLength": 254,
+                                            "pattern": "^(?!\\.)(?!.*\\.\\.)([A-Za-z0-9_'+\\-\\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ]
+                                },
+                                {
+                                    "maxLength": 0,
+                                    "type": "string"
+                                }
+                            ]
                         },
                         "first_name": {
                             "maxLength": 150,
@@ -121,7 +136,6 @@
                             "type": "string"
                         }
                     },
-                    "required": ["email"],
                     "type": "object"
                 },
                 "deleted": {
