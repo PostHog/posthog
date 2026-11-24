@@ -45,6 +45,11 @@ describe('htmlToEmailText', () => {
             'Go (https://example.com)',
         ],
         [
+            'a value an import escaped for a quoted link',
+            '<a href="{{ url | join: &quot;,&quot; | escape | replace: &quot;=&quot;, &quot;&amp;#x3D;&quot; | replace: &quot;`&quot;, &quot;&amp;#x60;&quot; | raw -}}">Go</a>',
+            'Go ({{ url | join: &quot;,&quot; -}})',
+        ],
+        [
             'a value escaped for html',
             '<a href="{{ url | escape | raw }}">{{ name | escape }}</a>',
             '{{ name }} ({{ url }})',
@@ -55,6 +60,15 @@ describe('htmlToEmailText', () => {
         ['styles and titles', '<head><title>T</title><style>a{}</style></head><p>Body</p>', 'Body'],
     ])('writes %s', (_name, html, expected) => {
         expect(htmlToEmailText(html)).toEqual(expected)
+    })
+
+    it('keeps every filter of a long chain that another filter follows', () => {
+        const chain = '|replace:"=","&#x3D;"|replace:&quot;`&quot;,&quot;&#x60;&quot;'.repeat(40_000)
+
+        const text = htmlToEmailText(`<p>{{ x ${chain}|upcase }}</p>`)
+
+        expect(text.match(/replace/g)).toHaveLength(80_000)
+        expect(text).toMatch(/upcase }}$/)
     })
 
     // Liquid fails a whole send over one bad tag, so each of these has to render wherever its html does.
