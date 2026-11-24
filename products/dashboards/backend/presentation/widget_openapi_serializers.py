@@ -16,6 +16,8 @@ from rest_framework import serializers
 
 from posthog.schema import BreakdownFilter, CompareFilter, IntervalType
 
+from posthog.enums import LabeledStrEnum
+
 from products.dashboards.backend.facade.enums import (
     DASHBOARD_GRID_COLUMN_COUNT,
     DASHBOARD_GRID_COMPACTION_MODES,
@@ -207,12 +209,19 @@ def _build_catalog_entry_serializers() -> dict[str, type[serializers.Serializer]
 
     for widget_type, config_model in WIDGET_CONFIG_MODELS.items():
         prefix = _config_model_openapi_prefix(config_model)
+        # A one-member class per type: the ENUM_NAME_OVERRIDES entry for the type names its enum. The cast
+        # is for the functional Enum API, which the LabeledStrEnum stubs do not describe.
+        widget_type_choices = cast(
+            type[LabeledStrEnum],
+            cast(Any, LabeledStrEnum)(
+                f"{prefix}CatalogEntryWidgetType", [(widget_type.upper(), (widget_type, widget_type))]
+            ),
+        )
         catalog_entry_serializers[widget_type] = type(
             f"{prefix}CatalogEntryOpenApiSerializer",
             (serializers.Serializer,),
             {
-                # nosemgrep: choices-need-a-class -- one value per generated serializer, ENUM_NAME_OVERRIDES names each
-                "widget_type": serializers.ChoiceField(choices=[widget_type]),
+                "widget_type": serializers.ChoiceField(choices=widget_type_choices.choices),
                 "group_id": serializers.CharField(),
                 "group_label": serializers.CharField(),
                 "label": serializers.CharField(),
