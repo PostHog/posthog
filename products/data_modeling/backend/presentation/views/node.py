@@ -3,6 +3,7 @@ from typing import Any, cast
 from uuid import UUID
 
 from django.db import models, transaction
+from django.db.models import Exists, OuterRef, Subquery
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_field
@@ -10,15 +11,13 @@ from rest_framework import filters, mixins, request, response, serializers, stat
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, Throttled
 
-from posthog.api.pagination import FacadePageNumberPagination, facade_numbered_paginator
+from posthog.api.pagination import BoundedPageNumberPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import SessionAuthentication
 from posthog.exceptions import Conflict
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
-from posthog.models.utils import strict_fetch
-from posthog.paging import Page, PageRequest
 
 from products.data_modeling.backend.facade.api import (
     SCHEDULABLE_BUCKETS,
@@ -38,15 +37,11 @@ from products.data_modeling.backend.facade.api import (
     delete_node,
     endpoint_link,
     failing_model_count,
-    find_node_id,
     get_declared_target,
     is_declared_pin,
-    lineage_edge_ids,
-    list_node_ids,
     load_node_descriptions,
     node_lineage,
     node_lineage_counts,
-    node_run_states,
     parse_warehouse_table_id,
     run_related_node_materializations,
     saved_query_pin_preview,
@@ -55,19 +50,18 @@ from products.data_modeling.backend.facade.api import (
     set_watching,
     suspension_state,
     unsuspend_nodes,
-    visible_node_ids_among,
-    visible_node_ids_in_dags_of_saved_query,
     watched_node_ids,
     write_node_description,
 )
-from products.data_modeling.backend.facade.contracts import NodeDescription, NodeDescriptionTarget, NodeRunState
+from products.data_modeling.backend.facade.contracts import NodeDescription, NodeDescriptionTarget
 from products.data_modeling.backend.facade.models import (
     SAVED_QUERY_NODE_TYPES,
+    DataModelingJob,
+    DataModelingJobEngine,
     DataWarehouseSavedQuery,
     Edge,
     LineageIssueKind,
     Node,
-    NodeLookup,
     NodeType,
 )
 from products.data_modeling.backend.presentation.views.edge import EdgeSerializer
@@ -77,7 +71,6 @@ from products.data_modeling.backend.presentation.views.metric_visibility import 
     TABLE_EDIT_DENIED,
     MetricNodeVisibilityMixin,
 )
-from products.data_modeling.backend.presentation.views.rows import rows_in_id_order
 from products.warehouse_sources.backend.facade.api import allowed_table_ids
 from products.warehouse_sources.backend.facade.models import (
     sync_frequency_interval_to_sync_frequency,
@@ -145,13 +138,14 @@ class LineageLookupError(Exception):
     """Raised when the lineage request names no node, or names one with an unparseable id."""
 
 
-_LOOKUPS_KEYED_BY_UUID: frozenset[NodeLookup | None] = frozenset({None, NodeLookup.SAVED_QUERY, NodeLookup.METRIC})
+class NodeLookup(models.TextChoices):
+    SAVED_QUERY = "saved_query"
+    WAREHOUSE_TABLE = "warehouse_table"
+    POSTHOG_TABLE = "posthog_table"
+    METRIC = "metric"
 
-_LINEAGE_LOOKUPS: dict[str, NodeLookup | None] = {
-    "node_id": None,
-    "saved_query_id": NodeLookup.SAVED_QUERY,
-    "metric_id": NodeLookup.METRIC,
-}
+
+_LOOKUPS_KEYED_BY_UUID: frozenset[str | None] = frozenset({None, NodeLookup.SAVED_QUERY, NodeLookup.METRIC})
 
 
 class LineageIssueSerializer(serializers.Serializer):
@@ -236,7 +230,6 @@ class NodeListSerializer(serializers.ListSerializer):
         # Load every description for the page at once, to avoid one annotation query per node.
         cast(NodeSerializer, self.child).preload_descriptions(nodes)
         cast(NodeSerializer, self.child).preload_watching(nodes)
-        cast(NodeSerializer, self.child).preload_run_states(nodes)
         return super().to_representation(nodes)
 
 
@@ -367,24 +360,21 @@ class NodeSerializer(serializers.ModelSerializer):
         return self.context.get("hidden_node_types") or frozenset()
 
     def get_last_run_at(self, node: Node) -> str | None:
-        run_state = self.run_state_for(node)
-        if run_state and run_state.completed_at is not None:
-            return run_state.completed_at.isoformat()
-        if run_state and run_state.has_serving_job:
+        run_at = getattr(node, "_latest_job_run_at", None)
+        if run_at is not None:
+            return run_at.isoformat()
+        if getattr(node, "_has_serving_job", False):
             return None
         return node.properties.get("system", {}).get("last_run_at")
 
     def get_last_run_status(self, node: Node) -> str | None:
         """Skipped runs are written straight to the job table and never reach the stored status,
         so a blocked model would keep reporting the success before it."""
-        run_state = self.run_state_for(node)
-        status = run_state.status if run_state else None
-        return status or node.properties.get("system", {}).get("last_run_status")
+        return getattr(node, "_latest_job_status", None) or node.properties.get("system", {}).get("last_run_status")
 
     def get_last_run_error(self, node: Node) -> str | None:
         """Error of the run that last_run_status describes, so the two never disagree."""
-        run_state = self.run_state_for(node)
-        return (run_state.error or None) if run_state else None
+        return getattr(node, "_latest_job_error", None) or None
 
     def get_user_tag(self, node: Node) -> str | None:
         return node.properties.get("user", {}).get("tag")
@@ -441,16 +431,6 @@ class NodeSerializer(serializers.ModelSerializer):
         read_watched = self.context.get("read_watched_node_ids")
         self._watched = read_watched([node.id for node in nodes]) if read_watched else frozenset()
         self._watching_checked_node_ids = {node.id for node in nodes}
-
-    def preload_run_states(self, nodes: list[Node]) -> None:
-        read_run_states = self.context.get("read_node_run_states")
-        self._run_states = read_run_states([node.id for node in nodes]) if read_run_states else {}
-        self._run_state_checked_node_ids = {node.id for node in nodes}
-
-    def run_state_for(self, node: Node) -> NodeRunState | None:
-        if node.id not in getattr(self, "_run_state_checked_node_ids", ()):
-            self.preload_run_states([node])
-        return self._run_states.get(node.id)
 
     def preload_descriptions(self, nodes: list[Node]) -> None:
         read_descriptions = self.context.get("read_node_descriptions")
@@ -582,7 +562,7 @@ def _log_cadence_change(
     )
 
 
-class NodePagination(FacadePageNumberPagination):
+class NodePagination(BoundedPageNumberPagination):
     page_size = 1000
 
 
@@ -643,6 +623,29 @@ def _get_downstream_nodes(node: Node, hidden_types: frozenset[str] = frozenset()
     return nodes
 
 
+def _annotate_latest_job(queryset: models.QuerySet) -> models.QuerySet:
+    """Annotate the run state a reader is asking about: the newest ClickHouse job.
+
+    Managed warehouse jobs can shadow a serving run and finish after it, so a shadow failure would
+    otherwise label a model that served fine as failed.
+    """
+    serving_jobs = DataModelingJob.objects.filter(
+        saved_query_id=OuterRef("saved_query_id"), engine=DataModelingJobEngine.CLICKHOUSE
+    ).order_by("-last_run_at")
+    return queryset.annotate(
+        _has_serving_job=Exists(serving_jobs),
+        _latest_job_status=Subquery(serving_jobs.values("status")[:1]),
+        _latest_job_error=Subquery(serving_jobs.values("error")[:1]),
+        _latest_job_run_at=Subquery(
+            serving_jobs.filter(status=DataModelingJob.Status.COMPLETED).values("last_run_at")[:1]
+        ),
+    )
+
+
+def _node_queryset_with_latest_job() -> models.QuerySet:
+    return _annotate_latest_job(Node.objects.select_related("saved_query", "dag").all())
+
+
 class NodeAttentionCountSerializer(serializers.Serializer):
     count = serializers.IntegerField(
         help_text="Models whose last serving run failed or whose scheduled runs are suspended, each counted once."
@@ -667,6 +670,9 @@ class NodeViewSet(
     queryset = Node.objects.select_related("saved_query", "dag").all()
     serializer_class = NodeSerializer
     pagination_class = NodePagination
+    filter_backends = [filters.SearchFilter]
+    search_fields = ["name"]
+    ordering = "name"
 
     def get_serializer_context(self) -> dict[str, Any]:
         return {
@@ -674,18 +680,7 @@ class NodeViewSet(
             "hidden_node_types": self._hidden_node_types(),
             "read_node_descriptions": self._readable_node_descriptions,
             "read_watched_node_ids": self._watched_among,
-            "read_node_run_states": self._run_states_of,
         }
-
-    def _run_states_of(self, node_ids: list[UUID]) -> dict[UUID, NodeRunState]:
-        return node_run_states(self.team_id, node_ids)
-
-    def _node(self, node_id: UUID | None) -> Node | None:
-        return next(iter(self._nodes([node_id])), None) if node_id else None
-
-    def _nodes(self, node_ids: list[UUID], *, strict: bool = False) -> list[Node]:
-        nodes = Node.objects.filter(team_id=self.team_id).select_related("saved_query", "dag")
-        return rows_in_id_order(strict_fetch(nodes) if strict else nodes, node_ids)
 
     def _watched_among(self, node_ids: list[UUID]) -> frozenset[UUID]:
         """Which of these nodes the caller watches, in one query for the whole page."""
@@ -728,12 +723,9 @@ class NodeViewSet(
             resolved = saved_query_target_bounds(self.team_id, node.saved_query_id)
         if resolved is None:
             return {}
-        listed_ids = {
-            str(node_id)
-            for node_id in visible_node_ids_in_dags_of_saved_query(
-                self.team, self.user_access_control, saved_query_id=node.saved_query_id
-            )
-        }
+        dag_ids = Node.objects.filter(team_id=self.team_id, saved_query_id=node.saved_query_id).values("dag_id")
+        listed = self._exclude_hidden_nodes(Node.objects.filter(team_id=self.team_id, dag_id__in=dag_ids))
+        listed_ids = {str(node_id) for node_id in listed.values_list("id", flat=True)}
         return {node_id: name for node_id, name in self._readable_node_names(resolved).items() if node_id in listed_ids}
 
     @extend_schema(responses=NodeFrequencyBoundsSerializer)
@@ -786,26 +778,38 @@ class NodeViewSet(
             raise serializers.ValidationError("Metric nodes are deleted by deleting their metric.")
         delete_node(instance.team_id, instance.pk)
 
-    def read_object(self) -> Node | None:
-        requested_lookup = self.request.query_params.get("lookup")
-        try:
-            lookup = NodeLookup(requested_lookup) if requested_lookup else None
-        except ValueError:
-            raise serializers.ValidationError({"lookup": f"Unsupported node lookup: {requested_lookup}"})
-        key = self.kwargs["pk"]
+    def safely_get_object(self, queryset: models.QuerySet) -> Node:
+        lookup = self.request.query_params.get("lookup") or None
         if lookup in _LOOKUPS_KEYED_BY_UUID:
             try:
-                key = UUID(key)
+                UUID(self.kwargs["pk"])
             except ValueError:
                 raise NotFound()
-        node_id = find_node_id(
-            self.team,
-            self.user_access_control,
-            key=key,
-            lookup=lookup,
-            include_hidden=self.action == "unwatch",
-        )
-        return self._node(node_id)
+        if not lookup:
+            node = queryset.filter(pk=self.kwargs["pk"]).first()
+        elif lookup == NodeLookup.SAVED_QUERY:
+            node = queryset.filter(saved_query_id=self.kwargs["pk"]).order_by("created_at").first()
+        elif lookup == NodeLookup.WAREHOUSE_TABLE:
+            node = queryset.filter(properties__warehouse_table_id=self.kwargs["pk"]).order_by("created_at").first()
+        elif lookup == NodeLookup.POSTHOG_TABLE:
+            node = (
+                queryset.filter(
+                    name=self.kwargs["pk"],
+                    type=NodeType.TABLE,
+                    saved_query__isnull=True,
+                    properties__origin="posthog",
+                )
+                .order_by("created_at")
+                .first()
+            )
+        elif lookup == NodeLookup.METRIC:
+            node = queryset.filter(metric_id=self.kwargs["pk"]).order_by("created_at").first()
+        else:
+            raise serializers.ValidationError({"lookup": f"Unsupported node lookup: {lookup}"})
+
+        if node is None:
+            raise NotFound()
+        return node
 
     @extend_schema(
         parameters=[
@@ -823,28 +827,12 @@ class NodeViewSet(
         self._require_warehouse_access(level="viewer", message=_READ_DENIED)
         return super().retrieve(request, *args, **kwargs)
 
-    @extend_schema(
-        parameters=[
-            OpenApiParameter(
-                name="search",
-                type=OpenApiTypes.STR,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description="Return only nodes whose name contains every search term.",
-            )
-        ]
-    )
     def list(self, request, *args, **kwargs):
         self._require_warehouse_access(level="viewer", message=_READ_DENIED)
 
-        search_terms = filters.SearchFilter().get_search_terms(request)
-        paginator = facade_numbered_paginator(self)
-
-        def fetch(page_request: PageRequest) -> Page[Node]:
-            node_ids = list_node_ids(self.team, self.user_access_control, page=page_request, search_terms=search_terms)
-            return Page(results=self._nodes(node_ids.results, strict=True), count=node_ids.count)
-
-        nodes = paginator.read_facade_page(request, fetch).results
+        queryset = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(queryset)
+        nodes = page if page is not None else queryset
 
         node_ids = [str(n.id) for n in nodes]
         counts = node_lineage_counts(self.team_id, node_ids, hidden_types=self._hidden_node_types())
@@ -852,7 +840,18 @@ class NodeViewSet(
         serializer = self.get_serializer(
             nodes, many=True, context={**self.get_serializer_context(), "node_counts": counts}
         )
-        return paginator.get_paginated_response(serializer.data)
+        if page is not None:
+            return self.get_paginated_response(serializer.data)
+        return response.Response(serializer.data)
+
+    def safely_get_queryset(self, queryset):
+        if self.action == "unwatch":
+            # Hidden nodes stay unwatchable, so someone who lost access to a metric or view can still opt out.
+            # `set_watching` rejects a deleted view.
+            return queryset.filter(team_id=self.team_id)
+        return _annotate_latest_job(self._exclude_hidden_nodes(queryset.filter(team_id=self.team_id))).order_by(
+            self.ordering
+        )
 
     @extend_schema(
         request=NodeRunSerializer,
@@ -907,16 +906,20 @@ class NodeViewSet(
             raise Throttled(wait=error.retry_after_seconds, detail=str(error))
         return response.Response(NodeRunResponseSerializer(run).data, status=status.HTTP_200_OK)
 
-    def _lineage_node(self, req: request.Request) -> Node | None:
-        param = next((param for param in _LINEAGE_LOOKUPS if req.query_params.get(param)), None)
-        if param is None:
+    def _lineage_lookup(self, req: request.Request) -> dict[str, UUID]:
+        by_param = {
+            "id": req.query_params.get("node_id"),
+            "saved_query_id": req.query_params.get("saved_query_id"),
+            "metric_id": req.query_params.get("metric_id"),
+        }
+        given = {field: value for field, value in by_param.items() if value}
+        if not given:
             raise LineageLookupError("node_id, saved_query_id or metric_id is required")
+        field, value = next(iter(given.items()))
         try:
-            key = UUID(req.query_params[param])
+            return {field: UUID(value)}
         except ValueError:
             raise LineageLookupError("Invalid UUID")
-        node_id = find_node_id(self.team, self.user_access_control, key=key, lookup=_LINEAGE_LOOKUPS[param])
-        return self._node(node_id)
 
     @extend_schema(
         parameters=[
@@ -945,23 +948,30 @@ class NodeViewSet(
         # gated on.
         self._require_warehouse_access(level="viewer", message="Reading lineage requires data warehouse read access.")
 
-        # saved_query is a non-unique FK: a saved query synced into multiple DAGs has multiple nodes.
-        # Order for a deterministic pick (the graphs are equivalent for lineage purposes).
         try:
-            node = self._lineage_node(req)
+            lookup = self._lineage_lookup(req)
         except LineageLookupError as error:
             return response.Response({"error": str(error)}, status=status.HTTP_400_BAD_REQUEST)
+
+        # saved_query is a non-unique FK: a saved query synced into multiple DAGs has multiple nodes.
+        # Order for a deterministic pick (the graphs are equivalent for lineage purposes).
+        node = (
+            self._exclude_hidden_nodes(Node.objects.filter(team_id=self.team_id, **lookup))
+            .order_by("created_at")
+            .first()
+        )
         if node is None:
             return response.Response({"error": "Node not found"}, status=status.HTTP_404_NOT_FOUND)
 
         lineage = node_lineage(self.team_id, node.id, node.dag_id, hidden_types=self._hidden_node_types())
 
-        nodes = self._nodes(
-            list(visible_node_ids_among(self.team, self.user_access_control, node_ids=lineage.node_ids)), strict=True
+        nodes = self._exclude_hidden_nodes(
+            _node_queryset_with_latest_job().filter(id__in=lineage.node_ids, team_id=self.team_id)
         )
-        edges = rows_in_id_order(
-            strict_fetch(Edge.objects.filter(team_id=self.team_id).select_related("source", "target", "dag")),
-            lineage_edge_ids(self.team, self.user_access_control, node_ids=lineage.node_ids),
+        edges = self._exclude_hidden_edges(
+            Edge.objects.select_related("source", "target", "dag").filter(
+                team_id=self.team_id, source_id__in=lineage.node_ids, target_id__in=lineage.node_ids
+            )
         )
 
         return response.Response(
@@ -1057,8 +1067,8 @@ class NodeViewSet(
     @action(methods=["POST"], detail=True)
     def unwatch(self, req: request.Request, *args, **kwargs) -> response.Response:
         """Stop getting failure notifications for this node, including the ones you get as its creator."""
-        # No read check here, and `read_object` keeps hidden nodes, so someone who lost access
-        # to a view or metric can still turn its notifications off. `set_watching` rejects a deleted view.
+        # No read check here, and `safely_get_queryset` keeps hidden nodes, so someone who lost access
+        # to a view or metric can still turn its notifications off.
         node = self.get_object()
         return self._set_node_watching(node, req, watching=False)
 

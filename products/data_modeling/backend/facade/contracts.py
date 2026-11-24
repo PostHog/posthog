@@ -24,16 +24,6 @@ from products.data_modeling.backend.facade.enums import ViewColumnSource, ViewEn
 from products.warehouse_sources.backend.facade.types import WarehouseColumnAnnotationDescriptionSource
 
 
-@frozen
-class NodeRunState:
-    """The newest serving job of a node's saved query, as the node list reports it."""
-
-    has_serving_job: bool
-    status: str | None
-    error: str | None
-    completed_at: datetime | None
-
-
 @dataclass(frozen=True)
 class DataModelingJob:
     """A materialization run for a saved query."""

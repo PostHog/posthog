@@ -1,22 +1,17 @@
 from typing import Any, cast
-from uuid import UUID
 
-from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, serializers, viewsets
 
-from posthog.api.pagination import FacadePageNumberPagination, facade_numbered_page_response
+from posthog.api.pagination import BoundedPageNumberPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.models.utils import strict_fetch
-from posthog.paging import Page, PageRequest
 
-from products.data_modeling.backend.facade.api import delete_orphaned_table_nodes, find_edge_id, list_edge_ids
+from products.data_modeling.backend.facade.api import delete_orphaned_table_nodes
 from products.data_modeling.backend.facade.models import Edge, NodeType
 from products.data_modeling.backend.presentation.views.metric_visibility import (
     DELETE_DENIED,
     EDIT_DENIED,
     MetricNodeVisibilityMixin,
 )
-from products.data_modeling.backend.presentation.views.rows import rows_in_id_order
 
 _METRIC_EDGE_REFUSAL = "Edges that connect a metric are maintained by the data catalog."
 
@@ -66,7 +61,7 @@ class EdgeSummarySerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
-class EdgePagination(FacadePageNumberPagination):
+class EdgePagination(BoundedPageNumberPagination):
     page_size = 5000
 
 
@@ -83,7 +78,7 @@ class EdgeViewSet(
     queryset = Edge.objects.select_related("dag", "source__saved_query", "target__saved_query").all()
     serializer_class = EdgeSerializer
     pagination_class = EdgePagination
-    path_parameters = {"pk": UUID}
+    ordering = "-created_at"
 
     def get_serializer_context(self) -> dict[str, Any]:
         return super().get_serializer_context()
@@ -107,22 +102,7 @@ class EdgeViewSet(
         instance.delete()
         delete_orphaned_table_nodes(instance.team_id, [instance.source_id])
 
-    @extend_schema(responses=EdgeSummarySerializer(many=True))
-    def list(self, request, *args, **kwargs):
-        def fetch(page_request: PageRequest) -> Page[Edge]:
-            edge_ids = list_edge_ids(self.team, self.user_access_control, page=page_request)
-            return Page(
-                results=rows_in_id_order(strict_fetch(Edge.objects.filter(team_id=self.team_id)), edge_ids.results),
-                count=edge_ids.count,
-            )
-
-        return facade_numbered_page_response(self, fetch)
-
-    def read_object(self) -> Edge | None:
-        edge_id = find_edge_id(self.team, self.user_access_control, edge_id=self.kwargs["pk"])
-        if edge_id is None:
-            return None
-        edges = Edge.objects.filter(team_id=self.team_id).select_related(
-            "dag", "source__saved_query", "target__saved_query"
-        )
-        return edges.filter(id=edge_id).first()
+    def safely_get_queryset(self, queryset):
+        if self.action == "list":
+            queryset = queryset.select_related(None)
+        return self._exclude_hidden_edges(queryset.filter(team_id=self.team_id)).order_by(self.ordering)

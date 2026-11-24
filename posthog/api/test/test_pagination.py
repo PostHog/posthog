@@ -13,10 +13,10 @@ from rest_framework.pagination import CursorPagination
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
 
-from posthog.api.pagination import FacadeCursorPagination, FacadePageNumberPagination, StableCursorPagination
+from posthog.api.pagination import FacadeCursorPagination, StableCursorPagination
 from posthog.models.uploaded_media import UploadedMedia
-from posthog.paging import CursorPageRequest, Page, PageRequest
-from posthog.queryset_paging import select_cursor_page, select_page
+from posthog.paging import CursorPageRequest, Page
+from posthog.queryset_paging import select_cursor_page
 
 
 class _MediaIdSerializer(serializers.Serializer):
@@ -166,52 +166,3 @@ class TestCursorPagination(BaseTest):
         assert ordering_for("archived_at,-archived_at,archived_at") == ("archived_at", "id")
         with self.assertRaises(ValidationError):
             ordering_for("archived_at,created_at,file_name,purpose,-id")
-
-
-class _TwoPerPage(FacadePageNumberPagination):
-    page_size = 2
-
-
-class TestFacadePageNumberPagination(BaseTest):
-    def setUp(self) -> None:
-        super().setUp()
-        for _ in range(5):
-            UploadedMedia.objects.create(team=self.team, file_name="same_name")
-        self.fetches: list[PageRequest] = []
-
-    def _page(self, page: str | None) -> dict:
-        request = Request(APIRequestFactory().get("/media/", {"page": page} if page else {}))
-        view = _MediaView()
-        view.request = request
-        view.format_kwarg = None
-        queryset = UploadedMedia.objects.filter(team=self.team).order_by("file_name")
-
-        def fetch(page_request: PageRequest) -> Page[UploadedMedia]:
-            self.fetches.append(page_request)
-            return select_page(queryset, page_request)
-
-        return _TwoPerPage().get_paginated_facade_response(request, view, fetch).data
-
-    def test_pages_through_rows_that_share_the_sort_value_in_primary_key_order(self) -> None:
-        ids_by_primary_key = [
-            str(id) for id in UploadedMedia.objects.filter(team=self.team).order_by("id").values_list("id", flat=True)
-        ]
-        UploadedMedia.objects.filter(id__in=ids_by_primary_key[:2]).update(file_name="same_name")
-
-        pages = [self._page(None), self._page("2"), self._page("3")]
-
-        assert [row["id"] for page in pages for row in page["results"]] == ids_by_primary_key
-        assert [page["count"] for page in pages] == [5, 5, 5]
-        assert pages[1]["previous"] is not None and pages[1]["next"] is not None
-        assert pages[2]["next"] is None
-
-    def test_last_page_reads_the_count_then_the_final_page(self) -> None:
-        page = self._page("last")
-
-        assert len(page["results"]) == 1
-        assert self.fetches == [PageRequest(limit=2), PageRequest(limit=2, offset=4)]
-
-    @parameterized.expand([("not_a_number", "abc"), ("zero", "0"), ("past_the_last_page", "4")])
-    def test_rejects_a_page_that_does_not_exist(self, _name: str, page: str) -> None:
-        with self.assertRaises(NotFound):
-            self._page(page)
