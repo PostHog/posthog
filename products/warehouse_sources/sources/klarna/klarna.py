@@ -1,14 +1,16 @@
 from typing import Any
 
 from products.warehouse_sources.sources.klarna._config import KlarnaSourceConfig
-from products.warehouse_sources.sources.klarna.settings import BASE_URLS, ENDPOINTS, PAGE_SIZE
+from products.warehouse_sources.sources.klarna.settings import BASE_URLS, ENDPOINTS, PAGE_SIZE, KlarnaEndpoint
 from products.warehouse_sources.sources.sdk import (
     APIKeyAuth,
     AuthConfigBase,
     HttpBasicAuth,
+    PaginatorConfig,
     RESTAPIConfig,
     ResumableSourceManager,
     SourceResponse,
+    format_datetime,
     frozen,
     make_tracked_session,
     rest_api_resource,
@@ -18,7 +20,8 @@ from products.warehouse_sources.sources.sdk import (
 
 @frozen
 class KlarnaResumeConfig:
-    offset: int
+    offset: int = 0
+    starting_after: str | None = None
 
 
 def klarna_auth(config: KlarnaSourceConfig) -> AuthConfigBase:
@@ -27,8 +30,53 @@ def klarna_auth(config: KlarnaSourceConfig) -> AuthConfigBase:
     return APIKeyAuth(api_key=f"Basic {config.api_key}")
 
 
-def klarna_base_url(config: KlarnaSourceConfig, api_version: str) -> str:
-    return f"{BASE_URLS[config.environment][config.region]}/settlements/{api_version}/"
+def klarna_base_url(config: KlarnaSourceConfig) -> str:
+    return f"{BASE_URLS[config.environment][config.region]}/"
+
+
+def endpoint_path(endpoint_config: KlarnaEndpoint, api_version: str) -> str:
+    return endpoint_config.path.format(api_version=api_version)
+
+
+def probe_params(endpoint_config: KlarnaEndpoint) -> dict[str, Any]:
+    if endpoint_config.pagination == "cursor":
+        return {"size": 1}
+    return {"size": 1, "offset": 0}
+
+
+def paginator_config(endpoint_config: KlarnaEndpoint) -> PaginatorConfig:
+    if endpoint_config.pagination == "cursor":
+        return {
+            "type": "cursor",
+            "cursor_path": "pagination.last_item",
+            "cursor_param": "starting_after",
+            "raise_on_repeated_cursor": True,
+        }
+    return {
+        "type": "offset",
+        "limit": PAGE_SIZE,
+        "limit_param": "size",
+        "offset_param": "offset",
+        "total_path": "pagination.total",
+    }
+
+
+def initial_paginator_state(
+    endpoint_config: KlarnaEndpoint, resume: KlarnaResumeConfig | None
+) -> dict[str, Any] | None:
+    if resume is None:
+        return None
+    if endpoint_config.pagination == "cursor":
+        return {"cursor": resume.starting_after} if resume.starting_after else None
+    return {"offset": resume.offset}
+
+
+def to_resume_config(endpoint_config: KlarnaEndpoint, state: dict[str, Any] | None) -> KlarnaResumeConfig | None:
+    if state is None:
+        return None
+    if endpoint_config.pagination == "cursor":
+        return KlarnaResumeConfig(starting_after=str(state["cursor"])) if state.get("cursor") else None
+    return KlarnaResumeConfig(offset=int(state["offset"])) if state.get("offset") is not None else None
 
 
 def probe_credentials(config: KlarnaSourceConfig, endpoint: str, api_version: str) -> None:
@@ -36,9 +84,9 @@ def probe_credentials(config: KlarnaSourceConfig, endpoint: str, api_version: st
     auth = klarna_auth(config)
     with make_tracked_session(redact_values=(*auth.secret_values(), config.api_key)) as session:
         response = session.get(
-            f"{klarna_base_url(config, api_version)}{endpoint_config.path}",
+            f"{klarna_base_url(config)}{endpoint_path(endpoint_config, api_version)}",
             auth=auth,
-            params={"size": 1, "offset": 0},
+            params=probe_params(endpoint_config),
             headers={"Accept": "application/json"},
             timeout=30,
             allow_redirects=False,
@@ -55,32 +103,37 @@ def klarna_source(
     job_id: str,
     api_version: str,
     resumable_source_manager: ResumableSourceManager[KlarnaResumeConfig],
+    should_use_incremental_field: bool = False,
+    incremental_field: str | None = None,
+    db_incremental_field_last_value: Any = None,
 ) -> SourceResponse:
     endpoint_config = schema_for_resource(ENDPOINTS, endpoint)
+    params: dict[str, Any] = {}
+    if endpoint_config.pagination == "cursor":
+        params["sort_by"] = "created_at"
+    if should_use_incremental_field and incremental_field and db_incremental_field_last_value is not None:
+        params[f"{incremental_field}_start"] = format_datetime(db_incremental_field_last_value, "iso_z")
     rest_config: RESTAPIConfig = {
         "client": {
-            "base_url": klarna_base_url(config, api_version),
+            "base_url": klarna_base_url(config),
             "auth": klarna_auth(config),
             "headers": {"Accept": "application/json"},
             "allowed_hosts": [],
             "allow_redirects": False,
-            "paginator": {
-                "type": "offset",
-                "limit": PAGE_SIZE,
-                "limit_param": "size",
-                "offset_param": "offset",
-                "total_path": "pagination.total",
-            },
+            "paginator": paginator_config(endpoint_config),
         },
         "resources": [
             {
                 "name": endpoint,
                 "table_name": endpoint,
                 "primary_key": endpoint_config.primary_keys,
-                "write_disposition": "replace",
+                "write_disposition": {"disposition": "merge", "strategy": "upsert"}
+                if should_use_incremental_field
+                else "replace",
                 "table_format": "delta",
                 "endpoint": {
-                    "path": endpoint_config.path,
+                    "path": endpoint_path(endpoint_config, api_version),
+                    "params": params,
                     "data_selector": endpoint_config.data_selector,
                     "data_selector_required": True,
                 },
@@ -90,8 +143,9 @@ def klarna_source(
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
     def save_checkpoint(state: dict[str, Any] | None) -> None:
-        if state is not None and state.get("offset") is not None:
-            resumable_source_manager.save_state(KlarnaResumeConfig(offset=int(state["offset"])))
+        resume_config = to_resume_config(endpoint_config, state)
+        if resume_config is not None:
+            resumable_source_manager.save_state(resume_config)
 
     resource = rest_api_resource(
         rest_config,
@@ -99,7 +153,7 @@ def klarna_source(
         job_id,
         None,
         resume_hook=save_checkpoint,
-        initial_paginator_state={"offset": resume.offset} if resume else None,
+        initial_paginator_state=initial_paginator_state(endpoint_config, resume),
     )
     return SourceResponse(
         name=endpoint,

@@ -8475,12 +8475,12 @@ Note (2026-11-19): Parsed the OpenAPI spec and listed every GET collection route
 
 ## Klarna — **thin**
 
-Today (2): `payouts`, `transactions`
+Today (3): `disputes`, `payouts`, `transactions`
 
 Diffed against: <https://docs.klarna.com/acquirer/klarna/after-payments/disputes/disputes-management-v4/api-integration.md>
 
-- [ ] `Payment disputes (GET /v4/payment/disputes)` — chargebacks and disputes with reason, state and linked transaction references, to tie disputes to the payouts and transactions we sync (high)
-- [ ] `Payout summary (GET /payouts/summary)` — payout totals per currency in a date range, the vendor aggregate for reconciliation (low)
+- [x] `Payment disputes (GET /v4/payment/disputes)` — chargebacks and disputes with reason, state and linked transaction references, to tie disputes to the payouts and transactions we sync (high). Added as `disputes`: cursor pagination on `starting_after`, incremental merge on `updated_at` or `created_at` through the `<field>_start` filters.
+- [ ] `Payout summary (GET /payouts/summary)` — payout totals per currency in a date range, the vendor aggregate for reconciliation (low) — skipped: the route needs a caller-chosen `start_date` and `end_date`, and each figure is a sum of the `totals` on the `payouts` rows the source already syncs, so it adds no data a query cannot compute.
 
 Note: Read the Settlements API reference (docs.klarna.com/acquirer/klarna/api/settlements.md, which lists payouts, payouts summary, payout detail, transactions and CSV or PDF reports) and the Disputes v4 integration guide. Payouts and transactions are already synced. The reports routes return CSV or PDF files and the payout detail route is one record, so they were excluded. The disputes list is a paginated route with state and sort filters, and uses the same basic auth credentials. Order Management and Payments APIs need an order id and have no list routes. No machine-readable OpenAPI spec was reachable, so paths come from the docs pages.
 

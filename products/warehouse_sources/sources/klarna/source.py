@@ -59,7 +59,7 @@ class KlarnaSource(ResumableSource[KlarnaSourceConfig, KlarnaResumeConfig]):
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "401 Client Error": "Klarna rejected your credentials. Reactivate or replace the key in the Merchant Portal.",
-            "403 Client Error": "Klarna denied access. Check that your credentials can read settlements in the selected region.",
+            "403 Client Error": "Klarna denied access. Check that your credentials can read settlements and disputes in the selected region.",
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
@@ -74,7 +74,15 @@ class KlarnaSource(ResumableSource[KlarnaSourceConfig, KlarnaResumeConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        schemas = build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        # A dispute changes state over its life, so appending it would keep every old version.
+        # The Disputes API needs a separate enrollment, so disputes start unselected.
+        schemas = build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            merge_only=INCREMENTAL_FIELDS.keys(),
+            should_sync_default={"disputes": False},
+        )
         for schema in schemas:
             schema.detected_primary_keys = ENDPOINTS[schema.name].primary_keys
         return schemas
@@ -112,8 +120,13 @@ class KlarnaSource(ResumableSource[KlarnaSourceConfig, KlarnaResumeConfig]):
         resumable_source_manager: ResumableSourceManager[KlarnaResumeConfig],
         inputs: SourceInputs,
     ) -> SourceResponse:
-        if inputs.should_use_incremental_field:
-            raise ValueError("Klarna tables support full refresh only. Select full refresh in the sync settings.")
+        if inputs.should_use_incremental_field and inputs.incremental_field not in {
+            field["field"] for field in INCREMENTAL_FIELDS.get(inputs.schema_name, [])
+        }:
+            raise ValueError(
+                f"Klarna cannot sync {inputs.schema_name} incrementally on {inputs.incremental_field}. "
+                "Select full refresh or another field in the sync settings."
+            )
         return klarna_source(
             config=config,
             endpoint=inputs.schema_name,
@@ -121,6 +134,9 @@ class KlarnaSource(ResumableSource[KlarnaSourceConfig, KlarnaResumeConfig]):
             job_id=inputs.job_id,
             api_version=self.resolve_api_version(inputs.api_version),
             resumable_source_manager=resumable_source_manager,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            incremental_field=inputs.incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
         )
 
     @property
@@ -133,10 +149,11 @@ class KlarnaSource(ResumableSource[KlarnaSourceConfig, KlarnaResumeConfig]):
             docsUrl="https://posthog.com/docs/cdp/sources/klarna",
             releaseStatus=ReleaseStatus.BETA,
             caption=(
-                "Import payouts and settlement transactions from Klarna. "
+                "Import payouts, settlement transactions, and payment disputes from Klarna. "
                 "Create an API key in the Klarna Merchant Portal. "
                 "Select the region and environment for your merchant account. "
-                "The key needs read access to the Settlements API."
+                "The key needs read access to the Settlements API. "
+                "To sync disputes, it also needs read access to the Disputes API."
             ),
             fields=cast(
                 list[FieldType],

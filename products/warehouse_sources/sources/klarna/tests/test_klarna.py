@@ -1,4 +1,5 @@
 from base64 import b64encode
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -109,3 +110,85 @@ def test_unexpected_response_cannot_replace_a_table_with_empty_rows(endpoint: st
 
     assert result.raised is not None
     assert result.rows == []
+
+
+def dispute(index: int) -> dict[str, Any]:
+    return {
+        "payment_dispute_id": f"krn:network:eu1:test:payment:dispute:fake-{index}",
+        "state": "INITIATED",
+        "created_at": "2025-01-01T00:00:00Z",
+        "updated_at": "2025-01-02T00:00:00Z",
+    }
+
+
+def dispute_page(rows: list[dict[str, Any]], last_item: str | None) -> ScriptedResponse:
+    return ScriptedResponse(json={"disputes": rows, "pagination": {"count": len(rows), "last_item": last_item}})
+
+
+@pytest.mark.parametrize(
+    ("resume_state", "expected_cursors"),
+    [
+        (None, [None, "fake-cursor-1", "fake-cursor-2"]),
+        (KlarnaResumeConfig(starting_after="fake-cursor-1"), ["fake-cursor-1", "fake-cursor-2"]),
+    ],
+)
+def test_disputes_follow_the_cursor_until_it_is_null(
+    resume_state: KlarnaResumeConfig | None, expected_cursors: list[str | None]
+) -> None:
+    pages = [
+        dispute_page([dispute(0)], "fake-cursor-1"),
+        dispute_page([dispute(1)], "fake-cursor-2"),
+        dispute_page([], None),
+    ][-len(expected_cursors) :]
+    result = driver().run("disputes", pages, resume_state=resume_state)
+
+    assert result.raised is None
+    assert result.rows == [row for page in pages for row in page.json["disputes"]]
+    assert result.paths == ["/v4/payment/disputes"] * len(pages)
+    assert result.params("starting_after") == expected_cursors
+    assert result.params("sort_by") == ["created_at"] * len(pages)
+    assert result.params("offset") == [None] * len(pages)
+    assert result.saved_states == [KlarnaResumeConfig(starting_after=cursor) for cursor in expected_cursors[1:]]
+
+
+def test_disputes_stop_when_the_cursor_repeats() -> None:
+    result = driver().run(
+        "disputes",
+        [dispute_page([dispute(0)], "fake-cursor-1"), dispute_page([dispute(1)], "fake-cursor-1")],
+    )
+
+    assert isinstance(result.raised, ValueError)
+
+
+@pytest.mark.parametrize(
+    ("incremental_field", "last_value", "expected_filters"),
+    [
+        (None, None, {"updated_at_start": None, "created_at_start": None}),
+        ("updated_at", None, {"updated_at_start": None, "created_at_start": None}),
+        (
+            "updated_at",
+            datetime(2025, 3, 4, 5, 6, 7, 890000, tzinfo=UTC),
+            {"updated_at_start": "2025-03-04T05:06:07Z", "created_at_start": None},
+        ),
+        (
+            "created_at",
+            "2025-03-04T05:06:07+00:00",
+            {"updated_at_start": None, "created_at_start": "2025-03-04T05:06:07Z"},
+        ),
+    ],
+)
+def test_incremental_disputes_filter_on_the_selected_field(
+    incremental_field: str | None, last_value: Any, expected_filters: dict[str, str | None]
+) -> None:
+    result = driver().run(
+        "disputes",
+        [dispute_page([dispute(0)], None)],
+        incremental_field=incremental_field,
+        db_incremental_field_last_value=last_value,
+    )
+
+    assert result.raised is None
+    assert result.rows == [dispute(0)]
+    assert {name: result.params(name)[0] for name in expected_filters} == expected_filters
+    assert result.response is not None
+    assert result.response.sort_mode is None
