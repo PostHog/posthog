@@ -81,6 +81,16 @@ class TestSwitchModelFromMessage:
         send.assert_not_called()
         assert run.state["model"] == "claude-sonnet-4-6"
 
+    def test_a_revoked_consent_stops_a_queued_follow_up_switch(self, run):
+        run.task.team.organization.is_ai_data_processing_approved = False
+        run.task.team.organization.save(update_fields=["is_ai_data_processing_approved"])
+
+        switched, build, send = _switch(run, "use opus for this", reply={"model": "claude-opus-4-8"})
+
+        assert switched is False
+        build.assert_not_called()
+        send.assert_not_called()
+
     def test_a_classification_past_its_budget_changes_nothing(self, run):
         with patch(
             "products.tasks.backend.temporal.process_task.activities.switch_model_from_message.monotonic",

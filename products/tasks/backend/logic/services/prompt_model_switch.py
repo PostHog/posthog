@@ -7,6 +7,7 @@ fixed when the sandbox starts.
 
 import hashlib
 from collections.abc import Mapping
+from dataclasses import replace
 from typing import Any
 
 from django.core.cache import cache
@@ -15,6 +16,7 @@ import structlog
 
 from posthog.models import Team, User
 
+from products.tasks.backend.facade.contracts import RunModelSelection
 from products.tasks.backend.feature_flags import get_model_access_error, prompt_model_switch_enabled
 from products.tasks.backend.logic.model_override import (
     ModelOverride,
@@ -97,8 +99,14 @@ def requested_model_switch(
         for choice in available_model_choices(TASK_RUN_GATEWAY_PRODUCT)
         if runtime_adapter in (None, choice.runtime_adapter)
     )
+    # The classifier sends the person's text to a third-party AI service, so it needs the organization's
+    # consent. The check comes before the cache, so a revoked consent also stops a cached answer.
     # The flag and model access checks are network calls, so the free word check goes first.
-    if not may_request_model_override(text, catalogue) or not prompt_model_switch_enabled(team, user):
+    if (
+        not may_request_model_override(text, catalogue)
+        or team.organization.is_ai_data_processing_approved is not True
+        or not prompt_model_switch_enabled(team, user)
+    ):
         return None
 
     key = _cache_key(team, user, runtime_adapter, text)
@@ -130,8 +138,10 @@ def requested_model_switch(
     return override
 
 
-def with_prompt_model_switch(data: Mapping[str, Any], *, team: Team, user: User) -> dict[str, Any]:
-    """A copy of a new run's data, pointed at the model its first message asks for.
+def with_prompt_model_switch(
+    message: str, selection: RunModelSelection, *, team: Team, user: User
+) -> RunModelSelection:
+    """The selection a new run starts with when its first message asks for a model or an effort.
 
     The message wins over the picker, because it is the later instruction. The harness follows
     the model, so the permission mode is clamped to what the new harness offers.
@@ -140,24 +150,22 @@ def with_prompt_model_switch(data: Mapping[str, Any], *, team: Team, user: User)
         clamp_initial_permission_mode,
     )
 
-    updated = dict(data)
-    message = updated.get("pending_user_message")
-    if not isinstance(message, str):
-        return updated
     override = requested_model_switch(message, team=team, user=user)
     if override is None:
-        return updated
+        return selection
     if override.model:
         runtime_adapter = runtime_adapter_for(override.model)
-        updated["runtime_adapter"] = runtime_adapter
-        updated["model"] = override.model
-        updated["reasoning_effort"] = filter_unsupported_effort(
-            runtime_adapter, override.model, override.reasoning_effort or updated.get("reasoning_effort")
+        switched = replace(
+            selection,
+            runtime_adapter=runtime_adapter,
+            model=override.model,
+            reasoning_effort=filter_unsupported_effort(
+                runtime_adapter, override.model, override.reasoning_effort or selection.reasoning_effort
+            ),
+            initial_permission_mode=clamp_initial_permission_mode(runtime_adapter, selection.initial_permission_mode)
+            if selection.initial_permission_mode
+            else None,
         )
-        if updated.get("initial_permission_mode"):
-            updated["initial_permission_mode"] = clamp_initial_permission_mode(
-                runtime_adapter, updated["initial_permission_mode"]
-            )
     elif override.reasoning_effort:
         # The run rejects an effort its model lacks, which would stop the message from starting it.
         # An unpinned run launches on the stored default, so the check reads the model it resolves to.
@@ -165,17 +173,16 @@ def with_prompt_model_switch(data: Mapping[str, Any], *, team: Team, user: User)
             resolve_ai_run_selection,
         )
 
-        selection = resolve_ai_run_selection(
-            team.id, user.id, runtime_adapter=updated.get("runtime_adapter"), model=updated.get("model")
+        resolved = resolve_ai_run_selection(
+            team.id, user.id, runtime_adapter=selection.runtime_adapter, model=selection.model
         )
         effort = filter_unsupported_effort(
-            selection.runtime_adapter or runtime_adapter_for(selection.model),
-            selection.model,
-            override.reasoning_effort,
+            resolved.runtime_adapter or runtime_adapter_for(resolved.model), resolved.model, override.reasoning_effort
         )
-        if effort:
-            updated["reasoning_effort"] = effort
-    logger.info(
-        "prompt_model_switch_applied", model=updated.get("model"), reasoning_effort=updated.get("reasoning_effort")
-    )
-    return updated
+        if not effort:
+            return selection
+        switched = replace(selection, reasoning_effort=effort)
+    else:
+        return selection
+    logger.info("prompt_model_switch_applied", model=switched.model, reasoning_effort=switched.reasoning_effort)
+    return switched

@@ -37,7 +37,7 @@ def switch_model(input: SwitchModelFromMessageInput) -> bool:
         apply_task_run_model_config,
     )
 
-    run = TaskRun.objects.select_related("task__created_by", "task__team").filter(id=input.run_id).first()
+    run = TaskRun.objects.select_related("task__created_by", "task__team__organization").filter(id=input.run_id).first()
     if run is None or run.task.origin_product != Task.OriginProduct.POSTHOG_AI:
         return False
     state = run.state or {}

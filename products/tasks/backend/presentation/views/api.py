@@ -3,7 +3,7 @@ import re
 import json
 import asyncio
 import dataclasses
-from collections.abc import AsyncGenerator, Iterable
+from collections.abc import AsyncGenerator, Iterable, Mapping
 from datetime import datetime
 from time import perf_counter
 from typing import TYPE_CHECKING, Any, NoReturn, cast
@@ -51,7 +51,7 @@ from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentic
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.event_usage import groups
 from posthog.middleware import is_read_only_impersonation
-from posthog.models import User
+from posthog.models import Team, User
 from posthog.models.integration.codex import CodexAuthError, CodexReauthRequired
 from posthog.permissions import (
     APIScopePermission,
@@ -116,6 +116,7 @@ from products.tasks.backend.facade.metrics import (
     observe_stream_token_routed,
 )
 from products.tasks.backend.facade.model_catalogue import TASK_RUN_GATEWAY_PRODUCT, available_model_choices
+from products.tasks.backend.facade.model_override import RunModelSelection, with_prompt_model_switch
 from products.tasks.backend.facade.profiles import find_task_profile, public_profile_for_origin
 from products.tasks.backend.facade.run_config import (
     WARMABLE_ORIGIN_PRODUCTS,
@@ -140,7 +141,6 @@ from products.tasks.backend.facade.streams import (
     run_uses_dedicated_stream,
     session_update_type,
 )
-from products.tasks.backend.logic.services.prompt_model_switch import with_prompt_model_switch
 from products.tasks.backend.presentation import run_context
 from products.tasks.backend.presentation.serializers import (
     ConnectionTokenResponseSerializer,
@@ -586,6 +586,25 @@ SANDBOX_AGENT_RUN_START_BUDGETS: tuple[tuple[str, Budget], ...] = (
 
 
 @extend_schema(tags=["tasks"])
+def _with_first_message_model(data: Mapping[str, Any], *, team: Team, user: User) -> dict[str, Any]:
+    """A copy of a new run's request data, on the model its first message asks for."""
+    message = data.get("pending_user_message")
+    if not isinstance(message, str):
+        return dict(data)
+    selection = RunModelSelection(
+        runtime_adapter=data.get("runtime_adapter"),
+        model=data.get("model"),
+        reasoning_effort=data.get("reasoning_effort"),
+        initial_permission_mode=data.get("initial_permission_mode"),
+    )
+    switched = with_prompt_model_switch(message, selection, team=team, user=user)
+    # Only the changed fields go back, so a field the request left out stays out.
+    changes = {
+        field: value for field, value in dataclasses.asdict(switched).items() if getattr(selection, field) != value
+    }
+    return {**data, **changes}
+
+
 class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
     API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
@@ -1061,7 +1080,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     and validated_data.get("runtime") != tasks_facade.TaskRuntime.PI
                 ):
                     # Before warm matching, so a sandbox booted on the picked model is not reused for another.
-                    validated_data = with_prompt_model_switch(
+                    validated_data = _with_first_message_model(
                         validated_data, team=self.team, user=cast(User, request.user)
                     )
                 task = tasks_facade.create_task(
@@ -1795,7 +1814,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             and visible.origin_product == tasks_facade.TaskOriginProduct.POSTHOG_AI
             and visible.runtime != tasks_facade.TaskRuntime.PI
         ):
-            validated_data = with_prompt_model_switch(validated_data, team=self.team, user=cast(User, request.user))
+            validated_data = _with_first_message_model(validated_data, team=self.team, user=cast(User, request.user))
 
         run_started = False
         try:
