@@ -21,6 +21,7 @@ import type {
     EnterprisePropertyDefinitionApi,
     PaginatedEnterprisePropertyDefinitionListApi,
 } from '~/generated/core/api.schemas'
+import type { PaginatedEnterprisePropertyDefinitionListApiQueryUsage } from '~/generated/core/api.schemas'
 import { PropertyDefinition } from '~/types'
 
 import { groupsModel } from '../../../models/groupsModel'
@@ -251,7 +252,7 @@ export interface propertyDefinitionsTableLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         propertyTypeOptions: (
             groupTypes: Map<GroupTypeIndex, GroupType>,
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
         ) => LemonSelectOption<string>[]
         showQueryUsage: (featureFlags: FeatureFlagsSet) => boolean
         queryUsageParams: (showQueryUsage: boolean, filters: Filters) => Record<string, any>
@@ -266,9 +267,7 @@ export interface propertyDefinitionsTableLogicMeta {
             propertyDefinitions: PropertyDefinitionsTableResponse
         ) => PaginatedEnterprisePropertyDefinitionListApi['query_usage']
         queryUsageCoverageDays: (
-            queryUsageFreshness:
-                | import('~/generated/core/api.schemas').PaginatedEnterprisePropertyDefinitionListApiQueryUsage
-                | undefined
+            queryUsageFreshness: PaginatedEnterprisePropertyDefinitionListApiQueryUsage | undefined
         ) => number | null
         showVerifiedFilter: (propertyDefinitions: PropertyDefinitionsTableResponse) => boolean
     }
