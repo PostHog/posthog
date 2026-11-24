@@ -5,12 +5,7 @@ from typing import Literal, Optional
 from posthog.hogql import ast
 from posthog.hogql.constants import EXCEPTION_STRING_ARRAY_PROPERTIES, is_virtual_feature_flag_key
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import (
-    BooleanDatabaseField,
-    DateTimeDatabaseField,
-    StringJSONDatabaseField,
-    StructDatabaseField,
-)
+from posthog.hogql.database.models import BooleanDatabaseField, DateTimeDatabaseField, StringJSONDatabaseField
 from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.database.schema.ai_events import AiEventsTable
 from posthog.hogql.database.schema.events import EVENTS_TABLE_TYPES, EventsGroupSubTable, EventsPersonSubTable
@@ -322,21 +317,16 @@ class PropertySwapper(CloningVisitor):
         if (
             isinstance(result.type, ast.FieldAliasType)
             and isinstance(result.type.type, ast.PropertyType)
-            and not isinstance(result.type.type.field_type.resolve_database_field(self.context), StructDatabaseField)
             and result.expr.type is not None
         ):
             value_type = result.expr.type
             if isinstance(value_type, ast.PropertyType) and value_type.joined_subquery is None:
+                if not isinstance(value_type.field_type.resolve_database_field(self.context), StringJSONDatabaseField):
+                    return result
                 # An unconverted property exports its stored type, which can differ from its detected type.
                 constant_type = dataclasses.replace(
                     value_type.field_type.resolve_constant_type(self.context), nullable=True
                 )
-                detected_type = value_type.resolve_constant_type(self.context)
-                if constant_type == detected_type or (
-                    isinstance(constant_type, ast.StringType) and isinstance(detected_type, ast.StringType)
-                ):
-                    # Rebuilding an unchanged CTE field would lose its existing property null-comparison semantics.
-                    return result
             else:
                 constant_type = value_type.resolve_constant_type(self.context)
             if result.type.constant_type != constant_type:

@@ -30,6 +30,7 @@ from posthog.schema import (
     HogQLFilters,
     HogQLQueryModifiers,
     HogQLVariable,
+    PersonsOnEventsMode,
     QueryTiming,
     SessionPropertyFilter,
 )
@@ -1380,6 +1381,56 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     )
                 ],
             )
+
+    @parameterized.expand(
+        [
+            ("joined", PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED),
+            ("disabled", PersonsOnEventsMode.DISABLED),
+        ]
+    )
+    def test_cte_person_property_inequality_excludes_missing_values(
+        self, _name: str, mode: PersonsOnEventsMode
+    ) -> None:
+        for distinct_id, properties in (
+            ("matching", {"email": "match@example.com"}),
+            ("other", {"email": "other@example.com"}),
+            ("missing", {}),
+        ):
+            _create_person(team=self.team, distinct_ids=[distinct_id], properties=properties, is_identified=True)
+            _create_event(team=self.team, distinct_id=distinct_id, event="example")
+
+        result = execute_hogql_query(
+            "WITH emails AS (SELECT person.properties.email AS value FROM events) "
+            "SELECT count() FROM emails WHERE value != 'match@example.com'",
+            team=self.team,
+            modifiers=HogQLQueryModifiers(personsOnEventsMode=mode),
+            workload=Workload.ONLINE,
+        )
+
+        assert result.results == [(1,)]
+
+    def test_cte_exposes_converted_joined_person_properties(self) -> None:
+        for name, property_type in (("score", "Numeric"), ("started_at", "DateTime")):
+            PropertyDefinition.objects.create(
+                team=self.team, type=PropertyDefinition.Type.PERSON, name=name, property_type=property_type
+            )
+        _create_person(
+            team=self.team,
+            distinct_ids=["example"],
+            properties={"score": "3.5", "started_at": "2026-01-01 00:00:00"},
+            is_identified=True,
+        )
+        _create_event(team=self.team, distinct_id="example", event="example")
+
+        result = execute_hogql_query(
+            "WITH typed AS (SELECT person.properties.score AS score, person.properties.started_at AS started_at "
+            "FROM events) SELECT toFloatOrZero(score), toString(toDateTime(started_at)) FROM typed",
+            team=self.team,
+            modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED),
+            workload=Workload.ONLINE,
+        )
+
+        assert result.results == [(3.5, "2026-01-01 00:00:00")]
 
     def test_window_functions_simple(self):
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"

@@ -477,10 +477,11 @@ def _recursively_resolve_column(
         constant_type = column.constant_type
         if constant_type is None:
             return _recursively_resolve_column(name, column.type, fields, context)
-        if isinstance(column.type, ast.PropertyType) and column.type.joined_subquery is None:
-            source = column.type.field_type.resolve_database_field(context)
+        if isinstance(column.type, ast.PropertyType):
+            _recursively_resolve_column(name, column.type, fields, context)
+            source = fields[name]
             if isinstance(source, DatabaseField):
-                # Keep missing-property comparisons consistent when an alias changes the projected value type.
+                # Keep the source field's comparison nullability when an alias changes its value type.
                 constant_type = dataclasses.replace(constant_type, nullable=source.is_nullable())
         fields[name] = _constant_type_to_database_field(name, constant_type)
     elif isinstance(column, ast.FieldType):
