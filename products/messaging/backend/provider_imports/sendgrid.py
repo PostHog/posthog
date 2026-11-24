@@ -1131,17 +1131,17 @@ def _fetch_contacts(
         )
 
     list_counts = {list_id: row.get("contact_count") for list_id, row in lists.items()}
-    everyone_count = count.get("contact_count") if isinstance(count, dict) else None
-    account_is_empty = everyone_count == 0 and all(list_count == 0 for list_count in list_counts.values())
+    counts = [count.get("contact_count") if isinstance(count, dict) else None, *list_counts.values()]
+    # The account's own count can lag behind its lists, and reading no contacts would empty every cohort.
+    everyone_count = max(counts) if all(isinstance(value, int) for value in counts) else None
     for target, contact_count in ((ALL_CONTACTS, everyone_count), *list_counts.items()):
         members: list[dict[str, str]] = []
-        target_is_empty = account_is_empty if target == ALL_CONTACTS else contact_count == 0
-        if not target_is_empty:
+        exported = 0
+        if contact_count != 0:
             if target not in exports:
                 exports[target] = _start_export(client, target)
                 yield progress_page()
             try:
-                exported = 0
                 for fields in _exported_contacts(client, exports[target]):
                     exported += 1
                     email = fields.get("email")
@@ -1151,14 +1151,14 @@ def _fetch_contacts(
                         continue
                     if member := contacts.add(email, _contact_properties(fields)):
                         members.append(member)
-                if not exported and isinstance(contact_count, int) and contact_count > 0:
+                if not exported and contact_count:
                     raise _ExportGone(f"SendGrid's contact export holds none of {contact_count:,} contacts.")
             except _ExportGone as e:
                 del exports[target]
                 yield progress_page()
                 raise ImportProviderUnavailable(str(e)) from e
         if target == ALL_CONTACTS:
-            read = 0 if target_is_empty else exported
+            read = exported
             scanned = {member["email"].lower() for member in members}
             repeats_merged, invalid_skipped = contacts.repeats_merged, contacts.invalid_skipped
         else:

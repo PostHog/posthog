@@ -742,6 +742,14 @@ class TestSendGridContacts(ClickhouseTestMixin, BaseTest):
         ).values_list("identifier", flat=True)
         assert {"ada@example.com", "Ada@example.com"} <= set(opted_out)
 
+    def test_an_empty_export_of_an_account_whose_count_lags_empties_nothing(self) -> None:
+        run = self._start()
+        self.state.account["contact_count"] = {"contact_count": 0}
+        self.state.export_damage = "empty"
+
+        with self.assertRaisesRegex(ImportProviderUnavailable, "holds none of 6 contacts"):
+            runs.run_step(self.team.id, run.id, "contacts", attempt=1)
+
     def test_a_retry_downloads_the_exports_that_started_and_starts_only_the_rest(self) -> None:
         run = self._start()
         self.state.fail_after["/v3/marketing/contacts/exports"] = (2, 503)
