@@ -4,6 +4,7 @@ import re
 import math
 import uuid
 import base64
+import socket
 import datetime
 import contextlib
 import collections
@@ -20,11 +21,13 @@ from bson.code import Code
 from bson.codec_options import DatetimeConversion
 from bson.dbref import DBRef
 from bson.json_util import JSONMode, JSONOptions
-from pymongo import ASCENDING, DESCENDING, MongoClient
+from pymongo import ASCENDING, DESCENDING, MongoClient, pool_shared
 from pymongo.collection import Collection
 from pymongo.cursor import Cursor
 from pymongo.database import Database
 from pymongo.errors import CursorNotFound, ExecutionTimeout, OperationFailure, PyMongoError, ServerSelectionTimeoutError
+from pymongo.monitoring import ServerClosedEvent, ServerDescriptionChangedEvent, ServerListener, ServerOpeningEvent
+from pymongo.pool_options import PoolOptions
 from pymongo.server_description import ServerDescription
 from pymongo.uri_parser import parse_uri, split_options
 from structlog.types import FilteringBoundLogger
@@ -45,6 +48,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
     HostNotAllowedError,
     TemporaryHostResolutionError,
     _is_host_safe,
+    check_resolved_addresses,
     log_connection_open,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -307,6 +311,76 @@ def _coerce_object_id_cursor(last_value: Any) -> Any:
 _UNREACHABLE_CLUSTER_ERRORS = (ServerSelectionTimeoutError, HostNotAllowedError)
 
 
+class _OutboundHostPolicy(ServerListener):
+    """Carries a client's team to `_create_checked_connection`.
+
+    pymongo gives the client's event listeners to the connection pools of its monitors and of its
+    operations, so every socket the client opens can find the team here.
+    """
+
+    def __init__(self, team_id: int) -> None:
+        self.team_id = team_id
+
+    def opened(self, event: ServerOpeningEvent) -> None:
+        pass
+
+    def description_changed(self, event: ServerDescriptionChangedEvent) -> None:
+        pass
+
+    def closed(self, event: ServerClosedEvent) -> None:
+        pass
+
+
+_pymongo_create_connection = pool_shared._create_connection
+
+
+def _create_checked_connection(address: tuple[str, int | None], options: PoolOptions) -> socket.socket:
+    """Open a socket for a client of this source only to an address the outbound policy allows.
+
+    pymongo resolves the host again for every socket, from its monitors and from its operations,
+    and calls a custom server selector for neither a Single nor a LoadBalanced topology. A check
+    made once on the name can therefore approve one answer while the socket connects to another.
+    This resolves the host once, checks every answer, and dials only those addresses. The socket
+    is then wrapped in TLS against the original hostname, because pymongo does that with the
+    address it passed in.
+    """
+    listeners = options._event_listeners.event_listeners() if options._event_listeners else []
+    policy = next((listener for listener in listeners if isinstance(listener, _OutboundHostPolicy)), None)
+    if policy is None:
+        return _pymongo_create_connection(address, options)
+
+    host, port = address
+    is_unix_socket = host.endswith(".sock")
+    addresses: list[str] = []
+    if not is_unix_socket:
+        family = socket.AF_UNSPEC if socket.has_ipv6 and host != "localhost" else socket.AF_INET
+        for *_, sockaddr in socket.getaddrinfo(host, port, family=family, type=socket.SOCK_STREAM):
+            if sockaddr[0] not in addresses:
+                addresses.append(str(sockaddr[0]))
+
+    resolution = check_resolved_addresses(host, addresses, policy.team_id, port=port)
+    if resolution.connect_host is None:
+        raise HostNotAllowedError(
+            f"{DATABASE_HOST_NOT_ALLOWED_ERROR}: {resolution.error or DATABASE_HOST_NOT_ALLOWED_GUIDANCE}"
+        )
+    if is_unix_socket:
+        return _pymongo_create_connection(address, options)
+
+    error: OSError | None = None
+    for checked_address in resolution.addresses:
+        try:
+            return _pymongo_create_connection((checked_address, port), options)
+        except OSError as e:
+            error = e
+    raise error or OSError(f"{host}: no address to connect to")
+
+
+# pymongo has no supported hook on the path that opens a socket. Both its monitor pools and its
+# operation pools call `pool_shared._create_connection` by name, so this replaces it there.
+# `_OutboundHostPolicy` limits the check to clients of this source.
+pool_shared._create_connection = _create_checked_connection  # ty: ignore[invalid-assignment]
+
+
 def _make_safe_server_selector(team_id: int) -> Callable[[list[ServerDescription]], list[ServerDescription]]:
     """Create a PyMongo server_selector that rejects servers resolving to internal IPs.
 
@@ -459,6 +533,7 @@ def mongo_client(connection_string: str, team_id: int, tls_ca_file: str | None =
         "tls": True,
         "tlsCAFile": tls_ca_file or certifi.where(),
         "server_selector": _make_safe_server_selector(team_id),
+        "event_listeners": [_OutboundHostPolicy(team_id)],
         # `connect=false` in the string would defer the SRV lookup to the first operation, and
         # `_check_single_seed` would then check the SRV name instead of the hosts it resolves to.
         "connect": True,

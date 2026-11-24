@@ -1,5 +1,6 @@
 import uuid
 import base64
+import socket
 import datetime
 import contextlib
 from collections.abc import Callable, Iterable, Iterator
@@ -19,7 +20,7 @@ from bson.codec_options import CodecOptions
 from bson.max_key import MaxKey
 from bson.min_key import MinKey
 from parameterized import parameterized
-from pymongo import DESCENDING
+from pymongo import DESCENDING, MongoClient, pool_shared
 from pymongo.errors import (
     ConfigurationError,
     CursorNotFound,
@@ -29,6 +30,8 @@ from pymongo.errors import (
 )
 from pymongo.hello import Hello
 from pymongo.server_description import ServerDescription
+
+from posthog.test.waiting import wait_until
 
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import DEFAULT_CHUNK_SIZE
@@ -56,6 +59,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mo
     _id_seek_filter,
     _list_importable_collection_names,
     _make_safe_server_selector,
+    _OutboundHostPolicy,
     _process_doc_with_field_logging,
     _process_nested_value,
     _read_upper_bound,
@@ -171,6 +175,60 @@ class TestSafeServerSelector(SimpleTestCase):
 
         # The client would start a monitor that dials the seed, so the refusal has to come first.
         client_class.assert_not_called()
+
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_monitors_of_a_client_never_open_a_socket_to_a_forbidden_address(self):
+        with mongo_client("mongodb://user:pw@127.0.0.1:1,127.0.0.1:2/db?tls=true", team_id=999) as client:
+            wait_until(
+                lambda: all(
+                    isinstance(description.error, HostNotAllowedError)
+                    for description in client.topology_description.server_descriptions().values()
+                ),
+                message="the monitors never reported the host refusal",
+            )
+
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_pymongo_socket_path_refuses_a_forbidden_address_before_connecting(self):
+        with socket.create_server(("127.0.0.1", 0)) as server:
+            server.setblocking(False)
+            port = server.getsockname()[1]
+            client: MongoClient = MongoClient(
+                f"mongodb://localhost:{port}/?tls=true", connect=False, event_listeners=[_OutboundHostPolicy(999)]
+            )
+            try:
+                with pytest.raises(HostNotAllowedError):
+                    pool_shared._configured_socket_interface(("localhost", port), client.options.pool_options)
+            finally:
+                client.close()
+
+            with pytest.raises(BlockingIOError):
+                server.accept()
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins.is_cloud", return_value=False
+    )
+    def test_socket_connects_to_the_address_that_was_checked(self, _mock_is_cloud):
+        real_getaddrinfo = socket.getaddrinfo
+        # The second lookup of the name answers with an address nothing listens on, so a socket
+        # that resolved the name again would fail to connect.
+        answers = iter(["127.0.0.1", "::1"])
+
+        def rebinding_getaddrinfo(host: str, *args: Any, **kwargs: Any) -> Any:
+            return real_getaddrinfo(next(answers) if host == "db.example.com" else host, *args, **kwargs)
+
+        with socket.create_server(("127.0.0.1", 0)) as server:
+            port = server.getsockname()[1]
+            client: MongoClient = MongoClient(
+                f"mongodb://localhost:{port}/?tls=true", connect=False, event_listeners=[_OutboundHostPolicy(999)]
+            )
+            try:
+                with patch("socket.getaddrinfo", rebinding_getaddrinfo):
+                    connection = pool_shared._create_connection(("db.example.com", port), client.options.pool_options)
+            finally:
+                client.close()
+
+            with connection:
+                assert connection.getpeername() == ("127.0.0.1", port)
 
     def test_client_checks_the_srv_hosts_even_when_the_string_defers_the_lookup(self):
         resolver = MagicMock()
