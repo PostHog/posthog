@@ -18,6 +18,7 @@ from parameterized import parameterized
 from rest_framework import exceptions
 from rest_framework.exceptions import NotFound, ValidationError
 
+from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.integrations import IntegrationConflict, IntegrationReader
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization, OrganizationMembership
@@ -44,6 +45,8 @@ from ee.vercel.integration import (
 
 # Hardcoded independently of ee.vercel.integration.CLIENT_ENV_PREFIXES so a dropped prefix fails these tests.
 EXPECTED_PREFIXES = ["NEXT_PUBLIC_", "VITE_", "NUXT_PUBLIC_", "PUBLIC_"]
+
+EXISTING_USER_EMAIL = "kim@example.com"
 
 
 class TestVercelIntegration(TestCase):
@@ -312,12 +315,18 @@ class TestVercelIntegration(TestCase):
 
         mock_report.assert_called_once()
 
+    @parameterized.expand(
+        [
+            ("same_address", EXISTING_USER_EMAIL),
+            ("ascii_case_variant", "Kim@Example.com"),
+            ("kelvin_sign_variant", "\u212aim@example.com"),
+        ]
+    )
     @patch("ee.vercel.integration.report_user_signed_up")
-    def test_upsert_installation_existing_user_new_org(self, mock_report):
+    def test_upsert_installation_existing_user_new_org(self, _name, contact_email, mock_report):
         """Test: External user (no Vercel mapping) installs - added to org but no mapping until SSO."""
-        existing_user = User.objects.create_user(
-            email=self.payload["account"]["contact"]["email"], password="existing", first_name="Existing"
-        )
+        existing_user = User.objects.create_user(email=EXISTING_USER_EMAIL, password="existing", first_name="Existing")
+        self.payload["account"]["contact"]["email"] = contact_email
         new_installation_id = self.NEW_INSTALLATION_ID
         existing_user_claims = self._create_user_claims("existing_user_789")
         existing_user_claims.installation_id = new_installation_id
@@ -345,6 +354,7 @@ class TestVercelIntegration(TestCase):
         membership = OrganizationMembership.objects.get(user=existing_user, organization=new_org)
         assert membership.level == OrganizationMembership.Level.OWNER
         assert OrganizationProvisioning.objects.get(organization=new_org).partner == "vercel"
+        assert list(EmailLookupHandler.users_matching_email(EXISTING_USER_EMAIL)) == [existing_user]
 
         mock_report.assert_not_called()
 

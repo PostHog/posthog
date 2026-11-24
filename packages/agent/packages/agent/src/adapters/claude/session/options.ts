@@ -53,6 +53,7 @@ import {
   MACHINE_AUTH_STRIPPED_KEYS,
   type MachineClaudeAuth,
 } from "../machine-auth";
+import { createMemoryReadHook, type OnMemoryRead } from "../memory-reads";
 import { type CodeExecutionMode, toSdkPermissionMode } from "../tools";
 import type { EffortLevel } from "../types";
 import type { RunBudgetGuard } from "./budget-guard";
@@ -126,6 +127,7 @@ export interface BuildOptionsParams {
   enrichedReadCache?: EnrichedReadCache;
   /** Records PostHog product usage from MCP exec calls (deduped, session-wide). */
   onPostHogResourceUsed?: (subTool: string, commandText?: string) => void;
+  onMemoryRead?: OnMemoryRead;
   /** Cloud task session — enables the signed-commit guard. */
   cloudMode?: boolean;
   /** Reactive self-heal invoked when the guard blocks a raw git commit/push.
@@ -396,6 +398,7 @@ function buildHooks(
   onTaskStateChange: (() => Promise<void>) | undefined,
   rtkPrefix: string | undefined,
   budgetGuard: RunBudgetGuard | undefined,
+  onMemoryRead: OnMemoryRead | undefined,
 ): Options["hooks"] {
   const postToolUseHooks = [
     createReadImageGuardHook(),
@@ -404,6 +407,9 @@ function buildHooks(
       onPostHogResourceUsed,
     }),
   ];
+  if (onMemoryRead) {
+    postToolUseHooks.push(createMemoryReadHook(onMemoryRead));
+  }
   if (enrichmentDeps && enrichedReadCache) {
     postToolUseHooks.push(
       createReadEnrichmentHook(enrichmentDeps, enrichedReadCache),
@@ -839,6 +845,7 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
       params.onTaskStateChange,
       resolveRtkPrefix(process.env),
       params.budgetGuard,
+      params.onMemoryRead,
     ),
     outputFormat: params.outputFormat,
     abortController: getAbortController(

@@ -1,3 +1,4 @@
+import json
 import threading
 from typing import Literal
 
@@ -17,9 +18,11 @@ from products.tasks.backend.exceptions import (
     SandboxTimeoutError,
 )
 from products.tasks.backend.facade.contracts import AgentStartupFailure
+from products.tasks.backend.facade.profiles import get_task_profile
+from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
 from products.tasks.backend.logic.services.launch_preparation_metrics import record_launch_preparation_ms
 from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
-from products.tasks.backend.logic.services.sandbox import ExecutionResult, sandbox_repo_path
+from products.tasks.backend.logic.services.sandbox import ExecutionResult, SandboxConfig, sandbox_repo_path
 from products.tasks.backend.logic.services.startup_failure import AgentServerStartupError
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.activities.start_agent_server import (
@@ -30,6 +33,7 @@ from products.tasks.backend.temporal.process_task.activities.start_agent_server 
     _ensure_repository_on_disk,
     _invoke_start_agent_server,
     _launch_agent_shadow,
+    _launch_run_policy,
     _LaunchParams,
     _network_enforcement_observation,
     _prepare_launch,
@@ -43,6 +47,7 @@ from products.tasks.backend.temporal.process_task.activities.start_agent_server 
     launch_agent_server,
     start_agent_server,
 )
+from products.tasks.backend.temporal.process_task.ai_gateway_token import resolve_sandbox_ai_product
 from products.tasks.backend.temporal.process_task.utils import UserMcpServerConfigs
 
 
@@ -353,6 +358,35 @@ def test_invoke_start_agent_server_forwards_sandbox_runtime(
     assert sandbox.start_agent_server.call_args.kwargs["sandbox_runtime"] == expected_runtime
 
 
+def test_invoke_start_agent_server_launches_the_agent_with_the_run_policy(mocker) -> None:
+    sandbox = DockerSandbox(container_id="c" * 64, config=SandboxConfig(name="test-sandbox"), host_port=8000)
+    commands: list[str] = []
+
+    def execute(command: str, **kwargs) -> ExecutionResult:
+        commands.append(command)
+        return ExecutionResult(stdout="", stderr="", exit_code=0)
+
+    mocker.patch.object(sandbox, "is_running", return_value=True)
+    mocker.patch.object(sandbox, "write_file", return_value=ExecutionResult(stdout="", stderr="", exit_code=0))
+    mocker.patch.object(sandbox, "execute", side_effect=execute)
+    params = _LaunchParams(
+        mcp_configs=[],
+        relayed_mcp_servers=[],
+        actor_user_id=None,
+        agentsh_domains=None,
+        protected_base_branch=None,
+        event_ingest_token=None,
+        task_run_session_token=None,
+        codex_run_token=None,
+        event_ingest_url=None,
+        run_policy='{"finish_tool":true}',
+    )
+
+    _invoke_start_agent_server(sandbox, _context(), params, repo_ready_file=None)
+
+    assert any("""POSTHOG_TASK_RUN_POLICY='{"finish_tool":true}'""" in command for command in commands)
+
+
 @pytest.mark.parametrize(
     ("error", "expected_statuses"),
     [
@@ -521,6 +555,7 @@ async def test_await_agent_server_ready_relaunches_on_activity_retries(mocker, a
             task_run_session_token=None,
             codex_run_token=None,
             event_ingest_url=None,
+            run_policy="{}",
         ),
     )
     mocker.patch(
@@ -666,6 +701,7 @@ async def test_await_agent_server_ready_records_failed_relaunch(
             task_run_session_token=None,
             codex_run_token=None,
             event_ingest_url=None,
+            run_policy="{}",
         ),
     )
     mocker.patch("products.tasks.backend.exceptions.capture_exception")
@@ -838,6 +874,53 @@ def test_prepare_launch_releases_boot_milestone_claims(mocker) -> None:
 
 
 @pytest.mark.parametrize(
+    "origin_product,run_state,expected",
+    [
+        ("workflow", {"end_run_when_done": True}, (True, True, "workflows")),
+        ("signal_report", {}, (True, False, "signals")),
+        ("signal_report", {"billing_product": "posthog_ai"}, (True, False, "posthog_ai")),
+    ],
+    ids=["end_run_opt_in", "origin_billing_product", "run_billing_override"],
+)
+def test_prepare_launch_resolves_the_run_policy_from_the_task_and_its_run(
+    mocker, origin_product: str, run_state: dict, expected: tuple[bool, bool, str]
+) -> None:
+    prefix = "products.tasks.backend.temporal.process_task.activities.start_agent_server"
+    _mock_prepare_launch_dependencies(mocker)
+    mocker.patch(f"{prefix}.Task.objects.select_related").return_value.get.return_value = mocker.Mock(
+        internal=False,
+        stored_profile=None,
+        runtime="claude",
+        origin_product=origin_product,
+        mcp_builtin_agent_key=None,
+        mcp_credential_owner_id=None,
+        mcp_gateway_server_allowlist=None,
+    )
+    mocker.patch(f"{prefix}.TaskRun.objects.filter").return_value.first.return_value = mocker.Mock(state=run_state)
+
+    params = _prepare_launch(_context(), "read_only", "sandbox-id")
+
+    policy = json.loads(params.run_policy)
+    assert (policy["finish_tool"], policy["finish_report_required"], policy["billing_product"]) == expected
+    assert policy["run_id"] == "run-id"
+
+
+def test_launch_run_policy_carries_the_product_the_agent_splits_by_stage(mocker) -> None:
+    profile = get_task_profile("signals.research")
+    task = mocker.Mock(internal=not profile.listed, stored_profile=profile, origin_product=profile.origin_product)
+
+    sent = json.loads(_launch_run_policy(task, "run-id", {"ai_stage": "research"}))["billing_product"]
+
+    pinned = resolve_sandbox_ai_product(
+        task.origin_product, "research", internal=task.internal, profile_billing_product=profile.billing_product
+    )
+    split_by_the_agent = resolve_sandbox_ai_product(
+        task.origin_product, "research", internal=task.internal, profile_billing_product=sent
+    )
+    assert (sent, split_by_the_agent) == ("signals", pinned)
+
+
+@pytest.mark.parametrize(
     "pr_base,lookup_error,lookup_hangs,expected",
     [
         ("master", None, False, "master"),
@@ -945,6 +1028,7 @@ def test_subscription_compatibility_is_checked_before_launch(mocker, access, exi
         task_run_session_token=None,
         codex_run_token=None,
         event_ingest_url=None,
+        run_policy="{}",
     )
     context = _context(claude_model_access=access)
     if access == "own-subscription" and exit_code != 0:
