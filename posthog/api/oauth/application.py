@@ -1,5 +1,6 @@
 from typing import cast
 
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
 from rest_framework import exceptions, mixins, serializers, viewsets
 from rest_framework.decorators import action
@@ -9,6 +10,7 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.oauth.provisioning_review import (
     PARTNER_NOTE_MAX_LENGTH,
     PartnerNoteRefused,
+    partner_message_for_current_organization,
     partner_provisioning_status,
     partner_timeline,
     send_partner_note,
@@ -75,9 +77,8 @@ class PartnerReviewSerializer(serializers.ModelSerializer):
     decided_at = serializers.DateTimeField(
         read_only=True, allow_null=True, help_text="When the current decision was made. Null while pending."
     )
-    partner_message = serializers.CharField(
-        read_only=True,
-        help_text="What PostHog staff wrote to the app's owners about the decision. Empty when they wrote nothing.",
+    partner_message = serializers.SerializerMethodField(
+        help_text="What PostHog staff wrote to the app's owners about the decision. Empty when they wrote nothing, or wrote it while the app was linked to another organization.",
     )
     timeline = serializers.SerializerMethodField(
         help_text="What happened on the review, oldest first: decisions, messages from PostHog staff, and notes."
@@ -86,6 +87,10 @@ class PartnerReviewSerializer(serializers.ModelSerializer):
     class Meta:
         model = CIMDProvisioningReview
         fields = ["status", "opened_at", "decided_at", "partner_message", "timeline"]
+
+    @extend_schema_field(OpenApiTypes.STR)
+    def get_partner_message(self, instance: CIMDProvisioningReview) -> str:
+        return partner_message_for_current_organization(instance)
 
     @extend_schema_field(PartnerReviewEventSerializer(many=True))
     def get_timeline(self, instance: CIMDProvisioningReview) -> list[dict]:

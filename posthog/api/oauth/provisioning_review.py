@@ -655,6 +655,19 @@ def partner_timeline(review: CIMDProvisioningReview) -> list[PartnerReviewEvent]
     return events
 
 
+def partner_message_for_current_organization(review: CIMDProvisioningReview) -> str:
+    """The staff message as the linked organization may read it: empty when it was written while the app was linked
+    to another organization, or before messages recorded one."""
+    organization_id = _organization_id(review.application)
+    last_message = next(
+        (entry for entry in reversed(review.run_log) if entry.get("step") in (SETTLED_STEP, STAFF_MESSAGE_STEP)),
+        None,
+    )
+    if organization_id is None or last_message is None or last_message.get("organization_id") != organization_id:
+        return ""
+    return review.partner_message
+
+
 def _partner_event(entry: Mapping[str, Any], organization_id: str | None) -> PartnerReviewEvent | None:
     step, at, status = entry.get("step"), str(entry.get("at", "")), entry.get("status")
     # Notes and staff messages were written to the organization linked then. A client_id can be relinked to

@@ -848,7 +848,7 @@ export interface PartnerReviewApi {
      * @nullable
      */
     readonly decided_at: string | null
-    /** What PostHog staff wrote to the app's owners about the decision. Empty when they wrote nothing. */
+    /** What PostHog staff wrote to the app's owners about the decision. Empty when they wrote nothing, or wrote it while the app was linked to another organization. */
     readonly partner_message: string
     /** What happened on the review, oldest first: decisions, messages from PostHog staff, and notes. */
     readonly timeline: readonly PartnerReviewEventApi[]

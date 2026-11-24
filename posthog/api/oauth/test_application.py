@@ -6,13 +6,13 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from posthog.api.oauth.application import PartnerReviewSerializer
 from posthog.api.oauth.provisioning_review import (
     MAX_PARTNER_NOTES_IN_RUN_LOG,
     MAX_RUN_LOG_ENTRIES,
     PARTNER_NOTE_STEP,
     _append_to_run_log,
     decide_partner,
-    partner_timeline,
     send_partner_note,
     settle_review,
 )
@@ -261,6 +261,7 @@ class TestOrganizationOAuthApplicationViewSet(APIBaseTest):
 
         response = self.client.get(f"/api/organizations/@current/oauth_applications/{app.id}/")
 
+        self.assertEqual(response.json()["provisioning_review"]["partner_message"], "Add a homepage.")
         timeline = response.json()["provisioning_review"]["timeline"]
         self.assertEqual(
             [(event["kind"], event["status"], event["message"], event["author"]) for event in timeline],
@@ -276,9 +277,12 @@ class TestOrganizationOAuthApplicationViewSet(APIBaseTest):
 
         app.organization = Organization.objects.create(name="Next owner of the client ID")
         app.save(update_fields=["organization"])
-        relinked = partner_timeline(CIMDProvisioningReview.objects.select_related("application").get(application=app))
+        relinked = PartnerReviewSerializer(
+            CIMDProvisioningReview.objects.select_related("application").get(application=app)
+        ).data
+        self.assertEqual(relinked["partner_message"], "")
         self.assertEqual(
-            [(event.kind, event.message) for event in relinked],
+            [(event["kind"], event["message"]) for event in relinked["timeline"]],
             [("registered", ""), ("automated_review", ""), ("staff_decision", "")],
         )
 
