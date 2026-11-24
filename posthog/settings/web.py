@@ -189,6 +189,8 @@ MIDDLEWARE = [
     # Outside every middleware that can answer early (IP allowlist, CSRF, auth, IP restrictions),
     # so the build skew counter sees the status of each API response the client receives.
     "posthog.client_build_middleware.ClientBuildSkewMiddleware",
+    # Outside the same middleware, so hog gets its notices on every answer, an early refusal included.
+    "posthog.cli_notices.CliNoticeMiddleware",
     "posthog.gzip_middleware.ScopedGZipMiddleware",
     # Must precede per_request_logging_context_middleware, the only client-IP reader that runs on
     # the request path. AllowIPMiddleware and axes read the IP at or after the view.
