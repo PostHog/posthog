@@ -23,6 +23,7 @@ from posthog.models import User
 from posthog.models.organization import OrganizationMembership
 from posthog.models.utils import uuid7
 
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.access_control.backend.models.access_control import AccessControl
 from products.marketing_analytics.backend.hogql_queries.marketing_recommendations import (
     FlaggedAd,
@@ -708,6 +709,29 @@ class TestMarketingAnalyticsRecommendationsSourceDiscovery(BaseTest):
         with patch("posthog.hogql.database.database._evaluate_warehouse_access_control_flag", return_value=True):
             assert denied_query_resources(member, self.team, [query]) == expected
             assert denied_query_resources(self.user, self.team, [query]) == []
+
+    @parameterized.expand([("fresh", False), ("cached", True)])
+    def test_running_without_marketing_access_is_refused(self, _name: str, cached: bool) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        member = User.objects.create_and_join(self.organization, "member@example.com", "testtest")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="marketing_analytics",
+            access_level="none",
+            organization_member=OrganizationMembership.objects.get(user=member, organization=self.organization),
+        )
+        query = MarketingAnalyticsRecommendationsQuery(sources=[])
+        if cached:
+            MarketingAnalyticsRecommendationsQueryRunner(query=query, team=self.team, user=self.user).run(
+                user=self.user
+            )
+
+        # The check runs before the cache read, so a result someone else cached is refused too.
+        with self.assertRaises(UserAccessControlError):
+            MarketingAnalyticsRecommendationsQueryRunner(query=query, team=self.team, user=member).run(user=member)
 
     def test_repeated_query_sources_run_once(self) -> None:
         source = MarketingAnalyticsRecommendationsSource(sourceType="GoogleAds", campaignTable="campaign")
