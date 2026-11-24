@@ -227,6 +227,7 @@ export const NotebooksPartialUpdateBody = () => zod.object({
         .describe(
             'Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique.'
         ),
+    restore_previous_app_release: zod.boolean().optional(),
     app_draft: zod
         .union([
             zod.object({

@@ -58,6 +58,7 @@ const NotebooksAppUpdateSchema = () => {
                 version: true,
                 deleted: true,
                 variables: true,
+                restore_previous_app_release: true,
                 _create_in_folder: true,
             }).shape
         )
@@ -305,6 +306,7 @@ const NotebooksPartialUpdateSchema = () => {
         NotebooksPartialUpdateParams.omit({ project_id: true })
             .extend(
                 NotebooksPartialUpdateBody.omit({
+                    restore_previous_app_release: true,
                     app_draft: true,
                     app_published: true,
                     app_revision: true,

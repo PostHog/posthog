@@ -169,6 +169,41 @@ class TestNotebookAppLayout(APIBaseTest):
         assert notebook.app_published is None
         assert notebook.app_draft["title"] == "Draft title"
 
+    def test_release_pins_defaults_and_restores_without_overwriting_the_draft(self) -> None:
+        variables = [{"name": "region", "type": "string", "value": "Europe"}]
+        notebook = Notebook.objects.create(
+            team=self.team, created_by=self.user, title="First title", variables=variables
+        )
+        url = f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/"
+        release_url = url + "app_release/"
+        first = self.client.patch(url, {"app_revision": 0, "app_published": LAYOUT}, format="json")
+        assert first.status_code == 200, first.json()
+        changes = {
+            "title": "Second title",
+            "variables": [],
+            "app_revision": 1,
+            "app_draft": {**LAYOUT, "title": "Draft"},
+        }
+        assert self.client.patch(url, changes, format="json").status_code == 200
+        release = self.client.get(release_url).json()
+        assert release["title"] == "First title"
+        assert release["variables"] == variables
+        assert not release["has_previous"]
+
+        invalid = {**LAYOUT, "blocks": [{"id": "gone", "kind": "cell", "tab_id": "overview", "node_id": "absent"}]}
+        assert self.client.patch(url, {"app_revision": 2, "app_published": invalid}, format="json").status_code == 400
+        assert self.client.get(release_url).json() == release
+        assert self.client.patch(url, {"app_revision": 2, "app_published": LAYOUT}, format="json").status_code == 200
+        assert self.client.get(release_url).json()["has_previous"]
+        restore = {"app_revision": 2, "restore_previous_app_release": True}
+        assert self.client.patch(url, restore, format="json").status_code == 409
+        response = self.client.patch(url, {**restore, "app_revision": 3}, format="json")
+        assert response.status_code == 200, response.json()
+        assert response.json()["app_draft"]["title"] == "Draft"
+        assert self.client.get(release_url).json()["variables"] == variables
+        assert self.client.patch(url, {"app_revision": 4, "app_published": None}, format="json").status_code == 200
+        assert self.client.get(release_url).status_code == 404
+
     def test_layout_patch_cannot_address_a_notebook_in_another_project(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="Other project")
         notebook = Notebook.objects.create(team=other_team, title="Other notebook", created_by=self.user)

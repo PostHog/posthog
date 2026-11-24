@@ -215,6 +215,7 @@ export const NotebooksCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique.'
         ),
+    restore_previous_app_release: zod.boolean().optional(),
     app_draft: zod
         .union([
             zod.object({
@@ -597,6 +598,7 @@ export const NotebooksUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique.'
         ),
+    restore_previous_app_release: zod.boolean().optional(),
     app_draft: zod
         .union([
             zod.object({
@@ -979,6 +981,7 @@ export const NotebooksPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique.'
         ),
+    restore_previous_app_release: zod.boolean().optional(),
     app_draft: zod
         .union([
             zod.object({
@@ -1525,6 +1528,7 @@ export const NotebooksKernelExecuteCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique.'
         ),
+    restore_previous_app_release: zod.boolean().optional(),
     app_draft: zod
         .union([
             zod.object({
@@ -1943,6 +1947,7 @@ export const NotebooksKernelRestartCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique.'
         ),
+    restore_previous_app_release: zod.boolean().optional(),
     app_draft: zod
         .union([
             zod.object({
@@ -2333,6 +2338,7 @@ export const NotebooksKernelStartCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique.'
         ),
+    restore_previous_app_release: zod.boolean().optional(),
     app_draft: zod
         .union([
             zod.object({
@@ -2721,6 +2727,7 @@ export const NotebooksKernelStopCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique.'
         ),
+    restore_previous_app_release: zod.boolean().optional(),
     app_draft: zod
         .union([
             zod.object({

@@ -82,6 +82,20 @@ class Notebook(Taggable, FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         )
 
 
+class NotebookAppRelease(TeamScopedRootMixin, UUIDModel):
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    notebook = models.ForeignKey(Notebook, on_delete=models.CASCADE, related_name="app_releases")
+    revision = models.PositiveIntegerField()
+    published_at = models.DateTimeField(auto_now_add=True)
+    title = models.CharField(max_length=256, blank=True)
+    layout = models.JSONField()
+    markdown = models.TextField(blank=True)
+    variables = models.JSONField(default=list)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["notebook", "revision"], name="notebook_app_release_revision")]
+
+
 RELATED_OBJECTS = ("group", "account")
 
 

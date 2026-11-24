@@ -18,6 +18,17 @@ from uuid import UUID
 from pydantic.dataclasses import dataclass
 
 
+@dataclass(frozen=True, kw_only=True)
+class AppRelease:
+    revision: int
+    published_at: datetime | None
+    title: str
+    markdown: str
+    layout: dict[str, Any]
+    variables: list[dict[str, Any]]
+    has_previous: bool
+
+
 class NotebookRunBusy(Exception):
     """Raised when the notebook already has a cell running.
 

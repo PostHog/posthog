@@ -77142,6 +77142,7 @@ export namespace Schemas {
       readonly parent_resource: NotebookParentResource;
       /** Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique. */
       variables?: NotebookVariable[];
+      restore_previous_app_release?: boolean;
       /** Editable app layout. Does not change the published layout. */
       app_draft?: NotebookAppLayout | null;
       /** Published app layout. Cell content and results remain linked to the notebook. Null unpublishes the app. */
@@ -77152,6 +77153,17 @@ export namespace Schemas {
          */
       app_revision?: number;
       _create_in_folder?: string;
+    }
+
+    export interface NotebookAppRelease {
+      revision: number;
+      /** @nullable */
+      published_at: string | null;
+      title: string;
+      layout: NotebookAppLayout;
+      markdown: string;
+      variables: NotebookVariable[];
+      has_previous: boolean;
     }
 
     export interface NotebookCellLastRun {
@@ -95317,6 +95329,7 @@ export namespace Schemas {
       readonly parent_resource?: PatchedNotebookParentResource;
       /** Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique. */
       variables?: NotebookVariable[];
+      restore_previous_app_release?: boolean;
       /** Editable app layout. Does not change the published layout. */
       app_draft?: NotebookAppLayout | null;
       /** Published app layout. Cell content and results remain linked to the notebook. Null unpublishes the app. */

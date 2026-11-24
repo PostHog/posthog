@@ -889,6 +889,7 @@ export interface NotebookApi {
     readonly parent_resource: NotebookApiParentResource
     /** Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique. */
     variables?: NotebookVariableApi[]
+    restore_previous_app_release?: boolean
     /** Editable app layout. Does not change the published layout. */
     app_draft?: NotebookAppLayoutApi | null
     /** Published app layout. Cell content and results remain linked to the notebook. Null unpublishes the app. */
@@ -952,6 +953,7 @@ export interface PatchedNotebookApi {
     readonly parent_resource?: PatchedNotebookApiParentResource
     /** Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique. */
     variables?: NotebookVariableApi[]
+    restore_previous_app_release?: boolean
     /** Editable app layout. Does not change the published layout. */
     app_draft?: NotebookAppLayoutApi | null
     /** Published app layout. Cell content and results remain linked to the notebook. Null unpublishes the app. */
@@ -962,6 +964,17 @@ export interface PatchedNotebookApi {
      */
     app_revision?: number
     _create_in_folder?: string
+}
+
+export interface NotebookAppReleaseApi {
+    revision: number
+    /** @nullable */
+    published_at: string | null
+    title: string
+    layout: NotebookAppLayoutApi
+    markdown: string
+    variables: NotebookVariableApi[]
+    has_previous: boolean
 }
 
 export interface NotebookCollabCursorApi {
