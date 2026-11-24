@@ -24,14 +24,14 @@ class TestListLogoDomainsAcrossTeams(BaseTest):
 
         assert domains == ["globex.example", "acme.example"]
 
-    def test_caps_each_teams_share_and_the_whole_list(self) -> None:
+    def test_caps_each_teams_share_and_lets_teams_take_turns(self) -> None:
+        self._create(self.other_team, "Quiet", {"website_domain": "quiet.example"})
         for index in range(3):
             self._create(self.team, f"Busy {index}", {"website_domain": f"busy{index}.example"})
-        self._create(self.other_team, "Quiet", {"website_domain": "quiet.example"})
 
         assert list_logo_domains_across_teams(limit=10, per_team_limit=2) == [
-            "quiet.example",
             "busy2.example",
+            "quiet.example",
             "busy1.example",
         ]
-        assert list_logo_domains_across_teams(limit=2, per_team_limit=10) == ["quiet.example", "busy2.example"]
+        assert list_logo_domains_across_teams(limit=2, per_team_limit=10) == ["busy2.example", "quiet.example"]

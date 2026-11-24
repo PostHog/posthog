@@ -16,11 +16,11 @@ Do NOT:
 """
 
 import asyncio
-from collections import Counter
 from collections.abc import Iterable
 from dataclasses import replace
 from datetime import UTC, date, datetime, time, timedelta
 from enum import Enum
+from itertools import islice, zip_longest
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 from uuid import UUID
 
@@ -3788,13 +3788,14 @@ def _resolve_account_logo_domain(account: Account) -> str | None:
 def list_logo_domains_across_teams(*, limit: int, per_team_limit: int) -> list[str]:
     """Account logo domains across all teams, for jobs that prepare per-domain assets such as
     favicons. Resolved the same way as the accounts table's `logo_domain`, so a cached asset is keyed
-    by the hostname the frontend asks for. Newest accounts come first, and each team adds at most
-    `per_team_limit` domains, so one team cannot crowd out every other team's logos."""
-    domains: dict[str, None] = {}
-    team_counts: Counter[int] = Counter()
+    by the hostname the frontend asks for. Each team adds at most `per_team_limit` domains, newest
+    accounts first, and the teams take turns in the list, so one team cannot crowd out the rest."""
+    team_domains: dict[int, list[str]] = {}
+    seen: set[str] = set()
     rows = Account.objects.unscoped().order_by("-created_at").values_list("team_id", "_properties")
     for team_id, stored in rows.iterator(chunk_size=2000):
-        if team_counts[team_id] >= per_team_limit:
+        domains = team_domains.setdefault(team_id, [])
+        if len(domains) >= per_team_limit:
             continue
         stored = stored or {}
         website_domain = stored.get("website_domain")
@@ -3803,13 +3804,12 @@ def list_logo_domains_across_teams(*, limit: int, per_team_limit: int) -> list[s
             website_domain=website_domain if isinstance(website_domain, str) else None,
             email_domains=[d for d in email_domains if isinstance(d, str)] if isinstance(email_domains, list) else [],
         )
-        if not domain or domain in domains:
+        if not domain or domain in seen:
             continue
-        domains[domain] = None
-        team_counts[team_id] += 1
-        if len(domains) >= limit:
-            break
-    return list(domains)
+        seen.add(domain)
+        domains.append(domain)
+    interleaved = (domain for turn in zip_longest(*team_domains.values()) for domain in turn if domain is not None)
+    return list(islice(interleaved, limit))
 
 
 def query_accounts_table(
