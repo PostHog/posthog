@@ -282,6 +282,22 @@ class TestMySQLCDCStreamReader:
         finally:
             reader.close()
 
+    def test_a_dotted_name_does_not_hide_another_tables_unique_key(self, source, root_conn):
+        _execute(
+            root_conn,
+            f"CREATE TABLE {DATABASE}.`a` (id INT PRIMARY KEY, v INT NULL, UNIQUE KEY `b.c` (v))",
+            f"CREATE TABLE {DATABASE}.`a.b` (id INT PRIMARY KEY, code INT NOT NULL, UNIQUE KEY `c` (code))",
+        )
+        reader = _reader(source)
+        try:
+            keys = reader.get_enforced_unique_keys(DATABASE, ["a", "a.b"])
+        finally:
+            reader.close()
+            _execute(root_conn, f"DROP TABLE {DATABASE}.`a`, {DATABASE}.`a.b`")
+
+        assert set(keys["a.b"]) == {frozenset({"id"}), frozenset({"code"})}
+        assert set(keys["a"]) == {frozenset({"id"})}
+
 
 @pytest.mark.parametrize(
     "statement,expected",

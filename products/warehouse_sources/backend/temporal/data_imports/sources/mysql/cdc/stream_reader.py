@@ -362,14 +362,14 @@ class MySQLCDCStreamReader:
             )
             rows = cur.fetchall()
         indexes: dict[str, dict[str, list[str]]] = {}
-        nullable: set[str] = set()
+        nullable: set[tuple[str, str]] = set()
         for table, index, column, is_nullable in rows:
             indexes.setdefault(str(table), {}).setdefault(str(index), []).append(str(column))
             if is_nullable == "YES":
                 # Two rows may both hold NULL in a unique index, so it doesn't identify a row.
-                nullable.add(f"{table}.{index}")
+                nullable.add((str(table), str(index)))
         return {
-            table: {index: columns for index, columns in by_index.items() if f"{table}.{index}" not in nullable}
+            table: {index: columns for index, columns in by_index.items() if (table, index) not in nullable}
             for table, by_index in indexes.items()
         }
 
