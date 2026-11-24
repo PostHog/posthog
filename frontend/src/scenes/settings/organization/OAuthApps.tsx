@@ -2,10 +2,11 @@ import { decode } from 'he'
 import { useActions, useValues } from 'kea'
 
 import { IconCopy } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonSkeleton, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSkeleton, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconKey } from 'lib/lemon-ui/icons'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { urls } from 'scenes/urls'
@@ -67,14 +68,8 @@ export function OAuthApps(): JSX.Element {
                     title: 'Application',
                     key: 'name',
                     render: (_, app: OrganizationOAuthApplicationApi) => (
-                        <div className="flex items-center gap-2">
-                            <Link
-                                to={urls.oauthApplication(app.id)}
-                                className="font-semibold"
-                                data-attr="oauth-app-open"
-                            >
-                                {decode(app.name ?? '')}
-                            </Link>
+                        <div className="flex items-center gap-2" data-attr="oauth-app-open">
+                            <LemonTableLink to={urls.oauthApplication(app.id)} title={decode(app.name ?? '')} />
                             {app.is_verified && (
                                 <LemonTag type="success" size="small">
                                     Verified
