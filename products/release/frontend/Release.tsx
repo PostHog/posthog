@@ -11,7 +11,6 @@ import {
     EmptyMedia,
     EmptyTitle,
     Skeleton,
-    cn,
 } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
@@ -84,10 +83,8 @@ function ReleaseContent({ id }: ReleaseSceneProps): JSX.Element {
     const { rows, dataLoading, loadFailed, canEditReleases } = useValues(releaseLogic)
     const { updateRelease, autoLinkBroadcasts } = useActions(releaseLogic)
     const { closeCalendarItem } = useActions(releaseCalendarLogic)
-    const { openItem } = useValues(releaseCalendarLogic)
     const row = rows.find((item) => item.id === id)
     const loaded = !!row
-    const inspecting = !!row && openItem?.releaseId === row.id
 
     useEffect(() => () => closeCalendarItem(), [id, closeCalendarItem])
 
@@ -168,31 +165,19 @@ function ReleaseContent({ id }: ReleaseSceneProps): JSX.Element {
                             <ReleaseTrackCard row={row} />
                         </div>
                     </div>
-                    <div
-                        className={cn(
-                            'contents @4xl:flex @4xl:min-w-0 @4xl:flex-col @4xl:gap-4',
-                            inspecting && '@4xl:self-stretch'
-                        )}
-                    >
-                        {inspecting ? (
-                            <div className="order-4 min-w-0 @4xl:sticky @4xl:top-4">
-                                <ReleaseInspector row={row} />
-                            </div>
-                        ) : (
-                            <>
-                                <div className="order-1 min-w-0 empty:hidden">
-                                    <ReleaseDetailsCard row={row} />
-                                </div>
-                                <div className="order-5 min-w-0 empty:hidden">
-                                    <ReleaseSuggestedCard row={row} />
-                                </div>
-                                <div className="order-6 min-w-0 empty:hidden">
-                                    <ReleaseHistory row={row} />
-                                </div>
-                            </>
-                        )}
+                    <div className="contents @4xl:flex @4xl:min-w-0 @4xl:flex-col @4xl:gap-4">
+                        <div className="order-1 min-w-0 empty:hidden">
+                            <ReleaseDetailsCard row={row} />
+                        </div>
+                        <div className="order-5 min-w-0 empty:hidden">
+                            <ReleaseSuggestedCard row={row} />
+                        </div>
+                        <div className="order-6 min-w-0 empty:hidden">
+                            <ReleaseHistory row={row} />
+                        </div>
                     </div>
                 </div>
+                <ReleaseInspector row={row} />
                 <ReleaseScheduleDialog />
                 <ReleaseLaunchDialog />
                 <ReleaseMergeIntoDialog />

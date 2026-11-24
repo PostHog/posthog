@@ -1,16 +1,18 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { IconCalendar, IconEllipsis, IconToggle, IconTrash, IconX } from '@posthog/icons'
 import {
     Badge,
     Button,
-    Card,
-    CardContent,
-    CardDescription,
-    CardFooter,
-    CardHeader,
-    CardTitle,
+    Drawer,
+    DrawerBody,
+    DrawerClose,
+    DrawerContent,
+    DrawerDescription,
+    DrawerFooter,
+    DrawerHeader,
+    DrawerTitle,
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuItem,
@@ -21,6 +23,7 @@ import {
     ItemDescription,
     ItemTitle,
     Text,
+    cn,
 } from '@posthog/quill'
 
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
@@ -46,7 +49,7 @@ import { releaseLaneUsageLogic } from './releaseLaneUsageLogic'
 import { releaseLogic } from './releaseLogic'
 import { releaseRelatedLogic } from './releaseRelatedLogic'
 import { Lane, buildTrack, statusLabel } from './releaseTracks'
-import { CALENDAR_DAYS_AFTER, ReleaseRow } from './releaseUtils'
+import { CALENDAR_DAYS_AFTER, ReleaseRow, STAGE_COLOR_VARS } from './releaseUtils'
 import { useRolloutStepsByFlag } from './useRolloutStepsByFlag'
 
 const CONDITIONS_SHOWN = 2
@@ -317,86 +320,84 @@ function InspectorChart({ target }: { target: UsageTarget }): JSX.Element {
     )
 }
 
-export function ReleaseInspector({ row }: { row: ReleaseRow }): JSX.Element | null {
+export function ReleaseInspector({ row }: { row: ReleaseRow }): JSX.Element {
     const { openItem } = useValues(releaseCalendarLogic)
     const { closeCalendarItem } = useActions(releaseCalendarLogic)
     const { relatedByRelease } = useValues(releaseRelatedLogic)
     const stepsByFlag = useRolloutStepsByFlag(CALENDAR_DAYS_AFTER)
     const [confirming, setConfirming] = useState(false)
-    const cardRef = useRef<HTMLDivElement>(null)
     const related = relatedByRelease[row.id]
     const laneKey = openItem?.releaseId === row.id ? openItem.laneKey : null
     const lane = useMemo(
         () => (laneKey ? buildTrack(row, stepsByFlag, related).lanes.find((item) => item.key === laneKey) : undefined),
         [laneKey, row, stepsByFlag, related]
     )
-    const open = !!lane
+    const [shown, setShown] = useState(lane)
 
     useEffect(() => setConfirming(false), [laneKey])
 
     useEffect(() => {
-        if (laneKey) {
-            cardRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+        if (lane) {
+            setShown(lane)
         }
-    }, [laneKey])
+    }, [lane])
 
-    useEffect(() => {
-        if (!open) {
-            return
-        }
-        const onKeyDown = (event: KeyboardEvent): void => {
-            if (event.key === 'Escape') {
-                closeCalendarItem()
-            }
-        }
-        window.addEventListener('keydown', onKeyDown)
-        return () => window.removeEventListener('keydown', onKeyDown)
-    }, [open, closeCalendarItem])
-
-    if (!lane) {
-        return null
-    }
-    const target = usageTarget(lane, row)
-    const from = inspectorFrom()
+    const target = shown ? usageTarget(shown, row) : null
 
     return (
-        <Card ref={cardRef} size="sm" data-attr="release-inspector">
-            <CardHeader>
-                <div className="flex min-w-0 items-start gap-2">
-                    <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center text-muted-foreground [&_svg]:size-4">
-                        {iconForType(KIND_ICON[lane.kind] as never)}
-                    </span>
-                    <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                        <CardTitle className="truncate" title={lane.title}>
-                            {lane.title}
-                        </CardTitle>
-                        <div className="flex items-center gap-1.5">
-                            <CardDescription>{KIND_LABEL[lane.kind]}</CardDescription>
-                            <Badge variant={lane.live ? 'success' : 'default'}>{statusLabel(lane.status)}</Badge>
-                        </div>
-                    </div>
-                    <Button
-                        size="icon-xs"
-                        aria-label="Close"
-                        tooltip="Close (Esc)"
-                        onClick={closeCalendarItem}
-                        data-attr="release-inspector-close"
-                    >
-                        <IconX />
-                    </Button>
-                </div>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-3">
-                {confirming && lane.kind === 'flag' && (
-                    <StatusConfirm flag={lane.flag} onDone={() => setConfirming(false)} />
+        <Drawer
+            open={!!lane}
+            onOpenChange={(open) => !open && closeCalendarItem()}
+            onOpenChangeComplete={(open) => !open && setShown(undefined)}
+            swipeDirection="right"
+        >
+            <DrawerContent className={cn('[&>div:last-child]:flex-1', STAGE_COLOR_VARS)} data-attr="release-inspector">
+                {shown && (
+                    <>
+                        <DrawerHeader className="border-b">
+                            <div className="flex min-w-0 items-start gap-2">
+                                <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center text-muted-foreground [&_svg]:size-4">
+                                    {iconForType(KIND_ICON[shown.kind] as never)}
+                                </span>
+                                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                                    <DrawerTitle className="truncate" title={shown.title}>
+                                        {shown.title}
+                                    </DrawerTitle>
+                                    <div className="flex items-center gap-1.5">
+                                        <DrawerDescription>{KIND_LABEL[shown.kind]}</DrawerDescription>
+                                        <Badge variant={shown.live ? 'success' : 'default'}>
+                                            {statusLabel(shown.status)}
+                                        </Badge>
+                                    </div>
+                                </div>
+                                <DrawerClose
+                                    render={
+                                        <Button
+                                            size="icon-xs"
+                                            aria-label="Close"
+                                            tooltip="Close (Esc)"
+                                            data-attr="release-inspector-close"
+                                        />
+                                    }
+                                >
+                                    <IconX />
+                                </DrawerClose>
+                            </div>
+                        </DrawerHeader>
+                        <DrawerBody viewportClassName="flex flex-col gap-4 py-4">
+                            {confirming && shown.kind === 'flag' && (
+                                <StatusConfirm flag={shown.flag} onDone={() => setConfirming(false)} />
+                            )}
+                            {target && <ReleaseLaneSummary target={target} from={inspectorFrom()} />}
+                            {target && <InspectorChart target={target} />}
+                            {shown.kind === 'flag' && <Conditions flag={shown.flag} />}
+                        </DrawerBody>
+                        <DrawerFooter className="flex-row border-t">
+                            <Actions row={row} lane={shown} onToggle={() => setConfirming(true)} />
+                        </DrawerFooter>
+                    </>
                 )}
-                {target && <ReleaseLaneSummary target={target} from={from} />}
-                {target && <InspectorChart target={target} />}
-                {lane.kind === 'flag' && <Conditions flag={lane.flag} />}
-            </CardContent>
-            <CardFooter>
-                <Actions row={row} lane={lane} onToggle={() => setConfirming(true)} />
-            </CardFooter>
-        </Card>
+            </DrawerContent>
+        </Drawer>
     )
 }
