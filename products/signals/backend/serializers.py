@@ -43,6 +43,7 @@ from products.signals.backend.contracts import (
     ISSUE_FILTER_SOURCES,
     ISSUE_FILTERS_KEY,
     SCOPE_CONFIG_KEYS,
+    SCOPE_IDS_MAX_COUNT,
     STEERING_KEY,
     STEERING_MAX_LENGTH,
     AlertScope,
@@ -738,6 +739,27 @@ class SourceFilterPreviewRequestSerializer(serializers.Serializer):
             "An empty expression lets every record through."
         ),
     )
+    scope_ids = serializers.ListField(
+        # Blank and padded ids pass this field, so `scope_ids_problem` judges them as it judges the saved config key.
+        child=serializers.CharField(allow_blank=True, trim_whitespace=False),
+        required=False,
+        allow_null=True,
+        help_text=(
+            "The source's record allowlist as it would be saved, to preview it before saving. For Linear issues, "
+            "these are the Linear team ids saved in `config.linear_team_ids`. Omit it or pass null to use the saved "
+            "allowlist, pass an empty list to read every team, or pass a list of non-empty ids "
+            f"(at most {SCOPE_IDS_MAX_COUNT}) to read only those. Sources without an allowlist ignore it."
+        ),
+    )
+
+    def validate_scope_ids(self, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        problem = scope_ids_problem(value)
+        if problem is not None:
+            raise serializers.ValidationError(problem)
+        # Stripped like the saved key, because the preview query matches ids exactly.
+        return [scope_id.strip() for scope_id in value]
 
 
 @extend_schema_field(
