@@ -515,6 +515,11 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
         if err is not None:
             return err
         assert adapter is not None  # narrowed by _get_cdc_adapter_or_400
+        if cdc_engine_for_team(instance.source_type, self.team_id) is None:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"CDC is not available for {instance.source_type} sources yet."},
+            )
 
         management_mode = request.data.get("cdc_management_mode", "posthog")
         if management_mode not in ("posthog", "self_managed"):

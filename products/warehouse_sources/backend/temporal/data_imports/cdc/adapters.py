@@ -187,6 +187,11 @@ class CDCSourceAdapter(Protocol[CDCConfigT_co]):
         so ``add_table`` and ``remove_table`` change it."""
         ...
 
+    def primary_key_columns(self, conn: Any, schema: str, tables: list[str]) -> dict[str, list[str]]:
+        """The primary key columns of each of ``tables`` in ``schema`` that has one, read over a
+        ``management_connection``."""
+        ...
+
 
 def _cdc_adapters() -> dict[ExternalDataSourceType, CDCSourceAdapter[CDCConfig]]:
     """Registry of CDC adapters keyed by source type. Adding a new CDC-capable source

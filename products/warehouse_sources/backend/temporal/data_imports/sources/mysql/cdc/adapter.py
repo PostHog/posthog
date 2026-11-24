@@ -208,3 +208,22 @@ class MySQLCDCAdapter:
 
     def manages_capture_set(self, source: ExternalDataSource) -> bool:
         return False
+
+    def primary_key_columns(
+        self, conn: MySQLManagementConnection, schema: str, tables: list[str]
+    ) -> dict[str, list[str]]:
+        if not tables:
+            return {}
+        placeholders = ", ".join(["%s"] * len(tables))
+        with conn.conn.cursor() as cur:
+            cur.execute(
+                "SELECT TABLE_NAME, COLUMN_NAME FROM information_schema.STATISTICS "
+                f"WHERE TABLE_SCHEMA = %s AND INDEX_NAME = 'PRIMARY' AND TABLE_NAME IN ({placeholders}) "
+                "ORDER BY TABLE_NAME, SEQ_IN_INDEX",
+                [schema, *tables],
+            )
+            rows = cur.fetchall()
+        keys: dict[str, list[str]] = {}
+        for table, column in rows:
+            keys.setdefault(str(table), []).append(str(column))
+        return keys

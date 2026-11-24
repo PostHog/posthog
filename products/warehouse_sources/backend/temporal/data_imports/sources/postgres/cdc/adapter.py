@@ -45,6 +45,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     SSLRequiredError,
     _is_dropped_or_connect_timeout,
     _retry_on_connection_dropped,
+    get_primary_key_columns,
     source_requires_ssl,
 )
 from products.warehouse_sources.backend.types import CDCEngine
@@ -437,6 +438,9 @@ class PostgresCDCAdapter:
 
     def manages_capture_set(self, source: ExternalDataSource) -> bool:
         return self._managed_publication_name(source) is not None
+
+    def primary_key_columns(self, conn: Any, schema: str, tables: list[str]) -> dict[str, list[str]]:
+        return get_primary_key_columns(conn, schema, tables)
 
     def _alter_publication_membership(self, source: ExternalDataSource, schema: str, table: str, add: bool) -> None:
         publication_name = self._managed_publication_name(source)

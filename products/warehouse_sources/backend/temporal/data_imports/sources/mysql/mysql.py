@@ -1444,6 +1444,15 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
             result[display_name].append((column_name, data_type, is_nullable == "YES"))
         return dict(result)
 
+    def get_cdc_support(
+        self,
+        conn: pymysql.Connection,
+        config: MySQLSourceConfig,
+        tables: list[str],
+    ) -> dict[str, bool]:
+        # Binlog changes are merged by primary key.
+        return {table: bool(keys) for table, keys in self.get_primary_keys(conn, config, tables).items()}
+
     def get_primary_keys(
         self,
         conn: pymysql.Connection,

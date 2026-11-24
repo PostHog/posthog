@@ -475,7 +475,7 @@ def test_bulk_sync_cdc_reraises_non_not_found_rpc_errors():
 # --- sync_cdc_extraction_schedule (per-source upsert) ---
 
 
-@pytest.mark.parametrize("source_type", ["MySQL", "UnsupportedDB"])
+@pytest.mark.parametrize("source_type", ["Stripe", "UnsupportedDB"])
 def test_sync_cdc_refuses_a_schedule_for_a_source_type_without_cdc(source_type: str) -> None:
     source = MagicMock(id=uuid.uuid4(), source_type=source_type)
 

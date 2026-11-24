@@ -1834,11 +1834,11 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                 cdc_table_names_by_schema.setdefault(resolved_source_schema, set()).add(resolved_source_table_name)
                 cdc_schema_name_by_location[(resolved_source_schema, resolved_source_table_name)] = schema_name
 
-            if cdc_table_names_by_schema:
+            if cdc_table_names_by_schema and cdc_adapter is not None:
                 try:
-                    with base.cdc_pg_connection(new_source_model) as conn:
+                    with cdc_adapter.management_connection(new_source_model) as conn:
                         for db_schema, cdc_table_names in cdc_table_names_by_schema.items():
-                            queried_pks = base.get_primary_key_columns(conn, db_schema, list(cdc_table_names))
+                            queried_pks = cdc_adapter.primary_key_columns(conn, db_schema, list(cdc_table_names))
                             for table_name, primary_key_columns in queried_pks.items():
                                 schema_name = cdc_schema_name_by_location.get((db_schema, table_name))
                                 if schema_name is not None:

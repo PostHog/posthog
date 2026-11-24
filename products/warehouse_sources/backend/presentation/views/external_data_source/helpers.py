@@ -393,6 +393,10 @@ _CDC_EXPOSED_JOB_INPUT_KEYS = {
     "cdc_lag_warning_threshold_mb",
     "cdc_lag_critical_threshold_mb",
     "cdc_consistent_point",
+    # MySQL keeps its binlog stream here rather than in a slot on the server.
+    "cdc_binlog_position",
+    "cdc_server_uuid",
+    "cdc_server_id",
 }
 
 

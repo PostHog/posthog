@@ -230,6 +230,9 @@ class FakeCDCAdapter:
     def manages_capture_set(self, source: ExternalDataSource) -> bool:
         raise NotImplementedError(_NOT_EXERCISED)
 
+    def primary_key_columns(self, conn: Any, schema: str, tables: list[str]) -> dict[str, list[str]]:
+        raise NotImplementedError(_NOT_EXERCISED)
+
 
 class FakeEngine:
     source_type = "FakeEngine"

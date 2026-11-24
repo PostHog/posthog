@@ -48,8 +48,6 @@ from products.warehouse_sources.backend.facade.source_management import (
     SSLRequiredError,
     TemporaryHostResolutionError,
     WebhookSource,
-    cdc_pg_connection,
-    get_primary_key_columns,
     purge_buffer_prefix,
 )
 from products.warehouse_sources.backend.facade.types import SourceKey
@@ -74,12 +72,10 @@ __all__ = [
     "bulk_delete_external_data_schedules",
     "cancel_external_data_workflow",
     "capture_exception",
-    "cdc_pg_connection",
     "delete_discover_schemas_schedule",
     "delete_external_data_schedule",
     "ensure_cdc_slot_cleanup_schedule",
     "ensure_person_join",
-    "get_primary_key_columns",
     "is_cdc_extraction_schedule_paused",
     "logger",
     "purge_buffer_prefix",
