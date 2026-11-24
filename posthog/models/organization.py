@@ -748,19 +748,11 @@ def remember_organization_field_changes(sender, instance: Organization, **kwargs
 
 
 @receiver(post_save, sender=Organization)
-def invalidate_llm_gateway_quota_cache_on_active_state_change(sender, instance: Organization, created: bool, **kwargs):
+def project_llm_gateway_quota_on_active_state_change(sender, instance: Organization, created: bool, **kwargs):
     if created or not instance._is_active_changed:
         return
 
     organization_id = instance.pk
-
-    def _invalidate_cache():
-        from posthog.models.team import Team
-
-        from ee.billing.quota_limiting import invalidate_llm_gateway_quota_cache
-
-        team_ids = list(Team.objects.filter(organization_id=organization_id).values_list("id", flat=True))
-        invalidate_llm_gateway_quota_cache(team_ids)
 
     def _project_gateway_quota():
         from posthog.tasks.team_llm_gateway_quota import project_org_llm_gateway_quota_task
@@ -771,7 +763,6 @@ def invalidate_llm_gateway_quota_cache_on_active_state_change(sender, instance: 
             # The reconcile re-derives a deactivated org's blobs; never fail the org save.
             logger.warning("llm_gateway_quota_projection_enqueue_failed", organization_id=str(organization_id))
 
-    transaction.on_commit(_invalidate_cache)
     if settings.AI_GATEWAY_REDIS_URL:
         transaction.on_commit(_project_gateway_quota)
 

@@ -67,6 +67,6 @@ Each rule is tagged with what catches a violation.
   Read that repo when the change is the gateway itself.
   This monorepo only calls the gateway.
 - **A monorepo caller builds its client with a helper in `posthog/llm/gateway_client.py`.** `[review]`
-  `build_openai_client` and its siblings authenticate with `AI_GATEWAY_API_KEY`; `build_ai_gateway_openai_client` and `build_ai_gateway_anthropic_client` send the caller's own bearer.
+  `build_ai_gateway_openai_client` sends the caller's own bearer; every other builder authenticates with `AI_GATEWAY_API_KEY`.
   Each raises `GatewayNotConfiguredError` when the gateway is not configured, except `build_gemini_client`, which returns `None`.
   Read [`products/tasks/backend/logic/services/title_generator.py`](../products/tasks/backend/logic/services/title_generator.py) for a real call, and `/calling-the-ai-gateway` before you add a caller.
