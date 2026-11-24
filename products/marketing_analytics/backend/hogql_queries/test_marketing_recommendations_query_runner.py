@@ -587,7 +587,13 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
             else:
                 properties["utm_term"] = "organic"
             _create_event(
-                team=self.team, event="$pageview", distinct_id=f"user{i}", timestamp="2026-01-15", properties=properties
+                team=self.team,
+                # Half the paid sessions have no pageview, so a query that only reads pageviews falls below the
+                # rule's session minimum.
+                event="$pageview" if i % 2 else "$autocapture",
+                distinct_id=f"user{i}",
+                timestamp="2026-01-15",
+                properties=properties,
             )
         flush_persons_and_events()
 

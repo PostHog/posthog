@@ -130,6 +130,39 @@ class TestFileUploadSources(APIBaseTest):
             format="json",
         )
 
+    def test_inline_save_discards_rejected_files_and_keeps_the_file_a_source_adopted(self) -> None:
+        def save(action: str, **fields: str):
+            return self.client.post(
+                f"{self.base_url}/{action}/?include_columns=false",
+                {
+                    "file": SimpleUploadedFile("result.json", b'{"n":1}\n'),
+                    "file_format": "json",
+                    "notebook_cell": "nb/cell",
+                    **fields,
+                },
+                format="multipart",
+            )
+
+        created = save("create_from_file", table_name="counts")
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+        table_id = created.json()["id"]
+        source = ExternalDataSchema.objects.select_related("source").get(table_id=table_id).source
+        original = next(iter(self.s3.written))
+        assert (source.connection_metadata or {}).get("notebook_cell") == "nb/cell"
+        assert save("create_from_file", table_name="counts").status_code == status.HTTP_400_BAD_REQUEST
+        assert (
+            save(f"{table_id}/replace_with_file", notebook_cell="nb/other").status_code == status.HTTP_400_BAD_REQUEST
+        )
+        assert set(self.s3.written) - set(self.s3.removed) == {original}
+
+        self.trigger.side_effect = RuntimeError("sync unavailable")
+        failed_sync = save(f"{table_id}/replace_with_file")
+        assert failed_sync.status_code == status.HTTP_400_BAD_REQUEST
+        source.refresh_from_db()
+        adopted = next(path for path in self.s3.written if source.job_inputs["upload_id"] in path)
+        assert adopted != original
+        assert set(self.s3.written) - set(self.s3.removed) == {original, adopted}
+
     def test_an_upload_becomes_a_file_upload_source_and_one_billable_sync(self) -> None:
         response = self._create()
 
@@ -210,6 +243,29 @@ class TestFileUploadSources(APIBaseTest):
         assert self.s3.removed == []
         table.refresh_from_db()
         assert table.name == "orders"
+
+    @parameterized.expand(
+        [
+            ("same_cell", "notes/sql_1", status.HTTP_202_ACCEPTED),
+            ("other_cell", "notes/sql_2", status.HTTP_400_BAD_REQUEST),
+            ("other_notebook", "other/sql_1", status.HTTP_400_BAD_REQUEST),
+            ("ordinary_file_upload", None, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_replace_from_a_notebook_cell(self, _case: str, origin: str | None, expected_status: int) -> None:
+        created = self._create(**({"notebook_cell": origin} if origin is not None else {}))
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+        table = DataWarehouseTable.objects.get(id=created.json()["id"])
+        schema = ExternalDataSchema.objects.select_related("source").get(table=table)
+
+        response = self._replace(table, notebook_cell="notes/sql_1")
+
+        assert response.status_code == expected_status, response.json()
+        schema.source.refresh_from_db()
+        replaced = expected_status == status.HTTP_202_ACCEPTED
+        assert schema.source.job_inputs["upload_id"] == (NEW_UPLOAD_ID if replaced else UPLOAD_ID)
+        assert (schema.source.connection_metadata or {}).get("notebook_cell") == origin
+        assert self.trigger_count == (2 if replaced else 1)
 
     def test_replacing_the_file_of_an_append_schema_switches_it_to_full_refresh(self) -> None:
         table, schema = self._table_with_source()

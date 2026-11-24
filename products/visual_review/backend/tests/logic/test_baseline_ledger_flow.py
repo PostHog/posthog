@@ -165,6 +165,45 @@ class TestLedgerFlow:
         ]
         assert _ledger(repo) == {"Button": "b2", "Card": "c0"}
 
+    @pytest.mark.parametrize(
+        "child_approved_after_parent",
+        [
+            pytest.param(False, id="child_approved_before_parent_approval"),
+            pytest.param(True, id="child_approved_after_parent_approval"),
+        ],
+    )
+    def test_stack_child_run_before_parent_approval_passes_the_queue_and_lands_its_picture(
+        self, repo, git, flow, finalize, child_approved_after_parent
+    ) -> None:
+        git.open_pull_request(1, git.commit("p1a", SEED))
+        git.open_pull_request(2, git.commit("p2a", "p1a"))
+        child = flow.run("p2a", {"Button": "b2", "Card": "c0"}, branch="child", pr_number=2)
+        if not child_approved_after_parent:
+            finalize(child)
+        finalize(flow.run("p1a", {"Button": "b1", "Card": "c0"}, branch="parent", pr_number=1))
+        if child_approved_after_parent:
+            finalize(child)
+        assert _approvals(repo) == [
+            (1, "b1", "b0", "b0", BaselineApprovalState.OPEN, ""),
+            (2, "b2", "b0", "b0", BaselineApprovalState.OPEN, ""),
+        ]
+
+        queue = _queue_run(flow, git, "q1", "p2a", {"Button": "b2", "Card": "c0"})
+        assert _drift(queue) == (0, 0, 0)
+        record = record_for_run(queue)
+        assert record is not None and record.conflicts == {}
+
+        git.merge(1, "m1")
+        ledger_advance.advance(repo)
+        git.merge(2, "m2")
+        ledger_advance.advance(repo)
+
+        assert _approvals(repo) == [
+            (1, "b1", "b0", "b0", BaselineApprovalState.VOIDED, "not_reproduced"),
+            (2, "b2", "b0", "b0", BaselineApprovalState.PROMOTED, "reproduced"),
+        ]
+        assert _ledger(repo) == {"Button": "b2", "Card": "c0"}
+
     def test_a_merge_of_the_same_story_turns_the_other_approval_red_until_a_revert(
         self, repo, git, flow, finalize, django_capture_on_commit_callbacks
     ) -> None:

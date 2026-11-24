@@ -41,6 +41,19 @@ export function firstRunCheckProblem(validation: ValidatePipelineResponseApi): s
     return failures.length > 0 ? failures.join(' ') : "This model didn't pass the check."
 }
 
+export interface TrainingStartRefusal {
+    reason: string | null
+    code: string | null
+}
+
+/** Why `/train` refused a start. DRF errors put the reason in `detail`, other errors in `error`. */
+export function trainingStartRefusal(error: any): TrainingStartRefusal {
+    return {
+        reason: error?.detail ?? error?.data?.detail ?? error?.data?.error ?? null,
+        code: error?.code ?? error?.data?.code ?? null,
+    }
+}
+
 export function confirmTrainingWithoutCheck(problem: string, onConfirm: () => void): void {
     LemonDialog.open({
         title: 'Start training without a passing check?',

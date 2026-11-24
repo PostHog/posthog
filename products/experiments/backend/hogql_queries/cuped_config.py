@@ -48,7 +48,7 @@ def _resolve_lookback_days(experiment_value: Any, team_default: Any) -> int:
     return _parse_lookback_days(experiment_value, fallback=team_fallback)
 
 
-def _metric_supports_cuped(metric: object) -> bool:
+def metric_supports_cuped(metric: object) -> bool:
     if isinstance(metric, ExperimentMeanMetric):
         # A thresholded mean is a binary "did the user reach N" outcome; CUPED's
         # continuous variance reduction does not apply to a proportion.
@@ -76,6 +76,14 @@ def _metric_supports_cuped(metric: object) -> bool:
         return True
 
     return False
+
+
+def activation_blocks_cuped(metric: object, *, has_activation: bool) -> bool:
+    # ponytail: funnel CUPED sources its pre-exposure covariate from the metric_events
+    # scan, but activation mode forces the temporal filter that removes those rows, so
+    # the covariate would silently be 0 for everyone. Disable it until the covariate
+    # gets its own pre-window scan.
+    return has_activation and isinstance(metric, ExperimentFunnelMetric)
 
 
 def resolve_experiment_cuped_config(
@@ -111,7 +119,7 @@ def get_cuped_config(
     team_default_enabled: bool = False,
     team_default_lookback_days: int | None = None,
 ) -> CupedQueryConfig:
-    if not _metric_supports_cuped(metric):
+    if not metric_supports_cuped(metric):
         return CupedQueryConfig()
     return resolve_experiment_cuped_config(
         stats_config, team_default_enabled=team_default_enabled, team_default_lookback_days=team_default_lookback_days

@@ -23,7 +23,7 @@ from temporalio.client import WorkflowFailureError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.schema import IntervalType
+from posthog.schema import IntervalType, LLMDetectorModel
 
 from posthog.hogql.errors import QueryError, ResolutionError, TableAccessDeniedError
 
@@ -37,6 +37,8 @@ from posthog.exceptions import (
 from posthog.models import Organization, Team, User
 from posthog.tasks.alerts.detectors.base import ARTIFACT_SCHEMA_VERSION
 
+from products.alerts.backend.facade.lazy_judge import LazyAndEnsemble
+from products.alerts.backend.facade.testing import fake_judge_model
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -47,6 +49,8 @@ from products.signals.backend.anomaly_scores.config import (
     DEFAULT_LIMITS,
     DEFAULT_PROFILE,
     DISABLED,
+    NO_AI_JUDGE,
+    AIJudgeConfig,
     AnomalyScoringConfig,
     ScoringRun,
     covers_team,
@@ -55,6 +59,7 @@ from products.signals.backend.anomaly_scores.config import (
 )
 from products.signals.backend.anomaly_scores.due_list import record_scored, refresh_due_list, refresh_team
 from products.signals.backend.anomaly_scores.emission import SCORER_DISTINCT_ID, score_events
+from products.signals.backend.anomaly_scores.judging import _daily_key, judge_flags, reserve_daily_checks
 from products.signals.backend.anomaly_scores.queue import (
     ATTEMPT_COOLDOWN,
     SKIP_COOLDOWN,
@@ -84,6 +89,7 @@ from products.signals.backend.anomaly_scores.queue import (
     within_budget,
 )
 from products.signals.backend.anomaly_scores.scoring import (
+    FetchedSeries,
     InsightScores,
     ScoredPoint,
     ScoredSeries,
@@ -206,6 +212,11 @@ class TestTickConfig(SimpleTestCase):
                 "active_window_days": "30",
                 "first_train_insights_per_tick": 0,
                 "first_train_insights_per_project": 0,
+                "ai_judge": {
+                    "team_ids": [2, "3", True],
+                    "max_checks_per_insight_per_run": 100,
+                    "max_checks_per_project_per_day": 0,
+                },
             }
         )
 
@@ -225,6 +236,9 @@ class TestTickConfig(SimpleTestCase):
         }
         assert config.active_window_days == 90
         assert (config.first_train_insights_per_tick, config.first_train_insights_per_project) == (0, 2)
+        assert config.ai_judge == AIJudgeConfig(
+            team_ids=(2,), max_checks_per_insight_per_run=10, max_checks_per_project_per_day=50
+        )
 
     @parameterized.expand([("missing", {}), ("empty", {"allow_team_ids": []})])
     def test_an_absent_or_empty_allowlist_enrolls_every_team_of_the_listed_organizations(
@@ -949,26 +963,46 @@ class TestTrainScoreSplit(BaseTest):
         self.addCleanup(clear_artifact_cache)
 
     def _run(
-        self, insight: Insight, pick: InsightPick, now: datetime, data: list[float]
+        self,
+        insight: Insight,
+        pick: InsightPick,
+        now: datetime,
+        data: list[float],
+        ai_judge: AIJudgeConfig = NO_AI_JUDGE,
+        history_error: Exception | None = None,
     ) -> tuple[ScoreInsightResult, list[dict[str, Any]]]:
         days = [(now - timedelta(days=len(data) - 1 - day)).strftime("%Y-%m-%d") for day in range(len(data))]
         results = [{"order": 0, "label": "pageview", "days": days, "data": data, "breakdown_value": None}]
+        capture = MagicMock()
         with (
             patch("products.signals.backend.anomaly_scores.scoring.TrendsQueryRunner") as runner,
             patch("products.signals.backend.anomaly_scores.tick.emit") as emit,
             patch("products.signals.backend.anomaly_scores.tick.mark_attempted"),
+            patch("products.signals.backend.anomaly_scores.tick.ph_background_capture", return_value=capture),
         ):
             runner.return_value.run.return_value = MagicMock(results=results)
-            result = run_insight(ScoreInsightInput(pick=pick), now)
+            if history_error is not None:
+                # The second fetch of a pick is the judge's history.
+                runner.return_value.run.side_effect = [MagicMock(results=results), history_error]
+            result = run_insight(ScoreInsightInput(pick=pick, ai_judge=ai_judge), now)
+        self.fetched_ranges = [call.kwargs["query"].dateRange.date_from for call in runner.call_args_list]
+        [self.pick_event] = [
+            call.kwargs["properties"]
+            for call in capture.call_args_list
+            if call.kwargs["event"] == "anomaly scoring pick"
+        ]
         return result, emit.call_args.args[1] if emit.called else []
 
-    def _train(self, insight: Insight, trained_at: datetime) -> list[dict[str, Any]]:
+    def _train(
+        self, insight: Insight, trained_at: datetime, ai_judge: AIJudgeConfig = NO_AI_JUDGE
+    ) -> list[dict[str, Any]]:
         values = [float(value) for value in np.random.default_rng(4).normal(100, 5, size=100)]
         _result, events = self._run(
             insight,
             InsightPick(team_id=self.team.id, insight_id=insight.id, scored_through={}, run=ScoringRun.TRAIN),
             trained_at,
             values,
+            ai_judge,
         )
         self.values = values
         return events
@@ -1011,6 +1045,88 @@ class TestTrainScoreSplit(BaseTest):
         assert state.trained_at == trained_at + timedelta(days=7)
         # A retrain replaces the blob and deletes the previous one.
         assert list(self.blobs) == [state.artifact_key] != [first_key]
+
+    @parameterized.expand(
+        [
+            ("no_new_flag", 100.0, True, False, ["-6d"], 0),
+            ("flagged", 500.0, True, False, ["-6d", "-62d"], 1),
+            ("flagged_without_consent", 500.0, False, False, ["-6d"], 0),
+            ("flagged_past_the_daily_cap", 500.0, True, True, ["-6d"], 0),
+        ]
+    )
+    @override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
+    def test_a_default_v2_score_pick_fetches_the_judge_history_only_for_a_flag_the_judge_is_asked_about(
+        self, _name: str, newest: float, consent: bool, daily_cap_spent: bool, fetched: list[str], calls: int
+    ) -> None:
+        cache.clear()
+        self.addCleanup(cache.clear)
+        self.organization.is_ai_data_processing_approved = consent
+        self.organization.save()
+        ai_judge = AIJudgeConfig(team_ids=(self.team.id,), max_checks_per_project_per_day=1)
+        insight = Insight.objects.create(team=self.team, saved=True, query=_trends(interval="day"))
+        trained_at = datetime(2026, 10, 20, 0, 30, tzinfo=UTC)
+        with fake_judge_model(is_anomaly=False, rationale="Normal."):
+            trained = self._train(insight, trained_at, ai_judge)
+        cache.clear()
+        scored_at = trained_at + timedelta(days=2)
+        if daily_cap_spent:
+            reserve_daily_checks(_daily_key(self.team.id, scored_at), 1, 1)
+
+        with (
+            time_machine.travel(scored_at, tick=False),
+            fake_judge_model(is_anomaly=False, rationale="Normal.") as requests,
+        ):
+            result, events = self._run(
+                insight, self._score_pick(insight, trained), scored_at, [*self.values[-4:], newest, 100.0], ai_judge
+            )
+            score_budget_spent = cache.get(_project_budget_key(self.team.id, scored_at, ScoringRun.SCORE), 0)
+
+        assert result.run == ScoringRun.SCORE
+        zscore_flagged = [
+            event["properties"]["$anomaly_bucket_start"]
+            for event in events
+            if json.loads(event["properties"]["$anomaly_details"])["members"][0]["state"] == "fired"
+        ]
+        assert zscore_flagged == ([] if newest == 100.0 else ["2026-10-21T00:00:00+00:00"])
+        assert self.fetched_ranges == fetched
+        assert len(requests) == calls
+        assert (self.pick_event["queries"], self.pick_event["ai_history_fetched"]) == (len(fetched), len(fetched) > 1)
+        assert score_budget_spent == len(fetched) - 1
+
+    @override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
+    def test_a_judge_history_fetch_that_fails_still_charges_its_queries_and_keeps_the_daily_cap(self) -> None:
+        cache.clear()
+        self.addCleanup(cache.clear)
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        ai_judge = AIJudgeConfig(team_ids=(self.team.id,), max_checks_per_project_per_day=1)
+        insight = Insight.objects.create(team=self.team, saved=True, query=_trends(interval="day"))
+        trained_at = datetime(2026, 10, 20, 0, 30, tzinfo=UTC)
+        with fake_judge_model(is_anomaly=False, rationale="Normal."):
+            trained = self._train(insight, trained_at, ai_judge)
+        cache.clear()
+        scored_at = trained_at + timedelta(days=2)
+
+        with (
+            time_machine.travel(scored_at, tick=False),
+            fake_judge_model(is_anomaly=False, rationale="Normal.") as requests,
+        ):
+            result, _events = self._run(
+                insight,
+                self._score_pick(insight, trained),
+                scored_at,
+                [*self.values[-4:], 500.0, 100.0],
+                ai_judge,
+                history_error=ClickHouseQueryTimeOut(),
+            )
+            score_budget_spent = cache.get(_project_budget_key(self.team.id, scored_at, ScoringRun.SCORE), 0)
+            daily_cap_left = reserve_daily_checks(_daily_key(self.team.id, scored_at), 1, 1)
+
+        assert result.status == "too_expensive"
+        assert self.fetched_ranges == ["-6d", "-62d"]
+        assert len(requests) == 0
+        assert score_budget_spent == 1
+        assert daily_cap_left == 1
 
     @parameterized.expand([("corrupt",), ("missing",), ("older_schema",)])
     def test_an_artifact_blob_that_fails_its_check_makes_the_next_visit_train(self, case: str) -> None:
@@ -2163,3 +2279,140 @@ async def test_a_failed_plan_sends_a_tick_event_and_still_fails_the_workflow() -
     assert [(result.plan_failed, result.plan_error, result.picked) for result in captured] == [
         (True, "ClickHouseAtCapacity", 0)
     ]
+
+
+@override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}})
+class TestAIJudgeProfile(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        cache.clear()
+        self.addCleanup(cache.clear)
+        self.team.timezone = "UTC"
+        self.team.save()
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        self.requests: list[Any] = []
+
+    def _run(
+        self, insight: Insight, ai_judge: AIJudgeConfig, now: datetime = datetime(2026, 10, 22, 0, 30, tzinfo=UTC)
+    ) -> list[dict[str, Any]]:
+        data = [float(value) for value in np.random.default_rng(4).normal(100, 5, size=100)]
+        for day in (-2, -8, -14):
+            data[day] = 500.0
+        days = [(now - timedelta(days=len(data) - 1 - day)).strftime("%Y-%m-%d") for day in range(len(data))]
+        results = [{"order": 0, "label": "pageview", "days": days, "data": data, "breakdown_value": None}]
+        with (
+            patch("products.signals.backend.anomaly_scores.scoring.TrendsQueryRunner") as runner,
+            patch("products.signals.backend.anomaly_scores.tick.emit") as emit,
+            patch("products.signals.backend.anomaly_scores.tick.mark_attempted"),
+            fake_judge_model(is_anomaly=False, rationale="Back to normal the next day.") as requests,
+        ):
+            runner.return_value.run.return_value = MagicMock(results=results)
+            run_insight(
+                ScoreInsightInput(
+                    pick=InsightPick(team_id=self.team.id, insight_id=insight.id, scored_through={}),
+                    ai_judge=ai_judge,
+                ),
+                now,
+            )
+        self.requests.extend(requests)
+        return emit.call_args.args[1]
+
+    @staticmethod
+    def _members(event: dict[str, Any]) -> list[dict[str, Any]]:
+        return json.loads(event["properties"]["$anomaly_details"]).get("members", [])
+
+    def test_the_judge_is_asked_only_about_the_newest_zscore_flags_and_its_rejection_clears_the_flag(self) -> None:
+        insight = Insight.objects.create(team=self.team, saved=True, name="Daily pageviews", query=_trends())
+
+        events = self._run(insight, AIJudgeConfig(team_ids=(self.team.id,), max_checks_per_insight_per_run=2))
+
+        zscore_flagged = [event for event in events if self._members(event)[0]["state"] == "fired"]
+        judged = sorted(zscore_flagged, key=lambda event: event["properties"]["$anomaly_bucket_start"])[-2:]
+        assert len(zscore_flagged) > 2 and len(self.requests) == 2
+        assert {event["properties"]["$anomaly_profile"] for event in events} == {"default-v2"}
+        for event in events:
+            zscore, judge = self._members(event)
+            assert zscore["type"] == "zscore"
+            if event in judged:
+                assert event["properties"]["$anomaly_flag"] == 0
+                assert judge == {
+                    "type": "llm",
+                    "state": "not_fired",
+                    "rationale": "Back to normal the next day.",
+                    "kind": "none",
+                    "model": LLMDetectorModel.CLAUDE_HAIKU_5_5.value,
+                }
+            elif event in zscore_flagged:
+                assert (event["properties"]["$anomaly_flag"], judge["reason"]) == (1, "cap")
+            else:
+                assert (event["properties"]["$anomaly_flag"], judge["reason"]) == (0, "local_not_fired")
+        assert {request.ai_product for request in self.requests} == {"signals_anomaly_scoring"}
+        assert all(request.extra_headers["X-PostHog-Billable"] == "false" for request in self.requests)
+
+    @parameterized.expand(
+        [
+            ("no_consent", False, 50, 0, "paused", timedelta(0)),
+            ("daily_cap_spent_by_the_other_insight", True, 1, 1, "cap", timedelta(0)),
+            # The second pick started before UTC midnight, and its calls come after it.
+            ("daily_cap_of_the_call_day", True, 1, 1, "cap", timedelta(seconds=30)),
+        ]
+    )
+    def test_no_model_call_without_consent_or_past_the_daily_cap(
+        self, _name: str, consent: bool, daily_cap: int, calls: int, reason: str, started_before_call: timedelta
+    ) -> None:
+        self.organization.is_ai_data_processing_approved = consent
+        self.organization.save()
+        ai_judge = AIJudgeConfig(
+            team_ids=(self.team.id,), max_checks_per_insight_per_run=10, max_checks_per_project_per_day=daily_cap
+        )
+        first, second = (Insight.objects.create(team=self.team, saved=True, query=_trends()) for _ in range(2))
+
+        call_time = datetime(2026, 10, 22, 0, 0, 20, tzinfo=UTC)
+        with time_machine.travel(call_time, tick=False):
+            self._run(first, ai_judge, call_time)
+            events = self._run(second, ai_judge, call_time - started_before_call)
+
+        assert len(self.requests) == calls
+        flagged = [event for event in events if self._members(event)[0]["state"] == "fired"]
+        assert flagged
+        assert {(event["properties"]["$anomaly_flag"], self._members(event)[1]["reason"]) for event in flagged} == {
+            (1, reason)
+        }
+
+    def test_a_bucket_returned_twice_makes_one_model_call(self) -> None:
+        # Trends returns the repeated hour of a DST fall-back as two buckets with the same start.
+        repeated = datetime(2026, 11, 1, 1, tzinfo=NEW_YORK)
+        buckets = [repeated - timedelta(hours=hours) for hours in range(10, 0, -1)] + [repeated, repeated]
+        point = ScoredPoint(bucket_start=repeated, value=90.0, score=0.99, flag=True, details={})
+        scores = InsightScores(
+            interval=IntervalType.HOUR,
+            profile="default-v2",
+            detector="ensemble",
+            detector_version="v2",
+            series=[ScoredSeries(series_key="s", label="pageview", breakdown_value=None, points=[point, point])],
+            ai_member=LazyAndEnsemble(local={"type": "zscore"}, judge={"type": "llm"}),
+            fetched=(
+                FetchedSeries(
+                    series_key="s",
+                    label="pageview",
+                    breakdown_value=None,
+                    values=[10.0] * 10 + [90.0] * 2,
+                    buckets=buckets,
+                ),
+            ),
+        )
+        ai_judge = AIJudgeConfig(
+            team_ids=(self.team.id,), max_checks_per_insight_per_run=1, max_checks_per_project_per_day=1
+        )
+
+        with fake_judge_model(is_anomaly=True, kind="spike", rationale="A spike.") as requests:
+            judged, counts = judge_flags(
+                scores,
+                team=self.team,
+                insight=Insight(team=self.team, query=_trends(interval="hour")),
+                ai_judge=ai_judge,
+            )
+
+        assert (len(requests), counts.made) == (1, 1)
+        assert [point.details["members"][1]["state"] for point in judged.series[0].points] == ["fired", "fired"]

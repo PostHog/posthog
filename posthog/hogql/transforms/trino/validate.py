@@ -3,7 +3,7 @@ from typing import NoReturn
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.schema.numbers import NumbersTable
-from posthog.hogql.database.trino_locator import resolve_trino_table_locator
+from posthog.hogql.database.trino_locator import missing_trino_locator_error_code, resolve_trino_table_locator
 from posthog.hogql.printer.trino_functions import (
     TRINO_AGGREGATE_COMBINATORS,
     TRINO_ARRAY_INSERT_AGGREGATES,
@@ -77,6 +77,9 @@ _SPECIAL_CALLS = frozenset(
         "median",
         "medianif",
         "topk",
+        "anyheavy",
+        "anyheavyif",
+        "multimatchanyindex",
         "arraymax",
         "arrayenumerate",
         "arrayall",
@@ -340,7 +343,7 @@ class TrinoReadyValidator(TraversingVisitor):
             and resolve_trino_table_locator(node.table, self.context) is None
         ):
             self._fail(
-                "TRINO_TABLE_LOCATOR_MISSING",
+                missing_trino_locator_error_code(node.table),
                 f"table {node.table.name or node.table.__class__.__name__}",
             )
 

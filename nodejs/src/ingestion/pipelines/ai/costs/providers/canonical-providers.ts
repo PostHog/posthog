@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-11-23 10:04:09 UTC
+// Generated at: 2026-11-23 20:02:29 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -61,7 +61,6 @@ export type CanonicalProvider =
     | 'crusoe-fp4'
     | 'crusoe-fp8'
     | 'darkbloom-fp4'
-    | 'darkbloom-fp8'
     | 'darkbloom-int4'
     | 'darkbloom-nvfp4'
     | 'decart-fp4'
@@ -117,9 +116,8 @@ export type CanonicalProvider =
     | 'inference-net-mxfp4-us'
     | 'inference-net-us'
     | 'inference-net-us-fast'
-    | 'io-net-bf16'
-    | 'io-net-fp16'
     | 'io-net-fp4'
+    | 'io-net-fp8'
     | 'io-net-nvfp4'
     | 'ionstream'
     | 'ionstream-fp8'
@@ -196,6 +194,7 @@ export type CanonicalProvider =
     | 'primalabs-nvfp4'
     | 'primeintellect'
     | 'primeintellect-bf16'
+    | 'primeintellect-fast'
     | 'primeintellect-flex'
     | 'primeintellect-fp4'
     | 'primeintellect-fp8'
