@@ -16,6 +16,7 @@ pub enum BlockReason {
     Ip,
     HostNotAllowed,
     IpNotAllowed,
+    IpUnverified,
 }
 
 impl BlockReason {
@@ -25,6 +26,7 @@ impl BlockReason {
             BlockReason::Ip => "ip",
             BlockReason::HostNotAllowed => "host_not_allowed",
             BlockReason::IpNotAllowed => "ip_not_allowed",
+            BlockReason::IpUnverified => "ip_unverified",
         }
     }
 }
@@ -136,9 +138,10 @@ impl From<IpList> for Vec<String> {
 }
 
 impl IpList {
-    /// Counts only the entries that parsed, so a list of invalid entries refuses no caller.
+    /// Counts the stored entries, not the ones that parsed, so an allowed list of invalid
+    /// entries refuses every caller.
     pub fn is_empty(&self) -> bool {
-        self.ranges.is_empty()
+        self.entries.is_empty()
     }
 
     pub fn matches(&self, ip: IpAddr) -> bool {
@@ -172,14 +175,6 @@ impl RequestLists<'_> {
     ///
     /// `client_ips` are all the addresses the request carries. The caller can add addresses
     /// but cannot remove the one our edge appended, so a match on any of them blocks.
-    ///
-    /// `edge_ip` is the client address that our edge vouches for. Allowed IPs check only this
-    /// address, because a caller can add an allowed address to `X-Forwarded-For`. Without
-    /// it, a team with allowed IPs refuses the request.
-    ///
-    /// Allowed hosts do not check a request without `Origin` or `Referer`, because server-side
-    /// and mobile SDKs send neither. They refuse an opaque host, because a page from any site
-    /// can send one.
     pub fn check(
         &self,
         host: CallerHost<'_>,
@@ -194,19 +189,34 @@ impl RequestLists<'_> {
         if self.blocked_ips.matches_any(client_ips) {
             return Some(BlockReason::Ip);
         }
-        let host_allowed = match host {
-            _ if self.allowed_hosts.is_empty() => true,
-            CallerHost::Absent => true,
-            CallerHost::Opaque => false,
-            CallerHost::Named(name) => self.allowed_hosts.matches(name),
-        };
-        if !host_allowed {
+        if !self.allows_host(host) {
             return Some(BlockReason::HostNotAllowed);
         }
-        if !self.allowed_ips.is_empty() && !edge_ip.is_some_and(|ip| self.allowed_ips.matches(ip)) {
-            return Some(BlockReason::IpNotAllowed);
+        self.edge_ip_refusal(edge_ip)
+    }
+
+    /// Server-side and mobile SDKs send no `Origin` or `Referer`, so an absent host passes. A
+    /// page from any site can send an opaque host, so it fails.
+    fn allows_host(&self, host: CallerHost<'_>) -> bool {
+        self.allowed_hosts.is_empty()
+            || match host {
+                CallerHost::Absent => true,
+                CallerHost::Opaque => false,
+                CallerHost::Named(name) => self.allowed_hosts.matches(name),
+            }
+    }
+
+    /// Reads only the edge address, because a caller can write an allowed one in
+    /// `X-Forwarded-For`.
+    fn edge_ip_refusal(&self, edge_ip: Option<IpAddr>) -> Option<BlockReason> {
+        if self.allowed_ips.is_empty() {
+            return None;
         }
-        None
+        match edge_ip {
+            None => Some(BlockReason::IpUnverified),
+            Some(ip) if self.allowed_ips.matches(ip) => None,
+            Some(_) => Some(BlockReason::IpNotAllowed),
+        }
     }
 }
 
@@ -285,6 +295,22 @@ mod tests {
         assert!(!list.matches("203.0.113.1".parse().unwrap()));
     }
 
+    #[test]
+    fn allowed_ips_without_a_valid_entry_refuse_every_caller() {
+        let (no_hosts, no_ips, allowed_ips) = (hosts(&[]), ips(&[]), ips(&["not-an-ip"]));
+        let lists = RequestLists {
+            blocked_hosts: &no_hosts,
+            blocked_ips: &no_ips,
+            allowed_hosts: &no_hosts,
+            allowed_ips: &allowed_ips,
+        };
+
+        let edge_ip = Some("203.0.113.7".parse().unwrap());
+        let reason = lists.check(CallerHost::Absent, std::iter::empty(), edge_ip);
+
+        assert_eq!(reason, Some(BlockReason::IpNotAllowed));
+    }
+
     #[rstest]
     #[case(&[("origin", "https://example.com")], CallerHost::Named("example.com"))]
     #[case(&[("origin", "null")], CallerHost::Opaque)]
@@ -354,7 +380,7 @@ mod tests {
     #[rstest]
     #[case::allowed_edge_ip(&[], Some("203.0.113.7"), None)]
     #[case::other_edge_ip(&[], Some("198.51.100.1"), Some(BlockReason::IpNotAllowed))]
-    #[case::no_edge_ip(&["203.0.113.7"], None, Some(BlockReason::IpNotAllowed))]
+    #[case::no_edge_ip(&["203.0.113.7"], None, Some(BlockReason::IpUnverified))]
     #[case::allowed_ip_only_in_forwarded_for(&["203.0.113.7"], Some("198.51.100.1"), Some(BlockReason::IpNotAllowed))]
     #[case::blocked_wins(&["203.0.113.66"], Some("203.0.113.66"), Some(BlockReason::Ip))]
     fn check_allowed_ips_reads_only_the_edge_ip(

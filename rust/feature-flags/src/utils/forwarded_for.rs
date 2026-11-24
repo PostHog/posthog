@@ -46,7 +46,13 @@ pub fn parse_entry(entry: &str) -> Option<IpAddr> {
 }
 
 pub fn edge_client_ip(headers: &HeaderMap) -> Option<IpAddr> {
-    parse_entry(headers.get(EDGE_CLIENT_IP)?.to_str().ok()?)
+    let mut values = headers.get_all(EDGE_CLIENT_IP).iter();
+    let value = values.next()?;
+    // Our edge sends one value. A second one means that the caller's value is also there.
+    if values.next().is_some() {
+        return None;
+    }
+    parse_entry(value.to_str().ok()?)
 }
 
 /// Right to left, so that padding on the left cannot push the entries our edge appended
@@ -89,6 +95,24 @@ mod tests {
         }
 
         assert_eq!(addresses(&headers).collect::<Vec<_>>(), ips(expected));
+    }
+
+    #[rstest]
+    #[case::one_value(&["203.0.113.7"], Some("203.0.113.7"))]
+    #[case::caller_value_before_the_edge_value(&["203.0.113.7", "198.51.100.1"], None)]
+    fn edge_client_ip_needs_exactly_one_value(
+        #[case] values: &[&'static str],
+        #[case] expected: Option<&str>,
+    ) {
+        let mut headers = HeaderMap::new();
+        for value in values {
+            headers.append(EDGE_CLIENT_IP, HeaderValue::from_static(value));
+        }
+
+        assert_eq!(
+            edge_client_ip(&headers),
+            expected.map(|ip| ip.parse().unwrap())
+        );
     }
 
     #[test]
