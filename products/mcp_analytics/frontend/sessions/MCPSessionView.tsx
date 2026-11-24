@@ -168,7 +168,13 @@ export function MCPSessionView({
                     {session.mcp_client_name ? (
                         <MetaBadge icon={<IconSparkles />} label={session.mcp_client_name} />
                     ) : null}
-                    {model ? <MetaBadge icon={<BrandMark name={labMark(modelLab(model))} />} label={model} /> : null}
+                    {model ? (
+                        <MetaBadge
+                            icon={<BrandMark name={labMark(modelLab(model))} />}
+                            // Raw event data, so keep it out of autocapture and replay.
+                            label={<span className="ph-no-capture">{model}</span>}
+                        />
+                    ) : null}
                     <MetaBadge icon={<IconBolt />} label={`${calls} tool call${calls === 1 ? '' : 's'}`} />
                     {session.error_calls > 0 ? (
                         <MetaBadge

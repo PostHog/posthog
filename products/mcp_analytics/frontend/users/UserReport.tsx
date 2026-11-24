@@ -28,8 +28,9 @@ const TOP_TABS: { value: UserTopDimension; label: string }[] = [
     { value: 'models', label: 'Models' },
 ]
 
+// Tool and model names are raw event data from this person's calls, so keep them out of autocapture and replay.
 const TOP_LABEL: Record<UserTopDimension, { header: string; render: (label: string) => JSX.Element }> = {
-    tools: { header: 'Tool', render: (label) => <span className="truncate font-mono">{label}</span> },
+    tools: { header: 'Tool', render: (label) => <span className="ph-no-capture truncate font-mono">{label}</span> },
     harnesses: { header: 'Harness', render: (label) => <HarnessLabel category={label} /> },
     models: {
         header: 'Model',
@@ -39,7 +40,7 @@ const TOP_LABEL: Record<UserTopDimension, { header: string; render: (label: stri
             ) : (
                 <span className="flex items-center gap-1.5">
                     <BrandMark name={labMark(modelLab(label))} className="size-4 shrink-0" />
-                    <span className="truncate">{label}</span>
+                    <span className="ph-no-capture truncate">{label}</span>
                 </span>
             ),
     },
