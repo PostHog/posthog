@@ -47,14 +47,15 @@ def _restore_cloudflare_proxy(record: ProxyRecord) -> None:
 def _deprovision_cloudflare_proxy(record: ProxyRecord) -> None:
     if record.cloudflare_deprovisioned:
         return
-    # Record the intent first so a partial Cloudflare cleanup can still be recovered.
-    if not record.needs_activation_recovery and record.status in (
+    hostname = get_custom_hostname_by_domain(record.domain)
+    needs_recovery = record.status in (
         ProxyRecord.Status.ISSUING,
         ProxyRecord.Status.VALID,
         ProxyRecord.Status.WARNING,
-    ):
+    ) or (record.status == ProxyRecord.Status.ERRORING and hostname is not None)
+    # Record the intent first so a partial Cloudflare cleanup can still be recovered.
+    if needs_recovery and not record.needs_activation_recovery:
         ProxyRecord.objects.filter(pk=record.pk).update(needs_activation_recovery=True)
-    hostname = get_custom_hostname_by_domain(record.domain)
     if hostname:
         delete_custom_hostname(hostname.id)
     update_cloudflare_proxy_root_redirect(record.domain, None)
