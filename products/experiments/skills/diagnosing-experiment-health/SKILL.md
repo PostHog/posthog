@@ -257,4 +257,3 @@ _Exclude from analysis_ / _Use first seen variant_ options of _Multiple variant 
 - **`configuring-experiment-rollout`** — split-change anti-patterns and safe rollout adjustments
 - **`managing-experiment-lifecycle`** — reset, end, or restart when the experiment can't be salvaged in place
 - **`analyzing-experiment-session-replays`** — when the numbers are fine but you need to see the behavior behind them
-- **`debugging-experiments`** — when the question arrives as a support request about someone else's experiment and the answer is a written reply
