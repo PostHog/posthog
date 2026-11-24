@@ -10,6 +10,8 @@ rules:
       owners: team-platform-features
     - match: '/caching/'
       owners: team-analytics-platform
+    - match: ['/cli_notices.py', '/test/test_cli_notices.py']
+      owners: team-growth
     - match: '/clickhouse/hcl/'
       owners: clickhouse
     - match:

@@ -37,6 +37,8 @@ class EvaluationReportQuerySet(models.QuerySet):
             deleted=False,
             evaluation__enabled=True,
             evaluation__deleted=False,
+            # The report agent sends evaluation results to a third-party LLM.
+            team__organization__is_ai_data_processing_approved=True,
         )
 
 

@@ -89,15 +89,15 @@ sequenceDiagram
     participant DB as Postgres
     participant Recv as post_save receivers
     participant Redis
-    participant Task as Celery task (5 min later)
+    participant Task as Celery task (5 or 7 min later)
     API->>Save: validated filters, cohort_type
     Save->>Save: compute hashes,<br/>decide invalidated kinds
     Save->>DB: UPDATE filters, hashes,<br/>clear invalidated stamps
     Save->>Recv: post_save
     Recv->>DB: on commit: supersede active runs<br/>of invalidated kinds
     opt team trigger-allowlisted, cohort created or kind invalidated
-        Recv->>Redis: on commit: SET pending key NX EX 300
-        Recv->>Task: apply_async(countdown=300)
+        Recv->>Redis: on commit: SET pending key NX EX 300 or 420
+        Recv->>Task: apply_async(countdown=300 or 420)
     end
     Task->>DB: lock cohort, re-check, pin definition,<br/>insert run + participation
 ```
@@ -112,10 +112,14 @@ sequenceDiagram
    Active cohort-scoped runs of an invalidated kind move to `superseded`.
    In a team-scoped run, only this cohort's participation is superseded, and the team run carries on for the other cohorts.
 3. **Debounce, on commit.**
-   For a team in both the realtime and the trigger allowlists, when the save created the cohort or invalidated a kind, and the cohort has leaves of that kind to backfill, Django sets a Redis key per cohort and kind with `SET NX` and a 5-minute expiry, and schedules a Celery task 5 minutes out.
+   For a team in both the realtime and the trigger allowlists, when the save created the cohort or invalidated a kind, and the cohort has leaves of that kind to backfill, Django sets a Redis key per cohort and kind with `SET NX`, and schedules a Celery task that fires as the key expires.
+   The wait is 5 minutes for a behavioral run and 7 minutes for a person property run.
+   The person property wait is longer than the processor's catalog refresh interval plus its jitter, so each processor pod has loaded the definition from the save that scheduled the task before the run's first person seed reaches it, unless a refresh fails.
+   A behavioral run needs no such wait, because the processor holds its tiles behind the [apply fence](backfill-overview.md#rule-3-the-arrival-bound-and-the-apply-fence) for longer than a catalog refresh.
    If the key already exists, a task is already pending, and this save adds nothing.
-   Saves within five minutes of the first one produce one run, pinned to the definition current when the task fires.
-4. **Create, 5 minutes later.**
+   Saves within that wait of the first one produce one run, pinned to the definition current when the task fires.
+   A later save inside the window does not delay the task, so a person property run can pin that save's definition before every pod has loaded it.
+4. **Create, 5 or 7 minutes later.**
    The task re-checks the trigger allowlist and the [attestations](#gates), then calls the run creator.
    The creator locks the cohort row, re-checks eligibility and exclusivity, pins the current definition, and inserts the run in `awaiting_boundary` with its participation.
    A person creator first estimates the run's size against ClickHouse without holding the lock, and under the lock refuses if the person conditions changed in the meantime.
@@ -336,8 +340,10 @@ At 10:17 the task creates R2 for the 14-day window, and R2 seeds all 14 days.
 
 - A save that does not change the definition, such as a rename, triggers nothing.
 - Readiness stamps are written with a queryset update that bypasses model signals, so the finalizer invalidates the flags cache explicitly after it stamps.
-- A `PATCH` that leaves any behavioral leaf in a cohort used by an active feature flag, directly or through a nested cohort, is refused.
+- A `PATCH` or `PUT` that leaves any behavioral leaf in a cohort used by an active feature flag, directly or through a nested cohort, is refused.
   That covers every filter edit of a behavioral or mixed cohort, not only behavioral edits, and it keeps a live flag out of the window where the stamp is cleared.
-  Only `PATCH` is checked.
+  The refusal names the active flags that use the cohort, except flags the caller can't view and flags of another environment in the project, which it only counts.
+  The exception is a save that resends the unchanged criteria of a realtime cohort, as the cohort page does on a rename.
+  The API does not recompile that cohort, so the save clears no stamp.
 - Copying a cohort to another project drops its stamps.
   The copy gets a run on its own only if the target team is trigger-allowlisted.

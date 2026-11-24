@@ -235,7 +235,10 @@ def _build_plan(request: NodeRunRequest, refs: dict[str, SQLV2Ref]) -> SQLV2RunP
             # A python node stores its code as-is; referenced frames become kernel inputs,
             # keyed by the upstream run_id so a re-run yields a fresh (not stale) frame.
             return SQLV2RunPlan(
-                node_type="python", code=request.code, inputs=resolve_python_node_inputs(request.code, refs)
+                node_type="python",
+                code=request.code,
+                inputs=resolve_python_node_inputs(request.code, refs),
+                variables=python_variable_bindings(request.variables),
             )
         if request.send_raw_query:
             # Raw SQL is the connection's own dialect, so the HogQL parser can't read it and
@@ -362,11 +365,7 @@ def _hand_off_to_lane(
                     node_type=plan.node_type,
                     output_name=request.output_name,
                     inputs=plan.inputs,
-                    # A python node reads these as globals; a duckdb node binds them as
-                    # `$name` query parameters, so it carries only the ones its SQL uses.
-                    variables=(
-                        python_variable_bindings(request.variables) if plan.node_type == "python" else plan.variables
-                    ),
+                    variables=run.bound_variables if run.bound_variables is not None else plan.variables,
                 )
             )
     except Exception:
@@ -465,6 +464,7 @@ def dispatch_node_run(notebook: Notebook, user: User | None, team: Team, request
             notebook_run_id=request.notebook_run_id,
             code=plan.code,
             node_type=plan.node_type,
+            bound_variables=plan.variables if plan.node_type != "hogql" else None,
             connection_id=request.connection_id,
             send_raw_query=request.send_raw_query,
             status=NotebookNodeRun.Status.RUNNING,
