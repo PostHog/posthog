@@ -3,6 +3,8 @@ import type { AEOPromptSetRankingsApi } from 'products/web_analytics/frontend/ge
 export interface RankingsChartSeries {
     domain: string
     label: string
+    /** Position in the chart palette. It follows the domain and not the rank, so a brand keeps its color when the ranks change. */
+    colorIndex: number
     data: number[]
 }
 
@@ -11,7 +13,7 @@ export interface RankingsChart {
     series: RankingsChartSeries[]
 }
 
-/** One line per brand over every day of the window, the project's own first. A day without answers is NaN, so the line breaks instead of dropping to 0. */
+/** One line per brand over every day of the window, in the order of the brands table. A day without answers is NaN, so the line breaks instead of dropping to 0. */
 export function rankingsChart(rankings: AEOPromptSetRankingsApi): RankingsChart {
     const labels: string[] = []
     const day = new Date(`${rankings.window_from}T00:00:00Z`)
@@ -21,16 +23,18 @@ export function rankingsChart(rankings: AEOPromptSetRankingsApi): RankingsChart 
         day.setUTCDate(day.getUTCDate() + 1)
     }
     const visibility = new Map(rankings.daily.map((row) => [`${row.domain}|${row.date}`, row.visibility]))
+    // The project's brand first, then competitors by domain, so a brand keeps its color between loads.
+    const colorOrder = [...rankings.brands]
+        .sort((a, b) => Number(b.is_target) - Number(a.is_target) || a.domain.localeCompare(b.domain))
+        .map((brand) => brand.domain)
     return {
         labels,
-        // The project's brand first, then competitors by domain, so a brand keeps its color between loads.
-        series: [...rankings.brands]
-            .sort((a, b) => Number(b.is_target) - Number(a.is_target) || a.domain.localeCompare(b.domain))
-            .map((brand) => ({
-                domain: brand.domain,
-                label: brand.domain,
-                data: labels.map((date) => visibility.get(`${brand.domain}|${date}`) ?? NaN),
-            })),
+        series: rankings.brands.map((brand) => ({
+            domain: brand.domain,
+            label: brand.domain,
+            colorIndex: colorOrder.indexOf(brand.domain),
+            data: labels.map((date) => visibility.get(`${brand.domain}|${date}`) ?? NaN),
+        })),
     }
 }
 

@@ -19,7 +19,7 @@ from posthog.clickhouse.workload import Workload
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 
-from products.feature_flags.backend.facade.flags import flag_calls_only_in_flag_evaluations
+from products.feature_flags.backend.facade.flags import reads_flag_calls_without_events_fallback
 from products.growth.backend.constants import TEAM_SDK_CACHE_EXPIRY, SdkVersionEntry, team_sdk_versions_v3_key
 from products.growth.backend.sdk_version_rollup import SDK_VERSIONS_WINDOW_DAYS, merge_live_usage, sdk_versions_window
 
@@ -64,7 +64,7 @@ def run_query(team: Team, since: dt.datetime) -> HogQLQueryResponse:
     before the organization moved to FLAG_EVALUATIONS_ONLY, so the events side leaves flag calls out.
     """
     query_type = "sdk_versions_for_team"
-    query = EVENTS_AND_FLAG_EVALUATIONS_QUERY if flag_calls_only_in_flag_evaluations(team) else EVENTS_QUERY
+    query = EVENTS_AND_FLAG_EVALUATIONS_QUERY if reads_flag_calls_without_events_fallback(team) else EVENTS_QUERY
     with tags_context(
         product=Product.SDK_HEALTH,
         feature=Feature.HEALTH_CHECK,

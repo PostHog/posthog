@@ -48,24 +48,61 @@ class AlertSubscriptionContext(AlertConfigurationContext):
 def handle_alert_configuration_change(
     sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
 ) -> None:
+    _log_alert_configuration_change(
+        before_update, after_update, activity=activity, user=user, was_impersonated=was_impersonated
+    )
+
+
+def _log_alert_configuration_change(
+    before: AlertConfiguration | None,
+    after: AlertConfiguration,
+    *,
+    activity: str,
+    user: User | None,
+    was_impersonated: bool,
+    changes: list[Change] | None = None,
+) -> None:
     log_activity(
-        organization_id=after_update.team.organization_id,
-        team_id=after_update.team_id,
+        organization_id=after.team.organization_id,
+        team_id=after.team_id,
         user=user,
         was_impersonated=was_impersonated,
-        item_id=after_update.id,
-        scope=scope,
+        item_id=after.id,
+        scope="AlertConfiguration",
         activity=activity,
         detail=Detail(
-            changes=changes_between(scope, previous=before_update, current=after_update),
-            name=after_update.name or f"Alert for {after_update.insight.name}",
+            changes=changes
+            if changes is not None
+            else changes_between("AlertConfiguration", previous=before, current=after),
+            name=after.name or f"Alert for {after.insight.name}",
             context=AlertConfigurationContext(
-                insight_id=after_update.insight_id,
-                insight_short_id=after_update.insight.short_id,
-                insight_name=after_update.insight.name,
+                insight_id=after.insight_id,
+                insight_short_id=after.insight.short_id,
+                insight_name=after.insight.name,
             ),
         ),
     )
+
+
+def log_platform_alert_edit(
+    before: AlertConfiguration, after: AlertConfiguration, *, user: User | None, was_impersonated: bool
+) -> None:
+    """Logs an edit of a moved alert, which writes only its platform copy, so the row's receivers never
+    see it. Writes the entries a row save writes, one for the alert's fields and one for its threshold, so
+    the alert's history stays on the scope and id it started under."""
+    changes = changes_between("AlertConfiguration", previous=before, current=after)
+    if changes:
+        _log_alert_configuration_change(
+            before, after, activity="updated", user=user, was_impersonated=was_impersonated, changes=changes
+        )
+    threshold_before, threshold_after = before.threshold, after.threshold
+    if threshold_before is None or threshold_after is None:
+        return
+    threshold_changes = changes_between("Threshold", previous=threshold_before, current=threshold_after)
+    if threshold_changes:
+        _log_threshold_change(
+            after, threshold_changes, activity="updated", user=user, was_impersonated=was_impersonated
+        )
 
 
 @mutable_receiver(model_activity_signal, sender=Threshold)
@@ -77,25 +114,42 @@ def handle_threshold_change(
         alert_config = after_update.alertconfiguration_set.first()
 
     if alert_config:
-        log_activity(
-            organization_id=alert_config.team.organization_id,
-            team_id=alert_config.team_id,
+        _log_threshold_change(
+            alert_config,
+            changes_between("Threshold", previous=before_update, current=after_update),
+            activity=activity,
             user=user,
             was_impersonated=was_impersonated,
-            item_id=alert_config.id,
-            scope="AlertConfiguration",
-            activity=activity,
-            detail=Detail(
-                changes=changes_between("Threshold", previous=before_update, current=after_update),
-                type="threshold_change",
-                context=AlertConfigurationContext(
-                    insight_id=alert_config.insight_id,
-                    insight_short_id=alert_config.insight.short_id,
-                    insight_name=alert_config.insight.name,
-                    alert_name=alert_config.name,
-                ),
-            ),
         )
+
+
+def _log_threshold_change(
+    alert_config: AlertConfiguration,
+    changes: list[Change],
+    *,
+    activity: str,
+    user: User | None,
+    was_impersonated: bool,
+) -> None:
+    log_activity(
+        organization_id=alert_config.team.organization_id,
+        team_id=alert_config.team_id,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=alert_config.id,
+        scope="AlertConfiguration",
+        activity=activity,
+        detail=Detail(
+            changes=changes,
+            type="threshold_change",
+            context=AlertConfigurationContext(
+                insight_id=alert_config.insight_id,
+                insight_short_id=alert_config.insight.short_id,
+                insight_name=alert_config.insight.name,
+                alert_name=alert_config.name,
+            ),
+        ),
+    )
 
 
 @mutable_receiver(model_activity_signal, sender=AlertSubscription)

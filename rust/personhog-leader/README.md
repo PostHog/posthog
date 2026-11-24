@@ -134,8 +134,10 @@ the writer (produce an unapplyable record).
 Trims and rejections emit `person_properties_size_violation` ingestion
 warnings (`src/warnings.rs`), throttled per (team, type) to match the Node
 pipeline's limiter. Properties nested past the parser's 128 levels emit
-`person_properties_depth_violation` the same way: once when an update is
-refused for it, and once when a stored person cannot be read because of it.
+`person_properties_depth_violation` the same way when an update is
+refused for it. A stored person that cannot be read because of it gets no
+warning from the leader: the ingestion pipeline sends one when it drops the
+person's event.
 Such a person can still be deleted: a delete seals from the row's version
 and creation time and never parses the properties. They go through a dedicated fire-and-forget producer,
 not the changelog producer, because the warnings topic can live on a
@@ -212,6 +214,9 @@ start offset, newest records first (`fill_source` in `src/warming.rs`).
 It inserts only a person the partition has not put since the warm began,
 and stops at the lookback bound, at 90% of the cache budget, or when the
 partition is released.
+A pod's fills run side by side, up to `WARM_CONCURRENCY` at once, and
+together read at most `CACHE_FILL_OFFSETS_PER_SEC` changelog offsets a
+second, each taking its turn before it reads a chunk.
 
 #### vNode ownership
 

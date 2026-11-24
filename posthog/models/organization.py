@@ -217,6 +217,11 @@ class Organization(ModelActivityMixin, UUIDTModel):
             "Access revoked due to terms of service violation.",
             "Terms of service violation",
         )
+        TERMS_OF_SERVICE_VIOLATION_SECURITY = (
+            "Account deactivated due to activity violating our Terms of Service. If you believe this is in error, "
+            "contact security-reports@posthog.com",
+            "Terms of service violation (security)",
+        )
         DESKTOP_ABUSE = (
             "Suspected PostHog Desktop abuse. Contact PostHog support if you think this is a mistake.",
             "Desktop abuse",
