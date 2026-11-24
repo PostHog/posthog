@@ -99,23 +99,20 @@ def get_organization_flag_evaluations_modes(organization_ids: Collection[UUID]) 
     }
 
 
-def get_flag_evaluations_read_config(
-    organization_id: UUID, *, team_id: int | None = None, modifiers: "HogQLQueryModifiers | None" = None
-) -> FlagEvaluationsConfig:
+def get_flag_evaluations_read_config(organization_id: UUID, *, team_id: int | None = None) -> FlagEvaluationsConfig:
     """The organization's config with the mode that picks the table for the flag-call readers that the
-    READ_FLAG_EVALUATIONS comment lists.
+    READ_FLAG_EVALUATIONS comment lists, with FLAG_EVALUATIONS_READS_FORCE_EVENTS applied.
 
     An organization below FLAG_EVALUATIONS_ONLY whose every team reads the native JSON events table reads as
-    NEW_EVENTS_TABLE_READ_CONFIG. A read that a query modifier, a staff override, or the route of the query in progress
-    sends to the legacy events table keeps the stored mode, because that table holds every flag call.
-    FLAG_EVALUATIONS_READS_FORCE_EVENTS then applies as get_flag_evaluations_catalog_read_mode describes.
+    NEW_EVENTS_TABLE_READ_CONFIG. A staff override or the route of the query in progress that picks the legacy events
+    table keeps the stored mode, because that table holds every flag call.
 
     `team_id` names a team of the organization. A caller that holds one passes it, which skips the read of the
     organization's teams when that team still reads the legacy events table."""
     config = get_organization_flag_evaluations_config(organization_id)
     if (
         config.mode != FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY
-        and events_table_override(modifiers) is not False
+        and events_table_override(None) is not False
         and (_flag_evaluations_table_enabled_on_every_mode() or config.mode != FlagEvaluationsMode.EVENTS)
         and _organization_reads_new_events_table(organization_id, team_id)
     ):
@@ -123,25 +120,23 @@ def get_flag_evaluations_read_config(
     return _with_reads_forced_to_events(config)
 
 
-def get_flag_evaluations_read_mode(
-    organization_id: UUID, *, team_id: int | None = None, modifiers: "HogQLQueryModifiers | None" = None
-) -> int:
+def get_flag_evaluations_read_mode(organization_id: UUID, *, team_id: int | None = None) -> int:
     """The mode of get_flag_evaluations_read_config."""
-    return get_flag_evaluations_read_config(organization_id, team_id=team_id, modifiers=modifiers).mode
+    return get_flag_evaluations_read_config(organization_id, team_id=team_id).mode
 
 
-def get_flag_evaluations_catalog_read_mode(organization_id: UUID) -> int:
-    """The mode that HogQL's catalog reads. It ignores the native JSON events table, because HogQLContext decides for
-    each query whether that query reads it. A query that reads the legacy events table then reads the stored mode.
-
-    FLAG_EVALUATIONS_READS_FORCE_EVENTS makes the mode EVENTS for an organization on READ_FLAG_EVALUATIONS, or on
-    FLAG_EVALUATIONS_ONLY with its events writes kept, and leaves the stored mode unchanged. HogQL reads flag calls
-    from flag_evaluations for a project on the native JSON events table whatever the mode is, because that table holds
-    no flag calls, so the switch does not move that project."""
-    return _with_reads_forced_to_events(get_organization_flag_evaluations_config(organization_id)).mode
+def get_stored_flag_evaluations_read_config(organization_id: UUID) -> FlagEvaluationsConfig:
+    """The organization's stored config with FLAG_EVALUATIONS_READS_FORCE_EVENTS applied. HogQL's catalog and the
+    per-team readers below read it, because they check first whether the query or the team reads the native JSON events
+    table."""
+    return _with_reads_forced_to_events(get_organization_flag_evaluations_config(organization_id))
 
 
 def _with_reads_forced_to_events(config: FlagEvaluationsConfig) -> FlagEvaluationsConfig:
+    """FLAG_EVALUATIONS_READS_FORCE_EVENTS makes the mode EVENTS for an organization on READ_FLAG_EVALUATIONS, or on
+    FLAG_EVALUATIONS_ONLY with its events writes kept, and leaves the stored mode unchanged. HogQL reads flag calls
+    from flag_evaluations for a project on the native JSON events table whatever the mode is, because that table holds
+    no flag calls, so the switch does not move that project."""
     if not get_instance_setting("FLAG_EVALUATIONS_READS_FORCE_EVENTS"):
         return config
     # Without kept writes, events holds no new flag calls of the teams that ingestion copies to flag_evaluations, so
@@ -181,10 +176,7 @@ def reads_flag_calls_from_flag_evaluations(team: Team, modifiers: "HogQLQueryMod
     swap follows the same rule in HogQLContext.reads_flag_calls_from_flag_evaluations."""
     if _reads_native_events_with_flag_evaluations(team, modifiers):
         return True
-    return (
-        get_flag_evaluations_read_mode(team.organization_id, team_id=team.id, modifiers=modifiers)
-        != FlagEvaluationsMode.EVENTS
-    )
+    return get_stored_flag_evaluations_read_config(team.organization_id).mode != FlagEvaluationsMode.EVENTS
 
 
 def reads_flag_calls_without_events_fallback(team: Team) -> bool:
@@ -194,8 +186,7 @@ def reads_flag_calls_without_events_fallback(team: Team) -> bool:
     if _reads_native_events_with_flag_evaluations(team, None):
         return True
     return (
-        get_flag_evaluations_read_mode(team.organization_id, team_id=team.id)
-        == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY
+        get_stored_flag_evaluations_read_config(team.organization_id).mode == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY
     )
 
 
@@ -207,7 +198,7 @@ def events_lack_new_flag_calls(team: Team, read_config: FlagEvaluationsConfig | 
     if _reads_native_events_with_flag_evaluations(team, None):
         return True
     if read_config is None:
-        read_config = get_flag_evaluations_read_config(team.organization_id, team_id=team.id)
+        read_config = get_stored_flag_evaluations_read_config(team.organization_id)
     return read_config.stops_events_writes
 
 

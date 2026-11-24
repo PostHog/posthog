@@ -260,6 +260,7 @@ class TestReadConfigOfAnOrganizationOnTheNewEventsTable(BaseTest):
                 FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
                 expected=(FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, True),
                 cloud=False,
+                other_team_moved=False,
                 every_project_switched=True,
             ),
         ]
@@ -281,10 +282,7 @@ class TestReadConfigOfAnOrganizationOnTheNewEventsTable(BaseTest):
             self.other_team.project = self.team.project
             self.other_team.save()
         self._store(stored_mode)
-        if every_project_switched:
-            listed = ""
-        else:
-            listed = self._listed(self.team, self.other_team) if other_team_moved else self._listed(self.team)
+        listed = self._listed(self.team, self.other_team) if other_team_moved else self._listed(self.team)
 
         with (
             self.settings(DEBUG=False, E2E_TESTING=False),
