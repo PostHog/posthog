@@ -900,8 +900,9 @@ class EvaluationsOverview(OverviewPeriodFields):
 
 class EvaluationRun(Contract):
     timestamp: datetime
-    outcome: Literal["passed", "failed"] | None = Field(
-        description="Null when the evaluation has no passing rule, or the run was not graded by it."
+    outcome: Literal["passed", "failed", "not_applicable"] | None = Field(
+        description="not_applicable when the evaluator found the run does not apply. Null when the evaluation has no "
+        "passing rule, or the run was not graded by it."
     )
     reasoning: str | None = Field(description="The evaluator's reasoning, cut to about 1,000 characters.")
     target_event_id: str | None = Field(description="The generation the run graded. Null for trace and session runs.")

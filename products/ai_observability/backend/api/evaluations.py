@@ -1161,15 +1161,17 @@ class EvaluationsOverviewQuerySerializer(EvaluationsOverviewPeriodSerializer):
 class EvaluationRunOutcome(models.TextChoices):
     PASSED = "passed", "Passed"
     FAILED = "failed", "Failed"
+    NOT_APPLICABLE = "not_applicable", "Not applicable"
 
 
 class EvaluationRunsQuerySerializer(EvaluationsOverviewPeriodSerializer):
     outcome = serializers.ChoiceField(
         choices=EvaluationRunOutcome.choices,
         required=False,
-        help_text="Only runs with this outcome under the evaluation's passing rule. Without it, every graded run, "
-        "including scored, categorized and sentiment runs. An evaluation without a passing rule rejects this filter "
-        "with a 400.",
+        help_text="Only runs with this outcome. passed and failed follow the evaluation's passing rule, and an "
+        "evaluation without one rejects them with a 400. not_applicable is the runs the evaluator found do not apply, "
+        "for any evaluation. Without it, every graded run, including scored, categorized and sentiment runs, and no "
+        "not applicable runs.",
     )
     limit = serializers.IntegerField(
         required=False, default=5, min_value=1, max_value=50, help_text="How many runs to return, newest first."
@@ -1990,7 +1992,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
     )
     @action(detail=True, methods=["get"], url_path="runs", required_scopes=["evaluation:read"])
     def runs(self, request: ValidatedRequest, **kwargs) -> Response:
-        """One evaluation's latest graded runs in a period, newest first, optionally only the passed or failed ones."""
+        """One evaluation's latest runs in a period, newest first, optionally only the passed, failed or N/A ones."""
         evaluation_id = str(self.get_object().id)
         period = self._overview_period(request)
         query = request.validated_query_data

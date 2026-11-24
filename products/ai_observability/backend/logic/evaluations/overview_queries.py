@@ -27,7 +27,7 @@ from .pass_filters import PassRules
 from .period import OverviewPeriod, PeriodBounds
 
 _SKIPPED = "properties.$ai_evaluation_skipped = 'true'"
-_NOT_APPLICABLE = f"properties.$ai_evaluation_applicable = 'false' AND {NOT_SKIPPED_PREDICATE}"
+NOT_APPLICABLE = f"properties.$ai_evaluation_applicable = 'false' AND {NOT_SKIPPED_PREDICATE}"
 _SENTIMENT = get_outcome_definition("sentiment")
 # One column per label, in the order of SENTIMENT_LABELS, which `load_bucket_counts` reads them in.
 _SENTIMENT_COUNTS = ", ".join(
@@ -64,7 +64,7 @@ SELECT
     {_BUCKET} AS bucket,
     countIf(and(({{graded}}) AS graded_run, ({{passes}}) AS passing_run)) AS passed,
     countIf(graded_run AND NOT passing_run) AS failed,
-    countIf({_NOT_APPLICABLE}) AS not_applicable,
+    countIf({NOT_APPLICABLE}) AS not_applicable,
     countIf({_SKIPPED}) AS skipped,
     countIf({NUMERIC_SCORED_PREDICATE}) AS score_count,
     sumIf({SCORE_EXPRESSION}, {NUMERIC_SCORED_PREDICATE}) AS score_sum,

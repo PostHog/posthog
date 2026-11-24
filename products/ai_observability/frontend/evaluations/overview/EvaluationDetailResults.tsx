@@ -64,7 +64,6 @@ export function EvaluationDetailResults({ evaluationId }: { evaluationId: string
             details={detailsLoading ? null : details}
             onRetryDetails={() => loadDetails()}
             onSelectBucket={selectBucket}
-            showFailingExamples={false}
             chartAction={trendsQuery ? <EvaluationBreakdownPicker evaluationId={evaluationId} /> : null}
             breakdown={breakdownProperty ? breakdownSeries : null}
             chartFooter={

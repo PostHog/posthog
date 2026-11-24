@@ -1,18 +1,34 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, Spinner } from '@posthog/lemon-ui'
 
-import { TraceDrawerHost } from '../../redesign/trace/TraceDrawerHost'
-import { EvaluationNoticeCard } from './EvaluationNoticeCard'
-import { EvaluationSuggestionCard } from './EvaluationSuggestionCard'
-import { SUGGESTION_EXAMPLES_LIST, evaluationSuggestionsLogic } from './evaluationSuggestionsLogic'
+import type { EvalSuggestionApi } from '../../generated/api.schemas'
+import { evaluationResultDrawerLogic } from '../overview/evaluationResultDrawerLogic'
+import { evaluationsOverviewLogic } from '../overview/evaluationsOverviewLogic'
+import { EvaluationSuggestionActions } from './EvaluationSuggestionActions'
+import { EvaluationSuggestionDrawer } from './EvaluationSuggestionDrawer'
+import { evaluationSuggestionsLogic } from './evaluationSuggestionsLogic'
 import { EvaluationSuggestionsTurnOffMenu } from './EvaluationSuggestionsTurnOffMenu'
+import { EvaluationSuggestionSummary } from './EvaluationSuggestionSummary'
 import { JudgeSuggestionConfirmModal } from './JudgeSuggestionConfirmModal'
 
 export function EvaluationSuggestions(): JSX.Element | null {
-    const { suggestionList, suggestionListLoading, suggestionListLoadFailed, turningOff } =
+    const { suggestionList, suggestionListLoading, suggestionListLoadFailed, turningOff, openSuggestionId } =
         useValues(evaluationSuggestionsLogic)
-    const { loadEvalSuggestions, turnOffSuggestions } = useActions(evaluationSuggestionsLogic)
+    const { loadEvalSuggestions, turnOffSuggestions, openSuggestion } = useActions(evaluationSuggestionsLogic)
+    const overviewLogic = evaluationsOverviewLogic.findMounted()
+    const drawerLogic = evaluationResultDrawerLogic.findMounted()
+
+    // A broken eval opens in the eval drawer, where its chart shows what is wrong. Without its results row, for
+    // example on the empty page, the suggestion drawer shows it instead.
+    const open = (suggestion: EvalSuggestionApi): void => {
+        const target = suggestion.kind === 'fix_eval' ? suggestion.target_evaluation : null
+        if (target && drawerLogic && overviewLogic?.values.rowsById.has(target)) {
+            drawerLogic.actions.openDrawer(target)
+        } else {
+            openSuggestion(suggestion)
+        }
+    }
 
     if (suggestionListLoadFailed) {
         return (
@@ -43,22 +59,48 @@ export function EvaluationSuggestions(): JSX.Element | null {
         ) : null
     }
     return (
-        <section className="@container/suggestions flex flex-col gap-2" data-attr="eval-suggestions">
-            <div className="flex items-center justify-between gap-2">
-                <h3 className="m-0 text-base font-semibold">Suggested evals</h3>
+        <section className="flex flex-col gap-2" data-attr="eval-suggestions">
+            <div className="flex items-start justify-between gap-2">
+                <div>
+                    <h3 className="m-0 text-base font-semibold">Suggested evals</h3>
+                    <p className="m-0 text-xs text-secondary">
+                        Found in a sample of your recent traces, best first. Open one to see the traces behind it.
+                    </p>
+                </div>
                 <EvaluationSuggestionsTurnOffMenu loading={turningOff} onTurnOff={turnOffSuggestions} />
             </div>
-            <div className="grid grid-cols-1 gap-2 @min-[40rem]/suggestions:grid-cols-2 @min-[64rem]/suggestions:grid-cols-3">
-                {suggestionList.results.map((suggestion) =>
-                    suggestion.kind === 'fix_eval' ? (
-                        <EvaluationNoticeCard key={suggestion.id} suggestion={suggestion} />
-                    ) : (
-                        <EvaluationSuggestionCard key={suggestion.id} suggestion={suggestion} />
-                    )
-                )}
-            </div>
+            <LemonTable
+                dataSource={suggestionList.results}
+                rowKey="id"
+                showHeader={false}
+                onRow={(suggestion) => ({
+                    onClick: () => open(suggestion),
+                    className: 'cursor-pointer',
+                    'data-attr': `eval-suggestion-${suggestion.kind}`,
+                })}
+                rowClassName={(suggestion) =>
+                    suggestion.id === openSuggestionId ? 'bg-fill-highlight-100' : 'hover:bg-fill-highlight-50'
+                }
+                columns={[
+                    {
+                        key: 'suggestion',
+                        render: (_, suggestion) => <EvaluationSuggestionSummary suggestion={suggestion} />,
+                    },
+                    {
+                        key: 'actions',
+                        width: 0,
+                        render: (_, suggestion) => (
+                            // The row opens the drawer, so a click on an action stays with the action.
+                            // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions
+                            <div onClick={(event) => event.stopPropagation()}>
+                                <EvaluationSuggestionActions suggestion={suggestion} />
+                            </div>
+                        ),
+                    },
+                ]}
+            />
             <JudgeSuggestionConfirmModal />
-            <TraceDrawerHost listId={SUGGESTION_EXAMPLES_LIST} />
+            <EvaluationSuggestionDrawer />
         </section>
     )
 }

@@ -1,13 +1,19 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 
+import { dayjs } from 'lib/dayjs'
+
 import { evaluationsRunsRetrieve, evaluationsScoreDistributionRetrieve } from '../../generated/api'
 import type {
     EvaluationResultApi,
     EvaluationRunApi,
+    EvaluationRunApiOutcome,
     EvaluationsOverviewApi,
+    EvaluationsRunsRetrieveOutcome,
     ScoreHistogramApi,
 } from '../../generated/api.schemas'
+import type { TraceDrawerListId } from '../../redesign/trace/traceDrawerLists'
+import { type TraceSample, fetchTraceSamples } from '../traceSamples'
 import {
     type OverviewFailure,
     type OverviewRequest,
@@ -15,13 +21,25 @@ import {
     failureOf,
 } from './evaluationsOverviewLogic'
 
+// The trace drawer list examples open in. Its id is the `list` property of `llma trace drawer opened`.
+export const EVALUATION_OVERVIEW_TRACES: TraceDrawerListId = 'evaluation-overview'
+
 /** How long the pointer rests on a row name before its details are read. */
 const PREFETCH_DELAY_MS = 75
-const RECENT_FAILURES_LIMIT = 5
+const EXAMPLES_PER_OUTCOME = 3
 
-/** Each part is null when the evaluation has none: failures need a passing rule, the histogram a score scale. */
+export type ExampleOutcome = EvaluationRunApiOutcome
+
+/** A recent run with the trace it graded. Outcome is null for runs without a passing rule, such as scores. */
+export interface EvaluationExample {
+    run: EvaluationRunApi
+    outcome: ExampleOutcome
+    sample: TraceSample | null
+}
+
+/** Each part is null when it was not read: examples on the evaluation page, the histogram without a score scale. */
 export interface EvaluationDetails {
-    recentFailures: EvaluationRunApi[] | null
+    examples: EvaluationExample[] | null
     scoreDistribution: ScoreHistogramApi | null
 }
 
@@ -32,29 +50,63 @@ export type DetailsLoad =
     | { status: 'ready'; details: EvaluationDetails }
     | { status: 'error'; failure: OverviewFailure }
 
-/** Reads the failed runs and the score spread a row's cards show. Each endpoint rejects an evaluation it does not
- * apply to, so the row decides which ones to read. */
+/** The newest runs of each outcome, newest first, so the examples show how passing, failing and N/A runs differ. */
+async function fetchExamples(
+    projectId: string,
+    row: EvaluationResultApi,
+    params: { date_from?: string; date_to?: string; refresh?: boolean }
+): Promise<EvaluationExample[]> {
+    const read = async (outcome: EvaluationsRunsRetrieveOutcome | null, limit: number): Promise<EvaluationExample[]> =>
+        (
+            await evaluationsRunsRetrieve(projectId, row.id, { ...params, ...(outcome ? { outcome } : {}), limit })
+        ).results.map((run) => ({
+            run,
+            outcome: run.outcome,
+            sample: null,
+        }))
+    // An outcome filter needs a passing rule, so other evaluations read their newest graded runs instead.
+    const reads =
+        row.summary.kind === 'pass_rate'
+            ? [read('passed', EXAMPLES_PER_OUTCOME), read('failed', EXAMPLES_PER_OUTCOME)]
+            : [read(null, EXAMPLES_PER_OUTCOME * 2)]
+    if (row.notApplicableCount > 0) {
+        reads.push(read('not_applicable', EXAMPLES_PER_OUTCOME))
+    }
+    const examples = (await Promise.all(reads)).flat().sort((a, b) => b.run.timestamp.localeCompare(a.run.timestamp))
+    const traceIds = examples.flatMap(({ run }) => (run.traceId ? [run.traceId] : []))
+    if (traceIds.length === 0) {
+        return examples
+    }
+    // A run is recorded after its trace, so the oldest trace can start before the oldest run.
+    const samples = await fetchTraceSamples(projectId, traceIds, {
+        earliest: dayjs(examples[examples.length - 1].run.timestamp)
+            .subtract(1, 'day')
+            .toISOString(),
+        latest: dayjs(examples[0].run.timestamp).toISOString(),
+    })
+    return examples.map((example) => ({
+        ...example,
+        sample: example.run.traceId ? (samples[example.run.traceId] ?? null) : null,
+    }))
+}
+
+/** Reads the examples and the score spread a row's cards show. The score endpoint rejects an evaluation without a
+ * score scale, so the row decides whether to read it. */
 export async function fetchEvaluationDetails(
     projectId: string,
     row: EvaluationResultApi,
     params: { date_from?: string; date_to?: string; refresh?: boolean },
-    { recentFailures = true }: { recentFailures?: boolean } = {}
+    { examples = true }: { examples?: boolean } = {}
 ): Promise<DetailsLoad> {
     const { summary } = row
     const scale = 'score' in summary ? summary.score?.scale : null
     return await Promise.all([
-        recentFailures && summary.kind === 'pass_rate'
-            ? evaluationsRunsRetrieve(projectId, row.id, {
-                  ...params,
-                  outcome: 'failed',
-                  limit: RECENT_FAILURES_LIMIT,
-              }).then((runs) => runs.results)
-            : null,
+        examples ? fetchExamples(projectId, row, params) : null,
         scale && scale.min < scale.max ? evaluationsScoreDistributionRetrieve(projectId, row.id, params) : null,
     ]).then(
-        ([recentFailures, scoreDistribution]): DetailsLoad => ({
+        ([examples, scoreDistribution]): DetailsLoad => ({
             status: 'ready',
-            details: { recentFailures, scoreDistribution },
+            details: { examples, scoreDistribution },
         }),
         (error: unknown): DetailsLoad => ({ status: 'error', failure: failureOf(error) })
     )
@@ -275,7 +327,7 @@ export const evaluationResultDrawerLogic = kea<evaluationResultDrawerLogicType>(
                       date_to,
                       ...(refresh ? { refresh: true } : {}),
                   })
-                : { status: 'ready', details: { recentFailures: null, scoreDistribution: null } }
+                : { status: 'ready', details: { examples: null, scoreDistribution: null } }
             if (cache.prefetchingKey === key) {
                 cache.prefetchingKey = null
             }

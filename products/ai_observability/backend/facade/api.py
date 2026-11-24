@@ -987,8 +987,8 @@ def get_evaluation_runs(
     outcome: RunOutcome | None,
     limit: int,
 ) -> contracts.EvaluationRuns:
-    """Raises `NoPassingRuleError` for an outcome filter on an evaluation without a passing rule."""
-    if outcome is not None and load_evaluation_meta(team.pk, evaluation_id).kind != "pass_rate":
+    """Raises `NoPassingRuleError` for a passed or failed filter on an evaluation without a passing rule."""
+    if outcome in ("passed", "failed") and load_evaluation_meta(team.pk, evaluation_id).kind != "pass_rate":
         raise NoPassingRuleError(evaluation_id)
     pass_rules = build_pass_rules(team.pk, [evaluation_id])
     return contracts.EvaluationRuns(results=load_runs(team, user, evaluation_id, period, pass_rules, outcome, limit))

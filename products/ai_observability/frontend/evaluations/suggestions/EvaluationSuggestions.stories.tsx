@@ -1,7 +1,10 @@
 import type { Decorator, Meta, StoryObj } from '@storybook/react'
 import { within } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
+import { useMountedLogic } from 'kea'
+import { useEffect } from 'react'
 
+import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { mswDecorator } from '~/mocks/browser'
 import { AccessControlLevel } from '~/types'
 
@@ -153,6 +156,16 @@ const ESTIMATE: EvalSuggestionEstimateApi = {
     estimated_cost_usd: 0.07,
 }
 
+// The drawer sizes itself to the scene, which a component story has no layout to measure.
+const withScene: Decorator = (Story) => {
+    useMountedLogic(panelLayoutLogic)
+    useEffect(() => panelLayoutLogic.actions.setMainContentRect(new DOMRect(0, 0, 1280, 800)), [])
+    return <Story />
+}
+
+const tracesFor = (request: Request): Promise<string[]> =>
+    request.json().then((body: { trace_ids: string[] }) => body.trace_ids)
+
 function withSuggestions(results: EvalSuggestionApi[], pending = false): Decorator[] {
     const list: EvalSuggestionListApi = {
         run: pending
@@ -176,6 +189,29 @@ function withSuggestions(results: EvalSuggestionApi[], pending = false): Decorat
                 ],
                 '/api/projects/:team_id/evaluation_suggestions/:id/accept_estimate/': ESTIMATE,
             },
+            post: {
+                '/api/projects/:team_id/ai_observability/traces/previews/': async ({ request }) => [
+                    200,
+                    {
+                        items: (await tracesFor(request)).map((traceId) => ({
+                            traceId,
+                            input: 'Summarize this pull request for the reviewer.',
+                            output: 'Adds retry handling to the export job. See line_refs for each change.',
+                            inputMissingReason: null,
+                            outputMissingReason: null,
+                        })),
+                    },
+                ],
+                '/api/projects/:team_id/ai_observability/traces/people/': async ({ request }) => [
+                    200,
+                    {
+                        items: (await tracesFor(request)).map((traceId, index) => ({
+                            traceId,
+                            person: { distinctId: `person-${index}`, label: ['Dana', 'Lee', 'Sam'][index % 3] },
+                        })),
+                    },
+                ],
+            },
         }),
     ]
 }
@@ -197,7 +233,7 @@ export const BrokenEval: Story = { decorators: withSuggestions([FIX_FILTER, NO_R
 
 export const PromptProblem: Story = { decorators: withSuggestions([PROMPT_PROBLEM]) }
 
-export const ThreeAcross: Story = {
+export const ThreeSuggestions: Story = {
     decorators: [withWidth(1120), ...withSuggestions([JUDGE, CODE_CHECK, NO_RECENT_EVENTS])],
 }
 
@@ -205,17 +241,25 @@ export const Narrow: Story = {
     decorators: [withWidth(520), ...withSuggestions([JUDGE, CODE_CHECK, NO_RECENT_EVENTS])],
 }
 
-export const Details: Story = {
-    decorators: withSuggestions([
-        {
-            ...JUDGE,
-            similar_evaluation: 'evaluation-line-refs',
-            similar_evaluation_name: 'Summary line references are valid',
-        },
-    ]),
+export const Drawer: Story = {
+    decorators: [
+        withScene,
+        ...withSuggestions([
+            {
+                ...JUDGE,
+                similar_evaluation: 'evaluation-line-refs',
+                similar_evaluation_name: 'Summary line references are valid',
+            },
+        ]),
+    ],
     play: async ({ canvasElement }) => {
-        await userEvent.click(await within(canvasElement).findByText('Details', {}, { timeout: 5000 }))
-        await within(document.body).findByText('Proposed configuration', {}, { timeout: 5000 })
+        await userEvent.click(await within(canvasElement).findByText(JUDGE.headline, {}, { timeout: 5000 }))
+        await within(document.body).findByText('What it checks', {}, { timeout: 5000 })
+        await within(document.body).findAllByText(
+            'Adds retry handling to the export job. See line_refs for each change.',
+            {},
+            { timeout: 5000 }
+        )
     },
 }
 

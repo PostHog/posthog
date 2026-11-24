@@ -10,20 +10,21 @@ from ...facade import contracts
 from .overview_queries import (
     EVALUATION_RUNS_WHERE,
     GRADED_WITHOUT_RULE,
+    NOT_APPLICABLE,
     evaluation_runs_placeholders,
     run_evaluation_query,
 )
 from .pass_filters import PassRules
 from .period import PeriodBounds
 
-RunOutcome = Literal["passed", "failed"]
+RunOutcome = Literal["passed", "failed", "not_applicable"]
 
 REASONING_MAX_CHARS = 1000
 
 _RUNS_QUERY = f"""
 SELECT
     timestamp,
-    if({{graded}}, if({{passes}}, 'passed', 'failed'), NULL),
+    multiIf({{graded}}, if({{passes}}, 'passed', 'failed'), {NOT_APPLICABLE}, 'not_applicable', NULL),
     properties.$ai_evaluation_reasoning,
     properties.$ai_target_event_id,
     properties.$ai_trace_id
@@ -52,6 +53,8 @@ def _matches(pass_rules: PassRules, outcome: RunOutcome | None) -> ast.Expr:
         return ast.And(exprs=[graded, passes])
     if outcome == "failed":
         return ast.And(exprs=[graded, ast.Not(expr=passes)])
+    if outcome == "not_applicable":
+        return parse_expr(NOT_APPLICABLE)
     return ast.Or(exprs=[graded, parse_expr(GRADED_WITHOUT_RULE)])
 
 

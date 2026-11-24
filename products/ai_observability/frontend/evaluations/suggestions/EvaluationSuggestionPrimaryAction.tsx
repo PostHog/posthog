@@ -1,3 +1,5 @@
+import { combineUrl } from 'kea-router'
+
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
@@ -15,8 +17,30 @@ export function EvaluationSuggestionPrimaryAction({
     disabledReason: string | null
     onAccept: () => void
 }): JSX.Element | null {
+    if (suggestion.kind === 'fix_eval') {
+        if (!suggestion.target_evaluation) {
+            return null
+        }
+        const hasPatch = Object.keys(suggestion.draft).length > 0
+        // The evaluation page shows the proposed change, and the suggestion closes once it is saved there.
+        return (
+            <LemonButton
+                type="primary"
+                size="small"
+                to={
+                    combineUrl(urls.aiObservabilityEvaluation(suggestion.target_evaluation), {
+                        evaluation_tab: 'configuration',
+                        suggestion: suggestion.id,
+                    }).url
+                }
+                data-attr={hasPatch ? 'eval-suggestion-review-fix' : 'eval-suggestion-open-eval'}
+            >
+                {hasPatch ? 'Review fix' : 'Open eval'}
+            </LemonButton>
+        )
+    }
     if (suggestion.kind === 'fix_prompt') {
-        // A prompt problem has no evaluation to add: the team fixes the prompt, then dismisses the card.
+        // A prompt problem has no evaluation to add: the team fixes the prompt, then dismisses the suggestion.
         const promptName = typeof suggestion.draft.prompt_name === 'string' ? suggestion.draft.prompt_name : null
         return promptName ? (
             <LemonButton

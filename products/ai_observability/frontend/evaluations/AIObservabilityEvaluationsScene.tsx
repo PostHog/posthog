@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
-import { IconArrowLeft, IconPlus } from '@posthog/icons'
+import { IconPlus } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonInput, LemonModal, Link } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
 
@@ -14,13 +14,16 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { TraceDrawerHost } from '../redesign/trace/TraceDrawerHost'
 import { providerKeyStateLabel, providerLabel } from '../settings/providerKeyStateUtils'
 import { EvaluationsTabs } from './EvaluationsTabs'
 import { EvaluationTemplatesEmptyState } from './EvaluationTemplates'
 import { llmEvaluationsLogic } from './llmEvaluationsLogic'
+import { EvaluationOverviewTraceDrawer } from './overview/EvaluationOverviewTraceDrawer'
 import { EvaluationResultsTable } from './overview/EvaluationResultsTable'
 import { EvaluationsOverview } from './overview/EvaluationsOverview'
 import { EvaluationSuggestions } from './suggestions/EvaluationSuggestions'
+import { SUGGESTION_EXAMPLES_LIST } from './suggestions/evaluationSuggestionsLogic'
 
 function AIObservabilityEvaluationsContent(): JSX.Element {
     const evaluationsLogic = llmEvaluationsLogic()
@@ -35,8 +38,7 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
         directoryEditor,
         submitDirectoryLoading,
     } = useValues(evaluationsLogic)
-    const { closeDirectoryEditor, setDirectoryEditorName, submitDirectory, selectDirectory } =
-        useActions(evaluationsLogic)
+    const { closeDirectoryEditor, setDirectoryEditorName, submitDirectory } = useActions(evaluationsLogic)
     const { searchParams } = useValues(router)
     const settingsUrl = urls.settings('project-ai-observability', 'ai-observability-byok')
     const suggestionsEnabled = useFeatureFlag('LLM_ANALYTICS_EVAL_SUGGESTIONS')
@@ -69,27 +71,10 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                 </LemonBanner>
             )}
 
-            {suggestionsEnabled && !selectedDirectory && <EvaluationSuggestions />}
-
             <div className={showEmptyState ? 'hidden' : 'flex flex-wrap justify-between items-start gap-3'}>
                 <div className="min-w-0 flex-1 basis-64">
-                    {selectedDirectory ? (
-                        <div className="flex flex-wrap items-center gap-2">
-                            <LemonButton
-                                type="tertiary"
-                                size="small"
-                                icon={<IconArrowLeft />}
-                                onClick={() => selectDirectory(null)}
-                            >
-                                Online evals
-                            </LemonButton>
-                            <span className="text-muted">/</span>
-                            <h2 className="text-xl font-semibold m-0 break-words min-w-0">{selectedDirectory.name}</h2>
-                        </div>
-                    ) : (
-                        <h2 className="text-xl font-semibold">Online evals</h2>
-                    )}
-                    <p className="text-muted">
+                    <h2 className="text-xl font-semibold">Online evals</h2>
+                    <p className="text-muted mb-0">
                         Configure evaluation prompts and triggers to automatically assess your AI generations. Each
                         evaluation run is billed as an AI observability event.
                     </p>
@@ -113,11 +98,19 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
             </div>
 
             {showEmptyState ? (
-                <EvaluationTemplatesEmptyState />
+                <>
+                    {suggestionsEnabled && <EvaluationSuggestions />}
+                    <EvaluationTemplatesEmptyState />
+                    <TraceDrawerHost listId={SUGGESTION_EXAMPLES_LIST} />
+                </>
             ) : (
                 <>
                     <EvaluationsOverview />
+                    {/* Suggestions cover the whole project, so a directory leaves them out. */}
+                    {suggestionsEnabled && !selectedDirectory && <EvaluationSuggestions />}
                     <EvaluationResultsTable />
+                    {/* Last, so the trace drawer paints over the evaluation and suggestion drawers it opens from. */}
+                    <EvaluationOverviewTraceDrawer />
                 </>
             )}
 

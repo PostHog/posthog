@@ -14,6 +14,7 @@ export type TraceDrawerListId =
     | 'cluster-traces'
     | 'clusters'
     | 'eval-suggestions'
+    | 'evaluation-overview'
 
 export interface TraceDrawerListConfig {
     // Tested against the path without its project prefix. Other products use `trace` for their own ids, and on browser
@@ -108,6 +109,15 @@ export const TRACE_DRAWER_LISTS: Record<TraceDrawerListId, TraceDrawerListConfig
         pathMatcher: /^\/ai-evals\/evaluations$/,
         backTo: 'evaluations',
         backLabel: 'Back to evaluations',
+        rowClick: false,
+    },
+    // Shares its path with eval suggestions: the page mounts this list while an evaluation's drawer is open, and the
+    // suggestions list otherwise.
+    'evaluation-overview': {
+        pathMatcher: /^\/ai-evals\/evaluations$/,
+        backTo: 'evaluations',
+        backLabel: 'Back to evaluations',
+        detailTab: 'evals',
         rowClick: false,
     },
 }

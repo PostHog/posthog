@@ -1,19 +1,13 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPlus, IconSearch } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonTable } from '@posthog/lemon-ui'
+import { IconSearch } from '@posthog/icons'
+import { LemonInput, LemonTable } from '@posthog/lemon-ui'
 
-import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
-
 import type { EvaluationResultApi } from '../../generated/api.schemas'
-import { llmEvaluationsLogic } from '../llmEvaluationsLogic'
-import { EvaluationAttentionPills } from './EvaluationAttentionPills'
 import { EvaluationCreateSlot } from './EvaluationCreateSlot'
-import { EvaluationDirectoryTiles } from './EvaluationDirectoryTiles'
 import { EvaluationResultActions } from './EvaluationResultActions'
 import { EvaluationResultCell } from './EvaluationResultCell'
 import { EvaluationResultDrawer } from './EvaluationResultDrawer'
@@ -22,20 +16,9 @@ import { EvaluationResultTrendCell } from './EvaluationResultTrendCell'
 import { evaluationsOverviewLogic } from './evaluationsOverviewLogic'
 
 export function EvaluationResultsTable(): JSX.Element {
-    const {
-        tableRows,
-        rows,
-        buckets,
-        search,
-        attentionFilter,
-        configById,
-        few,
-        overviewLoading,
-        overviewFailure,
-        directoryTiles,
-    } = useValues(evaluationsOverviewLogic)
+    const { tableRows, rows, buckets, search, attentionFilter, configById, few, overviewLoading, overviewFailure } =
+        useValues(evaluationsOverviewLogic)
     const { setSearch } = useActions(evaluationsOverviewLogic)
-    const { openCreateDirectory } = useActions(llmEvaluationsLogic)
 
     const columns: LemonTableColumns<EvaluationResultApi> = [
         {
@@ -87,34 +70,18 @@ export function EvaluationResultsTable(): JSX.Element {
 
     return (
         <div className="@container flex flex-col gap-3">
-            <EvaluationDirectoryTiles />
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 className="m-0 text-base font-semibold">Evaluations</h3>
                 <LemonInput
                     type="search"
                     size="small"
-                    className="flex-1 min-w-48"
+                    className="w-64"
                     prefix={<IconSearch />}
                     placeholder="Search evaluations"
                     value={search}
                     onChange={setSearch}
                     data-attr="evaluation-overview-table-search"
                 />
-                {directoryTiles.length === 0 && (
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.Evaluation}
-                        minAccessLevel={AccessControlLevel.Editor}
-                    >
-                        <LemonButton
-                            size="small"
-                            icon={<IconPlus />}
-                            onClick={() => openCreateDirectory()}
-                            data-attr="create-evaluation-directory-button"
-                        >
-                            New directory
-                        </LemonButton>
-                    </AccessControlAction>
-                )}
-                <EvaluationAttentionPills />
             </div>
             <LemonTable
                 columns={columns}

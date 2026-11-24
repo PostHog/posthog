@@ -72,6 +72,8 @@ class TestEvaluationRunsAndScores(ClickhouseTestMixin, BaseTest):
             )
         self._run(judge, "2026-03-09T20:00:00Z", **{"$ai_evaluation_result": True, "$ai_trace_id": "trace-passed"})
         self._run(judge, "2026-03-09T21:00:00Z", **{"$ai_evaluation_result": False, "$ai_evaluation_skipped": True})
+        self._run(judge, "2026-03-09T22:00:00Z", **{"$ai_evaluation_applicable": False, "$ai_trace_id": "trace-na"})
+        self._run(judge, "2026-03-09T23:00:00Z", **{"$ai_evaluation_applicable": False, "$ai_evaluation_skipped": True})
         self._run(judge, "2026-03-01T10:00:00Z", **{"$ai_evaluation_result": False})
         numeric = {"$ai_evaluation_result_type": "numeric"}
         for score in (1, 4, 4, 5, 4.4):
@@ -79,6 +81,7 @@ class TestEvaluationRunsAndScores(ClickhouseTestMixin, BaseTest):
         # Float division puts 0.3, 0.6 and 0.7 just under their bucket's lower edge.
         for score in (0.0, 0.3, 0.6, 0.7, 1.0):
             self._run(fraction, "2026-03-09T10:00:00Z", **numeric, **{"$ai_evaluation_numeric_result": score})
+        self._run(fraction, "2026-03-09T11:00:00Z", **{"$ai_evaluation_applicable": False})
         flush_persons_and_events()
 
         failures = get_evaluation_runs(self.team, None, str(judge.id), PERIOD, "failed", 5).results
@@ -88,9 +91,12 @@ class TestEvaluationRunsAndScores(ClickhouseTestMixin, BaseTest):
         assert failures[1].target_event_id == "generation-5"
         passed = get_evaluation_runs(self.team, None, str(judge.id), PERIOD, "passed", 5).results
         assert [(run.trace_id, run.outcome) for run in passed] == [("trace-passed", "passed")]
-        # Without an outcome, the skipped run at 21:00 is left out.
+        # Without an outcome, the skipped run at 21:00 and the N/A run at 22:00 are left out.
         graded = get_evaluation_runs(self.team, None, str(judge.id), PERIOD, None, 2).results
         assert [run.outcome for run in graded] == ["passed", "failed"]
+        # The skipped run at 23:00 also says it does not apply, but a skipped run is never N/A.
+        not_applicable = get_evaluation_runs(self.team, None, str(judge.id), PERIOD, "not_applicable", 5).results
+        assert [(run.trace_id, run.outcome) for run in not_applicable] == [("trace-na", "not_applicable")]
         relevance_failures = get_evaluation_runs(self.team, None, str(relevance.id), PERIOD, "failed", 5).results
         assert [run.timestamp.hour for run in relevance_failures] == [10]
         # An evaluation without a passing rule still lists its scored runs, with no outcome.
@@ -98,6 +104,9 @@ class TestEvaluationRunsAndScores(ClickhouseTestMixin, BaseTest):
         assert len(scored) == 5 and {run.outcome for run in scored} == {None}
         with pytest.raises(NoPassingRuleError):
             get_evaluation_runs(self.team, None, str(fraction.id), PERIOD, "failed", 5)
+        # N/A needs no passing rule, so an evaluation without one still lists its N/A runs.
+        fraction_not_applicable = get_evaluation_runs(self.team, None, str(fraction.id), PERIOD, "not_applicable", 5)
+        assert [run.outcome for run in fraction_not_applicable.results] == ["not_applicable"]
 
         assert get_evaluation_score_distribution(
             self.team, None, str(relevance.id), PERIOD
