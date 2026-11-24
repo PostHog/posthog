@@ -1,6 +1,7 @@
 """Reshape the Arrow batches a ClickHouse query returns into the types and values Delta Lake can store."""
 
 import typing
+import itertools
 from collections.abc import Collection, Iterator
 
 import pyarrow as pa
@@ -256,14 +257,13 @@ def _string_arrays(array: pa.Array) -> Iterator[pa.Array]:
 
 def _is_valid_utf8(array: pa.Array | pa.RecordBatch) -> bool:
     columns = array.columns if isinstance(array, pa.RecordBatch) else [array]
-    for column in columns:
-        for strings in _string_arrays(column):
-            try:
-                strings.validate(full=True)
-            except pa.ArrowInvalid as error:
-                if "Invalid UTF8 sequence" not in str(error):
-                    raise
-                return False
+    for strings in itertools.chain.from_iterable(map(_string_arrays, columns)):
+        try:
+            strings.validate(full=True)
+        except pa.ArrowInvalid as error:
+            if "Invalid UTF8 sequence" not in str(error):
+                raise
+            return False
     return True
 
 
