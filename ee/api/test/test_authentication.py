@@ -191,6 +191,7 @@ class TestOIDCAuthentication(APILicensedTest):
         email_verified: bool | None = True,
         reauth: bool = False,
         invite_id: str | None = None,
+        started_at_age_seconds: int | None = None,
     ) -> HttpResponse:
         private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
         public_key = {**json.loads(jwt.algorithms.RSAAlgorithm.to_jwk(private_key.public_key())), "kid": "example-key"}
@@ -238,6 +239,10 @@ class TestOIDCAuthentication(APILicensedTest):
                 },
             )
             self.assertEqual(response.status_code, 302)
+            if started_at_age_seconds is not None:
+                session = self.client.session
+                session["oidc_started_at"] = int(datetime.datetime.now().timestamp()) - started_at_age_seconds
+                session.save()
             params = parse_qs(urlparse(response["Location"]).query)
             claims = {
                 "iss": self.config.oidc_issuer_url,
@@ -272,6 +277,29 @@ class TestOIDCAuthentication(APILicensedTest):
         social_auth = UserSocialAuth.objects.get(user=self.user, provider="oidc")
         self.assertEqual(social_auth.uid, f"{self.config.oidc_issuer_url}:example-user")
         self.assertEqual(social_auth.extra_data, {})
+
+    def test_oidc_login_rejects_a_redirect_older_than_the_timeout(self) -> None:
+        self.user.email = "member@example.com"
+        self.user.save()
+        self.client.logout()
+
+        response = self._complete_oidc_login("member@example.com", started_at_age_seconds=30 * 60 + 1)
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("social_login_failure", response["Location"])
+        self.assertIn("took+too+long", response["Location"])
+        self.assertNotIn("_auth_user_id", self.client.session)
+        self.assertFalse(UserSocialAuth.objects.filter(user=self.user).exists())
+
+    def test_oidc_login_accepts_a_redirect_inside_the_timeout(self) -> None:
+        self.user.email = "member@example.com"
+        self.user.save()
+        self.client.logout()
+
+        response = self._complete_oidc_login("member@example.com", started_at_age_seconds=30 * 60 - 1)
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(self.client.session["_auth_user_id"], str(self.user.pk))
 
     @parameterized.expand([("first_callback", False), ("restart", True)])
     @pytest.mark.disable_mock_code_based_verifier
