@@ -2880,7 +2880,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         summary="Record a local run heartbeat",
         description=(
             "Tell the server that a local run is still alive. The client that drives a local run calls "
-            "this about once a minute while it holds the run open. A heartbeat reopens a local run that "
+            "this about every 5 minutes while it holds the run open. A heartbeat reopens a local run that "
             "the server had completed. Cloud runs report their own heartbeats, so this endpoint refuses "
             "them, along with failed and cancelled runs and runs of a finished task."
         ),
