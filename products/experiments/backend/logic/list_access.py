@@ -7,7 +7,6 @@ from products.experiments.backend.models.experiment import Experiment, Experimen
 def _visible_to[ModelT: (Experiment, ExperimentSavedMetric)](
     queryset: QuerySet[ModelT], access: ListAccess | None
 ) -> QuerySet[ModelT]:
-    # The same narrowing `UserAccessControl.filter_queryset_by_access_level` applies to a model with a creator.
     if access is None:
         return queryset
     if access.only_allowed:

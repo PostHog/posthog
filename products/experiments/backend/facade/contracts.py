@@ -897,7 +897,6 @@ class SessionBucketResult:
     used_exposure_fallback: bool
 
 
-# The feature flag that gates the session event deltas endpoint.
 EXPERIMENT_BEHAVIOR_COMPARISON_FLAG = "experiment-behavior-comparison"
 # The most days of events one comparison reads. Tighter than MAX_BUCKET_SCAN_DAYS. The bucket scan
 # filters by event name in its WHERE, so ClickHouse prunes on the events table's primary key; this
@@ -914,7 +913,6 @@ FIRST_SESSION_HORIZON_HOURS = 24
 # How many recordings a card names to start with. Enough to offer a choice, few enough that the
 # reader still opens one instead of reading a second list.
 MAX_CARD_HIGHLIGHTS = 3
-# How many of a card's recording candidates survive onto the card, once replay existence is checked.
 MAX_CARD_RECORDINGS = 20
 
 
@@ -1328,8 +1326,7 @@ class SharedMetrics:
     metrics: list[SharedMetricUsage]
 
 
-# The payloads a section can carry. hoglint reads an unbound type variable as an unknown type, so the bound is what
-# lets the facade hand a section out.
+# hoglint reads an unbound type variable as an unknown type, so the bound is what lets the facade hand a section out.
 SetupContextSectionData = (
     TeamDefaults | SdkProfile | TargetSurface | CandidateMetric | PreviousExperiments | SharedMetrics
 )
