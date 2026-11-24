@@ -1,3 +1,5 @@
+import ssl
+import socket
 import dataclasses
 from datetime import UTC, date, datetime
 from typing import Any
@@ -16,6 +18,10 @@ from products.warehouse_sources.sources.signoz import signoz as sgz
 from products.warehouse_sources.sources.signoz._config import SigNozSourceConfig
 from products.warehouse_sources.sources.signoz.settings import SIGNOZ_ENDPOINTS
 from products.warehouse_sources.sources.signoz.signoz import (
+    CONNECTION_ERROR,
+    INVALID_HOST_ERROR,
+    TLS_ERROR,
+    UNEXPECTED_RESPONSE_ERROR,
     SigNozResumeConfig,
     _extract_config_items,
     _extract_raw_rows,
@@ -119,9 +125,10 @@ class TestValidateCredentials:
     def test_status_mapping(
         self, status_code: int, body: bytes | None, schema_name: str | None, expected_valid: bool
     ) -> None:
-        with scripted_network(always(ScriptedResponse(status=status_code, body=body))):
+        with scripted_network(always(ScriptedResponse(status=status_code, body=body))) as network:
             is_valid, error = validate_credentials("example.signoz.io", "key", schema_name=schema_name)
 
+        assert {request.path for request in network.requests_log} == {"/api/v1/channels"}
         assert is_valid is expected_valid
         if expected_valid:
             assert error is None
@@ -136,11 +143,37 @@ class TestValidateCredentials:
         assert is_valid is False
         assert error is not None
 
-    @pytest.mark.parametrize("host", ["", "not a host!", "bad_host/"])
+    @pytest.mark.parametrize("host", ["", "not a host!", "bad_host/", "signoz.example.com:8080"])
     def test_invalid_host_is_rejected_without_a_request(self, host: str) -> None:
         is_valid, error = validate_credentials(host, "key")
         assert is_valid is False
-        assert error == "Invalid SigNoz host"
+        assert error == INVALID_HOST_ERROR
+
+    @pytest.mark.parametrize(
+        ("failure", "expected_error"),
+        [
+            (ssl.SSLError("certificate verify failed: self-signed certificate"), TLS_ERROR),
+            (TimeoutError("timed out"), CONNECTION_ERROR),
+            (ConnectionRefusedError("connection refused"), CONNECTION_ERROR),
+            (socket.gaierror("name or service not known"), CONNECTION_ERROR),
+        ],
+    )
+    def test_transport_failure_gets_a_message_without_the_raw_error(
+        self, failure: BaseException, expected_error: str
+    ) -> None:
+        with scripted_network(always(failure)):
+            is_valid, error = validate_credentials("signoz.example.com", "key")
+
+        assert is_valid is False
+        assert error == expected_error
+
+    @pytest.mark.parametrize("status_code", [404, 500])
+    def test_unexpected_status_hides_the_status_code(self, status_code: int) -> None:
+        with scripted_network(always(ScriptedResponse(status=status_code))):
+            is_valid, error = validate_credentials("example.signoz.io", "key")
+
+        assert is_valid is False
+        assert error == UNEXPECTED_RESPONSE_ERROR
 
     @mock.patch("products.warehouse_sources.sources.signoz.signoz._is_host_safe")
     def test_unsafe_host_is_blocked(self, mock_host_safe: mock.MagicMock) -> None:
@@ -156,7 +189,7 @@ class TestSigNozSourceResponse:
         [
             ("logs", ["id"], "timestamp"),
             ("traces", ["trace_id", "span_id"], "timestamp"),
-            ("alert_rules", ["id"], "createAt"),
+            ("alert_rules", ["id"], "createdAt"),
             ("dashboards", ["id"], "createdAt"),
             ("notification_channels", ["id"], "createdAt"),
         ],
@@ -203,6 +236,103 @@ class TestGetRows:
                 db_incremental_field_last_value=db_incremental_field_last_value,
             )
 
+    @pytest.mark.parametrize("endpoint", ["alert_rules", "dashboards"])
+    def test_config_pages_follow_total_and_preserve_record_keys(self, endpoint: str) -> None:
+        list_key = "rules" if endpoint == "alert_rules" else "dashboards"
+        legacy_path = "/api/v1/rules" if endpoint == "alert_rules" else "/api/v1/dashboards"
+        path = "/api/v3/rules" if endpoint == "alert_rules" else "/api/v2/dashboards"
+        rows = [
+            {"id": str(i), "createdAt": "2026-01-01T00:00:00Z", "alert": f"rule {i}", "unexpected": "drop"}
+            if endpoint == "alert_rules"
+            else {"id": str(i), "createdAt": "2026-01-01T00:00:00Z", "spec": {"display": {"name": f"board {i}"}}}
+            for i in range(3)
+        ]
+        with mock.patch.dict(sgz.SIGNOZ_ENDPOINTS, {endpoint: _with_page_size(endpoint, 2)}):
+            result = SourceDriver(SigNozSource(), CONFIG).run(
+                endpoint,
+                [
+                    ScriptedResponse(body=b"<!doctype html><html></html>"),
+                    ScriptedResponse(json={"status": "success", "data": {list_key: rows[:1], "total": 3}}),
+                    ScriptedResponse(json={"status": "success", "data": {list_key: rows[1:], "total": 3}}),
+                ],
+            )
+
+        assert result.raised is None
+        expected = [{k: v for k, v in row.items() if k != "unexpected"} for row in rows]
+        assert result.rows == expected
+        assert result.paths == [legacy_path, path, path]
+        assert result.params("offset") == [None, "0", "1"]
+        assert result.params("limit") == [None, "2", "2"]
+        assert result.params("sort") == [None, "created_at", "created_at"]
+        assert result.params("order") == [None, "asc", "asc"]
+        assert result.response is not None
+        assert result.response.primary_keys == ["id"]
+        assert all(row["id"] for row in result.rows)
+        assert result.response.partition_keys == ["createdAt"]
+        assert all(row["createdAt"] == "2026-01-01T00:00:00Z" for row in result.rows)
+
+    @pytest.mark.parametrize(
+        "unavailable",
+        [ScriptedResponse(status=404), ScriptedResponse(body=b"<!doctype html><html></html>")],
+    )
+    def test_config_falls_back_to_current_api_when_legacy_list_is_removed(self, unavailable: ScriptedResponse) -> None:
+        result = SourceDriver(SigNozSource(), CONFIG).run(
+            "alert_rules",
+            [
+                unavailable,
+                ScriptedResponse(json={"status": "success", "data": {"rules": [{"id": "r1"}], "total": 1}}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.rows == [{"id": "r1"}]
+        assert result.paths == ["/api/v1/rules", "/api/v3/rules"]
+
+    @pytest.mark.parametrize("endpoint", ["alert_rules", "dashboards"])
+    def test_config_prefers_legacy_lists_and_keeps_their_full_records(self, endpoint: str) -> None:
+        legacy_row = {
+            "id": "old-1",
+            "createAt": "2026-01-01T00:00:00Z",
+            "createBy": "viewer",
+            "condition": {"target": 1},
+            "frequency": "1m",
+            "annotations": {"summary": "s"},
+        }
+        dashboard_row = {"id": "old-1", "createdAt": "2026-01-01T00:00:00Z", "data": {"panels": []}}
+        data: Any = {"rules": [legacy_row]} if endpoint == "alert_rules" else [dashboard_row]
+        result = SourceDriver(SigNozSource(), CONFIG).run(
+            endpoint, [ScriptedResponse(json={"status": "success", "data": data})]
+        )
+
+        assert result.raised is None
+        if endpoint == "alert_rules":
+            assert result.rows == [{**legacy_row, "createdAt": "2026-01-01T00:00:00Z", "createdBy": "viewer"}]
+        else:
+            assert result.rows == [dashboard_row]
+        assert result.paths == ["/api/v1/rules" if endpoint == "alert_rules" else "/api/v1/dashboards"]
+        assert result.params("offset") == [None]
+
+    @pytest.mark.parametrize("status", [401, 403, 400])
+    def test_config_does_not_fall_back_on_api_errors(self, status: int) -> None:
+        result = SourceDriver(SigNozSource(), CONFIG).run("alert_rules", [ScriptedResponse(status=status)])
+
+        assert result.raised is not None
+        assert result.paths == ["/api/v1/rules"]
+
+    def test_config_does_not_switch_versions_after_yielding_a_page(self) -> None:
+        result = SourceDriver(SigNozSource(), CONFIG).run(
+            "alert_rules",
+            [
+                ScriptedResponse(status=404),
+                ScriptedResponse(json={"data": {"rules": [{"id": "r1"}], "total": 2}}),
+                ScriptedResponse(status=404),
+            ],
+        )
+
+        assert result.raised is not None
+        assert result.rows == [{"id": "r1"}]
+        assert result.paths == ["/api/v1/rules", "/api/v3/rules", "/api/v3/rules"]
+
     def test_notification_channels_endpoint_drops_credential_data(self) -> None:
         # End-to-end guard on the sync path: the receiver `data` payload never reaches the
         # yielded rows, so imported channel secrets can't land in the warehouse table.
@@ -227,7 +357,7 @@ class TestGetRows:
         ],
     )
     def test_non_json_body_is_non_retryable_only_when_not_json(self, body: bytes, expected_non_retryable: bool) -> None:
-        result = SourceDriver(SigNozSource(), CONFIG).run("alert_rules", [ScriptedResponse(body=body)])
+        result = SourceDriver(SigNozSource(), CONFIG).run("alert_rules", always(ScriptedResponse(body=body)))
 
         assert result.raised is not None
         non_retryable = SigNozSource().get_non_retryable_errors()

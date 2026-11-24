@@ -105,18 +105,6 @@ export const ProductToursDraftPartialUpdateBody = /* @__PURE__ */ zod
     .describe('Serializer for creating and updating ProductTour.')
 
 /**
- * Generate tour step content using AI.
- */
-export const productToursGenerateCreateBodyTitleDefault = ``
-export const productToursGenerateCreateBodyGoalDefault = ``
-
-export const ProductToursGenerateCreateBody = /* @__PURE__ */ zod.object({
-    title: zod.string().default(productToursGenerateCreateBodyTitleDefault),
-    goal: zod.string().default(productToursGenerateCreateBodyGoalDefault),
-    steps: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
-})
-
-/**
  * Commit draft to live tour. Runs full validation and triggers side effects.
  *
  * Accepts an optional body payload. If provided, merges it into the draft

@@ -25,7 +25,7 @@ from posthog.utils import pluralize
 
 from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
-from products.review_hog.backend.reviewer.constants import effective_priority, published_priorities_for
+from products.review_hog.backend.reviewer.constants import DEVEX_LENS, effective_priority, published_priorities_for
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
 
 FINDING_BUDGET = 20
@@ -116,13 +116,18 @@ def _posted_count(report: ReviewReport, findings: Sequence[tuple[ReviewIssueFind
     """The valid findings that published turns let through their urgency threshold.
 
     Only turns with a stored threshold count. Turns published before the threshold was stored are older
-    than the budget and stay out of it.
+    than the budget and stay out of it. Devex lens findings post in their own lane and never count.
     """
     thresholds = report.published_urgency_thresholds or {}
     count = 0
     for finding, verdict in findings:
         threshold = thresholds.get(str(finding.run_index))
-        if verdict is None or not verdict.is_valid or threshold is None:
+        if (
+            verdict is None
+            or not verdict.is_valid
+            or threshold is None
+            or finding.source_perspective == DEVEX_LENS.source
+        ):
             continue
         if effective_priority(finding.priority, verdict.adjusted_priority) in published_priorities_for(
             IssuePriority(threshold)

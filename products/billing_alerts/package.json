@@ -13,6 +13,6 @@
         "@posthog/lemon-ui": "*",
         "@types/react": "*",
         "react": "*",
-        "typescript": "catalog:*"
+        "typescript": "catalog:"
     }
 }

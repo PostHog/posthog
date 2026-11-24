@@ -24,6 +24,7 @@ import {
     containsHogQLQuery,
     isBIVisualizationNode,
     isDataTableNode,
+    isDataVisualizationNode,
     isEventsNode,
     isGroupNode,
     isHogQLQuery,
@@ -36,6 +37,7 @@ import {
     ExperimentDataWarehouseNode,
     BreakdownFilter,
     DashboardFilter,
+    DataVisualizationNode,
     FileSystemIconType,
     GroupNode,
     HogQLQuery,
@@ -662,6 +664,25 @@ export function parseDraftQueryFromURL(query: string): Node<Record<string, any>>
     return parseQuery(query)
 }
 
+/** Mirrors the queries `urls.insightNew()` sends to the SQL editor or the BI scene */
+export function opensOutsideInsightScene(query: Node | null | undefined): boolean {
+    if (!query) {
+        return false
+    }
+    return (
+        isBIVisualizationNode(query) ||
+        isHogQLQuery(query) ||
+        ((isDataVisualizationNode(query) || isDataTableNode(query)) && isHogQLQuery(query.source))
+    )
+}
+
+/** The query to open in the SQL editor for an unsaved SQL insight, which has no other route to its SQL */
+export function unsavedSqlInsightQuery(query: Node | null, isSaved: boolean): DataVisualizationNode | null {
+    return !isSaved && isDataVisualizationNode(query) && !isBIVisualizationNode(query) && isHogQLQuery(query.source)
+        ? query
+        : null
+}
+
 export function crushDraftQueryForURL(query: Node<Record<string, any>>): string {
     return JSON.stringify(query)
 }
@@ -811,10 +832,24 @@ export function getInsightIconTypeFromQuery(query: any): FileSystemIconType {
     return mappedIconType
 }
 
+const hasFilterValues = (filters: object | null | undefined): boolean =>
+    isObject(filters) &&
+    Object.values(filters).some((value) => value !== null && (!Array.isArray(value) || value.length > 0))
+
+const appliedFilterOverridesExist = (
+    filtersOverride: DashboardFilter | null | undefined,
+    tileFiltersOverride: TileFilters | null | undefined
+): boolean => {
+    // `explicitDate` only qualifies the tile's date range, so on its own it filters nothing
+    const { ignoreDashboardFilters, explicitDate: _explicitDate, ...tileFilters } = tileFiltersOverride ?? {}
+    return (!ignoreDashboardFilters && hasFilterValues(filtersOverride)) || hasFilterValues(tileFilters)
+}
+
 export const getOverrideWarningPropsForButton = (
     query: Node | null | undefined,
     filtersOverride: DashboardFilter | null | undefined,
-    variablesOverride: Record<string, HogQLVariable> | null | undefined
+    variablesOverride: Record<string, HogQLVariable> | null | undefined,
+    tileFiltersOverride?: TileFilters | null
 ): Pick<LemonButtonProps, 'icon' | 'tooltip'> => {
     // The backend applies dashboard filters to a SQL query only through a {filters} placeholder, and
     // dashboard variables only to the variables the query declares. Other overrides do not change
@@ -825,8 +860,7 @@ export const getOverrideWarningPropsForButton = (
           ? query.source
           : null
     const filterOverridesExist =
-        isObject(filtersOverride) &&
-        Object.values(filtersOverride).some((value) => value !== null && (!Array.isArray(value) || value.length > 0)) &&
+        appliedFilterOverridesExist(filtersOverride, tileFiltersOverride) &&
         (!hogQLSource || queryUsesFiltersPlaceholder(hogQLSource.query))
     const variableOverridesExist =
         isObject(variablesOverride) &&

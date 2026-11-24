@@ -23,6 +23,22 @@ from products.warehouse_sources.sources.sdk import (
     detect,
 )
 
+# ThrottleUser scopes the limit to the API key, ThrottleIP to the caller's egress address.
+# Raised as `BingWebmasterToolsError` by `_request_payload`.
+THROTTLE_USER_ERROR = "ERROR!!! ThrottleUser"
+THROTTLE_IP_ERROR = "ERROR!!! ThrottleIP"
+THROTTLE_ERRORS = (THROTTLE_USER_ERROR, THROTTLE_IP_ERROR)
+THROTTLE_RETRY_ERROR = (
+    "Bing Webmaster Tools' API rate limit ran out before this sync finished. "
+    "The next sync runs on schedule; if this keeps happening, sync fewer tables."
+)
+# The IP limit counts every customer that shares PostHog's egress address, so syncing fewer
+# tables does not help.
+THROTTLE_IP_RETRY_ERROR = (
+    "Bing Webmaster Tools limited requests from PostHog's servers before this sync finished. "
+    "This is on PostHog's side and usually clears on its own; the next sync runs on schedule."
+)
+
 
 @SourceRegistry.register
 class BingWebmasterToolsSource(SimpleSource[BingWebmasterToolsSourceConfig]):
@@ -58,13 +74,14 @@ class BingWebmasterToolsSource(SimpleSource[BingWebmasterToolsSourceConfig]):
         }
 
     def get_retryable_errors(self) -> set[str]:
+        # Either limit clears once its window rolls over, so a Temporal retry with backoff
+        # normally resolves it and it must not page as a bug.
+        return set(THROTTLE_ERRORS)
+
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
         return {
-            # Bing's rate-limit faults, raised as `BingWebmasterToolsError` by `_request_payload`.
-            # ThrottleUser scopes the limit to the API key, ThrottleIP to the caller's egress
-            # address; either clears once its window rolls over, so a Temporal retry with backoff
-            # normally resolves it and it must not page as a bug.
-            "ERROR!!! ThrottleUser",
-            "ERROR!!! ThrottleIP",
+            THROTTLE_USER_ERROR: THROTTLE_RETRY_ERROR,
+            THROTTLE_IP_ERROR: THROTTLE_IP_RETRY_ERROR,
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

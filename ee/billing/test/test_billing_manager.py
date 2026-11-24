@@ -13,7 +13,10 @@ import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.db import connection
 from django.test import SimpleTestCase, override_settings
+from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
 
 import jwt
 import requests
@@ -21,8 +24,15 @@ from parameterized import parameterized
 from rest_framework.exceptions import NotAuthenticated
 
 from posthog.cloud_utils import TEST_clear_instance_license_cache
+from posthog.models.events_plan_deletion import cleanup_date, next_pass_on
+from posthog.models.events_retention_config import TeamEventsRetentionConfig
 from posthog.models.oauth import OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization_provisioning import (
+    OrganizationProvisioning,
+    get_billing_lock_partner,
+    record_partner_paid,
+)
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -73,6 +83,19 @@ def create_default_products_response(**kwargs) -> dict[str, list[Product]]:
 
     data.update(kwargs)
     return data
+
+
+def _create_partner_app() -> OAuthApplication:
+    return OAuthApplication.objects.create(
+        client_id="example-partner",
+        name="Example Partner",
+        client_secret="",
+        client_type=OAuthApplication.CLIENT_PUBLIC,
+        authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+        redirect_uris="https://partner.example.com/callback",
+        algorithm="RS256",
+        is_provisioning_partner=True,
+    )
 
 
 class TestFundingStatusParsing(SimpleTestCase):
@@ -129,7 +152,16 @@ class TestFundingStatusParsing(SimpleTestCase):
             _parse_funding_status(payload)
 
 
+_FREE_RETENTION = [{"key": "product_analytics_data_retention", "name": "Data retention", "limit": 1, "unit": "year"}]
+_SURVEYS = [{"key": "surveys", "name": "Surveys"}]
+_STANDARD_THREE_YEAR_RETENTION = [
+    {"key": "product_analytics_data_retention", "name": "Data retention", "limit": 3, "unit": "years"},
+    {"key": "product_analytics_standard_data_retention", "name": "Standard data retention"},
+]
+
+
 class TestBillingManager(BaseTest):
+    @patch("ee.billing.billing_manager.BILLING_SERVICE_URL", "https://billing.posthog.com")
     @patch(
         "ee.billing.billing_manager.http_session.get",
         return_value=MagicMock(
@@ -143,7 +175,7 @@ class TestBillingManager(BaseTest):
         BillingManager(license=None).get_billing(organization)
         assert billing_patch_request_mock.call_count == 1
         billing_patch_request_mock.assert_called_with(
-            "https://billing.posthog.com/api/products-v2", params={"plan": "standard"}, headers={}
+            "https://billing.posthog.com/api/products-v2", params={"plan": "standard"}, headers={}, timeout=None
         )
 
     def test_get_billing_adds_todays_usage_to_usage_summary(self):
@@ -333,6 +365,10 @@ class TestBillingManager(BaseTest):
             organization=organization,
             email="y3@x.com",
             password=None,
+            level=OrganizationMembership.Level.OWNER,
+        )
+        y2.join(
+            organization=Organization.objects.create(name="Other organization"),
             level=OrganizationMembership.Level.OWNER,
         )
         organization.refresh_from_db()
@@ -618,28 +654,87 @@ class TestBillingManager(BaseTest):
         assert rule.enabled is True
         assert rule.version == 2
 
-    @patch("ee.billing.billing_manager.http_session.get")
-    def test_update_available_product_features_reconciles_events_retention(self, mock_get: MagicMock):
+    @parameterized.expand(
+        [
+            ("downgrade_from_the_features_sync", True, _SURVEYS, _FREE_RETENTION, 84, 12, None, True),
+            ("downgrade_from_the_org_details_sync", False, _SURVEYS, _FREE_RETENTION, 84, 12, None, True),
+            ("first_billing_sync", False, None, _FREE_RETENTION, 84, 12, None, False),
+            ("upgrade", False, _FREE_RETENTION, _SURVEYS, 12, 84, None, False),
+            ("teams_already_reconciled", False, _SURVEYS, _FREE_RETENTION, 12, 12, None, False),
+            ("set_period_within_the_new_plan", False, _SURVEYS, _FREE_RETENTION, 84, 12, 6, False),
+            ("set_period_past_the_new_plan", False, _SURVEYS, _FREE_RETENTION, 84, 12, 36, True),
+            (
+                "downgrade_that_adds_standard_retention",
+                False,
+                _SURVEYS,
+                _STANDARD_THREE_YEAR_RETENTION,
+                84,
+                36,
+                None,
+                True,
+            ),
+        ]
+    )
+    @override_settings(EVENTS_DATA_RETENTION_ENFORCED=True)
+    @patch("posthog.models.events_plan_deletion.is_cloud", return_value=True)
+    @patch("posthog.models.events_plan_deletion.ph_scoped_capture")
+    def test_billing_sync_reconciles_events_retention_and_reports_a_downgrade(
+        self,
+        _name: str,
+        features_sync: bool,
+        previous_features: list[dict] | None,
+        features: list[dict],
+        team_months: int,
+        expected_team_months: int,
+        set_months: int | None,
+        reported: bool,
+        mock_scoped_capture: MagicMock,
+        _mock_is_cloud: MagicMock,
+    ):
         organization = self.organization
-        Team.objects.filter(pk=self.team.pk).update(event_retention_months=84)
-
+        Organization.objects.filter(pk=organization.pk).update(available_product_features=previous_features)
+        organization.refresh_from_db()
+        Team.objects.filter(pk=self.team.pk).update(event_retention_months=team_months)
+        TeamEventsRetentionConfig.objects.create(team=self.team, events_retention_months=set_months)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        User.objects.create_and_join(organization, "member@posthog.com", None)
         license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
             key="key123::key123",
             plan="enterprise",
             valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
         )
 
-        mock_get.return_value.status_code = 200
-        mock_get.return_value.json.return_value = {
-            "available_product_features": [
-                {"key": "product_analytics_data_retention", "name": "Data retention", "limit": 1, "unit": "year"}
-            ]
-        }
-
-        BillingManager(license).update_available_product_features(organization)
+        if features_sync:
+            with patch("ee.billing.billing_manager.http_session.get") as mock_get:
+                mock_get.return_value.status_code = 200
+                mock_get.return_value.json.return_value = {"available_product_features": features}
+                BillingManager(license).update_available_product_features(organization)
+        else:
+            billing_status = {"customer": {"available_product_features": features}}
+            BillingManager(license).update_org_details(organization, cast(BillingStatus, billing_status))
 
         self.team.refresh_from_db()
-        assert self.team.event_retention_months == 12
+        assert self.team.event_retention_months == expected_team_months
+        captures = mock_scoped_capture.return_value.__enter__.return_value.call_args_list
+        assert [call.kwargs for call in captures] == (
+            [
+                {
+                    "distinct_id": self.user.distinct_id,
+                    "event": "events retention period shortened",
+                    "properties": {
+                        "$update_person_last_seen_at": False,
+                        "organization_name": organization.name,
+                        "previous_retention_months": 84,
+                        "retention_months": expected_team_months,
+                        "deletion_scheduled_on": next_pass_on(cleanup_date()).isoformat(),
+                    },
+                    "groups": {"organization": str(organization.id)},
+                }
+            ]
+            if reported
+            else []
+        )
 
     @patch("ee.billing.billing_manager.update_org_billing_quotas", side_effect=Exception("Redis unavailable"))
     def test_update_org_details_saves_org_fields_before_recomputing_existing_quota_limits(
@@ -971,6 +1066,116 @@ class TestBillingManager(BaseTest):
             BillingManager(license=None).update_org_details(organization, cast(BillingStatus, billing_status))
         organization.refresh_from_db()
         assert organization.has_active_subscription is expected
+
+    def _provision_by_partner(self, *, partner_pays: bool = True, marked: bool = False) -> OAuthApplication:
+        partner = _create_partner_app()
+        partner.update_provisioning(pays_for_customers=partner_pays)
+        OrganizationProvisioning.objects.create(
+            organization=self.organization,
+            partner=OrganizationProvisioning.Partner.PROVISIONING_API,
+            application=partner,
+            partner_paid_since=timezone.now() if marked else None,
+        )
+        return partner
+
+    @parameterized.expand(
+        [
+            ("partner_paid_customer_keeps_the_lock", None, False, True, True, True),
+            ("billing_restores_the_lock_of_a_customer_synced_before_it_said", "cus_synced", False, True, True, True),
+            ("ended_payer_link_releases_the_lock", "cus_synced", True, False, True, False),
+            ("self_paid_customer_stays_unlocked", None, False, False, True, False),
+            ("partner_that_does_not_pay_never_locks", None, False, True, False, False),
+            ("older_billing_without_the_flag_leaves_a_mark", "cus_synced", True, None, True, True),
+            ("older_billing_without_the_flag_leaves_no_mark", "cus_synced", False, None, True, False),
+        ]
+    )
+    def test_update_org_details_takes_the_partner_lock_from_billing(
+        self,
+        _name: str,
+        customer_id_before: str | None,
+        marked_before: bool,
+        paid_by_partner: bool | None,
+        partner_pays: bool,
+        expect_lock: bool,
+    ) -> None:
+        partner = self._provision_by_partner(partner_pays=partner_pays, marked=marked_before)
+        self.organization.customer_id = customer_id_before
+        self.organization.save()
+        customer: dict[str, Any] = {"customer_id": "cus_synced"}
+        if paid_by_partner is not None:
+            customer["paid_by_partner"] = paid_by_partner
+
+        BillingManager(license=None).update_org_details(self.organization, cast(BillingStatus, {"customer": customer}))
+
+        self.organization.refresh_from_db()
+        assert self.organization.customer_id == "cus_synced"
+        assert get_billing_lock_partner(self.organization) == (partner if expect_lock else None)
+
+    def test_update_org_details_ignores_the_partner_flag_of_an_out_of_order_status(self) -> None:
+        partner = self._provision_by_partner()
+        manager = BillingManager(license=None)
+        newer = self._billing_status("2026-08-02T12:00:00Z", 0)
+        newer["customer"].update({"customer_id": "cus_synced", "paid_by_partner": True})
+        manager.update_org_details(self.organization, newer)
+        older = self._billing_status("2026-08-02T11:00:00Z", 0)
+        older["customer"].update({"customer_id": "cus_synced", "paid_by_partner": False})
+
+        manager.update_org_details(self.organization, older)
+
+        self.organization.refresh_from_db()
+        assert get_billing_lock_partner(self.organization) == partner
+
+    def test_update_org_details_orders_statuses_by_a_partner_flag_change_alone(self) -> None:
+        partner = self._provision_by_partner()
+        self.organization.customer_id = "cus_synced"
+        self.organization.save()
+        manager = BillingManager(license=None)
+        for computed_at, paid_by_partner in [("2026-08-02T10:00:00Z", False), ("2026-08-02T12:00:00Z", True)]:
+            status = self._billing_status(computed_at, 0)
+            status["customer"].update({"customer_id": "cus_synced", "paid_by_partner": paid_by_partner})
+            manager.update_org_details(self.organization, status)
+        # Newer than the first status, older than the flag change, and delayed past it.
+        delayed = self._billing_status("2026-08-02T11:00:00Z", 0)
+        delayed["customer"].update({"customer_id": "cus_synced", "paid_by_partner": False})
+
+        manager.update_org_details(self.organization, delayed)
+
+        self.organization.refresh_from_db()
+        assert get_billing_lock_partner(self.organization) == partner
+
+    def test_update_org_details_keeps_the_partner_mark_in_order_when_the_sync_fails_after_it(self) -> None:
+        partner = self._provision_by_partner()
+        self.organization.customer_id = "cus_synced"
+        self.organization.save()
+        manager = BillingManager(license=None)
+        newer = self._billing_status("2026-08-02T12:00:00Z", 0)
+        newer["customer"].update({"customer_id": "cus_synced", "paid_by_partner": True})
+        with (
+            patch.object(Organization, "save", side_effect=RuntimeError("sync failed")),
+            self.assertRaises(RuntimeError),
+        ):
+            newer["customer"]["has_active_subscription"] = True
+            manager.update_org_details(self.organization, newer)
+        older = self._billing_status("2026-08-02T11:00:00Z", 0)
+        older["customer"].update({"customer_id": "cus_synced", "paid_by_partner": False})
+
+        manager.update_org_details(Organization.objects.get(id=self.organization.id), older)
+
+        self.organization.refresh_from_db()
+        assert get_billing_lock_partner(self.organization) == partner
+
+    def test_record_partner_paid_keeps_its_time_guard_in_the_update_itself(self) -> None:
+        self._provision_by_partner()
+
+        with CaptureQueriesContext(connection) as queries:
+            record_partner_paid(self.organization.id, True, datetime.datetime(2026, 8, 2, 12, tzinfo=datetime.UTC))
+
+        # Postgres re-checks only the UPDATE's own WHERE after a row-lock wait. A self-select would keep
+        # the time guard on its first snapshot and let an older status overwrite a newer one.
+        (update,) = [q["sql"] for q in queries.captured_queries if q["sql"].startswith("UPDATE")]
+        assert 'FROM "posthog_organizationprovisioning"' not in update
+        assert '"partner_paid_status_at" <' in update
+        assert OrganizationProvisioning.objects.get(organization=self.organization).partner_paid_since is not None
 
     def _billing_status(
         self,
@@ -1319,20 +1524,7 @@ class TestBuildBillingToken(BaseTest):
     def test_build_billing_token_payer_partner_claim(
         self, _name: str, has_partner: bool, mock_partner: MagicMock
     ) -> None:
-        application = (
-            OAuthApplication.objects.create(
-                client_id="example-partner",
-                name="Example Partner",
-                client_secret="",
-                client_type=OAuthApplication.CLIENT_PUBLIC,
-                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-                redirect_uris="https://partner.example.com/callback",
-                algorithm="RS256",
-                is_provisioning_partner=True,
-            )
-            if has_partner
-            else None
-        )
+        application = _create_partner_app() if has_partner else None
         mock_partner.return_value = application
 
         token = build_billing_token(self.license, self.organization)
@@ -1395,8 +1587,14 @@ class TestBuildBillingToken(BaseTest):
         assert "original_role" not in decoded
         mock_capture.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("default_action", {}, "update_billing"),
+            ("named_action", {"escalation_action": "claim_coupon"}, "claim_coupon"),
+        ]
+    )
     @patch("posthog.event_usage.posthoganalytics.capture")
-    def test_build_billing_token_with_privilege_escalation(self, mock_capture):
+    def test_build_billing_token_with_privilege_escalation(self, _name, token_kwargs, expected_action, mock_capture):
         """When authorizer_actor differs from user, original_role is set and capture is called"""
         member_user = User.objects.create_and_join(
             organization=self.organization,
@@ -1412,7 +1610,7 @@ class TestBuildBillingToken(BaseTest):
         )
 
         token = build_billing_token(
-            self.license, self.organization, user=member_user, authorizer_actor=admin_authorizer
+            self.license, self.organization, user=member_user, authorizer_actor=admin_authorizer, **token_kwargs
         )
 
         decoded = jwt.decode(token, "license_secret", algorithms=["HS256"], audience="posthog:license-key")
@@ -1430,7 +1628,7 @@ class TestBuildBillingToken(BaseTest):
         assert call_kwargs["properties"]["target_user_id"] == member_user.id
         assert call_kwargs["properties"]["target_distinct_id"] == str(member_user.distinct_id)
         assert call_kwargs["properties"]["target_email"] == member_user.email
-        assert call_kwargs["properties"]["action"] == "update_billing"
+        assert call_kwargs["properties"]["action"] == expected_action
 
     def test_build_billing_token_raises_when_authorizer_actor_not_in_organization(self):
         """Should raise NotAuthenticated when authorizer_actor is not a member of the organization"""
@@ -2096,6 +2294,14 @@ class TestRequestWithPostFallback(BaseTest):
         post_json = mock_post.call_args[1]["json"]
         assert post_json["teams_map"] == {"1": "Team A"}
         assert post_json["start_date"] == "2025-01-01"
+
+    @patch("ee.billing.billing_manager.http_session.get")
+    def test_get_invoices_gives_up_on_a_stalled_billing_service(self, mock_get):
+        mock_get.return_value = MagicMock(status_code=200, json=MagicMock(return_value={"count": 0, "link": None}))
+
+        self.manager.get_invoices(self.organization, status="uncollectible")
+
+        assert mock_get.call_args.kwargs["timeout"] == (5, 15)
 
     @parameterized.expand([("get_usage_data",), ("get_spend_data",)])
     @patch("ee.billing.billing_manager.http_session.post")

@@ -127,6 +127,25 @@ _HOST_IS_URL_ERROR = (
     "port, or path."
 )
 
+# sshtunnel raises this once the SSH session is up but no forwarded tunnel came up with it: the
+# bastion could not open a channel to the database host and port, or it refuses port forwarding
+# altogether. What sits on the other end of this channel is the customer's database, the same
+# kind of endpoint the unreachable-host and lost-connection entries above already treat as capable
+# of a brief, self-recovering outage. `_connected_ssh_tunnel`'s own ~14 second retry only rules out
+# the shortest blips, so this stays retryable rather than disabling an otherwise healthy sync —
+# mirrors the Postgres source's handling of the same sshtunnel error.
+_SSH_FORWARD_FAILED_ERROR = "An error occurred while opening tunnels."
+_SSH_FORWARD_FAILED_GUIDANCE = (
+    "PostHog signed in to your SSH server but couldn't reach the database through it. Check that "
+    "the database host and port are reachable from the SSH server, and that the server allows port "
+    "forwarding"
+)
+_SSH_FORWARD_FAILED_MESSAGE = f"{_SSH_FORWARD_FAILED_GUIDANCE}."
+_SSH_FORWARD_FAILED_EXHAUSTED_MESSAGE = (
+    f"{_SSH_FORWARD_FAILED_GUIDANCE}, and this kept happening on every retry. This sync is still "
+    "enabled and will run again on its next schedule."
+)
+
 
 @SourceRegistry.register
 class MySQLSource(
@@ -648,11 +667,18 @@ class MySQLSource(
             # the only classification. Match the stable gRPC-go message, excluding the volatile
             # keyspace/shard/tablet-type target prefix that precedes it.
             "grpc: the client connection is closing",
+            # `_SSH_FORWARD_FAILED_ERROR` reaches here once `_connected_ssh_tunnel`'s own ~14 second
+            # retry gives up opening the port forward to the database behind the bastion. See its
+            # definition above for why that stays retryable rather than disabling the schema.
+            _SSH_FORWARD_FAILED_ERROR,
         }
 
     def get_retry_exhausted_errors(self) -> dict[str, str]:
         # Without this, the job stores pymysql's raw tuple, which repeats the customer's host.
-        return {_CANT_CONNECT_ERROR: _CANT_CONNECT_EXHAUSTED_MESSAGE}
+        return {
+            _CANT_CONNECT_ERROR: _CANT_CONNECT_EXHAUSTED_MESSAGE,
+            _SSH_FORWARD_FAILED_ERROR: _SSH_FORWARD_FAILED_EXHAUSTED_MESSAGE,
+        }
 
     def reconcile_schema_metadata(
         self,
@@ -712,6 +738,10 @@ class MySQLSource(
             # generic `except Exception` branch below already applies — instead of leaking the
             # internal wording to the wizard.
             ssh_error = e.value or ""
+            if _SSH_FORWARD_FAILED_ERROR in ssh_error:
+                # Stays out of `get_non_retryable_errors` — see that constant's definition — so it
+                # needs its own check here rather than falling out of the loop below.
+                return False, _SSH_FORWARD_FAILED_MESSAGE
             for pattern, friendly_error in self.get_non_retryable_errors().items():
                 if friendly_error and pattern in ssh_error:
                     return False, friendly_error

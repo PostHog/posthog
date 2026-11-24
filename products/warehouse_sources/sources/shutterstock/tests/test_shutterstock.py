@@ -64,6 +64,8 @@ class TestCredentialProbes:
             # A throttle or server blip is not a missing scope — the table stays selectable.
             ("image_licenses", 429, False, None),
             ("image_licenses", 500, False, None),
+            ("image_collection_items", 403, True, "collections.view"),
+            ("video_collection_items", 200, False, None),
         ],
     )
     def test_check_endpoint_access(
@@ -73,8 +75,12 @@ class TestCredentialProbes:
         expect_reason: bool,
         expect_scope: str | None,
     ) -> None:
-        with scripted_network(always(ScriptedResponse(status=status_code))):
+        with scripted_network(always(ScriptedResponse(status=status_code))) as network:
             reason = check_endpoint_access(BASIC_AUTH, endpoint)
+
+        if endpoint.endswith("_collection_items"):
+            media = "images" if endpoint.startswith("image_") else "videos"
+            assert {request.path for request in network.requests_log} == {f"/v2/{media}/collections"}
 
         if not expect_reason:
             assert reason is None
@@ -105,17 +111,92 @@ class TestGetRows:
 
         assert result.requests[0].headers["authorization"] == "Bearer tok"
 
-    def test_incremental_request_carries_watermark_and_ascending_sort(self) -> None:
+    @pytest.mark.parametrize("endpoint", ["image_licenses", "audio_licenses"])
+    @pytest.mark.parametrize("incremental", [True, False])
+    def test_incremental_request_carries_watermark_and_ascending_sort(self, endpoint: str, incremental: bool) -> None:
         result = _driver().run(
-            "image_licenses",
-            [_page([])],
-            should_use_incremental_field=True,
+            endpoint,
+            [
+                _page([{"id": "license-a", "download_time": "2026-01-02T00:00:00+00:00"}]),
+                _page([{"id": "license-b", "download_time": "2026-01-03T00:00:00+00:00"}]),
+                _page([]),
+            ],
+            should_use_incremental_field=incremental,
             db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
         )
 
-        assert result.params("start_date") == ["2026-01-01T00:00:00+00:00"]
-        assert result.params("sort") == ["oldest"]
-        assert result.params("per_page") == ["200"]
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["license-a", "license-b"]
+        assert result.params("start_date") == (["2026-01-01T00:00:00+00:00"] * 3 if incremental else [None] * 3)
+        assert result.params("sort") == ["oldest"] * 3
+        assert result.params("per_page") == ["200"] * 3
+        assert result.params("page") == ["1", "2", "3"]
+
+    @pytest.mark.parametrize(
+        "media, endpoint", [("images", "image_collection_items"), ("videos", "video_collection_items")]
+    )
+    def test_collection_members_keep_parent_ids_and_resume_child_pages(self, media: str, endpoint: str) -> None:
+        parent_path = f"/v2/{media}/collections"
+        first_path = f"{parent_path}/collection-a/items"
+        second_path = f"{parent_path}/collection-b/items"
+        result = _driver(TOKEN_CONFIG).run(
+            endpoint,
+            [
+                _page([{"id": "collection-a"}]),
+                _page([{"id": "shared-item"}]),
+                _page([]),
+                _page([{"id": "collection-b"}]),
+                _page([{"id": "shared-item"}]),
+                ScriptedResponse(status=400),
+            ],
+        )
+
+        assert result.raised is not None
+        assert result.rows == [
+            {"id": "shared-item", "collection_id": "collection-a"},
+            {"id": "shared-item", "collection_id": "collection-b"},
+        ]
+        assert result.paths == [parent_path, first_path, first_path, parent_path, second_path, second_path]
+        assert result.params("page") == ["1", "1", "2", "2", "1", "2"]
+        assert result.params("per_page") == ["100", "150", "150", "100", "150", "150"]
+        assert result.final_state is not None
+        assert result.final_state.fanout_state["child_state"] == {"page": 2}
+        assert result.committed_states
+        assert result.response is not None
+        assert result.response.primary_keys == ["collection_id", "id"]
+        assert result.response.sort_mode is None
+
+        resumed = _driver(TOKEN_CONFIG).run(
+            endpoint,
+            [
+                _page([{"id": "collection-a"}]),
+                _page([{"id": "collection-b"}]),
+                _page([{"id": "next-item"}]),
+                _page([]),
+                _page([]),
+            ],
+            resume_state=result.final_state,
+        )
+
+        assert resumed.raised is None
+        assert resumed.rows == [{"id": "next-item", "collection_id": "collection-b"}]
+        assert resumed.paths == [parent_path, parent_path, second_path, second_path, parent_path]
+        assert resumed.params("page") == ["1", "2", "2", "3", "3"]
+
+    @pytest.mark.parametrize("endpoint", ["audio_genres", "audio_instruments", "audio_moods"])
+    def test_audio_taxonomy_strings_become_named_rows(self, endpoint: str) -> None:
+        result = _driver().run(
+            endpoint, [ScriptedResponse(json={"data": ["Sample / Category", "Sample > Subcategory"]})]
+        )
+
+        assert result.raised is None
+        assert result.rows == [{"name": "Sample / Category"}, {"name": "Sample > Subcategory"}]
+        assert len(result.requests) == 1
+        assert result.paths == [f"/v2/audio/{endpoint.removeprefix('audio_')}"]
+        assert result.params("page") == [None]
+        assert result.params("per_page") == [None]
+        assert result.response is not None
+        assert result.response.primary_keys == ["name"]
 
     def test_unpaginated_endpoint_makes_a_single_request(self) -> None:
         result = _driver().run("subscriptions", [_page([{"id": "s1"}, {"id": "s2"}])])
@@ -136,7 +217,7 @@ class TestShutterstockSourceResponse:
         assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == config.primary_keys
-        assert response.sort_mode == "asc"
+        assert response.sort_mode == (None if config.fanout or config.string_rows else "asc")
         if config.partition_key:
             assert response.partition_mode == "datetime"
             assert response.partition_keys == [config.partition_key]

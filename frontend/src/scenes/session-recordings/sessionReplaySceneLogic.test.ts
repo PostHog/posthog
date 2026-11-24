@@ -3,6 +3,9 @@ import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { preflightLogic } from 'lib/logic/preflightLogic'
+
+import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { initKeaTests } from '~/test/init'
 
 import { sessionRecordingsPlaylistLogic } from './playlist/sessionRecordingsPlaylistLogic'
@@ -36,15 +39,21 @@ describe('sessionReplaySceneLogic', () => {
         }
 
         it.each([
-            [true, true],
-            [false, false],
-        ])('shows picks when the organization approved AI data processing: %p', (approved, expected) => {
+            ['shows picks when the organization approved AI data processing', true, false, true],
+            ['hides picks when the organization has not approved AI data processing', false, false, false],
+            ['hides picks on a self-hosted install', true, true, false],
+        ])('%s', async (_, approved, selfHosted, expected) => {
             logic.unmount()
             playlistLogic.unmount()
             initKeaTests(true, undefined, undefined, {
                 ...MOCK_DEFAULT_ORGANIZATION,
                 is_ai_data_processing_approved: approved,
             })
+            // The mount-time preflight load must land first, or it overwrites the self-hosted preflight.
+            await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
+            if (selfHosted) {
+                preflightLogic.actions.loadPreflightSuccess({ ...preflightJson, is_debug: false } as any)
+            }
             playlistLogic = sessionRecordingsPlaylistLogic(SCENE_PLAYLIST_LOGIC_PROPS)
             playlistLogic.mount()
             land('/replay/home')

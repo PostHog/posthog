@@ -785,18 +785,20 @@ def string_config(value: str, default: str | None, rule_id: str | None = RULE_A)
     return config(targeted(rule_id=rule_id, value=value), return_type="string", default_value=default)
 
 
-RULE_VALUE_DETAIL = 'Must be a non-empty string other than $false, $true or "null".'
-DEFAULT_VALUE_DETAIL = 'Must be null or a non-empty string other than $false, $true or "null".'
+RULE_VALUE_DETAIL = 'Must be a non-empty string other than "false", "null", "true", $false or $true.'
+DEFAULT_VALUE_DETAIL = 'Must be null or a non-empty string other than "false", "null", "true", $false or $true.'
 RESERVED_STRING_VALUES = [
     ("rule_value", "$false", None, "filters__rules__0__value", RULE_VALUE_DETAIL),
     ("default_value", "compact", "$true", "filters__default_value", DEFAULT_VALUE_DETAIL),
     ("null_rule_value", "null", None, "filters__rules__0__value", RULE_VALUE_DETAIL),
     ("null_default_value", "compact", "null", "filters__default_value", DEFAULT_VALUE_DETAIL),
+    ("true_rule_value", "true", None, "filters__rules__0__value", RULE_VALUE_DETAIL),
+    ("false_default_value", "compact", "false", "filters__default_value", DEFAULT_VALUE_DETAIL),
 ]
 
 
 class TestWriterOnlyRules(AdmittedV2TestCase):
-    """The writer reserves `$false`, `$true` and `"null"` as string values. The caches accept them, so a stored one stays replaceable."""
+    """The writer reserves `"false"`, `"null"`, `"true"`, `$false` and `$true` as string values. The caches accept them, so a stored one stays replaceable."""
 
     @parameterized.expand(RESERVED_STRING_VALUES)
     def test_create_rejects_a_reserved_value(

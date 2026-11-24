@@ -5,7 +5,12 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.temporal.common.logger import resolve_log_source
+
 from products.batch_exports.backend.models import BatchExport, BatchExportOnDemand, BatchExportRun
+from products.batch_exports.backend.service import DESTINATION_WORKFLOWS
+
+SCHEDULED_DESTINATIONS = sorted(set(DESTINATION_WORKFLOWS) - {"FileDownload", "NoOp"})
 
 
 class TestBatchExportRunWorkflowId(SimpleTestCase):
@@ -49,3 +54,11 @@ class TestBatchExportRunWorkflowId(SimpleTestCase):
         else:
             with self.assertRaisesRegex(ValueError, "Scheduled batch export runs require data_interval_end"):
                 _ = run.workflow_id
+
+    @parameterized.expand([(destination,) for destination in SCHEDULED_DESTINATIONS])
+    def test_scheduled_run_logs_resolve_to_its_batch_export(self, destination: str) -> None:
+        workflow_type, _ = DESTINATION_WORKFLOWS[destination]
+        parent = BatchExport(id=UUID(int=1))
+        run = BatchExportRun(batch_export=parent, data_interval_end=dt.datetime(2026, 1, 2, tzinfo=dt.UTC))
+
+        assert resolve_log_source(workflow_type, run.workflow_id) == ("batch_exports", str(parent.id))

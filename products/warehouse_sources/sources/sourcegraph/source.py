@@ -59,7 +59,7 @@ class SourcegraphSource(ResumableSource[SourcegraphSourceConfig, SourcegraphResu
 
 You can create an access token in Sourcegraph under **Settings > Access tokens**.
 
-The `users` and `organizations` tables require a token created by a **site admin**; `repositories` works with any user's token.
+The `users`, `organizations`, `exported_events`, `code_hosts` and `external_services` tables require a token created by a **site admin**. The `repositories`, `commits` and `contributors` tables work with any user's token.
 """,
             iconPath="/static/services/sourcegraph.png",
             docsUrl="https://posthog.com/docs/cdp/sources/sourcegraph",
@@ -111,14 +111,12 @@ The `users` and `organizations` tables require a token created by a **site admin
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # No Sourcegraph connection exposes a server-side updated-since filter, so every
-        # endpoint is full-refresh only (the cursor still makes runs resumable mid-sync).
         schemas = [
             SourceSchema(
                 name=endpoint,
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=[],
+                supports_incremental=bool(SOURCEGRAPH_ENDPOINTS[endpoint].incremental_fields),
+                supports_append=bool(SOURCEGRAPH_ENDPOINTS[endpoint].incremental_fields),
+                incremental_fields=SOURCEGRAPH_ENDPOINTS[endpoint].incremental_fields,
                 description=SOURCEGRAPH_ENDPOINTS[endpoint].description,
             )
             for endpoint in ENDPOINTS
@@ -158,4 +156,6 @@ The `users` and `organizations` tables require a token created by a **site admin
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
             team_id=inputs.team_id,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
         )

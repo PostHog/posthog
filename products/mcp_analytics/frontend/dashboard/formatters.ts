@@ -3,6 +3,9 @@ import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 
 const EMPTY = '—'
 
+/** Error rate, in percent, at or above which a tool or session is flagged red. */
+export const DESTRUCTIVE_ERROR_RATE_PCT = 5
+
 export function formatNumber(n: number): string {
     if (!isFinite(n)) {
         return EMPTY

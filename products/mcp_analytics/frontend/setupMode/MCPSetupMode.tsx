@@ -10,7 +10,8 @@ import { MCPSetupModeView } from './MCPSetupModeView'
 import { SetupModeDevControls } from './SetupModeDevControls'
 
 function MCPSetupModeOverlay(): JSX.Element | null {
-    const { isOpen, step, connectState, recentCalls, recentCallsFailed } = useValues(mcpSetupModeLogic)
+    const { isOpen, step, connectState, signals, recentCalls, recentCallsFailed, serverTools, serverToolsFailed } =
+        useValues(mcpSetupModeLogic)
     const { exitSetupMode, goToUsefulStep, askPostHogAI } = useActions(mcpSetupModeLogic)
     if (!isOpen) {
         return null
@@ -31,6 +32,9 @@ function MCPSetupModeOverlay(): JSX.Element | null {
                 connectState={connectState}
                 recentCalls={recentCalls}
                 recentCallsFailed={recentCallsFailed}
+                toolCallsTotal={signals?.toolCallsTotal ?? 0}
+                serverTools={serverTools}
+                serverToolsFailed={serverToolsFailed}
                 onExit={exitSetupMode}
                 onAskPostHogAI={askPostHogAI}
                 onGoToUseful={goToUsefulStep}

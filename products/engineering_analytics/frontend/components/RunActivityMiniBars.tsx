@@ -16,24 +16,17 @@ interface RunActivityMiniBarsProps {
     title?: string
     /** The runs list was capped server-side, so the strip shows the most recent runs, not the full window. */
     truncated?: boolean
-    /** Singular noun for each bar in the header count — 'run' by default, 'commit' on the repo-health view. */
     noun?: string
-    /** When set, each bar becomes a button that calls this with its run — e.g. to open that commit's run. */
+    /** When set, each bar becomes a button. */
     onBarClick?: (run: ActivityRun) => void
     className?: string
 }
 
 const CHART_HEIGHT = 52
 const MIN_BAR_PX = 3
-// A hub preview, not the full record — keep the strip short so each bar stays legible. The full scatter
-// (start-time axis, in-flight band, zoom) lives on the workflow page for anyone who wants every run.
+// The strip stays short so each bar stays legible. RunActivityChart on the workflow page shows every run.
 const MAX_BARS = 48
 
-/**
- * A compact, scannable version of {@link RunActivityChart} for hub previews: one bar per run, height =
- * CI duration, color = verdict, with a dashed median line. Drops the scatter's time axis, in-flight band,
- * and zoom brush. Renders nothing below 2 completed runs, so callers can drop it in unconditionally.
- */
 export function RunActivityMiniBars({
     runs,
     title = 'Run activity',
@@ -47,12 +40,11 @@ export function RunActivityMiniBars({
         return null
     }
 
-    // Oldest → newest so the strip reads left-to-right as a trend, then keep the most recent MAX_BARS.
     const ordered = [...plottable].sort((a, b) => dayjs(a.startedAt).valueOf() - dayjs(b.startedAt).valueOf())
     const shown = ordered.slice(-MAX_BARS)
     const capped = truncated || shown.length < plottable.length
 
-    // Median over the full set (not just the shown bars), so it agrees with the scatter and the KPI tiles.
+    // The median covers every plottable run, not only the shown bars, so it agrees with the scatter and the tiles.
     const sortedMin = plottable.map((run) => run.durationSeconds / 60).sort((a, b) => a - b)
     const medianMin = percentileSorted(sortedMin, 0.5) ?? 0
 
@@ -78,9 +70,8 @@ export function RunActivityMiniBars({
                         className="absolute inset-x-0 border-t border-dashed border-secondary"
                         style={{ top: medianTopPx }}
                     />
-                    {/* Labels the dashed line and, by naming a duration, signals that bar height is CI time —
-                        the job the dropped Y axis used to do. Anchored left: no Y axis here, so the eye meets
-                        it first (left-to-right) and reads the line's meaning before scanning the bars. */}
+                    {/* The label names a duration, which tells the reader that bar height is CI time. The
+                        strip has no Y axis to say so. */}
                     <span
                         className="absolute left-0 z-10 -translate-y-1/2 rounded bg-surface-primary px-1 text-[9px] text-secondary"
                         style={{ top: Math.max(6, medianTopPx) }}

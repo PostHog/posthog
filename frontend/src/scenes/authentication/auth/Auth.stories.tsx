@@ -9,6 +9,7 @@ import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { userLogic } from 'scenes/userLogic'
 
@@ -45,9 +46,10 @@ type StoryArgs = {
     googleOAuth: boolean
     github: boolean
     gitlab: boolean
+    chatgpt: boolean
     samlAvailable: boolean
-    ssoEnforcement: 'none' | 'google-oauth2' | 'github' | 'gitlab' | 'saml'
-    generalError: 'none' | 'invalid_credentials' | 'no_new_organizations'
+    ssoEnforcement: 'none' | 'google-oauth2' | 'github' | 'gitlab' | 'chatgpt' | 'saml'
+    generalError: 'none' | 'invalid_credentials' | 'no_new_organizations' | 'login_code_email_undeliverable'
     pendingOAuthConnection: boolean
     hasLoggedInBefore: boolean
     signedOutForSessionRisk: boolean
@@ -78,16 +80,17 @@ const meta: Meta<StoryArgs> = {
         googleOAuth: { control: 'boolean', name: 'Google OAuth' },
         github: { control: 'boolean', name: 'GitHub' },
         gitlab: { control: 'boolean', name: 'GitLab' },
+        chatgpt: { control: 'boolean', name: 'ChatGPT' },
         samlAvailable: { control: 'boolean', name: 'SAML available' },
         ssoEnforcement: {
             control: 'select',
             name: 'SSO enforcement',
-            options: ['none', 'google-oauth2', 'github', 'gitlab', 'saml'],
+            options: ['none', 'google-oauth2', 'github', 'gitlab', 'chatgpt', 'saml'],
         },
         generalError: {
             control: 'select',
             name: 'General error',
-            options: ['none', 'invalid_credentials', 'no_new_organizations'],
+            options: ['none', 'invalid_credentials', 'no_new_organizations', 'login_code_email_undeliverable'],
         },
         pendingOAuthConnection: { control: 'boolean', name: 'Pending OAuth connection' },
         hasLoggedInBefore: { control: 'boolean', name: 'Has logged in before' },
@@ -105,6 +108,7 @@ const meta: Meta<StoryArgs> = {
         googleOAuth: true,
         github: true,
         gitlab: true,
+        chatgpt: false,
         samlAvailable: false,
         ssoEnforcement: 'none',
         generalError: 'none',
@@ -121,6 +125,7 @@ export default meta
 
 const ERROR_DETAILS: Record<string, string> = {
     invalid_credentials: 'Invalid email or password.',
+    login_code_email_undeliverable: "We can't send email to this address, so we can't send you a login code.",
 }
 
 const Template: StoryFn<StoryArgs> = ({
@@ -131,6 +136,7 @@ const Template: StoryFn<StoryArgs> = ({
     googleOAuth,
     github,
     gitlab,
+    chatgpt,
     samlAvailable,
     ssoEnforcement,
     generalError,
@@ -160,6 +166,7 @@ const Template: StoryFn<StoryArgs> = ({
                     'google-oauth2': googleOAuth,
                     github,
                     gitlab,
+                    chatgpt,
                     saml: samlAvailable,
                 },
             },
@@ -219,7 +226,7 @@ const Template: StoryFn<StoryArgs> = ({
 
     useEffect(() => {
         if (step === 'Login code') {
-            loginLogic.actions.setCodeVerificationRequired(EMAIL)
+            loginLogic.actions.setCodeVerificationRequired(EMAIL, null)
         }
     }, [step])
 
@@ -273,17 +280,37 @@ LoginStepFromSignupEntry.args = { step: 'Login', entry: 'signup' }
 export const LoginError: StoryFn<StoryArgs> = Template.bind({})
 LoginError.args = { step: 'Login', generalError: 'invalid_credentials' }
 
+export const LoginCodeEmailUndeliverable: StoryFn<StoryArgs> = Template.bind({})
+LoginCodeEmailUndeliverable.storyName = 'Login code email undeliverable'
+LoginCodeEmailUndeliverable.args = { step: 'Login', generalError: 'login_code_email_undeliverable' }
+
 export const SSOEnforced: StoryFn<StoryArgs> = Template.bind({})
 SSOEnforced.args = { step: 'Login', ssoEnforcement: 'google-oauth2' }
 
 export const SAMLAvailable: StoryFn<StoryArgs> = Template.bind({})
 SAMLAvailable.args = { step: 'Login', samlAvailable: true }
 
+export const ChatGPTAvailable: StoryFn<StoryArgs> = Template.bind({})
+ChatGPTAvailable.storyName = 'ChatGPT available'
+ChatGPTAvailable.args = { step: 'Login', chatgpt: true }
+ChatGPTAvailable.parameters = {
+    featureFlags: { [FEATURE_FLAGS.SIGN_IN_WITH_CHATGPT]: true },
+}
+
 export const LoginCode: StoryFn<StoryArgs> = Template.bind({})
 LoginCode.args = { step: 'Login code' }
 
 export const SignupCredentials: StoryFn<StoryArgs> = Template.bind({})
 SignupCredentials.args = { step: 'Signup credentials' }
+SignupCredentials.parameters = {
+    featureFlags: { [FEATURE_FLAGS.SIGNUP_PASSWORD_CRACK_ESTIMATED]: 'control' },
+}
+
+export const SignupCredentialsWithCrackEstimate: StoryFn<StoryArgs> = Template.bind({})
+SignupCredentialsWithCrackEstimate.args = { step: 'Signup credentials' }
+SignupCredentialsWithCrackEstimate.parameters = {
+    featureFlags: { [FEATURE_FLAGS.SIGNUP_PASSWORD_CRACK_ESTIMATED]: 'test' },
+}
 
 export const SignupCredentialsEU: StoryFn<StoryArgs> = Template.bind({})
 SignupCredentialsEU.storyName = 'Signup credentials (EU)'

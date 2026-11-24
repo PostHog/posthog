@@ -10,7 +10,14 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
-from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
+from posthog.constants import AvailableFeature
+from posthog.models import OrganizationMembership
+
+from products.access_control.backend.models.access_control import AccessControl
+from products.experiments.backend.metric_calculation.config import (
+    CALCULATION_KEY_V2_FLAG,
+    get_metric_calculation_config,
+)
 from products.experiments.backend.metric_calculation.results import _recalc_fingerprint
 from products.experiments.backend.models.experiment import (
     Experiment,
@@ -22,7 +29,9 @@ from products.experiments.backend.recalculation import (
     RECALCULATION_AGE_LIMIT_FEATURE_FLAG,
 )
 from products.experiments.backend.temporal.models import ExperimentMetricsRecalculationWorkflowInputs
+from products.experiments.backend.test.utils import patch_calculation_key_version
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
 
 def _mean_metric(uuid: str) -> dict:
@@ -37,7 +46,9 @@ def _mean_metric(uuid: str) -> dict:
 def _calculation_key(experiment: Experiment, metric_uuid: str, *, other_version: bool = False) -> str:
     calculation_config = get_metric_calculation_config(experiment, metric_uuid)
     assert calculation_config is not None
-    return calculation_config.key_for_version(2) if other_version else calculation_config.calculation_key()
+    if other_version:
+        return calculation_config.key_for_version(3 - calculation_config.settings.key_version)
+    return calculation_config.calculation_key()
 
 
 class TestMetricsRecalculationAPI(APIBaseTest):
@@ -85,10 +96,11 @@ class TestMetricsRecalculationAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            # name, activity queue flag outcome, expected activity_task_queue
-            ("activity_queue_flag_off", False, None),
-            ("activity_queue_flag_on", True, settings.EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE),
-            ("activity_queue_flag_error", RuntimeError("flags down"), None),
+            # name, activity queue flag outcome, expected activity_task_queue, calculation key version of the team
+            ("activity_queue_flag_off", False, None, 1),
+            ("activity_queue_flag_on", True, settings.EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE, 1),
+            ("activity_queue_flag_error", RuntimeError("flags down"), None, 1),
+            ("key_version_2", False, None, 2),
         ]
     )
     @mock.patch("products.experiments.backend.recalculation.sync_connect")
@@ -98,6 +110,7 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         _name: str,
         flag_outcome: bool | Exception,
         expected_activity_task_queue: str | None,
+        key_version: int,
         mock_run,
         mock_connect,
     ):
@@ -109,8 +122,14 @@ class TestMetricsRecalculationAPI(APIBaseTest):
             return flag_outcome
 
         exp = self._launched_experiment()
-        with mock.patch(
-            "products.experiments.backend.recalculation.feature_enabled_or_false", side_effect=evaluate_flag
+        with (
+            mock.patch(
+                "products.experiments.backend.recalculation.feature_enabled_or_false", side_effect=evaluate_flag
+            ),
+            mock.patch(
+                "posthoganalytics.feature_enabled",
+                side_effect=lambda key, *args, **kwargs: key == CALCULATION_KEY_V2_FLAG and key_version == 2,
+            ),
         ):
             resp = self.client.post(self._post_url(exp.id), {"trigger": "manual"}, format="json")
         assert resp.status_code == status.HTTP_201_CREATED, resp.content
@@ -123,6 +142,7 @@ class TestMetricsRecalculationAPI(APIBaseTest):
             ExperimentMetricsRecalculationWorkflowInputs(
                 recalculation_id=body["id"],
                 activity_task_queue=expected_activity_task_queue,
+                calculation_key_version=key_version,
             ),
             id=f"experiment-metrics-recalculation-{body['id']}",
             task_queue=settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE,
@@ -255,6 +275,8 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         assert latest["id"] == body["id"]
         assert latest["metric_errors"]["m1"]["error_type"] == "recalculation_window_too_long"
         assert [(r["metric_uuid"], r["result"]) for r in latest["results"]] == [("m1", {"ok": True})]
+        assert (latest["completed_metrics"], latest["failed_metrics"]) == (1, 0)
+        assert latest["exceeds_recalculation_age_limit"] is True
 
     @mock.patch("products.experiments.backend.recalculation.sync_connect")
     @mock.patch("products.experiments.backend.recalculation.asyncio.run")
@@ -328,15 +350,28 @@ class TestMetricsRecalculationAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("current_keys", ("current", "current")),
+            # name, active key version, key family of each row, expected configuration status of each result
+            ("current_keys", 1, ("current", "current"), ("current", "current")),
             # A run under the other key version. On page load the frontend starts a run when a completed
             # run leaves a metric uncovered, so those rows must cover every metric of it.
-            ("run_under_the_other_key_version", ("other_version", "other_version")),
-            ("run_partly_recomputed_under_the_current_key", ("other_version", "current")),
+            ("run_under_the_other_key_version", 1, ("other_version", "other_version"), ("current", "current")),
+            ("run_partly_recomputed_under_the_current_key", 1, ("other_version", "current"), ("current", "current")),
+            ("version_1_run_after_activation", 2, ("other_version", "other_version"), ("unknown", "unknown")),
+            ("run_partly_recomputed_after_activation", 2, ("other_version", "current"), ("unknown", "current")),
         ]
     )
     def test_get_latest_returns_most_recent_completed_with_results(
-        self, _name: str, key_families: tuple[str, str]
+        self,
+        _name: str,
+        key_version: int,
+        key_families: tuple[str, str],
+        expected_statuses: tuple[str, str],
+    ) -> None:
+        with patch_calculation_key_version(key_version):
+            self._assert_latest_returns_the_run_rows(key_families, expected_statuses)
+
+    def _assert_latest_returns_the_run_rows(
+        self, key_families: tuple[str, str], expected_statuses: tuple[str, str]
     ) -> None:
         exp = self._launched_experiment()
         exp.metrics = [_mean_metric("m1"), _mean_metric("m2")]
@@ -377,6 +412,7 @@ class TestMetricsRecalculationAPI(APIBaseTest):
             ("m1", {"ok": "m1"}),
             ("m2", {"ok": "m2"}),
         ]
+        assert tuple(result["configuration_status"] for result in body["results"]) == expected_statuses
         assert body.get("active_run") is None
 
     # ------------------------------------------------------------------
@@ -398,6 +434,77 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         assert resp.status_code == status.HTTP_200_OK, resp.content
         assert resp.json()["status"] == run_status
         assert resp.json()["id"] == str(row.id)
+
+    def test_get_refuses_a_warehouse_native_run_to_a_member_without_connection_access(self):
+        connection = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="bigquery",
+            source_type="BigQuery",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={},
+        )
+        exp = self._launched_experiment(flag_key="warehouse-native")
+        exp.exposure_criteria = {
+            "exposure_config": {
+                "kind": "ExperimentWarehouseNativeExposureConfig",
+                "connection_id": str(connection.id),
+                "query": "SELECT customer_id AS entity_id, variant, exposed_at AS timestamp FROM exposures",
+                "unit": {"unit_type": "customer", "id_namespace": "crm"},
+            }
+        }
+        exp.metrics = [
+            {
+                "uuid": "m1",
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "source": {
+                    "kind": "ExperimentWarehouseNativeNode",
+                    "connection_id": str(connection.id),
+                    "query": "SELECT customer_id AS entity_id, paid_at AS timestamp, amount FROM payments",
+                    "unit": {"unit_type": "customer", "id_namespace": "crm"},
+                    "math": "total",
+                },
+            }
+        ]
+        exp.save()
+        row = ExperimentMetricsRecalculation.objects.create(team=self.team, experiment=exp, status="completed")
+
+        with mock.patch(
+            "products.experiments.backend.warehouse_native_sources.bigquery_direct_query_enabled", return_value=True
+        ):
+            assert self.client.get(self._by_id_url(exp.id, str(row.id))).status_code == status.HTTP_200_OK
+
+            # The stored totals came from the warehouse. A member who may not read the connection gets no run.
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+            ]
+            self.organization.save()
+            OrganizationMembership.objects.filter(user=self.user, organization=self.organization).update(
+                level=OrganizationMembership.Level.MEMBER
+            )
+            AccessControl.objects.create(team=self.team, resource="external_data_source", access_level="none")
+
+            assert self.client.get(self._by_id_url(exp.id, str(row.id))).status_code == status.HTTP_403_FORBIDDEN
+            assert self.client.get(self._latest_url(exp.id)).status_code == status.HTTP_403_FORBIDDEN
+            running_time = self.client.get(f"/api/projects/{self.team.id}/experiments/{exp.id}/running_time_target/")
+            assert running_time.status_code == status.HTTP_403_FORBIDDEN
+            timeseries_results = self.client.get(
+                f"/api/projects/{self.team.id}/experiments/{exp.id}/timeseries_results/?metric_uuid=m1"
+            )
+            assert timeseries_results.status_code == status.HTTP_403_FORBIDDEN
+            health = self.client.get(f"/api/projects/{self.team.id}/experiments/{exp.id}/health/")
+            assert health.status_code == status.HTTP_403_FORBIDDEN
+            # Nor may that member start a run, which would query the warehouse with no user.
+            recalculation = self.client.post(self._post_url(exp.id), {"trigger": "manual"})
+            assert recalculation.status_code == status.HTTP_400_BAD_REQUEST
+            assert "do not have access" in recalculation.json()["detail"]
+            timeseries = self.client.post(
+                f"/api/projects/{self.team.id}/experiments/{exp.id}/recalculate_timeseries/",
+                {"metric": {"uuid": "m1"}},
+                format="json",
+            )
+            assert timeseries.status_code == status.HTTP_400_BAD_REQUEST
+            assert ExperimentMetricsRecalculation.objects.filter(experiment=exp).count() == 1
 
     def test_get_by_id_404_for_unknown_id(self):
         exp = self._launched_experiment()

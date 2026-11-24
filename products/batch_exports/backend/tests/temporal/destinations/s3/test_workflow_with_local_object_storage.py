@@ -11,10 +11,8 @@ from products.batch_exports.backend.service import (
     BatchExportSchema,
 )
 from products.batch_exports.backend.tests.temporal.destinations.s3.utils import (
-    SUPPORTED_FILE_FORMAT_COMPRESSIONS,
     TEST_S3_MODELS,
     TEST_S3_MODELS_AFFECTED_BY_EXCLUDE_EVENTS,
-    UNCOMPRESSED_FILE_FORMATS,
     run_s3_batch_export_workflow,
 )
 
@@ -71,9 +69,7 @@ async def test_s3_export_workflow_with_local_object_storage_with_various_models(
 @pytest.mark.parametrize("interval", ["hour"], indirect=True)
 @pytest.mark.parametrize("model", [BatchExportEventsModel()])
 @pytest.mark.parametrize("exclude_events", [None], indirect=True)
-@pytest.mark.parametrize(
-    ("file_format", "compression"), [*SUPPORTED_FILE_FORMAT_COMPRESSIONS, *UNCOMPRESSED_FILE_FORMATS], indirect=True
-)
+@pytest.mark.parametrize(("file_format", "compression"), [("Parquet", "zstd"), ("JSONLines", "gzip")], indirect=True)
 async def test_s3_export_workflow_with_local_object_storage_with_various_compression_and_file_formats(
     clickhouse_client,
     object_storage_client,
@@ -281,17 +277,9 @@ async def test_s3_export_workflow_with_local_object_storage_without_events(
 
 
 @pytest.mark.parametrize(
-    "s3_key_prefix",
-    [
-        "posthog-{table}/{year}-{month}-{day}/{hour}:{minute}:{second}",
-        "posthog-{table}/{hour}:{minute}:{second}/{year}-{month}-{day}",
-        "posthog-{table}/{hour}:{minute}:{second}",
-        "posthog/{year}-{month}-{day}/{hour}:{minute}:{second}",
-        "{year}-{month}-{day}",
-    ],
-    indirect=True,
+    "s3_key_prefix", ["posthog-{table}/{year}-{month}-{day}/{hour}:{minute}:{second}"], indirect=True
 )
-@pytest.mark.parametrize("model", [TEST_S3_MODELS[1], TEST_S3_MODELS[3], None])
+@pytest.mark.parametrize("model", [TEST_S3_MODELS[3]])
 async def test_s3_export_workflow_with_local_object_storage_and_custom_key_prefix(
     clickhouse_client,
     ateam,

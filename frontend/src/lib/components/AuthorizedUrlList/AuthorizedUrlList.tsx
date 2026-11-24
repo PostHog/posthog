@@ -1,19 +1,33 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import type { KeyboardEvent } from 'react'
 
 import { IconCopy, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 
+import { TeamMembershipLevel } from 'lib/constants'
 import { IconOpenInApp } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { isOAuthMode } from 'lib/utils/oauthClient'
+import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
 
-import { ExperimentIdType, ToolbarUserIntent } from '~/types'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    AvailableFeature,
+    ExperimentIdType,
+    ToolbarUserIntent,
+} from '~/types'
 
 import { AuthorizedUrlForm } from './AuthorizedUrlForm'
-import { AuthorizedUrlListType, authorizedUrlListLogic } from './authorizedUrlListLogic'
+import { AuthorizedUrlListType, KeyedAppUrl, authorizedUrlListLogic } from './authorizedUrlListLogic'
 import { EmptyState } from './EmptyState'
+import { QuillAuthorizedUrlList } from './QuillAuthorizedUrlList'
 
 export interface AuthorizedUrlListProps {
     type: AuthorizedUrlListType
@@ -61,11 +75,110 @@ export function AuthorizedUrlList({
     const { urlsKeyed, launchUrl, editUrlIndex, isAddUrlFormVisible, onlyAllowDomains } = useValues(logic)
     const { addUrl, removeUrl, newUrl, setEditUrlIndex, copyLaunchCode } = useActions(logic)
 
+    const { currentTeam } = useValues(teamLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
+    const quillSurface = useQuillSurface()
+
+    // Mirrors `validate_team_attrs`: `app_urls` needs project admin, or web analytics editor when access
+    // controls are on. `recording_domains` needs project admin even when access controls are on.
+    let writeDisabledReason: string | null = null
+    if (type !== AuthorizedUrlListType.RECORDING_DOMAINS && hasAvailableFeature(AvailableFeature.ACCESS_CONTROL)) {
+        // OAuth mode has no app context to read the access level from, so only the backend enforces it there.
+        if (!isOAuthMode()) {
+            writeDisabledReason = getAccessControlDisabledReason(
+                AccessControlResourceType.WebAnalytics,
+                AccessControlLevel.Editor
+            )
+        }
+    } else if (
+        currentTeam?.effective_membership_level != null &&
+        currentTeam.effective_membership_level < TeamMembershipLevel.Admin
+    ) {
+        writeDisabledReason = 'Only project admins can change authorized URLs. Ask a project admin to do it.'
+    }
+
     const noAuthorizedUrls = !urlsKeyed.some((url) => url.type === 'authorized')
 
     // toolbar and web analytics urls are sent through the backend to be validated and have toolbar auth
     // information added; other urls are simply opened directly
     const isLaunchableType = type === AuthorizedUrlListType.TOOLBAR_URLS || type === AuthorizedUrlListType.WEB_ANALYTICS
+
+    // If there are no authorized urls, highlight the first suggestion
+    const isHighlightedSuggestion = (keyedURL: KeyedAppUrl): boolean =>
+        noAuthorizedUrls && keyedURL.originalIndex === 0 && keyedURL.type === 'suggestion'
+
+    // The whole row mirrors the Launch button, so the card-like row is a real click target instead of
+    // a dead click. Suggestions (handled separately) and wildcard domains can't be launched.
+    const canLaunchFromRow = (keyedURL: KeyedAppUrl): boolean =>
+        showLaunch && keyedURL.type === 'authorized' && !keyedURL.url.includes('*')
+
+    const launchTargetFor = (url: string): string => (isLaunchableType ? launchUrl(url) : `${url}${query ?? ''}`)
+
+    const openLaunchTarget = (launchTarget: string): void => {
+        if (launchInSameTab) {
+            window.location.href = launchTarget
+        } else {
+            window.open(launchTarget, '_blank', 'noopener,noreferrer')
+        }
+    }
+
+    const launchOnRowKeyDown = (event: KeyboardEvent<HTMLElement>, launchTarget: string): void => {
+        // Only react to the row itself, not key events bubbling up from the buttons
+        if (event.currentTarget === event.target && (event.key === 'Enter' || event.key === ' ')) {
+            event.preventDefault()
+            openLaunchTarget(launchTarget)
+        }
+    }
+
+    const confirmRemoveUrl = (url: string, index: number): void => {
+        LemonDialog.open({
+            title: <>Remove {url} ?</>,
+            description: `Are you sure you want to remove this authorized ${onlyAllowDomains ? 'domain' : 'URL'}?`,
+            primaryButton: {
+                status: 'danger',
+                children: 'Remove',
+                onClick: () => removeUrl(index),
+            },
+            secondaryButton: {
+                children: 'Cancel',
+            },
+        })
+    }
+
+    if (quillSurface) {
+        return (
+            <QuillAuthorizedUrlList
+                type={type}
+                actionId={actionId}
+                experimentId={experimentId}
+                productTourId={productTourId}
+                addText={addText}
+                allowWildCards={allowWildCards}
+                displaySuggestions={displaySuggestions}
+                allowAdd={allowAdd}
+                allowDelete={allowDelete}
+                showLaunch={showLaunch}
+                launchInSameTab={launchInSameTab}
+                hideEmptyState={hideEmptyState}
+                urlsKeyed={urlsKeyed}
+                editUrlIndex={editUrlIndex}
+                isAddUrlFormVisible={isAddUrlFormVisible}
+                onlyAllowDomains={onlyAllowDomains}
+                writeDisabledReason={writeDisabledReason}
+                isHighlightedSuggestion={isHighlightedSuggestion}
+                canLaunchFromRow={canLaunchFromRow}
+                isLaunchableType={isLaunchableType}
+                launchTargetFor={launchTargetFor}
+                onLaunch={openLaunchTarget}
+                onRowKeyDown={launchOnRowKeyDown}
+                onAdd={newUrl}
+                onApplySuggestion={addUrl}
+                onEdit={setEditUrlIndex}
+                onRemove={confirmRemoveUrl}
+                onCopyLaunchCode={copyLaunchCode}
+            />
+        )
+    }
 
     return (
         <div className="flex flex-col gap-2" data-attr="authorized-urls-table">
@@ -96,31 +209,22 @@ export function AuthorizedUrlList({
                     type="secondary"
                     icon={<IconPlus />}
                     data-attr="toolbar-add-url"
+                    disabledReason={writeDisabledReason}
                 >
                     {addText}
                 </LemonButton>
             ) : null}
 
             {urlsKeyed.map((keyedURL, index) => {
-                // If there are no authorized urls, highlight the first suggestion
-                const isFirstSuggestion = keyedURL.originalIndex === 0 && keyedURL.type === 'suggestion'
-                const isHighlighted = noAuthorizedUrls && isFirstSuggestion
+                const isHighlighted = isHighlightedSuggestion(keyedURL)
 
                 if (!displaySuggestions && keyedURL.type === 'suggestion') {
                     return null
                 }
 
-                const launchTarget = isLaunchableType ? launchUrl(keyedURL.url) : `${keyedURL.url}${query ?? ''}`
-                // The whole row mirrors the Launch button, so the card-like row is a real click target instead of
-                // a dead click. Suggestions (handled separately) and wildcard domains can't be launched.
-                const isRowLaunchable = showLaunch && keyedURL.type === 'authorized' && !keyedURL.url.includes('*')
-                const launchFromRow = (): void => {
-                    if (launchInSameTab) {
-                        window.location.href = launchTarget
-                    } else {
-                        window.open(launchTarget, '_blank', 'noopener,noreferrer')
-                    }
-                }
+                const launchTarget = launchTargetFor(keyedURL.url)
+                const isRowLaunchable = canLaunchFromRow(keyedURL)
+                const launchFromRow = (): void => openLaunchTarget(launchTarget)
 
                 return editUrlIndex === index ? (
                     <div key={keyedURL.url} className="border rounded p-2 bg-surface-primary">
@@ -140,17 +244,7 @@ export function AuthorizedUrlList({
                             isRowLaunchable ? 'cursor-pointer hover:bg-surface-secondary' : 'cursor-default'
                         )}
                         onClick={isRowLaunchable ? launchFromRow : undefined}
-                        onKeyDown={
-                            isRowLaunchable
-                                ? (e) => {
-                                      // Only react to the row itself, not key events bubbling up from the buttons
-                                      if (e.currentTarget === e.target && (e.key === 'Enter' || e.key === ' ')) {
-                                          e.preventDefault()
-                                          launchFromRow()
-                                      }
-                                  }
-                                : undefined
-                        }
+                        onKeyDown={isRowLaunchable ? (e) => launchOnRowKeyDown(e, launchTarget) : undefined}
                         role={isRowLaunchable ? 'button' : undefined}
                         tabIndex={isRowLaunchable ? 0 : undefined}
                     >
@@ -173,6 +267,7 @@ export function AuthorizedUrlList({
                                     onClick={() => addUrl(keyedURL.url)}
                                     icon={<IconPlus />}
                                     data-attr="toolbar-apply-suggestion"
+                                    disabledReason={writeDisabledReason}
                                     type={isHighlighted ? 'primary' : undefined}
                                     active={isHighlighted}
                                 >
@@ -237,6 +332,7 @@ export function AuthorizedUrlList({
                                             onClick={() => setEditUrlIndex(keyedURL.originalIndex)}
                                             tooltip="Edit"
                                             center
+                                            disabledReason={writeDisabledReason}
                                         />
                                     )}
 
@@ -245,22 +341,8 @@ export function AuthorizedUrlList({
                                             icon={<IconTrash />}
                                             tooltip={`Remove ${onlyAllowDomains ? 'domain' : 'URL'}`}
                                             center
-                                            onClick={() => {
-                                                LemonDialog.open({
-                                                    title: <>Remove {keyedURL.url} ?</>,
-                                                    description: `Are you sure you want to remove this authorized ${
-                                                        onlyAllowDomains ? 'domain' : 'URL'
-                                                    }?`,
-                                                    primaryButton: {
-                                                        status: 'danger',
-                                                        children: 'Remove',
-                                                        onClick: () => removeUrl(index),
-                                                    },
-                                                    secondaryButton: {
-                                                        children: 'Cancel',
-                                                    },
-                                                })
-                                            }}
+                                            disabledReason={writeDisabledReason}
+                                            onClick={() => confirmRemoveUrl(keyedURL.url, index)}
                                         />
                                     )}
                                 </>

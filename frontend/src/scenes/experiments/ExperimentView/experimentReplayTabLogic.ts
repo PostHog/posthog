@@ -36,6 +36,11 @@ import {
     ExperimentWatchShelfContext,
     eventUsageLogic,
 } from 'lib/utils/eventUsageLogic'
+import type {
+    ExperimentRecordingsEmptyActionContext,
+    ExperimentWatchEmptyActionContext,
+    ExperimentWatchLoadFailedContext,
+} from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { resolveFilterTestAccounts } from 'scenes/experiments/exposureContract'
@@ -462,9 +467,9 @@ export interface experimentReplayTabLogicValues {
 export interface experimentReplayTabLogicActions {
     reportExperimentBehaviorComparisonFailed: (
         experimentId: ExperimentIdType,
-        context: import('lib/utils/eventUsageLogic').ExperimentWatchLoadFailedContext
+        context: ExperimentWatchLoadFailedContext
     ) => {
-        context: import('lib/utils/eventUsageLogic').ExperimentWatchLoadFailedContext
+        context: ExperimentWatchLoadFailedContext
         experimentId: ExperimentIdType
     } // eventUsageLogic
     reportExperimentBehaviorComparisonLoaded: (
@@ -504,9 +509,9 @@ export interface experimentReplayTabLogicActions {
     } // eventUsageLogic
     reportExperimentRecordingsEmptyActionClicked: (
         experimentId: ExperimentIdType,
-        context: import('lib/utils/eventUsageLogic').ExperimentRecordingsEmptyActionContext
+        context: ExperimentRecordingsEmptyActionContext
     ) => {
-        context: import('lib/utils/eventUsageLogic').ExperimentRecordingsEmptyActionContext
+        context: ExperimentRecordingsEmptyActionContext
         experimentId: ExperimentIdType
     } // eventUsageLogic
     reportExperimentRecordingsListAbandoned: (
@@ -539,9 +544,9 @@ export interface experimentReplayTabLogicActions {
     } // eventUsageLogic
     reportExperimentWatchEmptyActionClicked: (
         experimentId: ExperimentIdType,
-        context: import('lib/utils/eventUsageLogic').ExperimentWatchEmptyActionContext
+        context: ExperimentWatchEmptyActionContext
     ) => {
-        context: import('lib/utils/eventUsageLogic').ExperimentWatchEmptyActionContext
+        context: ExperimentWatchEmptyActionContext
         experimentId: ExperimentIdType
     } // eventUsageLogic
     reportExperimentWatchHighlightOpened: (

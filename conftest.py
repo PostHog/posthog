@@ -381,6 +381,27 @@ def _activate_personhog_fake(request):
 
 
 @pytest.fixture(autouse=True)
+def _link_raw_warehouse_source_credentials(request):
+    """Give each warehouse source that a test saves with raw ``job_inputs`` the credentials row and the reference
+    column that ``SourceInputsStore`` would write.
+
+    The store reads connection fields only from that row and OAuth pointers only from that column, so without
+    them a source built with ``ExternalDataSource.objects.create(job_inputs=...)`` cannot be read. Tests that
+    check the stored state of the credentials themselves opt out with
+    ``@pytest.mark.raw_warehouse_source_credentials``, on the class, the function or as a module-level
+    ``pytestmark``.
+    """
+    if request.node.get_closest_marker("raw_warehouse_source_credentials"):
+        yield
+        return
+    # Lazy, so the models do not load before Django is ready.
+    from products.warehouse_sources.backend.facade.testing import link_raw_source_credentials  # noqa: PLC0415
+
+    with link_raw_source_credentials():
+        yield
+
+
+@pytest.fixture(autouse=True)
 def _clean_persons_db_for_direct_tests(request):
     """Truncate the persons DB before each persons_db_direct test.
 

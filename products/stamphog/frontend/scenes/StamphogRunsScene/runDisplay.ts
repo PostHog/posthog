@@ -5,9 +5,9 @@ import { humanFriendlyDuration } from 'lib/utils/durations'
 import {
     ReviewRunApi,
     ReviewRunStatusEnumApi,
-    ReviewRunTriggerEnumApi,
+    ReviewTriggerEnumApi,
     ReviewRunVerdictEnumApi,
-    StamphogReviewRunsListTrigger,
+    CodeReviewApprovalsRunsListTrigger,
 } from '../../generated/api.schemas'
 
 /** How a run's outcome reads at a glance: the tag color plus the word on the tag. */
@@ -31,11 +31,13 @@ const STATUS_DISPLAY: Record<ReviewRunStatusEnumApi, OutcomeDisplay> = {
     [ReviewRunStatusEnumApi.Superseded]: { type: 'muted', label: 'Superseded' },
 }
 
-const TRIGGER_LABEL: Record<ReviewRunTriggerEnumApi, string> = {
-    [ReviewRunTriggerEnumApi.SelfDriving]: 'Self-driving',
-    [ReviewRunTriggerEnumApi.Manual]: 'Requested',
-    [ReviewRunTriggerEnumApi.Label]: 'Label',
-    [ReviewRunTriggerEnumApi.All]: 'Every PR',
+const TRIGGER_LABEL: Record<ReviewTriggerEnumApi, string> = {
+    [ReviewTriggerEnumApi.SelfDriving]: 'Self-driving',
+    [ReviewTriggerEnumApi.BotAdmission]: 'Bot author',
+    [ReviewTriggerEnumApi.Manual]: 'Requested',
+    [ReviewTriggerEnumApi.ReviewhogClean]: 'Clean PostHog Review',
+    [ReviewTriggerEnumApi.Label]: 'Label',
+    [ReviewTriggerEnumApi.All]: 'Every PR',
 }
 
 export function verdictDisplay(verdict: ReviewRunVerdictEnumApi): OutcomeDisplay {
@@ -46,7 +48,7 @@ export function statusDisplay(status: ReviewRunStatusEnumApi): OutcomeDisplay {
     return STATUS_DISPLAY[status] ?? { type: 'muted', label: status }
 }
 
-export function triggerLabel(trigger: ReviewRunTriggerEnumApi): string {
+export function triggerLabel(trigger: ReviewTriggerEnumApi): string {
     return TRIGGER_LABEL[trigger] ?? trigger
 }
 
@@ -56,9 +58,9 @@ export function triggerLabel(trigger: ReviewRunTriggerEnumApi): string {
  * The query-param enum and the response enum carry the same values, so one list keeps the filter
  * and the column from calling the same run different things.
  */
-export const TRIGGER_OPTIONS: { value: StamphogReviewRunsListTrigger; label: string }[] = Object.entries(
+export const TRIGGER_OPTIONS: { value: CodeReviewApprovalsRunsListTrigger; label: string }[] = Object.entries(
     TRIGGER_LABEL
-).map(([value, label]) => ({ value: value as StamphogReviewRunsListTrigger, label }))
+).map(([value, label]) => ({ value: value as CodeReviewApprovalsRunsListTrigger, label }))
 
 // Statuses that mean the run is over. Mirrors TERMINAL_STATUSES in the backend's facade/enums.py.
 const TERMINAL_STATUSES: ReadonlySet<ReviewRunStatusEnumApi> = new Set([

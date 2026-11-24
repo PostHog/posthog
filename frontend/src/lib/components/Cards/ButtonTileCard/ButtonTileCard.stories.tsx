@@ -94,7 +94,7 @@ export const TransparentBackground: Story = {
                     />
                 </div>
                 <div>
-                    <h5>Transparent background (edit mode — dashed border)</h5>
+                    <h5>Transparent background (edit mode)</h5>
                     <ButtonTileCard
                         className={gridItemStoryClassName}
                         showResizeHandles={true}

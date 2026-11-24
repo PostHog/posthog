@@ -1,14 +1,56 @@
 """Canonical, documentation-sourced descriptions for ShipStation endpoints and columns.
 
-Sourced from the official ShipStation v1 API reference (https://www.shipstation.com/docs/api/).
-Keyed by the resource names in `settings.py` `SHIPSTATION_ENDPOINTS`, which match the
-`ExternalDataSchema.name` of a synced ShipStation table. Note: ShipStation v1 returns all DateTime
-values in US Pacific time, not UTC. Columns absent here fall back to LLM enrichment.
+Sources: https://www.shipstation.com/docs/api/ and
+https://github.com/shipstation/mcp-shipstation-api/blob/master/openapi.yaml.
+The keys match the version-specific resource names in settings.py.
+ShipStation v1 returns DateTime values in US Pacific time. API v2 uses UTC.
+Columns absent here fall back to LLM enrichment.
 """
 
 from products.warehouse_sources.sources.sdk import CanonicalDescriptions
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "users": {
+        "description": "A user of the ShipStation account.",
+        "docs_url": "https://www.shipstation.com/docs/api/users/list/",
+        "columns": {
+            "userId": "Unique identifier for the user in API v1.",
+            "user_id": "Unique identifier for the user in API v2.",
+            "userName": "Username in API v1.",
+            "username": "Username in API v2.",
+            "name": "Full name of the user.",
+        },
+    },
+    "services": {
+        "description": "A shipping service available from a carrier connected to the account.",
+        "docs_url": "https://www.shipstation.com/docs/api/carriers/list-services/",
+        "columns": {
+            "carrierCode": "Code of the carrier in API v1.",
+            "carrier_id": "Identifier of the carrier in API v2.",
+            "code": "Service code in API v1.",
+            "service_code": "Service code in API v2.",
+            "name": "Name of the shipping service.",
+        },
+    },
+    "packages": {
+        "description": "A package type supported by a carrier connected to the account.",
+        "docs_url": "https://www.shipstation.com/docs/api/carriers/list-packages/",
+        "columns": {
+            "carrierCode": "Code of the carrier in API v1.",
+            "carrier_id": "Identifier of the carrier in API v2.",
+            "code": "Package code in API v1.",
+            "package_code": "Package code in API v2.",
+            "name": "Name of the package type.",
+        },
+    },
+    "marketplaces": {
+        "description": "A marketplace that can connect to ShipStation through API v1.",
+        "docs_url": "https://www.shipstation.com/docs/api/stores/list-marketplaces/",
+        "columns": {
+            "marketplaceId": "Unique identifier for the marketplace.",
+            "name": "Name of the marketplace.",
+        },
+    },
     "orders": {
         "description": "A customer order imported from a connected selling channel and managed in ShipStation.",
         "docs_url": "https://www.shipstation.com/docs/api/orders/list-orders/",

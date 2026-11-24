@@ -101,6 +101,44 @@ describe('thread activity grouping', () => {
         expect(groupToolRuns(items, calls, { ...options, settled: true }).at(-1)?.id).toBe('live-chart')
     })
 
+    it.each([
+        [
+            'the qualified name in the call meta',
+            {
+                rawServerName: 'posthog',
+                rawToolName: 'task_summary_update',
+                meta: { claudeCode: { toolName: 'mcp__posthog-code-tools__task_summary_update' } },
+            },
+        ],
+        ['the bare tool name', { rawServerName: 'posthog-code-tools', rawToolName: 'task_summary_update' }],
+    ])('keeps the final chart visible when the task summary call follows it, from %s', (_, summaryCall) => {
+        const calls = new Map<string, ToolInvocation>()
+        const call = (id: string, overrides: Partial<ToolInvocation> = {}): ThreadItem => {
+            calls.set(id, {
+                toolCallId: id,
+                rawServerName: 'posthog',
+                rawToolName: 'exec',
+                input: {},
+                status: 'completed',
+                contentBlocks: [],
+                ...overrides,
+            })
+            return tool(id)
+        }
+        const answer: ThreadItem = { id: 'answer', type: 'assistant_message', text: 'Signups dropped' }
+        const options = { pinnedToolIds: new Set<string>(), widgetToolIds: new Set(['chart']), settled: true }
+        const calledBeforeChart = [call('read-1'), call('read-2'), call('chart')]
+
+        expect(
+            groupToolRuns([...calledBeforeChart, call('summary', summaryCall), answer], calls, options).map(
+                (item) => item.id
+            )
+        ).toEqual(['activity-read-1', 'chart', 'summary', 'answer'])
+        expect(
+            groupToolRuns([...calledBeforeChart, call('other'), answer], calls, options).map((item) => item.id)
+        ).toEqual(['activity-read-1', 'answer'])
+    })
+
     it('keeps a group id when earlier calls load in front of it', () => {
         const latest = groupThreadActivity([tool('later'), tool('last', 1100)], new Set())
         const loaded = reuseActivityGroups(

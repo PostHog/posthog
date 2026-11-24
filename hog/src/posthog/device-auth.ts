@@ -7,16 +7,16 @@ import type { Runtime } from '@/core/runtime'
 import { parseOrThrow } from '@/core/schema'
 
 import { hostKey, HostSchema, hostUrl, type Host } from './host'
-import { ProjectIdSchema } from './ids'
+import { ProjectIdSchema, type ProjectId } from './ids'
 import { HOG_CLIENT_ID, OAuthErrorBody, OAuthLogin, oauthPost, TokenResponse } from './oauth'
+import { stepUpCommand } from './scope-challenge'
 import { OAuthRefreshTokenSchema } from './tokens'
 
 const DEVICE_CODE_GRANT = 'urn:ietf:params:oauth:grant-type:device_code'
 
 // What a new login asks for. hog sends this list explicitly, because a request without `scope`
 // gets every scope hog's client may hold.
-// TODO: add `ci_trust_policy_request:write` once PostHog has that scope, so `hog ci setup` works
-// without a step-up.
+// `workload_trust_policy_request` grants nothing until an admin approves a request in the browser.
 const LOGIN_WRITE_SCOPES = [
     'action',
     'alert',
@@ -49,6 +49,7 @@ const LOGIN_WRITE_SCOPES = [
     'survey',
     'task',
     'warehouse_view',
+    'workload_trust_policy_request',
 ]
 const LOGIN_READ_SCOPES = [
     'activity_log',
@@ -95,6 +96,9 @@ export const PendingLoginSchema = PendingApprovalSchema.extend({
     deviceCode: z.string(),
     userCode: z.string(),
     scopes: z.array(z.string()),
+    requiredScopes: z.array(z.string()).default([]),
+    // The project whose login a step-up adds scopes to, which `--wait` can run without naming.
+    projectId: ProjectIdSchema.optional(),
 })
 
 export type PendingLogin = z.output<typeof PendingLoginSchema>
@@ -107,7 +111,7 @@ function unauthorizedClient(host: Host, body: OAuthError | undefined): HogError 
     return new HogError(
         'login_unavailable',
         `${host} won't log hog in: ${escapeControls(body.error_description)}`,
-        'Set HOG_PERSONAL_API_KEY and HOG_PROJECT_ID instead.'
+        'Set HOG_PERSONAL_API_KEY instead, with the project ID in posthog.json as "projectId" or in HOG_PROJECT_ID.'
     )
 }
 
@@ -139,28 +143,49 @@ function approvalUrl(host: Host, userCode: string, named: string): string {
     return url.toString()
 }
 
-export async function startDeviceLogin(runtime: Runtime, host: Host, scopes: readonly string[]): Promise<PendingLogin> {
+export interface DeviceLoginRequest {
+    scopes: readonly string[]
+    requiredScopes: readonly string[]
+    command: string
+    projectId?: ProjectId
+}
+
+export async function startDeviceLogin(
+    runtime: Runtime,
+    host: Host,
+    request: DeviceLoginRequest
+): Promise<PendingLogin> {
+    const { scopes, requiredScopes, command, projectId } = request
     const response = await oauthPost(runtime, host, 'oauth/device-authorization/', {
         client_id: HOG_CLIENT_ID,
         scope: scopes.join(' '),
+        ...(requiredScopes.length > 0 ? { required_scopes: requiredScopes.join(' ') } : {}),
     })
     if (response.status === 429) {
         throw new HogError(
             'login_rate_limited',
             `${host} refused to start another login for now.`,
-            'Wait a minute, then run `hog auth login` again.'
+            `Wait a minute, then run \`${command}\` again.`
         )
     }
-    const refused = unauthorizedClient(host, OAuthErrorBody.safeParse(response.json).data)
+    const error = OAuthErrorBody.safeParse(response.json).data
+    const refused = unauthorizedClient(host, error)
     if (refused) {
         throw refused
+    }
+    if (error?.error === 'invalid_scope') {
+        throw new HogError(
+            'invalid_scope',
+            `${host} won't give hog these scopes: ${escapeControls(error.error_description ?? 'no reason given')}`,
+            'A self-hosted PostHog can be too old for newer scopes. Set HOG_PERSONAL_API_KEY and HOG_PROJECT_ID to use a personal API key instead.'
+        )
     }
     const body = response.ok ? DeviceAuthorizationResponse.safeParse(response.json).data : undefined
     if (body === undefined) {
         throw new HogError(
             'login_unavailable',
             `${host} didn't start a login: it answered with HTTP ${response.status}.`,
-            'Check the host. A self-hosted PostHog must be able to reach posthog.com to log hog in. Otherwise set HOG_PERSONAL_API_KEY and HOG_PROJECT_ID.'
+            'Check the host. A self-hosted PostHog must be able to reach posthog.com to log hog in. Otherwise set HOG_PERSONAL_API_KEY, with the project ID in posthog.json as "projectId" or in HOG_PROJECT_ID.'
         )
     }
     return {
@@ -171,14 +196,39 @@ export async function startDeviceLogin(runtime: Runtime, host: Host, scopes: rea
         expiresAt: runtime.now() + body.expires_in * 1000,
         intervalSeconds: body.interval ?? 5,
         scopes: [...scopes],
+        requiredScopes: [...requiredScopes],
+        ...(projectId === undefined ? {} : { projectId }),
     }
+}
+
+// An older self-hosted PostHog ignores `required_scopes`, so hog checks the approved scopes itself.
+async function refuseWithoutRequiredScopes(
+    runtime: Runtime,
+    login: OAuthLogin,
+    requiredScopes: readonly string[]
+): Promise<void> {
+    if (requiredScopes.length === 0) {
+        return
+    }
+    const { scopesNotCovered } = await import('./scopes')
+    const missing = scopesNotCovered(login.scopes, requiredScopes)
+    if (missing.length === 0) {
+        return
+    }
+    await login.logout(runtime)
+    throw new HogError(
+        'scopes_not_granted',
+        `The approval didn't include ${missing.join(', ')}, so hog kept your current login.`,
+        `Run \`${stepUpCommand(missing, login.host)}\` and keep these scopes when you approve it.`
+    )
 }
 
 // One poll of the token endpoint, read the way RFC 8628 section 3.5 describes.
 export async function pollDeviceLogin(
     runtime: Runtime,
     pending: PendingLogin,
-    timeoutMs: number
+    timeoutMs: number,
+    command: string
 ): Promise<PollOutcome<OAuthLogin>> {
     const response = await oauthPost(
         runtime,
@@ -198,13 +248,12 @@ export async function pollDeviceLogin(
         const body = parseOrThrow(DeviceTokenResponse, response.json, {
             code: 'unexpected_response',
             context: "PostHog approved the login, but its answer isn't what hog expects.",
-            hint: 'Run `hog auth login` to start again.',
+            hint: `Run \`${command}\` to start again.`,
         })
         const [projectId] = body.scoped_teams
-        return {
-            state: 'approved',
-            value: OAuthLogin.fromTokens(runtime, body, { host: pending.host, projectId, scopes: pending.scopes }),
-        }
+        const login = OAuthLogin.fromTokens(runtime, body, { host: pending.host, projectId, scopes: pending.scopes })
+        await refuseWithoutRequiredScopes(runtime, login, pending.requiredScopes)
+        return { state: 'approved', value: login }
     }
     const body = OAuthErrorBody.safeParse(response.json).data
     switch (body?.error) {
@@ -224,6 +273,6 @@ export async function pollDeviceLogin(
     throw new HogError(
         'login_failed',
         `PostHog rejected the login with HTTP ${response.status}.`,
-        'Run `hog auth login` to start again.'
+        `Run \`${command}\` to start again.`
     )
 }

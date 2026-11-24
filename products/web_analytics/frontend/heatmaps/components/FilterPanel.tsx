@@ -14,7 +14,7 @@ import { useDebouncedValue } from 'lib/hooks/useDebouncedValue'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { Popover } from 'lib/lemon-ui/Popover'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 import { percentage } from 'lib/utils/numbers'
 import { COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS } from 'scenes/feature-flags/cohortPickerProps'
 import { SeriesActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
@@ -143,7 +143,7 @@ export function FilterPanel({
     // this is ugly but better than stopping taking visual snapshots of it
     return (
         <div className="relative">
-            {debouncedLoading && !inStorybook() && !inStorybookTestRunner() && (
+            {debouncedLoading && !inStorybook() && (
                 <LoadingBar
                     wrapperClassName="absolute top-0 left-0 w-full overflow-hidden rounded-none my-0"
                     className="h-1 rounded-none"

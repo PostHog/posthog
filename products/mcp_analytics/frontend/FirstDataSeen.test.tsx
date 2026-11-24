@@ -62,7 +62,7 @@ describe('FirstDataSeen', () => {
         const logic = await arriveLive(() => {
             if (inSetupMode) {
                 featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.MCP_ANALYTICS_SETUP_MODE]: true })
-                router.actions.push(urls.mcpAnalyticsDashboard(), { setup: 'agent' })
+                router.actions.push(urls.mcpAnalyticsDashboard(), { setup: 'open' })
                 mcpSetupModeLogic.mount()
             }
         })

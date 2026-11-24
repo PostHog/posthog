@@ -19,6 +19,7 @@ from temporalio.service import RPCError, RPCStatusCode
 from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.shutdown import WorkerShuttingDownError
 
+from products.warehouse_sources.backend.facade.testing import read_unsaved_source_inputs_as_stored
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import CDC_SNAPSHOT_LANE_KEY, ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -205,6 +206,11 @@ def _capture_harness(source, schemas, events=()) -> Iterator[SimpleNamespace]:
 
 
 class TestGetCDCAdapter:
+    @pytest.fixture(autouse=True)
+    def _read_inputs_as_stored(self):
+        with read_unsaved_source_inputs_as_stored():
+            yield
+
     def test_returns_postgres_adapter(self):
         from products.warehouse_sources.backend.temporal.data_imports.cdc.adapters import get_cdc_adapter
         from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter import (
@@ -375,6 +381,29 @@ class TestSetupSelfCleansUnrunnableSchedules:
             assert act._setup() is False
 
         mock_delete.assert_called_once()
+        mock_get_adapter.assert_not_called()
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
+    def test_no_syncing_tables_syncs_the_schedule_instead_of_deleting_it(
+        self, _mock_close_conns, MockSourceModel, mock_get_adapter
+    ):
+        source = _make_source()
+        MockSourceModel.objects.get.return_value = source
+        MockSourceModel.DoesNotExist = ExternalDataSource.DoesNotExist
+
+        act = _make_extract_activity(source)
+        service = "products.data_warehouse.backend.logic.data_load.service"
+        with (
+            patch.object(act, "_get_cdc_schemas", return_value=[]),
+            patch(f"{service}.sync_cdc_extraction_schedule") as mock_sync,
+            patch(f"{service}.delete_cdc_extraction_schedule") as mock_delete,
+        ):
+            assert act._setup() is False
+
+        mock_sync.assert_called_once_with(source)
+        mock_delete.assert_not_called()
         mock_get_adapter.assert_not_called()
 
 
@@ -1183,6 +1212,10 @@ class TestCleanupOrphanSlotsRetentionCap:
         return source, mock_adapter
 
     @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.restore_missing_extraction_schedule",
+        return_value=False,
+    )
+    @patch(
         "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.blocked_past_buffer_retention",
         return_value=False,
     )
@@ -1201,6 +1234,7 @@ class TestCleanupOrphanSlotsRetentionCap:
         mock_activity,
         mock_heartbeater,
         _billing,
+        _restore,
     ):
         # Configured critical is 10240 MB, but the engine caps retention at 1000 MB:
         # at 900 MB of lag (>= 80% of the cap) the sweeper must already act.
@@ -1212,6 +1246,10 @@ class TestCleanupOrphanSlotsRetentionCap:
         mock_adapter.drop_stream.assert_called_once()
         mock_mark_broken.assert_called_once()
 
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.restore_missing_extraction_schedule",
+        return_value=False,
+    )
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.blocked_past_buffer_retention",
         return_value=False,
@@ -1231,6 +1269,7 @@ class TestCleanupOrphanSlotsRetentionCap:
         mock_activity,
         mock_heartbeater,
         _billing,
+        _restore,
     ):
         source, mock_adapter = self._setup(mock_get_adapter, MockSourceModel, lag_mb=900, cap_mb=None)
 

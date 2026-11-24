@@ -1,6 +1,6 @@
 import './MarketingAnalyticsTableStyleOverride.scss'
 
-import { BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
+import { BuiltLogic, LogicWrapper, useActions, useMountedLogic, useValues } from 'kea'
 import { Suspense, useId, useMemo, useState } from 'react'
 
 import { IconGear, IconInfo } from '@posthog/icons'
@@ -13,7 +13,9 @@ import { TileId } from 'scenes/web-analytics/common'
 import { WebTileHeader } from 'scenes/web-analytics/WebTileHeader'
 
 import { isSharedView } from '~/exporter/exporterViewLogic'
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { ColumnFeature } from '~/queries/nodes/DataTable/DataTable'
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
 import { Query } from '~/queries/Query/Query'
 import {
     DataTableNode,
@@ -26,7 +28,7 @@ import {
 import { QueryContext, QueryContextColumn } from '~/queries/types'
 import { MarketingAnalyticsFreshness } from '~/scenes/marketing-analytics/MarketingAnalyticsFreshness'
 import { MarketingAnalyticsNotReady } from '~/scenes/marketing-analytics/MarketingAnalyticsNotReady'
-import { useMarketingAnalyticsPrecompute } from '~/scenes/marketing-analytics/useMarketingAnalyticsPrecompute'
+import { marketingAnalyticsPrecomputeLogic } from '~/scenes/marketing-analytics/marketingAnalyticsPrecomputeLogic'
 import { webAnalyticsDataTableQueryContext } from '~/scenes/web-analytics/tiles/WebAnalyticsTile'
 import { InsightLogicProps } from '~/types'
 
@@ -86,7 +88,8 @@ export const MarketingAnalyticsTable = ({
     const tableId = useId()
     const tableKey = `${currentTeamId}:${tableId}`
     const { showColumnConfigModal, setDrillDownLevel, reportDashboardControlUsed } = useActions(marketingAnalyticsLogic)
-    const { drillDownLevel, nativeSourcesHierarchyStatus, draftConversionGoal } = useValues(marketingAnalyticsLogic)
+    const { drillDownLevel, nativeSourcesHierarchyStatus, draftConversionGoal, setupEnabled } =
+        useValues(marketingAnalyticsLogic)
     const hasExtendedDrillDown = useFeatureFlag('MARKETING_ANALYTICS_EXTENDED_DRILL_DOWN')
     const hasConversionRecordings = useFeatureFlag('MARKETING_ANALYTICS_CONVERSION_RECORDINGS')
     const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
@@ -154,10 +157,19 @@ export const MarketingAnalyticsTable = ({
         () => conversionRecordingsTableQuery(query, !!hasConversionRecordings && !isSharedView()),
         [query, hasConversionRecordings]
     )
-    const { notReady: precomputeNotReady, latestDayComputedAt } = useMarketingAnalyticsPrecompute(
-        tableQuery.source,
-        insightProps
-    )
+    // Same key as the DataTable's own dataNodeLogic, so the query loads once. Building it here also hands it
+    // the new query while the not-ready banner hides the DataTable.
+    const dataNodeLogicProps = {
+        query: tableQuery.source,
+        key: insightVizDataNodeKey(insightProps),
+        dataNodeCollectionId: insightProps.dataNodeCollectionId,
+    }
+    useMountedLogic(dataNodeLogic(dataNodeLogicProps))
+    const {
+        notReady: precomputeNotReady,
+        autoRefreshing,
+        latestDayComputedAt,
+    } = useValues(marketingAnalyticsPrecomputeLogic(dataNodeLogicProps))
 
     const validationWarnings = useMemo(() => validateConversionGoals(conversion_goals), [conversion_goals])
 
@@ -189,7 +201,8 @@ export const MarketingAnalyticsTable = ({
         () => [
             <WebTileHeader
                 key="title"
-                className="min-h-0 p-0"
+                // A size container has no intrinsic width, so in this flex row the title collapses instead of wrapping.
+                className="min-h-0 p-0 [container-type:normal]!"
                 tileId={TileId.MARKETING_CAMPAIGN_BREAKDOWN}
                 titlePrefix="Performance metrics by"
                 titleDropdown={{
@@ -322,7 +335,7 @@ export const MarketingAnalyticsTable = ({
                     <ConversionRecordingsModal {...recordings} onClose={() => setConversionRecordings(null)} />
                 </Suspense>
             )}
-            {validationWarnings && validationWarnings.length > 0 && (
+            {!setupEnabled && validationWarnings && validationWarnings.length > 0 && (
                 <div className="pt-2">
                     <MarketingAnalyticsValidationWarningBanner warnings={validationWarnings} />
                 </div>
@@ -338,7 +351,7 @@ export const MarketingAnalyticsTable = ({
             )}
             {precomputeNotReady ? (
                 <div className="p-4">
-                    <MarketingAnalyticsNotReady />
+                    <MarketingAnalyticsNotReady autoRefreshing={autoRefreshing} />
                 </div>
             ) : (
                 <div className="relative marketing-analytics-table-container px-3 pb-3">

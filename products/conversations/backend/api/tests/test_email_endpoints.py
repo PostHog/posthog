@@ -1,4 +1,5 @@
 from datetime import timedelta
+from email import message_from_bytes
 from io import BytesIO
 
 from posthog.test.base import BaseTest
@@ -394,15 +395,16 @@ class TestEmailChannelPermissions(BaseTest):
         mock_cache_delete.assert_called_once()
         assert EmailChannelSetup.objects.for_team(self.team.id).filter(id=setup.id).exists()
 
-    @patch("products.conversations.backend.api.email_settings.cache.add", side_effect=[True, False])
+    @patch("products.conversations.backend.api.email_settings.cache", wraps=cache)
     @patch("products.conversations.backend.api.email_settings.is_smtp_email_service_available", return_value=True)
     @patch("products.conversations.backend.api.email_settings.EmailMessage")
     def test_forwarding_challenge_resend_respects_channel_cooldown(
         self,
         mock_email_message: MagicMock,
         _mock_smtp_available: MagicMock,
-        _mock_cache_add: MagicMock,
+        mock_cache: MagicMock,
     ) -> None:
+        mock_cache.add.side_effect = [True, False]
         channel = EmailChannel.objects.create(
             team=self.team,
             kind=EmailChannelKind.CUSTOMER_COMMUNICATION,
@@ -433,19 +435,19 @@ class TestEmailChannelPermissions(BaseTest):
 
         assert first_response.status_code == 200
         assert second_response.status_code == 429
-        assert [cache_call.kwargs["timeout"] for cache_call in _mock_cache_add.call_args_list] == [30, 60]
+        assert [cache_call.kwargs["timeout"] for cache_call in mock_cache.add.call_args_list] == [30, 60]
         assert mock_email_message.call_count == 1
 
-    @patch("products.conversations.backend.api.email_settings.cache.get")
+    @patch("products.conversations.backend.api.email_settings.cache", wraps=cache)
     @patch("products.conversations.backend.api.email_settings.is_smtp_email_service_available", return_value=True)
     @patch("products.conversations.backend.api.email_settings.EmailMessage")
     def test_forwarding_challenge_stops_after_the_address_reaches_its_attempt_limit(
         self,
         mock_email_message: MagicMock,
         _mock_smtp_available: MagicMock,
-        mock_cache_get: MagicMock,
+        mock_cache: MagicMock,
     ) -> None:
-        mock_cache_get.side_effect = lambda key, default=None: 8 if key.endswith(":attempts") else default
+        mock_cache.get.side_effect = lambda key, default=None: 8 if key.endswith(":attempts") else default
         channel = EmailChannel.objects.create(
             team=self.team,
             kind=EmailChannelKind.CUSTOMER_COMMUNICATION,
@@ -794,26 +796,80 @@ class TestEmailMultiConfig(BaseTest):
         mock_mailgun.assert_not_called()
         assert not EmailChannel.objects.filter(team=self.team).exists()
 
-    @patch("products.conversations.backend.api.email_settings.mailgun_add_domain", return_value={})
+    @parameterized.expand(
+        [
+            ("domain_still_in_mailgun", {"id": "mg-1", "state": "unverified"}, False),
+            ("domain_expired_from_mailgun", None, True),
+        ]
+    )
+    @patch("products.conversations.backend.api.email_settings.mailgun_get_domain")
+    @patch("products.conversations.backend.api.email_settings.mailgun_add_domain")
     @patch(
         "products.conversations.backend.api.email_settings.get_instance_setting",
         return_value="mg.posthog.com",
     )
-    def test_same_domain_skips_mailgun_add(self, _mock_setting: MagicMock, mock_mailgun: MagicMock):
+    def test_same_domain_reuses_registration_unless_mailgun_dropped_it(
+        self,
+        _name: str,
+        mailgun_domain: dict | None,
+        should_register_again: bool,
+        _mock_setting: MagicMock,
+        mock_add_domain: MagicMock,
+        mock_get_domain: MagicMock,
+    ):
+        old_records = {"sending_dns_records": [{"record_type": "TXT", "value": "old"}]}
+        new_records = {"sending_dns_records": [{"record_type": "TXT", "value": "new"}]}
+        mock_add_domain.return_value = old_records
         self.client.post(
             "/api/conversations/v1/email/connect",
             {"from_email": "support@example.com", "from_name": "Support"},
             content_type="application/json",
         )
-        mock_mailgun.reset_mock()
+        mock_add_domain.reset_mock()
+        mock_add_domain.return_value = new_records
+        mock_get_domain.return_value = mailgun_domain
 
-        self.client.post(
+        response = self.client.post(
             "/api/conversations/v1/email/connect",
             {"from_email": "billing@example.com", "from_name": "Billing"},
             content_type="application/json",
         )
-        # Mailgun add_domain NOT called for second email on same domain
-        mock_mailgun.assert_not_called()
+
+        assert response.status_code == 200
+        assert mock_add_domain.called == should_register_again
+        expected = new_records if should_register_again else old_records
+        assert list(EmailChannel.objects.filter(team=self.team).values_list("dns_records", flat=True)) == [
+            expected,
+            expected,
+        ]
+
+    @patch("products.conversations.backend.api.email_settings.mailgun_get_domain", return_value=None)
+    @patch("products.conversations.backend.api.email_settings.mailgun_add_domain")
+    @patch(
+        "products.conversations.backend.api.email_settings.get_instance_setting",
+        return_value="mg.posthog.com",
+    )
+    def test_same_domain_fails_when_registering_the_dropped_domain_again_fails(
+        self, _mock_setting: MagicMock, mock_add_domain: MagicMock, _mock_get_domain: MagicMock
+    ):
+        mock_add_domain.return_value = {"sending_dns_records": [{"record_type": "TXT", "value": "old"}]}
+        self.client.post(
+            "/api/conversations/v1/email/connect",
+            {"from_email": "support@example.com", "from_name": "Support"},
+            content_type="application/json",
+        )
+        mock_add_domain.side_effect = Exception("mailgun down")
+
+        response = self.client.post(
+            "/api/conversations/v1/email/connect",
+            {"from_email": "billing@example.com", "from_name": "Billing"},
+            content_type="application/json",
+        )
+
+        assert response.status_code == 502
+        assert list(EmailChannel.objects.filter(team=self.team).values_list("from_email", flat=True)) == [
+            "support@example.com"
+        ]
 
     @patch("products.conversations.backend.api.email_settings.mailgun_add_domain", return_value={})
     @patch(
@@ -2077,6 +2133,27 @@ class TestSendEmailReplyMultiConfig(BaseTest):
 
         config.refresh_from_db()
         assert config.domain_verified is (not flips_domain_verified)
+
+    @patch("products.conversations.backend.tasks.email.send_mime")
+    def test_send_email_reply_renders_markdown_without_rich_content(self, mock_send_mime: MagicMock):
+        config = self._create_config("support@example.com", "aaa111")
+        ticket = self._create_ticket(config)
+
+        self._run_reply(
+            ticket,
+            content="See [the docs](https://posthog.com/docs).\nThen [verify](https://attacker.example/phish)\n\nNew paragraph\n\n```\ncurl https://example.com/api\n```",
+        )
+
+        message = message_from_bytes(mock_send_mime.call_args.args[1])
+        html_part = next(part for part in message.walk() if part.get_content_type() == "text/html")
+        payload = html_part.get_payload(decode=True)
+        assert isinstance(payload, bytes)
+        html = payload.decode()
+        assert '<a href="https://posthog.com/docs"' in html and ">the docs</a>" in html
+        assert "attacker.example" not in html
+        assert "<br" in html
+        assert html.count("<p>") == 2
+        assert "<code>curl https://example.com/api\r\n</code>" in html
 
     @patch("products.conversations.backend.tasks.email.send_mime")
     def test_send_email_reply_delivers_to_team_member_ticket(self, mock_send_mime: MagicMock):

@@ -27,8 +27,8 @@ import type {
     InboxSortDirection,
     InboxSortField,
 } from './logics/inboxFiltersLogic'
-import { SignalReportPriority } from './types'
-import { prettifyScoutSkillName } from './utils/scoutRunsWindow'
+import { SignalReportActionability, SignalReportPriority } from './types'
+import { scoutNameForSkill } from './utils/scoutRunsWindow'
 
 /**
  * Per-priority LemonTag type, for surfaces that render a LemonTag. Keep in step with
@@ -56,6 +56,13 @@ export const PRIORITY_MEANING: Record<SignalReportPriority, { label: string; des
     P2: { label: 'Medium', description: 'A clear improvement opportunity, or a contained issue with workarounds.' },
     P3: { label: 'Low', description: 'A minor improvement or low-impact issue.' },
     P4: { label: 'Minimal', description: 'Cosmetic or negligible impact, or an optional investigation.' },
+}
+
+/** Shared by the actionability badge and the editable actionability row, so both name a value the same way. */
+export const ACTIONABILITY_LABEL: Record<SignalReportActionability, string> = {
+    immediately_actionable: 'Actionable',
+    requires_human_input: 'Needs input',
+    not_actionable: 'Not actionable',
 }
 
 /**
@@ -155,6 +162,18 @@ export const INBOX_MODEL_SORT_OPTIONS: InboxSortOption[] = INBOX_RANKING_SCORES.
     description: score.description,
 }))
 
+/** The `personal_tier` values the personal ranking writes, keyed by value. */
+export const INBOX_PERSONAL_TIERS: Record<string, { label: string }> = {
+    top: { label: 'Top' },
+    worth_a_look: { label: 'Worth a look' },
+    later: { label: 'Later' },
+}
+
+/** The sorts the server orders with a ranker, whose rows carry `inbox_merge_key`. */
+export function isMergeKeySortField(field: InboxSortField): field is 'recommended' {
+    return field === 'recommended'
+}
+
 const RANKING_SCORE_BY_FIELD = Object.fromEntries(INBOX_RANKING_SCORES.map((score) => [score.field, score])) as Record<
     InboxRankingSortField,
     InboxRankingScore
@@ -219,7 +238,11 @@ export function inboxPriorityFilterLabel(selected: SignalReportPriority[]): stri
     return [...selected].sort().join(', ')
 }
 
-export function inboxSourceFilterLabel(selected: string[], selectedScouts: string[] = []): string {
+export function inboxSourceFilterLabel(
+    selected: string[],
+    selectedScouts: string[] = [],
+    scoutNames?: Readonly<Record<string, string>>
+): string {
     const parts: string[] = []
     if (selected.length === 1) {
         parts.push(INBOX_SOURCE_OPTIONS.find((o) => o.value === selected[0])?.label ?? selected[0])
@@ -229,7 +252,7 @@ export function inboxSourceFilterLabel(selected: string[], selectedScouts: strin
     if (selectedScouts.length === 1) {
         // "Scout · " disambiguates from same-named source products (e.g. the error tracking
         // scout vs the error tracking source), matching the report rows' attribution label.
-        parts.push(`Scout · ${prettifyScoutSkillName(selectedScouts[0])}`)
+        parts.push(`Scout · ${scoutNameForSkill(scoutNames, selectedScouts[0])}`)
     } else if (selectedScouts.length > 1) {
         parts.push(`${selectedScouts.length} scouts`)
     }

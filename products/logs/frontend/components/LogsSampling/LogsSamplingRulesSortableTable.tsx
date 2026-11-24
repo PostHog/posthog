@@ -23,6 +23,7 @@ import { useEffect, useState } from 'react'
 import { IconInfo, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip/Tooltip'
 import { compactNumber, humanizeBytes } from 'lib/utils/numbers'
@@ -30,7 +31,9 @@ import { urls } from 'scenes/urls'
 
 import { LogsSamplingRuleApi } from 'products/logs/frontend/generated/api.schemas'
 
+import { ruleEnabledToggleDisabledReason } from '../ruleEnabledToggleDisabledReason'
 import { logsSamplingSectionLogic } from './logsSamplingSectionLogic'
+import { QuillLogsSamplingRulesSortableTable } from './QuillLogsSamplingRulesSortableTable'
 import { ruleTypeLabel } from './ruleTypeLabel'
 import { type SamplingRuleDropTotals } from './samplingRuleDropImpact'
 
@@ -131,13 +134,11 @@ function SortableRow({
                 <LemonSwitch
                     checked={row.enabled ?? false}
                     onChange={(checked) => onSetRuleEnabled(row.id, checked)}
-                    disabledReason={
-                        ruleEnabledTogglePendingId === row.id
-                            ? 'Saving…'
-                            : saveRulesOrderPending
-                              ? 'Updating order…'
-                              : undefined
-                    }
+                    disabledReason={ruleEnabledToggleDisabledReason(
+                        row.id,
+                        ruleEnabledTogglePendingId,
+                        saveRulesOrderPending
+                    )}
                     data-attr="logs-drop-rule-enabled-switch"
                 />
             </td>
@@ -171,6 +172,7 @@ export function LogsSamplingRulesSortableTable(): JSX.Element {
         }),
         useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
     )
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const handleDragEnd = (event: DragEndEvent): void => {
         setIsDragging(false)
@@ -194,6 +196,26 @@ export function LogsSamplingRulesSortableTable(): JSX.Element {
             : localRules.length < 2
               ? 'Add another rule to reorder'
               : null
+
+    if (todayRailNav) {
+        return (
+            <QuillLogsSamplingRulesSortableTable
+                ruleDropImpact={ruleDropImpact}
+                ruleDropImpactCellState={ruleDropImpactCellState}
+                rules={localRules}
+                initialLoading={rulesLoading && rules.length === 0}
+                reloading={rulesLoading && rules.length > 0}
+                sensors={sensors}
+                dragDisabledReason={dragDisabledReason}
+                ruleEnabledTogglePendingId={ruleEnabledTogglePendingId}
+                saveRulesOrderPending={saveRulesOrderPending}
+                onDraggingChange={setIsDragging}
+                onDragEnd={handleDragEnd}
+                onSetRuleEnabled={setRuleEnabled}
+                onRefresh={loadRules}
+            />
+        )
+    }
 
     if (rulesLoading && rules.length === 0) {
         return (

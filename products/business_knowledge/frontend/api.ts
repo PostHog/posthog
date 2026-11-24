@@ -8,6 +8,7 @@ import {
     businessKnowledgeLibrariesDestroy,
     businessKnowledgeLibrariesList,
     businessKnowledgeLibrariesPartialUpdate,
+    businessKnowledgeLibrariesRetrieve,
     businessKnowledgePlaygroundChatsAskCreate,
     businessKnowledgePlaygroundChatsCreate,
     businessKnowledgePlaygroundChatsDestroy,
@@ -196,6 +197,10 @@ export type KnowledgeLibrary = KnowledgeLibraryApi
 
 export async function listLibraries(): Promise<KnowledgeLibrary[]> {
     return await businessKnowledgeLibrariesList(String(getCurrentTeamId()))
+}
+
+export async function getLibrary(id: string): Promise<KnowledgeLibrary> {
+    return await businessKnowledgeLibrariesRetrieve(String(getCurrentTeamId()), id)
 }
 
 export async function createLibrary(name: string): Promise<KnowledgeLibrary> {

@@ -1,5 +1,6 @@
 import json
 from datetime import timedelta
+from uuid import UUID
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, call, patch
@@ -18,6 +19,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.implementation_pr import ImplementationPr, primary_pull_request
 from products.signals.backend.models import (
     SignalActorKind,
@@ -36,6 +38,7 @@ from products.signals.backend.report_assignments import (
 from products.signals.backend.report_claims import get_active_claim, get_active_claims, responsible_users
 from products.signals.backend.report_monitoring_attempts import complete_implementation
 from products.signals.backend.suggested_reviewer_index import sync_suggested_reviewer_index
+from products.signals.backend.task_run_artefacts import record_implementation_task
 
 
 class TestPrimaryPullRequest(SimpleTestCase):
@@ -334,8 +337,8 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
         )
         assert note.status_code == 201
         assert note.json()["claim_id"] == claim_id
-        denied = self.client.post(self._claim_url(report), {}, format="json", headers=self._agent_headers("other"))
-        assert denied.status_code == 409
+        resumed = self.client.post(self._claim_url(report), {}, format="json", headers=self._agent_headers("other"))
+        assert resumed.json()["assignee"]["claim_id"] == claim_id
         takeover = self.client.post(
             self._claim_url(report), {"takeover": True}, format="json", headers=self._agent_headers("other")
         )
@@ -699,7 +702,106 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
         assert resumed.json()["assignee"]["kind"] == SignalActorKind.USER
         assert note.status_code == status.HTTP_201_CREATED
         assert note.json()["claim_id"] == claim_id
-        assert release.status_code == status.HTTP_409_CONFLICT
+        assert release.status_code == status.HTTP_200_OK
+        assert get_active_claim(team_id=self.team.id, report_id=report.id) is None
+
+    # The task id is caller-supplied, so on a request a task works under its creator's claim only when the
+    # creator authenticates it, even when task creation associated the task with that claim.
+    @parameterized.expand(
+        [
+            ("creator_named_task", "codex", False, False, status.HTTP_200_OK),
+            ("creator_associated_task", "codex", True, False, status.HTTP_200_OK),
+            ("teammate_named_task", "codex", False, True, status.HTTP_409_CONFLICT),
+            ("teammate_associated_task", "codex", True, True, status.HTTP_409_CONFLICT),
+            ("teammate_named_task_of_hand_claim", None, False, True, status.HTTP_409_CONFLICT),
+        ]
+    )
+    def test_task_header_resumes_its_creators_claim(
+        self, _name: str, holder_agent: str | None, associated: bool, as_teammate: bool, expected_status: int
+    ) -> None:
+        Task = apps.get_model("tasks", "Task")
+        report = self._create_report()
+        claim_id = self.client.post(
+            self._claim_url(report),
+            data={},
+            format="json",
+            headers=self._agent_headers(holder_agent) if holder_agent else {},
+        ).json()["assignee"]["claim_id"]
+        task = Task.objects.create(
+            team=self.team, created_by=self.user, title="Signal task", origin_product=Task.OriginProduct.SIGNAL_REPORT
+        )
+        if associated:
+            record_implementation_task(team_id=self.team.id, report_id=str(report.id), task_id=str(task.id))
+        if as_teammate:
+            self.client.force_login(User.objects.create_and_join(self.organization, "teammate@example.com", None))
+
+        resumed = self.client.post(
+            self._claim_url(report),
+            data={"claim_id": claim_id},
+            format="json",
+            headers={"X-PostHog-Task-Id": str(task.id)},
+        )
+        artefacts_url = f"/api/projects/{self.team.id}/signals/reports/{report.id}/artefacts/"
+        note = self.client.post(
+            artefacts_url,
+            {"artefact_type": "note", "content": {"note": "Opened the PR"}},
+            format="json",
+            headers={"X-PostHog-Task-Id": str(task.id)},
+        )
+        reviewers = self.client.post(
+            artefacts_url,
+            {"artefact_type": "suggested_reviewers", "content": [], "claim_id": claim_id},
+            format="json",
+            headers={"X-PostHog-Task-Id": str(task.id)},
+        )
+
+        assert resumed.status_code == expected_status
+        assert note.status_code == status.HTTP_201_CREATED
+        assert note.json()["claim_id"] == (claim_id if expected_status == status.HTTP_200_OK else None)
+        assert reviewers.status_code == (
+            status.HTTP_201_CREATED if expected_status == status.HTTP_200_OK else status.HTTP_400_BAD_REQUEST
+        ), reviewers.content
+        claim = get_active_claim(team_id=self.team.id, report_id=report.id)
+        assert claim is not None and str(claim.claim_id) == claim_id
+        if expected_status == status.HTTP_200_OK:
+            assert resumed.json()["assignee"]["kind"] == SignalActorKind.AGENT
+            assert SignalReportArtefact.objects.filter(
+                report=report, type="task_run", task_id=task.id, claim_id=claim_id
+            ).exists()
+
+    @parameterized.expand(
+        [
+            ("agent_resumes_hand_claim", None, "claude-code"),
+            ("agent_resumes_other_agents_claim", "codex", "claude-code"),
+            ("person_resumes_agents_claim", "codex", None),
+        ]
+    )
+    def test_a_persons_actors_resume_their_claim_without_takeover(
+        self, _name: str, holder_agent: str | None, resumer_agent: str | None
+    ) -> None:
+        report = self._create_report()
+        holder_headers = self._agent_headers(holder_agent) if holder_agent else {}
+        resumer_headers = self._agent_headers(resumer_agent) if resumer_agent else {}
+        claim_id = self.client.post(self._claim_url(report), data={}, format="json", headers=holder_headers).json()[
+            "assignee"
+        ]["claim_id"]
+
+        resumed = self.client.post(self._claim_url(report), data={}, format="json", headers=resumer_headers)
+        note = self.client.post(
+            f"/api/projects/{self.team.id}/signals/reports/{report.id}/artefacts/",
+            {"artefact_type": "note", "content": {"note": "Opened the PR"}, "claim_id": claim_id},
+            format="json",
+            headers=resumer_headers,
+        )
+        released = self.client.post(
+            self._claim_url(report), data={"release": True}, format="json", headers=resumer_headers
+        )
+
+        assert resumed.status_code == status.HTTP_200_OK, resumed.json()
+        assert resumed.json()["assignee"]["claim_id"] == claim_id
+        assert note.status_code == status.HTTP_201_CREATED
+        assert released.status_code == status.HTTP_200_OK
+        assert get_active_claim(team_id=self.team.id, report_id=report.id) is None
 
     @parameterized.expand(
         [
@@ -978,22 +1080,31 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("claiming_agent", "claude-code", False, False, status.HTTP_200_OK),
-            ("responsible_user", None, False, False, status.HTTP_200_OK),
-            ("responsible_user_with_claim_id", None, False, True, status.HTTP_200_OK),
-            ("different_agent", "codex", False, True, status.HTTP_409_CONFLICT),
-            ("different_user", None, True, True, status.HTTP_409_CONFLICT),
+            ("claiming_agent", "claude-code", False, False, status.HTTP_200_OK, False),
+            ("responsible_user", None, False, False, status.HTTP_200_OK, False),
+            ("responsible_user_with_claim_id", None, False, True, status.HTTP_200_OK, False),
+            ("different_agent", "codex", False, True, status.HTTP_200_OK, False),
+            ("different_users_agent", "codex", True, True, status.HTTP_409_CONFLICT, False),
+            ("different_user", None, True, True, status.HTTP_409_CONFLICT, False),
+            ("persons_own_agent", "codex", False, True, status.HTTP_200_OK, True),
+            ("other_persons_agent", "codex", True, True, status.HTTP_409_CONFLICT, True),
         ]
     )
     def test_only_current_actor_or_responsible_user_can_release_and_pr_is_preserved(
-        self, _name: str, agent: str | None, different_user: bool, include_claim_id: bool, expected_status: int
+        self,
+        _name: str,
+        agent: str | None,
+        different_user: bool,
+        include_claim_id: bool,
+        expected_status: int,
+        claimed_by_person: bool,
     ) -> None:
         report = self._create_report()
         claim = self.client.post(
             self._claim_url(report),
             data={"pr_url": "https://github.com/PostHog/posthog/pull/123"},
             format="json",
-            headers=self._agent_headers("claude-code"),
+            headers={} if claimed_by_person else self._agent_headers("claude-code"),
         )
         assert claim.status_code == status.HTTP_200_OK
 
@@ -1020,6 +1131,27 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
         assert released.json()["implementation_pr_state"] == "unknown"
         assert released.json()["work_state"] == "in_review"
         assert released.json()["assignee"] is None
+
+    @parameterized.expand(
+        [
+            ("dismissed", SignalReport.Status.SUPPRESSED, True),
+            ("resolved", SignalReport.Status.RESOLVED, False),
+        ]
+    )
+    def test_dismissing_a_report_releases_its_claim(self, _name: str, to_status: str, expect_released: bool) -> None:
+        report = self._create_report()
+        claim = self.client.post(self._claim_url(report), data={}, format="json")
+        assert claim.status_code == status.HTTP_200_OK
+
+        report.status = to_status
+        report._transition_actor = ArtefactAttribution.from_user(self.user.id)  # type: ignore[attr-defined]
+        report.save(update_fields=["status"])
+
+        assert (get_active_claim(team_id=self.team.id, report_id=report.id) is None) is expect_released
+        releases = SignalReportArtefact.objects.filter(report=report, type="work_release")
+        assert [(r.claim_id, r.created_by_id) for r in releases] == (
+            [(UUID(claim.json()["assignee"]["claim_id"]), self.user.id)] if expect_released else []
+        )
 
     @parameterized.expand(
         [
@@ -1218,6 +1350,51 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
         assert {row["id"] for row in rows} == {str(report.id) for report in mine}
         assert {row["assignee"]["responsible_user"]["id"] for row in rows} == {self.user.id}
 
+    def test_needs_you_and_connected_keep_the_reports_tied_to_the_user(self):
+        teammate = User.objects.create_and_join(self.organization, "teammate@example.com", None)
+
+        def suggest(report: SignalReport, user: User) -> SignalReport:
+            SignalReportArtefact.objects.create(
+                team=self.team,
+                report=report,
+                type="suggested_reviewers",
+                content=json.dumps([{"user_uuid": str(user.uuid), "github_login": None}]),
+            )
+            sync_suggested_reviewer_index(team_id=self.team.id, report_id=str(report.id))
+            return report
+
+        pending = SignalReport.Status.PENDING_INPUT
+        waiting = suggest(self._create_report(report_status=pending, title="Waiting on me"), self.user)
+        claimed = [self._create_report(title=title) for title in ("Claimed by me", "Claimed by my agent")]
+        others = [
+            suggest(self._create_report(report_status=pending, title="Waiting on teammate"), teammate),
+            suggest(self._create_report(title="Suggested to me"), self.user),
+            self._create_report(title="Claimed by teammate"),
+        ]
+        for report, headers in [(claimed[0], {}), (claimed[1], self._agent_headers("codex"))]:
+            assert self.client.post(self._claim_url(report), data={}, format="json", headers=headers).status_code == 200
+        self.client.force_login(teammate)
+        assert self.client.post(self._claim_url(others[2]), data={}, format="json").status_code == 200
+        self.client.force_login(self.user)
+
+        needs_you = self.client.get(self._list_url(needs_you="true"))
+        rest = self.client.get(self._list_url(needs_you="false"))
+
+        assert needs_you.status_code == rest.status_code == status.HTTP_200_OK
+        assert {row["id"] for row in needs_you.json()["results"]} == {str(r.id) for r in [waiting, *claimed]}
+        assert {row["id"] for row in rest.json()["results"]} == {str(r.id) for r in others}
+
+        suggested_to_me = [waiting, others[1]]
+        for connected, expected in [
+            ("assigned", claimed),
+            ("suggested_reviewer", suggested_to_me),
+            ("assigned,suggested_reviewer", [*claimed, *suggested_to_me]),
+        ]:
+            response = self.client.get(self._list_url(connected=connected))
+            assert response.status_code == status.HTTP_200_OK
+            assert {row["id"] for row in response.json()["results"]} == {str(r.id) for r in expected}
+        assert self.client.get(self._list_url(connected="merged")).status_code == status.HTTP_400_BAD_REQUEST
+
     def test_responsible_users_resolves_task_claims_in_fixed_queries(self):
         Task = apps.get_model("tasks", "Task")
         reports = [self._create_report(title=f"Task report {i}") for i in range(3)]
@@ -1266,8 +1443,8 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("an agent, without takeover", "agent", False, "conflict", SignalActorKind.AGENT),
-            ("an agent, with takeover", "agent", True, "claimed", SignalActorKind.USER),
+            ("their agent, without takeover", "agent", False, "claimed", SignalActorKind.AGENT),
+            ("their agent, with takeover", "agent", True, "claimed", SignalActorKind.USER),
             ("a person, with takeover", "person", True, "conflict", SignalActorKind.USER),
         ]
     )

@@ -54,6 +54,7 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSchema,
     ExternalDataSource,
 )
+from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.facade.source_management import SourceSchema
 from products.warehouse_sources.backend.facade.types import ManagedWarehouseSQLMode
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postgres import (
@@ -1365,7 +1366,7 @@ class TestManagedWarehouseLifecycle:
         assert isinstance(source.job_inputs, dict)
         assert isinstance(other_source.job_inputs, dict)
         assert source.job_inputs["password"] == _PROJECT_READER_PASSWORD
-        assert other_source.job_inputs["password"] == "rotated"
+        assert SourceInputsStore.load(other_source)["password"] == "rotated"
         assert server.password == "rotated"
 
     def test_update_root_password_skips_soft_deleted_sources(self) -> None:

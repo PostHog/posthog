@@ -67,6 +67,7 @@ describe('fetchAndExtractEntries', () => {
     it.each([
         ['corrupt', strToU8('not a zip')],
         ['oversized', zipSync({ 'SKILL.md': new Uint8Array(9 * 1024 * 1024) })],
+        ['itself past the extraction limit', zipSync({ 'SKILL.md': [new Uint8Array(9 * 1024 * 1024), { level: 0 }] })],
     ])('serves the entries with no overlay when an omnibus zip is %s', async (_label, inner) => {
         const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
         stubArchiveResponse({

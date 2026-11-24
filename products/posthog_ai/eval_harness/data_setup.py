@@ -14,12 +14,13 @@ from django.utils import timezone
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Organization, OrganizationMembership, Team, User
-from posthog.models.event.sql import COPY_EVENTS_BETWEEN_TEAMS
+from posthog.models.event.sql import COPY_EVENTS_BETWEEN_TEAMS, COPY_EVENTS_JSON_BETWEEN_TEAMS
 from posthog.models.group.sql import COPY_GROUPS_BETWEEN_TEAMS
 from posthog.models.person.sql import COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS, COPY_PERSONS_BETWEEN_TEAMS
 from posthog.persons_db import persons_db_connection
 
-from products.dashboards.backend.models import Dashboard, DashboardTile
+from products.dashboards.backend.facade.contracts import DashboardRef
+from products.dashboards.backend.facade.testing import create_dashboard, create_insight_tile
 from products.demo.backend.facade.api import HedgeboxMatrix, MatrixManager, infer_taxonomy_for_team
 from products.posthog_ai.backend.models.assistant import CoreMemory
 from products.product_analytics.backend.facade.models import Insight
@@ -119,6 +120,13 @@ def create_isolated_demo_data(
     return org, team, user
 
 
+def _case_org_name(label: str, suffix: str) -> str:
+    max_length = Organization._meta.get_field("name").max_length
+    assert max_length is not None
+    max_label = max_length - len(f"Hedgebox (-{suffix})")
+    return f"Hedgebox ({label[:max_label]}-{suffix})"
+
+
 def create_demo_org_team_user(django_db_blocker) -> tuple[Organization, Team, User]:
     """Create or reuse demo data for CI evals. Thin wrapper for backward compat."""
     return create_isolated_demo_data(django_db_blocker, label="ci")
@@ -183,7 +191,7 @@ def ensure_master_demo_team(django_db_blocker) -> int:
 def create_empty_eval_project(django_db_blocker: NullDbBlocker, *, label: str) -> tuple[Team, User]:
     suffix = uuid.uuid4().hex[:8]
     with django_db_blocker.unblock(), transaction.atomic():
-        org = Organization.objects.create(name=f"Hedgebox ({label}-{suffix})")
+        org = Organization.objects.create(name=_case_org_name(label, suffix))
         user = User.objects.create_and_join(
             org,
             f"eval-{label}-{suffix}@posthog.test",
@@ -213,7 +221,7 @@ def copy_demo_data_to_new_team(
     """
 
     suffix = uuid.uuid4().hex[:8]
-    org_name = f"Hedgebox ({label}-{suffix})"
+    org_name = _case_org_name(label, suffix)
     email = f"eval-{label}-{suffix}@posthog.test"
 
     with django_db_blocker.unblock():
@@ -241,6 +249,7 @@ def copy_demo_data_to_new_team(
         sync_execute(COPY_PERSONS_BETWEEN_TEAMS, copy_params)
         sync_execute(COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS, copy_params)
         sync_execute(COPY_EVENTS_BETWEEN_TEAMS, copy_params)
+        sync_execute(COPY_EVENTS_JSON_BETWEEN_TEAMS, copy_params)
         sync_execute(COPY_GROUPS_BETWEEN_TEAMS, copy_params)
 
         # Copy the master team's group type mappings onto the isolated eval team, writing through the
@@ -309,7 +318,7 @@ class DashboardWithInsightsFixture:
 
     def __init__(
         self,
-        dashboard: Dashboard,
+        dashboard: DashboardRef,
         insight_dau: Insight,
         insight_funnel: Insight,
         insight_retention: Insight,
@@ -422,27 +431,30 @@ def create_dashboard_with_insights(
     )
 
     # Create the dashboard
-    dashboard = Dashboard.objects.create(
-        team=team,
+    dashboard = DashboardRef(
+        id=create_dashboard(
+            team_id=team.id,
+            name="Growth Dashboard",
+            description="Dashboard for tracking growth metrics",
+            created_by_id=user.id,
+        ),
         name="Growth Dashboard",
-        description="Dashboard for tracking growth metrics",
-        created_by=user,
     )
 
     # Add tiles to dashboard
-    DashboardTile.objects.create(
-        dashboard=dashboard,
-        insight=insight_dau,
+    create_insight_tile(
+        dashboard_id=dashboard.id,
+        insight_id=insight_dau.id,
         layouts={"lg": {"x": 0, "y": 0, "w": 6, "h": 4}},
     )
-    DashboardTile.objects.create(
-        dashboard=dashboard,
-        insight=insight_funnel,
+    create_insight_tile(
+        dashboard_id=dashboard.id,
+        insight_id=insight_funnel.id,
         layouts={"lg": {"x": 6, "y": 0, "w": 6, "h": 4}},
     )
-    DashboardTile.objects.create(
-        dashboard=dashboard,
-        insight=insight_retention,
+    create_insight_tile(
+        dashboard_id=dashboard.id,
+        insight_id=insight_retention.id,
         layouts={"lg": {"x": 0, "y": 4, "w": 6, "h": 4}},
     )
 

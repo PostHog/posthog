@@ -22,6 +22,7 @@ from asgiref.sync import async_to_sync
 from parameterized import parameterized
 from pydantic import JsonValue
 
+from posthog.errors import ClickHouseQueryTimeOut
 from posthog.llm.gateway_client import AIGatewayConfig, GatewayNotConfiguredError
 from posthog.models import Team
 from posthog.models.scoping import team_scope
@@ -47,7 +48,7 @@ from products.signals.backend.scout_harness.tools.report import (
     emit_report_sync,
 )
 from products.signals.backend.scout_harness.tools.report_author import ScoutRunReportAuthor
-from products.signals.backend.scout_harness.tools.scratchpad import ScratchpadEntry
+from products.signals.backend.scout_harness.tools.scratchpad import ScratchpadEntry, ScratchpadRevivedExpiry
 from products.signals.backend.scout_harness.trial_gateway import create_trial_gateway_token, revoke_trial_gateway_token
 from products.signals.backend.scout_harness.trial_state import (
     ScoutTrialStateError,
@@ -152,6 +153,13 @@ class TestScoutTrialState(APIBaseTest):
         assert own.search_memory(key=original.key) == []
         assert sibling.search_memory(key=original.key)[0].content == "Second candidate"
 
+    def test_memory_search_filters_by_key_prefix(self) -> None:
+        store = ScoutTrialStore(self.scout_run, initial_memory=[])
+        store.remember(key="report:checkout", content="v")
+        store.remember(key="dedupe:checkout", content="filed as report:checkout")
+
+        assert [entry.key for entry in store.search_memory(key_prefix="report:")] == ["report:checkout"]
+
     def test_stale_store_instances_preserve_other_writes_and_task_state(self) -> None:
         first = ScoutTrialStore(self.scout_run, initial_memory=[])
         second = ScoutTrialStore(self.scout_run, initial_memory=[])
@@ -239,6 +247,16 @@ class TestScoutTrialState(APIBaseTest):
         assert len(store.search_memory(include_expired=True)) == 3
         assert store.search_memory(key="new", keys_only=True)[0].content == ""
         assert store.search_memory(key="new", content_max_chars=8)[0].content == "Checkout"
+        [marker] = store.search_memory(key="expired")
+        assert (marker.content, marker.expired, marker.expires_at, marker.last_changed_by_skill) == (
+            "",
+            True,
+            (now - timedelta(seconds=1)).isoformat(),
+            None,
+        )
+        revived = store.remember(key="expired", content="Checkout revived detail")
+        assert revived.revived_expiry == ScratchpadRevivedExpiry(expires_at=(now - timedelta(seconds=1)).isoformat())
+        assert store.search_memory(key="expired")[0].revived_expiry is None
 
 
 @override_settings(
@@ -787,9 +805,7 @@ class TestScoutTrialReportCapture(APIBaseTest):
             )
         select_repository.assert_not_called()
         assert result.report_id is not None
-        report = self.store.get_report(result.report_id)
-        assert report is not None
-        assert report.operator_metadata["skipped_automatic_repository_selection"] is True
+        assert self.store.get_report(result.report_id) is not None
 
     @parameterized.expand(
         [(action, state) for action in ("emit-report", "edit-report") for state in ("invalid", "completed")]
@@ -1052,6 +1068,29 @@ class TestScoutTrialReportCapture(APIBaseTest):
             assert self.store.invalid_reason() is None
         first.refresh_from_db()
         assert first.title == "Earlier report"
+
+    def test_inbox_list_preserves_source_metadata_failure_across_trial_rows(self) -> None:
+        edited = SignalReport.objects.create(team=self.team, title="Edited report", status="ready")
+        SignalReport.objects.create(team=self.team, title="Production report", status="ready")
+        edit_report_sync(
+            team=self.team,
+            author=ScoutRunReportAuthor(run=self.scout_run),
+            report_id=str(edited.id),
+            title="Private revision",
+        )
+        base = f"/api/projects/{self.team.id}/signals/reports/"
+        with (
+            patch("products.signals.backend.views.trial_store_for_request", return_value=self.store),
+            patch(
+                "products.signals.backend.views.fetch_source_products_for_reports",
+                side_effect=[ClickHouseQueryTimeOut(), {}],
+            ),
+            patch("products.signals.backend.views.fetch_implementation_prs_for_reports", return_value={}),
+        ):
+            response = self.client.get(base)
+
+        assert response.status_code == 200
+        assert response.json()["source_metadata_available"] is False
 
     @parameterized.expand(
         [

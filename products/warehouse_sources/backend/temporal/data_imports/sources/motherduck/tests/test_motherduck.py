@@ -26,6 +26,12 @@ _SERVICE_UNAVAILABLE_ERROR = (
     "Request failed: Could not connect to MotherDuck. Please try again later"
 )
 
+_INTERNAL_SERVER_ERROR = (
+    "Invalid Error: You've encountered an internal MotherDuck error. You can help us diagnose "
+    "and fix the issue by contacting support via slack, in-app chat, or support@motherduck.com "
+    "and referencing error ID: deadbeef."
+)
+
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.motherduck.motherduck"
 _CONNECT_PATH = f"{_MODULE}.duckdb.connect"
 
@@ -103,6 +109,7 @@ class TestMotherDuck:
             ),
             ("Catalog Error: Table with name nope does not exist", "Can't find that database or schema"),
             (_SERVICE_UNAVAILABLE_ERROR, "MotherDuck is temporarily unavailable"),
+            (_INTERNAL_SERVER_ERROR, "MotherDuck is temporarily unavailable"),
             # Unmapped errors surface their first line only (DuckDB appends candidate/hint blocks).
             ("Parser Error: syntax error at or near\nCandidate bindings: ...", "Parser Error: syntax error at or near"),
         ],
@@ -330,17 +337,29 @@ class TestMotherDuck:
 
         assert error_message_matches(str(exc_info.value), source.get_non_retryable_errors())
 
-    def test_service_outages_keep_retrying(self, source):
+    @pytest.mark.parametrize(
+        "driver_error",
+        [_SERVICE_UNAVAILABLE_ERROR, _INTERNAL_SERVER_ERROR],
+        ids=["connect_time_outage", "internal_server_error_mid_query"],
+    )
+    def test_service_outages_keep_retrying(self, source, driver_error):
         # The import activity consults the non-retryable set first, so an outage has to miss that
         # set entirely or it stops the sync and asks the owner to check credentials they can't fix.
-        assert not error_message_matches(_SERVICE_UNAVAILABLE_ERROR, source.get_non_retryable_errors())
-        assert error_message_matches(_SERVICE_UNAVAILABLE_ERROR, source.get_retryable_errors())
-        assert error_message_matches(_SERVICE_UNAVAILABLE_ERROR, source.get_retry_exhausted_errors())
+        # `get_rows` raises the internal-server-error wording directly (it never passes through
+        # `connect()`'s translation), so classification has to match the raw driver text too.
+        assert not error_message_matches(driver_error, source.get_non_retryable_errors())
+        assert error_message_matches(driver_error, source.get_retryable_errors())
+        assert error_message_matches(driver_error, source.get_retry_exhausted_errors())
 
-    def test_an_outage_stays_retryable_once_connect_has_translated_it(self, source):
+    @pytest.mark.parametrize(
+        "driver_error",
+        [_SERVICE_UNAVAILABLE_ERROR, _INTERNAL_SERVER_ERROR],
+        ids=["connect_time_outage", "internal_server_error_mid_query"],
+    )
+    def test_an_outage_stays_retryable_once_connect_has_translated_it(self, source, driver_error):
         # `connect()` replaces the driver text with our own copy, so classification runs against
         # that copy for any failure raised while opening a connection.
-        with patch(_CONNECT_PATH, side_effect=duckdb.Error(_SERVICE_UNAVAILABLE_ERROR)):
+        with patch(_CONNECT_PATH, side_effect=duckdb.Error(driver_error)):
             with pytest.raises(MotherDuckConnectionError) as exc_info:
                 connect("md-token", "my_db")
 

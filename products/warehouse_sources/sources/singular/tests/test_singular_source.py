@@ -35,7 +35,15 @@ class TestSingularSource:
 
     @pytest.mark.parametrize(
         "schema_name, expected",
-        [("daily_report", True), ("custom_dimensions", False), ("cohort_metrics", False)],
+        [
+            ("daily_report", True),
+            ("skadnetwork_report", True),
+            ("skadnetwork_raw_report", True),
+            ("ad_monetization_report", True),
+            ("filters", False),
+            ("custom_dimensions", False),
+            ("cohort_metrics", False),
+        ],
     )
     def test_only_the_report_counts_as_resumable(self, schema_name, expected):
         assert self.source.resume_covers_run(incremental_or_append=True, schema_name=schema_name) is expected

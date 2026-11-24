@@ -7,8 +7,9 @@ description: >
   ID or title, wants to act on / fix / implement a report (turn it into a PR), wants to resolve,
   dismiss, or snooze a report, or wants to see which signal sources are configured. Also use before you
   investigate an error, bug, metric change, or support ticket in code, to find research the Inbox already did.
-  Covers listing, filtering, drilling into, and acting on reports, plus pointers to the deeper `signals` skill when raw signals
-  or semantic search are needed. For a personal, ranked top N of reports, use `prioritizing-my-inbox`.
+  Covers listing, searching by topic, filtering, drilling into, and acting on reports, plus pointers to the deeper `signals` skill
+  when raw signals are needed. For a personal, ranked top N of reports, use `prioritizing-my-inbox`,
+  which starts from the stored personal ranking (`view=for_you`, `sort=personal`).
 ---
 
 # Exploring the Inbox
@@ -18,8 +19,7 @@ The **Inbox** is where PostHog surfaces signal reports — clusters of related o
 /checkout"). Reports come from multiple source products: error tracking, session replay, web
 analytics, experiments, and integrations like Linear, GitHub, and Zendesk.
 
-Inbox is part of [PostHog Desktop](https://posthog.com/desktop), PostHog's agentic surface for
-engineering teams.
+Inbox is part of the PostHog web app, where it is named **Self-driving inbox**.
 
 Don't assume the user's project has reports, or that any signal sources are configured — plenty
 of projects don't have Inbox set up. Always run the setup-check workflow below before answering
@@ -34,7 +34,7 @@ Read only the reference for the task. Read it before you use its write tools.
 | Check what needs attention                                                  | Use the setup check and triage workflow below.                                                           |
 | Investigate an error, bug, metric change, or support ticket                 | Use the research search below. Skip the setup check for this search.                                     |
 | Read a report by ID or URL                                                  | Use the report detail workflow below.                                                                    |
-| Fix a report or open a pull request                                         | [Implementation and claims](references/implementation.md). Read before you claim or change code.         |
+| Fix a report or open a pull request, with a user or in a scheduled run      | [Implementation and claims](references/implementation.md). Read before you claim or change code.         |
 | Run Get it merged, Make it green, a suggested prompt, or Ask; file a report | [Report actions and filing](references/report-actions.md). Read before you start a run or file a report. |
 | Resolve, dismiss, snooze, or restore a report                               | [Report state](references/report-state.md). Read before any state change.                                |
 | Rank reports or use prediction filters                                      | [Ranking](references/ranking.md). Read before you use model predictions.                                 |
@@ -45,9 +45,11 @@ Without a `view`, `inbox-reports-list` returns reports from the whole project, n
 When the user says "my inbox", "my reports", or "what needs me", pass `view: "for_you"`.
 Use project scope only when the user asks for the whole project or the team's inbox.
 
-When the user wants a personal shortlist ("let's look at my inbox", "my top 10 inbox reports"), use the
-**`prioritizing-my-inbox`** skill. It ranks reports by the user's activity summary, the ranking model, and
-what waits on them.
+When the user wants a personal shortlist ("let's look at my inbox", "my top 10 inbox reports", "what should I
+look at today?"), use the **`prioritizing-my-inbox`** skill. Its first call is
+`{"view": "for_you", "sort": "personal", "limit": 10}`, which returns the user's stored personal ranking in one
+read. Check that the response's `ranker` is `personal` before you call the list personal, and do not pass
+`ordering` with it, because `ordering` replaces `sort`.
 
 For deeper investigation, hand off to other skills and tools:
 
@@ -72,6 +74,7 @@ _underlying detail_ — pair them when the user wants to dig in.
 | Tool                                  | Purpose                                                                                                       |
 | ------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
 | `inbox-reports-list`                  | Paginated list of reports with filters (status, search, etc.)                                                 |
+| `inbox-reports-search`                | Reports about a topic, ranked by keywords and by meaning, across every status                                 |
 | `inbox-reports-retrieve`              | Full detail for a single report                                                                               |
 | `inbox-reports-claim`                 | Claim or release a report, and optionally attach its implementation PR                                        |
 | `inbox-reports-create`                | File a finding of your own as a report. It never starts an implementation run on its own                      |
@@ -87,7 +90,7 @@ _underlying detail_ — pair them when the user wants to dig in.
 | `inbox-source-configs-partial-update` | Toggle a source's `enabled` flag (or adjust its `config`)                                                     |
 | `posthog:execute-sql` (signals skill) | HogQL access to underlying signals (read the `signals` skill first)                                           |
 
-The `inbox-reports-*-list` / `-retrieve`, `inbox-report-artefacts-list` / `-retrieve`, and
+The `inbox-reports-*-list` / `-retrieve`, `inbox-reports-search`, `inbox-report-artefacts-list` / `-retrieve`, and
 `inbox-source-configs-*-list` / `-retrieve` tools are read-only. The exposed writes are `inbox-reports-set-state` (resolve / dismiss / snooze a single report),
 `inbox-reports-bulk-set-state` (the same transition for 1–100 reports in one call),
 `inbox-reports-claim` (claim / release / attach a PR), see
@@ -109,13 +112,35 @@ What each report status means (in roughly the order a triage agent should care a
 - `failed` — processing errored
 - `suppressed` — out of the inbox; not surfaced by default. A person or agent dismissed it, or a
   judge held it back before anyone reviewed it. See _Dismissed and held-back reports_ below
+- `monitoring` — the fix shipped, and the report's follow-up checks are verifying that it worked.
+  Only where the organization has Monitoring on.
+  See [Monitoring](references/report-state.md#monitoring)
 - `resolved` — the work the report asked for is done. Terminal: a resolved report never re-promotes,
-  so a recurrence starts a fresh report linked back to it. Set automatically when a linked
-  implementation PR merges, or directly via `inbox-reports-set-state` (see the [report state workflow](references/report-state.md))
+  so a recurrence starts a fresh report linked back to it.
+  Set automatically when a linked implementation PR merges, or with Monitoring on, when its checks confirm the fix.
+  Also set directly via `inbox-reports-set-state` (see the [report state workflow](references/report-state.md))
+- `closed` — Monitoring could not show that the fix worked.
+  A linked follow-up report researches why
 
 By default `inbox-reports-list` excludes `suppressed` reports and orders results by
 `-is_suggested_reviewer,status,-updated_at` — the user's own suggested reports first, then by
 status, then most recently updated. Refer to the tool's input schema for filter mechanics.
+
+To find the reports about a topic, such as before filing one, use `inbox-reports-search`.
+It ranks reports by relevance across every status, and matches a report that describes the topic in other words.
+The `search` filter on `inbox-reports-list` matches the exact text only.
+
+### Routing and claims
+
+A report is a finding, not a sign that someone is working on the problem.
+**Routing** (`suggested_reviewers`, `is_suggested_reviewer`) says who should read it. A suggested reviewer has not accepted the report and is not working on it.
+**Claims** (`work_state`, `assignee`) say who is working on it.
+`work_state: unclaimed` means no active claim and no pull request in progress, so the report is free to take, whoever its suggested reviewers are.
+`working` means an active claim, `in_review` a draft, open, or unknown-state pull request, and `done` a resolved, closed, or monitoring report.
+`assignee: null` alone does not mean free: a report stays `in_review` when its holder released the claim and left a pull request.
+A report with `status: suppressed`, which the `dismissed`, `held_back`, and `all` views return, can be `unclaimed`, but it is not free: it cannot be claimed until it is restored.
+`inbox-reports-search` results do not carry the claim fields, so read a match with `inbox-reports-retrieve` before you decide.
+To list only the free reports, pass `unclaimed: true` to `inbox-reports-list`.
 
 ## Dismissed and held-back reports
 
@@ -180,17 +205,14 @@ How the flag is produced:
 
 Practical implications for triage:
 
-- A `true` value means "you are a suggested reviewer for this report": a plausible owner,
-  not an assignee. When the pipeline derived the reviewers, that usually means you wrote (or
-  recently touched) the relevant code; when a scout or a person named you by `user_uuid`, it
-  means they judged you the owner. It's a recommendation, not authoritative.
-- A `false` value doesn't mean the report is irrelevant — it can mean (a) someone else owns
+- A `true` value means "you are a suggested reviewer for this report": a person well placed to act on it. It is routing, not a claim, and it does not mean that you or anyone else is working on the report.
+  When the pipeline derived the reviewers, that usually means you wrote (or recently touched) the relevant code; when a scout or a person named you by `user_uuid`, it means they judged you the right person to read it. It's a recommendation, not authoritative.
+- A `false` value doesn't mean the report is irrelevant — it can mean (a) someone else wrote
   the code, (b) the suggested logins came from commit history and no org member has that
   GitHub account linked (a reviewer set by `user_uuid` doesn't have this problem), or (c) the
   source material wasn't tied to a specific repo / commits.
-- If the user asks "what should _I_ look at?", lead with `is_suggested_reviewer: true`
-  reports: these are the ones routed to the user as a likely owner. Mention the rest as a
-  secondary group rather than mixing them in.
+- If the user asks "what should _I_ look at?", use `prioritizing-my-inbox`.
+  When no stored personal ranking applies, lead with `is_suggested_reviewer: true` reports: these are the ones routed to the user as a suggested reviewer. Mention the rest as a secondary group rather than mixing them in.
 - If the user has _no_ suggested reports but the inbox isn't empty, say so explicitly
   ("nothing in the inbox is tied to code you've authored recently") rather than pretending
   the top of the list is personalized.
@@ -212,14 +234,14 @@ Three meaningful cases:
 **Case A — no source configs at all (`count: 0`)**
 
 The user hasn't onboarded to Inbox / signals. **Don't pretend the inbox has data.** Tell the user
-plainly that Inbox needs signal sources to be set up first, and that the recommended way to do
-this is to install **PostHog Desktop** at <https://posthog.com/desktop>. Example response:
+plainly that Inbox needs signal sources to be set up first, and that they do this by activating
+Self-driving in the Inbox in the PostHog web app. Example response:
 
 > Your project doesn't have any signal sources configured yet, so the Inbox is empty. Inbox surfaces
 > issues and trends that PostHog automatically clusters from sources like error tracking, session
-> replay, GitHub, Linear, and Zendesk. The fastest way to set this up is to install
-> [PostHog Desktop](https://posthog.com/desktop) — once it's connected, signals will start flowing in
-> and reports will appear in your inbox over the next day or so.
+> replay, GitHub, Linear, and Zendesk. To set this up, open the Inbox in PostHog and activate
+> Self-driving. Signals then start flowing in, and reports appear in your inbox over the next day
+> or so.
 
 Stop here unless the user wants to discuss setup. Don't run further inbox tools — they'll all be
 empty.
@@ -265,8 +287,8 @@ If `count: 0` comes back, jump to the empty/unconfigured workflow above before s
 inbox is empty" — the right reply depends on whether sources are configured.
 
 A claimed report keeps its pipeline status, so this queue also returns work someone else already
-owns. Add `"unclaimed": true` when the user is asking what is free to pick up, and
-`"assignee": "me"` to list what the caller already owns and may want to resume.
+claimed. Add `"unclaimed": true` when the user is asking what is free to pick up, and
+`"assignee": "me"` to list what the caller already claimed and may want to resume.
 
 ### Step 2 — Summarize by source and actionability
 
@@ -283,8 +305,8 @@ For each report, the response includes:
 - `pull_requests` — if a PR has been opened against this report
 - `work_state` — `unclaimed`, `working`, `in_review`, or `done`
 - `assignee` — who claimed the report (a user, an internal task, or an external agent), or `null`
-  when nobody has. Say so when you list a report someone else owns, so it doesn't read as free
-  work
+  when nobody holds a claim. Say so when you list a report someone else claimed, so it doesn't read as free
+  work. A null `assignee` alone does not make a report free: its `work_state` must be `unclaimed`
 - `_posthogUrl` — clickable deep-link to the report; **always include this in your response**
 
 Group the results so the user can scan quickly. **Lead with reports where
@@ -333,8 +355,17 @@ inbox-reports-list
 }
 ```
 
-Otherwise, search with a short term such as the error type, the page, or the feature name.
-`search` matches report titles and summaries only, so try one or two short terms instead of a full sentence:
+Otherwise, call `inbox-reports-search` with a `query` that names the error, the page, or the feature.
+It matches by keywords and by meaning across every status, so search again in other words before you decide that nothing matches.
+Read each result's `status`:
+
+```json
+inbox-reports-search
+{ "query": "checkout payment fails", "limit": 10 }
+```
+
+When `inbox-reports-search` is not present or returns 404, call `inbox-reports-list` with `search` instead.
+That filter matches the exact text of titles and summaries only, so try one or two short terms instead of a full sentence:
 
 ```json
 inbox-reports-list
@@ -346,6 +377,8 @@ inbox-reports-list
 - No match: continue the investigation, and do not mention the check.
 - A match: read it with `inbox-reports-retrieve` before you read code.
   Use the research as a starting point, and verify it against the code.
+- The report's `work_state` is `unclaimed` and the report is not dismissed: the fix is free to take. Claim the report before you change code.
+- Someone else claimed the report: say who holds it and since when (`assignee.claimed_at`), and do not duplicate the work.
 - The report has an open pull request: continue that work. Do not open a second pull request.
 - The report is resolved or dismissed: read why before you reopen the question.
 - You fix the problem: attach your pull request with `inbox-reports-claim` and `pr_url`, as in
@@ -406,19 +439,23 @@ inbox-reports-list
 
 ## Workflow: filter by topic or source
 
-"Are there any reports about <topic>?" — start with `search`:
+"Are there any reports about <topic>?" — start with `inbox-reports-search`:
 
 ```json
-inbox-reports-list
+inbox-reports-search
 {
-  "search": "checkout",
+  "query": "checkout",
   "status": "ready,in_progress,pending_input",
   "limit": 20
 }
 ```
 
-`search` matches title and summary. If the user is asking about a product area rather than a
-keyword, use `source_product`:
+Without `status`, the search covers every status, dismissed reports included, so read each result's `status`.
+Search again in other words before you tell the user that no report covers the topic.
+When `inbox-reports-search` is not present or returns 404, call `inbox-reports-list` with `search` and the same `status`.
+That filter matches the exact text of the title and summary only.
+
+If the user is asking about a product area rather than a topic, use `source_product`:
 
 ```json
 inbox-reports-list
@@ -428,14 +465,11 @@ inbox-reports-list
 }
 ```
 
-If the keyword search returns nothing meaningful, hand off to the `signals` skill — semantic
-search over signal text via `embedText()` will catch reports the keyword filter missed.
-
 ## Tips
 
 - **Check setup before assuming the inbox is empty.** If `inbox-reports-list` returns `count: 0`,
-  call `inbox-source-configs-list` first — no sources means the user needs to install
-  [PostHog Desktop](https://posthog.com/desktop) to start receiving signals; sources-but-no-reports
+  call `inbox-source-configs-list` first — no sources means the user needs to activate Self-driving
+  in the Inbox in the PostHog web app to start receiving signals; sources-but-no-reports
   means signals are flowing but nothing has clustered yet
 - **Always surface `_posthogUrl`** so the user can click through to the report
 - The default ordering already prioritizes the user's suggested reports — don't reorder unless

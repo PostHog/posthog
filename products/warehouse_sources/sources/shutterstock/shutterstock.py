@@ -1,5 +1,5 @@
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Iterable
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 
@@ -13,6 +13,7 @@ from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SinglePagePaginator,
     SourceResponse,
+    build_dependent_resource,
     make_tracked_session,
     rest_api_resource,
     validate_via_probe,
@@ -29,7 +30,8 @@ MAX_PAGES = 100_000
 @dataclasses.dataclass(frozen=False)
 class ShutterstockResumeConfig:
     # Next 1-indexed page to fetch.
-    page: int
+    page: int = 1
+    fanout_state: dict[str, Any] | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -85,7 +87,8 @@ def check_endpoint_access(auth: ShutterstockAuth, endpoint: str) -> str | None:
     as a missing scope — throttles, 5xx, or network blips must not mark a table
     unreachable, so anything else reads as reachable."""
     config = SHUTTERSTOCK_ENDPOINTS[endpoint]
-    ok, status = _probe_endpoint(auth, config.path)
+    probe_config = SHUTTERSTOCK_ENDPOINTS[config.fanout.parent_name] if config.fanout else config
+    ok, status = _probe_endpoint(auth, probe_config.path)
     if ok or status not in (401, 403):
         return None
     if config.required_scope:
@@ -112,6 +115,49 @@ def _probe_endpoint(auth: ShutterstockAuth, path: str) -> tuple[bool, int | None
     )
 
 
+def _collection_items(
+    auth: ShutterstockAuth,
+    endpoint: str,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[ShutterstockResumeConfig],
+    resume: ShutterstockResumeConfig | None,
+) -> Iterable[Any]:
+    config = SHUTTERSTOCK_ENDPOINTS[endpoint]
+    assert config.fanout is not None
+
+    def save_fanout_checkpoint(state: dict[str, Any] | None) -> None:
+        if state is not None:
+            resumable_source_manager.save_state(ShutterstockResumeConfig(fanout_state=state))
+
+    return build_dependent_resource(
+        endpoint_configs=SHUTTERSTOCK_ENDPOINTS,
+        child_endpoint=endpoint,
+        fanout=config.fanout,
+        client_config={
+            "base_url": SHUTTERSTOCK_BASE_URL,
+            "headers": {"Accept": "application/json"},
+            "auth": _auth_config(auth),
+        },
+        path_format_values={},
+        team_id=team_id,
+        job_id=job_id,
+        db_incremental_field_last_value=None,
+        page_size_param="per_page",
+        parent_endpoint_extra={
+            "data_selector": "data",
+            "paginator": PageNumberPaginator(base_page=1, page_param="page", maximum_page=MAX_PAGES),
+        },
+        child_endpoint_extra={
+            "data_selector": "data",
+            "paginator": PageNumberPaginator(base_page=1, page_param="page", maximum_page=MAX_PAGES),
+        },
+        resume_hook=save_fanout_checkpoint,
+        initial_paginator_state=resume.fanout_state if resume else None,
+        resume_parent_pagination=True,
+    )
+
+
 def get_rows(
     auth: ShutterstockAuth,
     endpoint: str,
@@ -120,14 +166,17 @@ def get_rows(
     resumable_source_manager: ResumableSourceManager[ShutterstockResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
-) -> Iterator[list[dict[str, Any]]]:
+) -> Iterable[Any]:
     config = SHUTTERSTOCK_ENDPOINTS[endpoint]
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     initial_paginator_state: Optional[dict[str, Any]] = {"page": resume.page} if resume is not None else None
 
+    if config.fanout is not None:
+        return _collection_items(auth, endpoint, team_id, job_id, resumable_source_manager, resume)
+
     params: dict[str, Any] = {}
-    if config.page_size is not None:
+    if config.page_size:
         params["per_page"] = config.page_size
     if config.cursor_field:
         # Ascending on the cursor field so the pipeline watermark advances safely and
@@ -142,10 +191,10 @@ def get_rows(
         "path": config.path,
         # All list responses wrap rows in a `data` array; a missing/empty key reads as an
         # empty page and ends pagination.
-        "data_selector": "data",
+        "data_selector": "$" if config.string_rows else "data",
         "params": params,
         "paginator": PageNumberPaginator(base_page=1, page_param="page", maximum_page=MAX_PAGES)
-        if config.page_size is not None
+        if config.page_size
         else SinglePagePaginator(),
     }
     if use_watermark:
@@ -172,13 +221,10 @@ def get_rows(
     }
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
-        # Called by the framework AFTER a page is yielded, so a crash re-pulls from the
-        # next page rather than losing the page we just handed off; the merge dedupes any
-        # overlap on the primary key.
         if state and state.get("page") is not None:
             resumable_source_manager.save_state(ShutterstockResumeConfig(page=int(state["page"])))
 
-    yield from rest_api_resource(
+    resource = rest_api_resource(
         rest_config,
         team_id,
         job_id,
@@ -186,6 +232,10 @@ def get_rows(
         resume_hook=save_checkpoint,
         initial_paginator_state=initial_paginator_state,
     )
+    if config.string_rows:
+        # Scalar rows bypass framework maps, so expand the response object instead.
+        resource.add_map(lambda response: [{"name": name} for name in response.get("data") or []])
+    return resource
 
 
 def shutterstock_source(
@@ -216,5 +266,5 @@ def shutterstock_source(
         partition_mode="datetime" if config.partition_key else None,
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
-        sort_mode="asc",
+        sort_mode=None if config.fanout or config.string_rows else "asc",
     )

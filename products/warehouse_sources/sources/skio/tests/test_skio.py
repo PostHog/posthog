@@ -177,6 +177,122 @@ class TestSkioTransport:
         assert error_message_matches(str(result.raised), SkioSource().get_retryable_errors())
 
 
+def _child(row_id: str, field: str = "updatedAt") -> dict[str, Any]:
+    return {"id": row_id, field: "2026-01-01T00:00:00+00:00"}
+
+
+def _parents(
+    parents: list[tuple[str, list[dict[str, Any]]]],
+    relationship: str = "AuditLogs",
+    parent_query: str = "Subscriptions",
+) -> ScriptedResponse:
+    return _response({"data": {parent_query: [{"id": pid, relationship: rows} for pid, rows in parents]}})
+
+
+HAS_AUDIT_LOGS = {"AuditLogs": {"id": {"_is_null": False}}}
+
+
+class TestSkioNestedTransport:
+    @pytest.fixture(autouse=True)
+    def small_pages(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr("products.warehouse_sources.sources.skio.skio.SKIO_PAGE_SIZE", 2)
+        monkeypatch.setattr("products.warehouse_sources.sources.skio.skio.SKIO_PARENT_PAGE_SIZE", 2)
+
+    @parameterized.expand(
+        [
+            ("subscription_parent", "audit_logs", "AuditLogs", "Subscriptions"),
+            ("customer_parent", "reward_credit_histories", "RewardCreditHistories", "StorefrontUsers"),
+        ]
+    )
+    def test_walks_parent_pages_and_reads_on_a_parent_past_its_row_cap(
+        self, _name: str, endpoint: str, relationship: str, parent_query: str
+    ) -> None:
+        def parents(rows: list[tuple[str, list[dict[str, Any]]]]) -> ScriptedResponse:
+            return _parents(rows, relationship=relationship, parent_query=parent_query)
+
+        result = _run(
+            [
+                parents([("parent-1", [_child("row-1"), _child("row-2")]), ("parent-2", [_child("row-3")])]),
+                parents([("parent-1", [_child("row-4")])]),
+                parents([("parent-3", [_child("row-5")])]),
+            ],
+            endpoint=endpoint,
+        )
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["row-1", "row-2", "row-4", "row-3", "row-5"]
+        has_rows = {relationship: {"id": {"_is_null": False}}}
+        variables = [request.json()["variables"] for request in result.requests]
+        assert [v["parentWhere"] for v in variables] == [
+            has_rows,
+            {"id": {"_eq": "parent-1"}},
+            {"_and": [{"id": {"_gt": "parent-2"}}, has_rows]},
+        ]
+        assert [v.get("where") for v in variables] == [None, {"id": {"_gt": "row-2"}}, None]
+        assert result.saved_states == [
+            SkioResumeConfig(last_id="row-2", parent_id="parent-1"),
+            SkioResumeConfig(parent_id="parent-1"),
+            SkioResumeConfig(parent_id="parent-2"),
+            SkioResumeConfig(parent_id="parent-3"),
+        ]
+        assert result.response is not None and result.response.sort_mode is None
+
+    @parameterized.expand(
+        [
+            ("snake_case_cursor", "cancel_flow_v2_sessions", "CancelFlowV2Sessions", "Subscriptions", "updated_at"),
+            ("subscription_parent", "discounts", "Discounts", "Subscriptions", "updatedAt"),
+        ]
+    )
+    def test_incremental_filters_both_parents_and_rows_on_the_watermark(
+        self, _name: str, endpoint: str, relationship: str, parent_query: str, field: str
+    ) -> None:
+        result = _run(
+            [_parents([("parent-1", [_child("row-1", field)])], relationship=relationship, parent_query=parent_query)],
+            endpoint=endpoint,
+            incremental_field=field,
+            db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+
+        assert result.raised is None
+        watermark = {field: {"_gte": "2026-01-01T00:00:00+00:00"}}
+        request = result.requests[0].json()
+        assert f"{parent_query}(limit: $parentLimit" in request["query"]
+        assert request["variables"]["where"] == watermark
+        assert request["variables"]["parentWhere"] == {relationship: watermark}
+        assert request["variables"]["orderBy"] == [{field: "asc"}, {"id": "asc"}]
+        assert [row["id"] for row in result.rows] == ["row-1"]
+
+    @parameterized.expand(
+        [
+            (
+                "mid_parent_ending_on_page_boundary",
+                SkioResumeConfig(last_id="log-2", parent_id="sub-1"),
+                [_parents([("sub-1", [])]), _parents([("sub-2", [_child("log-3")])])],
+                [{"id": {"_eq": "sub-1"}}, {"_and": [{"id": {"_gt": "sub-1"}}, HAS_AUDIT_LOGS]}],
+            ),
+            (
+                "after_finished_parent",
+                SkioResumeConfig(parent_id="sub-1"),
+                [_parents([("sub-2", [_child("log-3")])])],
+                [{"_and": [{"id": {"_gt": "sub-1"}}, HAS_AUDIT_LOGS]}],
+            ),
+        ]
+    )
+    def test_resumes_from_saved_parent_cursor(
+        self,
+        _name: str,
+        resume_state: SkioResumeConfig,
+        script: list[ScriptedResponse],
+        expected_parent_wheres: list[dict[str, Any]],
+    ) -> None:
+        result = _run(script, endpoint="audit_logs", resume_state=resume_state)
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["log-3"]
+        assert [request.json()["variables"]["parentWhere"] for request in result.requests] == expected_parent_wheres
+        assert result.final_state == SkioResumeConfig(parent_id="sub-2")
+
+
 class TestValidateCredentials:
     def test_valid_token(self) -> None:
         with scripted_network(always(_response(_page(_rows(0, 1))))):

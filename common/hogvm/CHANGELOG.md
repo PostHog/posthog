@@ -1,5 +1,17 @@
 # HogQL bytecode changelog
 
+## 2026-10-29 - 1.0.73
+
+Added `ed25519Verify` to the standard library. No bytecode operations changed.
+
+```bash
+ed25519Verify(message, signature, publicKey, encoding)  # true when signature is a valid Ed25519 signature of message
+```
+
+`signature` and `publicKey` are both `hex` (the default) or both `base64`. A key or signature with the wrong
+length or an undecodable value returns `false` instead of throwing, so a webhook check can reject it. Any other
+`encoding` throws.
+
 ## 2026-10-15 - 1.0.72
 
 Added `sha256HmacBase64Key` to the standard library. No bytecode operations changed.

@@ -7,37 +7,69 @@ import { teamLogic } from 'scenes/teamLogic'
 
 type DevEventKind = 'connect' | 'call' | 'fail'
 
-const DEV_EVENTS: Record<DevEventKind, { label: string; event: string; properties: Record<string, unknown> }> = {
+interface DevEvent {
+    event: string
+    properties: Record<string, unknown>
+}
+
+// A real client lists the server's tools right after it connects, so the connect button sends both.
+const DEV_EVENTS: Record<DevEventKind, { label: string; events: DevEvent[] }> = {
     connect: {
         label: 'Connect server',
-        event: '$mcp_initialize',
-        properties: { $mcp_client_name: 'claude-code', $mcp_server_name: 'dev-server' },
+        events: [
+            {
+                event: '$mcp_initialize',
+                properties: { $mcp_client_name: 'claude-code', $mcp_server_name: 'dev-server' },
+            },
+            {
+                event: '$mcp_tools_list',
+                properties: {
+                    $mcp_client_name: 'claude-code',
+                    $mcp_server_name: 'dev-server',
+                    $mcp_listed_tool_names: [
+                        'search_docs',
+                        'create_issue',
+                        'run_query',
+                        'list_feature_flags',
+                        'get_schema',
+                    ],
+                },
+            },
+        ],
     },
     call: {
         label: 'Send tool call',
-        event: '$mcp_tool_call',
-        properties: {
-            $mcp_client_name: 'claude-code',
-            $mcp_server_name: 'dev-server',
-            $mcp_tool_name: 'search_docs',
-            $mcp_intent: 'Find the rate limit for the billing API so I can add retries',
-            $mcp_is_error: false,
-            $mcp_duration_ms: 142,
-            $mcp_response: 'Billing API: 100 requests per minute per key.',
-        },
+        events: [
+            {
+                event: '$mcp_tool_call',
+                properties: {
+                    $mcp_client_name: 'claude-code',
+                    $mcp_server_name: 'dev-server',
+                    $mcp_tool_name: 'search_docs',
+                    $mcp_intent: 'Find the rate limit for the billing API so I can add retries',
+                    $mcp_is_error: false,
+                    $mcp_duration_ms: 142,
+                    $mcp_response: 'Billing API: 100 requests per minute per key.',
+                },
+            },
+        ],
     },
     fail: {
         label: 'Send failed call',
-        event: '$mcp_tool_call',
-        properties: {
-            $mcp_client_name: 'cursor',
-            $mcp_server_name: 'dev-server',
-            $mcp_tool_name: 'create_issue',
-            $mcp_intent: 'Open a ticket for the 429 errors the user reported',
-            $mcp_is_error: true,
-            $mcp_duration_ms: 88,
-            $mcp_error_message: 'ValidationError: missing required field "team_id"',
-        },
+        events: [
+            {
+                event: '$mcp_tool_call',
+                properties: {
+                    $mcp_client_name: 'cursor',
+                    $mcp_server_name: 'dev-server',
+                    $mcp_tool_name: 'create_issue',
+                    $mcp_intent: 'Open a ticket for the 429 errors the user reported',
+                    $mcp_is_error: true,
+                    $mcp_duration_ms: 88,
+                    $mcp_error_message: 'ValidationError: missing required field "team_id"',
+                },
+            },
+        ],
     },
 }
 
@@ -62,20 +94,23 @@ function SetupModeDevControlsContent(): JSX.Element | null {
     const token = currentTeam.api_token
 
     const send = async (kind: DevEventKind): Promise<void> => {
-        const { event, properties } = DEV_EVENTS[kind]
+        const { events } = DEV_EVENTS[kind]
+        const names = events.map(({ event }) => event).join(' and ')
         setSending(kind)
         try {
-            const response = await fetch('/e/', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ api_key: token, event, distinct_id: 'setup-mode-dev', properties }),
-            })
-            if (!response.ok) {
-                throw new Error(`capture answered ${response.status}`)
+            for (const { event, properties } of events) {
+                const response = await fetch('/e/', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ api_key: token, event, distinct_id: 'setup-mode-dev', properties }),
+                })
+                if (!response.ok) {
+                    throw new Error(`capture answered ${response.status}`)
+                }
             }
-            lemonToast.success(`Sent ${event}. Setup mode moves on at its next poll.`)
+            lemonToast.success(`Sent ${names}. Setup mode moves on at its next poll.`)
         } catch (error) {
-            lemonToast.error(`Couldn't send ${event}: ${String(error)}`)
+            lemonToast.error(`Couldn't send ${names}: ${String(error)}`)
         } finally {
             setSending(null)
         }

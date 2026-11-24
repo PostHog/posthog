@@ -16,7 +16,11 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.user import User
 from posthog.oauth_provenance import get_oauth_access_token, is_sandbox_oauth_request
 from posthog.permissions import APIScopePermission
-from posthog.rate_limit import ContextSelectionBurstThrottle, ContextSelectionSustainedThrottle
+from posthog.rate_limit import (
+    ContextSelectionBurstThrottle,
+    ContextSelectionSustainedThrottle,
+    ContextSelectionTaskThrottle,
+)
 
 from products.context_layer.backend.facade import selection
 
@@ -52,6 +56,12 @@ class PrepareSerializer(serializers.Serializer):
         trim_whitespace=False,
         help_text="Bounded preceding user and assistant text.",
     )
+    exclude = serializers.ListField(
+        child=serializers.CharField(max_length=300),
+        max_length=200,
+        required=False,
+        help_text="Keys of references already in the agent's context, as `kind:id`. These are not injected again.",
+    )
 
 
 class PreparedContextSerializer(serializers.Serializer):
@@ -70,7 +80,7 @@ class ContextSelectionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @action(
         detail=False,
         methods=["post"],
-        throttle_classes=[ContextSelectionBurstThrottle, ContextSelectionSustainedThrottle],
+        throttle_classes=[ContextSelectionTaskThrottle],
     )
     def prepare(self, request: Request, **kwargs: object) -> Response:
         serializer = PrepareSerializer(data=request.data)
@@ -83,7 +93,15 @@ class ContextSelectionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise PermissionDenied("A task-bound sandbox credential is required.")
         data = dict(serializer.validated_data)
         run_id = data.pop("run_id")
+        data["exclude"] = frozenset(data.get("exclude", ()))
         authorization = get_authorization_header(request).decode("ascii")
+
+        def admit() -> bool:
+            return all(
+                throttle.allow_request(request, self)
+                for throttle in (ContextSelectionBurstThrottle(), ContextSelectionSustainedThrottle())
+            )
+
         try:
             result = selection.prepare_context_selection(
                 self.team_id,
@@ -92,6 +110,7 @@ class ContextSelectionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 request.user,
                 selection.SelectionInput(**data),
                 authorization,
+                admit,
             )
         except selection.SelectionDenied as error:
             raise PermissionDenied(str(error)) from error

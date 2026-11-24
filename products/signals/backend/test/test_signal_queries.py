@@ -24,7 +24,9 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser
+from posthog.errors import ClickHouseAtCapacity
 from posthog.models import Integration, Team
+from posthog.models.scoping import team_scope
 
 from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
 from products.signals.backend.facade.api import (
@@ -66,6 +68,7 @@ from products.signals.backend.temporal.signal_queries import (
     retract_source_signals,
 )
 from products.signals.backend.temporal.types import SignalData
+from products.signals.backend.test.test_scout_harness_api import _make_run
 
 _MODEL_TABLE = f"sharded_posthog_document_embeddings_{EMBEDDING_MODEL.value.replace('-', '_')}"
 
@@ -162,8 +165,10 @@ class TestFetchSourceProductsForReports(_SignalEmbeddingsTestBase):
             self.assertNumQueries(FuzzyInt(1, 3)),
             patch("products.signals.backend.signal_metadata.execute_hogql_query", wraps=execute_hogql_query) as query,
         ):
-            result = fetch_source_products_for_reports(
-                self.team, ["rA", "rB"], **({"ch_user": ch_user} if ch_user else {})
+            result = (
+                fetch_source_products_for_reports(self.team, ["rA", "rB"], ch_user=ch_user)
+                if ch_user
+                else fetch_source_products_for_reports(self.team, ["rA", "rB"])
             )
 
         assert query.call_args.kwargs["ch_user"] == (ch_user or ClickHouseUser.DEFAULT)
@@ -473,6 +478,51 @@ class TestMonitoringRepositorySources(_SignalEmbeddingsTestBase):
             mixed_parent and selected_parent
         )
         assert monitoring_repository_allowed(self.team.id, str(receiving.id), "example/private")
+
+    def test_retries_provenance_read_when_clickhouse_is_at_capacity(self) -> None:
+        origin = SignalReport.objects.create(team=self.team, status="closed")
+        self._emit_version(
+            document_id="original-private-issue",
+            report_id=str(origin.id),
+            source_product="github",
+            source_type="issue",
+            inserted_at=self.base,
+            extra={"html_url": "https://github.com/example/private/issues/1"},
+        )
+        receiving = SignalReport.objects.create(team=self.team, status="ready")
+        self._emit_version(
+            document_id="receiving-monitoring",
+            report_id=str(receiving.id),
+            source_product="signals_check",
+            source_type="monitoring_unresolved",
+            inserted_at=self.base,
+            extra={"report_id": str(origin.id), "attempt_id": str(uuid.uuid4())},
+        )
+        Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="privacy-test",
+            config={"installation_id": "privacy-test"},
+            repository_cache=[
+                {"id": 1, "name": "public", "full_name": "example/public", "private": False},
+                {"id": 2, "name": "private", "full_name": "example/private", "private": True},
+            ],
+            repository_cache_updated_at=timezone.now(),
+        )
+        capacity_errors = [ClickHouseAtCapacity()]
+
+        def busy_once(*args, **kwargs):
+            if capacity_errors:
+                raise capacity_errors.pop()
+            return execute_hogql_query(*args, **kwargs)
+
+        with (
+            patch("products.signals.backend.report_monitoring_provenance.execute_hogql_query", side_effect=busy_once),
+            patch(
+                "products.signals.backend.report_monitoring_provenance._read_monitoring_source_references.retry.sleep"
+            ),
+        ):
+            assert not monitoring_repository_allowed(self.team.id, str(receiving.id), "example/public")
 
 
 class TestFetchReportIdsForScoutNames(_SignalEmbeddingsTestBase):
@@ -1099,4 +1149,26 @@ class TestSpendReportingQueries(_SignalEmbeddingsTestBase):
             "generation": {"total_spend": 132.125, "incomplete": True},
             "implementation": {"total_spend": 50, "incomplete": False},
             "shared_scout_runs": {"total_spend": None, "incomplete": False},
+            "scout_authored": False,
+        }
+
+    def test_scout_authored_report_has_only_shared_scout_run_spend(self) -> None:
+        report = SignalReport.objects.create(team=self.team, triggering_signal_id=uuid.uuid4())
+        with team_scope(self.team.id):
+            run = _make_run(self.team, emitted_report_ids=[str(report.id)])
+        SignalSpend.objects.for_team(self.team.id).create(
+            team=self.team,
+            kind=SignalSpend.Kind.SCOUT_RUN,
+            scout_run=run,
+            task_run_id=run.task_run_id,
+            spend=14,
+            finalized_at=timezone.now(),
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/spend/")
+        assert response.status_code == 200, response.content
+        assert response.json() == {
+            "generation": {"total_spend": None, "incomplete": False},
+            "implementation": {"total_spend": None, "incomplete": False},
+            "shared_scout_runs": {"total_spend": 14, "incomplete": False},
+            "scout_authored": True,
         }

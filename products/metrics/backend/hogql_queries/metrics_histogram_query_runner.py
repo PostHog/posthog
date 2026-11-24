@@ -32,7 +32,14 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.metrics.backend.date_range import metrics_query_date_range
 from products.metrics.backend.facade.contracts import METRICS_FEATURE_FLAG, MetricFilter
 from products.metrics.backend.facade.enums import AttributeScope, FilterOp
-from products.metrics.backend.metric_query_runner import _INTERVAL_LADDER, _QUERY_SETTINGS, _interval_step
+from products.metrics.backend.hogql_queries.metrics_query_runner import DASHBOARD_V2_FEATURE_FLAG
+from products.metrics.backend.hogql_queries.tail_refresh import TailRefreshMixin, compare_grid, merge_grid
+from products.metrics.backend.metric_query_runner import (
+    _INTERVAL_LADDER,
+    _QUERY_SETTINGS,
+    _interval_step,
+    _resolve_interval,
+)
 from products.metrics.backend.metric_samples_query_runner import build_metric_query_runner
 from products.metrics.backend.query_counts import record_metric_queries
 from products.metrics.backend.query_interval import resolve_query_interval
@@ -77,7 +84,7 @@ def _round_keeping_total(values: list[float]) -> list[int]:
     return floors
 
 
-class MetricsHistogramQueryRunner(AnalyticsQueryRunner[MetricsHistogramQueryResponse]):
+class MetricsHistogramQueryRunner(TailRefreshMixin, AnalyticsQueryRunner[MetricsHistogramQueryResponse]):
     query: MetricsHistogramQuery
     cached_response: CachedMetricsHistogramQueryResponse
 
@@ -141,6 +148,27 @@ class MetricsHistogramQueryRunner(AnalyticsQueryRunner[MetricsHistogramQueryResp
         )
 
         try:
+            resolved = resolve_query_interval(interval, from_query(self.query.variables), date_from, date_to)
+            if self._tail is None:
+                return self._grid(date_from, date_to, resolved, filters)
+            # The tail is a shorter range, so it pins the interval the whole range resolves to.
+            pinned = _resolve_interval(date_from, date_to, resolved)
+        except ValueError as exc:
+            raise ExposedHogQLError(str(exc)) from exc
+        return self._tail.run(
+            response_type=MetricsHistogramQueryResponse,
+            date_from=date_from,
+            date_to=date_to,
+            interval=pinned,
+            calculate=lambda start: self._grid(start, date_to, pinned, filters),
+            merge=lambda cached, tail, start, cut: merge_grid(cached, tail, start=start, cut=cut),
+            compare=compare_grid,
+        )
+
+    def _grid(
+        self, date_from: datetime, date_to: datetime, interval: str | None, filters: tuple[MetricFilter, ...]
+    ) -> MetricsHistogramQueryResponse:
+        try:
             runner = build_metric_query_runner(
                 team=self.team,
                 metric_name=self.query.metricName,
@@ -148,7 +176,7 @@ class MetricsHistogramQueryRunner(AnalyticsQueryRunner[MetricsHistogramQueryResp
                 date_from=date_from,
                 date_to=date_to,
                 filters=filters,
-                interval=resolve_query_interval(interval, from_query(self.query.variables), date_from, date_to),
+                interval=interval,
                 quantile=0.5,  # unused by the grid query; required by the constructor
                 # One metric name can hold series of more than one OTel type; the
                 # heatmap must grid only the distribution the viewer picked.
@@ -167,7 +195,7 @@ class MetricsHistogramQueryRunner(AnalyticsQueryRunner[MetricsHistogramQueryResp
             query_type="MetricsHistogramQuery",
             query=query,
             team=self.team,
-            workload=Workload.LOGS,
+            workload=Workload.METRICS,
             settings=_QUERY_SETTINGS,
         )
         try:
@@ -222,6 +250,21 @@ class MetricsHistogramQueryRunner(AnalyticsQueryRunner[MetricsHistogramQueryResp
         # so `results` is returned as null.
         return MetricsHistogramQueryResponse(
             results=None, times=grid_times, bounds=[float(b) for b in bounds], counts=counts
+        )
+
+    def _tail_refresh_enabled(self, dashboard_id: int | None) -> bool:
+        date_range = self.query.dateRange
+        return (
+            dashboard_id is not None
+            and (date_range is None or date_range.date_to is None)
+            # `dashboard-v2` is aggregated by project, so the distinct id doesn't decide it.
+            and posthog_feature_flag_enabled(
+                DASHBOARD_V2_FEATURE_FLAG,
+                str(getattr(self.user, "distinct_id", None) or self.team.uuid),
+                organization_id=self.team.organization_id,
+                team_id=self.team.pk,
+                only_evaluate_locally=True,
+            )
         )
 
     def apply_dashboard_filters(self, dashboard_filter: DashboardFilter) -> None:

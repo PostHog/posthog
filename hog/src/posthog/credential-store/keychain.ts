@@ -3,9 +3,9 @@ import { randomUUID } from 'node:crypto'
 import { HogError } from '@/core/errors'
 import { parseJsonOrUndefined } from '@/core/json'
 import type { Runtime } from '@/core/runtime'
-import { hostKey, type Host } from '@/posthog/host'
 
 import { StoredSecretSchema } from './helpers'
+import type { ItemName } from './item-name'
 import type { CredentialStore, StoredSecret } from './types'
 
 // The keychain dialog on macOS never times out by itself, and a person may not notice it, so hog
@@ -77,13 +77,12 @@ export class KeychainStore implements CredentialStore {
 
     constructor(private readonly runtime: Runtime) {}
 
-    async read(host: Host): Promise<StoredSecret | undefined> {
-        const value = await keychainCall(this.runtime, () => this.runtime.secrets.get(hostKey(host)))
+    async read(name: ItemName): Promise<StoredSecret | undefined> {
+        const value = await keychainCall(this.runtime, () => this.runtime.secrets.get(name))
         return value === null ? undefined : parseJsonOrUndefined(value, StoredSecretSchema)
     }
 
-    async write(host: Host, secret: StoredSecret, options: { removeIfLate?: boolean } = {}): Promise<void> {
-        const name = hostKey(host)
+    async write(name: ItemName, secret: StoredSecret, options: { removeIfLate?: boolean } = {}): Promise<void> {
         await keychainCall(
             this.runtime,
             () => this.runtime.secrets.set(name, JSON.stringify(secret)),
@@ -91,8 +90,8 @@ export class KeychainStore implements CredentialStore {
         )
     }
 
-    async remove(host: Host): Promise<boolean> {
-        return keychainCall(this.runtime, () => this.runtime.secrets.delete(hostKey(host)))
+    async remove(name: ItemName): Promise<boolean> {
+        return keychainCall(this.runtime, () => this.runtime.secrets.delete(name))
     }
 }
 

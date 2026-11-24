@@ -1,5 +1,7 @@
 import io
 import json
+from collections.abc import Callable
+from typing import Any
 from urllib.parse import quote, urlparse
 
 import pytest
@@ -27,20 +29,24 @@ from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 from posthog.models.user_integration import UserIntegration
 from posthog.object_tags.kinds import ObjectRef
+from posthog.paging import PageRequest
 from posthog.storage import object_storage
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.canvas.backend.facade import testing as canvas_testing
 from products.cohorts.backend.models.cohort import Cohort
 from products.conversations.backend.models.ticket import Ticket
-from products.dashboards.backend.models.dashboard import Dashboard
-from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.dashboards.backend.facade.testing import create_dashboard, create_insight_tile
 from products.error_tracking.backend.facade import testing as error_tracking_testing
 from products.experiments.backend.facade.contracts import StoredArmResult, StoredPrimaryResult
 from products.experiments.backend.facade.testing import create_experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
+from products.release.backend.facade import (
+    api as release_api,
+    contracts as release_contracts,
+)
 from products.signals.backend.models import SignalReport
 from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
 from products.slack_app.backend.models import SlackChannel, SlackThreadTaskMapping
@@ -106,6 +112,38 @@ def _create_task_artifact(
     return f"http://testserver/api/projects/{project}/tasks/{task.id}/runs/{run.id}/artifacts/file-1/download/"
 
 
+RELEASES_ENABLED = "products.release.backend.facade.api.releases_enabled"
+
+
+def _everything(visibility: type[Any]) -> Callable[[list[Any]], Any]:
+    return lambda ids: visibility(existing=frozenset(ids), visible=frozenset(ids), linkable=frozenset(ids))
+
+
+RELEASE_LOOKUPS = release_api.LinkLookups(
+    flags=_everything(release_contracts.FlagVisibility),
+    broadcasts=_everything(release_contracts.BroadcastVisibility),
+    surveys=_everything(release_contracts.SurveyVisibility),
+    insights=_everything(release_contracts.InsightVisibility),
+)
+
+
+def _create_release(team_id: int, name: str, description: str, feature_flag_ids: list[int]) -> str:
+    with team_scope(team_id):
+        release = release_api.create(
+            release_contracts.CreateReleaseInput(
+                team_id=team_id, name=name, description=description, feature_flag_ids=tuple(feature_flag_ids)
+            ),
+            RELEASE_LOOKUPS,
+        )
+    return str(release.id)
+
+
+def _import_release(team_id: int, flag: FeatureFlag) -> str:
+    with team_scope(team_id):
+        release_api.import_all(team_id, lambda: [release_contracts.ImportFlag(id=flag.pk, key=flag.key)])
+        return str(release_api.list_page(team_id, PageRequest(limit=1), RELEASE_LOOKUPS).results[0].id)
+
+
 class TestParsePosthogResourceLink:
     @parameterized.expand(
         [
@@ -162,6 +200,12 @@ class TestParsePosthogResourceLink:
             ("replay", "https://us.posthog.com/project/42/replay/0192f0a0", None, None),
             ("opted_out", "https://us.posthog.com/project/42/insights/abc123?unfurl=false", None, None),
             ("unrelated", "https://example.com/foo", None, None),
+            (
+                "release",
+                "https://us.posthog.com/project/42/releases/01a1e3b0-9c9e-7b9e-a277-845822d7e162",
+                "release",
+                "01a1e3b0-9c9e-7b9e-a277-845822d7e162",
+            ),
         ]
     )
     def test_parse(self, _name: str, url: str, kind: str | None, object_id: str | None) -> None:
@@ -327,6 +371,9 @@ class TestCardText:
 class TestHandlePosthogLinkUnfurl(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
+        releases_enabled = patch(RELEASES_ENABLED, return_value=True)
+        releases_enabled.start()
+        self.addCleanup(releases_enabled.stop)
         self.integration = Integration.objects.create(
             team=self.team,
             kind="slack",
@@ -823,7 +870,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         self, mock_slack_integration_class: MagicMock, mock_resolve: MagicMock
     ) -> None:
         self._make_bot_ready()
-        dashboard = Dashboard.objects.create(team=self.team, name="Growth")
+        dashboard_id = create_dashboard(team_id=self.team.id, name="Growth")
         mock_resolve.return_value = MagicMock(user=self.user)
         mock_client = MagicMock()
         mock_slack_integration_class.return_value.client = mock_client
@@ -831,7 +878,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         self._unfurl_links(
             [
                 f"http://testserver/project/{self.team.pk}/insights/{self.insight.short_id}",
-                f"http://testserver/project/{self.team.pk}/dashboard/{dashboard.pk}",
+                f"http://testserver/project/{self.team.pk}/dashboard/{dashboard_id}",
             ],
         )
 
@@ -904,13 +951,13 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
     @patch("products.slack_app.backend.api.resolve_slack_user")
     @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
     def test_unfurls_dashboard(self, mock_slack_integration_class: MagicMock, mock_resolve: MagicMock) -> None:
-        dashboard = Dashboard.objects.create(team=self.team, name="Main board", description="Overview")
+        dashboard_id = create_dashboard(team_id=self.team.id, name="Main board", description="Overview")
         mock_resolve.return_value = MagicMock(user=self.user)
         mock_client = MagicMock()
         mock_slack_integration_class.return_value.client = mock_client
 
         site = "http://testserver"
-        url = f"{site}/project/{self.team.pk}/dashboard/{dashboard.pk}"
+        url = f"{site}/project/{self.team.pk}/dashboard/{dashboard_id}"
 
         handle_posthog_link_unfurl(
             {
@@ -962,6 +1009,10 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
                     questions=[{"type": "open", "question": "Why?"}],
                 )
                 return f"{base}/surveys/{survey.pk}", ["Checkout NPS", "*Draft*", "1 question", "1. Why?"]
+            case "release":
+                flag = FeatureFlag.objects.create(team=self.team, key="checkout-v2", created_by=self.user, active=True)
+                release_id = _create_release(self.team.pk, "Checkout v2", "One-page checkout", [flag.pk])
+                return f"{base}/releases/{release_id}", ["Release", "Checkout v2", "1 flag", "checkout-v2 · Active"]
             case "cohort":
                 cohort = Cohort.objects.create(team=self.team, name="Power users", count=1200)
                 return f"{base}/cohorts/{cohort.pk}", ["Power users", "1,200 persons"]
@@ -981,12 +1032,15 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
                 TaskRun.objects.create(
                     task=task,
                     team=self.team,
-                    status=TaskRun.Status.COMPLETED,
+                    status=TaskRun.Status.FAILED,
                     output={"pr_url": "https://github.com/example/repo/pull/7"},
+                )
+                Task.objects.filter(pk=task.pk).update(
+                    status=Task.Status.IDLE, status_reason=Task.StatusReason.UNEXPECTED_FAILURE
                 )
                 return f"http://testserver/code/task/{task.id}", [
                     "Fix checkout",
-                    "*Completed*",
+                    "*Idle (unexpected failure)*",
                     "View pull request",
                 ]
             case "task_artifacts_tab":
@@ -1099,6 +1153,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
                 "task",
                 "task_artifact",
                 "task_artifacts_tab",
+                "release",
             )
         ]
     )
@@ -1129,6 +1184,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
             ("report", "task"),
             ("task", "task"),
             ("task_artifact", "task"),
+            ("release", "feature_flag"),
         ]
     )
     @patch("products.slack_app.backend.api.resolve_slack_user")
@@ -1153,6 +1209,79 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
 
     @patch("products.slack_app.backend.api.resolve_slack_user")
     @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
+    def test_skips_release_while_releases_are_off_for_the_sharer(
+        self, mock_slack_integration_class: MagicMock, mock_resolve: MagicMock
+    ) -> None:
+        url, _ = self._create_object("release")
+        mock_resolve.return_value = MagicMock(user=self.user)
+        mock_client = MagicMock()
+        mock_slack_integration_class.return_value.client = mock_client
+
+        with patch(RELEASES_ENABLED, return_value=False):
+            self._unfurl_links([url])
+
+        mock_client.chat_unfurl.assert_not_called()
+
+    @parameterized.expand([("live_flag", False), ("deleted_flag", True)])
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
+    def test_release_card_hides_flags_the_sharer_cannot_view(
+        self, _name: str, deleted: bool, mock_slack_integration_class: MagicMock, mock_resolve: MagicMock
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        flag = FeatureFlag.objects.create(team=self.team, key="secret-pricing", created_by=self.user, active=True)
+        release_id = _import_release(self.team.pk, flag)
+        AccessControl.objects.create(
+            team=self.team, resource="feature_flag", resource_id=str(flag.pk), access_level="none"
+        )
+        if deleted:
+            FeatureFlag.objects.filter(pk=flag.pk).update(deleted=True)
+        member = User.objects.create_and_join(self.organization, "release-viewer@posthog.com", "password")
+        mock_resolve.return_value = MagicMock(user=member)
+        mock_client = MagicMock()
+        mock_slack_integration_class.return_value.client = mock_client
+        url = f"http://testserver/project/{self.team.pk}/releases/{release_id}"
+
+        self._unfurl_links([url])
+
+        text = self._unfurl_text(mock_client.chat_unfurl.call_args.kwargs["unfurls"][url])
+        assert "Release of a restricted flag" in text
+        assert "secret" not in text.lower()
+
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
+    def test_release_card_from_a_child_environment_checks_the_parent_flag_access(
+        self, mock_slack_integration_class: MagicMock, mock_resolve: MagicMock
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        flag = FeatureFlag.objects.create(team=self.team, key="secret-pricing", created_by=self.user, active=True)
+        release_id = _import_release(self.team.pk, flag)
+        AccessControl.objects.create(
+            team=self.team, resource="feature_flag", resource_id=str(flag.pk), access_level="none"
+        )
+        child = Team.objects.create(organization=self.organization, project=self.project, parent_team=self.team)
+        self.integration.team = child
+        self.integration.save()
+        member = User.objects.create_and_join(self.organization, "child-viewer@posthog.com", "password")
+        mock_resolve.return_value = MagicMock(user=member)
+        mock_client = MagicMock()
+        mock_slack_integration_class.return_value.client = mock_client
+        url = f"http://testserver/project/{child.pk}/releases/{release_id}"
+
+        self._unfurl_links([url])
+
+        text = self._unfurl_text(mock_client.chat_unfurl.call_args.kwargs["unfurls"][url])
+        assert "Release of a restricted flag" in text
+        assert "secret" not in text.lower()
+
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
     def test_dashboard_card_lists_only_insights_the_sharer_can_view(
         self, mock_slack_integration_class: MagicMock, mock_resolve: MagicMock
     ) -> None:
@@ -1161,18 +1290,18 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         ]
         self.organization.save()
         member = User.objects.create_and_join(self.organization, "dashboard-viewer@posthog.com", "password")
-        dashboard = Dashboard.objects.create(team=self.team, name="Growth review")
+        dashboard_id = create_dashboard(team_id=self.team.id, name="Growth review")
         visible = Insight.objects.create(team=self.team, name="Visible tile", saved=True)
         hidden = Insight.objects.create(team=self.team, name="Hidden tile", saved=True)
-        DashboardTile.objects.create(dashboard=dashboard, insight=visible)
-        DashboardTile.objects.create(dashboard=dashboard, insight=hidden)
+        create_insight_tile(dashboard_id=dashboard_id, insight_id=visible.id)
+        create_insight_tile(dashboard_id=dashboard_id, insight_id=hidden.id)
         AccessControl.objects.create(
             team=self.team, resource="insight", resource_id=str(hidden.id), access_level="none"
         )
         mock_resolve.return_value = MagicMock(user=member)
         mock_client = MagicMock()
         mock_slack_integration_class.return_value.client = mock_client
-        url = f"http://testserver/project/{self.team.pk}/dashboard/{dashboard.pk}"
+        url = f"http://testserver/project/{self.team.pk}/dashboard/{dashboard_id}"
 
         self._unfurl_links([url])
 

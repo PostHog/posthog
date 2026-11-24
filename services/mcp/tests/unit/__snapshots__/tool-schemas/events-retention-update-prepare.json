@@ -1,0 +1,48 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "retention_months": {
+            "anyOf": [
+                {
+                    "anyOf": [
+                        {
+                            "const": 1,
+                            "type": "number"
+                        },
+                        {
+                            "const": 3,
+                            "type": "number"
+                        },
+                        {
+                            "const": 12,
+                            "type": "number"
+                        },
+                        {
+                            "const": 24,
+                            "type": "number"
+                        },
+                        {
+                            "const": 36,
+                            "type": "number"
+                        },
+                        {
+                            "const": 60,
+                            "type": "number"
+                        },
+                        {
+                            "const": 84,
+                            "type": "number"
+                        }
+                    ],
+                    "description": "* `1` - 1 month\n* `3` - 3 months\n* `12` - 1 year\n* `24` - 2 years\n* `36` - 3 years\n* `60` - 5 years\n* `84` - 7 years"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "The period in months. It also has to be between `min_retention_months` and `max_retention_months` from events-retention-get. Null removes the project's period, so the project uses the organization's period, or the default period when the organization has none."
+        }
+    },
+    "required": ["retention_months"],
+    "type": "object"
+}

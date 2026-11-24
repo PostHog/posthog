@@ -39,7 +39,9 @@ tools:
             Optionally include license, compatibility, allowed_tools, metadata, bundled files, and owners. Owners (a
             list of project-member user UUIDs) default to the creating user; set them to route reviews or questions
             about this skill to specific people. allowed_tools is a request, not a grant: a harness that loads the skill
-            over MCP ignores it until the user approves that grant.
+            over MCP ignores it until the user approves that grant. Pass version_description with a short note on where
+            the skill came from (written from scratch, ported from a repo, split out of another skill); it is shown on
+            version 1 in the version history.
         include_params:
             - name
             - description
@@ -50,6 +52,7 @@ tools:
             - metadata
             - files
             - owners
+            - version_description
     skill-duplicate:
         operation: llm_skills_name_duplicate_create
         enabled: true

@@ -6,13 +6,18 @@ from products.slack_app.backend.logic.onboarding.actions import (
     button,
     skip_button,
 )
-from products.slack_app.backend.logic.onboarding.checks import approve_ai_data_processing_for_team, has_ai_approval
+from products.slack_app.backend.logic.onboarding.checks import (
+    approve_ai_data_processing_for_team,
+    has_ai_approval,
+    is_ai_data_processing_locked,
+)
 from products.slack_app.backend.logic.onboarding.step import (
     OnboardingContext,
     OnboardingStep,
     OnboardingStepKey,
     StepClick,
 )
+from products.slack_app.backend.logic.onboarding.work_focus import start_work_focus
 from products.slack_app.backend.services.slack_messages import section_block
 from products.slack_app.backend.services.slack_welcome_messages import AI_DATA_PROCESSING_TEXT
 
@@ -25,7 +30,9 @@ class AiConsentStep(OnboardingStep):
 
     def applies(self, ctx: OnboardingContext) -> bool:
         # A Slack admin is often the one to ask an org admin for it, even when they cannot allow it.
-        return ctx.is_workspace_admin or ctx.is_org_admin
+        return (ctx.is_workspace_admin or ctx.is_org_admin) and not is_ai_data_processing_locked(
+            ctx.integration.team_id
+        )
 
     def is_done(self, ctx: OnboardingContext) -> bool:
         return has_ai_approval(ctx.integration.team_id)
@@ -53,6 +60,11 @@ class AiConsentStep(OnboardingStep):
     def apply_action(self, ctx: OnboardingContext, action_id: str, value: dict[str, Any]) -> StepClick:
         if not ctx.is_org_admin:
             return StepClick(message="Only an organization admin can allow AI data processing.", refresh=False)
-        approve_ai_data_processing_for_team(ctx.integration.team_id)
+        if not approve_ai_data_processing_for_team(ctx.integration.team_id):
+            return StepClick(
+                message="AI data processing is locked in this organization by admin request.", refresh=False
+            )
         self.record_completed(ctx)
+        # The work focus waits for consent, so the person who allowed it gets theirs now.
+        start_work_focus(ctx.integration, ctx.slack_user_id)
         return StepClick()

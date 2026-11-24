@@ -24,11 +24,11 @@ const ENV = {
 }
 const WEEK = '2026-09-28T00:00:00.000Z'
 const PRIOR_WEEK = '2026-09-21T00:00:00.000Z'
-const CONTRACT = '2026-01-01T00:00:00.000Z'
-// Runners $600 ($400 in this repository), builds $400, Depot CI $1,200 ($900 here): $2,200.
-// The week before: runners $200, builds $200, Depot CI $300: $700. The contract so far: $50,000.
+const LAST_WEEK_DAY = '2026-10-01T00:00:00.000Z'
+// Runners $600 ($400 in this repository), builds $400, Depot CI $1,200 ($900 here): $2,200, all in
+// October. The week before: runners $200, builds $200, Depot CI $300: $700. Every other day has no usage.
 const DEPOT_USAGE = {
-    [WEEK]: {
+    [LAST_WEEK_DAY]: {
         githubActionsJobs: [
             { repo: 'PostHog/posthog', total: { minutesBilled: 100_000 } },
             { repo: 'PostHog/other', total: { minutesBilled: 50_000 } },
@@ -46,12 +46,9 @@ const DEPOT_USAGE = {
         depotCi: [{ repo: 'PostHog/posthog', workflowPath: 'ci-backend.yml', vcpuMinutesBilled: 100_000 }],
         containerBuild: [{ minutesBilled: 5_000 }],
     },
-    [CONTRACT]: {
-        githubActionsJobs: [{ repo: 'PostHog/posthog', total: { minutesBilled: 10_000_000 } }],
-        depotCi: [{ repo: 'PostHog/posthog', workflowPath: 'ci-backend.yml', vcpuMinutesBilled: 2_000_000 }],
-        containerBuild: [{ minutesBilled: 100_000 }],
-    },
 }
+// $12,200 left as of the last invoice, less October's $2,200: $50,000 of $60,000 used.
+const DEPOT_CREDIT = { remainingCreditMinor: '1220000', currency: 'USD', observedAt: '2026-10-01T06:00:00Z' }
 const REPO = { provider: 'github', owner: 'PostHog', name: 'posthog' }
 const WORKFLOW_HEALTH = {
     [WEEK]: [
@@ -70,14 +67,28 @@ const SLOW_WORKFLOWS_NOTE = [
 ].join('\n')
 let importCount = 0
 
-async function runDigest(t, { env = {}, depotUsage = DEPOT_USAGE, workflowHealth = WORKFLOW_HEALTH } = {}) {
+async function runDigest(
+    t,
+    {
+        env = {},
+        depotUsage = DEPOT_USAGE,
+        depotCredit = DEPOT_CREDIT,
+        workflowHealth = WORKFLOW_HEALTH,
+        performanceNow,
+    } = {}
+) {
     t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: new Date('2026-10-05T13:00:00Z') })
+    if (performanceNow) {
+        t.mock.method(performance, 'now', performanceNow)
+    }
     const settings = { ...ENV, ...env }
     const previousEnv = Object.fromEntries(Object.keys(settings).map((key) => [key, process.env[key]]))
     Object.assign(process.env, settings)
     const requests = []
     const logs = []
     let blocks
+    let depotInFlight = 0
+    let maxDepotInFlight = 0
     t.mock.method(console, 'info', (message) => logs.push(message))
     t.mock.method(console, 'warn', (message) => logs.push(message))
     t.mock.method(globalThis, 'fetch', async (url, options) => {
@@ -92,12 +103,20 @@ async function runDigest(t, { env = {}, depotUsage = DEPOT_USAGE, workflowHealth
             return Response.json(OVERVIEW)
         }
         if (href.startsWith('https://api.depot.dev/')) {
-            const answer = depotUsage[JSON.parse(options.body).startAt]
-            const usage = Array.isArray(answer) ? answer.shift() : answer
-            if (usage instanceof Error) {
-                throw usage
+            maxDepotInFlight = Math.max(maxDepotInFlight, ++depotInFlight)
+            try {
+                await new Promise((resolve) => setImmediate(resolve))
+                const answer = href.endsWith('/GetCreditBalance')
+                    ? depotCredit
+                    : (depotUsage[JSON.parse(options.body).startAt] ?? {})
+                const usage = Array.isArray(answer) ? answer.shift() : answer
+                if (usage instanceof Error) {
+                    throw usage
+                }
+                return usage instanceof Response ? usage : Response.json(usage)
+            } finally {
+                depotInFlight--
             }
-            return usage instanceof Response ? usage : Response.json(usage)
         }
         assert.equal(href, 'https://slack.com/api/chat.postMessage')
         blocks = JSON.parse(options.body).blocks
@@ -114,7 +133,7 @@ async function runDigest(t, { env = {}, depotUsage = DEPOT_USAGE, workflowHealth
             t.mock.timers.tick(30_000)
         }
         await run
-        return { blocks, logs, requests }
+        return { blocks, logs, requests, maxDepotInFlight }
     } finally {
         for (const [key, value] of Object.entries(previousEnv)) {
             if (value === undefined) {
@@ -127,6 +146,7 @@ async function runDigest(t, { env = {}, depotUsage = DEPOT_USAGE, workflowHealth
 }
 
 function tableText(blocks) {
+    assert.ok(blocks[1].rows.flat().every((cell) => cell.text.length > 0), 'Slack rejects an empty table cell')
     return blocks[1].rows.slice(1).map((row) => row.map((cell) => cell.text))
 }
 
@@ -135,11 +155,28 @@ describe('weekly engineering analytics digest', () => {
         ['', {}],
         [
             ' after a transient Depot failure',
-            { depotUsage: { ...DEPOT_USAGE, [WEEK]: [new Response('', { status: 503 }), DEPOT_USAGE[WEEK]] } },
+            {
+                depotUsage: {
+                    ...DEPOT_USAGE,
+                    [LAST_WEEK_DAY]: [new Response('', { status: 503 }), DEPOT_USAGE[LAST_WEEK_DAY]],
+                },
+            },
         ],
     ]) {
         it(`reports Depot spend for complete UTC weeks and the contract${name}`, async (t) => {
-            const { blocks, requests } = await runDigest(t, override)
+            const { blocks, requests, maxDepotInFlight } = await runDigest(t, override)
+            assert.equal(maxDepotInFlight, 1)
+            const usageRanges = requests
+                .filter((request) => request.url.endsWith('.UsageService/GetUsage'))
+                .map((request) => JSON.parse(request.body))
+            assert.ok(usageRanges.every((range) => Date.parse(range.endAt) - Date.parse(range.startAt) === 86_400_000))
+            assert.deepEqual(
+                [...new Set(usageRanges.map((range) => range.startAt.slice(0, 10)))].sort(),
+                Array.from({ length: 14 }, (_, i) =>
+                    new Date(Date.parse(PRIOR_WEEK) + i * 86_400_000).toISOString().slice(0, 10)
+                )
+            )
+            assert.equal(requests.filter((request) => request.url.endsWith('/GetCreditBalance')).length, 1)
             const overviewUrl = new URL(requests.find((request) => request.url.includes('/repo_overview/')).url)
             assert.equal(overviewUrl.searchParams.get('date_from'), WEEK)
             assert.equal(overviewUrl.searchParams.get('date_to'), '2026-10-05T00:00:00.000Z')
@@ -192,24 +229,20 @@ describe('weekly engineering analytics digest', () => {
         })
     }
 
-    for (const [name, allowance, expected] of [
-        ['a used-up contract', '50000', /The contract is used up\.$/],
-        ['a contract that lasts', '1000000', /it lasts until the contract ends on 2027-01-01\.$/],
+    for (const [name, remainingCreditMinor, expected] of [
+        ['a used-up contract', '0', /The contract is used up\.$/],
+        ['a contract that lasts', '100000000', /it lasts until the contract ends on 2027-01-01\.$/],
     ]) {
         it(`describes ${name}`, async (t) => {
-            const { blocks } = await runDigest(t, { env: { DEPOT_CONTRACT_USD: allowance } })
+            const { blocks } = await runDigest(t, { depotCredit: { ...DEPOT_CREDIT, remainingCreditMinor } })
             assert.match(blocks[2].text.text, expected)
         })
     }
 
     for (const [name, override] of [
         ['the contract variables are missing', { env: { DEPOT_CONTRACT_USD: '' } }],
-        [
-            'the contract read fails',
-            {
-                depotUsage: { ...DEPOT_USAGE, [CONTRACT]: new Response('confidential-response', { status: 404 }) },
-            },
-        ],
+        ['the balance read fails', { depotCredit: new Response('confidential-response', { status: 404 }) }],
+        ['the balance is not in dollars', { depotCredit: { ...DEPOT_CREDIT, currency: 'EUR' } }],
     ]) {
         it(`posts spend without the contract sentence when ${name}`, async (t) => {
             const { blocks } = await runDigest(t, override)
@@ -221,19 +254,39 @@ describe('weekly engineering analytics digest', () => {
     for (const [name, override] of [
         [
             'a Depot HTTP failure',
-            { depotUsage: { ...DEPOT_USAGE, [WEEK]: new Response('confidential-response', { status: 503 }) } },
+            {
+                depotUsage: {
+                    ...DEPOT_USAGE,
+                    [LAST_WEEK_DAY]: new Response('confidential-response', { status: 503 }),
+                },
+            },
         ],
-        ['invalid Depot JSON', { depotUsage: { ...DEPOT_USAGE, [WEEK]: new Response('confidential-response') } }],
-        ['a Depot network failure', { depotUsage: { ...DEPOT_USAGE, [WEEK]: new Error('confidential-response') } }],
+        [
+            'invalid Depot JSON',
+            { depotUsage: { ...DEPOT_USAGE, [LAST_WEEK_DAY]: new Response('confidential-response') } },
+        ],
+        [
+            'a Depot network failure',
+            { depotUsage: { ...DEPOT_USAGE, [LAST_WEEK_DAY]: new Error('confidential-response') } },
+        ],
         [
             'negative Depot minutes',
             { depotUsage: { ...DEPOT_USAGE, [PRIOR_WEEK]: { githubActionsJobs: [{ total: { minutesBilled: -1 } }] } } },
         ],
         [
             'a malformed Depot CI section',
-            { depotUsage: { ...DEPOT_USAGE, [WEEK]: { ...DEPOT_USAGE[WEEK], depotCi: { confidential: 'response' } } } },
+            {
+                depotUsage: {
+                    ...DEPOT_USAGE,
+                    [LAST_WEEK_DAY]: { ...DEPOT_USAGE[LAST_WEEK_DAY], depotCi: { confidential: 'response' } },
+                },
+            },
         ],
         ['a missing token', { env: { DEPOT_TOKEN: '' } }],
+        [
+            'Depot reads past their time budget',
+            { performanceNow: ((calls) => () => (++calls > 8 ? 21 * 60 * 1000 : 0))(0) },
+        ],
     ]) {
         it(`posts without spend on ${name} and keeps Depot data out of the logs`, async (t) => {
             const { blocks, logs } = await runDigest(t, override)

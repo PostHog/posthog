@@ -40,6 +40,7 @@ import { isDefinitionStale } from 'lib/utils/definitions'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { UnexpectedNeverError, isNotNil } from 'lib/utils/guards'
 import { hogql } from 'lib/utils/hogql'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { objectsEqual } from 'lib/utils/objects'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { Scene } from 'scenes/sceneTypes'
@@ -99,6 +100,7 @@ import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type { CompareFilter, CurrencyCode, WebAnalyticsQueryModifiers } from '../../queries/schema/schema-general'
 import { botAnalyticsLogic } from './botAnalyticsLogic'
 import {
+    AI_VISIBILITY_URL_PARAMS,
     ActiveHoursTab,
     ConversionGoalWarning,
     DeviceTab,
@@ -162,7 +164,7 @@ export interface webAnalyticsLogicValues {
     isDev: boolean | undefined // preflightLogic
     baseCurrency: CurrencyCode // teamLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
-    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
+    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean // userLogic
     user: UserType | null // userLogic
     appliedPresetFilters: WebAnalyticsFiltersConfig | null // webAnalyticsFilterLogic
     appliedPresetShortId: string | null // webAnalyticsFilterLogic
@@ -217,7 +219,7 @@ export interface webAnalyticsLogicValues {
     focusModeModalOpen: boolean
     focusModeOnboardingModalOpen: boolean
     geographyTab: string
-    getNewInsightUrl: (tileId: TileId, tabId?: string | undefined) => string | undefined
+    getNewInsightUrl: (tileId: TileId, tabId?: string) => string | undefined
     graphsTab: string
     hasCountryFilter: boolean
     hasIncompatibleFilters: boolean
@@ -334,12 +336,12 @@ export interface webAnalyticsLogicActions {
         key: string
         tabChange:
             | {
-                  activeHoursTab?: string | undefined
-                  deviceTab?: string | undefined
-                  geographyTab?: string | undefined
-                  graphsTab?: string | undefined
-                  pathTab?: string | undefined
-                  sourceTab?: string | undefined
+                  activeHoursTab?: string
+                  deviceTab?: string
+                  geographyTab?: string
+                  graphsTab?: string
+                  pathTab?: string
+                  sourceTab?: string
               }
             | undefined
         type: PropertyFilterType.Event | PropertyFilterType.Person | PropertyFilterType.Session
@@ -575,7 +577,7 @@ export interface webAnalyticsLogicMeta {
         activeHoursTab: (_activeHoursTab: string | null) => string
         isPathCleaningEnabled: (
             _isPathCleaningEnabled: boolean,
-            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
+            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean
         ) => boolean
         currentFiltersConfig: (
             rawWebAnalyticsFilters: WebAnalyticsPropertyFilters,
@@ -733,9 +735,7 @@ export interface webAnalyticsLogicMeta {
             tilesWithoutQueryModifiers: WebAnalyticsTile[],
             effectiveWebQueryModifiers: WebAnalyticsQueryModifiers
         ) => WebAnalyticsTile[]
-        getNewInsightUrl: (
-            tiles: WebAnalyticsTile[]
-        ) => (tileId: TileId, tabId?: string | undefined) => string | undefined
+        getNewInsightUrl: (tiles: WebAnalyticsTile[]) => (tileId: TileId, tabId?: string) => string | undefined
     }
 }
 
@@ -3286,7 +3286,20 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
             } else if (productTab === ProductTab.LIVE) {
                 return urls.webAnalyticsLive()
             } else if (productTab === ProductTab.CONTENT_AUTOPILOT) {
-                return urls.webAnalyticsContentAutopilot()
+                // A prompt page keeps its own path, so a shared header control doesn't close the prompt.
+                const path = removeProjectIdIfPresent(router.values.location.pathname)
+                const basePath = path.startsWith(`${urls.webAnalyticsContentAutopilot()}/prompts/`)
+                    ? path
+                    : urls.webAnalyticsContentAutopilot()
+                // The AI visibility filters live in the URL; every other param belongs to another tab.
+                const aiVisibilityParams = new URLSearchParams()
+                for (const key of AI_VISIBILITY_URL_PARAMS) {
+                    const value = urlParams.get(key)
+                    if (value !== null) {
+                        aiVisibilityParams.set(key, value)
+                    }
+                }
+                return `${basePath}${aiVisibilityParams.toString() ? '?' + aiVisibilityParams.toString() : ''}`
             } else if (productTab === ProductTab.BOT_ANALYTICS) {
                 // Bot tab maintains its own filter state in `botAnalyticsLogic`, so we serialize
                 // those filters here instead of `rawWebAnalyticsFilters` (which only describes the
@@ -3741,6 +3754,10 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
             },
             '/web/agents': (_, searchParams) => {
                 toAction({ productTab: ProductTab.AGENTS }, searchParams)
+            },
+            // The prompt detail page belongs to the AI visibility tab; the prompt detail logic opens the prompt.
+            '/web/ai-visibility/prompts/:promptId': (_, searchParams) => {
+                toAction({ productTab: ProductTab.CONTENT_AUTOPILOT }, searchParams)
             },
             '/web/:productTab': toAction,
         }

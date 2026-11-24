@@ -8,16 +8,18 @@ import type { TileGroupDisplay } from '~/types'
 import type { DashboardSection } from '../dashboardTileSections'
 import { DashboardTileGroup } from './DashboardTileGroup/DashboardTileGroup'
 import type { DashboardTileGroupMenuActions } from './DashboardTileGroup/DashboardTileGroupMenuOverlay'
+import type { TileGroupMoveActions } from './DashboardTileGroup/DashboardTileGroupMoveButtons'
 
 interface DashboardTileSectionBandProps {
     section: DashboardSection
-    isFirst: boolean
+    showDivider: boolean
     isDropTarget: boolean
     collapsedTileGroupKeys: string[]
     onToggleTileGroup: (groupKey: string) => void
     onRenameTileGroup?: (groupKey: string, title: string) => void
     renamingTileGroupKey?: string | null
     onRenamingTileGroupKeyChange?: (groupKey: string | null) => void
+    getTileGroupMoveActions?: (groupKey: string) => TileGroupMoveActions | undefined
     onRemoveTileGroup?: (groupKey: string) => void
     copyToDestinations?: DashboardWidgetPlacementDestination[]
     onCopyGroupToDashboard?: (groupKey: string, dashboardId: number, dashboardName: string) => void
@@ -30,13 +32,14 @@ interface DashboardTileSectionBandProps {
 
 export function DashboardTileSectionBand({
     section,
-    isFirst,
+    showDivider,
     isDropTarget,
     collapsedTileGroupKeys,
     onToggleTileGroup,
     onRenameTileGroup,
     renamingTileGroupKey,
     onRenamingTileGroupKeyChange,
+    getTileGroupMoveActions,
     onRemoveTileGroup,
     copyToDestinations,
     onCopyGroupToDashboard,
@@ -50,8 +53,7 @@ export function DashboardTileSectionBand({
         <div data-dashboard-section={section.key} className={clsx('rounded-lg', isDropTarget && 'ring-2 ring-accent')}>
             {section.kind === 'tiles' ? (
                 <>
-                    {/* Without a line, viewers read loose tiles under a closed group as part of that group. */}
-                    {!isFirst && <LemonDivider className="mb-4" />}
+                    {showDivider && <LemonDivider className="mb-4" />}
                     {children}
                 </>
             ) : (
@@ -63,6 +65,7 @@ export function DashboardTileSectionBand({
                     onRename={onRenameTileGroup ? (title) => onRenameTileGroup(section.groupKey, title) : undefined}
                     renaming={renamingTileGroupKey === section.groupKey}
                     onRenamingChange={(renaming) => onRenamingTileGroupKeyChange?.(renaming ? section.groupKey : null)}
+                    moveActions={getTileGroupMoveActions?.(section.groupKey)}
                     onRemove={onRemoveTileGroup ? () => onRemoveTileGroup(section.groupKey) : undefined}
                     copyToDestinations={copyToDestinations}
                     onCopyToDashboard={

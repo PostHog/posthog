@@ -697,7 +697,9 @@ fn test_datadog_log_overridden_timestamp_tracking() {
 
     let (row_overridden, was_overridden) = datadog_log_to_kafka_row(log_overridden, &query_params);
     assert!(was_overridden);
-    assert!(row_overridden.attributes.contains_key("$originalTimestamp"));
+    assert!(row_overridden
+        .attributes
+        .contains_key("posthog.original_timestamp"));
 
     // Test with a recent timestamp (should not be overridden)
     let recent = Utc::now().timestamp_millis() - (3600 * 1000); // 1 hour ago
@@ -714,7 +716,9 @@ fn test_datadog_log_overridden_timestamp_tracking() {
 
     let (row_recent, was_not_overridden) = datadog_log_to_kafka_row(log_recent, &query_params);
     assert!(!was_not_overridden);
-    assert!(!row_recent.attributes.contains_key("$originalTimestamp"));
+    assert!(!row_recent
+        .attributes
+        .contains_key("posthog.original_timestamp"));
 
     // Test with user-provided originalTimestamp attribute (should not affect override detection)
     let mut extra = HashMap::new();

@@ -39,6 +39,7 @@ from posthog.helpers.two_factor_session import enforce_two_factor
 from posthog.helpers.verified_domain_enforcement import enforce_verified_domain
 from posthog.ingress.verify.schemes import hmac_sha256_signature, signatures_match
 from posthog.internal_api_secret import usable_internal_api_secrets
+from posthog.ip_restrictions import enforce_ip_restrictions
 from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt, get_oidc_verification_keys
 from posthog.models.activity_logging.activity_log import WORKLOAD_TRIGGER_JOB_TYPE, Trigger
 from posthog.models.activity_logging.utils import (
@@ -77,12 +78,14 @@ from posthog.models.workload_trust_policy import (
 )
 from posthog.passkey import verify_passkey_authentication_response
 from posthog.scoped_service_jwt import ScopedServiceJwtPurpose
-from posthog.scopes import LEGACY_SCOPE_FALLBACKS
+from posthog.scopes.checks import LEGACY_SCOPE_FALLBACKS
 from posthog.shared_link_user import SharedLinkUser
 from posthog.synthetic_user import SyntheticUser
 from posthog.utils import get_safe_cache, get_trusted_client_ip, safe_cache_set
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.exports.backend.facade.auth import get_export_renderer_asset_context
 from products.security.backend.facade.api import (
     REFUSAL_CODE as SECURITY_REFUSAL_CODE,
@@ -421,6 +424,8 @@ class PersonalAPIKeyAuthentication(ActivityCredentialMixin, authentication.BaseA
                 api_key_label=personal_api_key_object.label,
             )
 
+            enforce_ip_restrictions(request, personal_api_key_object.user, self)
+
             # ActivityLoggingMiddleware only captures session-authenticated users (it runs before
             # DRF auth), so signal-driven activity logging would otherwise record bearer-token
             # requests as system actions.
@@ -441,8 +446,7 @@ class PersonalAPIKeyAuthentication(ActivityCredentialMixin, authentication.BaseA
 def _extract_phs_token(request: Union[HttpRequest, Request]) -> Optional[str]:
     """
     Find a `phs_` secret token in the request Authorization header (Bearer scheme).
-    Used by both TeamSecretTokenAuthentication (legacy Team.secret_api_token) and
-    ProjectSecretAPIKeyAuthentication (PSAK model).
+    Used by ProjectSecretAPIKeyAuthentication (PSAK model).
     """
     if "authorization" in request.headers:
         authorization_match = re.match(r"^Bearer\s+(.+)$", request.headers["authorization"])
@@ -452,66 +456,6 @@ def _extract_phs_token(request: Union[HttpRequest, Request]) -> Optional[str]:
                 return token
 
     return None
-
-
-class TeamSecretTokenUser(SyntheticUser):
-    """
-    Synthetic user returned by TeamSecretTokenAuthentication when authenticating
-    via the legacy team-level Team.secret_api_token field.
-    """
-
-    def __init__(self, team):
-        super().__init__(team, distinct_id=f"team-secret-token-{team.id}")
-
-
-class TeamSecretTokenAuthentication(ActivityCredentialMixin, authentication.BaseAuthentication):
-    """
-    Authenticates using the legacy team-level Team.secret_api_token field.
-
-    This is not a ProjectSecretAPIKey (PSAK) model authenticator — it validates the
-    `phs_*` token against the legacy per-team secret stored on the Team row. It's
-    intended for endpoints that were gated before PSAK existed.
-
-    When authenticated, returns a synthetic TeamSecretTokenUser with the team
-    attached, so downstream permission code can resolve team context without a
-    real User.
-
-    The token is read from the Authorization header (Bearer scheme) only.
-    """
-
-    keyword = "Bearer"
-    activity_credential_type = "team_secret_token"
-
-    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
-        if not settings.ACCEPT_TEAM_SECRET_TOKENS:
-            return None
-
-        secret_api_token = _extract_phs_token(request)
-
-        if not secret_api_token:
-            return None
-
-        try:
-            Team = apps.get_model(app_label="posthog", model_name="Team")
-            team = Team.objects.get_team_from_cache_or_secret_api_token(secret_api_token)
-
-            if team is None:
-                return None
-
-            tag_authentication(
-                user_id=None,
-                team_id=team.id,
-                access_method=AccessMethod.TEAM_SECRET_TOKEN,
-            )
-            self.record_activity_actor(None)
-
-            return (TeamSecretTokenUser(team), None)
-        except Team.DoesNotExist:
-            return None
-
-    @classmethod
-    def authenticate_header(cls, request) -> str:
-        return cls.keyword
 
 
 class ProjectSecretAPIKeyUser(SyntheticUser):
@@ -537,7 +481,6 @@ class ProjectSecretAPIKeyAuthentication(ActivityCredentialMixin, authentication.
     """
     Authenticates a ProjectSecretAPIKey (PSAK) model record via its SHA256 hash.
 
-    Does NOT fall back to Team.secret_api_token — that's TeamSecretTokenAuthentication.
     Intended for endpoints that enforce PSAK scopes via APIScopePermission.
 
     PSAK scopes grant project-wide access within the scoped resource type. They do
@@ -546,9 +489,6 @@ class ProjectSecretAPIKeyAuthentication(ActivityCredentialMixin, authentication.
 
     keyword = "Bearer"
     activity_credential_type = "project_secret_key"
-    # True on routes where a backfilled PSAK (#63111) mirroring the team's legacy token
-    # must fall through to the route's legacy branch; transitional until #66179.
-    defer_migrated_team_tokens = False
 
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
         token = _extract_phs_token(request)
@@ -559,13 +499,6 @@ class ProjectSecretAPIKeyAuthentication(ActivityCredentialMixin, authentication.
         if psak is None:
             return None
 
-        if (
-            self.defer_migrated_team_tokens
-            and settings.ACCEPT_TEAM_SECRET_TOKENS
-            and token in (psak.team.secret_api_token, psak.team.secret_api_token_backup)
-        ):
-            return None
-
         now = timezone.now()
         if psak.last_used_at is None or (now - psak.last_used_at > timedelta(hours=1)):
             # Use .update() to bypass ModelActivityMixin save hooks and avoid
@@ -573,6 +506,9 @@ class ProjectSecretAPIKeyAuthentication(ActivityCredentialMixin, authentication.
             ProjectSecretAPIKey.objects.filter(pk=psak.pk).update(last_used_at=now)
 
         self.project_secret_api_key = psak
+
+        user = ProjectSecretAPIKeyUser(psak)
+        enforce_ip_restrictions(request, user, self)
 
         tag_authentication(
             user_id=None,
@@ -583,7 +519,7 @@ class ProjectSecretAPIKeyAuthentication(ActivityCredentialMixin, authentication.
         )
         self.record_activity_actor(None, psak.id)
 
-        return (ProjectSecretAPIKeyUser(psak), None)
+        return (user, None)
 
     @classmethod
     def authenticate_header(cls, request) -> str:
@@ -787,6 +723,9 @@ class IDJagAccessTokenAuthentication(ActivityCredentialMixin, authentication.Bas
 
             verified = self.verify_access_token(token)
             refuse_blocked_account(request, verified.user, call_site="id_jag_token", impersonated=False)
+            # The organization's identity provider names this user, who never approved the token, so
+            # the user's staff rights don't carry over.
+            verified.user.withhold_staff_rights()
             self.client_id = verified.client_id
             self.scopes = verified.scopes
             self.organization_id = verified.organization_id
@@ -796,6 +735,8 @@ class IDJagAccessTokenAuthentication(ActivityCredentialMixin, authentication.Bas
                 team_id=verified.user.current_team_id,
                 access_method=AccessMethod.ID_JAG,
             )
+
+            enforce_ip_restrictions(request, verified.user, self)
 
             self.record_activity_actor(verified.user, verified.client_id)
             record_agent_intent(request)
@@ -1269,6 +1210,11 @@ class OAuthAccessTokenAuthentication(ActivityCredentialMixin, authentication.Bas
     activity_credential_type = "oauth"
     access_token: OAuthAccessToken
 
+    @property
+    def is_user_delegated(self) -> bool:
+        # Task-bound tokens represent PostHog-hosted workers, whose egress IP is not the user's.
+        return self.access_token.sandbox_task_id is not None
+
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
         with tracer.start_as_current_span("posthog.auth.oauth"):
             authorization_token = self._extract_token(request)
@@ -1285,6 +1231,9 @@ class OAuthAccessTokenAuthentication(ActivityCredentialMixin, authentication.Bas
                 return self._authenticate_access_token(request, access_token)
 
             except AuthenticationFailed:
+                raise
+            except PermissionDenied:
+                # An IP restriction refusal is a 403, not a bad token. Let it keep its code.
                 raise
             except Exception as e:
                 # _validate_token converts its own failures, so anything reaching here is a
@@ -1309,6 +1258,8 @@ class OAuthAccessTokenAuthentication(ActivityCredentialMixin, authentication.Bas
         refuse_blocked_account(
             request, user, call_site="oauth_token", impersonated=access_token.impersonated_by_id is not None
         )
+
+        enforce_ip_restrictions(request, user, self)
 
         tag_authentication(
             user_id=user.pk,
@@ -1385,7 +1336,11 @@ class OAuthAccessTokenAuthentication(ActivityCredentialMixin, authentication.Bas
         if (
             not user
             or not team
-            or not UserAccessControl(user, team=team).check_access_level_for_resource("toolbar", "viewer")
+            or not authorization.check(
+                resource=Resource(type=ResourceType.TOOLBAR, project_id=team.id),
+                action=Action.VIEW,
+                subject=Subject(user_id=user.pk),
+            )
         ):
             raise AuthenticationFailed(detail="You don't have access to the toolbar for this project.")
 
@@ -1435,6 +1390,9 @@ def _decode_delegated_user_token(request: Union[HttpRequest, Request]) -> dict[s
 
 class DelegatedPersonalAPIKeyAuthentication(PersonalAPIKeyAuthentication):
     activity_credential_type = "personal_api_key"
+    # A delegated credential comes from an internal service acting for the user. Only the MCP server
+    # forwards a signed end-user IP, so an IP restriction judges this request only when that is set.
+    is_user_delegated = True
 
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
         claims = _decode_delegated_user_token(request)
@@ -1463,6 +1421,8 @@ class DelegatedPersonalAPIKeyAuthentication(PersonalAPIKeyAuthentication):
             api_key_mask=personal_api_key.mask_value,
             api_key_label=personal_api_key.label,
         )
+        enforce_ip_restrictions(request, personal_api_key.user, self)
+
         self.record_activity_actor(personal_api_key.user, personal_api_key.id)
         record_agent_intent(request)
         return personal_api_key.user, None
@@ -1470,6 +1430,10 @@ class DelegatedPersonalAPIKeyAuthentication(PersonalAPIKeyAuthentication):
 
 class DelegatedOAuthAccessTokenAuthentication(OAuthAccessTokenAuthentication):
     activity_credential_type = "oauth"
+
+    @property
+    def is_user_delegated(self) -> bool:
+        return True
 
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
         claims = _decode_delegated_user_token(request)

@@ -13,6 +13,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
+from django.db import transaction
 from django.db.models import F, Q
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -25,21 +26,27 @@ from rest_framework.exceptions import NotAuthenticated, NotFound, PermissionDeni
 
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.dataclasses import frozen
+from posthog.entitlements.contracts import Entitlements
+from posthog.entitlements.dispatch import dispatch_entitlement_reactions, entitlement_reactions_enabled
+from posthog.entitlements.registry import get_entitlement_reactor_registry
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization
+from posthog.models.events_plan_deletion import apply_events_retention_change
 from posthog.models.oauth import OAuthApplication
 from posthog.models.organization import OrganizationMembership, OrganizationUsageInfo
-from posthog.models.organization_provisioning import get_billing_lock_partner
+from posthog.models.organization_entitlement_applied_state import OrganizationEntitlementAppliedState
+from posthog.models.organization_provisioning import get_billing_lock_partner, record_partner_paid
 from posthog.models.team.event_retention import (
+    billed_events_retention_months,
+    has_standard_retention,
     organization_events_retention_months,
-    reconcile_organization_events_retention,
 )
 from posthog.models.team.logs_retention import reset_revoked_logs_retention
 from posthog.models.user import User
 
 from ee.billing.access_token import mint_billing_access_token
-from ee.billing.billing_types import BillingProvider, BillingStatus, CustomerInfo
+from ee.billing.billing_types import BillingProvider, BillingStatus, CustomerInfo, RatedUsageItem
 from ee.billing.grants import EffectiveBillingGrants
 from ee.billing.quota_limiting import BILLING_STATUS_STAMP_KEYS, set_org_usage_summary, update_org_billing_quotas
 from ee.models import License
@@ -59,6 +66,8 @@ BILLING_PROVIDER_WEBHOOK_SIGNATURE_HEADER = "X-PostHog-Billing-Provider-Signatur
 BILLING_PROVIDER_WEBHOOK_TIMESTAMP_HEADER = "X-PostHog-Billing-Provider-Timestamp"
 BILLING_PROVIDER_WEBHOOK_SIGNATURE_VERSION = "sha256"
 BILLING_TIMESERIES_REQUEST_TIMEOUT = (5, 30)
+# The unpaid invoice banner lists invoices on page load, so a stalled billing service must not hold a worker.
+BILLING_INVOICES_REQUEST_TIMEOUT = (5, 15)
 # An export covers every project rather than the chart's top few, so it reads more and is
 # allowed longer. The person is waiting for a file, which tolerates a longer wait than a chart.
 BILLING_EXPORT_REQUEST_TIMEOUT = (5, 120)
@@ -188,12 +197,15 @@ def build_billing_token(
     authorizer_actor: Optional[User] = None,
     billing_provider: BillingProvider | None = None,
     service_action: str | None = None,
+    escalation_action: str = "update_billing",
 ) -> str:
     """
     Build the JWT token to authenticate with the Billing system.
 
     Allows doing privilege escalation with the `authorizer_actor` parameter, in that case the distinct_id
     will be that of the user, but the role will be that of the authorizer_actor.
+    `escalation_action` names the call the escalation was for, so the audit event says what the
+    authorizer's role was borrowed to do.
 
     `service_action` marks a token minted by a backend job for one specific service-to-service
     endpoint (e.g. "signals_pr_dispute"); billing rejects calls to such endpoints from tokens
@@ -239,7 +251,7 @@ def build_billing_token(
                     "target_user_id": user.id,
                     "target_distinct_id": str(user.distinct_id),
                     "target_email": user.email,
-                    "action": "update_billing",
+                    "action": escalation_action,
                 },
             )
             payload["original_role"] = _get_user_organization_role(user, organization)
@@ -440,23 +452,25 @@ class BillingManager:
         self,
         organization: Organization | None,
         query_params: dict[str, Any] | None = None,
+        *,
+        timeout: tuple[float, float] | None = None,
     ) -> dict[str, Any]:
         if not organization or not self.license or not self.license.is_v2_license:
-            return self._get_default_billing_response(organization)
+            return self._get_default_billing_response(organization, timeout=timeout)
 
         # Get billing info from billing service
-        billing_service_response = self._get_billing(organization, query_params)
+        billing_service_response = self._get_billing(organization, query_params, timeout=timeout)
 
         customer = cast(dict[str, Any], billing_service_response).get("customer")
         if not customer:
-            return self._get_default_billing_response(organization)
+            return self._get_default_billing_response(organization, timeout=timeout)
 
         # Ensure the license and org are updated with the latest info
         if billing_service_response.get("license"):
             self.update_license_details(billing_service_response)
 
         if organization and billing_service_response:
-            self.update_org_details(organization, billing_service_response)
+            self.update_org_details(organization, billing_service_response, timeout=timeout)
 
         response: dict[str, Any] = {"available_product_features": []}
 
@@ -465,7 +479,7 @@ class BillingManager:
         response.update(billing_service_response["customer"])
 
         if not billing_service_response["customer"].get("products"):
-            products = self.get_default_products(organization)
+            products = self.get_default_products(organization, timeout=timeout)
             response["products"] = products["products"]
 
         response["stripe_portal_url"] = f"{settings.SITE_URL}/api/billing/portal"
@@ -525,7 +539,8 @@ class BillingManager:
         previous_feature_keys = {
             feature.get("key") for feature in (organization.available_product_features or []) if feature
         }
-        previous_retention_months = organization_events_retention_months(organization)
+        previous_retention_months = billed_events_retention_months(organization)
+        previous_standard_retention = has_standard_retention(organization)
         organization.available_product_features = available_product_features
         organization.save()
 
@@ -533,7 +548,7 @@ class BillingManager:
             available_product_features
             and organization_events_retention_months(organization) != previous_retention_months
         ):
-            reconcile_organization_events_retention(organization)
+            apply_events_retention_change(organization, previous_retention_months, previous_standard_retention)
 
         # Only reset on a non-empty list: the retention reset is not self-healing, so an
         # empty error-path response must not permanently downgrade team settings.
@@ -574,24 +589,16 @@ class BillingManager:
 
         distinct_ids = list(members_with_distinct_id.values_list("distinct_id", flat=True))
 
+        admin_memberships = organization.memberships.with_effective_level().filter(
+            resolved_level__gte=OrganizationMembership.Level.ADMIN
+        )
         admin_emails = [
-            email
-            for email in organization.members.filter(
-                organization_membership__level__gte=OrganizationMembership.Level.ADMIN
-            ).values_list("email", flat=True)
-            if _is_valid_email(email)
+            email for email in admin_memberships.values_list("user__email", flat=True) if _is_valid_email(email)
         ]
-
         org_users = list(
-            members_with_distinct_id.values("email", "distinct_id", "organization_membership__level")
-            .order_by("email")  # Deterministic order for tests
-            .annotate(role=F("organization_membership__level"))
-            .filter(role__gte=OrganizationMembership.Level.ADMIN)
-            .values(
-                "email",
-                "distinct_id",
-                "role",
-            )
+            admin_memberships.exclude(Q(user__distinct_id__isnull=True) | Q(user__distinct_id=""))
+            .order_by("user__email")  # Deterministic order for tests
+            .values(email=F("user__email"), distinct_id=F("user__distinct_id"), role=F("resolved_level"))
         )
 
         return self.update_billing(
@@ -663,8 +670,10 @@ class BillingManager:
 
         return funding_status
 
-    def _get_default_billing_response(self, organization: Organization | None) -> dict[str, Any]:
-        products = self.get_default_products(organization)
+    def _get_default_billing_response(
+        self, organization: Organization | None, *, timeout: tuple[float, float] | None = None
+    ) -> dict[str, Any]:
+        products = self.get_default_products(organization, timeout=timeout)
         response = {
             "available_product_features": [],
             "products": products["products"],
@@ -672,10 +681,12 @@ class BillingManager:
 
         return response
 
-    def get_default_products(self, organization: Organization | None) -> dict:
+    def get_default_products(
+        self, organization: Organization | None, *, timeout: tuple[float, float] | None = None
+    ) -> dict[str, Any]:
         response = {}
         # If we don't have products from the billing service then get the default ones with our local usage calculation
-        products = self._get_products(organization)
+        products = self._get_products(organization, timeout=timeout)
         response["products"] = products
 
         return response
@@ -705,7 +716,13 @@ class BillingManager:
 
         return self.license
 
-    def _get_billing(self, organization: Organization, query_params: dict[str, Any] | None = None) -> BillingStatus:
+    def _get_billing(
+        self,
+        organization: Organization,
+        query_params: dict[str, Any] | None = None,
+        *,
+        timeout: tuple[float, float] | None = None,
+    ) -> BillingStatus:
         """
         Retrieves billing info and updates local models if necessary
         """
@@ -716,6 +733,7 @@ class BillingManager:
             f"{BILLING_SERVICE_URL}/api/billing",
             headers=self.get_auth_headers(organization),
             params=query_params,
+            timeout=timeout,
         )
         handle_billing_service_error(res)
 
@@ -741,7 +759,9 @@ class BillingManager:
 
         return data["url"]
 
-    def _get_products(self, organization: Organization | None):
+    def _get_products(
+        self, organization: Organization | None, *, timeout: tuple[float, float] | None = None
+    ) -> list[dict[str, Any]]:
         headers = {}
         params = {"plan": "standard"}
 
@@ -752,13 +772,16 @@ class BillingManager:
             f"{BILLING_SERVICE_URL}/api/products-v2",
             params=params,
             headers=headers,
+            timeout=timeout,
         )
 
         handle_billing_service_error(res)
 
-        return res.json().get("products", [])
+        return cast(list[dict[str, Any]], res.json().get("products", []))
 
-    def update_org_details(self, organization: Organization, billing_status: BillingStatus) -> Organization:
+    def update_org_details(
+        self, organization: Organization, billing_status: BillingStatus, *, timeout: tuple[float, float] | None = None
+    ) -> Organization:
         """
         Ensure the relevant organization details are up-to-date locally
         """
@@ -774,10 +797,18 @@ class BillingManager:
         org_modified = False
 
         data = billing_status["customer"]
+        available_product_features = data.get("available_product_features", None)
+        use_entitlement_reactions = bool(available_product_features) and entitlement_reactions_enabled(
+            str(organization.id), fail_on_error=False
+        )
 
         if data.get("customer_id") and organization.customer_id != data["customer_id"]:
             organization.customer_id = data["customer_id"]
             org_modified = True
+
+        # Billing's word on whether a partner pays decides the billing lock once customer_id is set.
+        if "paid_by_partner" in data:
+            record_partner_paid(organization.id, bool(data["paid_by_partner"]), computed_at)
 
         should_update_org_billing_quotas = False
 
@@ -826,19 +857,24 @@ class BillingManager:
 
             should_update_org_billing_quotas = usage_changed or had_quota_limiting_markers
 
-        available_product_features = data.get("available_product_features", None)
+        previous_entitlements: Entitlements | None = None
         revoked_feature_keys: set[str] = set()
         events_retention_changed = False
+        previous_retention_months: int | None = None
+        previous_standard_retention = False
         # An empty list is deliberately ignored: this runs on hot paths (get_billing, usage
         # reports) and a partial or error-path billing response must not downgrade the org.
         # Genuine cancellations still send the (non-empty) free-tier feature list.
         if available_product_features and available_product_features != organization.available_product_features:
+            if use_entitlement_reactions:
+                previous_entitlements = Entitlements.from_features(organization.available_product_features or [])
             previous_feature_keys = {
                 feature.get("key") for feature in (organization.available_product_features or []) if feature
             }
             new_feature_keys = {feature.get("key") for feature in available_product_features if feature}
             revoked_feature_keys = previous_feature_keys - new_feature_keys
-            previous_retention_months = organization_events_retention_months(organization)
+            previous_retention_months = billed_events_retention_months(organization)
+            previous_standard_retention = has_standard_retention(organization)
             organization.available_product_features = data["available_product_features"]
             events_retention_changed = organization_events_retention_months(organization) != previous_retention_months
             org_modified = True
@@ -865,7 +901,8 @@ class BillingManager:
             product_key_to_usage_key = {
                 product["type"]: product["usage_key"]
                 for product in (
-                    billing_status["customer"].get("products") or self.get_default_products(organization)["products"]
+                    billing_status["customer"].get("products")
+                    or self.get_default_products(organization, timeout=timeout)["products"]
                 )
             }
             org_customer_trust_scores = {}
@@ -891,17 +928,46 @@ class BillingManager:
             organization.usage["billing_status_computed_at"] = computed_at.isoformat()
             organization.usage["billing_latest_usage_report_date"] = billing_status.get("latest_usage_report_date")
 
+        checkpoints: list[OrganizationEntitlementAppliedState] = []
+        if previous_entitlements is not None:
+            current_entitlements = Entitlements.from_features(available_product_features or [])
+            applied_at = timezone.now()
+            for reactor in get_entitlement_reactor_registry():
+                previous = previous_entitlements.restricted_to(reactor.feature_keys)
+                if previous != current_entitlements.restricted_to(reactor.feature_keys):
+                    checkpoints.append(
+                        OrganizationEntitlementAppliedState(
+                            organization=organization,
+                            reactor_key=reactor.key,
+                            snapshot=previous.to_snapshot(),
+                            applied_at=applied_at,
+                        )
+                    )
+
         if org_modified:
-            organization.save()
+            with transaction.atomic(using="default"):
+                organization.save(using="default")
+                if checkpoints:
+                    OrganizationEntitlementAppliedState.objects.using("default").bulk_create(
+                        checkpoints, ignore_conflicts=True
+                    )
 
         if events_retention_changed:
-            reconcile_organization_events_retention(organization)
+            apply_events_retention_change(organization, previous_retention_months, previous_standard_retention)
 
         if revoked_feature_keys:
             reset_revoked_logs_retention(organization, revoked_feature_keys)
 
         if should_update_org_billing_quotas:
             update_org_billing_quotas(organization)
+
+        if available_product_features:
+            dispatch_entitlement_reactions(
+                str(organization.id),
+                Entitlements.from_features(available_product_features),
+                watched_value_changed=bool(checkpoints),
+                enabled=use_entitlement_reactions,
+            )
 
         return organization
 
@@ -911,6 +977,7 @@ class BillingManager:
         billing_provider: BillingProvider | None = None,
         authorizer_actor: User | None = None,
         service_action: str | None = None,
+        escalation_action: str = "update_billing",
     ):
         if not self.license:  # mypy
             raise Exception("No license found")
@@ -921,6 +988,7 @@ class BillingManager:
             authorizer_actor=authorizer_actor,
             billing_provider=billing_provider,
             service_action=service_action,
+            escalation_action=escalation_action,
         )
         headers = {"Authorization": f"Bearer {billing_service_token}"}
         if self.ip_address:
@@ -1069,6 +1137,7 @@ class BillingManager:
             f"{BILLING_SERVICE_URL}/api/billing/get_invoices",
             params={"status": status},
             headers=self.get_auth_headers(organization),
+            timeout=BILLING_INVOICES_REQUEST_TIMEOUT,
         )
 
         handle_billing_service_error(res)
@@ -1120,7 +1189,19 @@ class BillingManager:
 
         return res.json()
 
-    def record_rated_usage(self, organization: Organization, items: list[dict[str, str | int]]) -> None:
+    def open_external_credit_pool(self, organization: Organization, *, grant_id: str, cents: int, day: str) -> None:
+        res = http_session.post(
+            f"{BILLING_SERVICE_URL}/api/rated-usage/external-credit-pools",
+            headers=self.get_auth_headers(organization, service_action="rated_usage"),
+            json={"grant_id": grant_id, "cents": cents, "day": day},
+            timeout=30,
+        )
+        handle_billing_service_error(res, valid_codes=(200,))
+        body = res.json()
+        if not isinstance(body, dict) or body.get("result") not in ("created", "replayed"):
+            raise ValueError("Billing did not accept the external credit pool")
+
+    def record_rated_usage(self, organization: Organization, items: list[RatedUsageItem]) -> None:
         res = http_session.post(
             f"{BILLING_SERVICE_URL}/api/rated-usage",
             headers=self.get_auth_headers(organization, service_action="rated_usage"),
@@ -1209,7 +1290,7 @@ class BillingManager:
 
         Raises:
             ValueError: If billing_provider is specified but the organization doesn't have the integration
-            BillingManagedByPartnerError: If a partner pays for the organization and it has no Stripe customer
+            BillingManagedByPartnerError: If a partner pays for the organization
         """
         raise_if_billing_managed_by_partner(organization)
 
@@ -1316,14 +1397,21 @@ class BillingManager:
         handle_billing_service_error(res)
         return res.json()
 
-    def claim_coupon(self, organization: Organization, data: dict[str, Any]) -> dict[str, Any]:
+    def claim_coupon(
+        self,
+        organization: Organization,
+        data: dict[str, Any],
+        authorizer_actor: User | None = None,
+    ) -> dict[str, Any]:
         res = http_session.post(
             f"{BILLING_SERVICE_URL}/api/coupons/claim",
             json=data,
-            headers=self.get_auth_headers(organization),
+            headers=self.get_auth_headers(
+                organization, authorizer_actor=authorizer_actor, escalation_action="claim_coupon"
+            ),
         )
 
-        handle_billing_service_error(res)
+        handle_billing_service_error(res, valid_codes=(200, 201))
         return res.json()
 
     def coupons_overview(self, organization: Organization) -> dict[str, Any]:

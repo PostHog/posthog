@@ -95,6 +95,8 @@ export interface ChartAccessor<Meta = unknown> {
     canvas: HTMLCanvasElement
     /** Number of non-excluded data series rendered (read from the chart's aria-label). */
     readonly seriesCount: number
+    /** Label index where another chart in a `ChartHoverSync` draws its crosshair here, or null. */
+    syncedIndex(): number | null
     /** Visible y-axis tick labels (left axis). */
     yTicks(): string[]
     /** Visible right y-axis tick labels (multi-axis charts). */
@@ -137,6 +139,17 @@ export interface ChartAccessor<Meta = unknown> {
         text(): GaugeSummary | null
         /** The CSS color of the value text, or null for other charts. */
         valueColor(): string | null
+    }
+    flame: {
+        /** The zoom path as shown, from `All` down to the focused node. A deep path collapses its
+         *  middle crumbs into an ellipsis, which is not listed. */
+        breadcrumb(): string[]
+        /** The search summary (`3 matches · 12% of total`), or null without a search. */
+        searchSummary(): string | null
+        /** The scroll viewport, which takes keyboard focus and handles Escape. */
+        viewport(): HTMLElement
+        /** The "Reset zoom" button, or null when the whole graph is in view. */
+        resetButton(): HTMLElement | null
     }
     /** The legend container in this chart's render scope, or null when the legend is hidden. */
     legend(): HTMLElement | null
@@ -273,10 +286,18 @@ export function getChart<Meta = unknown>(
     }
     const gaugePart = (part: string): HTMLElement | null =>
         wrapper.querySelector<HTMLElement>(`[data-attr="hog-chart-gauge-${part}"]`)
+    const flamePart = (part: string): HTMLElement | null =>
+        wrapper
+            .closest('[data-hog-charts-flame]')
+            ?.querySelector<HTMLElement>(`[data-attr="hog-chart-flame-${part}"]`) ?? null
 
     return {
         element: wrapper,
         canvas,
+        syncedIndex: () => {
+            const raw = wrapper.dataset.hogChartsSyncedIndex
+            return raw == null ? null : Number(raw)
+        },
         get seriesCount(): number {
             const match = SERIES_COUNT_RE.exec(canvas.getAttribute('aria-label') ?? '')
             return match ? Number(match[1]) : 0
@@ -348,6 +369,21 @@ export function getChart<Meta = unknown>(
                 return value === null ? null : { value, label: text('label'), min: text('min'), max: text('max') }
             },
             valueColor: () => gaugePart('value')?.style.color ?? null,
+        },
+        flame: {
+            breadcrumb: () => {
+                const root = wrapper.closest('[data-hog-charts-flame]')
+                return root ? textsOf(root, 'hog-chart-flame-breadcrumb') : []
+            },
+            searchSummary: () => flamePart('search-summary')?.textContent ?? null,
+            viewport: () => {
+                const viewport = flamePart('viewport')
+                if (!viewport) {
+                    throw new Error('This chart is not a flame graph')
+                }
+                return viewport
+            },
+            resetButton: () => flamePart('reset'),
         },
         legend: () => scope.querySelector<HTMLElement>('[data-hog-charts-legend]'),
         legendItems: () => readLegendItems(scope),

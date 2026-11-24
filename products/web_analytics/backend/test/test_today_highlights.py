@@ -1,7 +1,9 @@
+import json
 import uuid
 from datetime import UTC, date, datetime
 from types import SimpleNamespace
 from typing import cast
+from urllib.parse import parse_qs, urlsplit
 
 from unittest.mock import patch
 
@@ -9,18 +11,22 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_expr
+
 from products.error_tracking.backend.facade.contracts import ErrorTrackingIssueBasics
 from products.today.backend.facade.contracts import HighlightContext
 from products.web_analytics.backend import today_highlights
 from products.web_analytics.backend.facade.rage_pages import ErrorsBeforeRage, RagePage
 from products.web_analytics.backend.facade.today_highlights import HIGHLIGHT_SOURCES
+from products.web_analytics.backend.rage_pages import RAGE_PATH
 
 ISSUE_ID = uuid.UUID("01890000-0000-7000-8000-000000000002")
 PAGE = RagePage(path="/checkout/…", people=12, clicks=340)
 ELEMENT_ITEM = (
     "12 users rage-clicked on /checkout/… in the last 7 days",
     "340 rage clicks · Top element: ‘Pay now’",
-    "/replay/home",
+    "/checkout/…",
 )
 ERROR_ITEM = (
     "12 users rage-clicked on /checkout/… in the last 7 days",
@@ -75,8 +81,35 @@ class TestRage(SimpleTestCase):
                 None,
                 ErrorsBeforeRage(0, None, 0),
                 True,
-                [(ELEMENT_ITEM[0], "340 rage clicks", "/replay/home")],
+                [(ELEMENT_ITEM[0], "340 rage clicks", ELEMENT_ITEM[2])],
             ),
+            *[
+                (
+                    f"page path {path}",
+                    True,
+                    RagePage(path=path, people=12, clicks=340),
+                    "Pay now",
+                    ErrorsBeforeRage(0, None, 0),
+                    True,
+                    [
+                        (
+                            f"12 users rage-clicked on {(path or '/')[:40]} in the last 7 days",
+                            ELEMENT_ITEM[1],
+                            path,
+                        )
+                    ],
+                )
+                for path in [
+                    "/",
+                    "",
+                    "/checkout",
+                    "/cart/item.v2+(new)",
+                    "/search/a&b#c",
+                    "/…/items/…",
+                    "/orders/…foo",
+                    "/search/it's\\a-path",
+                ]
+            ],
             ("no page", True, None, None, ErrorsBeforeRage(0, None, 0), True, []),
             (
                 "a person who uses none of the rage products",
@@ -131,4 +164,50 @@ class TestRage(SimpleTestCase):
         ):
             found = registered.find(context)
 
-        self.assertEqual([(c.title, c.detail, c.url) for c in found.items], expected)
+        actual = []
+        for candidate in found.items:
+            destination = candidate.url
+            assert destination is not None
+            parsed_url = urlsplit(destination)
+            if parsed_url.path == "/replay/home":
+                filters = json.loads(parse_qs(parsed_url.query)["filters"][0])
+                event = filters["filter_group"]["values"][0]["values"][0]
+                page_filter = event["properties"][0]
+                predicate = parse_expr(page_filter["key"])
+                assert isinstance(predicate, ast.CompareOperation)
+                assert isinstance(predicate.right, ast.Constant)
+                assert isinstance(predicate.right.value, str)
+                self.assertEqual(predicate.op, ast.CompareOperationOp.Eq)
+                self.assertEqual(predicate.left, parse_expr(RAGE_PATH))
+                destination = predicate.right.value
+                self.assertEqual(
+                    filters,
+                    {
+                        "date_from": "-7d",
+                        "date_to": None,
+                        "filter_group": {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "type": "AND",
+                                    "values": [
+                                        {
+                                            "id": "$rageclick",
+                                            "name": "$rageclick",
+                                            "type": "events",
+                                            "order": 0,
+                                            "properties": [
+                                                {
+                                                    "key": page_filter["key"],
+                                                    "type": "hogql",
+                                                }
+                                            ],
+                                        }
+                                    ],
+                                }
+                            ],
+                        },
+                    },
+                )
+            actual.append((candidate.title, candidate.detail, destination))
+        self.assertEqual(actual, expected)

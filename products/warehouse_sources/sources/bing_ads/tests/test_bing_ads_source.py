@@ -30,7 +30,10 @@ class TestBingAdsSource:
         [
             ("", 1, "Account ID and Bing Ads integration are required"),
             ("12345", 0, "Account ID and Bing Ads integration are required"),
-            ("ABC123XYZ", 1, "Invalid Account ID"),
+            ("ABC123XYZ", 1, "looks like your Account Number"),
+            ("X1234567", 1, "looks like your Account Number"),
+            ("  X1234567  ", 1, "looks like your Account Number"),
+            ("   ", 1, "looks like your Account Number"),
         ],
     )
     def test_validate_credentials_invalid_input(self, account_id, integration_id, expected_error_fragment):
@@ -42,13 +45,17 @@ class TestBingAdsSource:
         assert is_valid is False
         assert error is not None
         assert expected_error_fragment in error
+        if account_id.strip():
+            assert account_id.strip() not in error
 
+    @pytest.mark.parametrize("account_id", ["12345", " 12345 ", "12345\n"])
     @mock.patch.object(BingAdsSource, "get_oauth_integration")
-    def test_validate_credentials_success(self, mock_get_oauth):
+    def test_validate_credentials_success(self, mock_get_oauth, account_id):
         mock_integration = mock.MagicMock()
         mock_get_oauth.return_value = mock_integration
+        config = BingAdsSourceConfig(account_id=account_id, bing_ads_integration_id=1)
 
-        is_valid, error = self.source.validate_credentials(self.valid_config, self.team_id)
+        is_valid, error = self.source.validate_credentials(config, self.team_id)
 
         assert is_valid is True
         assert error is None

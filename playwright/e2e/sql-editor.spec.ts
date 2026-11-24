@@ -46,6 +46,7 @@ test.describe('SQL Editor', () => {
         workspace = await playwrightSetup.createWorkspace({
             skip_onboarding: true,
             use_current_time: true,
+            no_demo_data: true,
         })
     })
 
@@ -53,14 +54,6 @@ test.describe('SQL Editor', () => {
         test.beforeEach(async ({ page, playwrightSetup }) => {
             await playwrightSetup.loginAndNavigateToTeam(page, workspace!)
             await goToSqlEditor(page)
-        })
-
-        test('See SQL Editor', async ({ page }) => {
-            await expect(page.getByTestId('editor-scene')).toBeVisible()
-            await expect(page.getByTestId('menu-item-sources')).toBeVisible()
-            await expect(page.getByTestId('sql-editor-add-source')).toBeVisible()
-            await expect(page.getByTestId('sql-editor-output-pane-empty-state')).toBeVisible()
-            await expect(page.locator('.scene-name h1 span').getByText('New SQL query', { exact: true })).toBeVisible()
         })
 
         test('Add source link', async ({ page }) => {
@@ -71,36 +64,8 @@ test.describe('SQL Editor', () => {
             await expect(newSourceTab).toHaveURL(/.*\/data-warehouse\/new-source/)
         })
 
-        test('Run query', async ({ page }) => {
+        test('Run, save and materialize a view', async ({ page }) => {
             await expect(page.getByTestId('sql-editor-output-pane-empty-state')).toBeVisible()
-            await runQueryAndWaitForResults(page)
-        })
-
-        test('Save view', async ({ page }) => {
-            await runQueryAndWaitForResults(page)
-            await dismissQuickStart(page)
-
-            await expect(page.getByTestId('sql-editor-save-options-button')).toBeEnabled()
-            await page.getByTestId('sql-editor-save-options-button').click()
-            await page.getByText('Save as view', { exact: true }).click()
-
-            const nameInput = page.getByTestId('sql-editor-input-save-view-name')
-            const uniqueViewName = `test_view_${test.info().repeatEachIndex}_${Date.now()}`
-            const submitButton = page.getByRole('button', { name: 'Submit' })
-            const saveViewModal = page.getByRole('dialog', { name: 'Save as view' })
-
-            await expect(nameInput).toBeVisible()
-            await nameInput.fill(uniqueViewName)
-            await expect(submitButton).toBeEnabled()
-            await submitButton.click()
-
-            await expect(saveViewModal).not.toBeVisible({ timeout: 60000 })
-            await expect(page.locator('.scene-name h1 span').getByText(uniqueViewName, { exact: true })).toBeVisible({
-                timeout: 60000,
-            })
-        })
-
-        test('Materialize view pane', async ({ page }) => {
             await runQueryAndWaitForResults(page)
             await dismissQuickStart(page)
 

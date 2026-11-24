@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import { HogError } from '@/core/errors'
+import { EXIT_FAILURE, HogError, wrapFailure } from '@/core/errors'
 import { parseJsonOrUndefined } from '@/core/json'
 import type { Runtime } from '@/core/runtime'
 import { failWith, parseOrThrow, type Schema } from '@/core/schema'
@@ -8,18 +8,17 @@ import { sendRequest } from '@/posthog/api'
 import { hostUrl } from '@/posthog/host'
 import type { KeySession } from '@/posthog/key-session'
 
-import { contentHash } from './container'
-
 // The symbol set upload protocol of posthog-cli (`api/symbol_sets.rs`). Bodies, endpoints, retry
 // counts and the release-mismatch fallback match it, so PostHog sees the same requests from either
 // CLI. Only the user agent differs.
 
-export interface SymbolSetUpload {
+export interface SymbolSetFile {
     chunkId: string
     releaseId: string | null
-    data: Uint8Array
-    // Set when the hash covers something other than the whole container, like event-mode sourcemaps.
-    contentHash?: string
+    // Null in a dry run, which writes and sends nothing.
+    file: string | null
+    size: number
+    contentHash: string
 }
 
 export type UploadStatus = 'uploaded' | 'already_present' | 'too_large'
@@ -50,18 +49,29 @@ function transferTimeout(bytes: number): number {
 const RATE_LIMIT_PER_MINUTE = 480
 
 const ErrorBody = z.object({ code: z.string() })
+const ErrorDetail = z.object({ detail: z.string() })
 
 export function errorCode(body: string): string | undefined {
     return parseJsonOrUndefined(body, ErrorBody)?.code
 }
 
-class ApiFailure extends Error {
+// The raw body can be a proxy's error page or other text nobody asked to see, so only PostHog's own
+// `detail` reaches the person, as the `serverDetail` that `Output` hides in CI.
+class ApiFailure extends HogError {
     constructor(
         readonly status: number,
         readonly body: string,
         readonly url: string
     ) {
-        super(`PostHog answered ${status} for ${url}: ${body}`)
+        const detail = parseJsonOrUndefined(body, ErrorDetail)?.detail
+        super(
+            `http_${status}`,
+            `PostHog answered ${status} for ${new URL(url).pathname}.`,
+            undefined,
+            EXIT_FAILURE,
+            undefined,
+            detail
+        )
     }
 
     // posthog-cli matches error codes in the parsed body, or anywhere in the raw text as a fallback.
@@ -185,7 +195,7 @@ export class SymbolSetClient {
         return parseOrThrow(schema, response.json, failure)
     }
 
-    async upload(uploads: SymbolSetUpload[], options: UploadOptions): Promise<UploadOutcome> {
+    async upload(uploads: SymbolSetFile[], options: UploadOptions): Promise<UploadOutcome> {
         const runId = uuidv7(this.runtime.now())
         try {
             return await this.uploadOnce(uploads, options, runId)
@@ -203,22 +213,17 @@ export class SymbolSetClient {
         }
     }
 
-    private async uploadOnce(
-        uploads: SymbolSetUpload[],
-        options: UploadOptions,
-        runId: string
-    ): Promise<UploadOutcome> {
+    private async uploadOnce(uploads: SymbolSetFile[], options: UploadOptions, runId: string): Promise<UploadOutcome> {
         const status = options.progress ?? new Map<string, UploadStatus>()
         const contentHashes = new Map<string, string>()
-        const kept: (SymbolSetUpload & { hash: string })[] = []
+        const kept: SymbolSetFile[] = []
         for (const upload of uploads) {
-            if (upload.data.length > MAX_FILE_SIZE) {
+            if (upload.size > MAX_FILE_SIZE) {
                 status.set(upload.chunkId, 'too_large')
                 continue
             }
-            const hash = upload.contentHash ?? contentHash(upload.data)
-            contentHashes.set(upload.chunkId, hash)
-            kept.push({ ...upload, hash })
+            contentHashes.set(upload.chunkId, upload.contentHash)
+            kept.push(upload)
         }
 
         const needed = await this.check(kept, options)
@@ -237,7 +242,7 @@ export class SymbolSetClient {
         return { status, contentHashes }
     }
 
-    private entry(upload: SymbolSetUpload & { hash: string }): {
+    private entry(upload: SymbolSetFile): {
         chunk_id: string
         release_id: string | null
         content_hash: string
@@ -246,14 +251,14 @@ export class SymbolSetClient {
         return {
             chunk_id: upload.chunkId,
             release_id: upload.releaseId,
-            content_hash: upload.hash,
-            content_length: upload.data.length,
+            content_hash: upload.contentHash,
+            content_length: upload.size,
         }
     }
 
     // Asks which chunks the server still needs. A failed check is not fatal: every chunk from the
     // failed slice onward is sent, and the start call decides.
-    private async check(uploads: (SymbolSetUpload & { hash: string })[], options: UploadOptions): Promise<Set<string>> {
+    private async check(uploads: SymbolSetFile[], options: UploadOptions): Promise<Set<string>> {
         const needed = new Set<string>()
         for (let start = 0; start < uploads.length; start += CHECK_BATCH_SIZE) {
             const slice = uploads.slice(start, start + CHECK_BATCH_SIZE)
@@ -289,7 +294,7 @@ export class SymbolSetClient {
     }
 
     private async uploadBatch(
-        batch: (SymbolSetUpload & { hash: string })[],
+        batch: SymbolSetFile[],
         options: UploadOptions,
         runId: string
     ): Promise<Map<string, UploadStatus>> {
@@ -334,11 +339,11 @@ export class SymbolSetClient {
             }
         }
         await runWithConcurrency(entries, options.concurrency ?? 10, async ([chunkId, entry]) => {
-            await this.store(byChunk.get(chunkId)!.data, entry)
+            await this.store(byChunk.get(chunkId)!, entry)
         })
         const finishHashes: Record<string, string> = {}
         for (const [chunkId, entry] of entries) {
-            finishHashes[entry.symbol_set_id] = byChunk.get(chunkId)!.hash
+            finishHashes[entry.symbol_set_id] = byChunk.get(chunkId)!.contentHash
             results.set(chunkId, 'uploaded')
         }
         try {
@@ -350,9 +355,10 @@ export class SymbolSetClient {
                 })
             )
         } catch (error) {
-            throw new HogError(
+            throw wrapFailure(
                 'upload_not_finished',
-                `PostHog didn't confirm the upload, so the symbol sets aren't attached: ${describe(error)}`,
+                "PostHog didn't confirm the upload, so the symbol sets aren't attached",
+                error,
                 'Run the upload again. Chunks that already reached PostHog are skipped.'
             )
         }
@@ -361,7 +367,7 @@ export class SymbolSetClient {
 
     // Sends one container to object storage. A target falls back to its alternate endpoint after two
     // transport errors in a row on the primary, like posthog-cli's endpoint router.
-    private async store(data: Uint8Array, entry: StartEntry): Promise<void> {
+    private async store(upload: SymbolSetFile, entry: StartEntry): Promise<void> {
         const primary: Target | undefined = entry.presigned_put_url
             ? { kind: 'put', url: entry.presigned_put_url }
             : entry.presigned_url
@@ -387,7 +393,7 @@ export class SymbolSetClient {
             const target = useFallback ? fallback! : primary
             let response: Response
             try {
-                response = await this.send(data, target)
+                response = await this.send(upload, target)
             } catch (error) {
                 if (useFallback) {
                     fallbackTransportErrors++
@@ -400,10 +406,7 @@ export class SymbolSetClient {
                 primaryTransportErrors = 0
             }
             if (!response.ok) {
-                throw new HogError(
-                    'upload_failed',
-                    `Object storage answered ${response.status}: ${await response.text()}`
-                )
+                throw new HogError('upload_failed', await storageFailure(response, target))
             }
             if (useFallback && primaryTransportErrors >= 2 && fallbackTransportErrors === 0 && !this.preferFallback) {
                 this.preferFallback = true
@@ -418,12 +421,20 @@ export class SymbolSetClient {
         })
     }
 
-    private send(data: Uint8Array, target: Target): Promise<Response> {
+    // The container is read from disk as it is sent, so an upload holds none of it in memory.
+    private send(upload: SymbolSetFile, target: Target): Promise<Response> {
+        if (upload.file === null) {
+            throw new Error(`The symbol set for chunk ${upload.chunkId} was never written to a file.`)
+        }
+        const file = Bun.file(upload.file)
         if (target.kind === 'put') {
             return this.runtime.fetch(target.url, {
                 method: 'PUT',
-                body: data as BodyInit,
-                timeoutMs: transferTimeout(data.length),
+                // A file as the body would add a Content-Type header. Its stream needs the length, or
+                // the request goes out chunked, which object storage refuses.
+                body: file.stream(),
+                headers: { 'Content-Length': String(upload.size) },
+                timeoutMs: transferTimeout(upload.size),
                 skipRateLimit: true,
             })
         }
@@ -432,14 +443,34 @@ export class SymbolSetClient {
             form.append(key, value)
         }
         // SeaweedFS and MinIO need a filename on the file part.
-        form.append('file', new Blob([data as BlobPart]), 'file')
+        form.append('file', file, 'file')
         return this.runtime.fetch(target.form.url, {
             method: 'POST',
             body: form,
-            timeoutMs: transferTimeout(data.length),
+            timeoutMs: transferTimeout(upload.size),
             skipRateLimit: true,
         })
     }
+}
+
+// A presigned URL carries temporary storage credentials in its query, and S3 can echo them back in
+// an error's Message or CanonicalRequest. The failure keeps only the path, the Code and the RequestId.
+async function storageFailure(response: Response, target: Target): Promise<string> {
+    const url = target.kind === 'put' ? target.url : target.form.url
+    const summary = storageErrorSummary(await response.text())
+    return `Object storage answered ${response.status} for ${withoutQuery(url)}${summary ? ` (${summary})` : ''}.`
+}
+
+function withoutQuery(url: string): string {
+    return url.split(/[?#]/, 1)[0]!
+}
+
+function storageErrorSummary(body: string): string | undefined {
+    const fields = ['Code', 'RequestId'].flatMap((name) => {
+        const value = body.match(new RegExp(`<${name}>([^<]*)</${name}>`))?.[1]
+        return value === undefined ? [] : [`${name}=${value}`]
+    })
+    return fields.length > 0 ? fields.join(' ') : undefined
 }
 
 function describe(error: unknown): string {
@@ -457,7 +488,7 @@ function startFailure(error: unknown): Error {
             'Pass --force to replace it, or --skip-on-conflict to keep the existing one.'
         )
     }
-    return new HogError('upload_failed', `PostHog didn't start the upload: ${describe(error)}`)
+    return wrapFailure('upload_failed', "PostHog didn't start the upload", error)
 }
 
 // Like posthog-cli's thread pool: after the first failure no new item starts, and the call returns

@@ -39,9 +39,9 @@ PERSON_MESSAGE_CHARS = 2000
 
 # The answer goes in its own message, so text in it cannot replace these instructions.
 REPLY_SUGGESTIONS_INSTRUCTIONS = """\
-You write reply buttons for a Slack thread. The next message holds the PostHog agent's answer in \
+You write suggested replies to the PostHog agent's answer. The next message holds the answer in \
 <agent_answer>. When it is known, the message that the person sent before the answer is in \
-<person_message>. The person who reads the answer can send one of your replies with one click.
+<person_message>. The person who reads the answer can send one of your replies with one click or one key press.
 
 Use the person's message to see what they want, who decides, and which reply they will most likely send. \
 Write replies only to what the answer asks or offers, not to the person's message.
@@ -54,7 +54,7 @@ empty list.
 
 If the answer waits for the person, write up to 3 replies: the messages the person will most likely type next.
 
-Write each reply the way a person types a short Slack message to a colleague:
+Write each reply the way a person types a short chat message to a colleague:
 - The person sees only the label, under a long answer, so the label is the whole reply at a glance. \
 Name the choice in its own words, never by its number or letter alone. Not "Option 2" or "Use option 2", \
 but "Stacked rows" or "Go with stacked rows".
@@ -67,14 +67,23 @@ people answering, not like a form.
 
 Keep to what the answer offers:
 - Offer only actions that the answer names or clearly implies. Do not invent new work.
-- If the answer asks two or more separate questions, do not write a reply for each combination of \
-answers. Write a reply only if it answers every question with a combination that the answer recommends. \
-If there is none, return an empty list.
+- If the answer asks the person to choose between options, write a reply for every option, up to 3. \
+Do not leave out an option because the answer recommends a different one.
+- If the answer asks a follow-up question that applies to only one of the options, such as "If you pick \
+option 1, should I also do X?", it is part of that option, not a separate question. A reply for that option \
+answers the follow-up too. If the replies are still 3 or fewer, write one reply for each answer to the \
+follow-up. If not, use the answer that the agent recommends, or leave the follow-up for the agent to ask \
+again. Always keep the reply for each other option.
+- If the answer asks two or more separate questions that apply to all options, do not write a reply for \
+each combination of answers. Write a reply only if it answers every question with a combination that the \
+answer recommends. If there is none, return an empty list.
 - If the answer offers to check something first and then make a change, such as a pull request or a code \
 or config change, keep the two steps apart. Put first a reply that asks only for the check, so the agent \
 reports what it finds and waits. A reply that also makes the change is a separate choice.
 - If the answer asks for information that only the person knows, such as a name, a value or a repository, \
 do not guess it. Offer only the replies that are complete without it, or return an empty list.
+- If the answer asks the person to confirm a plan or a change before it starts, also offer a reply that \
+asks for a change first.
 - Do not write replies that only say thanks or close the conversation.
 - If the answer offers to fix a bug or an error, the reply that accepts the fix has the label \
 "Fix it, make no mistakes". Its reply starts with "Fix it, make no mistakes." and can add the step that the \
@@ -123,7 +132,7 @@ class SuggestedReply:
 _RESPONSE_FORMAT: ResponseFormatJSONSchema = {
     "type": "json_schema",
     "json_schema": {
-        "name": "slack_app_reply_suggestions",
+        "name": "reply_suggestions",
         "strict": True,
         "schema": {
             "type": "object",

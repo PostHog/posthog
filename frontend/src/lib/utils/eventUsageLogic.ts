@@ -49,6 +49,7 @@ import {
     isExperimentExposureNode,
     isExperimentFunnelMetric,
     isExperimentMeanMetric,
+    isExperimentQuantileMetric,
     isExperimentRatioMetric,
     isExperimentRetentionMetric,
     Node,
@@ -75,7 +76,6 @@ import type { Realm, UserType } from '../../types'
 export enum DashboardEventSource {
     LongPress = 'long_press',
     MoreDropdown = 'more_dropdown',
-    DashboardHeaderSaveDashboard = 'dashboard_header_save_dashboard',
     DashboardHeaderDiscardChanges = 'dashboard_header_discard_changes',
     DashboardHeaderExitFullscreen = 'dashboard_header_exit_fullscreen',
     Hotkey = 'hotkey',
@@ -86,8 +86,6 @@ export enum DashboardEventSource {
     MainNavigation = 'main_nav',
     DashboardsList = 'dashboards_list',
     SceneCommonButtons = 'scene_common_buttons',
-    CardEdgeHover = 'card_edge_hover',
-    CardDragHandle = 'card_drag_handle',
     DashboardFilters = 'dashboard_filters',
     DashboardInsightColorsModal = 'dashboard_insight_colors_modal',
     DashboardVariableOverride = 'dashboard_variable_override',
@@ -494,6 +492,14 @@ export function getEventPropertiesForMetric(
             }
         }
 
+        if (isExperimentQuantileMetric(metric)) {
+            return {
+                ...base,
+                ...getSourceProperties(metric.source),
+                quantile: metric.quantile,
+            }
+        }
+
         if (isExperimentRatioMetric(metric)) {
             const numeratorProps = getSourceProperties(metric.numerator)
             const denominatorProps = getSourceProperties(metric.denominator)
@@ -675,6 +681,7 @@ function funnelProperties(querySource: InsightQueryNode): SanitizedQuery {
     return {
         funnel_viz_type: querySource.funnelsFilter?.funnelVizType,
         funnel_order_type: querySource.funnelsFilter?.funnelOrderType,
+        funnel_summary_on_dashboards: querySource.funnelsFilter?.showSummaryOnDashboards === true,
     }
 }
 
@@ -1250,8 +1257,8 @@ export interface eventUsageLogicActions {
     }
     reportPersonsModalSearched: (params: { actorType?: string; teamId?: number | null }) => {
         params: {
-            actorType?: string | undefined
-            teamId?: number | null | undefined
+            actorType?: string
+            teamId?: number | null
         }
     }
     reportPersonsModalViewed: (params: any) => {
@@ -1389,7 +1396,7 @@ export interface eventUsageLogicActions {
     }) => {
         props: {
             filter_type: string
-            property_filter_category?: PropertyFilterType | undefined
+            property_filter_category?: PropertyFilterType
             total_filter_count: number
         }
     }
@@ -1400,7 +1407,7 @@ export interface eventUsageLogicActions {
     }) => {
         props: {
             filter_type: string
-            property_filter_category?: PropertyFilterType | undefined
+            property_filter_category?: PropertyFilterType
             total_filter_count: number
         }
     }
@@ -1914,7 +1921,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             })
         },
         reportTimeToSeeData: async ({ payload }) => {
-            posthog.capture('time to see data', payload)
+            posthog.capture('time to see data', { ...payload, $update_person_last_seen_at: false })
         },
         reportGroupTypeDetailDashboardCreated: async () => {
             posthog.capture('group type detail dashboard created')

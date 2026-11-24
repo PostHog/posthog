@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
-import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
+import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'lib/posthog-typed'
@@ -14,7 +14,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { ProductKey } from '~/queries/schema/schema-general'
+import { HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { SidePanelTab } from '~/types'
 
 import type { FeatureFlagsSet } from '../../../../frontend/src/lib/logic/featureFlagLogic'
@@ -24,39 +24,56 @@ import { mcpAnalyticsOnboardingLogic } from '../mcpAnalyticsOnboardingLogic'
 import type { MCPOnboardingSignals, MCPOnboardingState } from '../mcpAnalyticsOnboardingLogic'
 import {
     type MCPSetupExitReason,
-    type MCPSetupPath,
     type MCPSetupStep,
+    type MCPServerTools,
     type MCPSetupTrigger,
+    SETUP_OPEN,
     SETUP_PARAM,
     SETUP_STEP_PARAM,
     connectStateFor,
-    parseSetupPath,
+    isSetupOpen,
+    serverToolsFrom,
     setupStepFor,
 } from './setupMode'
 import type { MCPConnectState } from './setupMode'
 
-/** The two calls the reveal shows as cards, plus the newer ones its calls panel lists beside them. */
-const RECENT_CALLS = 7
+/** The two calls the reveal shows as cards. */
+const RECENT_CALLS = 2
 
 // Faster than the onboarding logic's own poll: someone in setup mode is watching for the moment
-// their server answers. Both queries stay cheap while the project has a handful of events.
+// their server answers. Only a new project polls, and its queries stay cheap while it has a handful
+// of events. A project with earlier calls, reopened from the scene, loads each step once and
+// retries only after a failed load.
 const CONNECT_POLL_MS = 5000
 const FIRST_CALL_POLL_MS = 10000
+const SERVER_TOOLS_POLL_MS = 10000
+
+// Bounded to 30 days like the activity overview, so a project with months of calls stays cheap.
+// The SDKs omit the names on an empty or failed tools/list, which must not hide an earlier good one.
+// The names and the server come from one event as a tuple, because argMax skips a null server alone.
+// Setup mode polls this, so the result is capped in the query: a server can send any number of tool
+// names of any length, and the panel shows only a handful. The listing is capped after decoding, so a
+// large catalog keeps its first names instead of turning into JSON that no longer parses.
+const SERVER_TOOLS_QUERY = `
+SELECT
+    argMaxIf(tuple(arrayMap(name -> substring(name, 1, 200), arraySlice(JSONExtract(properties.$mcp_listed_tool_names, 'Array(String)'), 1, 500)), substring(properties.$mcp_server_name, 1, 200)), timestamp, event = '$mcp_tools_list' AND isNotNull(properties.$mcp_listed_tool_names)) AS listing,
+    groupUniqArrayIf(500)(tuple(substring(properties.$mcp_server_name, 1, 200), substring(properties.$mcp_tool_name, 1, 200)), event = '$mcp_tool_call') AS called
+FROM events
+WHERE event IN ('$mcp_tools_list', '$mcp_tool_call') AND timestamp >= now() - INTERVAL 30 DAY
+`
 
 // The gate swaps the empty state for the scene when the first call lands, which remounts this
 // logic, and a reload remounts it too. Module scope keeps "opened" and "step viewed" to one event
 // per real change across those remounts, the way the wizard-sync telemetry guards do.
 const tracking = {
     opened: false,
-    lastViewedStep: null as string | null,
     // What an exit event reports when setup mode closes through the URL, after its own params are gone.
-    lastViewed: null as { path: MCPSetupPath | null; step: MCPSetupStep | null } | null,
+    lastViewedStep: null as MCPSetupStep | null,
 }
 
 function resetTracking(): void {
     tracking.opened = false
     tracking.lastViewedStep = null
-    tracking.lastViewed = null
 }
 
 export function resetSetupModeTrackingForTests(): void {
@@ -66,6 +83,11 @@ export function resetSetupModeTrackingForTests(): void {
 /** What setup mode polls for while it is open: the signals until a call lands, then the calls themselves. */
 type SetupPollTarget = 'signals' | 'calls' | null
 
+/** A project with more calls than the reveal shows was set up before, so nothing it waits for is imminent. */
+function isNewProject(signals: MCPOnboardingSignals | null): boolean {
+    return (signals?.toolCallsTotal ?? 0) <= RECENT_CALLS
+}
+
 function capture(event: string, properties: Record<string, unknown>): void {
     if (userLogic.findMounted()?.values.user?.is_impersonated) {
         return
@@ -74,7 +96,7 @@ function capture(event: string, properties: Record<string, unknown>): void {
 }
 
 function withoutSetupParams(searchParams: Record<string, any>): Record<string, any> {
-    const { [SETUP_PARAM]: _path, [SETUP_STEP_PARAM]: _step, ...rest } = searchParams
+    const { [SETUP_PARAM]: _open, [SETUP_STEP_PARAM]: _step, ...rest } = searchParams
     return rest
 }
 
@@ -95,40 +117,20 @@ export interface mcpSetupModeLogicValues {
     isEnabled: boolean
     isOpen: boolean
     pollTarget: SetupPollTarget
+    pollsServerTools: boolean
     recentCalls: MCPActivityRecentCallApi[] | null
     recentCallsFailed: boolean
     recentCallsLoading: boolean
-    setupPath: MCPSetupPath | null
+    serverTools: MCPServerTools | null
+    serverToolsFailed: boolean
+    serverToolsLoading: boolean
     step: MCPSetupStep | null
-    viewedStep: string | null
+    viewedStep: MCPSetupStep | null
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface mcpSetupModeLogicActions {
     loadSignals: (_?: void | undefined) => void // mcpAnalyticsOnboardingLogic
-    reportSetupInteraction: (
-        action: string,
-        mode: import('../../../../frontend/src/lib/components/ProductEmptyState/types').ProductEmptyStateMode,
-        route?: null | import('lib/components/ProductEmptyState/productSetupStatusLogic').ProductSetupRoute | undefined,
-        preview?: boolean | undefined,
-        wizardSession?:
-            | {
-                  phase: string
-                  session_id: string
-              }
-            | undefined
-    ) => {
-        action: string
-        mode: import('../../../../frontend/src/lib/components/ProductEmptyState/types').ProductEmptyStateMode
-        preview: boolean
-        route: null | import('lib/components/ProductEmptyState/productSetupStatusLogic').ProductSetupRoute
-        wizardSession:
-            | {
-                  phase: string
-                  session_id: string
-              }
-            | undefined
-    } // productSetupStatusLogic
     askPostHogAI: (prompt: string) => {
         prompt: string
     }
@@ -153,11 +155,22 @@ export interface mcpSetupModeLogicActions {
         recentCalls: MCPActivityRecentCallApi[] | null
         payload?: void
     }
-    openSetupMode: (
-        path: MCPSetupPath,
-        trigger: MCPSetupTrigger
+    loadServerTools: (_: void) => void
+    loadServerToolsFailure: (
+        error: string,
+        errorObject?: any
     ) => {
-        path: MCPSetupPath
+        error: string
+        errorObject?: any
+    }
+    loadServerToolsSuccess: (
+        serverTools: MCPServerTools,
+        payload?: void
+    ) => {
+        serverTools: MCPServerTools
+        payload?: void
+    }
+    openSetupMode: (trigger: MCPSetupTrigger) => {
         trigger: MCPSetupTrigger
     }
 }
@@ -166,16 +179,16 @@ export interface mcpSetupModeLogicActions {
 export interface mcpSetupModeLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         isEnabled: (featureFlags: FeatureFlagsSet) => boolean
-        setupPath: (isEnabled: boolean, searchParams: Record<string, any>) => MCPSetupPath | null
-        isOpen: (setupPath: MCPSetupPath | null) => boolean
+        isOpen: (isEnabled: boolean, searchParams: Record<string, any>) => boolean
         step: (
-            setupPath: MCPSetupPath | null,
+            isOpen: boolean,
             signals: MCPOnboardingSignals | null,
             searchParams: Record<string, any>
         ) => MCPSetupStep | null
-        viewedStep: (setupPath: MCPSetupPath | null, step: MCPSetupStep | null) => string | null
+        viewedStep: (isOpen: boolean, step: MCPSetupStep | null) => MCPSetupStep | null
         connectState: (onboardingState: MCPOnboardingState | null) => MCPConnectState
         pollTarget: (isOpen: boolean, step: MCPSetupStep | null) => SetupPollTarget
+        pollsServerTools: (step: MCPSetupStep | null, connectState: MCPConnectState) => boolean
     }
 }
 
@@ -199,15 +212,10 @@ export const mcpSetupModeLogic = kea<mcpSetupModeLogicType>([
             teamLogic,
             ['currentProjectId'],
         ],
-        actions: [
-            productSetupStatusLogic({ productKey: ProductKey.MCP_ANALYTICS }),
-            ['reportSetupInteraction'],
-            mcpAnalyticsOnboardingLogic,
-            ['loadSignals'],
-        ],
+        actions: [mcpAnalyticsOnboardingLogic, ['loadSignals']],
     })),
     actions({
-        openSetupMode: (path: MCPSetupPath, trigger: MCPSetupTrigger) => ({ path, trigger }),
+        openSetupMode: (trigger: MCPSetupTrigger) => ({ trigger }),
         goToUsefulStep: true,
         exitSetupMode: (reason: MCPSetupExitReason) => ({ reason }),
         askPostHogAI: (prompt: string) => ({ prompt }),
@@ -228,6 +236,19 @@ export const mcpSetupModeLogic = kea<mcpSetupModeLogicType>([
                 },
             },
         ],
+        serverTools: [
+            null as MCPServerTools | null,
+            {
+                loadServerTools: async (_: void, breakpoint): Promise<MCPServerTools> => {
+                    const response = (await api.query(
+                        { kind: NodeKind.HogQLQuery, query: SERVER_TOOLS_QUERY },
+                        { refresh: 'force_blocking' }
+                    )) as HogQLQueryResponse
+                    breakpoint()
+                    return serverToolsFrom(response.results?.[0] as unknown[] | undefined)
+                },
+            },
+        ],
     })),
     reducers({
         recentCallsFailed: [
@@ -237,27 +258,33 @@ export const mcpSetupModeLogic = kea<mcpSetupModeLogicType>([
                 loadRecentCallsFailure: () => true,
             },
         ],
+        serverToolsFailed: [
+            false,
+            {
+                loadServerToolsSuccess: () => false,
+                loadServerToolsFailure: () => true,
+            },
+        ],
     }),
     selectors({
         isEnabled: [
             (s) => [s.featureFlags],
             (featureFlags: Record<string, unknown>): boolean => !!featureFlags[FEATURE_FLAGS.MCP_ANALYTICS_SETUP_MODE],
         ],
-        setupPath: [
+        isOpen: [
             (s) => [s.isEnabled, s.searchParams],
-            (isEnabled: boolean, searchParams: Record<string, unknown>): MCPSetupPath | null =>
-                isEnabled ? parseSetupPath(searchParams[SETUP_PARAM]) : null,
+            (isEnabled: boolean, searchParams: Record<string, unknown>): boolean =>
+                isEnabled && isSetupOpen(searchParams),
         ],
-        isOpen: [(s) => [s.setupPath], (setupPath: MCPSetupPath | null): boolean => setupPath !== null],
         /** `null` until the onboarding signals answer, so a reload never flashes the wrong step. */
         step: [
-            (s) => [s.setupPath, s.signals, s.searchParams],
+            (s) => [s.isOpen, s.signals, s.searchParams],
             (
-                setupPath: MCPSetupPath | null,
+                isOpen: boolean,
                 signals: { hasToolCall: boolean } | null,
                 searchParams: Record<string, unknown>
             ): MCPSetupStep | null => {
-                if (!setupPath || !signals) {
+                if (!isOpen || !signals) {
                     return null
                 }
                 const requested = searchParams[SETUP_STEP_PARAM]
@@ -268,47 +295,37 @@ export const mcpSetupModeLogic = kea<mcpSetupModeLogicType>([
             },
         ],
         viewedStep: [
-            (s) => [s.setupPath, s.step],
-            (setupPath: MCPSetupPath | null, step: MCPSetupStep | null): string | null =>
-                setupPath && step ? `${setupPath}:${step}` : null,
+            (s) => [s.isOpen, s.step],
+            (isOpen: boolean, step: MCPSetupStep | null): MCPSetupStep | null => (isOpen ? step : null),
         ],
         connectState: [
             (s) => [s.onboardingState],
             (onboardingState: MCPOnboardingState | null): MCPConnectState => connectStateFor(onboardingState),
         ],
         // An unknown step (the first signals query failed) polls the signals too, so a retry comes quickly.
+        // The last step polls nothing: it loads the calls once, and new calls show on the dashboard.
         pollTarget: [
             (s) => [s.isOpen, s.step],
             (isOpen: boolean, step: MCPSetupStep | null): SetupPollTarget =>
-                !isOpen
-                    ? null
-                    : step === null || step === 'connect'
-                      ? 'signals'
-                      : step === 'first-call'
-                        ? 'calls'
-                        : null,
+                !isOpen || step === 'useful' ? null : step === null || step === 'connect' ? 'signals' : 'calls',
+        ],
+        // A server lists its tools when a client connects, so the list is worth asking for from then on.
+        pollsServerTools: [
+            (s) => [s.step, s.connectState],
+            (step: MCPSetupStep | null, connectState: MCPConnectState): boolean =>
+                step === 'first-call' || (step === 'connect' && connectState.kind === 'connected'),
         ],
     }),
     listeners(({ actions, values }) => ({
-        reportSetupInteraction: ({ action, preview }) => {
-            if (preview) {
-                return
-            }
-            if (action === 'wizard command copied') {
-                actions.openSetupMode('wizard', 'wizard_copy')
-            } else if (action === 'agent prompt copied') {
-                actions.openSetupMode('agent', 'agent_copy')
-            }
-        },
-        openSetupMode: ({ path, trigger }) => {
+        openSetupMode: ({ trigger }) => {
             if (!values.isEnabled || values.isOpen) {
                 return
             }
             tracking.opened = true
-            capture('mcp analytics setup mode opened', { path, trigger })
+            capture('mcp analytics setup mode opened', { trigger })
             router.actions.push(values.location.pathname, {
                 ...withoutSetupParams(values.searchParams),
-                [SETUP_PARAM]: path,
+                [SETUP_PARAM]: SETUP_OPEN,
             })
         },
         askPostHogAI: ({ prompt }) => {
@@ -323,7 +340,7 @@ export const mcpSetupModeLogic = kea<mcpSetupModeLogicType>([
             if (!values.isOpen) {
                 return
             }
-            capture('mcp analytics setup mode exited', { path: values.setupPath, step: values.step, reason })
+            capture('mcp analytics setup mode exited', { step: values.step, reason })
             resetTracking()
             const searchParams = withoutSetupParams(values.searchParams)
             if (reason === 'finished' || reason === 'ask_ai') {
@@ -351,7 +368,7 @@ export const mcpSetupModeLogic = kea<mcpSetupModeLogicType>([
                 cache.disposables.dispose('escape')
                 // Still marked open means it closed without `exitSetupMode`: browser history or a link out.
                 if (tracking.opened) {
-                    capture('mcp analytics setup mode exited', { ...tracking.lastViewed, reason: 'navigated' })
+                    capture('mcp analytics setup mode exited', { step: tracking.lastViewedStep, reason: 'navigated' })
                     resetTracking()
                 }
             }
@@ -359,10 +376,14 @@ export const mcpSetupModeLogic = kea<mcpSetupModeLogicType>([
             // a shared link, or browser history.
             if (isOpen && !tracking.opened) {
                 tracking.opened = true
-                capture('mcp analytics setup mode opened', { path: values.setupPath, trigger: 'url' })
+                capture('mcp analytics setup mode opened', { trigger: 'url' })
             }
         },
         step: (step: MCPSetupStep | null) => {
+            // Once per visit, so a reopen shows the failures since the last one.
+            if (step === 'useful' && !values.recentCallsLoading) {
+                actions.loadRecentCalls()
+            }
             if (step === 'first-call') {
                 // Only the scene keeps a setup mode host once the product has data, so on the welcome page the
                 // reveal would unmount with the empty state. The onboarding step redirects itself, because it must
@@ -389,18 +410,36 @@ export const mcpSetupModeLogic = kea<mcpSetupModeLogicType>([
                 actions.loadRecentCalls()
                 cache.disposables.add(() => {
                     const id = window.setInterval(
-                        () => !values.recentCallsLoading && actions.loadRecentCalls(),
+                        () =>
+                            !values.recentCallsLoading &&
+                            (isNewProject(values.signals) || values.recentCallsFailed) &&
+                            actions.loadRecentCalls(),
                         FIRST_CALL_POLL_MS
                     )
                     return () => clearInterval(id)
                 }, 'setupPoll')
             }
         },
-        viewedStep: (viewedStep: string | null) => {
+        pollsServerTools: (pollsServerTools: boolean) => {
+            cache.disposables.dispose('serverToolsPoll')
+            if (pollsServerTools) {
+                actions.loadServerTools()
+                cache.disposables.add(() => {
+                    const id = window.setInterval(
+                        () =>
+                            !values.serverToolsLoading &&
+                            (isNewProject(values.signals) || values.serverToolsFailed) &&
+                            actions.loadServerTools(),
+                        SERVER_TOOLS_POLL_MS
+                    )
+                    return () => clearInterval(id)
+                }, 'serverToolsPoll')
+            }
+        },
+        viewedStep: (viewedStep: MCPSetupStep | null) => {
             if (viewedStep && viewedStep !== tracking.lastViewedStep) {
                 tracking.lastViewedStep = viewedStep
-                tracking.lastViewed = { path: values.setupPath, step: values.step }
-                capture('mcp analytics setup mode step viewed', { step: values.step, path: values.setupPath })
+                capture('mcp analytics setup mode step viewed', { step: viewedStep })
             }
         },
     })),

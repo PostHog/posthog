@@ -9,7 +9,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { type FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
 import { useWizardCommand } from 'scenes/onboarding/shared/useWizardCommand'
-import { teamLogic } from 'scenes/teamLogic'
+import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 
 import { ProductEmptyStateFooter } from './ProductEmptyStateFooter'
 import { productSetupStatusLogic } from './productSetupStatusLogic'
@@ -131,6 +131,11 @@ export function ProductEmptyState({ config: baseConfig, mode, preview = false }:
         minimumAccessLevel: primaryAction?.restriction?.minimumAccessLevel ?? TeamMembershipLevel.Member,
     })
     const primaryActionRestriction = primaryAction?.restriction ? restrictionReason : null
+
+    if (mode === 'waiting-for-data' && config.WaitingForData) {
+        return <config.WaitingForData onDocs={() => captureClick('docs clicked')} />
+    }
+
     const primaryActionButton = primaryAction ? (
         <LemonButton
             type="primary"
@@ -270,7 +275,11 @@ export function ProductEmptyState({ config: baseConfig, mode, preview = false }:
                             </config.SetupCard>
                         ) : (
                             <>
-                                {text.hint && callToAction ? (
+                                {primaryActionRestriction && isAuthenticatedTeam(currentTeam) && callToAction ? (
+                                    <div className="text-xs text-tertiary mt-2">
+                                        {primaryActionRestriction} Ask a project admin to set this up.
+                                    </div>
+                                ) : text.hint && callToAction ? (
                                     <div className="text-xs text-tertiary mt-2">{text.hint}</div>
                                 ) : null}
                                 {callToAction}

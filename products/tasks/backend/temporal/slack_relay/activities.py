@@ -55,6 +55,9 @@ def _append_unconfirmed_attachment_notice(
 
 
 _FENCED_CODE_RE = re.compile(r"```([^\n]*)\n([\s\S]*?)\n```")
+# Each chunk of a split code block repeats the label, so one too long to be a language hint would
+# leave almost no room for code, and a message per few characters.
+_MAX_FENCE_LABEL_LEN = 32
 
 
 class _SlackChunkPacker:
@@ -134,6 +137,8 @@ class _SlackChunkPacker:
             cursor = end + 1 if end < len(body) and body[end] == "\n" else end
 
     def _add_code_block(self, language: str, body: str) -> None:
+        if len(language) > _MAX_FENCE_LABEL_LEN:
+            language = ""
         fence_open = f"```{language}\n" if language else "```\n"
         fence_close = "\n```"
         if len(fence_open) + len(body) + len(fence_close) <= self._limit:
@@ -211,7 +216,9 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
     from products.tasks.backend.temporal.process_task.utils import (
         is_explicit_slack_reply,
         slack_reply_target,
+        take_opening_slack_message,
         turn_person_message,
+        turn_person_message_ts,
     )
 
     try:
@@ -259,6 +266,12 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
     # Resolved before the handler, so the handler knows whoever this reply is for.
     target = slack_reply_target(task_run, mapping, input.message_id)
     person_message = turn_person_message(str(task_run.id), input.message_id)
+    person_message_ts = turn_person_message_ts(str(task_run.id), input.message_id)
+    # Without a delivered record, an answer replies to the opening mention when the run has not answered it yet.
+    if person_message is None and (input.offer_feature_tip or input.offer_reply_suggestions):
+        opening = take_opening_slack_message(str(task_run.id))
+        if opening is not None:
+            person_message, person_message_ts = opening[0], person_message_ts or opening[1]
 
     handler = SlackThreadHandler.for_run(
         context,
@@ -266,6 +279,7 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
         actor_slack_user_id=target,
         turn_trace_id=input.trace_id,
         turn_person_message=person_message,
+        turn_person_message_ts=person_message_ts,
         include_thread_cost=True,
     )
 
@@ -331,7 +345,7 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
             deliver_pending_slack_file_artifacts(task_run)
     handler.capture_reply_posted(ReplyKind.ANSWER, delivered=answer_delivered)
     if answer_delivered and has_pending_slack_files:
-        record_slack_feature_used(mapping.integration_id, target, SlackFeature.FILE_OUTPUTS)
+        record_slack_feature_used(mapping.team_id, mapping.integration_id, target, SlackFeature.FILE_OUTPUTS)
 
     if input.reaction_emoji is not None:
         handler.update_reaction(input.reaction_emoji)

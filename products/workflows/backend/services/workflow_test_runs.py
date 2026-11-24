@@ -1,18 +1,24 @@
 """The activity log record of a workflow test step that sends real requests.
 
 A test with `mock_async_functions` off runs one step with real side effects and the credentials of the
-integrations its inputs name. The record keeps who ran which step with which integrations, and never an
-input value: values can hold secrets.
+integrations its inputs name. The record keeps who ran which step with which integrations and where its
+requests went, and never an input value: values can hold secrets.
 """
 
 from collections.abc import Iterable
 from typing import Any, Optional
 from uuid import UUID
 
+import requests
+
 from posthog.dataclasses import frozen
-from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, log_activity
+from posthog.models.activity_logging.activity_log import ActivityContextBase, ActivityLog, Detail, log_activity
 
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
+from products.cdp.backend.services.destination_test_runs import (
+    integration_ids_in_value,
+    record_test_run_request_origins,
+)
 from products.workflows.backend.facade.contracts import WorkflowActor
 
 _INTEGRATION_INPUT_TYPES = ("integration", "integration_multi")
@@ -27,14 +33,7 @@ class WorkflowTestRunContext(ActivityContextBase):
     template_id: Optional[str]
     input_keys: list[str]
     integration_ids: list[int]
-
-
-def _integration_ids_in_value(value: Any) -> Iterable[int]:
-    if isinstance(value, dict):
-        value = value.get("integrationId")
-    for candidate in value if isinstance(value, list) else [value]:
-        if isinstance(candidate, int) and not isinstance(candidate, bool):
-            yield candidate
+    request_origins: Optional[list[str]] = None
 
 
 def _as_dict(value: Any) -> dict[str, Any]:
@@ -45,7 +44,7 @@ def _email_sender_ids(value: Any) -> Iterable[int]:
     # The email service picks one sender from `integrationIds` when the list is set, else uses `integrationId`.
     sender = _as_dict(_as_dict(value).get("from"))
     many = sender.get("integrationIds")
-    return _integration_ids_in_value(many if isinstance(many, list) and many else sender.get("integrationId"))
+    return integration_ids_in_value(many if isinstance(many, list) and many else sender.get("integrationId"))
 
 
 def _integration_ids(template_id: Optional[str], config: dict[str, Any]) -> list[int]:
@@ -65,7 +64,7 @@ def _integration_ids(template_id: Optional[str], config: dict[str, Any]) -> list
             continue
         value = _as_dict(inputs.get(str(schema.get("key")))).get("value")
         if schema.get("type") in _INTEGRATION_INPUT_TYPES:
-            ids.update(_integration_ids_in_value(value))
+            ids.update(integration_ids_in_value(value))
         elif schema.get("type") in _EMAIL_INPUT_TYPES:
             ids.update(_email_sender_ids(value))
     return sorted(ids)
@@ -106,9 +105,9 @@ def log_workflow_test_run(
     actions: Any,
     current_action_id: Optional[str],
     encrypted_inputs: Any = None,
-) -> None:
+) -> Optional[ActivityLog]:
     # Without `strict`, production drops a failed write and the test still sends real requests.
-    log_activity(
+    return log_activity(
         strict=True,
         organization_id=actor.organization_id,
         team_id=actor.team_id,
@@ -119,3 +118,9 @@ def log_workflow_test_run(
         activity="tested",
         detail=Detail(name=name, context=workflow_test_run_context(actions, current_action_id, encrypted_inputs)),
     )
+
+
+def record_workflow_test_run_origins(
+    row: Optional[ActivityLog], response: requests.Response, *, secret_inputs: Any = None
+) -> None:
+    record_test_run_request_origins(row, response, secret_inputs=secret_inputs)

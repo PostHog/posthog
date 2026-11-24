@@ -1,5 +1,6 @@
 import { match } from 'ts-pattern'
 
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { EXPERIMENT_DEFAULT_DURATION, FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
@@ -26,6 +27,7 @@ import type {
     ExperimentMetric,
     ExperimentMetricSource,
     ExperimentMetricTypeProps,
+    ExperimentQuantileMetricSource,
     ExperimentWarehouseNativeNode,
     FunnelsDataWarehouseNode,
     FunnelsFilter,
@@ -308,6 +310,33 @@ export function seriesToMetricSource(series: SeriesNode[]): PickedMetricSource |
         return { ...source, event: source.event || source.name }
     }
     return source
+}
+
+const QUANTILE_PROPERTY_TYPES: (string | undefined)[] = [
+    undefined,
+    TaxonomicFilterGroupType.EventProperties,
+    TaxonomicFilterGroupType.NumericalEventProperties,
+]
+
+/**
+ * The source of a percentile metric made from another metric's source, or null when the source can't carry over.
+ * The percentile query reads `properties.<name>` from each event, so a session or person property is dropped.
+ */
+export function toQuantileSource(source: ExperimentMetricSource): ExperimentQuantileMetricSource | null {
+    if (source.kind !== NodeKind.EventsNode && source.kind !== NodeKind.ActionsNode) {
+        return null
+    }
+    const isEventProperty =
+        source.math_property !== '$session_duration' && QUANTILE_PROPERTY_TYPES.includes(source.math_property_type)
+    return {
+        ...source,
+        math: undefined,
+        math_hogql: undefined,
+        math_group_type_index: undefined,
+        math_multiplier: undefined,
+        math_property_type: undefined,
+        math_property: isEventProperty ? source.math_property : undefined,
+    }
 }
 
 /**

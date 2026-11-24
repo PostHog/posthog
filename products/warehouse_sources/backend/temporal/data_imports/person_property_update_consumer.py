@@ -20,6 +20,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from django.conf import settings
+from django.db import close_old_connections
 
 import structlog
 from prometheus_client import Counter
@@ -78,6 +79,10 @@ _MIN_RATE_PER_SEC = 1.0
 # 4xx statuses that are transient despite being client errors: request timeout and rate limiting
 # (capture returns 408 with Retry-After for timeouts, 429 when throttled). These must retry, not DLQ.
 _RETRYABLE_CLIENT_STATUSES = frozenset({408, 429})
+
+# Capture's 402: the team is over its billing limit. Still a DLQ, but a reason of its own so the
+# alert can leave out a customer's billing state, which nothing in this pipeline can fix.
+_BILLING_LIMITED_STATUS = 402
 
 # How long to wait for a DLQ produce to be acknowledged before treating it as failed.
 _DLQ_DELIVERY_TIMEOUT_SECONDS = 30.0
@@ -190,6 +195,30 @@ def _is_permanent_client_error(status_code: object) -> bool:
     return isinstance(status_code, int) and 400 <= status_code < 500 and status_code not in _RETRYABLE_CLIENT_STATUSES
 
 
+def _client_error_reason(prefix: str, status_code: object) -> str:
+    if status_code == _BILLING_LIMITED_STATUS:
+        return "billing_limited"
+    return f"{prefix}:{status_code}"
+
+
+def _is_rebalance_commit_error(exc: Exception) -> bool:
+    """True when a commit failed because this message's partition moved to another group member
+    mid-commit (session/poll-interval expiry, rebalance). The new owner re-reads from the last
+    committed offset, so the loop can keep going instead of crash-looping the pod. Mirrors
+    REBALANCE_COMMIT_ERRORS in posthog/kafka_client/dlq_replay.py."""
+    from confluent_kafka import KafkaError  # noqa: PLC0415
+
+    if not exc.args or not isinstance(exc.args[0], KafkaError):
+        return False
+    return exc.args[0].code() in {
+        KafkaError.REBALANCE_IN_PROGRESS,
+        KafkaError.UNKNOWN_MEMBER_ID,
+        KafkaError.ILLEGAL_GENERATION,
+        KafkaError._STATE,
+        KafkaError._NO_OFFSET,
+    }
+
+
 # One worker, so a hung cache or database call blocks later lookups instead of piling up threads.
 # Each caller still waits at most the timeout, then logs without a team.
 _TEAM_LOOKUP_TIMEOUT_SECONDS = 2.0
@@ -282,11 +311,14 @@ class PersonPropertyUpdateConsumer:
             try:
                 granted = self._grant()
             except Exception:
-                # The limiter degrades a Redis outage to its in-memory fallback internally; anything
-                # that still escapes here is unexpected. Treat it like a transient failure — back off
-                # and retry the acquire rather than letting it escape and crash-loop the pod. The
-                # message stays uncommitted meanwhile, so nothing is sent or dropped.
+                # The limiter degrades a Redis outage to its in-memory fallback internally. The rate
+                # read hits Postgres and can fail when pgbouncer drops the connection. Treat both like
+                # a transient failure — back off and retry the acquire rather than letting it escape
+                # and crash-loop the pod. The message stays uncommitted meanwhile, so nothing is sent
+                # or dropped.
                 logger.exception("person_property_update.grant_error")
+                # This loop runs outside a request, so Django never drops a dead connection on its own.
+                close_old_connections()
                 self._health_reporter()
                 self._sleep(_RETRY_BACKOFF_SECONDS)
                 continue
@@ -331,7 +363,7 @@ class PersonPropertyUpdateConsumer:
             # 0 (transport/client-side), retryable 4xx (408/429), and 5xx stay transient -> uncommitted.
             status_code = getattr(exc, "status_code", None)
             if _is_permanent_client_error(status_code):
-                return self._dlq(value, f"capture_client_error:{status_code}", kwargs["token"])
+                return self._dlq(value, _client_error_reason("capture_client_error", status_code), kwargs["token"])
             RETRY_TOTAL.inc()
             logger.exception("person_property_update.capture_error")
             return RETRY
@@ -346,7 +378,7 @@ class PersonPropertyUpdateConsumer:
         # too. Everything else (exhausted retries, unaccounted, retryable 4xx, 5xx, transport) is
         # transient -> retry.
         if result.error and _is_permanent_client_error(result.status_code):
-            return self._dlq(value, f"capture_error:{result.status_code}", kwargs["token"])
+            return self._dlq(value, _client_error_reason("capture_error", result.status_code), kwargs["token"])
         RETRY_TOTAL.inc()
         return RETRY
 
@@ -362,6 +394,20 @@ class PersonPropertyUpdateConsumer:
             self._sleep(_RETRY_BACKOFF_SECONDS)
             outcome = self.process_record(value)
         return outcome
+
+    def _commit(self, consumer: Any, message: Any) -> None:
+        """Commit past this message, swallowing a commit failure caused by a rebalance that already
+        moved the partition elsewhere (the new owner re-reads from the last committed offset).
+        Any other commit failure still propagates: offsets held where they were is a real problem,
+        not something to paper over."""
+        from confluent_kafka import KafkaException  # noqa: PLC0415
+
+        try:
+            consumer.commit(message=message, asynchronous=False)
+        except KafkaException as exc:
+            if not _is_rebalance_commit_error(exc):
+                raise
+            logger.warning("person_property_update.commit_skipped_after_rebalance", error=str(exc))
 
     @staticmethod
     def _build_consumer_config() -> dict[str, str | int | float | bool | None]:
@@ -420,11 +466,11 @@ class PersonPropertyUpdateConsumer:
                 value = message.value()
                 if value is None:
                     # Tombstone / empty payload: nothing to $set. Commit past it so it doesn't replay.
-                    consumer.commit(message=message, asynchronous=False)
+                    self._commit(consumer, message)
                     continue
                 outcome = self._process_with_retries(value)
                 if outcome in (SENT, DLQ):
-                    consumer.commit(message=message, asynchronous=False)
+                    self._commit(consumer, message)
         finally:
             consumer.close()
             logger.info("person_property_update.consumer_stopped")

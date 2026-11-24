@@ -52,6 +52,7 @@ jest.mock('./runStreamLogic', () => {
             markTurnComplete: (isReplay: boolean = false) => ({ isReplay }),
             markRunStarted: true,
             setCurrentMode: (mode: string) => ({ mode }),
+            setSessionConfig: (model: string | null, effort: string | null) => ({ model, effort }),
             handleTerminalStatus: (status: { status: string }) => status,
             setStubStatus: (status: string | null) => ({ status }),
             setStubThinking: (thinking: boolean) => ({ thinking }),
@@ -135,6 +136,14 @@ jest.mock('./runStreamLogic', () => {
                 {
                     setCurrentMode: (_: string | null, { mode }: { mode: string }) => mode,
                 },
+            ],
+            sessionModel: [
+                null,
+                { setSessionConfig: (state: string | null, { model }: { model: string | null }) => model ?? state },
+            ],
+            sessionEffort: [
+                null,
+                { setSessionConfig: (state: string | null, { effort }: { effort: string | null }) => effort ?? state },
             ],
             replySuggestions: [
                 null,
@@ -745,6 +754,46 @@ describe('runInteractionLogic', () => {
         expect(logic.values.selectedEffort).toBe('low')
     })
 
+    it('sends the picked effort when the model confirmation arrives before the effort command', async () => {
+        setThinking(false)
+        const agentEffort = logic.values.selectedEffort
+        const pickedEffort = agentEffort === 'low' ? 'medium' : 'low'
+        ;(tasksRunsCommandCreate as jest.Mock).mockImplementation(async (_project, _task, _run, body) => {
+            if (body.method === 'set_config_option' && body.params.configId === 'model') {
+                // The agent reports its whole config after the model change, with the effort it had before.
+                stream.actions.setSessionConfig(body.params.value, agentEffort)
+            }
+            return { jsonrpc: '2.0', result: { queued: true } }
+        })
+        logic.actions.setModel('claude-opus-4-8')
+        logic.actions.setEffort(pickedEffort)
+        logic.actions.setComposerFormValues({ draft: 'ship it' })
+
+        await expectLogic(logic, () => {
+            logic.actions.submitComposerForm()
+        }).toFinishAllListeners()
+
+        expect((tasksRunsCommandCreate as jest.Mock).mock.calls).toEqual([
+            setConfigCommand('model', 'claude-opus-4-8'),
+            setConfigCommand('effort', pickedEffort),
+            userMessageCommand('ship it'),
+        ])
+    })
+
+    it('follows a model the agent confirms, over a stale pick, and syncs nothing back', async () => {
+        setThinking(false)
+        logic.actions.setModel('claude-sonnet-4-6')
+        stream.actions.setSessionConfig('claude-opus-4-8', null)
+        expect(logic.values.selectedModel).toBe('claude-opus-4-8')
+        logic.actions.setComposerFormValues({ draft: 'ship it' })
+
+        await expectLogic(logic, () => {
+            logic.actions.submitComposerForm()
+        }).toFinishAllListeners()
+
+        expect((tasksRunsCommandCreate as jest.Mock).mock.calls).toEqual([userMessageCommand('ship it')])
+    })
+
     it('syncs a changed model to the agent right before the message, and only when it changed', async () => {
         setThinking(false)
         logic.actions.setModel('claude-opus-4-8')
@@ -1341,7 +1390,12 @@ describe('runInteractionLogic', () => {
             expect(tasksRunCreate).toHaveBeenCalledWith(
                 '997',
                 TASK_ID,
-                { resume_from_run_id: RUN_ID, pending_user_message: 'continue from here', ...selection },
+                {
+                    resume_from_run_id: RUN_ID,
+                    pending_user_message: 'continue from here',
+                    mode: 'interactive',
+                    ...selection,
+                },
                 expect.objectContaining({ signal: expect.any(AbortSignal) })
             )
         })
@@ -1377,6 +1431,7 @@ describe('runInteractionLogic', () => {
                 initial_permission_mode: 'auto',
                 resume_from_run_id: RUN_ID,
                 pending_user_message: 'continue from here',
+                mode: 'interactive',
             },
             expect.objectContaining({ signal: expect.any(AbortSignal) })
         )
@@ -1448,7 +1503,7 @@ describe('runInteractionLogic', () => {
         try {
             setStatus('cancelled')
             logic.actions.setComposerFormValues({ draft: 'continue from the checkpoint' })
-            await jest.advanceTimersByTimeAsync(300)
+            await jest.advanceTimersByTimeAsync(700)
             if (!warmPending) {
                 resolveWarm()
                 await jest.advanceTimersByTimeAsync(0)
@@ -1521,7 +1576,7 @@ describe('runInteractionLogic', () => {
         jest.useFakeTimers()
         setStatus('completed')
         logic.actions.setComposerFormValues({ draft: 'keep going' })
-        jest.advanceTimersByTime(300)
+        jest.advanceTimersByTime(700)
         jest.useRealTimers()
         await expectLogic(logic).toFinishAllListeners()
         expect(tasksWarmResumeCreate).toHaveBeenCalled()
@@ -2097,7 +2152,7 @@ describe('runInteractionLogic', () => {
             )
             jest.useFakeTimers()
             blockedLogic.actions.setComposerFormValues({ draft: 'ship it' })
-            jest.advanceTimersByTime(300)
+            jest.advanceTimersByTime(700)
             jest.useRealTimers()
             await expectLogic(blockedLogic, () => {
                 if (source === 'draft') {
@@ -2153,7 +2208,7 @@ describe('runInteractionLogic', () => {
         try {
             setStatus('completed')
             logic.actions.setComposerFormValues({ draft: 'continue from the checkpoint' })
-            await jest.advanceTimersByTimeAsync(300)
+            await jest.advanceTimersByTimeAsync(700)
             expect(tasksWarmResumeCreate).toHaveBeenCalledTimes(1)
             logic.actions.submitComposerForm()
             await jest.advanceTimersByTimeAsync(0)
@@ -2217,7 +2272,7 @@ describe('runInteractionLogic', () => {
             try {
                 setStatus('cancelled')
                 logic.actions.setComposerFormValues({ draft: 'first composer' })
-                await jest.advanceTimersByTimeAsync(300)
+                await jest.advanceTimersByTimeAsync(700)
                 expect(tasksWarmResumeCreate).toHaveBeenCalledTimes(1)
                 if (warmReady) {
                     finishWarm()

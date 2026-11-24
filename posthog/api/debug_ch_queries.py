@@ -5,6 +5,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
+from django.conf import settings
 from django.core.cache import cache
 from django.db.models import Count
 from django.utils.timezone import now
@@ -45,6 +46,19 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _query_log_clusters() -> dict[str, str]:
+    """The clusters whose nodes start queries, keyed by the query parameter that carries each name.
+
+    A project that reads the native events table starts its queries on the events cluster. Only the
+    node that starts a query logs it as an initial query, so the main cluster's query logs do not
+    hold those queries.
+    """
+    clusters = {"cluster": CLICKHOUSE_CLUSTER}
+    if settings.CLICKHOUSE_EVENTS_ONLINE_HOST or settings.CLICKHOUSE_EVENTS_OFFLINE_HOST:
+        clusters["events_cluster"] = settings.CLICKHOUSE_EVENTS_CLUSTER
+    return clusters
 
 
 def _nest_subqueries(records: list[dict]) -> list[dict]:
@@ -289,13 +303,27 @@ class DebugCHQueries(viewsets.ViewSet):
         params = {
             "filter_value": filter_value,
             "team_id": team_id,
-            "start_time": (datetime.now() - timedelta(days=14)).timestamp(),
+            "start_time": now() - timedelta(days=14),
             "not_query": "%request:_api_debug_ch_queries_%",
-            "cluster": CLICKHOUSE_CLUSTER,
+            **_query_log_clusters(),
         }
 
         # nosemgrep: clickhouse-fstring-param-audit - filter_clause from internal _log_comment_filter
         filter_clause = self._log_comment_filter(filter_key, filter_value)
+        query_log_rows = " UNION ALL ".join(
+            f"""
+                    SELECT query_start_time, exception, query_duration_ms
+                    FROM clusterAllReplicas(%({cluster_param})s, system, query_log)
+                    WHERE
+                        {filter_clause} AND
+                        event_time > %(start_time)s AND
+                        type != 'QueryStart' AND
+                        query NOT LIKE %(not_query)s AND
+                        is_initial_query
+                    SETTINGS skip_unavailable_shards=1
+            """
+            for cluster_param in _query_log_clusters()
+        )
         sql_query = f"""
             SELECT
                 hour,
@@ -309,18 +337,7 @@ class DebugCHQueries(viewsets.ViewSet):
                     countIf(exception != '') AS exceptions,
                     avg(query_duration_ms) AS avg_response_time_ms
                 FROM (
-                    SELECT
-                        query_id, query, query_start_time, exception, query_duration_ms, toInt8(type) AS type,
-                        ProfileEvents, log_comment
-                    FROM clusterAllReplicas(%(cluster)s, system, query_log)
-                    WHERE
-                        {filter_clause} AND
-                        event_time > %(start_time)s AND
-                        query NOT LIKE %(not_query)s AND
-                        is_initial_query
-                    ORDER BY query_start_time DESC
-                    LIMIT 100
-                    SETTINGS skip_unavailable_shards=1
+                    {query_log_rows}
                 )
                 GROUP BY hour
                 ORDER BY hour
@@ -344,12 +361,27 @@ class DebugCHQueries(viewsets.ViewSet):
         params = {
             "filter_value": filter_value,
             "team_id": team_id,
-            "start_time": (datetime.now(UTC) - timedelta(days=14)).timestamp(),
-            "cluster": CLICKHOUSE_CLUSTER,
+            "start_time": now() - timedelta(days=14),
+            **_query_log_clusters(),
         }
 
         # nosemgrep: clickhouse-fstring-param-audit - filter_clause from internal _log_comment_filter
         filter_clause = self._log_comment_filter(filter_key, filter_value)
+        query_log_rows = " UNION ALL ".join(
+            f"""
+                SELECT
+                    query_id, query, query_start_time, exception, query_duration_ms
+                FROM clusterAllReplicas(%({cluster_param})s, system, query_log)
+                WHERE
+                    {filter_clause} AND
+                    event_time > %(start_time)s AND
+                    type != 'QueryStart' AND
+                    is_initial_query
+
+                SETTINGS skip_unavailable_shards=1
+            """
+            for cluster_param in _query_log_clusters()
+        )
         sql_query = f"""
             SELECT
                 count(*) AS total_queries,
@@ -358,15 +390,7 @@ class DebugCHQueries(viewsets.ViewSet):
                 max(query_duration_ms) AS max_query_duration_ms,
                 (countIf(exception != '') / count(*)) * 100 AS exception_percentage
             FROM (
-                SELECT
-                    query_id, query, query_start_time, exception, query_duration_ms
-                FROM clusterAllReplicas(%(cluster)s, system, query_log)
-                WHERE
-                    {filter_clause} AND
-                    event_time > %(start_time)s AND
-                    is_initial_query
-
-                SETTINGS skip_unavailable_shards=1
+                {query_log_rows}
             )
         """
 
@@ -388,22 +412,49 @@ class DebugCHQueries(viewsets.ViewSet):
     ):
         params: dict = {
             "not_query": "%request:_api_debug_ch_queries_%",
-            "cluster": CLICKHOUSE_CLUSTER,
+            # Each query cancel request searches system.processes on every node for the query to
+            # kill (posthog/clickhouse/cancel.py). Those searches are not queries the user ran.
+            "not_cancel_lookup": "%FROM clusterAllReplicas(%, system.processes)%",
+            **_query_log_clusters(),
         }
-        limit_clause = ""
-
         if filter_key and filter_value:
             # nosemgrep: clickhouse-fstring-param-audit - where_clause from internal _log_comment_filter
             where_clause = self._log_comment_filter(filter_key, filter_value)
             params["filter_value"] = filter_value
             params["team_id"] = team_id
-            limit_clause = "LIMIT 10"
+            query_limit = 10
         else:
             where_clause = "query LIKE %(query)s AND event_time > %(start_time)s"
             params["query"] = f"/* user_id:{request.user.pk} %"
-            params["start_time"] = (now() - relativedelta(minutes=10)).timestamp()
+            # Keep this a datetime. A Unix timestamp float renders as a bare number, and ClickHouse
+            # cannot use a number bound on event_time to skip granules, so every replica reads its
+            # whole query_log.
+            params["start_time"] = now() - relativedelta(minutes=10)
+            query_limit = 100
+        # A query writes at most two query_log rows (QueryStart and its end row), so twice as many
+        # rows as queries holds the newest query_limit queries.
+        params["row_limit"] = 2 * query_limit
+        params["query_limit"] = query_limit
 
-        # nosemgrep: clickhouse-fstring-param-audit - where_clause/limit_clause from internal builder
+        query_log_rows = " UNION ALL ".join(
+            f"""
+                SELECT
+                    query_id, query, query_start_time, exception, query_duration_ms, toInt8(type) AS type,
+                    ProfileEvents, log_comment
+                FROM clusterAllReplicas(%({cluster_param})s, system, query_log)
+                WHERE
+                    {where_clause} AND
+                    query NOT LIKE %(not_query)s AND
+                    query NOT LIKE %(not_cancel_lookup)s AND
+                    is_initial_query
+                ORDER BY query_start_time DESC
+                LIMIT %(row_limit)s
+
+                SETTINGS skip_unavailable_shards=1
+            """
+            for cluster_param in _query_log_clusters()
+        )
+        # nosemgrep: clickhouse-fstring-param-audit - query_log_rows holds where_clause from the internal builder
         response = sync_execute(
             f"""
             SELECT
@@ -416,22 +467,11 @@ class DebugCHQueries(viewsets.ViewSet):
                 argMax(log_comment, type) AS log_comment,
                 max(type) AS status
             FROM (
-                SELECT
-                    query_id, query, query_start_time, exception, query_duration_ms, toInt8(type) AS type,
-                    ProfileEvents, log_comment
-                FROM clusterAllReplicas(%(cluster)s, system, query_log)
-                WHERE
-                    {where_clause} AND
-                    query NOT LIKE %(not_query)s AND
-                    is_initial_query
-                ORDER BY query_start_time DESC
-                LIMIT 100
-
-                SETTINGS skip_unavailable_shards=1
+                {query_log_rows}
             )
             GROUP BY query_id
             ORDER BY query_start_time DESC
-            {limit_clause}
+            LIMIT %(query_limit)s
             """,
             params,
         )
@@ -619,8 +659,14 @@ class DebugCHQueries(viewsets.ViewSet):
                 raise exceptions.ValidationError("experiment_id must be a positive integer.")
 
         metric_type_filter = request.query_params.get("metric_type") or None
-        if metric_type_filter is not None and metric_type_filter not in {"mean", "funnel", "ratio", "retention"}:
-            raise exceptions.ValidationError("metric_type must be one of: mean, funnel, ratio, retention.")
+        if metric_type_filter is not None and metric_type_filter not in {
+            "mean",
+            "funnel",
+            "ratio",
+            "retention",
+            "quantile",
+        }:
+            raise exceptions.ValidationError("metric_type must be one of: mean, funnel, ratio, retention, quantile.")
 
         funnel_order_type_filter = request.query_params.get("funnel_order_type") or None
         if funnel_order_type_filter is not None:

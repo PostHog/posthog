@@ -17,7 +17,9 @@ from posthog.models.user import User
 from posthog.permissions import OrganizationAdminReadPermissions, OrganizationAdminWritePermissions
 
 from products.product_analytics.backend.facade.contracts import OrganizationEventsRetention
+from products.product_analytics.backend.facade.enums import EventsRetentionMonths
 from products.product_analytics.backend.facade.events_retention import (
+    NOT_A_STANDARD_PERIOD_MESSAGE,
     organization_downgrade_events_deleted,
     organization_events_deleted,
     organization_events_retention,
@@ -129,10 +131,11 @@ class EventsRetentionSerializer(OrganizationEventsRetentionSerializer):
 
 
 class EventsRetentionUpdateSerializer(serializers.Serializer):
-    retention_months = serializers.IntegerField(
+    retention_months = serializers.ChoiceField(
+        choices=EventsRetentionMonths.choices,
         allow_null=True,
-        min_value=1,
-        help_text="The period in months, one of retention_months_choices. Older events are deleted at the next monthly cleanup and can't be restored. Null removes the period.",
+        error_messages={"invalid_choice": NOT_A_STANDARD_PERIOD_MESSAGE},
+        help_text="The period in months. It also has to be between min_retention_months and max_retention_months. A shorter period deletes older events, and deleted events can't be restored. Null removes the period.",
     )
 
 

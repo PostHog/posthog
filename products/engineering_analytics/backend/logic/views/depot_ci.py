@@ -1,24 +1,7 @@
-"""Depot CI job attempts, rendered as rows of the raw GitHub runs and jobs tables.
+"""Depot CI job attempts reshaped into rows of the GitHub runs and jobs tables and unioned onto them.
 
-Depot CI is its own CI engine, not Depot runners under GitHub Actions, so the runs it executes never
-reach the GitHub source. The Depot source syncs them to a ``job_attempts`` table instead. The
-functions here reshape that table into ``WORKFLOW_RUNS_COLUMNS`` and ``WORKFLOW_JOBS_COLUMNS`` rows
-and union them onto the GitHub tables, so every builder derives durations, PR numbers and cost for
-both engines with one set of rules.
-
-A Depot workflow is the counterpart of a GitHub workflow run, so it becomes one runs row. Depot ids
-are strings. Depot CI sets ``GITHUB_RUN_ID`` to the run id read as a base-30 number over
-``_ID_ALPHABET``, which the per-test traces its jobs emit confirm. A run with one workflow therefore
-takes its decoded run id, which joins those traces to its jobs. A run with several workflows takes
-each workflow's decoded id instead, because one shared id would fan every join on it out.
-
-While a repository moves a workflow to Depot CI, GitHub Actions decides per pull request which engine
-runs it, and both engines record a run of the same commit. The engine that did not run the tests
-leaves a hand-off shell: a GitHub run whose hand-off job succeeded and whose gate only relays Depot's
-verdict, or a Depot workflow that waited for a hand-off that never came and skipped everything else.
-The union drops successful shells with their jobs. A GitHub relay stays unless a successful Depot
-workflow took the hand-off for the same PR and commit. Failed and unsettled relays stay because the
-synced tables carry no exact event link, and another event's Depot verdict cannot replace theirs.
+Each Depot workflow becomes one runs row. A hand-off shell is the run of the engine that did not run
+the tests. The union drops successful shells. SPEC.md sections 6 and 7 have the rules.
 """
 
 import re
@@ -36,6 +19,8 @@ from products.engineering_analytics.backend.logic.views.source_schema import (
     WORKFLOW_RUNS_COLUMNS,
 )
 
+# Depot CI sets GITHUB_RUN_ID to the run id read as a base-30 number over this alphabet. The decoded
+# id is what joins a run to the test traces its jobs emit.
 _ID_ALPHABET = "0123456789bcdfghjklmnpqrstvwxz"
 
 # The repository is written into HogQL as a string literal, so only a plain owner/name qualifies.
@@ -44,11 +29,8 @@ _PLAIN_REPOSITORY = re.compile(r"\A[A-Za-z0-9._-]+/[A-Za-z0-9._-]+\Z")
 
 @frozen
 class DepotJobAttempts:
-    """A synced Depot ``job_attempts`` table and the repository whose rows it contributes.
-
-    Reads keep only that repository's rows, because a Depot source moved to another repository keeps
-    the rows it synced before the move.
-    """
+    """A Depot ``job_attempts`` table and the one repository to read from it. A source moved to
+    another repository keeps the rows it synced before the move."""
 
     table: str
     repository: str
@@ -59,21 +41,20 @@ class DepotJobAttempts:
 
     @classmethod
     def for_repository(cls, table: str, repository: str) -> "DepotJobAttempts | None":
-        """The attempts of ``repository``, or None when it is not a plain owner/name."""
+        """None when ``repository`` is not a plain owner/name."""
         return cls(table=table, repository=repository) if _PLAIN_REPOSITORY.match(repository) else None
 
 
-# Depot ids are 10 characters. Ten base-30 digits stay below 2^53, so the Float64 powers sum exactly.
+# Ten base-30 digits stay below 2^53, so the Float64 powers in ``_id_to_int`` sum exactly.
 _MAX_ID_LENGTH = 10
 
 # Depot's API does not report a job's runs-on, so every attempt is costed as the default sandbox.
 _DEFAULT_SANDBOX_LABELS = '["depot-ubuntu-24.04"]'
 
-# Depot reports no repository id. Any positive id on both sides lets the runs builder accept the
-# pull request association as the run's own.
+# Depot reports no repository id. The runs builder accepts a pull request association only when its
+# base repository id equals the run's, so both sides get the same positive id.
 _REPOSITORY_ID = 1
 
-# Historical job names identify relay and hand-off rows that the union must deduplicate.
 _GITHUB_HANDOFF_JOB = "Hand off backend tests to Depot CI"
 _GITHUB_RELAY_JOB = "Django Tests Pass"
 _DEPOT_WAIT_JOB_KEY_SUFFIX = ":wait-for-handoff"
@@ -94,7 +75,11 @@ def depot_id_to_int(depot_id: str) -> int | None:
 
 
 def depot_github_run_id(run_id: str, workflow_id: str, run_workflow_count: int) -> int | None:
-    """The integer ``_attempts`` gives a Depot workflow's runs row, or None when it has none."""
+    """The integer id of a Depot workflow's runs row, or None when the id does not decode.
+
+    A run with several workflows keys each by its workflow id, because one shared run id would fan
+    out every join on it.
+    """
     return depot_id_to_int(run_id if run_workflow_count == 1 else workflow_id)
 
 
@@ -107,8 +92,7 @@ def _id_to_int(column: str) -> str:
 
 
 def _conclusion(status: str) -> str:
-    # Depot's terminal statuses in GitHub's conclusion vocabulary. `cancelled` and `skipped` are
-    # already the same word in both.
+    # `cancelled` and `skipped` are the same word in Depot's statuses and GitHub's conclusions.
     return f"multiIf({status} = 'finished', 'success', {status} = 'failed', 'failure', {status})"
 
 
@@ -117,9 +101,9 @@ def _of_repository(depot: DepotJobAttempts) -> str:
 
 
 def build_billed_seconds_query(depot: DepotJobAttempts) -> str:
-    """Run time of the finished attempts that started in ``[{window_from}, {window_to})``.
+    """Seconds run by the finished attempts that started in ``[{window_from}, {window_to})``.
 
-    Reads the raw rows, so the hand-off shells the union drops still count, as Depot bills them.
+    Hand-off shells count, because Depot bills them.
     """
     return f"""
         SELECT sum(dateDiff('millisecond', started_at, finished_at)) / 1000
@@ -136,10 +120,23 @@ def build_billed_seconds_query(depot: DepotJobAttempts) -> str:
     """
 
 
+def ref_pr_number_expr(column: str) -> str:
+    return f"ifNull(toInt(extract({column}, '^refs/pull/([0-9]+)/')), 0)"
+
+
+def github_run_id_expr(alias: str = "") -> str:
+    """The integer id of a raw attempt's runs row. ``alias`` ends with a dot."""
+    return _id_to_int(f"if({alias}run_workflow_count = 1, {alias}run_id, {alias}workflow_id)")
+
+
+def head_sha_expr(alias: str = "") -> str:
+    """The commit a raw attempt ran. ``alias`` ends with a dot."""
+    return f"coalesce(nullIf({alias}head_sha, ''), {alias}sha)"
+
+
 def _attempts(depot: DepotJobAttempts, pull_requests_table: str | None, where: str = "1") -> str:
-    # Depot reports no branch, so a PR run takes its head branch from the PR snapshot, and branch
-    # filters then match it like a GitHub run of the same PR.
-    pr_number = "ifNull(toInt(extract(a.ref, '^refs/pull/([0-9]+)/')), 0)"
+    # Depot reports no branch, so a PR run takes its head branch from the PR snapshot.
+    pr_number = ref_pr_number_expr("a.ref")
     if pull_requests_table:
         head_branch = "nullIf(pr.head_branch, '')"
         actor = "nullIf(pr.author, '')"
@@ -159,13 +156,13 @@ def _attempts(depot: DepotJobAttempts, pull_requests_table: str | None, where: s
     # A push run's id carries a prefix outside the alphabet, and such a run holds no workflows.
     return f"""(
         SELECT
-            {_id_to_int("if(a.run_workflow_count = 1, a.run_id, a.workflow_id)")} AS github_run_id,
+            {github_run_id_expr("a.")} AS github_run_id,
             {_id_to_int("a.attempt_id")} AS github_job_id,
             {pr_number} AS pr_number,
             coalesce(nullIf(extract(ifNull(a.ref, ''), '^refs/heads/(.+)$'), ''), {head_branch}) AS head_branch,
             a.repo AS repo,
             {actor} AS actor,
-            coalesce(nullIf(a.head_sha, ''), a.sha) AS head_sha,
+            {head_sha_expr("a.")} AS head_sha,
             a.run_id AS native_run_id,
             a.workflow_id AS native_workflow_run_id,
             a.job_id AS native_job_id,
@@ -223,11 +220,11 @@ def _runs(attempts: str, extra_columns: str = "") -> str:
 
 
 def _jobs(attempts: str, run_attempts: str | None = None) -> str:
-    """``run_attempts`` holds every attempt of the runs in ``attempts``. It defaults to ``attempts``."""
+    """``run_attempts`` holds every attempt of the runs in ``attempts``."""
     run_attempts = run_attempts or attempts
-    # GitHub lists every job of a run under each run attempt. A job that a run attempt did not re-run keeps
-    # the timestamps of the attempt that ran, and the jobs builder flags that row as a copy. Depot numbers
-    # attempts per job, so each job's last attempt is listed again under every later attempt of its run.
+    # Depot numbers attempts per job, and GitHub lists every job under each run attempt. To match, a
+    # job's last attempt is listed again under every later attempt of its run, and the jobs builder
+    # flags those rows as copies.
     return f"""
         SELECT
             a.github_job_id AS id,
@@ -319,6 +316,14 @@ def _whole_history_shell_scan(jobs_table: str, handoffs: str) -> _ShellScan:
     return _ShellScan(runs=f"id >= {first_run}", jobs=f"run_id >= {first_run}", handoff_jobs=handoff_jobs)
 
 
+def _shell_scan(jobs_table: str, handoffs: str, *, prescoped: bool) -> _ShellScan:
+    # A caller that narrowed the Depot attempts to its own runs would move the floor later, past a
+    # hand-off job that the whole-history read counts.
+    if prescoped:
+        return _ShellScan(runs="1", jobs="1", handoff_jobs="1")
+    return _whole_history_shell_scan(jobs_table, handoffs)
+
+
 def _github_shells(jobs_table: str, runs_table: str, handoffs: str, scan: _ShellScan) -> str:
     handed_off = f"name = '{_GITHUB_HANDOFF_JOB}' AND conclusion = 'success' AND {scan.handoff_jobs}"
     relays = f"""
@@ -332,8 +337,9 @@ def _github_shells(jobs_table: str, runs_table: str, handoffs: str, scan: _Shell
             ) = 'success'
             AND countIf(conclusion IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL})) = 0
     """
-    # Depot's PR is the run's association (see ASSOCIATION_PR_NUMBER). The raw columns come first, so
-    # the JSON parse runs only on successful relays.
+    # Depot's ref names the PR of the run's own association, not the PR a merge queue is landing, so
+    # the comparison uses ASSOCIATION_PR_NUMBER. The raw-column predicates come first, so the JSON
+    # parse runs only on successful relays.
     return f"""
         SELECT id
         FROM {runs_table}
@@ -375,19 +381,20 @@ def with_depot_runs(
     jobs_table: str | None,
     *,
     optional_columns: frozenset[str] = frozenset(),
+    prescoped: bool = False,
 ) -> str:
-    """The GitHub runs table, or a subquery that also holds the Depot CI runs when they are synced.
+    """The runs of both engines without successful hand-off shells. Without ``jobs_table`` the
+    GitHub shells stay.
 
-    Successful hand-off shells are left out. Without ``jobs_table`` the GitHub shells stay.
     ``optional_columns`` names the ``OPTIONAL_WORKFLOW_RUNS_COLUMNS`` that ``runs_table`` has. The
-    others read as NULL.
+    others read as NULL. ``prescoped`` says the caller already bounded every table to the runs it reads.
     """
     if depot is None:
         return f"({_github_runs(runs_table, optional_columns=optional_columns)})"
     handoffs = _handoff_workflows(depot)
     where = "1"
     if jobs_table:
-        scan = _whole_history_shell_scan(jobs_table, handoffs)
+        scan = _shell_scan(jobs_table, handoffs, prescoped=prescoped)
         where = f"id NOT IN ({_github_shells(jobs_table, runs_table, handoffs, scan)})"
     depot_runs = _runs(_executed_attempts(depot, handoffs, pull_requests_table))
     return f"({_github_runs(runs_table, where, optional_columns=optional_columns)} UNION ALL {depot_runs})"
@@ -405,11 +412,11 @@ def stored_runs(
     optional_columns: frozenset[str] = frozenset(),
     full_history: bool = False,
 ) -> str:
-    """The runs of both engines with ``STORED_RUN_COLUMNS``, normally bounded by the stored window.
+    """The runs of both engines with ``STORED_RUN_COLUMNS``, floored at the stored window unless
+    ``full_history``.
 
-    A hand-off shell stays and is flagged, where ``with_depot_runs`` drops it. A stored job row
-    cannot tell a dropped run from a run that never synced, and it needs that to leave the jobs of a
-    shell out. ``full_history`` lets a new job resolve the suppression of an older run.
+    A hand-off shell stays and is flagged, because a stored job row cannot tell a dropped run from a
+    run that never synced.
     """
     floor = "1" if full_history else incremental_floor.stored_rows()
     if depot is None:
@@ -456,11 +463,11 @@ def _stored_run_columns(is_handoff_shell: str) -> str:
 
 
 def stored_jobs(jobs_table: str, depot: DepotJobAttempts | None) -> workflow_jobs.JobsTable:
-    """The job attempts of both engines created at or after the stored window.
+    """The job attempts of both engines created in the stored window, including the jobs of hand-off
+    shells.
 
-    The jobs of a hand-off shell stay so the stored builder can flag them in the same snapshot. The
-    source of the duplicate scan starts earlier, because the first listing of a job row can be older
-    than its re-listed copy.
+    The source of the duplicate scan starts earlier, because the first listing of a job row can be
+    older than its re-listed copy.
     """
     rows = _github_jobs(jobs_table, incremental_floor.stored_rows())
     duplicates = _github_jobs(jobs_table, incremental_floor.stored_rows_and_earlier())
@@ -480,19 +487,20 @@ def stored_jobs(jobs_table: str, depot: DepotJobAttempts | None) -> workflow_job
     )
 
 
-def with_depot_jobs(jobs_table: str, depot: DepotJobAttempts | None, runs_table: str) -> workflow_jobs.JobsTable:
-    """The GitHub jobs table, or a subquery that also holds the Depot CI job attempts when they are synced.
+def with_depot_jobs(
+    jobs_table: str, depot: DepotJobAttempts | None, runs_table: str, *, prescoped: bool = False
+) -> workflow_jobs.JobsTable:
+    """The job attempts of both engines without the jobs of successful hand-off shells. The shells
+    stay in the source of the duplicate scan.
 
-    Hand-off shells are left out of the rows, as in ``with_depot_runs``. They stay in the source of the
-    duplicate scan, so a jobs read builds the shell filter once. Depot job rows carry no branch: the jobs
-    builder scans its source twice, so a PR snapshot lookup here would cost two PR scans per jobs read. A
-    reader that joins a job to its run reads the branch through ``workflow_jobs.branch``, which falls back
-    to the run's.
+    Depot job rows carry no branch, because a PR snapshot lookup here would add two PR scans to every
+    jobs read. Read the branch through ``workflow_jobs.branch``, which falls back to the run's.
+    ``prescoped`` is as in ``with_depot_runs``.
     """
     if depot is None:
         return workflow_jobs.JobsTable.of(f"({_github_jobs(jobs_table)})")
     handoffs = _handoff_workflows(depot)
-    scan = _whole_history_shell_scan(jobs_table, handoffs)
+    scan = _shell_scan(jobs_table, handoffs, prescoped=prescoped)
     where = f"run_id NOT IN ({_github_shells(jobs_table, runs_table, handoffs, scan)})"
     depot_jobs = _jobs(_executed_attempts(depot, handoffs, pull_requests_table=None))
     every_depot_job = _jobs(_attempts(depot, pull_requests_table=None))

@@ -9,20 +9,28 @@ products/mobile/
                           push registration, notification routing, analytics, error boundary
     +native-intent.tsx    Drops the Android OAuth callback deep link so it never opens a screen, and opens a web
                           link to one issue or recording at /errors/<id> or /replay/<id> (webLinkTarget)
-    index.tsx             Redirect to /inbox (demo mode or signed in) or /sign-in
+    index.tsx             Redirect to the start page (demo mode or signed in; Home at /live by default) or /sign-in
     sign-in.tsx           -> src/auth/SignInScreen
-    (tabs)/               Inbox and Chats share one tab navigator, so the bottom bar stays put when the tab changes
+    (tabs)/               Home, Inbox, Chats and Views share one tab navigator, so the bottom bar stays put when
+                          the tab changes
       _layout.tsx         -> src/features/tabs/TabsLayout
-      inbox.tsx           -> src/features/inbox/InboxScreen
-      chats.tsx           -> src/features/chats/ChatsScreen
-      errors.tsx          -> src/features/errors/ErrorsListScreen chrome="tab" (a slot only while pinned)
-      replay.tsx          -> src/features/replay/ReplayListScreen chrome="tab" (a slot only while pinned)
+      live/               -> src/features/live/LiveScreen chrome="tab" (Home: the first tab and the default start page)
+      inbox/              -> src/features/inbox/InboxScreen
+      chats/              -> src/features/chats/ChatsScreen
+      views/              -> src/features/views/list/ViewsScreen
+      errors/             -> src/features/errors/ErrorsListScreen chrome="tab" (registered, no slot: pins are retired)
+      replay/             -> src/features/replay/ReplayListScreen chrome="tab" (registered, no slot: pins are retired)
+      web-analytics/      -> src/features/views/webAnalytics/WebAnalyticsScreen chrome="tab" (registered, no slot:
+                          pins are retired)
     report/[id]/index.tsx -> src/features/report/ReportScreen (`/report/<id>`, as deep links and notifications open it)
     report/[id]/details.tsx -> src/features/report/details/ReportDetailsScreen (the full report)
     (stack)/errors/index.tsx -> src/features/errors/ErrorsListScreen chrome="stack" (pushed from the Views Browse row)
     errors/[id].tsx       -> src/features/errors/IssueScreen (`/errors/<id>`, `from` names the source for analytics)
     (stack)/replay/index.tsx -> src/features/replay/ReplayListScreen chrome="stack" (pushed from the Views Browse row)
     replay/[sessionId].tsx -> src/features/replay/SessionScreen (`/replay/<id>?t=<seconds>&source=<entry>`)
+    views/web-analytics/  -> src/features/views/webAnalytics/WebAnalyticsScreen chrome="stack", and its full list
+    views/live.tsx        -> src/features/live/LiveScreen chrome="stack" (Live chip, deep link)
+    views/live-countries.tsx -> src/features/live/LiveCountriesScreen (Visitors by country, from Live's map card)
     chat.tsx              -> src/features/chat/ChatSheet (transparent modal, draws its own sheet;
                           no params starts a new chat, `taskId` and `runId` open one, `reportId` attaches a report)
     settings.tsx          -> src/features/settings/SettingsScreen
@@ -35,23 +43,29 @@ products/mobile/
                           errorTracking.ts holds the error tracking reads and writes ([API.md](API.md#error-tracking)).
                           recordings.ts and replayVision.ts hold the session replay reads and Summarize
                           ([API.md](API.md#session-replay)).
+                          live.ts holds the Live screen's queries, project read and live events stats read
+                          ([LIVE.md](LIVE.md)).
     auth/                 oauth.ts (PKCE flow, refresh, revoke), tokens.ts (secure store),
                           account.ts (@me and projects), regions.ts (hosts and client ids),
                           authStore.ts (zustand), useViewer, SignInScreen
     model/                types.ts (the view-model contract), sources.ts, agent.ts, queryStates.ts,
-                          adapters/ (Today and signals responses -> view models)
+                          live.ts (Live view models), adapters/ (Today, signals and Live responses -> view models)
     demo/                 briefings.ts (raw prototype data), fixtures.ts (view models), derive.ts,
                           demoMode.ts (zustand store), hooks.ts (demo query hooks),
-                          sessionThreads.ts (demo session run logs)
+                          sessionThreads.ts (demo session run logs), live.ts (seeded Live traffic)
     features/
-      tabs/               TabsLayout (Inbox, Chats and Views tab navigator), BottomBar and TabsHeader (each
-                          rendered once), tabHeaderStore (each tab's header state), NavMenu (the More menu),
-                          navPinStore (Errors and Sessions pinned to the nav pill, a device preference),
-                          navPinRoutes (openNavTarget: the explicit (tabs) route when pinned, (stack) when not;
-                          both keep the public /errors and /replay URLs, without selecting a hidden native tab),
-                          navPinActions (pin change with toast and Undo), NavPinMenu (the Views row menu)
+      tabs/               TabsLayout (Home, Inbox, Chats and Views tab navigator; Home is the Live screen),
+                          BottomBar and TabsHeader (each rendered once), tabHeaderStore (each tab's header state),
+                          tabRoutes (tab keys to route names, BAR_TABS), NavMenu (the More menu),
+                          navPinSlot (MAX_NAV_PINS, 0 while the pin slot is retired), navPinStore (Errors, Sessions
+                          or Web analytics pinned to the nav pill, a device preference), navPinRoutes (openNavTarget: the explicit
+                          (tabs) route when pinned, the pushed screen when not, without selecting a hidden native
+                          tab), navPinActions (pin change with toast and Undo), NavPinMenu (the Views row menu),
+                          TabHeaderPublisher (a pinned screen's status line), useTabVisit (counts tab visits)
       inbox/              InboxScreen, InboxRow, InboxListFooter, hooks,
-                          prefetchPlan (prefetch window and queue), usePrefetchReports
+                          prefetchPlan (prefetch window and queue), usePrefetchReports,
+                          useInboxUnread (the unread count of the saved inbox list, for the Inbox tab's dot and Live's
+                          Meanwhile)
       report/             ReportScreen, TopChrome, Headline, HeadlineTitle, ReportMeta, ReportByline, TextLinkRow,
                           Evidence*, ReplayRow, Facts, Activity,
                           hooks, queries (query options shared by the screen and the inbox prefetch)
@@ -82,6 +96,17 @@ products/mobile/
                           SessionTimelineSection, SessionSkeleton, hooks (recording, timeline, summary flow with
                           Summarize and polling, frames, list), sessionAdapters (pure: person labels, timeline,
                           summary, list rows), replayModel (view types), replayLinks (web URLs, `t`), replayAnalytics
+        video/            ReplayVideoPlayer (full-screen Watch replay modal), useReplayVideo (find or render the MP4 export,
+                          poll it), videoTime (session second to video second)
+      live/               LiveScreen (Web analytics Live: the Home tab, or pushed at /views/live) and its cards,
+                          LiveNoTraffic and LiveMeanwhile (Quiet and Not set up) with useLiveMeanwhile,
+                          LiveEventSheet, LiveCountriesScreen (Visitors by country),
+                          liveController (polling: focus, app state, Pause, backoff), liveRead (one read of every
+                          job, or the geo job alone), hooks (useLiveFeed: data source, pollers, users online fallback;
+                          useLiveUsersOnline for the Live chip; useLiveWorld for Visitors by country), liveWorldStore,
+                          analytics; see LIVE.md
+        map/              WorldMap (Skia world map, CanvasKit loader on web), mapColors, mapGeometry (fit, tap hit
+                          testing), worldPaths (generated by `pnpm map:generate`)
       views/              The Views tab and its screens, see VIEWS.md
         screen/           Shared screen chrome: ViewChrome, ViewScreenFrame, ViewTitle, HeaderMenu (the More menu
                           of a pushed screen: a view, an issue, a session), ViewMoreSheet, ViewErrorState, ViewSkeleton
@@ -91,7 +116,7 @@ products/mobile/
                           notificationRouting, taskLookup, useNotificationRouting
       settings/           SettingsScreen, ProjectSwitcher, PushStatusGroup, SignOutSection, appInfo,
                           EnvironmentGroup (internal builds), LegalGroup, SettingsLinkRow, SettingsRadioRow,
-                          DefaultPageGroup, defaultPageStore (the tab the app opens on)
+                          DefaultPageGroup, defaultPageStore (the tab the app opens on, Home by default)
       widgets/            chartWidgetSync (session copy and pin catalog for the Chart home screen widget),
                           chartWidgetCatalog (buildCatalog), useChartWidgetSync, useWidgetOpenedEvent;
                           see modules/chart-widget/README.md

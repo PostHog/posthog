@@ -903,7 +903,7 @@ class TestSlackSummaryNotice(APIBaseTest):
             self.subscription,
             [self.asset],
             total_asset_count=1,
-            change_summary="• **Requests** reached *80* in _this interval_, with <u>missing source data</u>. See [report](https://posthog.com/docs) or [other](https://example.com/).\n\n• *Latency* fell.",
+            change_summary="• `Requests` reached `80` in _this interval_, with <u>missing source data</u>. See [report](https://posthog.com/docs) or [other](https://example.com/).\n\n• *Latency* fell.",
         )
         summary_card = next(block for block in message.blocks if block["type"] == "container")
         assert summary_card["title"]["text"] == "✨ AI summary"
@@ -914,8 +914,8 @@ class TestSlackSummaryNotice(APIBaseTest):
         assert bullet_list["style"] == "bullet"
         spans = bullet_list["elements"][0]["elements"]
         styles = {span["text"]: span["style"] for span in spans}
-        assert styles["Requests"] == {"bold": True}
-        assert styles["80"] == {"bold": True}
+        assert styles["Requests"] == {"code": True}
+        assert styles["80"] == {"code": True}
         assert styles["this interval"] == {"italic": True}
         assert styles["missing source data"] == {"underline": True}
         assert styles[" reached "] == {}

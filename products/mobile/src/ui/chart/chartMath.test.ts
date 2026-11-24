@@ -1,6 +1,6 @@
 import { getCalendars } from 'expo-localization'
 
-import { barPageSize, barSegments, barWindow } from './barLayout'
+import { barPageSize, barSegments, barWindow, sparkBars } from './barLayout'
 import { barSpan, yPosition } from './chartGeometry'
 import {
     formatAxisDate,
@@ -57,6 +57,23 @@ describe('chartMath', () => {
             )[1]?.ends
         ).toEqual([5, -2, Number.NaN])
         expect(barSegments(series, 'grouped')[2]).toEqual({ starts: [0, 0, 0], ends: [5, -2, Number.NaN] })
+    })
+
+    test.each<[string, number[], number | null, [number, boolean][]]>([
+        ['one occurrence stays a short bar under the floor', [0, 1, 0], null, [[3, false]]],
+        ['empty buckets draw nothing', [0, 0, Number.NaN], null, []],
+        [
+            'bars scale from zero to the peak, keep a visible minimum and highlight from the index',
+            [5, 50, 100],
+            2,
+            [
+                [2, false],
+                [16, false],
+                [32, true],
+            ],
+        ],
+    ])('spark bars: %s', (_name, values, highlightFrom, expected) => {
+        expect(sparkBars(values, 32, highlightFrom).map((bar) => [bar.height, bar.highlighted])).toEqual(expected)
     })
 
     test.each<[string, number[], ChartKind, [number, number], number[]]>([
@@ -124,13 +141,15 @@ describe('chartMath', () => {
     test.each([
         [false, '4:07 PM'],
         [true, '16:07'],
-    ])('hourly chart labels follow the 24-hour preference %s', (uses24hourClock, clock) => {
+    ])('hourly and minute chart labels follow the 24-hour preference %s', (uses24hourClock, clock) => {
         jest.mocked(getCalendars).mockReturnValue([{ ...getCalendars()[0], uses24hourClock }])
         const at = new Date(2026, 9, 13, 16, 7).getTime()
         expect(formatPagerDate(at, 'hour')).toBe(`Oct 13, ${clock}`)
         expect(formatAxisDate(at, 'hour')).toBe(clock)
         expect(formatTooltipDate(at, 'hour', true)).toBe(clock)
         expect(formatTooltipDate(at, 'hour')).toBe(`Tue, Oct 13, ${clock}`)
+        expect(formatAxisDate(at, 'minute')).toBe(clock)
+        expect(formatTooltipDate(at, 'minute')).toBe(clock)
     })
 
     test.each<[string, Date, boolean, string]>([
@@ -161,4 +180,26 @@ describe('chartMath', () => {
         expect(span.top).toBeCloseTo(top)
         expect(span.height).toBeCloseTo(height)
     })
+})
+
+test('mixed lines and bars on separate axes never add to one another’s stacks', () => {
+    const series: ChartSeries[] = [
+        { key: 'one', label: 'One', color: '#111111', kind: 'bar', points: [{ at: 0, value: 100 }] },
+        {
+            key: 'growth',
+            label: 'Growth',
+            color: '#222222',
+            kind: 'line',
+            axis: 'right',
+            points: [{ at: 0, value: 25 }],
+        },
+        { key: 'two', label: 'Two', color: '#333333', kind: 'bar', points: [{ at: 0, value: 50 }] },
+        { key: 'right', label: 'Right', color: '#444444', kind: 'bar', axis: 'right', points: [{ at: 0, value: 5 }] },
+    ]
+    expect(barSegments(series, 'stacked')).toEqual([
+        { starts: [0], ends: [100] },
+        { starts: [0], ends: [25] },
+        { starts: [100], ends: [150] },
+        { starts: [0], ends: [5] },
+    ])
 })

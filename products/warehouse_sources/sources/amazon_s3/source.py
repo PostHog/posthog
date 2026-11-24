@@ -25,6 +25,7 @@ from products.warehouse_sources.sources.sdk import (
     parse_s3_url,
     secret_field,
     source_caption,
+    table_root_of_url,
     text_field,
     url_field,
 )
@@ -67,6 +68,14 @@ class AmazonS3Source(ObjectStorageSource[AmazonS3SourceConfig]):
             secret_access_key=config.secret_access_key.strip(),
         )
 
+    def storage_identity(self, config: AmazonS3SourceConfig) -> tuple[str | None, ...]:
+        # As in `table_root`: the bucket needs no region lookup.
+        return (str(ObjectStoreProvider.S3), parse_s3_url(config.url_pattern).bucket, None, None)
+
+    def table_root(self, config: AmazonS3SourceConfig) -> str | None:
+        # `object_store_config` looks up the region of a URL without one, and the root needs no region.
+        return table_root_of_url(parse_s3_url(config.url_pattern))
+
     def discovery_options(self, config: AmazonS3SourceConfig) -> DiscoveryOptions:
         return discovery_options_from(config)
 
@@ -90,7 +99,7 @@ class AmazonS3Source(ObjectStorageSource[AmazonS3SourceConfig]):
             label="Amazon S3",
             caption=source_caption("an S3 bucket"),
             iconPath="/static/services/aws-s3.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

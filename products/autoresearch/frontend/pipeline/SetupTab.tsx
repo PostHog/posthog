@@ -196,8 +196,8 @@ function TrainingScheduleSetting({ pipeline }: { pipeline: AutoresearchPipelineA
 function ProjectUsage({ limits }: { limits: ProjectLimitsApi }): JSX.Element {
     return (
         <p className="text-xs text-secondary mb-0" data-attr="autoresearch-project-limits">
-            This project has used {limits.training_runs_used} of {limits.max_training_runs_per_day} training runs in the
-            last 24 hours, and has {limits.live_pipelines} of {limits.max_live_pipelines} active models.
+            This project has used {limits.training_runs_used} of its daily limit of {limits.max_training_runs_per_day}{' '}
+            training runs, and has {limits.live_pipelines} of {limits.max_live_pipelines} active models.
         </p>
     )
 }

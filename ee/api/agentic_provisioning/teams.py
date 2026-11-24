@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from django.db import IntegrityError
 
 from posthog.models.oauth import OAuthAccessToken
@@ -10,6 +12,9 @@ from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.user import User
 
 from ee.api.agentic_provisioning.tokens import ensure_team_in_token_scopes, user_can_access_team
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 class ProjectIdCollisionError(Exception):
@@ -26,6 +31,8 @@ def resolve_or_create_project_team(
     user: User,
     configuration: dict,
     access_token: OAuthAccessToken,
+    *,
+    enforce_ip_policy: Callable[[Team], None],
 ) -> tuple[Team | None, list[int]]:
     """Look up or create a team for the given project_id.
 
@@ -47,11 +54,13 @@ def resolve_or_create_project_team(
         .first()
     )
     if existing:
+        enforce_ip_policy(existing.team)
         if not user_can_access_team(user, existing.team):
             return None, scoped_teams
         return ensure_team_in_token_scopes(access_token, scoped_teams, existing.team)
 
     base_team = Team.objects.get(id=scoped_teams[0])
+    enforce_ip_policy(base_team)
     if not user_can_access_team(user, base_team):
         return None, scoped_teams
 
@@ -79,6 +88,7 @@ def resolve_or_create_project_team(
             .first()
         )
         if race_winner:
+            enforce_ip_policy(race_winner.team)
             if not user_can_access_team(user, race_winner.team):
                 return None, scoped_teams
             return ensure_team_in_token_scopes(access_token, scoped_teams, race_winner.team)

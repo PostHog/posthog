@@ -183,6 +183,9 @@ Without `--producer`, a per-producer mapping is skipped and the answer falls bac
 A team that sends every bot to one channel writes a plain channel string instead (`notifications: '#billing-alerts'`), which answers any producer.
 
 To list what nobody owns, run `owners unowned`. Paths under `owners: null` are left out.
+To list only what a branch leaves unowned, run `owners unowned --against origin/main`.
+It reads the worktree, so it also lists a new file that git does not track yet.
+A file that was already unowned at the merge base is left out, so the list is empty until a change adds a gap.
 
 ### Lint in CI
 
@@ -218,6 +221,10 @@ from owners_yaml import OwnersResolver
 resolution = OwnersResolver().resolve("billing/api/invoices.py")
 resolution.owners  # ['team-billing', '@alice']
 ```
+
+Pass `include_added=False` to omit new-path metadata when only ownership is needed.
+The default still includes that metadata.
+Lint uses this mode for tracked-file coverage so files excluded by sparse checkout do not cause another ownership lookup.
 
 The names exported from the top-level `owners_yaml` package are the public API.
 Submodules can change between minor releases.

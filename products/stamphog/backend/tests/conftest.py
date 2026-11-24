@@ -29,6 +29,7 @@ from products.stamphog.backend.temporal.activities import (
     mark_review_failed,
     post_verdict,
     refuse_on_pre_gates,
+    reuse_withheld_verdict,
     review_in_sandbox,
     signal_review_started,
     start_review_sandbox,
@@ -171,6 +172,9 @@ def _inline_review_workflow(review_run_id: str, team_id: int) -> None:
     try:
         _run_activity(dismiss_stale_approvals, inp)
         _run_activity(signal_review_started, inp)
+        if _run_activity(reuse_withheld_verdict, inp)["reused"]:
+            _run_activity(post_verdict, inp)
+            return
         _run_activity(fetch_review_context, inp)
         checkout_error: Exception | None = None
         try:

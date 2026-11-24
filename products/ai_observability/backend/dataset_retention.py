@@ -5,7 +5,7 @@ from functools import partial
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import Exists, F, OuterRef, Q, QuerySet, Subquery
+from django.db.models import Exists, F, OuterRef, Q, QuerySet, Subquery, Sum
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
@@ -16,6 +16,7 @@ from posthog.models.instance_setting import get_instance_settings
 
 from products.ai_observability.backend.models.datasets import Dataset, DatasetItem, DatasetItemVersion, DatasetRevision
 from products.ai_observability.backend.models.offline_evaluations import OfflineExperiment, OfflineExperimentItem
+from products.ai_observability.backend.retention_metrics import JsonByteLength
 
 logger = structlog.get_logger(__name__)
 
@@ -47,7 +48,16 @@ class DatasetRetentionPolicy:
     @staticmethod
     def revision_expires_at(revision: DatasetRevision) -> datetime | None:
         dataset = revision.dataset
-        if dataset.current_revision_id == revision.id:
+        current_revision_id = dataset.current_revision_id or getattr(dataset, "resolved_current_revision_id", None)
+        if current_revision_id is None:
+            current_revision_id = (
+                DatasetRevision.objects.for_team(dataset.team_id, canonical=True)
+                .filter(dataset_id=dataset.id)
+                .order_by("-revision")
+                .values_list("id", flat=True)
+                .first()
+            )
+        if current_revision_id == revision.id:
             return DatasetRetentionPolicy.dataset_expires_at(dataset)
         if revision.last_used_at is None:
             return None
@@ -62,14 +72,14 @@ class DatasetRetentionPolicy:
 
 class DatasetUsage:
     @staticmethod
-    def record(dataset: Dataset, revision: DatasetRevision | None = None) -> None:
+    def record(dataset: Dataset, revision: DatasetRevision | None = None, *, force: bool = False) -> None:
         if dataset.expired_at is not None:
             raise Dataset.DoesNotExist
         if revision is not None and (revision.expired_at is not None or revision.dataset_id != dataset.id):
             raise DatasetRevision.DoesNotExist
         now = timezone.now()
         cutoff = now - USAGE_REFRESH_INTERVAL
-        if dataset.last_used_at is not None and dataset.last_used_at > cutoff:
+        if not force and dataset.last_used_at is not None and dataset.last_used_at > cutoff:
             if revision is None or (revision.last_used_at is not None and revision.last_used_at > cutoff):
                 return
         # Usage and cleanup serialize on the dataset, including accesses to its older revisions.
@@ -85,13 +95,14 @@ class DatasetUsage:
                 )
                 if not revisions.exists():
                     raise DatasetRevision.DoesNotExist
-                if revisions.filter(Q(last_used_at__isnull=True) | Q(last_used_at__lte=cutoff)).update(
-                    last_used_at=now
-                ):
+                stale_revisions = (
+                    revisions if force else revisions.filter(Q(last_used_at__isnull=True) | Q(last_used_at__lte=cutoff))
+                )
+                if stale_revisions.update(last_used_at=now):
                     revision.last_used_at = now
                 else:
                     revision.last_used_at = revisions.values_list("last_used_at", flat=True).get()
-            if locked.last_used_at is None or locked.last_used_at <= cutoff:
+            if force or locked.last_used_at is None or locked.last_used_at <= cutoff:
                 Dataset.objects.for_team(dataset.team_id, canonical=True).filter(id=dataset.id).update(last_used_at=now)
                 locked.last_used_at = now
             dataset.last_used_at = locked.last_used_at
@@ -136,6 +147,7 @@ class DatasetRetention:
         self.datasets_expired = 0
         self.revisions_expired = 0
         self.versions_deleted = 0
+        self.payload_bytes_deleted = 0
         self.datasets_deleted = 0
         self.datasets_failed = 0
         self.budget_exhausted = False
@@ -189,8 +201,19 @@ class DatasetRetention:
             DatasetItem.objects.for_team(dataset.team_id, canonical=True).filter(
                 dataset_id=dataset.id, current_version_id__in=removable_ids
             ).update(current_version=None)
-        versions.filter(id__in=removable_ids).only("id").delete()
+        removable = versions.filter(id__in=removable_ids)
+        payload_bytes = removable.aggregate(
+            total=Sum(
+                JsonByteLength("input")
+                + JsonByteLength("expected_output")
+                + JsonByteLength("source_output")
+                + JsonByteLength("metadata"),
+                default=0,
+            )
+        )["total"]
+        removable.only("id").delete()
         self.versions_deleted += len(removable_ids)
+        self.payload_bytes_deleted += payload_bytes
 
     @staticmethod
     def _delete_revisions(dataset: Dataset, revisions: QuerySet[DatasetRevision], ids: list[UUID]) -> None:
@@ -278,7 +301,13 @@ class DatasetRetention:
 
     def _clean_dataset(self, team_id: int, dataset_id: UUID) -> None:
         failure: Exception | None = None
-        before = (self.datasets_expired, self.revisions_expired, self.versions_deleted, self.datasets_deleted)
+        before = (
+            self.datasets_expired,
+            self.revisions_expired,
+            self.versions_deleted,
+            self.datasets_deleted,
+            self.payload_bytes_deleted,
+        )
         with transaction.atomic():
             dataset = (
                 Dataset.objects.for_team(team_id, canonical=True)
@@ -300,6 +329,7 @@ class DatasetRetention:
                         "revisions_expired": self.revisions_expired - before[1],
                         "versions_deleted": self.versions_deleted - before[2],
                         "datasets_deleted": self.datasets_deleted - before[3],
+                        "payload_bytes_deleted": self.payload_bytes_deleted - before[4],
                     }
                     if any(counts.values()):
                         transaction.on_commit(
@@ -366,6 +396,7 @@ class DatasetRetention:
             revisions_expired = self.revisions_expired
             versions_deleted = self.versions_deleted
             datasets_deleted = self.datasets_deleted
+            payload_bytes_deleted = self.payload_bytes_deleted
             try:
                 self._clean_dataset(team_id, dataset_id)
             except Exception as error:
@@ -373,6 +404,7 @@ class DatasetRetention:
                 self.revisions_expired = revisions_expired
                 self.versions_deleted = versions_deleted
                 self.datasets_deleted = datasets_deleted
+                self.payload_bytes_deleted = payload_bytes_deleted
                 self.datasets_failed += 1
                 if isinstance(error, SoftTimeLimitExceeded):
                     raise

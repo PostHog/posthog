@@ -15,6 +15,7 @@ import {
     RequestInfo,
     RequestInit,
     Response,
+    buildConnector,
     request,
     errors as undiciErrors,
     fetch as undiciFetch,
@@ -25,11 +26,12 @@ import { getExternalRequestConfig } from '~/common/config'
 import { buildIntegerMatcherWithPercentage } from '~/common/config/matchers'
 
 import { ColdStartGate } from './cold-start-gate'
+import { installedConnectionRateLimiter } from './connection-rate-limiter'
 import { isProdEnv } from './env-utils'
 import { fetchAttribution } from './fetch-attribution'
 import { parseJSON } from './json-parse'
 import { logger } from './logger'
-import { noteOobDomain } from './oob-domains'
+import { checkOobDomain } from './oob-domains'
 
 const requestConfig = getExternalRequestConfig()
 
@@ -174,6 +176,15 @@ export class ResolutionError extends Error {
     }
 }
 
+export class ConnectionRateLimitError extends Error {
+    constructor(address: string) {
+        super(
+            `PostHog opened too many new connections to ${address} in a short time, so this request did not start. This usually means the destination is timing out or closing connections.`
+        )
+        this.name = 'ConnectionRateLimitError'
+    }
+}
+
 // Logged only when a check blocks the request. The check runs inside undici's connect flow
 // where the thrown error can't carry caller context, so attribution comes from the ALS store;
 // it reflects the request that opened the connection (keep-alive reuse skips the check).
@@ -210,8 +221,12 @@ function validateUrl(url: string): URL {
  */
 function validateHostnameIPLiteral(hostname: string, allowUnsafe: boolean): void {
     // Above the early return on purpose: every caller passes `!isProdEnv()`, so a check below it
-    // would never run in a test and would reach production unexercised.
-    noteOobDomain(hostname, 'node_request', fetchAttribution.getStore())
+    // would never run in a test and would reach production unexercised. The check is cloud-only,
+    // so the escape hatch it sits above still holds off cloud.
+    if (checkOobDomain(hostname, 'node_request', fetchAttribution.getStore()) !== null) {
+        unsafeRequestCounter.inc({ reason: 'oob_domain' })
+        throw new SecureRequestError('Hostname is not allowed')
+    }
 
     if (allowUnsafe) {
         return
@@ -345,9 +360,84 @@ async function staticLookupAsync(hostname: string): Promise<LookupAddress[]> {
     return validAddrinfo
 }
 
+const connectionRateLimitedCounter = new Counter({
+    name: 'node_request_connection_rate_limited_total',
+    help: 'New third-party connections over the limit for their destination IP address, by whether the limit rejected them',
+    labelNames: ['enforced'],
+})
+
+const connectionRateLimitLogged = new LRUCache<string, true>({ max: 1_000, ttl: 60_000 })
+
+// Native IPv6 skips the NAT gateway and returns null. IPv4-mapped IPv6 opens an IPv4 connection, so it counts as IPv4.
+function natAddress({ address, family }: LookupAddress): string | null {
+    if (family === 4) {
+        return address
+    }
+    if (!ipaddr.IPv6.isValid(address)) {
+        return null
+    }
+    const parsed = ipaddr.IPv6.parse(address)
+    return parsed.isIPv4MappedAddress() ? parsed.toIPv4Address().toString() : null
+}
+
+// Only a new connection resolves its hostname, so kept-alive requests never take a token. The socket may dial every
+// address it gets, so each IPv4 address takes one.
+async function admitNewConnection(hostname: string, addresses: LookupAddress[]): Promise<LookupAddress[]> {
+    const connectionRateLimiter = installedConnectionRateLimiter()
+    if (!connectionRateLimiter) {
+        return addresses
+    }
+    // The socket dials every entry, so a repeated address would open one connection per copy for one token.
+    const seen = new Set<string>()
+    const unique = addresses.filter((answer) => {
+        const key = natAddress(answer) ?? answer.address
+        if (seen.has(key)) {
+            return false
+        }
+        seen.add(key)
+        return true
+    })
+    const natAddresses = unique.map(natAddress)
+    const limited = natAddresses.filter((address): address is string => address !== null)
+    if (limited.length === 0) {
+        return unique
+    }
+    // Each team has its own budget per address, so one team cannot use up the connections of another.
+    const teamId = fetchAttribution.getStore()?.teamId
+    const hasToken = await connectionRateLimiter.tryTake(
+        limited.map((address) => (teamId === undefined ? address : `${teamId}:${address}`))
+    )
+    const admitted = new Set(limited.filter((_, index) => hasToken[index]))
+    const enforced = requestConfig.EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_ENFORCED
+    const address = limited.find((candidate) => !admitted.has(candidate))
+    if (address !== undefined) {
+        connectionRateLimitedCounter.inc({ enforced: String(enforced) })
+        if (!connectionRateLimitLogged.has(address)) {
+            connectionRateLimitLogged.set(address, true)
+            logger.warn('[request] New connections to a destination IP address are over the limit', {
+                hostname,
+                address,
+                enforced,
+                ...fetchAttribution.getStore(),
+            })
+        }
+    }
+    if (!enforced) {
+        return unique
+    }
+    const kept = unique.filter((_, index) => {
+        const address = natAddresses[index]
+        return address === null || admitted.has(address)
+    })
+    if (kept.length === 0) {
+        throw new ConnectionRateLimitError(limited[0])
+    }
+    return kept
+}
+
 export const httpStaticLookup: net.LookupFunction = async (hostname, _options, cb) => {
     try {
-        const addrinfo = await staticLookupAsync(hostname)
+        const addrinfo = await admitNewConnection(hostname, await staticLookupAsync(hostname))
         cb(null, addrinfo)
     } catch (err) {
         cb(err as Error, '', 4)
@@ -460,11 +550,30 @@ function makeSecureDispatcher({
         keepAliveTimeout: keepAliveTimeoutMs,
         connections,
         allowH2,
-        connect: {
-            lookup: httpStaticLookup,
-            timeout: requestConfig.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS,
-        },
+        connect: admittingConnector(allowH2),
     })
+}
+
+// undici builds this same connector from an options object. A function lets the limit see connections to an IP
+// address in the URL: Node does not call the lookup function for those, so httpStaticLookup never sees them.
+function admittingConnector(allowH2: boolean): buildConnector.connector {
+    const connect = buildConnector({
+        allowH2,
+        lookup: httpStaticLookup,
+        timeout: requestConfig.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS,
+    })
+    return (options, callback) => {
+        const literal = options.hostname.replace(/^\[(.*)\]$/, '$1')
+        const family = net.isIP(literal)
+        if (family === 0) {
+            connect(options, callback)
+            return
+        }
+        admitNewConnection(literal, [{ address: literal, family }]).then(
+            () => connect(options, callback),
+            (error) => callback(error as Error, null)
+        )
+    }
 }
 
 const sharedSecureAgent = makeSecureDispatcher({ useProxy: false, allowH2: false })
@@ -857,8 +966,18 @@ export type StreamedResponse = {
      * Reads at most `maxBytes`, then abandons the rest. `overLimit` says the response had more, and
      * `bytes` then contains the first `maxBytes`, so parsers with a bounded-prefix rule can use it.
      */
-    read: (maxBytes: number, retainPrefixOnOverflow?: boolean) => Promise<{ bytes: Buffer; overLimit: boolean }>
+    read: (
+        maxBytes: number,
+        retainPrefixOnOverflow?: boolean,
+        head?: BodyHeadCheck
+    ) => Promise<{ bytes: Buffer; overLimit: boolean; refused?: boolean }>
     discard: () => void
+}
+
+/** `accept` gets the first `bytes` of a body, or all of a shorter one. A body it refuses is abandoned and reads as empty. */
+export interface BodyHeadCheck {
+    bytes: number
+    accept: (head: Buffer) => boolean
 }
 
 function orderedHeaderLines(raw: unknown): Array<{ name: string; value: string }> {
@@ -898,11 +1017,15 @@ function flattenHeaderLines(lines: Array<{ name: string; value: string }>): Reco
 async function readCappedBody(
     body: Dispatcher.ResponseData['body'],
     maxBytes: number,
-    retainPrefixOnOverflow: boolean
-): Promise<{ bytes: Buffer; overLimit: boolean }> {
+    retainPrefixOnOverflow: boolean,
+    head?: BodyHeadCheck
+): Promise<{ bytes: Buffer; overLimit: boolean; refused?: boolean }> {
     const chunks: Buffer[] = []
     let total = 0
     let overLimit = false
+    let unchecked = head
+    const refuses = (check: BodyHeadCheck): boolean =>
+        !check.accept(Buffer.concat(chunks, total).subarray(0, check.bytes))
     try {
         for await (const chunk of body) {
             const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
@@ -921,9 +1044,18 @@ async function readCappedBody(
             }
             chunks.push(buffer)
             total += buffer.length
+            if (unchecked && total >= unchecked.bytes) {
+                if (refuses(unchecked)) {
+                    return { bytes: Buffer.alloc(0), overLimit: false, refused: true }
+                }
+                unchecked = undefined
+            }
         }
     } finally {
         destroyBody(body)
+    }
+    if (unchecked && !overLimit && refuses(unchecked)) {
+        return { bytes: Buffer.alloc(0), overLimit: false, refused: true }
     }
     return { bytes: Buffer.concat(chunks, total), overLimit }
 }
@@ -988,12 +1120,12 @@ export async function fetchStreamed(url: string, options: StreamedFetchOptions):
         status: result.statusCode,
         headers,
         headerLines,
-        read: async (maxBytes: number, retainPrefixOnOverflow = true) => {
+        read: async (maxBytes: number, retainPrefixOnOverflow = true, head?: BodyHeadCheck) => {
             if (settled) {
                 return { bytes: Buffer.alloc(0), overLimit: false }
             }
             try {
-                return await readCappedBody(result.body, maxBytes, retainPrefixOnOverflow)
+                return await readCappedBody(result.body, maxBytes, retainPrefixOnOverflow, head)
             } finally {
                 settle()
             }

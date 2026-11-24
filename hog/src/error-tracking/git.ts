@@ -1,6 +1,7 @@
-import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, statSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join } from 'node:path'
 
+import { canonical } from '@/core/paths'
 import type { Env } from '@/core/runtime'
 
 // A port of posthog-cli's `utils/git.rs`. The repo name and commit become the default release name
@@ -85,14 +86,6 @@ function readText(path: string): string | undefined {
         return readFileSync(path, 'utf8')
     } catch {
         return undefined
-    }
-}
-
-function canonical(path: string): string {
-    try {
-        return realpathSync(path)
-    } catch {
-        return path
     }
 }
 
@@ -226,7 +219,7 @@ function unescapeValue(value: string): string {
     return out
 }
 
-function parseRemoteUrls(config: string): [string, string][] {
+export function parseRemoteUrls(config: string): [string, string][] {
     const remotes: [string, string][] = []
     let current: string | undefined
     // Rust's `str::lines` splits on `\n` and drops one trailing `\r` per line.

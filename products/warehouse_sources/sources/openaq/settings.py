@@ -9,9 +9,10 @@ from products.warehouse_sources.sources.sdk import IncrementalField, Incremental
 #   `sensors` array into one row per sensor. Full refresh (single locations walk, cheap).
 # - "measurement": fanned out per sensor (/v3/sensors/{sensors_id}/...). Incremental via the
 #   API's server-side datetime filter. Request-heavy (one paginated fetch per sensor), so opt-in.
-# - "location_fanout" / "sensor_fanout": fanned out per location (/v3/locations/{locations_id}/...)
-#   or per sensor (/v3/sensors/{sensors_id}/...). Full refresh. Request-heavy, so opt-in.
-EndpointKind = Literal["list", "sensors", "measurement", "location_fanout", "sensor_fanout"]
+# - "location_fanout" / "sensor_fanout" / "parameter_fanout": fanned out per location
+#   (/v3/locations/{locations_id}/...), per sensor (/v3/sensors/{sensors_id}/...) or per parameter
+#   (/v3/parameters/{parameters_id}/...). Full refresh. Request-heavy, so opt-in.
+EndpointKind = Literal["list", "sensors", "measurement", "location_fanout", "sensor_fanout", "parameter_fanout"]
 
 
 def _datetime_incremental_field(name: str) -> IncrementalField:
@@ -27,7 +28,7 @@ def _datetime_incremental_field(name: str) -> IncrementalField:
 class OpenAQEndpointConfig:
     name: str
     kind: EndpointKind
-    # API path. Fan-out endpoints use a `{sensors_id}` or `{locations_id}` placeholder.
+    # API path. Fan-out endpoints use a `{sensors_id}`, `{locations_id}` or `{parameters_id}` placeholder.
     path: str
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
     partition_key: Optional[str] = None
@@ -103,6 +104,16 @@ OPENAQ_ENDPOINTS: dict[str, OpenAQEndpointConfig] = {
         kind="location_fanout",
         path="/v3/locations/{locations_id}/latest",
         primary_keys=["location_id", "sensor_id"],
+        should_sync_default=False,
+        sort_mode=None,
+    ),
+    # The same latest readings as location_latest, walked per parameter instead of per location: one
+    # paginated fetch per parameter covers the whole network.
+    "parameter_latest": OpenAQEndpointConfig(
+        name="parameter_latest",
+        kind="parameter_fanout",
+        path="/v3/parameters/{parameters_id}/latest",
+        primary_keys=["parameter_id", "sensor_id"],
         should_sync_default=False,
         sort_mode=None,
     ),

@@ -61,13 +61,21 @@ export interface SetupDetectionLogicOptions {
      */
     recheckActionTypes?: () => string[]
     /**
+     * Read a status straight from a recheck action's payload, so a reload that already
+     * answers skips the probe. Return `null` to probe. Do not combine with
+     * `allowReturnToSetup`: that path applies a probe's answer directly, so a late
+     * no-data probe answer could replace has-data.
+     */
+    statusFromRecheck?: (payload: Record<string, any>) => ProductSetupStatus | null
+    /**
      * Remember a has-data answer in localStorage (keyed team + product) and skip
      * detection on later mounts. Only that direction is cached - data never
      * disappears once ingested, while needs-setup keeps re-checking. For products
      * without a boot-time probe, this is what spares the returning user a spinner
-     * and a query on every scene entry.
+     * and a query on every scene entry. A function decides per has-data answer, for a
+     * product whose has-data can come from data that goes away.
      */
-    cacheHasData?: boolean
+    cacheHasData?: boolean | (() => boolean)
     /** Entity products can become empty when users delete their last item. Recheck mutations even after data exists. */
     allowReturnToSetup?: boolean
     /**
@@ -170,6 +178,7 @@ export function createSetupDetectionLogic(options: SetupDetectionLogicOptions): 
         pollIntervalMs,
         onDetected,
         recheckActionTypes,
+        statusFromRecheck,
         cacheHasData,
         revalidateCachedHasData,
         allowReturnToSetup,
@@ -204,9 +213,14 @@ export function createSetupDetectionLogic(options: SetupDetectionLogicOptions): 
             ...Object.fromEntries(
                 (recheckActionTypes?.() ?? []).map((actionType) => [
                     actionType,
-                    () => {
+                    (payload: Record<string, any>) => {
                         if (values.currentProjectId && (allowReturnToSetup || values.setupStatus !== 'has-data')) {
-                            actions.detectStatus()
+                            const status = statusFromRecheck?.(payload)
+                            if (status) {
+                                actions.detectStatusSuccess(status)
+                            } else {
+                                actions.detectStatus()
+                            }
                         }
                     },
                 ])
@@ -238,7 +252,7 @@ export function createSetupDetectionLogic(options: SetupDetectionLogicOptions): 
                 // Data never disappears once it exists, so the poll's job is done.
                 if (detectedStatus === 'has-data') {
                     cache.disposables.dispose('poll')
-                    if (cacheHasData) {
+                    if (typeof cacheHasData === 'function' ? cacheHasData() : cacheHasData) {
                         writeCachedHasData(values.currentTeamId, productKey)
                     }
                 }

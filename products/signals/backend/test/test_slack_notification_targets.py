@@ -9,12 +9,14 @@ from rest_framework import serializers, status
 from slack_sdk.errors import SlackApiError
 
 from posthog.models.integration import Integration
+from posthog.models.team.team import Team
 from posthog.models.user_integration import UserIntegration
 
 from products.signals.backend.models import SignalUserAutonomyConfig
 from products.signals.backend.slack_notification_targets import (
     is_slack_member_target,
     lookup_slack_user_id_by_email,
+    saved_notification_integration,
     validate_slack_notification_target,
 )
 
@@ -205,3 +207,25 @@ class TestSlackNotificationTargetAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         body = response.json()
         assert "Reconnect Slack" in str(body), body
+
+    @parameterized.expand(
+        [
+            ("current_team", True, True),
+            ("no_current_team", True, False),
+            ("integration_of_another_team", False, True),
+        ]
+    )
+    def test_saved_notification_integration_is_read_in_the_given_team(
+        self, _name: str, own_team: bool, pass_team: bool
+    ) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        integration = (
+            self.integration
+            if own_team
+            else Integration.objects.create(team=other_team, kind="slack", integration_id="T999")
+        )
+        SignalUserAutonomyConfig.objects.create(user=self.user, slack_notification_integration=integration)
+
+        found = saved_notification_integration(self.user, self.team.id if pass_team else None)
+
+        assert (found.id if found else None) == (integration.id if own_team and pass_team else None)

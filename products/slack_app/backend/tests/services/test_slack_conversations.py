@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 from slack_sdk.errors import SlackApiError
 
 from products.slack_app.backend.models import SlackThreadTaskMapping
-from products.slack_app.backend.services.slack_conversations import resolve_conversation_type
+from products.slack_app.backend.services.slack_conversations import channel_is_ext_shared, resolve_conversation_type
 
 ConversationType = SlackThreadTaskMapping.ConversationType
 
@@ -78,3 +78,20 @@ class TestResolveConversationType:
         result = resolve_conversation_type(_slack(error=error), {"type": "app_mention"}, "C123")
 
         assert result == ConversationType.UNKNOWN
+
+
+class TestChannelIsExtShared:
+    @pytest.mark.parametrize(
+        "channel_id,expected",
+        [
+            ("D123", False),
+            ("C123", True),
+        ],
+    )
+    def test_failed_lookup_fails_closed_except_for_a_dm(self, channel_id: str, expected: bool) -> None:
+        # `conversations.info` fails on every `D…` id in production because the app lacks
+        # `im:read`. A DM must not fall into the fail-closed path, or every DM click is sent to
+        # a channel approval it can never get. A channel still fails closed.
+        slack = _slack(error=SlackApiError("missing_scope", {"error": "missing_scope"}))
+
+        assert channel_is_ext_shared(slack, channel_id) is expected

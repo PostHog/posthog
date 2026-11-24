@@ -1,0 +1,141 @@
+"""Facade re-exports for the experiments Temporal wiring.
+
+``temporal/registry.py`` defines the workflow and activity lists for each task queue. The lists stay out of
+the ``temporal`` package ``__init__`` files because Python runs a package ``__init__`` on every submodule
+import, so any leaf import such as ``temporal.models`` would load every workflow and activity module.
+
+Core registers these with the Temporal worker (``start_temporal_worker``), the schedule bootstrap
+(``posthog/temporal/schedule.py``) and the worker metrics setup (``posthog/temporal/common/worker.py``).
+They cross the boundary as objects, not data, so they live in their own facade submodule and keep the
+``temporalio`` imports off the ``facade/api.py`` path.
+
+The daily timeseries workflows register on a different task queue than the recalculation workflows,
+so ``TIMESERIES_WORKFLOWS`` and ``TIMESERIES_ACTIVITIES`` stay separate from ``WORKFLOWS`` and ``ACTIVITIES``.
+"""
+
+from posthog.temporal.common.registration import HistogramSpec, QueueBinding, TemporalRegistration
+
+from products.experiments.backend.temporal.recalculation_metrics import (
+    EXPERIMENT_METRICS_RECALCULATION_ATTEMPT_HISTOGRAM_BUCKETS,
+    EXPERIMENT_METRICS_RECALCULATION_ATTEMPT_HISTOGRAM_METRICS,
+    EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_BUCKETS,
+    EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_METRICS,
+    EXPERIMENT_METRICS_RECALCULATION_SCHEDULE_TO_START_HISTOGRAM_BUCKETS,
+    EXPERIMENT_METRICS_RECALCULATION_SCHEDULE_TO_START_HISTOGRAM_METRICS,
+    ExperimentsRecalculationMetricsInterceptor,
+)
+from products.experiments.backend.temporal.registry import (
+    ACTIVITIES,
+    EXPERIMENT_CANARY_ACTIVITIES,
+    EXPERIMENT_CANARY_WORKFLOWS,
+    EXPERIMENT_ENROLLMENT_CENSUS_ACTIVITIES,
+    EXPERIMENT_ENROLLMENT_CENSUS_WORKFLOWS,
+    EXPERIMENT_RECALCULATION_ACTIVITY_QUEUE_ACTIVITIES,
+    EXPERIMENT_SCHEDULED_RECALCULATION_ACTIVITIES,
+    EXPERIMENT_SCHEDULED_RECALCULATION_WORKFLOWS,
+    TIMESERIES_ACTIVITIES,
+    TIMESERIES_WORKFLOWS,
+    WORKFLOWS,
+)
+from products.experiments.backend.temporal.schedule import (
+    create_experiment_precompute_canary_schedule,
+    create_experiment_precompute_enrollment_census_schedule,
+    create_experiment_scheduled_recalculation_schedules,
+)
+from products.experiments.backend.temporal.timeseries.models import ExperimentTimeseriesRecalculationWorkflowInputs
+from products.experiments.backend.temporal.timeseries.schedule import (
+    create_experiment_regular_metrics_schedules,
+    create_experiment_saved_metrics_schedules,
+)
+
+__all__ = [
+    "ACTIVITIES",
+    "EXPERIMENT_CANARY_ACTIVITIES",
+    "EXPERIMENT_CANARY_WORKFLOWS",
+    "EXPERIMENT_ENROLLMENT_CENSUS_ACTIVITIES",
+    "EXPERIMENT_ENROLLMENT_CENSUS_WORKFLOWS",
+    "EXPERIMENT_METRICS_RECALCULATION_ATTEMPT_HISTOGRAM_BUCKETS",
+    "EXPERIMENT_METRICS_RECALCULATION_ATTEMPT_HISTOGRAM_METRICS",
+    "EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_BUCKETS",
+    "EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_METRICS",
+    "EXPERIMENT_METRICS_RECALCULATION_SCHEDULE_TO_START_HISTOGRAM_BUCKETS",
+    "EXPERIMENT_METRICS_RECALCULATION_SCHEDULE_TO_START_HISTOGRAM_METRICS",
+    "EXPERIMENT_RECALCULATION_ACTIVITY_QUEUE_ACTIVITIES",
+    "EXPERIMENT_SCHEDULED_RECALCULATION_ACTIVITIES",
+    "EXPERIMENT_SCHEDULED_RECALCULATION_WORKFLOWS",
+    "TIMESERIES_ACTIVITIES",
+    "TIMESERIES_WORKFLOWS",
+    "WORKFLOWS",
+    "ExperimentTimeseriesRecalculationWorkflowInputs",
+    "ExperimentsRecalculationMetricsInterceptor",
+    "create_experiment_precompute_canary_schedule",
+    "create_experiment_precompute_enrollment_census_schedule",
+    "create_experiment_regular_metrics_schedules",
+    "create_experiment_saved_metrics_schedules",
+    "create_experiment_scheduled_recalculation_schedules",
+]
+
+TEMPORAL = TemporalRegistration(
+    queues=(
+        QueueBinding(
+            queue_setting="GENERAL_PURPOSE_TASK_QUEUE",
+            workflows=(
+                *TIMESERIES_WORKFLOWS,
+                *EXPERIMENT_CANARY_WORKFLOWS,
+                *EXPERIMENT_ENROLLMENT_CENSUS_WORKFLOWS,
+                *EXPERIMENT_SCHEDULED_RECALCULATION_WORKFLOWS,
+            ),
+            activities=(
+                *TIMESERIES_ACTIVITIES,
+                *EXPERIMENT_CANARY_ACTIVITIES,
+                *EXPERIMENT_ENROLLMENT_CENSUS_ACTIVITIES,
+                *EXPERIMENT_SCHEDULED_RECALCULATION_ACTIVITIES,
+            ),
+        ),
+        QueueBinding(
+            queue_setting="EXPERIMENTS_RECALCULATION_TASK_QUEUE",
+            workflows=tuple(WORKFLOWS),
+            activities=tuple(ACTIVITIES),
+        ),
+        # The calc activity gets its own queue so that a worker with a fixed slot count caps how many
+        # recalculation ClickHouse queries run at the same time.
+        QueueBinding(
+            queue_setting="EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE",
+            activities=tuple(EXPERIMENT_RECALCULATION_ACTIVITY_QUEUE_ACTIVITIES),
+        ),
+        QueueBinding(
+            queue_setting="EXPERIMENTS_RECALCULATION_PRECOMPUTE_TASK_QUEUE",
+            activities=tuple(EXPERIMENT_RECALCULATION_ACTIVITY_QUEUE_ACTIVITIES),
+        ),
+        QueueBinding(
+            queue_setting="EXPERIMENTS_RECALCULATION_BUILD_TASK_QUEUE",
+            activities=tuple(EXPERIMENT_RECALCULATION_ACTIVITY_QUEUE_ACTIVITIES),
+        ),
+        QueueBinding(
+            queue_setting="EXPERIMENTS_RECALCULATION_DIRECT_HEAVY_TASK_QUEUE",
+            activities=tuple(EXPERIMENT_RECALCULATION_ACTIVITY_QUEUE_ACTIVITIES),
+        ),
+    ),
+    schedules=(
+        create_experiment_regular_metrics_schedules,
+        create_experiment_saved_metrics_schedules,
+        create_experiment_precompute_canary_schedule,
+        create_experiment_precompute_enrollment_census_schedule,
+        create_experiment_scheduled_recalculation_schedules,
+    ),
+    interceptors=(ExperimentsRecalculationMetricsInterceptor,),
+    histograms=(
+        *HistogramSpec.for_metrics(
+            EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_METRICS,
+            EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_BUCKETS,
+        ),
+        *HistogramSpec.for_metrics(
+            EXPERIMENT_METRICS_RECALCULATION_ATTEMPT_HISTOGRAM_METRICS,
+            EXPERIMENT_METRICS_RECALCULATION_ATTEMPT_HISTOGRAM_BUCKETS,
+        ),
+        *HistogramSpec.for_metrics(
+            EXPERIMENT_METRICS_RECALCULATION_SCHEDULE_TO_START_HISTOGRAM_METRICS,
+            EXPERIMENT_METRICS_RECALCULATION_SCHEDULE_TO_START_HISTOGRAM_BUCKETS,
+        ),
+    ),
+)

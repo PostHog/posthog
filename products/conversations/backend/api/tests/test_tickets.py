@@ -35,7 +35,7 @@ from posthog.schema import HogQLQueryModifiers, MaterializationMode
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.models import ActivityLog, Comment, Organization, Tag, Team, User
+from posthog.models import ActivityLog, Comment, Organization, Tag, TaggedItem, Team, User
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.uploaded_media import UploadedMedia
@@ -48,8 +48,10 @@ from products.access_control.backend.models.role import Role
 from products.conversations.backend import reply_dedupe
 from products.conversations.backend.api.ticket_filters import query_params_to_view_filters
 from products.conversations.backend.api.tickets import (
+    MAX_TAGS_ADDED_PER_UPDATE,
     ComposeTicketSerializer,
     TicketReplyRequestSerializer,
+    TicketUpdateRequestSerializer,
     TicketViewSet,
 )
 from products.conversations.backend.models import (
@@ -95,6 +97,25 @@ class TestComposeTicketSerializer(SimpleTestCase):
     def test_accepts_up_to_100_tags(self):
         serializer = ComposeTicketSerializer(data=self._payload(tags=[f"t{i}" for i in range(100)]))
         assert serializer.is_valid(), serializer.errors
+
+
+class TestTicketUpdateRequestSerializer(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("at_the_cap", MAX_TAGS_ADDED_PER_UPDATE, True),
+            ("over_the_cap", MAX_TAGS_ADDED_PER_UPDATE + 1, False),
+        ]
+    )
+    def test_caps_new_tags_and_not_the_list_length(self, _name: str, new_tag_count: int, expected_valid: bool) -> None:
+        current = [f"current-{i}" for i in range(MAX_TAGS_ADDED_PER_UPDATE + 50)]
+        ticket = Ticket()
+        ticket.prefetched_tags = [TaggedItem(tag=Tag(name=name)) for name in current]  # type: ignore[attr-defined]
+        resent = [f" {name.upper()} " for name in current]
+        tags = [*resent, *(f"new-{i}" for i in range(new_tag_count))]
+
+        serializer = TicketUpdateRequestSerializer(ticket, data={"tags": tags}, partial=True)
+
+        assert serializer.is_valid() is expected_valid, serializer.errors
 
 
 # Patch on_commit to execute immediately in tests
@@ -979,7 +1000,7 @@ class TestTicketAPI(APIBaseTest):
 
         # Person reads go through personhog, so both page sizes should use the same database queries.
         for limit in (2, 3):
-            with self.subTest(limit=limit), self.assertNumQueries(9):
+            with self.subTest(limit=limit), self.assertNumQueries(7):
                 response = self.client.get(f"{list_url}?limit={limit}")
                 self.assertEqual(response.status_code, status.HTTP_200_OK)
                 self.assertEqual(response.json()["count"], 3)
@@ -3249,6 +3270,55 @@ class TestTicketReplyAPI(APIBaseTest):
         response = self.client.post(self.url, {"message": "Hi", "rich_content": rich}, format="json")
         assert response.status_code == status.HTTP_201_CREATED
         assert response.json()["rich_content"] == rich
+
+    @parameterized.expand(
+        [
+            ("own_team_upload", "personal_api_key", "own", status.HTTP_201_CREATED),
+            ("other_team_upload", "personal_api_key", "other_team", status.HTTP_400_BAD_REQUEST),
+            ("external_url", "personal_api_key", "https://attacker.example.com/pixel.png", status.HTTP_400_BAD_REQUEST),
+            ("relative_path", "personal_api_key", "own_relative", status.HTTP_400_BAD_REQUEST),
+            ("trailing_slash", "personal_api_key", "own_trailing_slash", status.HTTP_400_BAD_REQUEST),
+            ("malformed_url", "personal_api_key", "https://[invalid/image.png", status.HTTP_400_BAD_REQUEST),
+            ("in_app_external_url", "session", "https://example.com/pasted.png", status.HTTP_201_CREATED),
+            # Before the rollout, API callers keep sending any image, as they could before.
+            ("flag_off_external_url", "personal_api_key", "https://example.com/pasted.png", status.HTTP_201_CREATED),
+        ]
+    )
+    def test_reply_rich_content_image_must_be_own_team_upload(
+        self, mock_on_commit, _name, auth, source, expected_status
+    ):
+        flag_patch = patch(
+            "posthog.api.uploaded_media.posthoganalytics.feature_enabled", return_value=not _name.startswith("flag_off")
+        )
+        flag_patch.start()
+        self.addCleanup(flag_patch.stop)
+        if auth == "personal_api_key":
+            raw_key = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="ticket-write",
+                user=self.user,
+                secure_value=hash_key_value(raw_key),
+                scopes=["ticket:write"],
+            )
+            self.client.logout()
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw_key}")
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        own_media = UploadedMedia.objects.create(team=self.team, file_name="own.png", content_type="image/png")
+        other_media = UploadedMedia.objects.create(team=other_team, file_name="other.png", content_type="image/png")
+        src = {
+            "own": own_media.get_absolute_url(),
+            "other_team": other_media.get_absolute_url(),
+            "own_relative": f"/uploaded_media/{own_media.id}",
+            "own_trailing_slash": f"{own_media.get_absolute_url()}/",
+        }.get(source, source)
+        rich = {"type": "doc", "content": [{"type": "image", "attrs": {"src": src, "alt": "screenshot"}}]}
+
+        response = self.client.post(self.url, {"message": "See image", "rich_content": rich}, format="json")
+
+        assert response.status_code == expected_status, response.json()
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            assert response.json()["attr"] == "rich_content"
+            assert not Comment.objects.filter(item_id=str(self.ticket.id)).exists()
 
     @parameterized.expand(
         [

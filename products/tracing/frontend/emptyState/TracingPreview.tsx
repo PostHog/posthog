@@ -2,7 +2,7 @@ import './TracingPreview.scss'
 
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { cn } from 'lib/utils/css-classes'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 
 interface SpanRow {
     service: string
@@ -40,7 +40,7 @@ const SPAN_ROWS: SpanRow[] = [
  * states crossfade in `__swap` grids, so nothing shifts.
  */
 export function TracingPreview(): JSX.Element {
-    const isStatic = inStorybook() || inStorybookTestRunner()
+    const isStatic = inStorybook()
 
     return (
         <div className={cn('TracingPreview', isStatic && 'TracingPreview--static')}>

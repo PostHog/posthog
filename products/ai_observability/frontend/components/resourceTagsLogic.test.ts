@@ -1,8 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
 
-import api from 'lib/api'
-
-import { tagsModel } from '~/models/tagsModel'
 import { initKeaTests } from '~/test/init'
 
 import * as generated from '../generated/api'
@@ -26,8 +23,6 @@ describe('resourceTagsLogic', () => {
     beforeEach(() => {
         initKeaTests()
         jest.clearAllMocks()
-        jest.spyOn(api.tags, 'list').mockResolvedValue([])
-        tagsModel.mount()
     })
 
     it.each<TaggedResource>(['datasets', 'scorers', 'experiments'])(

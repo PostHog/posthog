@@ -29,6 +29,7 @@ interface QueryResult {
     results: unknown
     insight: { url: string }
     _posthogUrl: string
+    warehouse_suggestions?: unknown
     [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]?: string
 }
 
@@ -240,6 +241,17 @@ describe('queryHandler — result shape for UI rendering', () => {
 
         expect(result.results).toEqual({ columns: ['c'], results: [[1]] })
         expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toBeUndefined()
+    })
+
+    it('passes warehouse suggestions through', async () => {
+        const note = { id: 'note-id', kind: 'materialize', view_name: 'orders', message: 'm', url: 'u', can_act: true }
+        const { context } = createContext({
+            queryData: { columns: ['c'], results: [[1]], warehouse_suggestions: [note] },
+        })
+
+        const result = (await queryHandler(context, { insightId: '42', output_format: 'json' })) as QueryResult
+
+        expect(result.warehouse_suggestions).toEqual([note])
     })
 
     it('passes the raw results array through for trends insights', async () => {

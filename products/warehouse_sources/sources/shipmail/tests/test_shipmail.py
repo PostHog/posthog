@@ -1,5 +1,7 @@
 from datetime import UTC, datetime
 
+import pytest
+
 from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
 from products.warehouse_sources.sources.shipmail._config import ShipmailSourceConfig
 from products.warehouse_sources.sources.shipmail.shipmail import (
@@ -21,9 +23,10 @@ def test_incremental_value_preserves_iso_timestamp() -> None:
     assert _incremental_value("2026-07-29T12:30:00Z") == "2026-07-29T12:30:00Z"
 
 
-def test_messages_paginates_checkpoints_and_sends_incremental_watermark() -> None:
+@pytest.mark.parametrize("endpoint", ["messages", "newsletters", "members"])
+def test_pagination_checkpoints_and_incremental_watermark(endpoint: str) -> None:
     result = _driver().run(
-        "messages",
+        endpoint,
         [
             ScriptedResponse(
                 json={
@@ -44,14 +47,107 @@ def test_messages_paginates_checkpoints_and_sends_incremental_watermark() -> Non
     )
 
     assert result.rows == [{"id": "msg_1"}, {"id": "msg_2"}]
-    assert result.queries[0] == {"limit": ("100",), "updated_after": ("2026-07-01T00:00:00Z",)}
-    assert result.queries[1] == {
-        "limit": ("100",),
-        "updated_after": ("2026-07-01T00:00:00Z",),
-        "cursor": ("cursor_2",),
-    }
+    assert result.raised is None
+    path = "messages/analytics" if endpoint == "messages" else endpoint
+    assert result.paths == [f"/api/v1/{path}"] * 2
+    params = {"limit": ("100",)}
+    if endpoint == "messages":
+        params["updated_after"] = ("2026-07-01T00:00:00Z",)
+    assert result.queries == [params, {**params, "cursor": ("cursor_2",)}]
     assert result.saved_states == [ShipmailResumeConfig(cursor="cursor_2")]
     assert result.session_options == [{"redact_values": ("test-key",), "capture": False}]
+
+
+@pytest.mark.parametrize(
+    "endpoint,parent,child_path,parent_key",
+    [
+        ("threads", "mailboxes", "/threads?mailbox_id={id}", "mailbox_id"),
+        ("audience_subscribers", "audiences", "/audiences/{id}/subscribers", "audience_id"),
+    ],
+)
+def test_fanout_paginates_parents_and_children(endpoint: str, parent: str, child_path: str, parent_key: str) -> None:
+    result = _driver().run(
+        endpoint,
+        [
+            ScriptedResponse(
+                json={"data": [{"id": "parent_1"}, {"id": "empty"}], "pagination": {"next_cursor": "parents_2"}}
+            ),
+            ScriptedResponse(json={"data": [{"id": "shared"}], "pagination": {"next_cursor": "children_2"}}),
+            ScriptedResponse(json={"data": [{"id": "child_2"}], "pagination": {"next_cursor": None}}),
+            ScriptedResponse(json={"data": [], "pagination": {"next_cursor": None}}),
+            ScriptedResponse(json={"data": [{"id": "parent_2"}], "pagination": {"next_cursor": None}}),
+            ScriptedResponse(json={"data": [{"id": "shared"}], "pagination": {"next_cursor": None}}),
+        ],
+        should_use_incremental_field=True,
+        db_incremental_field_last_value="2026-07-01T00:00:00Z",
+        incremental_field="updated_at",
+    )
+
+    assert result.raised is None
+    assert result.rows == [
+        {"id": "shared", parent_key: "parent_1"},
+        {"id": "child_2", parent_key: "parent_1"},
+        {"id": "shared", parent_key: "parent_2"},
+    ]
+    children = [
+        child_path.format(id=value).partition("?")[0] for value in ["parent_1", "parent_1", "empty", "parent_2"]
+    ]
+    assert result.paths == [
+        f"/api/v1/{parent}",
+        *[f"/api/v1{path}" for path in children[:3]],
+        f"/api/v1/{parent}",
+        f"/api/v1{children[3]}",
+    ]
+    expected_queries = [
+        {"limit": ("100",)},
+        {"limit": ("100",)},
+        {"limit": ("100",), "cursor": ("children_2",)},
+        {"limit": ("100",)},
+        {"limit": ("100",), "cursor": ("parents_2",)},
+        {"limit": ("100",)},
+    ]
+    if endpoint == "threads":
+        for index, parent_id in [(1, "parent_1"), (2, "parent_1"), (3, "empty"), (5, "parent_2")]:
+            expected_queries[index]["mailbox_id"] = (parent_id,)
+    assert result.queries == expected_queries
+    assert result.committed_states
+    assert any(
+        state.fanout_state and state.fanout_state.get("child_state") == {"cursor": "children_2"}
+        for state in result.committed_states
+    )
+
+
+@pytest.mark.parametrize(
+    "endpoint,parent,child_path,parent_key",
+    [
+        ("threads", "mailboxes", "/threads?mailbox_id={id}", "mailbox_id"),
+        ("audience_subscribers", "audiences", "/audiences/{id}/subscribers", "audience_id"),
+    ],
+)
+def test_fanout_resumes_parent_and_child_cursors(endpoint: str, parent: str, child_path: str, parent_key: str) -> None:
+    result = _driver().run(
+        endpoint,
+        [
+            ScriptedResponse(json={"data": [{"id": "done"}, {"id": "current"}], "pagination": {"next_cursor": None}}),
+            ScriptedResponse(json={"data": [{"id": "remaining"}], "pagination": {"next_cursor": None}}),
+        ],
+        resume_state=ShipmailResumeConfig(
+            fanout_state={
+                "parent": {"cursor": "parents_2"},
+                "completed": [child_path.format(id="done")],
+                "current": child_path.format(id="current"),
+                "child_state": {"cursor": "children_2"},
+            }
+        ),
+    )
+
+    assert result.raised is None
+    assert result.rows == [{"id": "remaining", parent_key: "current"}]
+    assert result.paths == [f"/api/v1/{parent}", f"/api/v1{child_path.format(id='current').partition('?')[0]}"]
+    child_query = {"limit": ("100",), "cursor": ("children_2",)}
+    if endpoint == "threads":
+        child_query["mailbox_id"] = ("current",)
+    assert result.queries == [{"limit": ("100",), "cursor": ("parents_2",)}, child_query]
 
 
 def test_resumes_from_saved_cursor() -> None:

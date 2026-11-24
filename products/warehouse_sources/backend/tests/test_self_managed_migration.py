@@ -233,8 +233,11 @@ class TestSelfManagedMigration(_MigrationTest):
         prefixes = [source_of(t).prefix or "" for t in (virtual_hosted, other_bucket, other_key)]
         assert prefixes.count("") == 1 and len(set(prefixes)) == 3
         assert set(prefixes) - {""} <= {"exports", "archive"}
-        assert source_of(other_bucket).job_inputs["url_pattern"] == "https://s3.eu-west-1.amazonaws.com/archive/"
-        assert source_of(other_key).job_inputs["access_key_id"] == "AKIASECOND"
+        assert (
+            SourceInputsStore.load(source_of(other_bucket))["url_pattern"]
+            == "https://s3.eu-west-1.amazonaws.com/archive/"
+        )
+        assert SourceInputsStore.load(source_of(other_key))["access_key_id"] == "AKIASECOND"
         marker = (source_of(virtual_hosted).connection_metadata or {})[MIGRATION_MARKER_KEY]
         assert marker["group_key"] == "s3/eu-west-1/exports"
         assert marker["credential_id"] == str(self.credential.pk)
@@ -365,7 +368,7 @@ class TestSelfManagedMigration(_MigrationTest):
         assert schema.source.source_type == "AmazonS3"
         assert schema.created_at == created_at
         assert schema.source.created_at == created_at
-        assert schema.source.job_inputs["url_pattern"] == "https://s3.eu-west-1.amazonaws.com/exports/"
+        assert SourceInputsStore.load(schema.source)["url_pattern"] == "https://s3.eu-west-1.amazonaws.com/exports/"
         assert ExternalDataSourceDestination.objects.for_team(self.team.pk).filter(source=schema.source).exists()
         assert not ExternalDataJob.objects.filter(team=self.team).exists()
         assert DataWarehouseTable.raw_objects.values().get(pk=table.pk) == before
@@ -486,6 +489,20 @@ class TestSelfManagedMigration(_MigrationTest):
         assert outcome.action == "none"
         assert not ExternalDataSchema.objects.filter(team=self.team).exists()
 
+    def test_a_table_whose_credential_belongs_to_another_team_is_skipped(self) -> None:
+        other_team = Team.objects.create(organization=Organization.objects.create(name="other_org"))
+        self._table(
+            credential=DataWarehouseCredential.objects.create(
+                access_key="AKIAOTHER", access_secret="c2VjcmV0", team=other_team
+            )
+        )
+
+        [outcome] = self._migrate()
+
+        assert outcome.status.state == TableMigrationState.SKIPPED
+        assert "has no credential" in (outcome.status.reason or "")
+        assert not ExternalDataSchema.objects.filter(team=self.team).exists()
+
     def test_status_reports_every_state(self) -> None:
         pending = self._table("pending_table")
         self._table("skipped_table", url="https://minio.example.com/exports/a.csv")
@@ -571,7 +588,7 @@ class TestSelfManagedMigration(_MigrationTest):
         assert [o.action for o in outcomes] == [expected_action] * 2
         resolver.assert_called_once()
         if region is not None:
-            job_inputs = ExternalDataSource.objects.get(team=self.team).job_inputs
+            job_inputs = SourceInputsStore.load(ExternalDataSource.objects.get(team=self.team))
             assert job_inputs["url_pattern"] == f"https://s3.{region}.amazonaws.com/exports/"
 
     def test_an_adopted_table_is_queried_by_its_bare_name_before_and_after(self) -> None:

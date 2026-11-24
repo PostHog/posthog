@@ -116,6 +116,23 @@ If you self-host Skyvern, set the base URL to your deployment (for example `http
                 )
             if endpoint == "credentials":
                 return "Stored credential metadata only — secret values are never returned by the Skyvern API"
+            if endpoint == "run_timeline":
+                return (
+                    "Block and thought entries of each run's timeline. Makes one API request per run, so it "
+                    "is off by default. Incremental sync reads only the timelines of runs created inside the "
+                    "created_at lookback window"
+                )
+            if endpoint == "run_tags":
+                return (
+                    "Current tags of each run. Makes one API request per run, so it is off by default. Full "
+                    "refresh only, because tags can change after a run is created"
+                )
+            if endpoint == "run_artifacts":
+                return (
+                    "Artifact metadata of each run, without the short-lived signed download URLs. Makes one "
+                    "API request per run, so it is off by default. Incremental sync reads only the artifacts "
+                    "of runs created inside the created_at lookback window"
+                )
             return None
 
         def _build_schema(endpoint: str) -> SourceSchema:
@@ -144,6 +161,11 @@ If you self-host Skyvern, set the base URL to your deployment (for example `http
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_skyvern_credentials(config.api_key, config.base_url)
+
+    def resume_covers_run(self, *, incremental_or_append: bool, schema_name: str | None = None) -> bool:
+        # The workflows -> runs -> timeline chain saves no checkpoint, so each retry reads it again.
+        endpoint = SKYVERN_ENDPOINTS.get(schema_name or "")
+        return endpoint is None or not endpoint.fan_out_over_runs
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[SkyvernResumeConfig]:
         return ResumableSourceManager[SkyvernResumeConfig](inputs, SkyvernResumeConfig)

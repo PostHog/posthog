@@ -31,6 +31,7 @@ use super::retry_policy::{RetryPolicy, RetryReason};
 use super::worker_assigner::{WorkerAssigner, WorkerInFlight};
 use super::RevokeId;
 use crate::order_sentinel::ack_mark;
+use crate::routing::Candidate;
 use crate::types::SerializedKafkaMessage;
 use crate::worker_registry::WorkerId;
 
@@ -180,7 +181,7 @@ impl BatcherStateMachine {
     pub fn on_groups(
         self,
         now: Instant,
-        workers: &[WorkerId],
+        workers: &[Candidate],
         assignment_epoch: u64,
         runs: Vec<KeyRun>,
     ) -> (Self, Effects) {
@@ -199,7 +200,7 @@ impl BatcherStateMachine {
     pub fn on_request_succeeded(
         self,
         now: Instant,
-        workers: &[WorkerId],
+        workers: &[Candidate],
         request: RequestId,
         accepted: u32,
     ) -> (Self, Effects) {
@@ -214,7 +215,7 @@ impl BatcherStateMachine {
     pub fn on_request_partial(
         self,
         now: Instant,
-        workers: &[WorkerId],
+        workers: &[Candidate],
         request: RequestId,
         accepted: u32,
         unfinished: Vec<SerializedKafkaMessage>,
@@ -229,7 +230,7 @@ impl BatcherStateMachine {
     pub fn on_request_failed(
         self,
         now: Instant,
-        workers: &[WorkerId],
+        workers: &[Candidate],
         request: RequestId,
         cause: FailureCause,
         messages: Vec<SerializedKafkaMessage>,
@@ -239,7 +240,7 @@ impl BatcherStateMachine {
         })
     }
 
-    pub fn on_wakeup(self, now: Instant, workers: &[WorkerId]) -> (Self, Effects) {
+    pub fn on_wakeup(self, now: Instant, workers: &[Candidate]) -> (Self, Effects) {
         self.act(|active, draining| {
             let mut effects = Effects::default();
             active.advance(now, workers, draining, &mut effects)?;
@@ -263,7 +264,7 @@ impl BatcherStateMachine {
 
     /// Takes no new groups from now on, and stops once nothing is pending or
     /// in flight.
-    pub fn on_shutdown(self, now: Instant, workers: &[WorkerId]) -> (Self, Effects) {
+    pub fn on_shutdown(self, now: Instant, workers: &[Candidate]) -> (Self, Effects) {
         match self {
             BatcherStateMachine::Running(active) | BatcherStateMachine::Draining(active) => {
                 BatcherStateMachine::Draining(active).on_wakeup(now, workers)
@@ -394,7 +395,7 @@ impl ActiveState {
     fn on_groups(
         &mut self,
         now: Instant,
-        workers: &[WorkerId],
+        workers: &[Candidate],
         assignment_epoch: u64,
         runs: Vec<KeyRun>,
     ) -> Result<Effects, String> {
@@ -411,7 +412,7 @@ impl ActiveState {
     fn on_request_succeeded(
         &mut self,
         now: Instant,
-        workers: &[WorkerId],
+        workers: &[Candidate],
         draining: bool,
         request: RequestId,
         accepted: u32,
@@ -419,6 +420,7 @@ impl ActiveState {
         let mut effects = Effects::default();
         let sent = self.take_request(request, &mut effects)?;
         self.observe_rtt(&sent, now);
+        self.record_duration(&sent, now, "accepted");
         if accepted as usize != sent.message_count {
             return Err(format!(
                 "worker accepted {accepted} of {} messages",
@@ -454,7 +456,7 @@ impl ActiveState {
     fn on_request_partial(
         &mut self,
         now: Instant,
-        workers: &[WorkerId],
+        workers: &[Candidate],
         draining: bool,
         request: RequestId,
         accepted: u32,
@@ -463,6 +465,7 @@ impl ActiveState {
         let mut effects = Effects::default();
         let sent = self.take_request(request, &mut effects)?;
         self.observe_rtt(&sent, now);
+        self.record_duration(&sent, now, "partial");
         effects.worker_outcomes.push(WorkerOutcome {
             worker: sent.worker.clone(),
             fault: false,
@@ -494,7 +497,10 @@ impl ActiveState {
             } else if accepted == 0 {
                 Settlement::Bounced(run.unfinished)
             } else {
-                Settlement::Unfinished(run.unfinished)
+                Settlement::Unfinished {
+                    progressed: !run.accepted.is_empty(),
+                    messages: run.unfinished,
+                }
             };
             self.settle_key(&run.routing_key, settlement, now, &mut effects)?;
         }
@@ -505,7 +511,7 @@ impl ActiveState {
     fn on_request_failed(
         &mut self,
         now: Instant,
-        workers: &[WorkerId],
+        workers: &[Candidate],
         draining: bool,
         request: RequestId,
         cause: FailureCause,
@@ -513,6 +519,7 @@ impl ActiveState {
     ) -> Result<Effects, String> {
         let mut effects = Effects::default();
         let sent = self.take_request(request, &mut effects)?;
+        self.record_duration(&sent, now, "failed");
         self.reconnecting.entry(sent.worker.clone()).or_insert(now);
         effects.worker_outcomes.push(WorkerOutcome {
             worker: sent.worker.clone(),
@@ -543,10 +550,13 @@ impl ActiveState {
         revoke: RevokeId,
         partitions: &[(String, i32)],
     ) -> Result<Effects, String> {
+        let queued = self.keys.queued_messages();
         let mut effects = Effects {
             evicted_keys: self.keys.purge(partitions),
             ..Effects::default()
         };
+        counter!("ingestion_consumer_batcher_messages_dropped_on_revoke_total")
+            .increment(queued.saturating_sub(self.keys.queued_messages()) as u64);
         // After the purge no new request carries the partitions.
         self.drains
             .on_revoked(revoke, self.in_flight.carrying(partitions));
@@ -600,16 +610,30 @@ impl ActiveState {
         }
     }
 
+    fn budget_for(&self, class: RequestClass) -> Option<Duration> {
+        self.soft_budget.filter(|_| !class.unbudgeted)
+    }
+
+    fn record_duration(&self, sent: &InFlightRequest, now: Instant, outcome: &'static str) {
+        let budgeted = self.budget_for(sent.class).is_some();
+        histogram!(
+            "ingestion_consumer_request_duration_seconds",
+            "budgeted" => if budgeted { "true" } else { "false" },
+            "outcome" => outcome
+        )
+        .record(now.saturating_duration_since(sent.sent_at).as_secs_f64());
+    }
+
     /// A request on a worker that left the pool holds none of the pool's
     /// permits, so the governor counts only the requests on `workers`.
-    fn sync_governor(&mut self, workers: &[WorkerId]) {
+    fn sync_governor(&mut self, workers: &[Candidate]) {
         let in_flight = workers
             .iter()
-            .map(|worker| self.assigner.requests_on(worker))
+            .map(|candidate| self.assigner.requests_on(&candidate.worker))
             .sum();
-        self.governor.set_pool(workers.len(), in_flight);
+        self.governor.set_pool(workers, in_flight);
         self.reconnecting
-            .retain(|worker, _| workers.contains(worker));
+            .retain(|worker, _| workers.iter().any(|candidate| candidate.worker == *worker));
     }
 
     fn settle_key(
@@ -623,8 +647,13 @@ impl ActiveState {
             .keys
             .settle(routing_key, settlement, now)
             .map_err(|err| err.to_string())?;
-        if settled.escalated {
-            counter!("ingestion_consumer_request_budget_escalations_total").increment(1);
+        if let Some(escalation) = settled.escalation {
+            counter!(
+                "ingestion_consumer_request_budget_escalations_total",
+                "reason" => escalation.reason.as_str(),
+                "progressed" => if escalation.progressed { "true" } else { "false" }
+            )
+            .increment(1);
         }
         if settled.evicted {
             effects.evicted_keys.push(Arc::clone(routing_key));
@@ -635,7 +664,7 @@ impl ActiveState {
     fn advance(
         &mut self,
         now: Instant,
-        workers: &[WorkerId],
+        workers: &[Candidate],
         draining: bool,
         effects: &mut Effects,
     ) -> Result<(), String> {
@@ -653,7 +682,7 @@ impl ActiveState {
     fn place(
         &mut self,
         now: Instant,
-        workers: &[WorkerId],
+        workers: &[Candidate],
         draining: bool,
         effects: &mut Effects,
     ) -> Result<(), String> {
@@ -713,7 +742,7 @@ impl ActiveState {
             request: id,
             worker,
             class: request.class,
-            soft_budget: self.soft_budget.filter(|_| !request.class.unbudgeted),
+            soft_budget: self.budget_for(request.class),
             runs: request.runs,
         });
     }
@@ -829,6 +858,7 @@ mod tests {
     use std::collections::VecDeque;
     use std::num::NonZeroUsize;
 
+    use metrics_util::debugging::{DebugValue, DebuggingRecorder};
     use rstest::rstest;
 
     use super::*;
@@ -901,8 +931,11 @@ mod tests {
             .expect("valid governor settings")
     }
 
-    fn pool(workers: &[&str]) -> Vec<WorkerId> {
-        workers.iter().map(|w| WorkerId::from(*w)).collect()
+    fn pool(workers: &[&str]) -> Vec<Candidate> {
+        workers
+            .iter()
+            .map(|w| Candidate::uniform(WorkerId::from(*w)))
+            .collect()
     }
 
     fn run(key: &str, offsets: &[i64]) -> KeyRun {
@@ -1104,6 +1137,29 @@ mod tests {
 
         let (_, effects) = batcher.on_groups(now, &only_a, 0, vec![run("k9", &[9])]);
         assert_eq!(shape(&effects.sends[0]), vec![("k9", vec![9])]);
+    }
+
+    #[test]
+    fn a_backlog_fills_each_worker_to_its_weighted_slots() {
+        let now = Instant::now();
+        let quarters = |w: &str, n: u64| {
+            Candidate::new(
+                WorkerId::from(w),
+                std::num::NonZeroU64::new(n).unwrap(),
+                std::num::NonZeroU64::new(4).unwrap(),
+            )
+        };
+        let workers = vec![quarters("whole", 4), quarters("half", 2)];
+        let runs = (1..=10).map(|n| run(&format!("k{n}"), &[n])).collect();
+        let (_, effects) = batcher(4, now).on_groups(now, &workers, 0, runs);
+        let mut sent: HashMap<WorkerId, usize> = HashMap::new();
+        for send in &effects.sends {
+            *sent.entry(send.worker.clone()).or_insert(0) += 1;
+        }
+        assert_eq!(
+            sent,
+            HashMap::from([(WorkerId::from("whole"), 4), (WorkerId::from("half"), 2)])
+        );
     }
 
     #[test]
@@ -2192,6 +2248,92 @@ mod tests {
             effects.sends[0].soft_budget,
             Some(BUDGET),
             "the earlier unfinished attempt no longer counts"
+        );
+    }
+
+    fn labels(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
+        pairs
+            .iter()
+            .map(|(key, value)| (key.to_string(), value.to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn the_metrics_report_why_each_key_escalated_and_how_long_each_request_took() {
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let _guard = metrics::set_default_local_recorder(&recorder);
+        let now = Instant::now();
+        let workers = pool(&["w"]);
+        let (batcher, effects) = budgeted_batcher(4, 1, now).on_groups(
+            now,
+            &workers,
+            0,
+            vec![run("a", &[1, 2]), run("b", &[3])],
+        );
+        let budgeted = effects.sends[0].request;
+        let (batcher, effects) = batcher.on_request_partial(
+            now + Duration::from_secs(1),
+            &workers,
+            budgeted,
+            1,
+            vec![message("a", 0, 2), message("b", 0, 3)],
+        );
+        assert_eq!(
+            shape(&effects.sends[0]),
+            vec![("a", vec![2]), ("b", vec![3])]
+        );
+        let unbudgeted = effects.sends[0].request;
+        let (_, effects) =
+            batcher.on_request_succeeded(now + Duration::from_secs(5), &workers, unbudgeted, 2);
+        assert!(effects.fatal.is_none());
+
+        let mut escalations = Vec::new();
+        let mut durations = Vec::new();
+        for (key, _, _, value) in snapshotter.snapshot().into_vec() {
+            let labels: Vec<_> = key
+                .key()
+                .labels()
+                .map(|label| (label.key().to_string(), label.value().to_string()))
+                .collect();
+            match (key.key().name(), value) {
+                (
+                    "ingestion_consumer_request_budget_escalations_total",
+                    DebugValue::Counter(count),
+                ) => escalations.push((labels, count)),
+                ("ingestion_consumer_request_duration_seconds", DebugValue::Histogram(samples)) => {
+                    let seconds: Vec<f64> =
+                        samples.iter().map(|sample| sample.into_inner()).collect();
+                    durations.push((labels, seconds));
+                }
+                _ => {}
+            }
+        }
+        escalations.sort();
+        durations.sort_by(|a, b| a.0.cmp(&b.0));
+        assert_eq!(
+            escalations,
+            vec![
+                (
+                    labels(&[("reason", "attempts"), ("progressed", "false")]),
+                    1
+                ),
+                (labels(&[("reason", "attempts"), ("progressed", "true")]), 1),
+            ],
+            "progress counts for each key, not for the request"
+        );
+        assert_eq!(
+            durations,
+            vec![
+                (
+                    labels(&[("budgeted", "false"), ("outcome", "accepted")]),
+                    vec![4.0]
+                ),
+                (
+                    labels(&[("budgeted", "true"), ("outcome", "partial")]),
+                    vec![1.0]
+                ),
+            ]
         );
     }
 

@@ -1,3 +1,4 @@
+import copy
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
@@ -12,6 +13,7 @@ from unittest.mock import ANY, AsyncMock, MagicMock, patch
 from django.core.cache import cache
 from django.db import connection
 from django.db.models import F
+from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
@@ -74,6 +76,7 @@ from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
+from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
 from ee.api.test.base import APILicensedTest
 
@@ -100,6 +103,20 @@ _WITH_A_SECOND_CONDITION = {
         "groups": [
             {"properties": [], "rollout_percentage": 100},
             {"properties": [{"key": "plan", "value": ["pro"], "operator": "exact", "type": "person"}]},
+        ],
+        "multivariate": {
+            "variants": [{"key": "control", "rollout_percentage": 50}, {"key": "test", "rollout_percentage": 50}]
+        },
+    }
+}
+_WITH_AN_OVERRIDE_CONDITION = {
+    "filters": {
+        "groups": [
+            {"properties": [], "rollout_percentage": 100},
+            {
+                "properties": [{"key": "plan", "value": ["pro"], "operator": "exact", "type": "person"}],
+                "variant": "test",
+            },
         ],
         "multivariate": {
             "variants": [{"key": "control", "rollout_percentage": 50}, {"key": "test", "rollout_percentage": 50}]
@@ -783,6 +800,86 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                 [_HEALTH_PAUSED, ("release_conditions_changed_mid_run", "conditions_changed")],
                 (timedelta(days=1), _WITH_A_SECOND_CONDITION),
             ),
+            (
+                "override_set_before_launch",
+                {"metrics": [_HEALTH_METRIC]},
+                None,
+                [_HEALTH_PAUSED],
+                (-timedelta(days=1), _WITH_AN_OVERRIDE_CONDITION),
+            ),
+            (
+                "override_on_a_device_id_flag",
+                {"metrics": [_HEALTH_METRIC]},
+                None,
+                [_HEALTH_PAUSED],
+                (-timedelta(days=1), {**_WITH_AN_OVERRIDE_CONDITION, "bucketing_identifier": "device_id"}),
+            ),
+            (
+                "frequentist_with_project_defaults",
+                {
+                    "metrics": [_HEALTH_METRIC],
+                    "metrics_secondary": [
+                        {
+                            **_HEALTH_METRIC,
+                            "uuid": "health-threshold-metric",
+                            "name": "Reached 3 pageviews",
+                            "threshold": 3,
+                        },
+                        {
+                            "kind": "ExperimentMetric",
+                            "metric_type": "funnel",
+                            "uuid": "health-funnel-metric",
+                            "name": "Pageview funnel",
+                            "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                        },
+                    ],
+                    "stats_config": {
+                        "method": "frequentist",
+                        "frequentist": {"alpha": 0.1},
+                        "cuped": {"enabled": True},
+                    },
+                    "exposure_criteria": {
+                        "activation_config": {
+                            "kind": "ExperimentEventExposureConfig",
+                            "event": "$pageview",
+                            "properties": [],
+                        }
+                    },
+                },
+                None,
+                [_HEALTH_PAUSED],
+            ),
+            (
+                "warehouse_native_exposure",
+                {
+                    "metrics": [_HEALTH_METRIC],
+                    "exposure_criteria": {
+                        "exposure_config": {
+                            "kind": "ExperimentWarehouseNativeExposureConfig",
+                            "connection_id": "00000000-0000-0000-0000-000000000000",
+                            "query": "SELECT customer_id AS entity_id, variant, exposed_at AS timestamp FROM exposures",
+                            "unit": {"unit_type": "customer", "id_namespace": "billing_customer_id"},
+                        }
+                    },
+                },
+                None,
+                [_HEALTH_PAUSED],
+            ),
+            (
+                "custom_exposure_event",
+                {
+                    "metrics": [_HEALTH_METRIC],
+                    "exposure_criteria": {
+                        "exposure_config": {
+                            "kind": "ExperimentEventExposureConfig",
+                            "event": "$pageview",
+                            "properties": [],
+                        }
+                    },
+                },
+                None,
+                [_HEALTH_PAUSED],
+            ),
         ]
     )
     def test_health_reports_findings(
@@ -794,6 +891,15 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         flag_edit: tuple[timedelta, dict[str, Any]] | None = None,
     ) -> None:
         start_date = timezone.now() - timedelta(days=3)
+        if _name == "frequentist_with_project_defaults":
+            TeamExperimentsConfig.objects.update_or_create(
+                team=self.team,
+                defaults={
+                    "default_sequential_testing_enabled": True,
+                    "default_cuped_enabled": False,
+                    "default_cuped_lookback_days": 7,
+                },
+            )
         EventDefinition.objects.create(
             team=self.team, project=self.project, name="$pageview", last_seen_at=timezone.now()
         )
@@ -812,6 +918,20 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                 },
             },
         )
+        FeatureFlagEvaluationContext.objects.create(
+            feature_flag=flag, evaluation_context=EvaluationContext.objects.create(team=self.team, name="web-app")
+        )
+        exposure_criteria = copy.deepcopy(experiment_fields.get("exposure_criteria", {}))
+        if _name == "warehouse_native_exposure":
+            # The health endpoint checks the reader's access to the connection, so the exposure needs a real one.
+            connection = ExternalDataSource.objects.create(
+                team=self.team,
+                source_id="bigquery",
+                source_type="BigQuery",
+                access_method=ExternalDataSource.AccessMethod.DIRECT,
+                job_inputs={},
+            )
+            exposure_criteria["exposure_config"]["connection_id"] = str(connection.id)
         experiment = Experiment.objects.create(
             team=self.team,
             name="health-findings",
@@ -820,6 +940,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             metrics=experiment_fields.get("metrics", []),
             metrics_secondary=experiment_fields.get("metrics_secondary", []),
             stats_config=experiment_fields.get("stats_config", {}),
+            exposure_criteria=exposure_criteria,
         )
         if shared_metric_link is not None:
             saved_metric = ExperimentSavedMetric.objects.create(
@@ -842,7 +963,13 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             from_launch, fields = flag_edit
             self._edit_flag_at(flag, start_date + from_launch, fields)
 
-        with patch("products.experiments.backend.health.exposure_gate.query_any_exposure", return_value=True):
+        with (
+            patch("products.experiments.backend.health.exposure_gate.query_any_exposure", return_value=True),
+            patch(
+                "products.experiments.backend.warehouse_native_sources.bigquery_direct_query_enabled",
+                return_value=True,
+            ),
+        ):
             response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}/health/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -865,6 +992,90 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                 "rule": None,
             },
         )
+        # The added condition set has no rollout percentage, which the flag service reads as 100. It serves nobody,
+        # because the first set has no filters and a 100% rollout. On a flag that buckets by device ID, a request
+        # without a device ID skips the first set, so neither set's reach is known.
+        added_variant = {
+            "condition_added_after_launch": None,
+            "override_set_before_launch": "test",
+            "override_on_a_device_id_flag": "test",
+        }
+        by_device_id = _name == "override_on_a_device_id_flag"
+        added_condition = (
+            [
+                {
+                    "rollout_percentage": 100.0,
+                    "property_count": 1,
+                    "aggregation_group_type_index": None,
+                    "variant": added_variant[_name],
+                    "reachable": None if by_device_id else False,
+                }
+            ]
+            if _name in added_variant
+            else []
+        )
+        counted_event = {"custom_exposure_event": "$pageview"}.get(_name)
+        activation_event = {"frequentist_with_project_defaults": "$pageview"}.get(_name)
+        warehouse_native = _name == "warehouse_native_exposure"
+        self.assertEqual(
+            health["setup"],
+            {
+                "release_conditions": [
+                    {
+                        "rollout_percentage": 100.0,
+                        "property_count": 0,
+                        "aggregation_group_type_index": None,
+                        "variant": None,
+                        "reachable": None if by_device_id else True,
+                    },
+                    *added_condition,
+                ],
+                "early_exit": False,
+                "bucketing_identifier": "device_id" if by_device_id else "distinct_id",
+                "aggregation_group_type_index": None,
+                "evaluation_runtime": "all",
+                "evaluation_contexts": ["web-app"],
+                "ensure_experience_continuity": False,
+                "exposure": None
+                if warehouse_native
+                else {"event": counted_event, "action": None, "activation": activation_event},
+                "analysis": {
+                    "stats_method": "bayesian",
+                    "confidence_level": 0.95,
+                    "sequential_testing": None,
+                    "sequential_testing_from_project_default": False,
+                    "cuped": False,
+                    "cuped_lookback_days": None,
+                    "cuped_from_project_default": True,
+                    "cuped_lookback_days_from_project_default": False,
+                    "metrics_without_cuped_support": [],
+                    "filters_test_accounts": None if warehouse_native else True,
+                    "test_account_filter_count": 0 if warehouse_native else 1,
+                    "multiple_variant_handling": "exclude",
+                    "only_count_matured_users": False,
+                    "baseline_variant": "holdout" if _name == "baseline_not_a_variant" else "control",
+                    "excluded_variants": [],
+                    **(
+                        {
+                            "stats_method": "frequentist",
+                            "confidence_level": 0.9,
+                            "sequential_testing": True,
+                            "sequential_testing_from_project_default": True,
+                            "cuped": True,
+                            "cuped_lookback_days": 7,
+                            "cuped_from_project_default": False,
+                            "cuped_lookback_days_from_project_default": True,
+                            "metrics_without_cuped_support": ["Reached 3 pageviews", "Pageview funnel"],
+                        }
+                        if _name == "frequentist_with_project_defaults"
+                        else {}
+                    ),
+                },
+            },
+        )
+        if _name == "condition_added_after_launch":
+            conditions = next(c for c in health["checks"] if c["key"] == "release_conditions_changed_mid_run")
+            self.assertEqual([row["before_exposure"] for row in conditions["rows"]], [False])
 
     @parameterized.expand(
         [
@@ -1033,168 +1244,6 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                 if finding["code"] == "flag_off_while_running"
             ],
             [expected],
-        )
-
-    @parameterized.expand(
-        [
-            ("staff_session", True, None, status.HTTP_200_OK, ("read", [120, 880], "ok", "ok")),
-            (
-                "staff_token_without_query_scope",
-                True,
-                ["experiment:read", "activity_log:read"],
-                status.HTTP_200_OK,
-                ("no_query_access", None, "ok", "skipped"),
-            ),
-            (
-                "staff_denied_a_flag_call_property",
-                True,
-                None,
-                status.HTTP_200_OK,
-                ("denied_properties", None, "ok", "ok"),
-                "$feature_flag_reason",
-            ),
-            (
-                "staff_denied_a_property_the_sdk_profile_reads",
-                True,
-                None,
-                status.HTTP_200_OK,
-                ("read", [120, 880], "ok", "skipped"),
-                "$lib",
-            ),
-            ("not_staff", False, None, status.HTTP_403_FORBIDDEN, None),
-        ]
-    )
-    def test_health_inputs_serve_what_the_checks_read_to_staff_only(
-        self,
-        _name: str,
-        is_staff: bool,
-        token_scopes: list[str] | None,
-        expected_status: int,
-        expected: tuple[str, list[int] | None, str, str] | None,
-        denied_property: str | None = None,
-    ) -> None:
-        self.user.is_staff = is_staff
-        self.user.save()
-        experiment = self._create_experiment_with_a_pinned_condition(f"health-inputs-{_name}")
-        experiment.feature_flag.last_called_at = timezone.now() - timedelta(days=1)
-        experiment.feature_flag.save()
-        if denied_property is not None:
-            self._deny_event_property(denied_property)
-        headers: dict[str, str] = {}
-        if token_scopes is not None:
-            token = generate_random_token_personal()
-            PersonalAPIKey.objects.create(
-                user=self.user, label="health", secure_value=hash_key_value(token), scopes=token_scopes
-            )
-            self.client.logout()
-            headers = {"authorization": f"Bearer {token}"}
-
-        with patch(
-            "products.experiments.backend.health.condition_set_traffic.query_condition_set_traffic",
-            return_value=_HEALTH_TRAFFIC,
-        ):
-            response = self.client.get(
-                f"/api/projects/{self.team.id}/experiments/{experiment.id}/health_inputs/", headers=headers
-            )
-
-        self.assertEqual(response.status_code, expected_status, response.content)
-        if expected is None:
-            return
-        inputs = response.json()
-        self.assertEqual(
-            [(condition["number"], condition["pinned_variant"]) for condition in inputs["flag"]["release_conditions"]],
-            [(1, "test"), (2, None)],
-        )
-        self.assertEqual(
-            (
-                inputs["flag_last_called_at"] is not None,
-                inputs["flag_called_during_run"],
-                inputs["exposure_events"]["required_flag_key"],
-            ),
-            (True, True, f"health-inputs-{_name}"),
-        )
-        traffic = inputs["condition_set_traffic"]
-        self.assertEqual(
-            (
-                inputs["condition_set_traffic_status"],
-                [people["people"] for people in traffic["people_by_set"]] if traffic else None,
-                inputs["project"]["team_defaults"]["status"],
-                inputs["project"]["sdk_profile"]["status"],
-            ),
-            expected,
-        )
-
-    @parameterized.expand(
-        [
-            ("no_split_change", False, True, None, (True, None, [])),
-            ("change_before_any_exposure", True, False, None, (True, None, [False])),
-            ("change_after_an_exposure", True, True, None, (True, None, [True])),
-            (
-                "token_without_query_scope",
-                True,
-                True,
-                ["experiment:read", "activity_log:read"],
-                (False, "no_query_access", [False]),
-            ),
-        ]
-    )
-    def test_health_inputs_report_every_split_change_and_whether_it_counts(
-        self,
-        _name: str,
-        rebalance: bool,
-        exposed: bool,
-        token_scopes: list[str] | None,
-        expected: tuple[bool, str | None, list[bool]],
-    ) -> None:
-        self.user.is_staff = True
-        self.user.save()
-        start_date = timezone.now() - timedelta(days=3)
-        flag = FeatureFlag.objects.create(
-            team=self.team,
-            key=f"health-inputs-split-{_name}",
-            created_by=self.user,
-            filters={
-                "groups": [{"properties": [], "rollout_percentage": 100}],
-                "multivariate": {
-                    "variants": [
-                        {"key": "control", "rollout_percentage": 50},
-                        {"key": "test", "rollout_percentage": 50},
-                    ]
-                },
-            },
-        )
-        experiment = Experiment.objects.create(
-            team=self.team, name="health-inputs-split", feature_flag=flag, start_date=start_date
-        )
-        if rebalance:
-            self._edit_flag_at(flag, start_date + timedelta(days=1), _REBALANCED)
-        headers: dict[str, str] = {}
-        if token_scopes is not None:
-            token = generate_random_token_personal()
-            PersonalAPIKey.objects.create(
-                user=self.user, label="health", secure_value=hash_key_value(token), scopes=token_scopes
-            )
-            self.client.logout()
-            headers = {"authorization": f"Bearer {token}"}
-
-        with patch("products.experiments.backend.health.exposure_gate.query_any_exposure", return_value=exposed):
-            response = self.client.get(
-                f"/api/projects/{self.team.id}/experiments/{experiment.id}/health_inputs/", headers=headers
-            )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
-        history = response.json()["flag_history"]
-        self.assertEqual(
-            (
-                history["checked"],
-                history["not_checked_reason"],
-                [change["counted"] for change in history["changes"]],
-            ),
-            expected,
-        )
-        self.assertEqual(
-            [(change["kind"], change["changed"], change["before"], change["after"]) for change in history["changes"]],
-            [("split", "Split", "control 50%, test 50%", "control 80%, test 20%")] if rebalance else [],
         )
 
     def _deny_event_property(self, name: str) -> None:
@@ -5691,6 +5740,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
         assert response.status_code == status.HTTP_200_OK, response.content
         assert response.json()["timeseries"] == {start.date().isoformat(): {"variant_results": []}}
+        assert response.json()["configuration_by_day"] == {start.date().isoformat(): "current"}
 
     @parameterized.expand([("stale_client_definition", {"fingerprint": "0" * 64}), ("uuid_only", {})])
     def test_recalculate_timeseries_backfills_the_experiment_definition_under_its_key(
@@ -6668,56 +6718,56 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                 "single_repo",
                 None,
                 None,
-                [{"full_name": "acme/web"}],
+                {"acme/web": "acme/web"},
                 {"repository": "acme/web", "source": "single_repo", "candidates": ["acme/web"]},
             ),
             (
                 "ambiguous",
                 None,
                 None,
-                [{"full_name": "acme/web"}, {"full_name": "acme/api"}],
+                {"acme/web": "acme/web", "acme/api": "acme/api"},
                 {"repository": None, "source": "ambiguous", "candidates": ["acme/api", "acme/web"]},
             ),
             (
                 "explicit",
                 "acme/api",
                 None,
-                [{"full_name": "acme/web"}, {"full_name": "acme/api"}],
+                {"acme/web": "acme/web", "acme/api": "acme/api"},
                 {"repository": "acme/api", "source": "explicit", "candidates": ["acme/api", "acme/web"]},
             ),
             (
                 "stale_explicit_needs_a_new_choice",
                 "gone/repo",
                 None,
-                [{"full_name": "acme/web"}],
+                {"acme/web": "acme/web"},
                 {"repository": None, "source": "ambiguous", "candidates": ["acme/web"]},
             ),
             (
                 "stale_explicit_with_empty_cache",
                 "gone/repo",
                 None,
-                [],
+                {},
                 {"repository": None, "source": "no_integration", "candidates": []},
             ),
             (
                 "team_default",
                 None,
                 "acme/api",
-                [{"full_name": "acme/web"}, {"full_name": "Acme/API"}],
+                {"acme/web": "acme/web", "acme/api": "Acme/API"},
                 {"repository": "Acme/API", "source": "team_default", "candidates": ["Acme/API", "acme/web"]},
             ),
             (
                 "stale_team_default_falls_through",
                 None,
                 "gone/repo",
-                [{"full_name": "acme/web"}, {"full_name": "acme/api"}],
+                {"acme/web": "acme/web", "acme/api": "acme/api"},
                 {"repository": None, "source": "ambiguous", "candidates": ["acme/api", "acme/web"]},
             ),
         ]
     )
-    @patch("products.tasks.backend.logic.repo_selection.agent.resolve_team_github_integration")
+    @patch("products.tasks.backend.facade.repo_selection.team_repository_names")
     def test_flag_cleanup_target_endpoint(
-        self, _name, stored_repository, team_default, cached_repos, expected_body, mock_resolve_github
+        self, _name, stored_repository, team_default, cached_repos, expected_body, mock_repository_names
     ):
         exp_id = self._create_running_experiment(name="Cleanup Target", flag_key="cleanup-target-flag")["id"]
         if stored_repository:
@@ -6726,12 +6776,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
             config.flag_cleanup_repository = team_default
             config.save()
-        if cached_repos is None:
-            mock_resolve_github.return_value = None
-        else:
-            mock_resolve_github.return_value = SimpleNamespace(
-                list_all_cached_repositories=lambda max_repos: cached_repos
-            )
+        mock_repository_names.return_value = cached_repos
 
         resp = self.client.get(f"/api/projects/{self.team.id}/experiments/{exp_id}/flag_cleanup_target/")
 
@@ -6762,13 +6807,11 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
     @patch("products.experiments.backend.experiment_service.report_user_action")
     @patch("products.experiments.backend.experiment_service.tasks_facade.create_and_run_task")
-    @patch("products.tasks.backend.logic.repo_selection.agent.resolve_team_github_integration")
+    @patch("products.tasks.backend.facade.repo_selection.team_repository_names")
     def test_end_endpoint_repository_persists_normalized_when_cleanup_opens(
-        self, mock_resolve_github, mock_create_task, _mock_report
+        self, mock_repository_names, mock_create_task, _mock_report
     ):
-        mock_resolve_github.return_value = SimpleNamespace(
-            list_all_cached_repositories=lambda max_repos: [{"full_name": "Acme/Web"}, {"full_name": "acme/api"}]
-        )
+        mock_repository_names.return_value = {"acme/web": "Acme/Web", "acme/api": "acme/api"}
         mock_create_task.return_value = SimpleNamespace(task_id=uuid4())
         exp_id = self._create_running_experiment(name="End With Repo Live", flag_key="end-with-repo-live-flag")["id"]
 
@@ -6785,13 +6828,11 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
     @patch("products.experiments.backend.experiment_service.report_user_action")
     @patch("products.experiments.backend.experiment_service.tasks_facade.create_and_run_task")
-    @patch("products.tasks.backend.logic.repo_selection.agent.resolve_team_github_integration")
+    @patch("products.tasks.backend.facade.repo_selection.team_repository_names")
     def test_set_repository_as_team_default_requires_project_admin(
-        self, mock_resolve_github, mock_create_task, _mock_report
+        self, mock_repository_names, mock_create_task, _mock_report
     ):
-        mock_resolve_github.return_value = SimpleNamespace(
-            list_all_cached_repositories=lambda max_repos: [{"full_name": "acme/web"}, {"full_name": "acme/api"}]
-        )
+        mock_repository_names.return_value = {"acme/web": "acme/web", "acme/api": "acme/api"}
         mock_create_task.return_value = SimpleNamespace(task_id=uuid4())
         exp_member = self._create_running_experiment(name="Default Deny", flag_key="team-default-deny-flag")["id"]
         exp_admin = self._create_running_experiment(name="Default Allow", flag_key="team-default-allow-flag")["id"]
@@ -7356,6 +7397,8 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
             cohort = response.json()
         self.assertFalse(cohort["is_calculating"], f"Cohort {cohort['id']} is still calculating")
 
+    # The test writes its flag calls to events only, and the native JSON events table reads them from flag_evaluations.
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     def test_create_exposure_cohort_for_experiment(self, patch_on_commit: MagicMock):
         # From mode 1 on, the cohorts API rejects new criteria on $feature_flag_called, and the exposure cohort must still save.

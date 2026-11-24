@@ -13,6 +13,8 @@ import type { ChartInterval } from './types'
 interface ChartDatePagerProps {
     from: number
     to: number
+    fromLabel?: string
+    toLabel?: string
     interval: ChartInterval
     earlier: boolean
     later: boolean
@@ -23,6 +25,8 @@ interface ChartDatePagerProps {
 export function ChartDatePager({
     from,
     to,
+    fromLabel,
+    toLabel,
     interval,
     earlier,
     later,
@@ -36,7 +40,7 @@ export function ChartDatePager({
             <Pressable44
                 onPress={onEarlier}
                 disabled={!earlier}
-                accessibilityLabel="Show earlier dates"
+                accessibilityLabel={fromLabel === undefined ? 'Show earlier dates' : 'Show previous values'}
                 accessibilityState={{ disabled: !earlier }}
                 style={styles.button}
                 testID="chart-dates-earlier"
@@ -44,12 +48,12 @@ export function ChartDatePager({
                 <ChevronLeftIcon size={18} color={earlier ? colors.ink : colors.disabled} />
             </Pressable44>
             <Text style={styles.label} accessibilityLiveRegion="polite" numberOfLines={1}>
-                {formatPagerDate(from, interval)} - {formatPagerDate(to, interval)}
+                {fromLabel ?? formatPagerDate(from, interval)} - {toLabel ?? formatPagerDate(to, interval)}
             </Text>
             <Pressable44
                 onPress={onLater}
                 disabled={!later}
-                accessibilityLabel="Show later dates"
+                accessibilityLabel={toLabel === undefined ? 'Show later dates' : 'Show next values'}
                 accessibilityState={{ disabled: !later }}
                 style={styles.button}
                 testID="chart-dates-later"

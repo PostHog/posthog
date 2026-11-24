@@ -1,12 +1,15 @@
 from datetime import UTC, datetime, timedelta
 from io import StringIO
+from uuid import UUID
 
 import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.management import call_command
+from django.db import connection
 from django.test import SimpleTestCase
+from django.test.utils import CaptureQueriesContext
 
 from celery.exceptions import Retry
 from parameterized import parameterized
@@ -53,11 +56,13 @@ class TestInboxSummary(APIBaseTest):
         verified: bool = True,
         relationship: str = "implementation",
         state: str = "merged",
+        pk: UUID | None = None,
     ) -> SignalReportPullRequest:
         team = team or self.team
         if participant_ids is not None and participant_logins is None:
             participant_logins = [f"user-{participant_id}" for participant_id in participant_ids]
         pr = SignalReportPullRequest.objects.for_team(team.id).create(
+            pk=pk,
             team=team,
             repository="example/app",
             number=number,
@@ -134,11 +139,23 @@ class TestInboxSummary(APIBaseTest):
         assert self.summary()["merged_pr_count"] == 1
 
     def test_window_is_half_open_and_uses_merge_time(self) -> None:
-        self.make_pr(1, merged_at=NOW - timedelta(days=7), participant_ids=[])
-        self.make_pr(2, merged_at=NOW - timedelta(days=7, microseconds=1), participant_ids=[])
-        self.make_pr(3, merged_at=NOW, participant_ids=[])
-        self.make_pr(4, merged_at=None, participant_ids=[])
-        assert self.summary()["merged_pr_count"] == 1
+        included = self.make_pr(1, merged_at=NOW - timedelta(days=7), participant_ids=[])
+        excluded = [
+            self.make_pr(2, merged_at=NOW - timedelta(days=7, microseconds=1), participant_ids=[]),
+            self.make_pr(3, merged_at=NOW, participant_ids=[]),
+            self.make_pr(4, merged_at=None, participant_ids=[]),
+        ]
+        with CaptureQueriesContext(connection) as queries:
+            assert self.summary()["merged_pr_count"] == 1
+        pull_request_queries = [
+            query["sql"] for query in queries if 'FROM "signals_signalreportpullrequest"' in query["sql"]
+        ]
+        assert len(pull_request_queries) == 2
+        candidate_query, provenance_query = pull_request_queries
+        assert '"signals_signalreportpullrequest"."merged_at" >= ' in candidate_query
+        assert '"posthog_task_run"' not in candidate_query
+        assert included.id.hex in provenance_query
+        assert all(pr.id.hex not in provenance_query for pr in excluded)
 
     def test_missing_participation_is_unknown_not_a_partial_count(self) -> None:
         self.make_pr(1, participant_ids=[10])
@@ -386,6 +403,25 @@ class TestInboxSummary(APIBaseTest):
         pr.refresh_from_db()
         assert pr.review_decision == SignalReportPullRequest.ReviewDecision.APPROVED
 
+    @parameterized.expand(
+        [
+            ("stale_draft_becomes_open", "draft", None, "open", "open"),
+            ("stale_open_becomes_draft", "open", None, "draft", "draft"),
+            ("merged_is_kept", "merged", MERGED_AT, "open", "merged"),
+            ("missing_state_is_ignored", "draft", None, None, "draft"),
+        ]
+    )
+    def test_review_refresh_repairs_stale_state(
+        self, _name: str, stored: str, merged_at: datetime | None, fresh: str | None, expected: str
+    ) -> None:
+        pr = self.make_pr(state=stored, merged_at=merged_at)
+        github = MagicMock()
+        github.get_pull_request_snapshot.return_value = {"success": True, "state": fresh, "review_decision": None}
+        with patch("products.signals.backend.tasks.GitHubIntegration.first_for_team_repository", return_value=github):
+            refresh_pull_request_review_decision.run(team_id=self.team.id, repository="example/app", pr_number=1)
+        pr.refresh_from_db()
+        assert pr.state == expected
+
     def test_cache_failure_does_not_stop_participant_or_review_refresh(self) -> None:
         pr = self.make_pr()
         github = MagicMock()
@@ -481,6 +517,23 @@ class TestInboxSummary(APIBaseTest):
         assert pr.participant_logins == ["user-10", "user-20"]
         assert pr.participants_synced_at == NOW
 
+    def test_sync_finds_the_pr_by_identity_before_checking_provenance(self) -> None:
+        pr = self.make_pr(merged_at=None)
+        other = self.make_pr(2, merged_at=None)
+        with CaptureQueriesContext(connection) as queries:
+            self.sync(self.github())
+        pull_request_reads = [
+            query["sql"]
+            for query in queries
+            if query["sql"].startswith("SELECT") and 'FROM "signals_signalreportpullrequest"' in query["sql"]
+        ]
+        identity_query, provenance_query = pull_request_reads[:2]
+        assert '"posthog_task_run"' not in identity_query
+        assert pr.id.hex in provenance_query
+        assert other.id.hex not in provenance_query
+        pr.refresh_from_db()
+        assert pr.participants_synced_at == NOW
+
     @parameterized.expand([("manual", False, "implementation"), ("research", True, "research")])
     def test_sync_skips_unattributed_prs(self, _name: str, verified: bool, relationship: str) -> None:
         self.make_pr(verified=verified, relationship=relationship)
@@ -499,22 +552,36 @@ class TestInboxSummary(APIBaseTest):
             enqueue.assert_called_once_with(team_id=self.team.id, repository="example/app", pr_number=1)
 
     def test_backfill_is_bounded_resumable_and_includes_missing_merge_times(self) -> None:
-        self.make_pr(1, merged_at=None)
-        self.make_pr(2)
-        self.make_pr(3, merged_at=NOW - timedelta(days=30))
-        existing = self.make_pr(4, participant_ids=[10])
+        # The frozen clock gives UUIDT IDs no reliable order, so the IDs are explicit.
+        # The unverified PR sorts first to check that a page with no verified PRs still advances the cursor.
+        unverified = self.make_pr(5, verified=False, pk=UUID(int=1))
+        self.make_pr(1, merged_at=None, pk=UUID(int=2))
+        self.make_pr(2, pk=UUID(int=3))
+        self.make_pr(3, merged_at=NOW - timedelta(days=30), pk=UUID(int=4))
+        existing = self.make_pr(4, participant_ids=[10], pk=UUID(int=5))
         SignalReportPullRequest.objects.for_team(self.team.id).filter(id=existing.id).update(participant_logins=None)
-        output = StringIO()
         with patch("products.signals.backend.tasks.refresh_pull_request_participants.delay") as enqueue:
-            call_command("backfill_inbox_summary", team_id=self.team.id, limit=1, dry_run=True, stdout=output)
+            output = StringIO()
+            call_command(
+                "backfill_inbox_summary",
+                team_id=self.team.id,
+                after=unverified.id,
+                limit=1,
+                dry_run=True,
+                stdout=output,
+            )
             enqueue.assert_not_called()
+            assert "Would queue 1 pull requests" in output.getvalue()
             output = StringIO()
             call_command("backfill_inbox_summary", team_id=self.team.id, limit=1, stdout=output)
+            enqueue.assert_not_called()
+            assert f"Resume with --after {unverified.id}" in output.getvalue()
+            output = StringIO()
+            call_command("backfill_inbox_summary", team_id=self.team.id, after=unverified.id, limit=1, stdout=output)
             assert enqueue.call_count == 1
             cursor = output.getvalue().split("--after ")[1].strip()
             call_command("backfill_inbox_summary", team_id=self.team.id, after=cursor, stdout=StringIO())
-            assert enqueue.call_count == 3
-            assert {call.kwargs["pr_number"] for call in enqueue.call_args_list} == {1, 2, 4}
+            assert sorted(call.kwargs["pr_number"] for call in enqueue.call_args_list) == [1, 2, 4]
 
 
 class TestPullRequestReviewPagination(SimpleTestCase):

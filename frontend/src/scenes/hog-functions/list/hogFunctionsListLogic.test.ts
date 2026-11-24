@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
@@ -20,6 +22,7 @@ const makeNotification = (id: string, eventId: string): HogFunctionType =>
 
 const INSIGHT_ALERT = makeNotification('insight-alert', '$insight_alert_firing')
 const ERROR_TRACKING = makeNotification('error-tracking', '$error_tracking_issue_created')
+const CHILD_ENVIRONMENT = { ...MOCK_DEFAULT_TEAM, id: MOCK_DEFAULT_TEAM.id + 1 }
 
 describe('hogFunctionsListLogic', () => {
     let logic: ReturnType<typeof hogFunctionsListLogic.build>
@@ -34,7 +37,7 @@ describe('hogFunctionsListLogic', () => {
                 },
             },
         })
-        initKeaTests()
+        initKeaTests(true, CHILD_ENVIRONMENT, MOCK_DEFAULT_PROJECT)
         logic = hogFunctionsListLogic({ type: 'internal_destination' })
         logic.mount()
         logic.actions.loadHogFunctions()
@@ -65,9 +68,12 @@ describe('hogFunctionsListLogic', () => {
     ])('%s', async (_, refused, expected) => {
         useMocks({
             patch: {
-                '/api/projects/:team_id/hog_functions/:id': refused
-                    ? () => [400, { detail: 'Alert notification destinations are managed through the alert API.' }]
-                    : { ...ERROR_TRACKING, deleted: true },
+                '/api/projects/:team_id/hog_functions/:id': ({ params }) =>
+                    params.team_id !== String(CHILD_ENVIRONMENT.id)
+                        ? [404, { detail: 'Not found.' }]
+                        : refused
+                          ? [400, { detail: 'Alert notification destinations are managed through the alert API.' }]
+                          : [200, { ...ERROR_TRACKING, deleted: true }],
             },
         })
 

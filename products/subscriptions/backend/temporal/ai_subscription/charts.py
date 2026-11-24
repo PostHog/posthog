@@ -4,6 +4,7 @@ from enum import StrEnum
 from typing import Any, Optional
 
 import structlog
+import posthoganalytics
 
 from posthog.hogql.type_system import parse_clickhouse_type
 
@@ -86,12 +87,14 @@ def charts_enabled(team: Team, user: User) -> bool:
     if not getattr(user, "distinct_id", None):
         return False
     org_id = str(team.organization_id)
-    return feature_enabled_or_false(
-        AI_REPORT_CHARTS_FEATURE_FLAG_KEY,
-        str(user.distinct_id),
-        groups={"organization": org_id},
-        group_properties={"organization": {"id": org_id}},
-    )
+    with posthoganalytics.new_context(capture_exceptions=False):
+        posthoganalytics.tag("$update_person_last_seen_at", False)
+        return feature_enabled_or_false(
+            AI_REPORT_CHARTS_FEATURE_FLAG_KEY,
+            str(user.distinct_id),
+            groups={"organization": org_id},
+            group_properties={"organization": {"id": org_id}},
+        )
 
 
 def validate_chart(

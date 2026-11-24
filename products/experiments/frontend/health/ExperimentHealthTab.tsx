@@ -8,6 +8,7 @@ import { HealthChecksPanel } from './HealthChecksPanel'
 
 export function ExperimentHealthTab(): JSX.Element {
     const {
+        experimentHealth,
         healthFindings,
         healthChecks,
         healthExposureChecks,
@@ -33,6 +34,8 @@ export function ExperimentHealthTab(): JSX.Element {
                 <HealthChecksPanel
                     checks={healthChecks}
                     findings={healthFindings}
+                    // A server from before the setup was reported sends none, for example while a deploy rolls out.
+                    setup={experimentHealth?.setup ?? null}
                     // A reset to draft keeps the previous exposure answer in the page, as for the checks.
                     exposures={isExperimentDraft ? null : (exposures ?? null)}
                     isDraft={isExperimentDraft}

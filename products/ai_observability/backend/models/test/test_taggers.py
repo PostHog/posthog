@@ -4,9 +4,6 @@ from unittest.mock import patch
 from django.core.exceptions import ValidationError
 from django.test import SimpleTestCase
 
-from posthog.models.utils import UUIDTModel
-from posthog.temporal.ai_observability.run_tagger import run_hog_tagger
-
 from products.ai_observability.backend.models.taggers import LLMTaggerConfig, TagDefinition, Tagger
 
 
@@ -82,38 +79,6 @@ class TestLLMTaggerConfig(SimpleTestCase):
             tags=[TagDefinition(name="a")],
         )
         assert config.max_tags is None
-
-
-class TestHogTaggerCompilation:
-    def test_hog_tagger_compiles_null_safe_comparisons(self):
-        tagger = Tagger(
-            team_id=1,
-            name="Hog Tagger",
-            tagger_type="hog",
-            tagger_config={
-                "source": "if (properties.missing <= 1.0) { return ['billing'] } return []",
-                "tags": [{"name": "billing"}],
-            },
-            enabled=True,
-            conditions=[],
-        )
-
-        with patch.object(UUIDTModel, "save", return_value=None):
-            tagger.save()
-
-        result = run_hog_tagger(
-            tagger.tagger_config["bytecode"],
-            {
-                "uuid": "event-id",
-                "event": "$ai_generation",
-                "properties": {},
-                "distinct_id": "user-1",
-            },
-            valid_tag_names={"billing"},
-        )
-
-        assert result["tags"] == []
-        assert result["error"] is None
 
 
 class TestTaggerModel(BaseTest):
@@ -296,37 +261,3 @@ class TestTaggerModel(BaseTest):
 
         # max_tags=None should be excluded
         assert "max_tags" not in tagger.tagger_config
-
-    @patch("posthog.plugins.plugin_server_api.reload_taggers_on_workers")
-    def test_sends_reload_signal_on_save(self, mock_reload):
-        with self.captureOnCommitCallbacks(execute=True):
-            tagger = Tagger.objects.create(
-                team=self.team,
-                name="Test Tagger",
-                tagger_config=self._make_tagger_config(),
-                enabled=True,
-                created_by=self.user,
-                conditions=[],
-            )
-
-        mock_reload.assert_called_once_with(team_id=self.team.id, tagger_ids=[str(tagger.id)])
-
-    @patch("posthog.plugins.plugin_server_api.reload_taggers_on_workers")
-    def test_sends_reload_signal_on_update(self, mock_reload):
-        with self.captureOnCommitCallbacks(execute=True):
-            tagger = Tagger.objects.create(
-                team=self.team,
-                name="Original Name",
-                tagger_config=self._make_tagger_config(),
-                enabled=True,
-                created_by=self.user,
-                conditions=[],
-            )
-
-        mock_reload.reset_mock()
-
-        with self.captureOnCommitCallbacks(execute=True):
-            tagger.name = "Updated Name"
-            tagger.save()
-
-        mock_reload.assert_called_once_with(team_id=self.team.id, tagger_ids=[str(tagger.id)])

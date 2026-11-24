@@ -4,6 +4,8 @@ The worker bootstrap (`start_temporal_worker`) registers catalog workflows and a
 these re-exports rather than importing ``backend.temporal`` directly.
 """
 
+from posthog.temporal.common.registration import QueueBinding, TemporalRegistration
+
 from ..temporal import (
     ACTIVITIES as ACTIVITIES,
     WORKFLOWS as WORKFLOWS,
@@ -14,3 +16,12 @@ from ..temporal.schedule import (
     create_reconcile_metric_schedules_schedule as create_reconcile_metric_schedules_schedule,
 )
 from .contracts import CHECK_SUITE_WORKFLOW_NAME as CHECK_SUITE_WORKFLOW_NAME
+
+TEMPORAL = TemporalRegistration(
+    queues=(
+        QueueBinding(
+            queue_setting="DATA_MODELING_TASK_QUEUE", workflows=tuple(WORKFLOWS), activities=tuple(ACTIVITIES)
+        ),
+    ),
+    schedules=(create_cleanup_data_quality_check_runs_schedule, create_reconcile_metric_schedules_schedule),
+)

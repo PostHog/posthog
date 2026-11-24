@@ -38,6 +38,14 @@ async def delete_misc_small_tables_activity(inputs: TeamDataActivityInputs) -> N
 
 
 @temporalio.activity.defn
+async def delete_ui_customization_activity(inputs: TeamDataActivityInputs) -> None:
+    async with Heartbeater():
+        from products.ui_customization.backend.facade.api import delete_fragments_for_teams
+
+        await database_sync_to_async_pool(delete_fragments_for_teams)(inputs.team_ids)
+
+
+@temporalio.activity.defn
 async def delete_event_properties_activity(inputs: TeamDataActivityInputs) -> None:
     async with Heartbeater():
         from posthog.models.team.util import _delete_event_properties_for_teams

@@ -374,6 +374,9 @@ const projectLimits: ProjectLimitsApi = {
     max_iterations_per_run: 10,
     max_live_pipelines: 3,
     live_pipelines: 2,
+    max_training_runs_per_day_source: 'code',
+    max_iterations_per_run_source: 'code',
+    max_live_pipelines_source: 'code',
 }
 
 const meta: Meta = {

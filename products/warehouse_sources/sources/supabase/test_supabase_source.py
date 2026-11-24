@@ -2,6 +2,7 @@ import pytest
 from unittest import mock
 
 from products.warehouse_sources.sources.sdk import (
+    CERTIFICATE_ERRORS,
     IncrementalField,
     IncrementalFieldType,
     ReleaseStatus,
@@ -203,6 +204,31 @@ def test_rejected_password_points_at_the_supabase_database_password(host):
     assert error is not None
     assert "database password" in error
     assert "ipv4" not in error.lower()
+
+
+@pytest.mark.parametrize(
+    "postgres_error, expect_supabase_message",
+    [
+        (CERTIFICATE_ERRORS["certificate verify failed"], True),
+        # A host mismatch or a malformed pasted authority is not fixed by downloading the Supabase
+        # certificate, so those keep the shared wording.
+        (CERTIFICATE_ERRORS["does not match host name"], False),
+        (CERTIFICATE_ERRORS["could not read root certificate file"], False),
+    ],
+)
+def test_unverified_certificate_points_at_the_supabase_certificate(postgres_error, expect_supabase_message):
+    config = mock.MagicMock(host="aws-0-us-east-1.pooler.supabase.com")
+
+    with mock.patch.object(PostgresSource, "validate_credentials", return_value=(False, postgres_error)):
+        success, error = SupabaseSource().validate_credentials(config, team_id=1)
+
+    assert success is False
+    assert error is not None
+    if expect_supabase_message:
+        assert "Supabase database settings" in error
+        assert "Certificate authority" in error
+    else:
+        assert error == postgres_error
 
 
 def _incremental_field(name: str, field_type: IncrementalFieldType) -> IncrementalField:

@@ -56,6 +56,8 @@ from posthog.hogql.errors import BaseHogQLError
 
 from posthog.dataclasses import frozen
 
+from products.warehouse_sources.backend.facade.types import WarehouseColumnSensitivity
+
 if TYPE_CHECKING:
     from posthog.hogql.context import HogQLContext
     from posthog.hogql.database.database import Database
@@ -74,6 +76,7 @@ _INTEGER = "integer"
 _NULLABLE_INTEGER = "nullable_integer"
 _NULLABLE_FLOAT = "nullable_float"
 _BOOLEAN = "boolean"
+_NULLABLE_DATETIME = "nullable_datetime"
 
 
 def _cell(value: Any) -> ast.Constant:
@@ -100,6 +103,10 @@ def _column_expr(kind: str, index: int) -> ast.Expr:
         return ast.Call(name="accurateCastOrNull", args=[source, ast.Constant(value="Float64")])
     if kind == _BOOLEAN:
         return ast.Call(name="equals", args=[source, ast.Constant(value="true")])
+    if kind == _NULLABLE_DATETIME:
+        return ast.Call(
+            name="parseDateTimeBestEffort", args=[ast.Call(name="nullIf", args=[source, ast.Constant(value="")])]
+        )
     raise ValueError(f"Unknown information_schema column kind: {kind}")
 
 
@@ -521,6 +528,7 @@ class _Introspection:
         self.saved_query_ids_by_name = warehouse_metadata.saved_query_ids_by_name
         self.column_stats = warehouse_metadata.column_stats
         self.table_descriptions = TableDescriptions.load(context.team_id)
+        self._sensitivity_enabled: Optional[bool] = None
         self._collected: Optional[_CollectedCatalog] = None
         self._data_catalog_enriched_table_rows: Optional[list[list[Any]]] = None
         self._data_catalog_enriched_relationship_rows: Optional[list[list[Any]]] = None
@@ -616,6 +624,18 @@ class _Introspection:
     def _column_description(self, table: Table, column_name: str, field: FieldOrTable) -> Optional[str]:
         return self.table_descriptions.for_column(table, column_name, field)
 
+    def _column_sensitivity(self, table_type: str, column_name: str, data_type: str) -> Optional[str]:
+        if table_type != "data_warehouse" or self.context.team_id is None:
+            return None
+        from products.warehouse_sources.backend.facade.api import (  # noqa: PLC0415
+            column_sensitivity,
+            column_sensitivity_enabled,
+        )
+
+        if self._sensitivity_enabled is None:
+            self._sensitivity_enabled = column_sensitivity_enabled(self.context.team_id)
+        return column_sensitivity(column_name, data_type) if self._sensitivity_enabled else None
+
     def _column_stats(self, table: Table, table_type: str, column_name: str) -> _ColumnStats:
         """`(null_fraction, min_value, max_value)` for a warehouse column, or all-None otherwise."""
         if table_type == "data_warehouse":
@@ -696,12 +716,12 @@ class _Introspection:
         accepted_relationships = _catalog_accepted_relationships(self.context, self.allowed_tables)
         enriched_rows: list[list[Any]] = []
         for relationship in self.collect().relationships:
-            confidence, reasoning = (
-                accepted_relationships.get(relationship.provenance_key, (None, None))
+            reasoning = (
+                accepted_relationships.get(relationship.provenance_key)
                 if relationship.provenance_key is not None
-                else (None, None)
+                else None
             )
-            enriched_rows.append([*relationship.values, confidence, reasoning])
+            enriched_rows.append([*relationship.values, reasoning])
         self._data_catalog_enriched_relationship_rows = enriched_rows
         return self._data_catalog_enriched_relationship_rows
 
@@ -728,13 +748,14 @@ class _Introspection:
             if isinstance(field, DatabaseField):
                 kind = "expression" if isinstance(field, ExpressionField) else "column"
                 null_fraction, min_value, max_value = self._column_stats(table, table_type, qualified)
+                data_type = self._data_type(table_name, field)
                 column_rows.append(
                     [
                         table_schema,
                         table_name,
                         qualified,
                         ordinal,
-                        self._data_type(table_name, field),
+                        data_type,
                         bool(field.is_nullable()),
                         bool(field.array),
                         kind,
@@ -742,6 +763,7 @@ class _Introspection:
                         null_fraction,
                         min_value,
                         max_value,
+                        self._column_sensitivity(table_type, qualified, data_type),
                     ]
                 )
                 ordinal += 1
@@ -790,6 +812,7 @@ class _Introspection:
                             None,
                             None,
                             None,
+                            None,
                         ]
                     )
                     ordinal += 1
@@ -805,6 +828,7 @@ class _Introspection:
                         False,
                         False,
                         "virtual_table",
+                        None,
                         None,
                         None,
                         None,
@@ -891,6 +915,7 @@ _COLUMNS_COLUMNS: list[tuple[str, str]] = [
     ("null_fraction", _NULLABLE_FLOAT),
     ("min_value", _NULLABLE_STRING),
     ("max_value", _NULLABLE_STRING),
+    ("sensitivity", _NULLABLE_STRING),
 ]
 
 _RELATIONSHIPS_COLUMNS: list[tuple[str, str]] = [
@@ -903,10 +928,9 @@ _RELATIONSHIPS_COLUMNS: list[tuple[str, str]] = [
 ]
 _DATA_CATALOG_ENRICHED_RELATIONSHIPS_COLUMNS: list[tuple[str, str]] = [
     *_RELATIONSHIPS_COLUMNS,
-    ("confidence", _NULLABLE_FLOAT),
     ("reasoning", _NULLABLE_STRING),
 ]
-_DATA_CATALOG_RELATIONSHIP_FIELDS = frozenset({"confidence", "reasoning"})
+_DATA_CATALOG_RELATIONSHIP_FIELDS = frozenset({"reasoning"})
 
 _RELATIONSHIPS_DESCRIPTION = (
     "Joinable relationships between tables (lazy joins and field traversers); one row per relationship. "
@@ -946,7 +970,6 @@ _METRICS_COLUMNS: list[tuple[str, str]] = [
     ("definition", _NULLABLE_STRING),
     ("definition_kind", _NULLABLE_STRING),
     ("owner", _NULLABLE_STRING),
-    ("confidence", _NULLABLE_FLOAT),
     ("reasoning", _NULLABLE_STRING),
     ("source_insight_short_id", _NULLABLE_STRING),
     ("last_run_at", _NULLABLE_STRING),
@@ -1030,7 +1053,6 @@ _RELATIONSHIP_PROPOSALS_COLUMNS: list[tuple[str, str]] = [
     ("field_name", _STRING),
     ("configuration", _NULLABLE_STRING),
     ("evidence", _NULLABLE_STRING),
-    ("confidence", _NULLABLE_FLOAT),
     ("reasoning", _NULLABLE_STRING),
     ("created_at", _STRING),
 ]
@@ -1132,7 +1154,6 @@ def _catalog_metrics(context: "HogQLContext", allowed: Optional[frozenset[str]])
                     json.dumps(metric.definition) if metric.definition else None,
                     metric.definition_kind,
                     metric.owner.email if metric.owner else None,
-                    metric.confidence,
                     metric.reasoning,
                     metric.source_insight_short_id,
                     metric.last_run_at.isoformat() if metric.last_run_at else None,
@@ -1453,14 +1474,14 @@ def _catalog_table_visible(context: "HogQLContext", table_name: str) -> bool:
 
 def _catalog_accepted_relationships(
     context: "HogQLContext", allowed: Optional[frozenset[str]]
-) -> dict[_RelationshipProvenanceKey, tuple[Optional[float], Optional[str]]]:
+) -> dict[_RelationshipProvenanceKey, Optional[str]]:
     """Accepted proposals keyed by their created join's identity, only while that join still matches
     what was reviewed (fail-soft).
 
     The join is a mutable ``DataWarehouseJoin``: editing its tables, keys, field name, or
     configuration needs only ``warehouse_view:write``, not ``data_catalog_approval:write``. Keying
     provenance off the join's current fields alone would let such an edit inherit the old proposal's
-    confidence/reasoning, making an unreviewed join look reviewed. So we compare every reviewed
+    reasoning, making an unreviewed join look reviewed. So we compare every reviewed
     snapshot field (identity + configuration) against the live join and drop provenance the moment
     they diverge.
     """
@@ -1479,7 +1500,7 @@ def _catalog_accepted_relationships(
         )
         if allowed is not None:
             accepted = accepted.filter(created_join__source_table_name__in=allowed)
-        result: dict[_RelationshipProvenanceKey, tuple[Optional[float], Optional[str]]] = {}
+        result: dict[_RelationshipProvenanceKey, Optional[str]] = {}
         for (
             p_source_table,
             p_source_key,
@@ -1493,7 +1514,6 @@ def _catalog_accepted_relationships(
             target_key,
             field_name,
             configuration,
-            confidence,
             reasoning,
         ) in accepted.values_list(
             "source_table_name",
@@ -1508,7 +1528,6 @@ def _catalog_accepted_relationships(
             "created_join__joining_table_key",
             "created_join__field_name",
             "created_join__configuration",
-            "confidence",
             "reasoning",
         ):
             # Trust provenance only if the live join is still identical to the reviewed snapshot.
@@ -1524,10 +1543,7 @@ def _catalog_accepted_relationships(
                 continue
             if not _catalog_table_visible(context, source_table) or not _catalog_table_visible(context, target_table):
                 continue
-            result[(source_table, field_name, source_key, target_table, target_key)] = (
-                confidence,
-                reasoning or None,
-            )
+            result[(source_table, field_name, source_key, target_table, target_key)] = reasoning or None
         return result
     except Exception:
         record_catalog_read_failure("relationships")
@@ -1570,7 +1586,6 @@ def _catalog_relationship_proposals(context: "HogQLContext", allowed: Optional[f
                     proposal.field_name,
                     json.dumps(proposal.configuration) if proposal.configuration else None,
                     json.dumps(proposal.evidence) if proposal.evidence else None,
-                    proposal.confidence,
                     proposal.reasoning or None,
                     proposal.created_at.isoformat(),
                 ]
@@ -1734,7 +1749,8 @@ class InformationSchemaColumnsTable(InformationSchemaTable):
     description: str = (
         "SQL-standard catalog of every column on every visible table; one row per column. Filter by "
         "table_name to inspect a table's columns, their types, descriptions, and (for data warehouse "
-        "tables) profiling statistics: null_fraction, min_value, max_value."
+        "tables) profiling statistics (null_fraction, min_value, max_value) and a sensitivity flag for "
+        "columns that likely hold personal or secret data."
     )
     fields: dict[str, FieldOrTable] = {
         "table_schema": _string_field(
@@ -1798,6 +1814,16 @@ class InformationSchemaColumnsTable(InformationSchemaTable):
                 "Use it to bound range and time-window filters. NULL when unprofiled or not applicable."
             ),
         ),
+        "sensitivity": _string_field(
+            "sensitivity",
+            nullable=True,
+            description=(
+                "Kind of personal or secret data a data warehouse column likely holds, from its name and type: "
+                + ", ".join(f"'{kind.value}'" for kind in WarehouseColumnSensitivity)
+                + ". Avoid selecting or exposing these columns unless the task needs them. "
+                "NULL when the column is not flagged or is not a synced warehouse column."
+            ),
+        ),
     }
 
     def lazy_select(self, table_to_add: LazyTableToAdd, context: "HogQLContext", node: Any) -> ast.SelectQuery:
@@ -1843,11 +1869,6 @@ class InformationSchemaRelationshipsTable(InformationSchemaTable):
         "via": _string_field(
             "via", nullable=True, description="Internal resolver backing a lazy join, NULL for field traversers."
         ),
-        "confidence": FloatDatabaseField(
-            name="confidence",
-            nullable=True,
-            description="Discovery confidence retained from the accepted proposal behind this active join, 0-1.",
-        ),
         "reasoning": _string_field(
             "reasoning",
             nullable=True,
@@ -1858,7 +1879,7 @@ class InformationSchemaRelationshipsTable(InformationSchemaTable):
     def lazy_select(self, table_to_add: LazyTableToAdd, context: "HogQLContext", node: Any) -> ast.SelectQuery:
         allowed = _pushdown_table_filter(node, "source_table")
         introspection = _introspection(context, allowed)
-        data_catalog_enrichment_requested = "confidence" in self.fields and _accesses_any_field(
+        data_catalog_enrichment_requested = "reasoning" in self.fields and _accesses_any_field(
             table_to_add, _DATA_CATALOG_RELATIONSHIP_FIELDS
         )
         if introspection is None:
@@ -1946,9 +1967,6 @@ class InformationSchemaMetricsTable(InformationSchemaTable):
             description="Query kind: HogQLQuery, TrendsQuery, FunnelsQuery, or an event node.",
         ),
         "owner": _string_field("owner", nullable=True, description="Email of the human accountable for this metric."),
-        "confidence": FloatDatabaseField(
-            name="confidence", nullable=True, description="AI author's confidence for a proposed metric, 0-1."
-        ),
         "reasoning": _string_field(
             "reasoning",
             nullable=True,
@@ -2056,9 +2074,6 @@ class InformationSchemaRelationshipProposalsTable(InformationSchemaTable):
             "evidence",
             nullable=True,
             description="Sampling evidence as JSON (match rates, sample values) backing the proposal — summarize this for the human reviewer. NULL when empty.",
-        ),
-        "confidence": FloatDatabaseField(
-            name="confidence", nullable=True, description="Discovery confidence in the proposed join, 0-1."
         ),
         "reasoning": _string_field(
             "reasoning", nullable=True, description="Why the join was proposed; review context."
@@ -2315,7 +2330,7 @@ def static_column_rows() -> list[list[Any]]:
 
     Row layout matches `_Introspection.column_rows()`:
     `[table_schema, table_name, column_name, ordinal, data_type, is_nullable, is_array, field_kind,
-    description, null_fraction, min_value, max_value]`.
+    description, null_fraction, min_value, max_value, sensitivity]`.
     """
     # Deferred: `Database` imports the schema package, so a module-level import would cycle.
     from posthog.hogql.context import HogQLContext  # noqa: PLC0415
@@ -2339,6 +2354,5 @@ def disable_data_catalog(info_schema: TableNode) -> None:
 
     relationships = info_schema.children.get("relationships")
     if relationships is not None and isinstance(relationships.table, InformationSchemaRelationshipsTable):
-        relationships.table.fields.pop("confidence", None)
         relationships.table.fields.pop("reasoning", None)
         relationships.table.description = _RELATIONSHIPS_DESCRIPTION

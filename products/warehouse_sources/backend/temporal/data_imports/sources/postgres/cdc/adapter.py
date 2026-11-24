@@ -35,12 +35,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.c
     get_max_slot_wal_keep_size_mb,
     get_publication_tables,
     get_slot_lag_bytes,
+    get_visible_wal_lsn,
     is_slot_invalidation_error,
     publication_exists,
     remove_table_from_publication,
     slot_exists,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import (
+    SSLRequiredError,
     _is_dropped_or_connect_timeout,
     _retry_on_connection_dropped,
     source_requires_ssl,
@@ -96,6 +98,14 @@ def _customer_fixable_setup_message(exc: BaseException) -> str | None:
             "Connect to the primary database, or switch these tables to Incremental sync, which "
             "needs only SELECT."
         )
+    # ALTER PUBLICATION ADD TABLE raises this when the table was renamed or dropped on the
+    # source database after PostHog last synced the schema — the customer's database, not ours.
+    if isinstance(exc, psycopg.errors.UndefinedTable):
+        return (
+            f"Could not add this table to change data capture: {exc} "
+            "The table doesn't exist on your database — it may have been renamed or dropped "
+            "since PostHog last synced the schema. Refresh the schema and try again."
+        )
     return None
 
 
@@ -150,6 +160,9 @@ class PostgresCDCAdapter:
         )
         return PgCDCStreamReader(params, source=source)
 
+    def current_position(self, conn: Any) -> str:
+        return get_visible_wal_lsn(conn)
+
     @contextmanager
     def management_connection(self, source: ExternalDataSource, connect_timeout: int = 15) -> Iterator[Any]:
         with cdc_pg_connection(source, connect_timeout=connect_timeout) as conn:
@@ -168,6 +181,10 @@ class PostgresCDCAdapter:
         )
 
         names = PostgresSetupNames.from_setup(setup)
+        publication_name = names.publication_name
+        if management_mode == "posthog" and publication_name is None:
+            # Mirrors the default setup_resources adopts or creates, so the privilege check looks for it.
+            publication_name = f"posthog_pub_{source.id.hex[:12]}"
         with self.management_connection(source) as conn:
             return validate_cdc_prerequisites(
                 conn=conn,
@@ -175,7 +192,7 @@ class PostgresCDCAdapter:
                 tables=tables,
                 schema=schema,
                 slot_name=names.slot_name,
-                publication_name=names.publication_name,
+                publication_name=publication_name,
             )
 
     def drop_stream(self, conn: Any, source: ExternalDataSource) -> None:
@@ -199,9 +216,12 @@ class PostgresCDCAdapter:
         # psycopg raises OperationalError for every failure to reach the source DB
         # (connect timeout, refused, unreachable host, DNS, dropped, auth); sshtunnel
         # raises BaseSSHTunnelForwarderError when the tunnel itself can't be established;
-        # the host policy raises HostNotAllowedError before any socket opens.
-        # None points at a bug in our code.
-        return isinstance(exc, psycopg.OperationalError | BaseSSHTunnelForwarderError | HostNotAllowedError)
+        # the host policy raises HostNotAllowedError before any socket opens;
+        # _connect_to_postgres replaces the OperationalError of a server without SSL
+        # with SSLRequiredError, a plain Exception. None points at a bug in our code.
+        return isinstance(
+            exc, psycopg.OperationalError | BaseSSHTunnelForwarderError | HostNotAllowedError | SSLRequiredError
+        )
 
     def customer_fixable_error_message(self, exc: BaseException) -> str | None:
         return _customer_fixable_setup_message(exc)

@@ -19,6 +19,12 @@ inputs:
             the shared per-repo GITHUB_TOKEN core bucket.
         required: false
         default: ${{ github.token }}
+    cache:
+        description: |
+            'false' skips the Node tool cache, so setup-node downloads Node. Any job on master can
+            write that cache, so a release build that must not trust other jobs turns it off.
+        required: false
+        default: 'true'
 
 runs:
     using: composite
@@ -66,7 +72,7 @@ runs:
         # runner images don't ship the .nvmrc version.
         - name: Restore Node tool cache
           id: node-toolcache
-          if: steps.node-version.outputs.version != ''
+          if: inputs.cache == 'true' && steps.node-version.outputs.version != ''
           uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
           with:
               path: ${{ runner.tool_cache }}/node/${{ steps.node-version.outputs.version }}
@@ -81,7 +87,7 @@ runs:
         # Save only on the default branch: caches written on a PR ref are scoped to
         # that ref alone, evict the shared master entry, and help only that one PR.
         - name: Save Node tool cache
-          if: github.ref == 'refs/heads/master' && steps.node-version.outputs.version != '' && steps.node-toolcache.outputs.cache-hit != 'true'
+          if: inputs.cache == 'true' && github.ref == 'refs/heads/master' && steps.node-version.outputs.version != '' && steps.node-toolcache.outputs.cache-hit != 'true'
           uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
           with:
               path: ${{ runner.tool_cache }}/node/${{ steps.node-version.outputs.version }}

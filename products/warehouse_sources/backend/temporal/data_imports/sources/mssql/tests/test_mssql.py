@@ -1,7 +1,12 @@
+import socket
 import threading
+from collections.abc import Iterator
+from contextlib import contextmanager, nullcontext
 
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
+
+from django.test import override_settings
 
 import pyarrow as pa
 import pymssql
@@ -12,11 +17,16 @@ from products.warehouse_sources.backend.temporal.data_imports.discover_schemas_w
 )
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    HostNotAllowedError,
+    TemporaryHostResolutionError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import Table, TableStats
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
     ColumnTypeCategory,
     ValidatedRowFilter,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.tests.resolver import addrinfo
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mssql import MSSQLSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssql import (
@@ -37,6 +47,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssq
 from products.warehouse_sources.backend.temporal.data_imports.sources.mssql.source import (
     _CONNECTION_DROPPED_ERROR,
     _FIREWALL_BLOCKED_ERROR,
+    _LOCK_TIMEOUT_VALIDATION_ERROR,
     MSSQLSource,
 )
 from products.warehouse_sources.backend.types import IncrementalFieldType
@@ -337,6 +348,20 @@ class TestFetchTableStats:
         assert impl.fetch_table_stats(cursor, "dbo", "t", logger) is None
         capture.assert_not_called()
 
+    def test_no_resultset_skips_capture(self, impl, cursor, logger, mocker):
+        # sp_spaceused can run without raising yet leave no result set to fetch for an object
+        # type it can't report on (e.g. an external table) — pymssql's fetchone then raises this
+        # instead of a sp_spaceused-side error. It recurs for that object every sync, so it must
+        # not flood error tracking.
+        capture = mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssql.capture_exception"
+        )
+        cursor.fetchone.side_effect = pymssql.OperationalError(
+            "Statement not executed or executed statement has no resultset"
+        )
+        assert impl.fetch_table_stats(cursor, "dbo", "t", logger) is None
+        capture.assert_not_called()
+
 
 class TestFetchAverageRowSize:
     """MSSQL's `fetch_average_row_size` samples a separate `TOP 100` query
@@ -574,6 +599,121 @@ class TestConnectTimeouts:
         assert mock_connect.call_args.kwargs["encryption"] == expected
 
 
+_MIXINS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins"
+
+
+@contextmanager
+def _direct_connect_on_cloud(*answers, tunnel_endpoint: tuple[str, int] | None = None) -> Iterator[MagicMock]:
+    lookups = iter(answers)
+
+    def getaddrinfo(*_args, **_kwargs):
+        answer = next(lookups, answers[-1])
+        if isinstance(answer, BaseException):
+            raise answer
+        return addrinfo(1433, *answer)
+
+    with (
+        override_settings(CLOUD_DEPLOYMENT="US"),
+        patch(f"{_MIXINS_MODULE}.settings") as mock_settings,
+        patch(f"{_MIXINS_MODULE}.socket.getaddrinfo", side_effect=getaddrinfo),
+        patch("posthog.psycopg_helpers.has_ipv6_route", return_value=True),
+        patch(f"{_MSSQL_MODULE}.pymssql.connect") as mock_connect,
+    ):
+        mock_settings.TEST = False
+        mock_settings.DEBUG = False
+        mock_settings.E2E_TESTING = False
+        if tunnel_endpoint is None:
+            yield mock_connect
+        else:
+            with patch(f"{_MSSQL_MODULE}.open_ssh_tunnel") as tunnel:
+                tunnel.return_value.__enter__.return_value = tunnel_endpoint
+                yield mock_connect
+
+
+class TestConnectDialsTheValidatedAddress:
+    @parameterized.expand(
+        [
+            ("ipv4", "db.example.com", ["52.1.2.3"], "52.1.2.3"),
+            ("ipv6_carries_its_port", "db.example.com", ["2600:1f18::1"], "[2600:1f18::1]:1433"),
+            ("azure_sql", "myserver.database.windows.net", ["52.1.2.3"], "myserver.database.windows.net"),
+            (
+                "azure_synapse_gov",
+                "ws.sql.azuresynapse.usgovcloudapi.net",
+                ["52.1.2.3"],
+                "ws.sql.azuresynapse.usgovcloudapi.net",
+            ),
+            ("azure_synapse_china", "ws.sql.azuresynapse.azure.cn", ["52.1.2.3"], "ws.sql.azuresynapse.azure.cn"),
+            ("azure_zone_mid_name", "myserver.database.windows.net.example.com", ["52.1.2.3"], "52.1.2.3"),
+            ("azure_zone_without_dot", "evildatabase.windows.net", ["52.1.2.3"], "52.1.2.3"),
+        ]
+    )
+    def test_server_passed_to_the_driver(self, _name, host, answer, expected_server):
+        with _direct_connect_on_cloud(answer) as mock_connect:
+            with MSSQLImplementation().connect(_make_config(host=host), team_id=999):
+                pass
+
+        assert mock_connect.call_args.kwargs["server"] == expected_server
+
+    @parameterized.expand(
+        [
+            ("rebinds_after_the_first_lookup", "db.example.com", [["52.1.2.3"], ["10.0.0.5"]], HostNotAllowedError),
+            ("azure_host_is_still_checked", "myserver.database.windows.net", [["10.0.0.5"]], HostNotAllowedError),
+            (
+                "resolver_blip_on_the_pin_stays_retryable",
+                "db.example.com",
+                [["52.1.2.3"], socket.gaierror(socket.EAI_AGAIN, "Temporary failure in name resolution")],
+                TemporaryHostResolutionError,
+            ),
+        ]
+    )
+    def test_never_dials_an_unapproved_address(self, _name, host, answers, expected_error):
+        with _direct_connect_on_cloud(*answers) as mock_connect:
+            with pytest.raises(expected_error):
+                with MSSQLImplementation().connect(_make_config(host=host), team_id=999):
+                    pass
+
+        mock_connect.assert_not_called()
+
+    @parameterized.expand(
+        [
+            (
+                "unreachable_address_falls_over",
+                pymssql.OperationalError(
+                    20009, b"Unable to connect: Adaptive Server is unavailable or does not exist (52.1.2.3)"
+                ),
+                ["52.1.2.3", "52.1.2.4"],
+                None,
+            ),
+            (
+                "login_failure_stops",
+                pymssql.OperationalError(18456, b"Login failed for user 'u'."),
+                ["52.1.2.3"],
+                pymssql.OperationalError,
+            ),
+        ]
+    )
+    def test_tries_the_next_validated_address_only_when_one_is_unreachable(
+        self, _name, first_error, expected_servers, expected_error
+    ):
+        with _direct_connect_on_cloud(["52.1.2.3", "52.1.2.4"]) as mock_connect:
+            mock_connect.side_effect = [first_error, MagicMock()]
+            with pytest.raises(expected_error) if expected_error else nullcontext():
+                with MSSQLImplementation().connect(_make_config(host="db.example.com"), team_id=999):
+                    pass
+
+        assert [call.kwargs["server"] for call in mock_connect.call_args_list] == expected_servers
+
+    def test_a_tunnel_loopback_is_dialled_without_a_lookup(self):
+        with _direct_connect_on_cloud(
+            socket.gaierror(socket.EAI_NONAME, "unused"), tunnel_endpoint=("127.0.0.1", 40000)
+        ) as mock_connect:
+            with MSSQLImplementation().connect(_make_config(host="db.example.com"), team_id=999):
+                pass
+
+        assert mock_connect.call_args.kwargs["server"] == "127.0.0.1"
+        assert mock_connect.call_args.kwargs["port"] == "40000"
+
+
 class _RaisingTunnel:
     """Context manager whose `__enter__` raises, standing in for paramiko's handshake EOFError."""
 
@@ -699,11 +839,22 @@ class TestMSSQLSourceRetryableErrors:
                 b"Transaction (Process ID 116) was deadlocked on lock resources with another process and has been "
                 b"chosen as the deadlock victim. Rerun the transaction.",
             ),
+            # pymssql's own InterfaceError, raised when the login succeeded but the driver's
+            # post-connect `SET` batch then failed outright (see `MSSQLSource.get_retryable_errors`)
+            # — the same connection-death class as "Not connected to any MS SQL server" above.
+            pymssql.InterfaceError("Could not set connection properties"),
         ],
     )
     def test_transient_connection_errors_are_retryable(self, error):
         retryable = MSSQLSource().get_retryable_errors()
         assert any(pattern.lower() in str(error).lower() for pattern in retryable), str(error)
+
+    def test_could_not_set_connection_properties_is_not_non_retryable(self):
+        # A sync hitting this must keep retrying rather than being disabled outright: the login
+        # succeeded, so it's a connection-death blip, not a permanent config problem.
+        error_msg = "Could not set connection properties"
+        non_retryable = MSSQLSource().get_non_retryable_errors()
+        assert not any(pattern in error_msg for pattern in non_retryable.keys()), error_msg
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -763,6 +914,26 @@ class TestMSSQLSourceValidateCredentials:
         assert error == _FIREWALL_BLOCKED_ERROR
         capture.assert_not_called()
 
+    def test_lock_timeout_returns_actionable_message_without_capturing(self, source, mocker):
+        capture = mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mssql.source.capture_exception"
+        )
+        mocker.patch.object(source, "is_database_host_valid", return_value=(True, None))
+        # Real SQL Server error 1222: a metadata statement waited past `SET LOCK_TIMEOUT` for a lock
+        # held by the customer's own workload.
+        lock_timeout_error = pymssql.OperationalError(
+            1222,
+            b"Lock request time out period exceeded.DB-Lib error message 20018, severity 16:\n"
+            b"General SQL Server error: Check messages from the SQL Server\n",
+        )
+        mocker.patch.object(source, "get_schemas", side_effect=lock_timeout_error)
+
+        valid, error = source.validate_credentials(_make_config(), team_id=1)
+
+        assert valid is False
+        assert error == _LOCK_TIMEOUT_VALIDATION_ERROR
+        capture.assert_not_called()
+
     def test_adaptive_server_connection_failed_names_likely_causes_without_capturing(self, source, mocker):
         capture = mocker.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.mssql.source.capture_exception"
@@ -776,6 +947,22 @@ class TestMSSQLSourceValidateCredentials:
             b"DB-Lib error message 20002, severity 9:\nAdaptive Server connection failed (127.0.0.1)\n",
         )
         mocker.patch.object(source, "get_schemas", side_effect=dropped_connection_error)
+
+        valid, error = source.validate_credentials(_make_config(), team_id=1)
+
+        assert valid is False
+        assert error == _CONNECTION_DROPPED_ERROR
+        capture.assert_not_called()
+
+    def test_could_not_set_connection_properties_names_likely_causes_without_capturing(self, source, mocker):
+        capture = mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mssql.source.capture_exception"
+        )
+        mocker.patch.object(source, "is_database_host_valid", return_value=(True, None))
+        # pymssql raises this as an `InterfaceError`, not an `OperationalError`, when the login
+        # succeeded but the driver's post-connect `SET` batch then failed outright.
+        connection_properties_error = pymssql.InterfaceError("Could not set connection properties")
+        mocker.patch.object(source, "get_schemas", side_effect=connection_properties_error)
 
         valid, error = source.validate_credentials(_make_config(), team_id=1)
 
@@ -818,6 +1005,12 @@ class TestRetryOnTransientConnectionError:
             20047, b"DB-Lib error message 20047, severity 9:\nDBPROCESS is dead or not enabled\n"
         )
 
+    def _not_connected(self) -> pymssql.OperationalError:
+        # pymssql wraps the InterfaceError `assert_connected` raises mid-connect (e.g. starting the
+        # implicit transaction) as an OperationalError with this prefix — same DBPROCESS-death class
+        # as `_dbprocess_dead`, surfaced through a different internal code path.
+        return pymssql.OperationalError("Cannot start transaction: Not connected to any MS SQL server")
+
     def test_does_not_retry_non_transient(self, mocker):
         sleep = mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssql.time.sleep")
         operation = MagicMock(side_effect=pymssql.OperationalError("Login failed for user 'reporting'."))
@@ -827,9 +1020,10 @@ class TestRetryOnTransientConnectionError:
         assert operation.call_count == 1
         sleep.assert_not_called()
 
-    def test_gives_up_after_max_attempts(self, mocker):
+    @pytest.mark.parametrize("error_factory_name", ["_dbprocess_dead", "_not_connected"])
+    def test_gives_up_after_max_attempts(self, mocker, error_factory_name):
         mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssql.time.sleep")
-        operation = MagicMock(side_effect=self._dbprocess_dead())
+        operation = MagicMock(side_effect=getattr(self, error_factory_name)())
 
         with pytest.raises(pymssql.OperationalError):
             retry_on_transient_connection_error(operation, max_attempts=3)
@@ -858,7 +1052,17 @@ class TestGetSchemasDeadline:
 
 
 class TestGetSchemasRetriesTransientDrop:
-    def test_get_schemas_retries_then_recovers(self, mocker):
+    @pytest.mark.parametrize(
+        "transient_error",
+        [
+            pymssql.OperationalError(
+                20047, b"DB-Lib error message 20047, severity 9:\nDBPROCESS is dead or not enabled\n"
+            ),
+            pymssql.OperationalError("Cannot start transaction: Not connected to any MS SQL server"),
+        ],
+        ids=["dbprocess_dead", "not_connected"],
+    )
+    def test_get_schemas_retries_then_recovers(self, mocker, transient_error):
         # A transient DBPROCESS death mid-discovery must retry the whole connect-and-discover cycle
         # in-process instead of failing the activity on the first blip.
         mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssql.time.sleep")
@@ -871,12 +1075,7 @@ class TestGetSchemasRetriesTransientDrop:
         get_columns = mocker.patch.object(
             MSSQLImplementation,
             "get_columns",
-            side_effect=[
-                pymssql.OperationalError(
-                    20047, b"DB-Lib error message 20047, severity 9:\nDBPROCESS is dead or not enabled\n"
-                ),
-                {},
-            ],
+            side_effect=[transient_error, {}],
         )
 
         schemas = MSSQLSource().get_schemas(_make_config(), team_id=1)

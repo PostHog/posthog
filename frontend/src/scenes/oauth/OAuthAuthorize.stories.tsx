@@ -1,9 +1,6 @@
 import { Decorator, Meta, StoryObj } from '@storybook/react'
-import { router } from 'kea-router'
 import { useEffect, useRef } from 'react'
 
-import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { API_SCOPES } from 'lib/scopes'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -36,23 +33,22 @@ function withOAuthApplication(overrides: Record<string, unknown>): Decorator {
     }
 }
 
-// `pushAuthorize` writes the resolution the server would have sent, and it runs after the story
-// mounts, so it has nowhere to register a cleanup. This decorator owns that key's restore.
-const withScopeResolution: Decorator = function ScopeResolutionDecorator(Story): JSX.Element {
-    useAppContextOverride(['oauth_scope_resolution'])
+// Writes the scope resolution the server would have sent for the story's `oauthRequest`, before the scene mounts.
+const withScopeResolution: Decorator = function ScopeResolutionDecorator(Story, { parameters }): JSX.Element {
+    const { scope, resolvedScopes, alreadyGrantedScopes } = (parameters.oauthRequest ?? {}) as {
+        scope?: string
+        resolvedScopes?: string[]
+        alreadyGrantedScopes?: string[]
+    }
+    useAppContextOverride(['oauth_scope_resolution'], (appContext) => {
+        appContext.oauth_scope_resolution = {
+            scopes: resolvedScopes ?? (scope ? scope.split(' ') : []),
+            was_defaulted: !scope,
+            already_granted_scopes: alreadyGrantedScopes ?? [],
+            ...(alreadyGrantedScopes ? { earlier_access: { scoped_teams: [], scoped_organizations: [] } } : {}),
+        }
+    })
     return <Story />
-}
-
-// The visual-regression runner lets a fullscreen scene grow to its full content height, which
-// would leave the scrolling permission column and the pinned action row out of the snapshot.
-// Pin the app shell to a window-sized box so the snapshot shows what a person actually sees.
-const withPinnedSceneHeight: Decorator = function PinnedSceneHeightDecorator(Story): JSX.Element {
-    return (
-        <>
-            <style>{'.Navigation3000 { height: 640px !important; min-height: 0 !important; }'}</style>
-            <Story />
-        </>
-    )
 }
 
 // The app shell has a `100vh` min-height, so when the viewport at capture time is taller than the
@@ -67,12 +63,9 @@ const withContentSceneHeight: Decorator = function ContentSceneHeightDecorator(S
     )
 }
 
-const pushAuthorize = (scope?: string, resolvedScopes?: string[]): void => {
-    const appContext = (window as any).POSTHOG_APP_CONTEXT
-    appContext.oauth_scope_resolution = {
-        scopes: resolvedScopes ?? (scope ? scope.split(' ') : []),
-        was_defaulted: !scope,
-    }
+// `pageUrl` opens the consent page on mount. A push 500 ms later first rendered the default route, and a
+// capture could catch a leftover of it as a blank strip below the card.
+const authorizeParameters = (scope?: string, resolvedScopes?: string[]): Record<string, unknown> => {
     const params = new URLSearchParams({
         client_id: 'test-client-id',
         redirect_uri: 'https://app.example.com/oauth/callback',
@@ -80,7 +73,7 @@ const pushAuthorize = (scope?: string, resolvedScopes?: string[]): void => {
         state: 'test-state',
         ...(scope ? { scope } : {}),
     })
-    router.actions.push(`${urls.oauthAuthorize()}?${params.toString()}`)
+    return { pageUrl: `${urls.oauthAuthorize()}?${params.toString()}`, oauthRequest: { scope, resolvedScopes } }
 }
 
 // One story per rendering of the consent screen, not per scope combination: what a level pick
@@ -123,66 +116,65 @@ export default meta
 
 type Story = StoryObj<{}>
 
-// A client that sends no `scope` at all: the server defaults the request to the app's ceiling,
-// so every row arrives selected at its highest level with the bulk actions available.
-export const DefaultScopes: Story = {
-    decorators: [withContentSceneHeight, withOAuthApplication({ required_scopes: [] })],
-    render: () => {
-        useDelayedOnMountEffect(() =>
-            pushAuthorize(undefined, [
-                'openid',
-                'email',
-                'profile',
-                'feature_flag:write',
-                'insight:write',
-                'dashboard:write',
-                'query:read',
-            ])
-        )
-        return <App />
+// Both required scopes show a lock, and experiment:read is required without being requested.
+export const FewPermissions: Story = {
+    decorators: [withOAuthApplication({ required_scopes: ['experiment:read', 'feature_flag:write'] })],
+    render: () => <App />,
+    parameters: authorizeParameters('openid email feature_flag:read query:read dashboard:write insight:write'),
+}
+
+// The narrow width is an OAuth popup window, where group labels truncate.
+export const ManyPermissions: Story = {
+    decorators: [withContentSceneHeight, withOAuthApplication({ required_scopes: ['feature_flag:read'] })],
+    render: () => <App />,
+    parameters: {
+        ...authorizeParameters(
+            'openid profile email organization:read project:read project:write feature_flag:write ' +
+                'experiment:write insight:write dashboard:write query:read survey:write ' +
+                'event_definition:write error_tracking:read logs:read'
+        ),
+        testOptions: { viewportWidths: ['narrow', 'wide'] },
     },
 }
 
-// Identity-only grant: the client asked for scopes outside the app's ceiling, so the server
-// resolved the request down to the OIDC scopes. Permissions render as a plain checkmark list
-// with no access selectors and no bulk actions.
-export const IdentityOnlyScopes: Story = {
+export const StepUp: Story = {
     decorators: [withOAuthApplication({ required_scopes: [] })],
-    render: () => {
-        useDelayedOnMountEffect(() => pushAuthorize('openid email profile'))
-        return <App />
+    render: () => <App />,
+    parameters: {
+        ...authorizeParameters('openid email insight:read dashboard:write feature_flag:write'),
+        oauthRequest: {
+            scope: 'openid email insight:read dashboard:write feature_flag:write',
+            alreadyGrantedScopes: ['openid', 'email', 'insight:read', 'dashboard:read'],
+        },
     },
+}
+
+export const FullAccess: Story = {
+    decorators: [withOAuthApplication({ required_scopes: [] })],
+    render: () => <App />,
+    parameters: authorizeParameters('*'),
+}
+
+export const IdentityOnly: Story = {
+    decorators: [withOAuthApplication({ required_scopes: [] })],
+    render: () => <App />,
+    parameters: authorizeParameters('openid email profile'),
+}
+
+// A client that sends no `scope` at all: the server defaults the request to the app's ceiling, and a
+// banner says so.
+export const DefaultScopes: Story = {
+    decorators: [withContentSceneHeight, withOAuthApplication({ required_scopes: [] })],
+    render: () => <App />,
+    parameters: authorizeParameters(undefined, ['openid', 'email', 'profile', 'feature_flag:write', 'query:read']),
 }
 
 // The logo is a third-party icon this repo already serves, so the snapshot never reaches out to a
 // host we do not control.
 export const WithApplicationLogo: Story = {
     decorators: [withOAuthApplication({ name: 'Zapier', logo_uri: '/static/services/zapier.png' })],
-    render: () => {
-        useDelayedOnMountEffect(() => pushAuthorize())
-        return <App />
-    },
-}
-
-// Mixed: feature_flag:write is required but only read was requested (locked at write), and
-// experiment:read is required but unrequested (an extra locked row). Both render in the
-// checkmark list with a "Required" tag, while the rest keep their access selectors.
-export const WithRequiredScopes: Story = {
-    decorators: [withOAuthApplication({ required_scopes: ['experiment:read', 'feature_flag:write'] })],
-    render: () => {
-        useDelayedOnMountEffect(() => pushAuthorize('feature_flag:read query:read dashboard:write'))
-        return <App />
-    },
-}
-
-// Wildcard request: a single "All PostHog data" row where Read expands to every grantable
-// object's read scope and Write grants `*`.
-export const WildcardScope: Story = {
-    decorators: [withOAuthApplication({ required_scopes: [] })],
-    render: () => {
-        useDelayedOnMountEffect(() => pushAuthorize('*'))
-        return <App />
-    },
+    render: () => <App />,
+    parameters: authorizeParameters(),
 }
 
 // Sets the server flag that says one of the user's organizations has access-control rules.
@@ -196,50 +188,35 @@ const withAccessControls: Decorator = function AccessControlsDecorator(Story): J
 
 export const AccessControlsApply: Story = {
     decorators: [withAccessControls, withOAuthApplication({ required_scopes: [] })],
-    render: () => {
-        useDelayedOnMountEffect(() =>
-            pushAuthorize(
-                'openid profile email project:read feature_flag:read feature_flag:write insight:write query:read'
-            )
-        )
-        return <App />
-    },
+    render: () => <App />,
+    parameters: authorizeParameters('openid feature_flag:write query:read'),
 }
 
-// The consent page has no sidebar, so it only gets narrow in a narrow browser window, such as
-// an OAuth popup. There the group labels truncate and the counts hide, so the controls keep
-// their place. This story snapshots the runner's narrow viewport to show that.
-export const ManyOptionalScopesNarrow: Story = {
-    parameters: { testOptions: { viewportWidths: ['narrow'] } },
-    decorators: [withOAuthApplication({ required_scopes: [] })],
-    render: () => {
-        useDelayedOnMountEffect(() =>
-            pushAuthorize(
-                'openid profile email user:read user:write organization:read project:read project:write ' +
-                    'feature_flag:read feature_flag:write experiment:read experiment:write insight:read ' +
-                    'insight:write dashboard:read dashboard:write query:read survey:read survey:write ' +
-                    'event_definition:read event_definition:write error_tracking:read logs:read tracing:read'
-            )
-        )
-        return <App />
-    },
+const withEmaIssuerConsent: Decorator = function EmaIssuerConsentDecorator(Story): JSX.Element {
+    useAppContextOverride(['oauth_ema_issuer_consent'], (appContext) => {
+        appContext.oauth_ema_issuer_consent = {
+            scope: 'ema_issuer:manage',
+            organizations: [
+                { id: '1', name: 'Hedgebox', verified_domains: ['hedgebox.net'], disabled_reason: null },
+                {
+                    id: '2',
+                    name: 'Hedgebox staging',
+                    verified_domains: [],
+                    disabled_reason: 'Only admins of this organization can set up enterprise-managed auth.',
+                },
+            ],
+        }
+    })
+    return <Story />
 }
 
-const everyScopeRequest = ['openid', 'profile', 'email', ...API_SCOPES.map(({ key }) => `${key}:write`)].join(' ')
-
-// The worst case for the layout: a client that asks for every scope PostHog has, which is one
-// permission row per scope object. The rows scroll inside the card, and the action row keeps
-// Cancel and Authorize on screen the whole way down.
-export const EveryScopeRequested: Story = {
-    decorators: [withPinnedSceneHeight, withOAuthApplication({ required_scopes: [] })],
-    render: () => {
-        useDelayedOnMountEffect(() => pushAuthorize(everyScopeRequest))
-        return <App />
-    },
+export const EnterpriseManagedAuthSetup: Story = {
+    decorators: [withContentSceneHeight, withEmaIssuerConsent, withOAuthApplication({ name: 'Claude' })],
+    render: () => <App />,
+    parameters: authorizeParameters('ema_issuer:manage', ['ema_issuer:manage']),
 }
 
 export const NoOrganization: Story = {
-    parameters: { testOptions: { snapshotBrowsers: [] } },
     decorators: [
         withOAuthApplication({ required_scopes: [] }),
         mswDecorator({
@@ -258,8 +235,6 @@ export const NoOrganization: Story = {
             },
         }),
     ],
-    render: () => {
-        useDelayedOnMountEffect(() => pushAuthorize())
-        return <App />
-    },
+    render: () => <App />,
+    parameters: { ...authorizeParameters(), testOptions: { snapshotBrowsers: [] } },
 }

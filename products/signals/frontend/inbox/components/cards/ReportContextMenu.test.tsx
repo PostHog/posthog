@@ -211,13 +211,25 @@ describe('ReportContextMenu', () => {
         reportListLogic(sectionListLogicProps('needs-decision')).mount()
         openMenu(makeReport({ assignee }))
 
-        fireEvent.click(screen.getByText('Take over'))
+        fireEvent.click(screen.getByText('Take over claim'))
 
         expect(await screen.findByText(new RegExp(description))).toBeInTheDocument()
         expect(claimRequests).toEqual([])
         fireEvent.click(screen.getAllByText('Take over').at(-1)!)
 
         await waitFor(() => expect(claimRequests).toEqual([{ reportId: 'report-1', body: { takeover: true } }]))
+    })
+
+    // Only a run in flight blocks Create PR. A claim leads to a dialog instead, so it must not disable the item.
+    it.each([
+        { name: "a teammate's claim", report: { assignee: teammateClaim }, disabled: false },
+        { name: "the user's agent claim", report: { assignee: myAgentClaim }, disabled: false },
+        { name: "the user's own claim", report: { assignee: myClaim }, disabled: false },
+        { name: 'a run in flight', report: { assignee: myClaim, implementation_in_flight: true }, disabled: true },
+    ])('gates Create PR on $name', ({ report, disabled }) => {
+        openMenu(makeReport(report))
+
+        expect(screen.getByText('Create PR').closest('[role="menuitem"]')?.hasAttribute('data-disabled')).toBe(disabled)
     })
 
     // A relative or wrong-tab URL would copy a link that 404s or opens the wrong list when pasted.

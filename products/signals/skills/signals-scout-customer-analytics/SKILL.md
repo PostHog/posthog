@@ -162,7 +162,7 @@ Write a scratchpad entry whenever you observe something a future run should know
 - `pattern:customer_analytics:fleet-baseline` — _"~600 accounts active in a normal week; fleet WAU steady ~X. Weekend dip is normal."_
 - `watchlist:customer_analytics:account:<external_id>` — _name, active relationship holders, value tier, baseline weekly volume/WAU, cadence, `last_scored` + `next_due`._
 - `baseline:customer_analytics:account:<external_id>` — _the learned normal: weekly event-volume / WAU band (median + MAD), so the next run scores cheaply instead of recomputing._
-- `dedupe:customer_analytics:account:<external_id>` — _a risk already surfaced, with the condition that should re-escalate it (a further drop, or recovery + relapse)._
+- `dedupe:customer_analytics:account:<external_id>` — _a risk already surfaced, with the condition that should re-escalate it (a further drop, or recovery + relapse)._ Set `expires_at` about 30 days past the last read that confirmed the risk: an account that recovered and held that long needs no gate, and a later slide is a new episode.
 - `noise:customer_analytics:account:<external_id>` — _"this account is a known sandbox / migrating off / seasonal — its dips are expected."_
 - `report:customer_analytics:account:<external_id>` — _the `report_id` of a report you filed for a risk on this account, so the next run edits it (`append_evidence` with the fresh window) instead of duplicating._
 - `reviewer:customer_analytics:<area>` — _a resolved owner (bare lowercase GitHub login) for an account segment / CSM-team surface, so reports route to a human faster._

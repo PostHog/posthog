@@ -2,7 +2,7 @@ import './MarketingAnalyticsPreview.scss'
 
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { cn } from 'lib/utils/css-classes'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 
 /**
  * Example-data preview for the marketing analytics empty state: ad channels with
@@ -13,7 +13,7 @@ import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
  * stacked in `__swap` grids, so nothing shifts.
  */
 export function MarketingAnalyticsPreview(): JSX.Element {
-    const isStatic = inStorybook() || inStorybookTestRunner()
+    const isStatic = inStorybook()
 
     return (
         <div className={cn('MarketingPreview', isStatic && 'MarketingPreview--static')}>

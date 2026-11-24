@@ -75,6 +75,23 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "points": "Total loyalty points the viewer has earned all-time.",
         },
     },
+    "watchtime_leaderboard": {
+        "description": "Viewers of the channel ranked by the total time they have watched the stream.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "username": "Viewer's username on the streaming platform.",
+            "minutes": "Total minutes the viewer has watched the channel.",
+        },
+    },
+    "song_request_history": {
+        "description": "A song request that left the channel's song request queue, with the viewer who requested it.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "_id": "Unique identifier of the history entry.",
+            "song": "Requested media: the video id, title, duration, source channel, the requesting user and, for paid requests, the amount and message.",
+            "createdAt": "When the request was added to the history.",
+        },
+    },
     "bot_commands": {
         "description": "A custom chatbot command configured for the channel.",
         "docs_url": _DOCS_URL,
@@ -123,6 +140,20 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "country": "Country the channel is registered in.",
             "createdAt": "When the StreamElements account was created.",
             "updatedAt": "When the channel details were last updated.",
+        },
+    },
+    "session": {
+        "description": "Running stream totals for the channel, such as the latest follower, subscriber, tip, cheer, host and raid, and session, week, month and all-time counts.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "_id": "Unique identifier of the session record.",
+            "channel": "Identifier of the StreamElements channel the session belongs to.",
+            "provider": "Streaming platform the channel is linked to (e.g. twitch, youtube).",
+            "data": "Session counters keyed by name, for example follower-session, tip-total and cheer-latest.",
+            "settings": "Session settings, such as whether the counters reset automatically.",
+            "lastReset": "When the session counters were last reset.",
+            "createdAt": "When the session record was created.",
+            "updatedAt": "When the session data was last updated.",
         },
     },
 }

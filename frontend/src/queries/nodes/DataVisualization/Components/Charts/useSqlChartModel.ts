@@ -14,6 +14,7 @@ import {
 
 import { useChartTheme, useChartConfig } from 'lib/charts/hooks'
 import { useChartLegendSeriesMenu } from 'lib/components/ChartLegendSeriesMenu/useChartLegendSeriesMenu'
+import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ChartDisplayType } from '~/types'
@@ -23,6 +24,7 @@ import {
     type BuildBarConfigArgs,
     type SqlLineSeriesMeta,
     buildSeries,
+    withCategoryBarColors,
     capYSeriesData,
     exceedsMaxSeries,
     warnTooManySeries,
@@ -63,6 +65,8 @@ export function useSqlChartModel<
     buildConfig: (args: BuildBarConfigArgs) => TConfig
 ): SqlChartModel<TConfig> | null {
     const { timezone } = useValues(teamLogic)
+    const { getTheme } = useValues(dataThemeLogic)
+    const dataTheme = useMemo(() => getTheme(undefined), [getTheme])
 
     useEffect(() => {
         if (exceedsMaxSeries(yData, dashboardId)) {
@@ -72,12 +76,20 @@ export function useSqlChartModel<
 
     const ySeriesData = useMemo(() => capYSeriesData(yData), [yData])
 
-    const series = useMemo(
-        () => (ySeriesData ? buildSeries(ySeriesData, visualizationType, chartSettings.showValuesOnSeries) : []),
-        [ySeriesData, visualizationType, chartSettings.showValuesOnSeries]
-    )
-
     const theme = useChartTheme()
+
+    const series = useMemo(
+        () =>
+            withCategoryBarColors(
+                ySeriesData ? buildSeries(ySeriesData, visualizationType, chartSettings.showValuesOnSeries) : [],
+                xData?.data ?? [],
+                visualizationType,
+                chartSettings,
+                theme.colors,
+                dataTheme
+            ),
+        [ySeriesData, xData, visualizationType, chartSettings, theme.colors, dataTheme]
+    )
 
     const legendRenderItem = useChartLegendSeriesMenu({ surface: 'sql', seriesCount: series.length })
 
@@ -100,9 +112,17 @@ export function useSqlChartModel<
             legendRenderItem,
             embedded,
         })
+        const rawValuesByLabel = new Map(
+            xData.data.map((value) => [String(labelFormatter?.(value) ?? value ?? '[No value]'), value])
+        )
         const formatLabel = labelFormatter
             ? (value: string): string => {
-                  const raw = visualizationType === ChartDisplayType.ActionsBarValue ? xData.data[Number(value)] : value
+                  const raw =
+                      visualizationType === ChartDisplayType.ActionsBarValue
+                          ? xData.data[Number(value)]
+                          : rawValuesByLabel.has(value)
+                            ? rawValuesByLabel.get(value)!
+                            : value
                   const label = labelFormatter(raw)
                   return label === raw ? (config.tooltip?.labelFormatter?.(value) ?? label) : label
               }
@@ -167,8 +187,8 @@ export function useSqlChartModel<
         () =>
             visualizationType === ChartDisplayType.ActionsBarValue
                 ? (xData?.data.map((_, index) => String(index)) ?? [])
-                : (xData?.data ?? []),
-        [visualizationType, xData]
+                : (xData?.data.map((value) => String(labelFormatter?.(value) ?? value ?? '[No value]')) ?? []),
+        [visualizationType, xData, labelFormatter]
     )
 
     if (!xData || !ySeriesData || series.length === 0 || !config) {

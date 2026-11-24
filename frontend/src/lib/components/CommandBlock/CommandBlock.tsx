@@ -6,7 +6,7 @@ import { IconCopy, IconTerminal } from '@posthog/icons'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 
 type Size = 'sm' | 'md'
 type Decoration = 'plain' | 'rainbow'
@@ -74,7 +74,7 @@ export function CommandBlock({
     const [copyKey, setCopyKey] = useState(0)
     const buttonRef = useRef<HTMLButtonElement>(null)
     const sizeStyle = SIZE_STYLES[size]
-    const isStorybook = inStorybook() || inStorybookTestRunner()
+    const isStorybook = inStorybook()
     const displayCommand = displayLines
         ? displayLines.map((line) => (
               <span key={line} className="block">

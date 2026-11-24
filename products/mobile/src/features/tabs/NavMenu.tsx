@@ -2,6 +2,7 @@ import { type ComponentType, type ReactElement, useEffect, useState } from 'reac
 import { ScrollView, Text, View } from 'react-native'
 import { useAuthStore } from '@/auth/authStore'
 import { ProjectSheet } from '@/features/projects/ProjectSheet'
+import { InternalUsersToggle } from '@/features/settings/InternalUsersToggle'
 import type { PostHogStatus } from '@/features/status/usePostHogStatus'
 import { track } from '@/lib/analytics'
 import { FloatingCard } from '@/ui/FloatingCard'
@@ -28,8 +29,13 @@ interface NavMenuProps {
     projectName: string
     /** The focused tab's Edit pins row, in its own section above Settings. Null leaves the section out. */
     editPins: TabHeaderSlot['editPins']
-    /** A pinned list's rows, at the top while its tab is focused. Null leaves the section out. */
-    navList: { onUnpin: () => void; onOpenWeb: (() => void) | null } | null
+    /** A list tab's rows, at the top while its tab is focused. Null leaves the section out. */
+    navList: {
+        /** Null while the navigation pin slot is retired. */
+        pin: { pinned: boolean; onToggle: () => void } | null
+        onOpenWeb: (() => void) | null
+        showInternalUsersToggle: boolean
+    } | null
     onClose: () => void
     status: PostHogStatus
     onOpenStatus: () => void
@@ -186,12 +192,17 @@ export function NavMenu({
                             <View style={[styles.divider, styles.sectionDivider]} />
                             {navList ? (
                                 <>
-                                    <MenuRow
-                                        label="Unpin from navigation"
-                                        Icon={PinIcon}
-                                        onPress={navList.onUnpin}
-                                        testID="nav-list-unpin"
-                                    />
+                                    {navList.showInternalUsersToggle ? (
+                                        <InternalUsersToggle testID="web-exclude-internal-users" />
+                                    ) : null}
+                                    {navList.pin ? (
+                                        <MenuRow
+                                            label={navList.pin.pinned ? 'Unpin from navigation' : 'Pin to navigation'}
+                                            Icon={PinIcon}
+                                            onPress={navList.pin.onToggle}
+                                            testID={navList.pin.pinned ? 'nav-list-unpin' : 'nav-list-pin'}
+                                        />
+                                    ) : null}
                                     {navList.onOpenWeb ? (
                                         <MenuRow
                                             label="Open on web"

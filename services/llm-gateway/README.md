@@ -15,11 +15,11 @@ uv run uvicorn llm_gateway.main:app --reload
 ### Making a request
 
 ```bash
-curl -X POST http://localhost:8080/v1/chat/completions \
+curl -X POST http://localhost:8080/django/v1/chat/completions \
   -H "Authorization: Bearer phx_dev_local_test_api_key_1234567890abcdef" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "gpt-4.1-mini",
+    "model": "gpt-6-luna",
     "messages": [{"role": "user", "content": "Hello"}],
     "user": "end-user-distinct-id"
   }'
@@ -138,22 +138,17 @@ The gateway supports capturing additional event properties to PostHog via the `X
 
 ## API endpoints
 
+Every inference path needs a product segment. A request without one returns a 400 that points at the AI gateway.
+
 ### OpenAI-compatible
 
-- `POST /v1/chat/completions` - Chat completions
-- `POST /v1/responses` - OpenAI Responses API
+- `POST /{product}/v1/chat/completions` - Chat completions
+- `POST /{product}/v1/responses` - OpenAI Responses API
 
 ### Anthropic-compatible
 
-- `POST /v1/messages` - Anthropic Messages API (supports Bedrock via `X-PostHog-Provider`)
-- `POST /v1/messages/count_tokens` - Anthropic token counting API (supports Bedrock via `X-PostHog-Provider`)
-
-### Product-scoped endpoints
-
-For product-specific rate limits and tracking:
-
-- `POST /{product}/v1/chat/completions`
-- `POST /{product}/v1/messages`
+- `POST /{product}/v1/messages` - Anthropic Messages API (supports Bedrock via `X-PostHog-Provider`)
+- `POST /{product}/v1/messages/count_tokens` - Anthropic token counting API (supports Bedrock via `X-PostHog-Provider`)
 
 The product name is extracted from the first path segment and recorded as `ai_product` on `$ai_generation` events. See [Products](#products) for the full list and how to add one.
 
@@ -214,8 +209,10 @@ Use your runtime's standard AWS authentication mechanism (e.g. IAM role, IRSA, E
 
 The gateway exposes models consistently across Anthropic Messages, chat/completions, and Responses while choosing their inference provider internally in `src/llm_gateway/inference_routing.py`.
 
-- **GLM 5.2** (`@cf/zai-org/glm-5.2`) can run on Cloudflare Workers AI, Modal, or Baseten.
+- **GLM 5.2** (`@cf/zai-org/glm-5.2`) runs on Baseten or Modal.
+  Cloudflare Workers AI retired it on 2026-11-20, so the gateway never sends it to Cloudflare.
 - **GLM 5.3** (`zai-org/glm-5.3`) runs only on Baseten and is available to ReviewHog and PostHog Desktop.
+  Cloudflare also serves it as `@cf/zai-org/glm-5.3`, its recommended replacement for the retired GLM 5.2. That id carries the same product reservation, and only ReviewHog lists it so far.
   The deployment slug, context window, and contract rate in `model_cost_overrides.py` / `model_registry.py` are confirmed against `inference.baseten.co/v1/models`: the rate is pinned, so a wrong placeholder bills at the wrong price with no automatic correction.
 - **GLM 5.3 Flash** (`zai-org/glm-5.3-flash`) runs only on Baseten and is available to ReviewHog and PostHog Desktop.
   Contract rate and 1M context window come from the Baseten listing and are pinned in `model_cost_overrides.py` / `model_registry.py`.
@@ -226,21 +223,15 @@ That gate fails closed, so remove the entry once the flag reaches everyone: a ca
 
 Provider configuration:
 
-- **Cloudflare Workers AI** (the incumbent) — configure `LLM_GATEWAY_CLOUDFLARE_API_KEY` and `LLM_GATEWAY_CLOUDFLARE_ACCOUNT_ID`.
+- **Cloudflare Workers AI** — configure `LLM_GATEWAY_CLOUDFLARE_API_KEY` and `LLM_GATEWAY_CLOUDFLARE_ACCOUNT_ID`.
 - **Modal** (an OpenAI-compatible vLLM endpoint) — configure `LLM_GATEWAY_MODAL_API_BASE`, `LLM_GATEWAY_MODAL_KEY`, and `LLM_GATEWAY_MODAL_SECRET` (a [Modal proxy-token](https://modal.com/docs/guide/endpoints) pair, sent as `Modal-Key`/`Modal-Secret` headers).
 - **Baseten** (an OpenAI-compatible endpoint) - configure `LLM_GATEWAY_BASETEN_API_BASE` and `LLM_GATEWAY_BASETEN_API_KEY`.
 
-GLM 5.2 traffic goes to Baseten whenever its API key is configured. No feature flag gates this, and caller-forwarded flag headers cannot select Baseten. Cloudflare or Modal serves GLM 5.2 only while the Baseten key is absent, so removing that key is the rollback.
+GLM 5.2 traffic goes to Baseten whenever its API key is configured. No feature flag gates this, and caller-forwarded flag headers cannot select a backend.
+Without the Baseten key, Modal serves all GLM 5.2 traffic, so removing that key is the rollback. With neither configured, GLM 5.2 requests fail with a 503 and the model drops out of `/v1/models`.
 
-Two knobs opt traffic into Modal (OR semantics, both default off):
-
-- The `tasks-glm-modal-inference` feature flag, evaluated server-side against PostHog (`LLM_GATEWAY_POSTHOG_PROJECT_TOKEN`/`_HOST`) with a short per-user cache and a brief global backoff when evaluation fails. Caller-forwarded flag headers are not trusted for routing.
-- `LLM_GATEWAY_GLM_MODAL_TRAFFIC_FRACTION` (0..1, default 0), bucketed deterministically by user id; `LLM_GATEWAY_GLM_MODAL_PRODUCT_TRAFFIC_FRACTIONS` (e.g. `{"posthog_code": 0.25}`) overrides it per product.
-
-If Cloudflare credentials are absent, Modal serves all GLM traffic regardless of the knobs.
-
-There are no cross-backend retries: a Modal-side failure surfaces to the caller unchanged (each backend's health stays independently visible under its `provider` metric label), and rollback is turning the flag/fraction back down.
-Smoke scripts: `scripts/glm_cf_smoke.py` (Cloudflare) and `scripts/glm_modal_smoke.py` (Modal).
+There are no cross-backend retries: a backend failure surfaces to the caller unchanged, and each backend's health stays independently visible under its `provider` metric label.
+Smoke scripts: `scripts/glm_cf_smoke.py` (GLM 5.3 on Cloudflare) and `scripts/glm_modal_smoke.py` (GLM 5.2 on Modal).
 
 ## Products
 
@@ -254,15 +245,13 @@ OAuth access is permitted only for products with an explicit `allowed_applicatio
 
 | Product              | Auth            | Models                                             | Notes                           |
 | -------------------- | --------------- | -------------------------------------------------- | ------------------------------- |
-| `llm_gateway`        | API key only    | All                                                | Default when no product in path |
-| `ci`                 | API key only    | All                                                | CI / e2e test runs              |
 | `posthog_code`       | OAuth only      | Restricted set                                     | Desktop coding agent            |
 | `background_agents`  | OAuth only      | Restricted set                                     | Cloud background agents         |
 | `onboarding`         | OAuth only      | claude-sonnet-5                                    | Unbilled setup wizard cloud run |
 | `wizard`             | API key + OAuth | All                                                | Max AI assistant                |
 | `django`             | API key only    | All                                                | Server-side Django calls        |
 | `growth`             | API key only    | All                                                | Growth team                     |
-| `llma_translation`   | API key only    | gpt-4.1-mini                                       | AI observability translation    |
+| `llma_translation`   | API key only    | gpt-4.1-mini, gpt-6-luna                           | AI observability translation    |
 | `llma_summarization` | API key only    | gpt-4.1-nano, gpt-4.1-mini, gpt-5-nano, gpt-5-mini | AI observability summarization  |
 | `llma_eval_summary`  | API key only    | gpt-5-mini                                         | AI observability eval summary   |
 

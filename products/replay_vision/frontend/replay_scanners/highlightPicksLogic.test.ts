@@ -174,13 +174,13 @@ describe('highlightPicksLogic', () => {
             expect(shownEvents()).toEqual([])
         })
 
-        it('selects the Observations tab on every pick', async () => {
+        it('opens the Observations section on every pick', async () => {
             const settings = playerSettingsLogic()
             settings.mount()
             for (const position of [0, 1]) {
-                settings.actions.setWatchPanelTab('overview')
+                settings.actions.setWatchPanelOpenSections(['overview'])
                 logic.actions.highlightPick(logic.values.picks![position], position)
-                expect(settings.values.watchPanelTab).toBe('observations')
+                expect(settings.values.watchPanelOpenSections).toEqual(['observations'])
             }
             settings.unmount()
         })

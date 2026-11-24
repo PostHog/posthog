@@ -20,11 +20,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.so
     _DNS_RESOLUTION_FAILURE_MARKERS,
     _MONGO_AUTHENTICATION_FAILED_MESSAGE,
     _MONGO_CONNECT_FAILED_MESSAGE,
+    _MONGO_GSSAPI_UNSUPPORTED_MESSAGE,
     _MONGO_HOST_UNRESOLVED_MESSAGE,
     _MONGO_INVALID_CONNECTION_STRING_MESSAGE,
     _MONGO_NO_COLLECTIONS_MESSAGE,
     _MONGO_NOT_AUTHORIZED_MESSAGE,
     _MONGO_SERVER_TOO_OLD_MESSAGE,
+    _MONGO_SRV_RECORD_MISSING_MESSAGE,
     _MONGO_UNESCAPED_CREDENTIALS_MESSAGE,
     _MONGO_UNREACHABLE_MESSAGE,
     _MONGO_UNSUPPORTED_FILE_OPTION_MESSAGE,
@@ -207,12 +209,29 @@ class TestMongoValidateCredentialsErrorTrackingNoise:
                 False,
             ),
             (
+                # dnspython's NoAnswer, wrapped by pymongo as ConfigurationError, when the host
+                # resolves but publishes no `_mongodb._tcp` SRV record at all.
+                ConfigurationError(
+                    "The DNS response does not contain an answer to the question: "
+                    "_mongodb._tcp.cluster.abc.mongodb.net. IN SRV"
+                ),
+                _MONGO_SRV_RECORD_MISSING_MESSAGE,
+                False,
+            ),
+            (
                 # pymongo's server-selection wording for a server below the driver's minimum wire version.
                 ConfigurationError(
                     "Server at cluster.abc.mongodb.net:27017 reports wire version 7, but this version of "
                     "PyMongo requires at least 8 (MongoDB 4.2)."
                 ),
                 _MONGO_SERVER_TOO_OLD_MESSAGE,
+                False,
+            ),
+            (
+                # pymongo's fixed message when authMechanism=GSSAPI is set but the optional
+                # pykerberos/winkerberos package isn't installed.
+                ConfigurationError('The "kerberos" module must be installed to use GSSAPI authentication.'),
+                _MONGO_GSSAPI_UNSUPPORTED_MESSAGE,
                 False,
             ),
             (

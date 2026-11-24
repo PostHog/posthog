@@ -379,6 +379,10 @@ STL_FUNCTIONS: dict[str, list[str | list[str]]] = {
         "function sha256HmacBase64Key (key, data, encoding, options) { return 'sha256HmacBase64Key not implemented' }",
         [],
     ],
+    "ed25519Verify": [
+        "function ed25519Verify (message, signature, publicKey, encoding, options) { throw new Error('ed25519Verify is not supported here') }",
+        [],
+    ],
     "isIPAddressInRange": [
         """
 function isIPAddressInRange(address, prefix) {

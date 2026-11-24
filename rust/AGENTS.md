@@ -23,7 +23,7 @@ Master builds and deploys after merge, and a broken image stops that deploy.
 
 ## Out-of-band interaction domains
 
-Call `common_dns::oob_domains::note_oob_domain(host, "<guard>", team_id)` before a crate resolves or dials a host that a customer supplied.
+Call `common_dns::oob_domains::check_oob_domain(host, "<guard>", team_id)` before a crate resolves or dials a host that a customer supplied, and refuse the host when it returns `Some`.
 Pass `Some(team_id)` when the caller knows the project, and `None` when it does not, such as in shared infrastructure.
 `OOB_DOMAINS` in `common/dns/src/oob_domains.rs` mirrors `posthog/security/crosslang/oob_domains.json`, so edit the json first and the mirror second.
 The parity test in `common-dns` fails while the two differ.

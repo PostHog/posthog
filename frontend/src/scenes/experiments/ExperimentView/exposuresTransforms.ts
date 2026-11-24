@@ -2,7 +2,10 @@ import type { Series } from '@posthog/quill-charts'
 
 import { dayjs } from 'lib/dayjs'
 
-import { ExperimentExposureTimeSeries } from '~/queries/schema/schema-general'
+import { ExperimentExposureCriteria, ExperimentExposureTimeSeries } from '~/queries/schema/schema-general'
+
+import { getActivationConfig, isDefaultExposureConfig } from '../exposureContract'
+import { getExposureConfigDisplayName } from '../utils'
 
 export function buildExposureSeries(timeseries: ExperimentExposureTimeSeries[]): {
     labels: string[]
@@ -26,4 +29,26 @@ export function buildExposureSeries(timeseries: ExperimentExposureTimeSeries[]):
     }
 
     return { labels, series }
+}
+
+export function getExposureCriteriaLabel(
+    exposureCriteria: ExperimentExposureCriteria | undefined,
+    defaultEvent: string
+): string {
+    const activationConfig = getActivationConfig(exposureCriteria)
+    if (activationConfig) {
+        return `Default (${defaultEvent}) + activation (${getExposureConfigDisplayName(activationConfig)})`
+    }
+
+    const exposureConfig = exposureCriteria?.exposure_config
+    if (!exposureConfig) {
+        return `Default (${defaultEvent})`
+    }
+    if (isDefaultExposureConfig(exposureConfig)) {
+        const hasFilters = 'properties' in exposureConfig && (exposureConfig.properties?.length ?? 0) > 0
+        return hasFilters ? `Default (${defaultEvent}), with filters` : `Default (${defaultEvent})`
+    }
+
+    const displayName = getExposureConfigDisplayName(exposureConfig)
+    return `Custom (${displayName})`
 }

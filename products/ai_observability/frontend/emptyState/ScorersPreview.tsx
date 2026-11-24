@@ -4,7 +4,7 @@ import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonTable, type LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { cn } from 'lib/utils/css-classes'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 
 const SCORERS = [
     { name: 'Answer quality', kind: 'Numeric', format: '0 to 1' },
@@ -42,7 +42,7 @@ const columns: LemonTableColumns<(typeof SCORERS)[number]> = [
 ]
 
 export function ScorersPreview(): JSX.Element {
-    const isStatic = inStorybook() || inStorybookTestRunner()
+    const isStatic = inStorybook()
 
     return (
         <div className={cn('ScorersPreview', isStatic && 'ScorersPreview--static')}>

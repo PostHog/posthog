@@ -53,7 +53,6 @@ class TestDeactivateStaleMaterializationsTask(BaseTest):
             query=self.sample_hogql_query,
             is_materialized=True,
             last_run_at=last_run_at or timezone.now(),
-            sync_frequency_interval=timedelta(hours=24),
             origin=DataWarehouseSavedQuery.Origin.ENDPOINT,
         )
         # Update saved_query.created_at if specified
@@ -152,9 +151,9 @@ class TestDeactivateStaleMaterializationsTask(BaseTest):
         version.refresh_from_db()
         assert version.saved_query is not None
 
-    def test_keeps_old_materialization_that_was_never_executed(self):
+    def test_deactivates_old_materialization_that_was_never_executed(self):
         now = timezone.now()
-        # Materialization enabled 45 days ago but never executed via API key
+        # Materialization enabled 45 days ago, neither the version nor the endpoint ever executed
         endpoint, version = self._create_materialized_endpoint(
             "never_executed",
             last_run_at=now - timedelta(hours=1),
@@ -164,9 +163,8 @@ class TestDeactivateStaleMaterializationsTask(BaseTest):
 
         deactivate_stale_materializations()
 
-        # Should not be deactivated - last_executed_at is null (never used via API)
         version.refresh_from_db()
-        assert version.saved_query is not None
+        assert version.saved_query is None
 
     def test_skips_endpoints_not_materialized_recently(self):
         now = timezone.now()
@@ -393,7 +391,6 @@ class TestDeactivateEndpointMaterialization(BaseTest):
             query=self.sample_hogql_query,
             is_materialized=True,
             last_run_at=timezone.now(),
-            sync_frequency_interval=timedelta(hours=24),
             origin=DataWarehouseSavedQuery.Origin.ENDPOINT,
         )
         endpoint = Endpoint.objects.create(
@@ -428,7 +425,6 @@ class TestDeactivateEndpointMaterialization(BaseTest):
         saved_query.refresh_from_db()
         assert saved_query.deleted is True
         assert saved_query.is_materialized is False
-        assert saved_query.sync_frequency_interval is None
         assert saved_query.last_run_at is None
 
     def test_handles_endpoint_without_saved_query(self):

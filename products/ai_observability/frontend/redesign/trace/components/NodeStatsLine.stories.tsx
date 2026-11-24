@@ -11,8 +11,8 @@ export default meta
 
 type Story = StoryObj<typeof NodeStatsLine>
 
-export const Full: Story = { args: { stats: FIXTURE_STATS, model: 'gpt-4.1-mini' } }
-export const Compact: Story = { args: { stats: FIXTURE_STATS, model: 'gpt-4.1-mini', compact: true } }
+export const Full: Story = { args: { stats: FIXTURE_STATS, model: 'gpt-6-luna' } }
+export const Compact: Story = { args: { stats: FIXTURE_STATS, model: 'gpt-6-luna', compact: true } }
 export const LatencyOnly: Story = {
     args: {
         stats: {

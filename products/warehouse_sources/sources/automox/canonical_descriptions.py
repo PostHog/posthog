@@ -2,6 +2,29 @@ from products.warehouse_sources.sources.sdk import CanonicalDescriptions
 
 # Sourced from the official Automox Console API reference (https://console.automox.com/api/docs).
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "audit_events": {
+        "description": "One OCSF-formatted event from the Automox console audit trail, recording who signed in, changed a user, role, API key, policy, device, group or setting, and the outcome.",
+        "docs_url": "https://console.automox.com/api/docs/specs/audit-trail.json",
+        "columns": {
+            "id": "Unique identifier of the audit event.",
+            "event_time": "Date and time when the audited action happened, derived from the OCSF time field.",
+            "time": "Time of the audited action as an epoch timestamp.",
+            "message": "Event type, such as User Created or Policy Activated. A request rejected with 403 carries a (Denied) suffix.",
+            "category_uid": "OCSF category identifier of the event.",
+            "class_uid": "OCSF class identifier of the event (for example Account Change, Authentication, Entity Management or Web Resources Activity).",
+            "type_uid": "OCSF event type identifier, combining the class and the activity.",
+            "type_name": "OCSF event type name, such as Authentication: Logoff.",
+            "activity_id": "OCSF activity identifier of the event.",
+            "severity_id": "OCSF severity identifier of the event.",
+            "status_id": "OCSF status identifier of the event outcome.",
+            "actor": "Who performed the action, including the acting user's email address and identifier.",
+            "user": "The user the action applied to, for account change and authentication events.",
+            "entity": "The entity that was managed (its identifier, name and type), for entity management events.",
+            "web_resources": "The resources that were acted on, for web resource activity events.",
+            "observables": "Observable values of the event, such as the organization identifier and the actor's email address.",
+            "metadata": "OCSF event metadata, including the organization UUID (correlation_uid) and the account UUID (tenant_uid).",
+        },
+    },
     "device_inventory": {
         "description": "One collected inventory reading for a device, flattened out of Automox's per-device category tree. Covers hardware, health, network, security, services, system and user detail beyond the base device record.",
         "docs_url": "https://console.automox.com/api/docs#console-api",
@@ -175,6 +198,37 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "id": "Unique identifier for the issue within its action set.",
             "issue_type": "Type of problem found (currently unknown-host).",
             "issue_details": "Details of the problem, such as the hostname that could not be matched.",
+        },
+    },
+    "needs_attention_devices": {
+        "description": "A device that needs attention because it is not compliant with one or more policies, from the Automox needs-attention report.",
+        "docs_url": "https://console.automox.com/api/docs#console-api",
+        "columns": {
+            "id": "Identifier of the device, joining to the devices table.",
+            "name": "Hostname of the device.",
+            "custom_name": "Custom display name assigned to the device in the console.",
+            "server_create_time": "Date and time when the device was added to Automox.",
+            "last_refresh_time": "Date and time when the device last reported its state.",
+            "connected": "Whether the device's agent is currently connected.",
+            "needs_reboot": "Whether the device needs a reboot.",
+            "group_id": "Identifier of the server group the device belongs to.",
+            "os_family": "Operating system family of the device.",
+            "policies": "Policies the device fails, each with the reason for the failure, its severity and the packages it needs.",
+        },
+    },
+    "prepatch_devices": {
+        "description": "A device with the patches pending on it before the next policy run, from the Automox pre-patch report.",
+        "docs_url": "https://console.automox.com/api/docs#console-api",
+        "columns": {
+            "id": "Identifier of the device, joining to the devices table.",
+            "name": "Hostname of the device.",
+            "create_time": "Date and time when the device was added to Automox.",
+            "group": "Name of the server group the device belongs to.",
+            "connected": "Whether the device's agent is currently connected.",
+            "needs_reboot": "Whether the device needs a reboot.",
+            "os_family": "Operating system family of the device.",
+            "compliant": "Whether the device is compliant with its policies.",
+            "patches": "Pending patches, each with its package version, severity, CVEs, release time, scheduled patch time and whether it needs approval.",
         },
     },
     "server_groups": {

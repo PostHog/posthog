@@ -75,6 +75,10 @@ export function inboxStatusLabel(status: SignalReportStatus): string {
       return "Ready";
     case "resolved":
       return "Resolved";
+    case "monitoring":
+      return "Monitoring";
+    case "closed":
+      return "Closed";
     case "pending_input":
       return "Needs input";
     case "in_progress":
@@ -89,8 +93,6 @@ export function inboxStatusLabel(status: SignalReportStatus): string {
       return "Suppressed";
     case "deleted":
       return "Deleted";
-    default:
-      return status;
   }
 }
 

@@ -4,26 +4,28 @@ import { router } from 'kea-router'
 import { IconPeople } from '@posthog/icons'
 import { Button } from '@posthog/quill'
 
+import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
-import { ActivitySceneTabs } from 'scenes/activity/ActivitySceneTabs'
+import { PeopleSceneHeader } from 'scenes/activity/PeopleSceneHeader'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { useTodayPeopleTitle } from '~/layout/today/todayPeopleRows'
 import { groupsModel } from '~/models/groupsModel'
 import { Query } from '~/queries/Query/Query'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
+import { GroupTypeIndex } from '~/types'
 
 import { FeedbackButton } from 'products/customer_analytics/frontend/components/FeedbackButton'
 import { GroupsIntroduction } from 'products/groups/frontend/components/GroupsIntroduction'
+import { groupTypeSourceEventsUrl } from 'products/groups/frontend/components/groupTypeSourceEventsUrl'
 
 import { groupsListLogic } from '../logics/groupsListLogic'
 import { groupsSceneLogic } from '../logics/groupsSceneLogic'
@@ -42,7 +44,7 @@ export function GroupsScene(): JSX.Element {
     const { setQuery } = useActions(mountedGroupsListLogic)
 
     const { shouldShowGroupsIntroduction } = useValues(groupsAccessLogic)
-    const { aggregationLabel } = useValues(groupsModel)
+    const { aggregationLabel, groupTypes } = useValues(groupsModel)
     const { baseCurrency } = useValues(teamLogic)
     const hasCustomerAnalyticsEnabled = useFeatureFlag('CUSTOMER_ANALYTICS')
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
@@ -52,11 +54,13 @@ export function GroupsScene(): JSX.Element {
         throw new Error('groupTypeIndex is undefined')
     }
 
+    const groupType = groupTypes.get(groupTypeIndex as GroupTypeIndex)
+
     if (shouldShowGroupsIntroduction) {
         return (
             <SceneContent>
-                <ActivitySceneTabs activeKey={`groups-${groupTypeIndex}`} />
-                <SceneTitleSection
+                <PeopleSceneHeader
+                    activeKey={`groups-${groupTypeIndex}`}
                     name="Groups"
                     description="Associate events with a group or entity - such as a company, community, or project. Analyze these events as if they were sent by that entity itself. Great for B2B, marketplaces, and more."
                     resourceType={{
@@ -77,11 +81,19 @@ export function GroupsScene(): JSX.Element {
 
     return (
         <SceneContent>
-            <ActivitySceneTabs activeKey={`groups-${groupTypeIndex}`} />
-
-            <SceneTitleSection
+            <PeopleSceneHeader
+                activeKey={`groups-${groupTypeIndex}`}
                 name={capitalizeFirstLetter(groupTypeNamePlural)}
-                description={`A catalog of all ${groupTypeNamePlural} for this project`}
+                description={
+                    groupType
+                        ? `A catalog of all ${groupTypeNamePlural} for this project. PostHog created this group type automatically${
+                              groupType.created_at ? ` on ${dayjs(groupType.created_at).format('MMM D, YYYY')},` : ''
+                          } when an event first referenced "${groupType.group_type}". [View the source events](${groupTypeSourceEventsUrl(
+                              groupType
+                          )}) or [learn how groups are created](https://posthog.com/docs/product-analytics/group-analytics#how-to-create-groups).`
+                        : `A catalog of all ${groupTypeNamePlural} for this project`
+                }
+                markdown
                 resourceType={groupTitle?.resourceType ?? { type: 'cohort' }}
                 actions={
                     <>

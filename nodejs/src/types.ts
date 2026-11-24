@@ -17,7 +17,9 @@ import { Element, PluginEvent, Properties } from '~/plugin-scaffold'
 import type { AIObservabilityConfig } from './ai-observability/config'
 import type { CdpConfig } from './cdp/config'
 import type {
+    KafkaMskCdpIntakeProducerEnvConfig,
     KafkaWarehouseProducerEnvConfig,
+    KafkaWarpstreamCyclotronIntakeProducerEnvConfig,
     KafkaWarpstreamCyclotronProducerEnvConfig,
     KafkaWarpstreamIngestionProducerEnvConfig,
 } from './cdp/outputs/producers'
@@ -95,6 +97,7 @@ export type PluginServerService = {
     id: string
     onShutdown: () => Promise<any>
     healthcheck: () => HealthCheckResult | Promise<HealthCheckResult>
+    readinessCheck?: () => HealthCheckResult | Promise<HealthCheckResult>
 }
 
 export interface PluginsServerConfig
@@ -106,6 +109,8 @@ export interface PluginsServerConfig
         // Producer envs needed by the CDP producer registry the legacy big server builds.
         KafkaWarpstreamIngestionProducerEnvConfig,
         KafkaWarpstreamCyclotronProducerEnvConfig,
+        KafkaWarpstreamCyclotronIntakeProducerEnvConfig,
+        KafkaMskCdpIntakeProducerEnvConfig,
         KafkaWarehouseProducerEnvConfig {}
 
 export interface HubServices {
@@ -139,11 +144,15 @@ export interface PluginServerCapabilities {
     cdpDataWarehouseEvents?: boolean
     cdpPersonUpdates?: boolean
     cdpInternalEvents?: boolean
+    cdpSesWebhooks?: boolean
+    cdpIntakeTransactionalEmail?: boolean
+    cdpIntakeWorkflowWebhook?: boolean
     cdpLegacyOnEvent?: boolean
     cdpCyclotronWorkerBatchResolve?: boolean
     cdpCyclotronWorker?: boolean
     cdpCyclotronWorkerHogFlow?: boolean
     cdpCyclotronWorkerEmail?: boolean
+    cdpCyclotronWorkerEmailSandbox?: boolean
     cdpCohortMembership?: boolean
     cdpCohortMembershipTriggers?: boolean
     cdpApi?: boolean
@@ -287,6 +296,8 @@ export interface Team {
     person_display_name_properties: string[] | null
     minimal_flag_called_events: boolean
     flag_evaluations_mode: FlagEvaluationsMode
+    /** Ingestion reads this only when flag_evaluations_mode is FlagEvaluationsOnly. When true, ingestion keeps writing flag calls to events. */
+    keep_writing_flag_calls_to_events: boolean
     test_account_filters:
         | (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | CohortPropertyFilter)[]
         | null
@@ -491,8 +502,6 @@ export interface BasePerson {
     is_user_id: number | null
     is_identified: boolean
     uuid: string
-    properties_last_updated_at: PropertiesLastUpdatedAt
-    properties_last_operation: PropertiesLastOperation | null
 }
 
 /** Raw Person row from database. */
@@ -512,8 +521,6 @@ export interface InternalPerson extends BasePerson {
 /** Mutable fields that can be updated on a Person via updatePerson. */
 export interface PersonUpdateFields {
     properties: Properties
-    properties_last_updated_at: PropertiesLastUpdatedAt
-    properties_last_operation: PropertiesLastOperation | null
     is_identified: boolean
     created_at: DateTime
     version?: number // Optional: allows forcing a specific version

@@ -200,6 +200,28 @@ ENDPOINTS_CONFIG: dict[str, KnockEndpointConfig] = {
         should_sync_default=False,
         documents_pagination=False,
     ),
+    # The in-app feed items of each user. Knock can't list channels with a secret key, so the
+    # table walks the in-app feed channel ids the user configures on the source. Read, seen and
+    # archived state changes after an item is created while the only filter is on `inserted_at`,
+    # so full refresh only. A feed item id is its message id. An unknown user gets an empty
+    # feed, not a 404, so a 404 means a wrong channel id and fails the sync.
+    "user_feed_items": KnockEndpointConfig(
+        name="user_feed_items",
+        path="/v1/users/{user_id}/feeds/{channel_id}",
+        data_selector="entries",
+        primary_keys=("user_id", "id"),
+        partition_key="inserted_at",
+        fanout=DependentEndpointConfig(
+            parent_name="users",
+            resolve_param="user_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "user_id"},
+            # The feed hides archived items by default.
+            child_params={"archived": "include"},
+        ),
+        should_sync_default=False,
+    ),
     # Knock has no endpoint that lists audiences, so the table walks the audience keys the
     # user configures on the source. A user can be a member once per tenant.
     "audience_members": KnockEndpointConfig(

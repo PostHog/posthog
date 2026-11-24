@@ -31,11 +31,15 @@ import { userLogic } from 'scenes/userLogic'
 import { MAX_SIDE_PANEL_ID } from '~/layout/ai/aiPanelIds'
 import { runnerPanelLogic } from '~/layout/ai/runnerPanelLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { isTodayPaneEnabled } from '~/layout/today/todayPaneFlags'
+import { TODAY_PANES, TODAY_RAIL_FOOTER_PANES } from '~/layout/today/todayRailItems'
+import { TODAY_RAIL_PANES, todayShellLogic } from '~/layout/today/todayShellLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { membersLogic } from '~/models/membersLogic'
 import { recentItemsModel } from '~/models/recentItemsModel'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { SidePanelTab } from '~/types'
+import type { TeamPublicType } from '~/types'
 
 import type { Noun } from '../../../models/groupsModel'
 import type { GroupType, GroupTypeIndex, OrganizationMemberType, UserType } from '../../../types'
@@ -75,6 +79,7 @@ import {
     ViewAll,
     buildSections,
     buildSuggestions,
+    cachedPage,
     emptyRemoteSlots,
     isSelectable,
     pickDisplayedQuery,
@@ -84,6 +89,7 @@ import {
 import {
     REMOTE_REQUESTS,
     RemoteContext,
+    RemotePage,
     RemoteResults,
     RemoteSource,
     requestDebounceMs,
@@ -148,6 +154,7 @@ export interface commandKSearchLogicValues {
     sections: CommandKSection[]
     selectableRows: CommandKRow[]
     shownQuery: SectionsQuery | null
+    sidebarItems: SearchItem[]
     suggestionsSection: CommandKSection | null
     tabAsksAi: boolean
     text: string
@@ -180,10 +187,10 @@ export interface commandKSearchLogicActions {
         tab: SidePanelTab
     } // sidePanelStateLogic
     loadCurrentTeamSuccess: (
-        currentTeam: null | import('~/types').TeamPublicType,
+        currentTeam: TeamPublicType | null,
         payload?: any
     ) => {
-        currentTeam: null | import('~/types').TeamPublicType
+        currentTeam: TeamPublicType | null
         payload?: any
     } // teamLogic
     activateRow: (
@@ -263,7 +270,7 @@ export interface commandKSearchLogicActions {
         results: Partial<
             Record<
                 'accounts' | 'events' | 'groups' | 'persons' | 'properties' | 'results' | 'tickets' | 'workflows',
-                SearchItem[]
+                RemotePage
             >
         >
     }
@@ -313,7 +320,7 @@ export interface commandKSearchLogicMeta {
         remoteContext: (
             currentTeamId: number | null,
             groupTypes: Map<GroupTypeIndex, GroupType>,
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun, // groupsModel
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun,
             featureFlags: FeatureFlagsSet
         ) => RemoteContext
         requestQueries: (
@@ -331,11 +338,13 @@ export interface commandKSearchLogicMeta {
             folders: FileSystemEntry[] | null
         ) => CommandKSection | null
         recentItems: (recents: FileSystemEntry[]) => SearchItem[]
+        sidebarItems: (featureFlags: FeatureFlagsSet) => SearchItem[]
         localLists: (
             recentItems: SearchItem[],
             starredItems: SearchItem[],
             shortcutItems: SearchItem[],
             productsItems: SearchItem[],
+            sidebarItems: SearchItem[],
             settingsItems: SearchItem[],
             newItems: SearchItem[],
             dataManagementItems: SearchItem[],
@@ -533,11 +542,13 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
             {
                 remoteLoaded: (state, { query, results, failed }) => {
                     const next = { ...state }
-                    for (const [source, items] of Object.entries(results) as [RemoteSource, SearchItem[]][]) {
+                    for (const [source, page] of Object.entries(results) as [RemoteSource, RemotePage][]) {
                         const { [query]: _, ...stillFailed } = state[source].failed ?? {}
+                        const { [query]: _more, ...stillMore } = state[source].more ?? {}
                         next[source] = {
-                            cache: { ...state[source].cache, [query]: items },
+                            cache: { ...state[source].cache, [query]: page.items },
                             failed: failed ? { ...stillFailed, [query]: true } : stillFailed,
+                            more: page.more ? { ...stillMore, [query]: true } : stillMore,
                         }
                     }
                     return next
@@ -555,7 +566,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                     for (const [source, query] of retried) {
                         const { [query]: _items, ...cache } = next[source].cache
                         const { [query]: _failed, ...failed } = next[source].failed ?? {}
-                        next[source] = { cache, failed }
+                        next[source] = { ...next[source], cache, failed }
                     }
                     return next
                 },
@@ -701,12 +712,32 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                     .slice(0, RECENTS_LIMIT)
                     .map((entry) => fileSystemEntryToSearchItem(entry, { id: entry.path, category: 'recents' })),
         ],
+        sidebarItems: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): SearchItem[] =>
+                featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV]
+                    ? [...TODAY_RAIL_PANES, ...TODAY_RAIL_FOOTER_PANES]
+                          .filter((pane) => isTodayPaneEnabled(pane, featureFlags))
+                          .map((pane) => {
+                              const { label, title, icon } = TODAY_PANES[pane]
+                              return {
+                                  id: `sidebar-${pane}`,
+                                  name: label,
+                                  category: 'sidebar',
+                                  icon,
+                                  searchKeywords: title !== label ? [title] : [],
+                                  onSelect: () => todayShellLogic.findMounted()?.actions.showPane(pane),
+                              }
+                          })
+                    : [],
+        ],
         localLists: [
             (s) => [
                 s.recentItems,
                 s.starredItems,
                 s.shortcutItems,
                 s.productsItems,
+                s.sidebarItems,
                 s.settingsItems,
                 s.newItems,
                 s.dataManagementItems,
@@ -719,6 +750,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                 starred: SearchItem[],
                 shortcuts: SearchItem[],
                 products: SearchItem[],
+                sidebar: SearchItem[],
                 settings: SearchItem[],
                 create: SearchItem[],
                 dataManagement: SearchItem[],
@@ -730,6 +762,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                 starred,
                 shortcuts,
                 products,
+                sidebar,
                 settings,
                 create,
                 'data-management': dataManagement,
@@ -890,6 +923,8 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
             posthog.capture('command k result opened', {
                 section: row.kind === 'item' ? row.section : 'ask-ai',
                 ranked_section: row.key.split('/')[0],
+                result_category: item?.category ?? null,
+                result_type: item?.itemType ?? null,
                 position: values.selectableRows.findIndex((candidate) => candidate.key === row.key),
                 has_filters: values.chips.length > 0,
                 filter_keys: values.chips.map((chip) => chip.key),
@@ -941,12 +976,13 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                     cache.disposables.dispose(`request-${request.id}`)
                     continue
                 }
-                const cached = request.sources.map((source) => values.remote[source].cache[query])
-                if (cached.every(Boolean)) {
+                if (request.sources.every((source) => query in values.remote[source].cache)) {
                     cache.disposables.dispose(`request-${request.id}`)
                     actions.remoteLoaded(
                         query,
-                        Object.fromEntries(request.sources.map((source, index) => [source, cached[index]]))
+                        Object.fromEntries(
+                            request.sources.map((source) => [source, cachedPage(values.remote[source], query)])
+                        )
                     )
                     continue
                 }

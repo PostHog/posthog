@@ -15,11 +15,15 @@ const CLOSE_DELAY_MS = 100
 export function TodayPreviewTrigger({
     payload,
     inline = false,
+    disabled = false,
+    className,
     children,
 }: {
     payload: TodayPreviewPayload
     /** Wraps a link inside running text, so the trigger must not break the line. */
+    className?: string
     inline?: boolean
+    disabled?: boolean
     children: ReactNode
 }): JSX.Element {
     const card = useContext(TodayPreviewCardContext)
@@ -29,10 +33,19 @@ export function TodayPreviewTrigger({
     return (
         <PreviewCard.Trigger
             handle={card.handle}
-            payload={payload}
+            payload={disabled ? undefined : payload}
             delay={OPEN_DELAY_MS}
             closeDelay={CLOSE_DELAY_MS}
-            render={inline ? <span /> : <div className="min-w-0" />}
+            render={inline ? <span /> : <div className={className ?? 'min-w-0'} />}
+            // Capture, so a row control that stops propagation still closes the card.
+            onClickCapture={(event) => card.dismissFor(event.currentTarget)}
+            // Enter, not leave: a clicked row the pointer never visited, such as Enter in a search list, rearms on its first hover.
+            onPointerEnter={(event) => card.rearm(event.currentTarget)}
+            onBlur={(event) => {
+                if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                    card.rearm(event.currentTarget)
+                }
+            }}
         >
             {children}
         </PreviewCard.Trigger>

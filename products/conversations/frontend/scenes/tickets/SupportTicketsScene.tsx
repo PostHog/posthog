@@ -3,7 +3,7 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { useEffect, useMemo, useRef } from 'react'
 
-import { LemonBanner, LemonButton, LemonCheckbox, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
 import { useBulkSelection } from 'lib/lemon-ui/LemonTable/useBulkSelection'
 import { newInternalTab } from 'lib/utils/newInternalTab'
@@ -18,6 +18,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import { ComposeTicketButton } from '../../components/ComposeTicket/ComposeTicketButton'
 import { ScenesTabs } from '../../components/ScenesTabs'
+import { SupportTicketsBanner } from '../../components/SupportTicketsBanner/SupportTicketsBanner'
 import { TicketListFilters } from '../../components/TicketListFilters/TicketListFilters'
 import { supportEmptyState } from '../../emptyState/supportEmptyState'
 import { type Ticket } from '../../types'
@@ -207,16 +208,7 @@ export function SupportTicketsScene(): JSX.Element {
                 resourceType={ticketsTitle?.resourceType ?? { type: 'conversation' }}
                 actions={<ComposeTicketButton />}
             />
-            {/* pinned: survey 01a17c76-69b3-0000-bb24-4adfd734f406 targets #ai-support-feedback-button */}
-            {aiEnabled && (
-                <LemonBanner
-                    type="info"
-                    dismissKey="ai-support-feedback-banner"
-                    action={{ children: 'Send feedback', id: 'ai-support-feedback-button' }}
-                >
-                    <p>Tell us how the AI agent is working, or report any issues.</p>
-                </LemonBanner>
-            )}
+            <SupportTicketsBanner aiEnabled={aiEnabled} />
             <ScenesTabs />
             <TicketListFilters />
             <SupportTicketsTable />

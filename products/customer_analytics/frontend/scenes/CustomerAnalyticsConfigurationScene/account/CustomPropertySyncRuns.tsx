@@ -1,3 +1,5 @@
+import posthog from 'posthog-js'
+
 import { IconExternal, IconRefresh } from '@posthog/icons'
 import {
     LemonBanner,
@@ -10,25 +12,29 @@ import {
 } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
-import { humanFriendlyDuration } from 'lib/utils/durations'
-import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import type { CustomPropertySyncRunApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
+import {
+    ACCOUNT_SEGMENT_LABELS,
+    RUN_STATUS_LABELS,
+    runDuration,
+    TARGET_LABELS,
+    type TargetType,
+    updatedShare,
+} from './customPropertySyncRunFormat'
+import { CustomPropertySyncRunLogs } from './CustomPropertySyncRunLogs'
 import { runOutcomeNote } from './customPropertyTypes'
+import { QuillCustomPropertySyncRuns } from './QuillCustomPropertySyncRuns'
 
 const TAG_TYPE_BY_RUN_STATUS: Record<string, LemonTagType> = {
     completed: 'success',
     running: 'primary',
     failed: 'danger',
-}
-
-const RUN_STATUS_LABELS: Record<string, string> = {
-    completed: 'Completed',
-    running: 'Running',
-    failed: 'Failed',
 }
 
 const RUN_TRIGGERS: Record<string, { label: string; type: LemonTagType }> = {
@@ -38,48 +44,8 @@ const RUN_TRIGGERS: Record<string, { label: string; type: LemonTagType }> = {
     backfill: { label: 'Auto backfill', type: 'default' },
 }
 
-const ACCOUNT_SEGMENT_LABELS: Record<string, string> = {
-    tracked: 'Tracked',
-    ignored: 'Ignored',
-}
-
-type TargetType = 'account' | 'person' | 'group'
-
-type TargetLabels = {
-    entity: string
-    entityPlural: string
-}
-
-const TARGET_LABELS: Record<TargetType, TargetLabels> = {
-    account: { entity: 'account', entityPlural: 'accounts' },
-    person: { entity: 'person', entityPlural: 'people' },
-    group: { entity: 'group', entityPlural: 'groups' },
-}
-
 function RunCount({ value }: { value: number }): JSX.Element {
     return <span className={value ? 'font-medium' : 'text-secondary'}>{humanFriendlyNumber(value)}</span>
-}
-
-function runDuration(run: CustomPropertySyncRunApi): string {
-    if (!run.started_at || !run.finished_at) {
-        return '-'
-    }
-    const seconds = Math.max((new Date(run.finished_at).getTime() - new Date(run.started_at).getTime()) / 1000, 0)
-    return humanFriendlyDuration(seconds, { maxUnits: 2 })
-}
-
-function updatedShare(existing: number, changed: number): string | null {
-    if (changed <= 0) {
-        return null
-    }
-    if (existing >= changed) {
-        return '100%'
-    }
-    const share = existing / changed
-    if (share < 0.01) {
-        return '<1%'
-    }
-    return percentage(Math.min(share, 0.99), 0)
 }
 
 export interface CustomPropertySyncRunsProps {
@@ -87,6 +53,8 @@ export interface CustomPropertySyncRunsProps {
     loading: boolean
     loadFailed: boolean
     targetType: TargetType
+    /** The warehouse table or view a person or group source reads from. Rows expand into the run's progress log. */
+    logSourceId?: string | null
     syncsUrl?: string | null
     searchTerm: string
     entryCount: number
@@ -102,6 +70,7 @@ export function CustomPropertySyncRuns({
     loading,
     loadFailed,
     targetType,
+    logSourceId,
     syncsUrl,
     searchTerm,
     entryCount,
@@ -111,8 +80,29 @@ export function CustomPropertySyncRuns({
     onBackward,
     onReload,
 }: CustomPropertySyncRunsProps): JSX.Element {
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const labels = TARGET_LABELS[targetType]
     const accountRuns = targetType === 'account'
+
+    if (todayRailNav) {
+        return (
+            <QuillCustomPropertySyncRuns
+                runs={runs}
+                loading={loading}
+                loadFailed={loadFailed}
+                targetType={targetType}
+                logSourceId={logSourceId}
+                syncsUrl={syncsUrl}
+                searchTerm={searchTerm}
+                entryCount={entryCount}
+                currentPage={currentPage}
+                onSearch={onSearch}
+                onForward={onForward}
+                onBackward={onBackward}
+                onReload={onReload}
+            />
+        )
+    }
 
     if (loadFailed) {
         return (
@@ -298,6 +288,24 @@ export function CustomPropertySyncRuns({
                 rowKey="id"
                 size="small"
                 nouns={['run', 'runs']}
+                expandable={
+                    !accountRuns && logSourceId
+                        ? {
+                              // A run recorded before its job id was stored has no log lines to find.
+                              rowExpandable: (run) => !!run.workflow_run_id,
+                              onRowExpand: (run) =>
+                                  // Pinned: analytics event name, renaming breaks dashboards.
+                                  posthog.capture('warehouse property run logs viewed', {
+                                      target_type: targetType,
+                                      run_status: run.status,
+                                  }),
+                              expandedRowRender: (run) => (
+                                  <CustomPropertySyncRunLogs run={run} logSourceId={logSourceId} />
+                              ),
+                              noIndent: true,
+                          }
+                        : undefined
+                }
                 pagination={{
                     controlled: true,
                     pageSize: 20,

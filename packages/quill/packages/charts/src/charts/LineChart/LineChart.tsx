@@ -69,7 +69,7 @@ export interface LineChartProps<Meta = unknown> {
 
 export function LineChart<Meta = unknown>({ onError, ...rest }: LineChartProps<Meta>): React.ReactElement {
     return (
-        <ChartErrorBoundary onError={onError}>
+        <ChartErrorBoundary onError={onError} resetKey={rest.series}>
             <LineChartInner {...rest} />
         </ChartErrorBoundary>
     )

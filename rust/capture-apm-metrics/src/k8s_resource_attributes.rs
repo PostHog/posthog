@@ -13,6 +13,7 @@
 
 use std::collections::{HashMap, HashSet};
 
+use capture_logs::log_record::ORIGINAL_TIMESTAMP_ATTRIBUTE;
 use capture_logs::metric_record::{compute_series_fingerprint, KafkaMetricRow};
 use metrics::counter;
 use prometheus_rw_proto::prometheus::v1::WriteRequest;
@@ -33,10 +34,6 @@ fn resource_key_for(label: &str) -> Option<&'static str> {
         .find(|(name, _)| *name == label)
         .map(|(_, key)| *key)
 }
-
-/// The row builder adds this attribute per sample after it computes the
-/// fingerprint, so the recomputed fingerprint must leave it out too.
-const ORIGINAL_TIMESTAMP_ATTRIBUTE: &str = "$originalTimestamp";
 
 /// Attribute values are JSON-encoded strings, so an empty label is `""`.
 const EMPTY_JSON_STRING: &str = "\"\"";
@@ -137,6 +134,8 @@ impl K8sResourceAttributes {
                 Some(fingerprint) => *fingerprint,
                 None => {
                     let mut series_attributes = row.attributes.clone();
+                    // The row builder adds this attribute to each sample after it computes
+                    // the fingerprint. Remove it so that the two fingerprints are equal.
                     series_attributes.remove(ORIGINAL_TIMESTAMP_ATTRIBUTE);
                     let fingerprint = compute_series_fingerprint(
                         &row.metric_name,

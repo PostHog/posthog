@@ -14,6 +14,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
+from posthog.integrations.secret_reads import UndecryptedIntegrationSecretError, looks_encrypted
 
 from products.data_warehouse.backend.facade.api import (
     DirectQueryEngine,
@@ -52,7 +53,7 @@ from products.warehouse_sources.backend.facade.source_management import (
 from products.warehouse_sources.backend.facade.types import ManagedWarehouseSQLMode
 
 if TYPE_CHECKING:
-    from posthog.integrations import IntegrationUsage
+    from posthog.integrations import IntegrationRecord, IntegrationUsage
 
     from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
 
@@ -485,12 +486,18 @@ def _collect_secret_values(data: Any, sensitive: set[str], into: set[str]) -> No
             _collect_secret_values(nested, sensitive, into)
 
 
-def get_error_redaction_values(source: ExternalDataSource) -> frozenset[str]:
-    """The stored secret values of a source, to mask wherever they appear in its error messages."""
-    try:
-        job_inputs = SourceInputsStore.load(source)
-    except UnreadableSourceInputsError:
-        return frozenset()
+def get_error_redaction_values(
+    source: ExternalDataSource, job_inputs: Mapping[str, Any] | None = None
+) -> frozenset[str]:
+    """The stored secret values of a source, to mask wherever they appear in its error messages.
+
+    ``job_inputs`` are inputs that the caller already loaded, so a list does not read each credentials row again.
+    """
+    if job_inputs is None:
+        try:
+            job_inputs = SourceInputsStore.load(source)
+        except UnreadableSourceInputsError:
+            return frozenset()
     try:
         source_config = SourceRegistry.get_source(source.source_type).get_source_config
         sensitive = get_sensitive_field_names(source_config.fields)
@@ -499,6 +506,28 @@ def get_error_redaction_values(source: ExternalDataSource) -> frozenset[str]:
     values: set[str] = set()
     _collect_secret_values(job_inputs, sensitive, values)
     return frozenset(value for value in values if len(value) >= _MIN_REDACTED_SECRET_LENGTH)
+
+
+def get_integration_error_redaction_values(integration: IntegrationRecord | None) -> frozenset[str]:
+    """The secret values of a destination's integration, to mask wherever they appear in its delivery errors.
+
+    Every value in `sensitive_config` is a secret, so each one is masked whatever its length. In `config`,
+    only keys named like a secret are, and short values there are left alone like a source's.
+
+    Raises `UndecryptedIntegrationSecretError` when a secret cannot be read, so it cannot be masked.
+    """
+    if integration is None:
+        return frozenset()
+    sensitive: set[str] = set()
+    _collect_string_leaves(integration.sensitive_config, sensitive)
+    # The Django backend gives back a secret that no key can decrypt as its ciphertext, without raising.
+    if any(looks_encrypted(value) for value in sensitive):
+        raise UndecryptedIntegrationSecretError()
+    named_like_secret: set[str] = set()
+    _collect_secret_values(integration.config, set(), named_like_secret)
+    return frozenset(value for value in sensitive if value) | frozenset(
+        value for value in named_like_secret if len(value) >= _MIN_REDACTED_SECRET_LENGTH
+    )
 
 
 def redact_error_message(message: str | None, secret_values: Iterable[str]) -> str | None:

@@ -1,16 +1,25 @@
+import time
 import asyncio
+import dataclasses
 from typing import Any
 
 import structlog
 from temporalio import activity
 
 from posthog.egress.limiter.policies import Priority
+from posthog.models.user import User
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.utils import close_db_connections
 
+from products.slack_app.backend.analytics import capture_slack_event, slack_session_id
+from products.slack_app.backend.feature_flags import is_slack_app_jev_needs_repo_enabled
 from products.slack_app.backend.services.slack_messages import SlackThreadMessage
-from products.slack_app.backend.services.workspace_integrations import require_workspace_integration
+from products.slack_app.backend.services.workspace_integrations import (
+    WorkspaceIntegration,
+    require_workspace_integration,
+)
+from products.slack_app.backend.task_profiles import REPO_SELECTION
 from products.slack_app.backend.temporal.helpers import safe_react
 from products.slack_app.backend.temporal.types import (
     PostHogCodeRepoCascadeOutcome,
@@ -19,6 +28,43 @@ from products.slack_app.backend.temporal.types import (
 )
 
 logger = structlog.get_logger(__name__)
+
+REPOSITORY_RESOLVED_EVENT = "slack app repository resolved"
+
+
+def capture_repository_resolved(
+    integration: WorkspaceIntegration,
+    inputs: PostHogCodeSlackMentionWorkflowInputs,
+    resolution: str,
+    *,
+    has_repository: bool,
+    is_final: bool = True,
+    **props: object,
+) -> None:
+    """Record each step of choosing a mention's repository, so the cost of each path can be measured.
+
+    A mention emits one event per step it passes; ``is_final`` marks the step that decided.
+    ``slack_session_id`` joins this event to the run's ``task_run_created`` and startup timing events.
+    """
+    try:
+        event = inputs.event
+        channel = event.get("channel")
+        thread_ts = event.get("thread_ts") or event.get("ts")
+        posthog_user = User.objects.filter(id=inputs.user_id).first()
+    except Exception:
+        logger.warning("slack_app_repository_resolved_capture_failed", exc_info=True)
+        return
+    capture_slack_event(
+        integration,
+        REPOSITORY_RESOLVED_EVENT,
+        slack_user_id=event.get("user"),
+        posthog_user=posthog_user,
+        resolution=resolution,
+        has_repository=has_repository,
+        is_final=is_final,
+        slack_session_id=slack_session_id(inputs.slack_team_id, channel, thread_ts) if channel and thread_ts else None,
+        **props,
+    )
 
 
 @activity.defn
@@ -36,6 +82,10 @@ def cascade_posthog_code_repository_activity(
     repos connected to the mentioning user's personal install, exactly one connected, or
     an explicit `org/repo` named in the mention or in the thread it sits in. Anything
     else returns `mode='agent_needed'` and the workflow takes over.
+
+    Behind ``slack-app-jev-needs-repo``, Jev first decides whether the ask needs code at
+    all. A no ends selection with no repo, even for a person with one repository; a yes
+    runs the same tiers and marks an ``agent_needed`` outcome as already classified.
 
     The discovery agent this preempts reads the whole thread, so the fast path must too:
     a mention-only read sends every ask whose link sits in an earlier message to a
@@ -56,24 +106,101 @@ def cascade_posthog_code_repository_activity(
     integration = require_workspace_integration(inputs.integration_id, inputs.slack_team_id)
     all_repos = _get_full_repo_names(integration, user_id=user_id)
 
+    posthog_user = User.objects.filter(id=user_id).first()
+    distinct_id = posthog_user.distinct_id if posthog_user else None
+
     if not all_repos:
         # No repos means no repo, whatever the team has installed. Deciding here that the user must
         # connect a personal install would gate the mention before anyone has asked whether it is
         # even about code; `no_repo` becomes a repo-less task instead, and the agent tells the user
         # to connect GitHub only once it can see that the ask needs code.
-        return PostHogCodeRepoCascadeOutcome(mode="no_repo", repository=None, reason="no_repos")
+        outcome = PostHogCodeRepoCascadeOutcome(mode="no_repo", repository=None, reason="no_repos")
+    elif is_slack_app_jev_needs_repo_enabled(integration, distinct_id):
+        eligible_messages = _messages_at_or_before(thread_messages or [], mention_ts)
+        resolution = _ask_jev_needs_repo(integration, inputs, event_text, eligible_messages, all_repos, distinct_id)
+        if resolution != "classifier_needs_repo":
+            # The classifier step already recorded this decision as final.
+            return PostHogCodeRepoCascadeOutcome(mode="no_repo", repository=None, reason=resolution)
+        if len(all_repos) == 1:
+            outcome = PostHogCodeRepoCascadeOutcome(mode="auto", repository=all_repos[0], reason="single_repo")
+        else:
+            outcome = _resolve_explicit_repo(event_text, eligible_messages, all_repos)
+            if outcome.mode == "agent_needed":
+                outcome = dataclasses.replace(outcome, needs_repo_classified=True)
+    elif len(all_repos) == 1:
+        outcome = PostHogCodeRepoCascadeOutcome(mode="auto", repository=all_repos[0], reason="single_repo")
+    else:
+        outcome = _resolve_explicit_repo(
+            event_text, _messages_at_or_before(thread_messages or [], mention_ts), all_repos
+        )
+        # Logged so the share of mentions each resolution tier saves from the discovery agent is measurable.
+        logger.info(
+            "posthog_code_cascade_outcome",
+            reason=outcome.reason,
+            integration_id=inputs.integration_id,
+        )
 
-    if len(all_repos) == 1:
-        return PostHogCodeRepoCascadeOutcome(mode="auto", repository=all_repos[0], reason="single_repo")
-
-    outcome = _resolve_explicit_repo(event_text, _messages_at_or_before(thread_messages or [], mention_ts), all_repos)
-    # Logged so the share of mentions each resolution tier saves from the discovery agent is measurable.
-    logger.info(
-        "posthog_code_cascade_outcome",
-        reason=outcome.reason,
-        integration_id=inputs.integration_id,
+    capture_repository_resolved(
+        integration,
+        inputs,
+        outcome.reason,
+        has_repository=outcome.repository is not None,
+        is_final=outcome.mode != "agent_needed",
+        connected_repo_count=len(all_repos),
     )
     return outcome
+
+
+def _ask_jev_needs_repo(
+    integration: WorkspaceIntegration,
+    inputs: PostHogCodeSlackMentionWorkflowInputs,
+    event_text: str,
+    thread_messages: list[SlackThreadMessage],
+    all_repos: list[str],
+    distinct_id: str | None,
+) -> str:
+    """Ask Jev before any repository is picked, and return the step's resolution.
+
+    An unanswered question means no repo: a repo-less Slack run keeps its GitHub token,
+    so the agent can still clone a repository when the ask turns out to need one.
+    """
+    from products.slack_app.backend.temporal.activities.classifiers import (  # noqa: PLC0415 — classifiers imports this module
+        _thread_trace_id,
+        classify_needs_repo_with_jev,
+        team_routing_rule_lines,
+    )
+
+    probability: float | None = None
+    try:
+        verdict = classify_needs_repo_with_jev(
+            event_text,
+            thread_messages,
+            routing_rules=team_routing_rule_lines(
+                integration.team_id, candidate_repos={repo.lower() for repo in all_repos}
+            ),
+            team_id=integration.team_id,
+            distinct_id=distinct_id,
+            trace_id=_thread_trace_id(inputs.slack_team_id, inputs.event.get("thread_ts") or inputs.event.get("ts")),
+        )
+        probability = verdict.probability
+        resolution = "classifier_needs_repo" if verdict.needs_repo else "classifier_no_repo"
+        needs_repo = verdict.needs_repo
+    except Exception:
+        logger.warning("slack_app_jev_needs_repo_failed", integration_id=integration.id, exc_info=True)
+        resolution = "classifier_failed"
+        needs_repo = False
+
+    capture_repository_resolved(
+        integration,
+        inputs,
+        resolution,
+        has_repository=False,
+        is_final=not needs_repo,
+        connected_repo_count=len(all_repos),
+        classifier="jev",
+        needs_repo_probability=probability,
+    )
+    return resolution
 
 
 def _messages_at_or_before(messages: list[SlackThreadMessage], mention_ts: str | None) -> list[SlackThreadMessage]:
@@ -123,10 +250,42 @@ async def discover_posthog_code_repository_via_agent_activity(
     The agent's legitimate "no plausible candidate" result becomes
     `status='no_match'`, which the workflow turns into a no-repo task.
     """
+    started_at = time.monotonic()
+    outcome = await _discover_repository(inputs, channel, event, thread_messages, user_id)
+    # The discovery sandbox runs before the task exists, so its time is not part of the run's startup timing.
+    duration_ms = int((time.monotonic() - started_at) * 1000)
+
+    def _capture() -> None:
+        integration = require_workspace_integration(inputs.integration_id, inputs.slack_team_id)
+        capture_repository_resolved(
+            integration,
+            inputs,
+            f"discovery_{outcome.status}",
+            has_repository=outcome.repository is not None,
+            # A failed discovery falls back to the repo picker, whose choice is not recorded here.
+            is_final=outcome.status != "failed",
+            selection_duration_ms=duration_ms,
+            usage_limited=outcome.usage_limited,
+            repo_research_task_id=outcome.repo_research_task_id,
+        )
+
+    try:
+        await database_sync_to_async(_capture)()
+    except Exception:
+        logger.warning("slack_app_repository_resolved_capture_failed", exc_info=True)
+    return outcome
+
+
+async def _discover_repository(
+    inputs: PostHogCodeSlackMentionWorkflowInputs,
+    channel: str,
+    event: dict[str, Any],
+    thread_messages: list[SlackThreadMessage],
+    user_id: int,
+) -> SlackRepoSelectionOutcome:
     from posthog.models.integration import SlackIntegration
 
     from products.slack_app.backend.api import post_quota_exhausted_denial
-    from products.tasks.backend.facade import api as tasks_facade
     from products.tasks.backend.facade.repo_selection import (
         RepoSelectionRejectedError,
         RepoSelectionUnavailableError,
@@ -167,7 +326,7 @@ async def discover_posthog_code_repository_via_agent_activity(
                 team_id=integration.team_id,
                 user_id=user_id,
                 context=context_block,
-                origin_product=tasks_facade.TaskOriginProduct.SLACK,
+                profile=REPO_SELECTION,
                 # A person waits in the Slack thread for the answer.
                 priority=Priority.NORMAL,
                 on_research_session=_capture_research_session,

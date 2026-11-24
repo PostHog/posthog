@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
-from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType
+from products.warehouse_sources.sources.sdk import DependentEndpointConfig, IncrementalField, IncrementalFieldType
 
 
 @dataclass(frozen=False)
@@ -10,8 +10,8 @@ class ShutterstockEndpointConfig:
     # Path under https://api.shutterstock.com.
     path: str
     incremental_fields: list[IncrementalField]
-    # Page size for page-number paginated endpoints; None = single unpaginated response.
-    page_size: Optional[int] = None
+    # Zero selects a single unpaginated response.
+    page_size: int = 0
     # Stable datetime field used for datetime partitioning. Only set where the field is
     # present on every row (never a mutable `updated_*` field — those rewrite partitions).
     partition_key: Optional[str] = None
@@ -28,6 +28,12 @@ class ShutterstockEndpointConfig:
     # so the first sync bounds its window to this many days back instead.
     default_lookback_days: Optional[int] = None
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
+    fanout: DependentEndpointConfig | None = None
+    string_rows: bool = False
+
+    @property
+    def default_incremental_field(self) -> str | None:
+        return self.cursor_field
 
 
 # Shutterstock v2 REST API (https://api-reference.shutterstock.com/).
@@ -95,6 +101,36 @@ SHUTTERSTOCK_ENDPOINTS: dict[str, ShutterstockEndpointConfig] = {
         required_scope="collections.view",
         incremental_fields=[],
     ),
+    "image_collection_items": ShutterstockEndpointConfig(
+        name="image_collection_items",
+        path="/v2/images/collections/{id}/items",
+        page_size=150,
+        required_scope="collections.view",
+        incremental_fields=[],
+        primary_keys=["collection_id", "id"],
+        fanout=DependentEndpointConfig(
+            parent_name="image_collections",
+            resolve_param="id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "collection_id"},
+        ),
+    ),
+    "video_collection_items": ShutterstockEndpointConfig(
+        name="video_collection_items",
+        path="/v2/videos/collections/{id}/items",
+        page_size=150,
+        required_scope="collections.view",
+        incremental_fields=[],
+        primary_keys=["collection_id", "id"],
+        fanout=DependentEndpointConfig(
+            parent_name="video_collections",
+            resolve_param="id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "collection_id"},
+        ),
+    ),
     "image_licenses": ShutterstockEndpointConfig(
         name="image_licenses",
         path="/v2/images/licenses",
@@ -134,6 +170,44 @@ SHUTTERSTOCK_ENDPOINTS: dict[str, ShutterstockEndpointConfig] = {
         path="/v2/user/subscriptions",
         required_scope="purchases.view",
         incremental_fields=[],
+    ),
+    "audio_licenses": ShutterstockEndpointConfig(
+        name="audio_licenses",
+        path="/v2/audio/licenses",
+        page_size=200,
+        partition_key="download_time",
+        cursor_field="download_time",
+        supports_incremental=True,
+        required_scope="licenses.view",
+        incremental_fields=[
+            {
+                "label": "download_time",
+                "type": IncrementalFieldType.DateTime,
+                "field": "download_time",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+    ),
+    "audio_genres": ShutterstockEndpointConfig(
+        name="audio_genres",
+        path="/v2/audio/genres",
+        incremental_fields=[],
+        primary_keys=["name"],
+        string_rows=True,
+    ),
+    "audio_instruments": ShutterstockEndpointConfig(
+        name="audio_instruments",
+        path="/v2/audio/instruments",
+        incremental_fields=[],
+        primary_keys=["name"],
+        string_rows=True,
+    ),
+    "audio_moods": ShutterstockEndpointConfig(
+        name="audio_moods",
+        path="/v2/audio/moods",
+        incremental_fields=[],
+        primary_keys=["name"],
+        string_rows=True,
     ),
 }
 

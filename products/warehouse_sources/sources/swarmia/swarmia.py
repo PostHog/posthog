@@ -20,6 +20,7 @@ from products.warehouse_sources.sources.sdk import (
 from products.warehouse_sources.sources.swarmia.settings import SWARMIA_ENDPOINTS, SwarmiaEndpointConfig
 
 SWARMIA_BASE_URL = "https://app.swarmia.com/api/v0"
+SWARMIA_V1_BASE_URL = "https://app.swarmia.com/api/v1"
 
 REQUEST_TIMEOUT_SECONDS = 60
 
@@ -109,6 +110,20 @@ _FLOAT_COLUMNS = {
 }
 
 
+# v1 JSON report fields whose camelCase name doesn't carry the unit, renamed to match the v0 columns.
+_JSON_COLUMN_RENAMES: dict[str, str] = {
+    "cycleTime": "cycle_time_seconds",
+    "timeToFirstReview": "time_to_first_review_seconds",
+    "mergeTime": "merge_time_seconds",
+    "reviewRate": "review_rate_percent",
+    "enabledRate": "enabled_rate_percent",
+}
+
+
+def _camel_to_snake(name: str) -> str:
+    return re.sub(r"(?<=[a-z0-9])([A-Z])", r"_\1", name).lower()
+
+
 def _normalize_column(name: str) -> str:
     normalized = name.strip().replace("%", "percent").replace("/", " per ")
     normalized = re.sub(r"[^0-9a-zA-Z]+", "_", normalized).strip("_").lower()
@@ -146,12 +161,20 @@ def _convert_value(column: str, value: str | None) -> Any:
     return text
 
 
-def _get_headers(api_key: str) -> dict[str, str]:
+def _get_headers(api_key: str, response_format: str = "csv") -> dict[str, str]:
     # Bearer header rather than the documented ?token= query param — proxies may log query strings.
     return {
         "Authorization": f"Bearer {api_key}",
-        "Accept": "text/csv",
+        "Accept": "application/json" if response_format == "json" else "text/csv",
     }
+
+
+def _endpoint_url(config: SwarmiaEndpointConfig, params: dict[str, str]) -> str:
+    base_url = SWARMIA_V1_BASE_URL if config.api_version == "v1" else SWARMIA_BASE_URL
+    url = f"{base_url}{config.path}"
+    if params:
+        url = f"{url}?{urlencode(params)}"
+    return url
 
 
 def _make_session(api_key: str) -> requests.Session:
@@ -175,17 +198,12 @@ def _make_session(api_key: str) -> requests.Session:
     wait=wait_exponential_jitter(initial=1, max=30),
     reraise=True,
 )
-def _fetch_csv(
+def _fetch(
     session: requests.Session,
-    path: str,
-    params: dict[str, str],
+    url: str,
     headers: dict[str, str],
     logger: FilteringBoundLogger,
-) -> list[dict[str | None, str]]:
-    url = f"{SWARMIA_BASE_URL}{path}"
-    if params:
-        url = f"{url}?{urlencode(params)}"
-
+) -> requests.Response:
     response = session.get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
 
     if response.status_code == 429 or response.status_code >= 500:
@@ -195,7 +213,46 @@ def _fetch_csv(
         logger.error(f"Swarmia API error: status={response.status_code}, body={response.text[:500]}, url={url}")
         response.raise_for_status()
 
-    return list(csv.DictReader(io.StringIO(response.text)))
+    return response
+
+
+def _rows_from_json(config: SwarmiaEndpointConfig, payload: Any) -> list[dict[str, Any]]:
+    """Shape v1 report rows and v0 team rows: snake_case keys, the `_key` team reference flattened to
+    team_id/team_name, and report numbers as floats. The report `summaryRow` is not a team row, so
+    it is dropped (the v0 export has no summary row either)."""
+    raw_rows = payload.get(config.rows_key) if isinstance(payload, dict) else None
+    rows: list[dict[str, Any]] = []
+    for raw_row in raw_rows or []:
+        if not isinstance(raw_row, dict):
+            continue
+        row: dict[str, Any] = {}
+        key = raw_row.get("_key")
+        if isinstance(key, dict):
+            row["team_id"] = key.get("id")
+            row["team_name"] = key.get("name")
+        for field_name, value in raw_row.items():
+            if field_name == "_key" or (isinstance(key, dict) and field_name in ("id", "name")):
+                continue
+            column = _JSON_COLUMN_RENAMES.get(field_name, _camel_to_snake(field_name))
+            # Always float (never int) so a column's Arrow type can't flip across batches or syncs.
+            if config.api_version == "v1" and isinstance(value, int | float) and not isinstance(value, bool):
+                value = float(value)
+            row[column] = value
+        rows.append(row)
+    return rows
+
+
+def _fetch_rows(
+    session: requests.Session,
+    config: SwarmiaEndpointConfig,
+    params: dict[str, str],
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+) -> list[dict[str, Any]]:
+    response = _fetch(session, _endpoint_url(config, params), headers, logger)
+    if config.response_format == "json":
+        return _rows_from_json(config, response.json())
+    return _rows_from_csv(config, list(csv.DictReader(io.StringIO(response.text))))
 
 
 def _rows_from_csv(config: SwarmiaEndpointConfig, raw_rows: list[dict[str | None, str]]) -> list[dict[str, Any]]:
@@ -270,6 +327,8 @@ def _build_windows(
     give the same logical row a new primary key on every sync and pile up overlapping rows.
     """
     windows: list[tuple[date, date]] = []
+    if config.window == "none":
+        return []
     if config.window == "week":
         start = _week_start(range_start)
         while start + timedelta(days=6) < today:
@@ -291,7 +350,16 @@ def _window_params(config: SwarmiaEndpointConfig, window_start: date, window_end
         return {"month": window_start.strftime("%Y-%m")}
     if config.timeframe_param == "year":
         return {"year": str(window_start.year)}
+    if config.timeframe_param == "none":
+        return {}
+    if config.timeframe_param == "timeframe":
+        return {"timeframe.start": window_start.isoformat(), "timeframe.end": window_end.isoformat()}
     return {"startDate": window_start.isoformat(), "endDate": window_end.isoformat()}
+
+
+def _request_params(config: SwarmiaEndpointConfig, window_start: date, window_end: date) -> dict[str, str]:
+    params = {"revision": config.revision} if config.revision else {}
+    return {**params, **_window_params(config, window_start, window_end)}
 
 
 def check_credentials(api_key: str) -> int | None:
@@ -311,9 +379,9 @@ def check_endpoint_access(api_key: str, endpoints: list[str]) -> dict[str, str |
     """Probe each report with a minimal window. Some reports (investment, capex, effort) map to
     plan-gated Swarmia features, so a valid token can still be denied per report."""
     session = _make_session(api_key)
-    headers = _get_headers(api_key)
     today = datetime.now(UTC).date()
     last_month_start = _month_start(_month_start(today) - timedelta(days=1))
+    last_week_start = _week_start(today) - timedelta(days=7)
 
     results: dict[str, str | None] = {}
     for endpoint in endpoints:
@@ -323,13 +391,15 @@ def check_endpoint_access(api_key: str, endpoints: list[str]) -> dict[str, str |
             continue
         if config.timeframe_param == "date_range" and config.window == "week":
             params = {"timeframe": "last_7_days"}
+        elif config.window == "week":
+            params = _request_params(config, last_week_start, last_week_start + timedelta(days=6))
         else:
             window_end = _next_month(last_month_start) - timedelta(days=1)
-            params = _window_params(config, last_month_start, window_end)
+            params = _request_params(config, last_month_start, window_end)
         try:
             response = session.get(
-                f"{SWARMIA_BASE_URL}{config.path}?{urlencode(params)}",
-                headers=headers,
+                _endpoint_url(config, params),
+                headers=_get_headers(api_key, config.response_format),
                 timeout=10,
             )
         except Exception:
@@ -356,8 +426,14 @@ def get_rows(
 ) -> Iterator[Any]:
     config = SWARMIA_ENDPOINTS[endpoint]
     session = _make_session(api_key)
-    headers = _get_headers(api_key)
+    headers = _get_headers(api_key, config.response_format)
     today = datetime.now(UTC).date()
+
+    if config.window == "none":
+        rows = _fetch_rows(session, config, {}, headers, logger)
+        if rows:
+            yield rows
+        return
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume is not None:
@@ -374,9 +450,10 @@ def get_rows(
     windows = _build_windows(config, range_start, today)
 
     for index, (window_start, window_end) in enumerate(windows):
-        params = _window_params(config, window_start, window_end)
-        raw_rows = _fetch_csv(session, config.path, params, headers, logger)
-        rows = _rows_from_csv(config, raw_rows)
+        params = _request_params(config, window_start, window_end)
+        rows = _fetch_rows(session, config, params, headers, logger)
+        if config.response_format == "json":
+            rows = [{"start_date": window_start, "end_date": window_end, **row} for row in rows]
         if index + 1 < len(windows):
             resumable_source_manager.save_state(
                 SwarmiaResumeConfig(next_window_start=windows[index + 1][0].isoformat())
@@ -410,7 +487,7 @@ def swarmia_source(
         primary_keys=endpoint_config.primary_keys,
         # Windows are iterated oldest-first, so the incremental watermark (max end_date) advances
         # monotonically batch by batch.
-        sort_mode="asc",
+        sort_mode=None if endpoint_config.window == "none" else "asc",
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if endpoint_config.partition_key else None,

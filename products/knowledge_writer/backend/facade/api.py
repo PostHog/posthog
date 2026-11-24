@@ -1,14 +1,16 @@
 from collections.abc import Mapping
 from typing import Any
 
-from posthog.github.installations import installation_team_ids
+import structlog
 
-from ...merge_check.sources import POSTHOG_REPOSITORY, merged_mainline_commit
-from ..adapters.registry import REGISTRY
-from ..logic import intake
-from ..settings import writer_settings
-from .contracts import DocsCommandRequest, IntakeOutcome
-from .enums import DocsRequestSource
+from posthog.github.installations import installation_id
+
+from ...merge_check.sources import LandedChange, merged_pull_request_change
+from ..logic.launch import HEAD_BRANCH_PREFIX
+from ..settings import configured_writer_team_id, docs_source, source_repositories, writer_settings
+from .contracts import DocsCommandRequest
+
+logger = structlog.get_logger(__name__)
 
 
 def writer_team_id() -> int | None:
@@ -16,22 +18,77 @@ def writer_team_id() -> int | None:
     return writer.team_id if writer else None
 
 
-def request_docs_for_pull_request(command: DocsCommandRequest, *, team_id: int) -> IntakeOutcome:
-    verdict = REGISTRY[DocsRequestSource.COMMAND_TAG].assess(command)
-    return intake.submit(verdict, team_id=team_id)
+def request_docs_for_pull_request(command: DocsCommandRequest, *, team_id: int, waiter_id: str | None) -> None:
+    from ..temporal.client import start_command_check  # noqa: PLC0415 — keeps temporalio off the facade import path
+
+    start_command_check(command, team_id=team_id, waiter_id=waiter_id)
+
+
+def record_pull_request_event(payload: Mapping[str, Any]) -> None:
+    from ..temporal.client import (  # noqa: PLC0415 — keeps temporalio off the facade import path
+        signal_pull_request_closed,
+    )
+
+    writer_pull_request_number = closed_writer_pull_request_number(payload)
+    if writer_pull_request_number is None:
+        record_merged_pull_request(payload)
+        return
+    signal_pull_request_closed(payload["repository"]["full_name"], writer_pull_request_number)
+
+
+def closed_writer_pull_request_number(payload: Mapping[str, Any]) -> int | None:
+    configured_docs = docs_source()
+    repository = (payload.get("repository") or {}).get("full_name")
+    pull_request = payload.get("pull_request") or {}
+    head = pull_request.get("head") or {}
+    head_repository = (head.get("repo") or {}).get("full_name")
+    head_branch = head.get("ref")
+    number = pull_request.get("number")
+    if configured_docs is None or payload.get("action") != "closed" or not isinstance(number, int):
+        return None
+    if not isinstance(repository, str) or repository.lower() != configured_docs.docs_repository.lower():
+        return None
+    if not isinstance(head_repository, str) or head_repository.lower() != repository.lower():
+        return None
+    if not isinstance(head_branch, str) or not head_branch.startswith(HEAD_BRANCH_PREFIX):
+        return None
+    return number
 
 
 def record_merged_pull_request(payload: Mapping[str, Any]) -> None:
     from ..temporal.client import start_merge_check  # noqa: PLC0415 — keeps temporalio off the facade import path
 
-    if payload.get("action") != "closed":
+    watched_repositories = source_repositories()
+    change = merged_pull_request_change(payload, watched_repositories)
+    team_id = configured_writer_team_id()
+    delivery_installation_id = installation_id(dict(payload))
+    if change is None or team_id is None or delivery_installation_id is None:
+        _log_skipped_merge_delivery(payload, watched_repositories, reason=_merge_delivery_skip_reason(change, team_id))
         return
-    if (payload.get("repository") or {}).get("full_name") != POSTHOG_REPOSITORY:
+    start_merge_check(change, team_id=team_id, installation_id=delivery_installation_id)
+
+
+def _merge_delivery_skip_reason(change: LandedChange | None, team_id: int | None) -> str:
+    if change is None:
+        return "not_a_source_merge"
+    if team_id is None:
+        return "no_writer_team"
+    return "no_installation"
+
+
+def _log_skipped_merge_delivery(
+    payload: Mapping[str, Any], watched_repositories: tuple[str, ...], *, reason: str
+) -> None:
+    pull_request = payload.get("pull_request") or {}
+    repository = (payload.get("repository") or {}).get("full_name")
+    is_watched_repository = isinstance(repository, str) and repository.lower() in {
+        name.lower() for name in watched_repositories
+    }
+    if not is_watched_repository or payload.get("action") != "closed" or pull_request.get("merged") is not True:
         return
-    commit_sha = merged_mainline_commit(payload.get("pull_request") or {})
-    if commit_sha is None:
-        return
-    team_id = writer_team_id()
-    if team_id is None or team_id not in installation_team_ids(dict(payload)):
-        return
-    start_merge_check(commit_sha, team_id=team_id)
+    logger.info(
+        "knowledge_writer_merge_delivery_skipped",
+        repository=repository,
+        pull_request_number=pull_request.get("number"),
+        reason=reason,
+    )

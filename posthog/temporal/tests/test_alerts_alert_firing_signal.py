@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+from datetime import UTC, datetime
 
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, patch
@@ -15,9 +16,12 @@ from posthog.temporal.alerts.alert_firing_signal import (
     CAP_DROP_EVENT,
     EMITTED_OUTCOME,
     AlertFiringSkipReason,
+    FiringAlert,
+    FiringStart,
     cap_key,
     dispatch_alert_firing_signal,
     prepare_alert_firing_signal,
+    prepare_platform_firing_signal,
 )
 from posthog.token_bucket import BucketUnavailable, Budget, TEST_reset_scripts, consume
 
@@ -286,6 +290,33 @@ class TestEmitAlertFiringSignal(BaseTest):
         assert (first, retried) == (True, False)
         assert _counted_since(before) == {EMITTED_OUTCOME: 1.0}
         capture.assert_not_called()
+
+    def test_a_retried_platform_batch_spends_no_token_on_a_firing_it_already_sent(self) -> None:
+        alert = FiringAlert.of(self._alert_and_check()[0])
+        sent, unsent = (
+            FiringStart(check_id=f"{alert.id}:{episode}", started_at=datetime(2026, 9, 16, tzinfo=UTC))
+            for episode in ("a", "b")
+        )
+
+        def emit_batch(firings: tuple[FiringStart, ...]) -> list[bool]:
+            with (
+                patch(f"{_MODULE}.emit_signal", AsyncMock(side_effect=_validated_emit)),
+                patch(f"{_MODULE}.get_source_config", return_value=_source(True)),
+                patch(f"{_MODULE}.get_analytics_alert_scope", return_value="all_firing_alerts"),
+                patch(f"{_MODULE}.get_analytics_alert_name_patterns", return_value=AlertNamePatterns()),
+            ):
+                signals = [
+                    prepare_platform_firing_signal(alert, firing, breaches=[], investigated=False) for firing in firings
+                ]
+                return [
+                    signal is not None and async_to_sync(dispatch_alert_firing_signal)(signal) for signal in signals
+                ]
+
+        with patch(f"{_MODULE}.CAP_BUDGET", Budget(burst=2, per_hour=1)):
+            first_attempt = emit_batch((sent,))
+            retry = emit_batch((sent, unsent))
+
+        assert (first_attempt, retry) == ([True], [False, True])
 
     @parameterized.expand(
         [

@@ -1,3 +1,8 @@
+"""The MCP registry product is retired; see products/mcp_registry/README.md for what it was,
+how it did in production, and how to bring it back. The models stay so the migration graph
+(other apps' squash migrations depend on this app) and the existing tables stay intact. A
+later migration removes the models and drops the tables."""
+
 from django.db import models
 from django.db.models import Q
 

@@ -178,6 +178,7 @@ class Command(BaseCommand):
                 previous_tier=decision.previous_tier,
                 new_tier=decision.new_tier,
                 reason=decision.reason,
+                pin_change=(False, False),
                 trigger=trigger,
             )
         return written

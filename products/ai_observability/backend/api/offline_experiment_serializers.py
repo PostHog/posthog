@@ -12,12 +12,16 @@ from posthog.models.integer_field_bounds import BIG_INTEGER_FIELD_MAX
 
 from products.ai_observability.backend.models.offline_evaluations import OfflineEvaluationResult, OfflineExperiment
 from products.ai_observability.backend.offline_evaluation_types import (
+    MAX_ITEM_PAYLOAD_BYTES,
+    MAX_RESULT_PAYLOAD_BYTES,
     ExperimentSubmission,
     ItemSubmission,
     JSONValue,
     ResultSubmission,
     ResultValue,
     UploadSubmission,
+    reported_score_errors,
+    result_payload_error,
 )
 
 if TYPE_CHECKING:
@@ -25,8 +29,6 @@ if TYPE_CHECKING:
 
 MAX_UPLOAD_ITEMS = 1000
 MAX_UPLOAD_RESULTS = 1000
-MAX_ITEM_PAYLOAD_BYTES = 1024 * 1024
-MAX_RESULT_PAYLOAD_BYTES = 256 * 1024
 MAX_JSON_DEPTH = 32
 
 
@@ -276,13 +278,17 @@ class ItemSubmissionSerializer(_StrictDataclassSerializer[ItemSubmission]):
 class ResultSubmissionSerializer(_StrictDataclassSerializer[ResultSubmission]):
     item_id = _UUIDField(help_text="UUID of an item declared in this request or already accepted in this experiment.")
     scorer_version_id = _UUIDField(help_text="Exact UUID of an existing scorer version in this project.")
+    calculate = serializers.BooleanField(
+        required=False,
+        help_text="Set true only for composite scorers to calculate this item's result from the saved formula. Supply only item_id, scorer_version_id, and calculate. Include all pinned input results in this request, or use credentials with evaluation:read and llm_analytics:read to reuse stored inputs. Project secret keys must include all inputs in the request. For reported scorers, omit this flag or set false and supply the result.",
+    )
     status = serializers.ChoiceField(
-        choices=OfflineEvaluationResult.Status.choices, help_text="Outcome of this scorer execution."
+        choices=OfflineEvaluationResult.Status.choices, default="ok", help_text="Outcome of this scorer execution."
     )
     value = ResultValueField(
         required=False,
         allow_null=True,
-        help_text="Required for ok: finite number, boolean, or distinct category keys matching the scorer version.",
+        help_text="Required for an ok reported result: finite number, boolean, or distinct category keys matching the scorer version. Omit when calculate is true.",
     )
     error_code = _identifier_field("Optional stable error code, permitted only for error outcomes.", max_length=128)
     evaluator_trace_id = _identifier_field("Trace identifier of the evaluator that produced this result.")
@@ -298,15 +304,25 @@ class ResultSubmissionSerializer(_StrictDataclassSerializer[ResultSubmission]):
         dataclass = ResultSubmission
 
     def validate(self, attrs: ResultSubmission) -> ResultSubmission:
-        errors: dict[str, list[str] | dict[str, list[str]]] = {}
-        if attrs.status == "ok" and attrs.value is None:
-            errors["value"] = ["A score is required for an ok result."]
-        if attrs.status != "ok" and attrs.value is not None:
-            errors["value"] = ["Only an ok result may contain a score."]
-        if attrs.status != "error" and attrs.error_code is not None:
-            errors["error_code"] = ["Only an error result may contain an error code."]
-        if attrs.status != "error" and attrs.payload and attrs.payload.get("error_message") is not None:
-            errors["payload"] = {"error_message": ["Only an error result may contain an error message."]}
+        if attrs.calculate:
+            if (
+                attrs.value is not None
+                or attrs.status != "ok"
+                or attrs.error_code is not None
+                or attrs.payload is not None
+                or attrs.evaluator_trace_id is not None
+                or attrs.evaluated_at is not None
+            ):
+                raise serializers.ValidationError(
+                    {"calculate": "A composite request accepts only item_id, scorer_version_id, and calculate: true."}
+                )
+            return attrs
+        errors: dict[str, list[str] | dict[str, list[str]]] = {
+            field: [message]
+            for field, message in reported_score_errors(attrs.status, attrs.value, attrs.error_code).items()
+        }
+        if message := result_payload_error(attrs.status, attrs.payload):
+            errors["payload"] = {"error_message": [message]}
         if errors:
             raise serializers.ValidationError(errors)
         return attrs

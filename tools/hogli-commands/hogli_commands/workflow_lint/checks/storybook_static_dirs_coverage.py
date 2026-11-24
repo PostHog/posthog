@@ -20,6 +20,7 @@ from hogli.manifest import REPO_ROOT
 
 from ..check import CheckResult, Issue, WorkflowCheck
 from ..model import Workflow, parse_filters
+from ..tracked_files import TrackedFiles
 from .mcp_filter_coverage import _covers, _repo_relative
 
 STORYBOOK_MAIN = Path("common/storybook/.storybook/main.ts")
@@ -39,7 +40,7 @@ class StorybookStaticDirsCoverageCheck(WorkflowCheck):
     description = "every staticDirs source in the Storybook config is covered by ci-storybook.yml's frontend filter"
 
     def __init__(self, repo_root: Path | None = None) -> None:
-        self._repo_root = repo_root or REPO_ROOT
+        self._files = TrackedFiles(repo_root or REPO_ROOT)
 
     @property
     def fix_hint(self) -> str | None:
@@ -52,7 +53,7 @@ class StorybookStaticDirsCoverageCheck(WorkflowCheck):
     def run(self, workflows: list[Workflow]) -> CheckResult:
         result = CheckResult()
         try:
-            config = (self._repo_root / STORYBOOK_MAIN).read_text(encoding="utf-8")
+            config = self._files.read_text(STORYBOOK_MAIN.as_posix())
         except OSError:
             return result
         sources = _static_dir_sources(config)

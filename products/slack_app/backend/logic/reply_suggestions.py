@@ -15,6 +15,8 @@ from products.tasks.backend.facade.reply_suggestions import MAX_LABEL_CHARS, Rep
 logger = structlog.get_logger(__name__)
 
 REPLY_SUGGESTION_ACTION_ID_PREFIX = "slack_app_reply_suggestion:"
+REPORT_IMPLEMENTATION_ACTION_ID = "slack_app_implement_report"
+REPORT_IMPLEMENTATION_REPLY = "Fix it, make no mistakes. Implement this report and open a pull request."
 REPLY_SUGGESTIONS_BLOCK_ID = "slack_app_reply_suggestions"
 # Online evaluations scope to this call with `slack_app_classifier = reply_suggestions`.
 REPLY_SUGGESTIONS_CLASSIFIER = "reply_suggestions"
@@ -30,6 +32,7 @@ class ClickedSuggestion:
     text: str
     index: int
     trace_id: str | None
+    is_report_implementation: bool = False
 
 
 def slack_reply_attribution(
@@ -82,23 +85,38 @@ def reply_suggestions_fallback_text(suggestions: list[SuggestedReply]) -> str:
     return "Suggested replies: " + ", ".join(suggestion.label for suggestion in suggestions)
 
 
+def report_implementation_button(integration_id: int) -> dict[str, Any]:
+    return {
+        "type": "button",
+        "action_id": REPORT_IMPLEMENTATION_ACTION_ID,
+        "text": {"type": "plain_text", "text": "Implement", "emoji": True},
+        "style": "primary",
+        "value": json.dumps({"integration_id": integration_id}),
+    }
+
+
 def is_reply_suggestion_action(action_id: object) -> bool:
-    return isinstance(action_id, str) and action_id.startswith(REPLY_SUGGESTION_ACTION_ID_PREFIX)
+    return isinstance(action_id, str) and (
+        action_id == REPORT_IMPLEMENTATION_ACTION_ID or action_id.startswith(REPLY_SUGGESTION_ACTION_ID_PREFIX)
+    )
 
 
 def clicked_suggestion(payload: dict) -> ClickedSuggestion | None:
     action = next((a for a in payload.get("actions", []) if is_reply_suggestion_action(a.get("action_id"))), None)
     if action is None:
         return None
+    is_report_implementation = action["action_id"] == REPORT_IMPLEMENTATION_ACTION_ID
     try:
         value = json.loads(action.get("value") or "")
-        index = int(action["action_id"].removeprefix(REPLY_SUGGESTION_ACTION_ID_PREFIX))
+        index = (
+            0 if is_report_implementation else int(action["action_id"].removeprefix(REPLY_SUGGESTION_ACTION_ID_PREFIX))
+        )
     except (json.JSONDecodeError, ValueError):
         return None
     if not isinstance(value, dict):
         return None
     integration_id = value.get("integration_id")
-    text = value.get("text")
+    text = REPORT_IMPLEMENTATION_REPLY if is_report_implementation else value.get("text")
     trace_id = value.get("trace_id")
     if not isinstance(integration_id, int) or not isinstance(text, str) or not text.strip():
         return None
@@ -107,6 +125,7 @@ def clicked_suggestion(payload: dict) -> ClickedSuggestion | None:
         text=text.strip(),
         index=index,
         trace_id=trace_id if isinstance(trace_id, str) else None,
+        is_report_implementation=is_report_implementation,
     )
 
 

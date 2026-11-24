@@ -121,6 +121,7 @@ class TestHelpScoutSource:
         # mid-run instead of refreshing.
         mock_get_integration.return_value = mock.MagicMock(access_token="token", kind="helpscout")
         mock_oauth.return_value.access_token_expired.return_value = True
+        mock_oauth.return_value.refresh_access_token.return_value = mock_get_integration.return_value
 
         self.source._get_access_token(self.config, self.team_id)
 

@@ -98,7 +98,7 @@ class YouTubeAnalyticsSource(ResumableSource[YouTubeAnalyticsSourceConfig, YouTu
 
         oauth = OauthIntegration(integration)
         if force_refresh or oauth.access_token_expired():
-            oauth.refresh_access_token()
+            integration = oauth.refresh_access_token()
             if integration.errors == ERROR_TOKEN_REFRESH_FAILED:
                 raise YouTubeAnalyticsAuthError(RECONNECT_MESSAGE)
 

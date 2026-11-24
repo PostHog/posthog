@@ -8,6 +8,7 @@ import { QuillChartOptionSwitch } from './QuillChartOptionSwitch'
 export interface ChartOptionSwitchProps {
     label: string
     info?: string
+    infoLink?: string
     checked: boolean
     onChange: (checked: boolean) => void
     disabledReason?: string | null
@@ -21,13 +22,13 @@ export function ChartOptionSwitch(props: ChartOptionSwitchProps): JSX.Element {
         return <QuillChartOptionSwitch {...props} />
     }
 
-    const { label, info, checked, onChange, disabledReason, 'data-attr': dataAttr } = props
+    const { label, info, infoLink, checked, onChange, disabledReason, 'data-attr': dataAttr } = props
     return (
         <LemonSwitch
             fullWidth
             // Full-width switches pad their label to line up with buttons; here it lines up with the other labels.
             className="!px-0"
-            label={<ChartOptionLabel label={label} info={info} />}
+            label={<ChartOptionLabel label={label} info={info} infoLink={infoLink} />}
             checked={checked}
             onChange={onChange}
             disabledReason={disabledReason}

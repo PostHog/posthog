@@ -22,6 +22,7 @@ import {
     aiObservabilityDatasetLogic,
 } from './aiObservabilityDatasetLogic'
 import { aiObservabilityDatasetsLogic } from './aiObservabilityDatasetsLogic'
+import { datasetRetentionLogic } from './datasetRetentionLogic'
 import { datasetsApi } from './datasetsApi'
 import { saveToDatasetButtonLogic } from './saveToDatasetButtonLogic'
 import { EMPTY_JSON } from './utils'
@@ -31,6 +32,7 @@ jest.mock('./datasetsApi', () => ({
         createDataset: jest.fn(),
         updateDataset: jest.fn(),
         getDataset: jest.fn(),
+        getRetention: jest.fn(),
         getItem: jest.fn(),
         listDatasets: jest.fn(),
         listItems: jest.fn(),
@@ -44,6 +46,7 @@ jest.mock('./datasetsApi', () => ({
         restoreItem: jest.fn(),
         exportDataset: jest.fn(),
         getExport: jest.fn(),
+        getTraceStepItem: jest.fn(),
     },
 }))
 jest.mock('lib/lemon-ui/LemonToast/LemonToast')
@@ -403,21 +406,33 @@ describe('aiObservabilityDatasetLogic', () => {
             datasetsLogic.mount()
             await expectLogic(datasetsLogic).toFinishAllListeners()
 
+            const noRetentionWarnings = { datasets_count: 0, revisions_count: 0, count: 0, results: [] }
+            mockDatasetsApi.getRetention.mockResolvedValue(noRetentionWarnings)
+            const retentionLogic = datasetRetentionLogic()
+            retentionLogic.mount()
+            await expectLogic(retentionLogic).toFinishAllListeners()
+            mockDatasetsApi.getRetention.mockResolvedValue({ ...noRetentionWarnings, datasets_count: 1, count: 1 })
+
             await expectLogic(logic, () => {
                 logic.actions.archiveDataset()
             }).toFinishAllListeners()
             await expectLogic(datasetsLogic).toFinishAllListeners()
+            await expectLogic(retentionLogic).toFinishAllListeners()
+            expect(retentionLogic.values.warning).toBe('1 dataset expiring within 7 days')
 
             const listCallCount = mockDatasetsApi.listDatasets.mock.calls.length
             const toastOptions = (lemonToast.info as jest.Mock).mock.calls.at(-1)?.[1] as {
                 button: { action: () => Promise<void> }
             }
 
+            mockDatasetsApi.getRetention.mockResolvedValue(noRetentionWarnings)
             await toastOptions.button.action()
             await expectLogic(datasetsLogic).toFinishAllListeners()
+            await expectLogic(retentionLogic).toFinishAllListeners()
 
             expect(mockDatasetsApi.restoreDataset).toHaveBeenCalledWith(mockDataset.id)
             expect(mockDatasetsApi.listDatasets).toHaveBeenCalledTimes(listCallCount + 1)
+            expect(retentionLogic.values.warning).toBe('')
             expect(lemonToast.success).toHaveBeenCalledWith('Test Dataset has been restored.')
         })
 
@@ -723,7 +738,18 @@ describe('aiObservabilityDatasetLogic', () => {
                 mockDatasetsApi.listDatasets.mockResolvedValue({ results: [targetDataset], count: 1 })
                 const logic = aiObservabilityDatasetLogic({ datasetId: mockDataset.id })
                 logic.mount()
-                const button = saveToDatasetButtonLogic({ partialDatasetItem: { input: { message: 'hello' } } })
+                mockDatasetsApi.getTraceStepItem.mockResolvedValue({
+                    client_item_id: 'n-1',
+                    source_trace_id: 't-1',
+                    source_event_id: 'n-1',
+                    source_timestamp: '2026-09-01T10:00:00Z',
+                    input: { message: 'hello' },
+                    source_output: null,
+                    metadata: {},
+                })
+                const button = saveToDatasetButtonLogic({
+                    step: { traceId: 't-1', nodeId: 'n-1', timestamp: '2026-09-01T10:00:00Z' },
+                })
                 button.mount()
                 await expectLogic(logic).toFinishAllListeners()
                 await expectLogic(button).toFinishAllListeners()

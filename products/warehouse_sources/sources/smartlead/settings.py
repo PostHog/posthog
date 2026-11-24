@@ -1,7 +1,12 @@
 from dataclasses import dataclass, field
 from typing import Literal, Optional
 
-from products.warehouse_sources.sources.sdk import DependentEndpointConfig, IncrementalField
+from products.warehouse_sources.sources.sdk import (
+    DependentEndpointConfig,
+    IncrementalField,
+    IncrementalFieldType,
+    incremental_field,
+)
 
 BASE_URL = "https://server.smartlead.ai/api/v1"
 
@@ -9,11 +14,19 @@ BASE_URL = "https://server.smartlead.ai/api/v1"
 # full email subject/body HTML, so the shared 100 keeps page memory bounded.
 PAGE_SIZE = 100
 
-# Every endpoint syncs as full refresh. Smartlead documents server-side time filters on two list
-# endpoints (`created_at_gt` on campaign leads, `sent_time_start_date` on campaign statistics),
-# but neither filter has been verified against a live account and neither endpoint documents its
-# sort order, so an ascending watermark cannot be trusted. Enable incremental only after a live
-# smoke test proves the filter is honored and the response order is known.
+# Global analytics endpoints take a required, inclusive `start_date`/`end_date` range and have no
+# account-start date to read, so a full refresh walks from this fixed floor to today. No range
+# limit is documented; a 90-day window keeps a full walk to a few dozen requests.
+ANALYTICS_START_DATE = "2021-01-01"
+ANALYTICS_WINDOW_DAYS = 90
+
+# Every list endpoint syncs as full refresh. Smartlead documents server-side time filters on two
+# list endpoints (`created_at_gt` on campaign leads, `sent_time_start_date` on campaign
+# statistics), but neither filter has been verified against a live account and neither endpoint
+# documents its sort order, so an ascending watermark cannot be trusted. Enable incremental only
+# after a live smoke test proves the filter is honored and the response order is known. The
+# day-wise analytics endpoint is the exception: its date range is a required parameter, so the
+# server always applies it.
 
 
 # Mutable by choice, not oversight: instances flow into `build_dependent_resource`'s
@@ -26,7 +39,9 @@ class SmartleadEndpointConfig:
     path: str
     # "offset": offset/limit pagination terminated by a short page. "single": the endpoint returns
     # the whole collection (or one object) in a single response and takes no pagination params.
-    pagination: Literal["offset", "single"] = "single"
+    # "date_window": the endpoint takes a required `start_date`/`end_date` range, walked in
+    # ascending windows up to today.
+    pagination: Literal["offset", "single", "date_window"] = "single"
     # Root key of the row list in the JSON body. None means the body is the row list itself.
     data_selector: Optional[str] = None
     # False only for endpoints whose body is a single JSON object (campaign analytics), which is
@@ -163,6 +178,18 @@ SMARTLEAD_ENDPOINTS: dict[str, SmartleadEndpointConfig] = {
         primary_keys=["email_account_id"],
         partition_key=None,
         fanout=_email_account_fanout(),
+    ),
+    # Account-wide daily totals. Each metric sits on the day its own event happened (a reply lands
+    # on the day it arrived, not the day its email was sent), so a past day never changes and an
+    # incremental run only has to re-read from the last synced day. Days are UTC.
+    "day_wise_overall_stats": SmartleadEndpointConfig(
+        name="day_wise_overall_stats",
+        path="/analytics/day-wise-overall-stats",
+        pagination="date_window",
+        data_selector="data.day_wise_stats",
+        primary_keys=["date"],
+        partition_key="date",
+        incremental_fields=[incremental_field("date", IncrementalFieldType.Date)],
     ),
 }
 

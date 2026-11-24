@@ -1,3 +1,4 @@
+import os
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -288,6 +289,20 @@ def test_get_fs_reuses_the_same_filesystem_across_calls(_name, use_local_setup):
 
     mock_s3_filesystem.assert_called_once()
     assert first is second
+
+
+def test_get_fs_takes_the_bucket_region_from_settings():
+    sink = _sink()
+
+    with (
+        patch.object(settings, "USE_LOCAL_SETUP", False),
+        patch.object(settings, "DATA_WAREHOUSE_S3_REGION", "eu-central-1"),
+        patch.dict(os.environ, {"AWS_REGION": "us-west-2"}),
+        patch(f"{_MODULE}.pa_fs.S3FileSystem") as mock_s3_filesystem,
+    ):
+        sink._get_fs()
+
+    assert mock_s3_filesystem.call_args.kwargs.get("region") == "eu-central-1"
 
 
 @pytest.mark.asyncio

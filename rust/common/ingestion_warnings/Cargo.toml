@@ -27,4 +27,4 @@ uuid = { workspace = true }
 [dev-dependencies]
 common-liveness = { path = "../liveness" }
 metrics-util = { workspace = true }
-rstest = "0.26"
+rstest = "0.28"

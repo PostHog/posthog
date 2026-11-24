@@ -13,7 +13,7 @@ mod tests {
     use crate::{
         api::{
             errors::FlagError,
-            types::{FlagValue, LegacyFlagsResponse},
+            types::{FlagValue, FlagsResponse, LegacyFlagsResponse},
         },
         cohorts::{
             cohort_cache_manager::CohortCacheManager,
@@ -22,10 +22,13 @@ mod tests {
         },
         database::PostgresRouter,
         flags::{
+            config_format::decode_filters,
             feature_flag_list::PreparedFlags,
             flag_group_type_mapping::{GroupTypeCacheManager, GroupTypeMapping},
             flag_match_reason::FeatureFlagMatchReason,
-            flag_matching::{FeatureFlagMatch, FeatureFlagMatcher, PropertyContext},
+            flag_matching::{
+                FeatureFlagMatch, FeatureFlagMatcher, HashKeyOverrideLookupResult, PropertyContext,
+            },
             flag_matching_utils::{
                 get_fetch_calls_count, get_hash_key_override_lookup_count, reset_fetch_calls_count,
                 reset_hash_key_override_lookup_count, set_feature_flag_hash_key_overrides,
@@ -34,6 +37,7 @@ mod tests {
                 EvaluationMetadata, FeatureFlag, FeatureFlagList, FlagFilters, FlagPropertyGroup,
                 Holdout, MultivariateFlagOptions, MultivariateFlagVariant,
             },
+            flag_request::{FlagRequest, KnownAbsentProperties},
         },
         handler::canonical_log::{run_with_canonical_log, FlagsCanonicalLogLine},
         metrics::consts::FLAG_DATABASE_ERROR_COUNTER,
@@ -44,7 +48,8 @@ mod tests {
             mock::MockInto,
             test_utils::{
                 counter_total, failing_group_type_cache, flag_list_with_metadata,
-                mock_group_type_cache, setup_invalid_pg_client, StalledPgClient, TestContext,
+                mock_group_type_cache, setup_invalid_pg_client, CountingFailingClient,
+                StalledPgClient, TestContext,
             },
         },
     };
@@ -2460,9 +2465,16 @@ mod tests {
     /// the former reading would let `is_not` match an empty property map for an organization
     /// that is in fact excluded. The batch path also asks for the mapping once during setup
     /// and once during preparation, and failures are not cached, so without the recorded
-    /// outcome an outage would cost every affected request two failed queries.
+    /// outcome an outage would cost every affected request two failed queries. A listed
+    /// known-absent group key cannot open the guard either, because the failed mapping cannot
+    /// resolve the filter's index to the group type name the request listed it under.
+    #[rstest::rstest]
+    #[case::nothing_listed(KnownAbsentProperties::default())]
+    #[case::known_absent_tier_listed(known_absent_group("organization", &["tier"]))]
     #[tokio::test]
-    async fn test_mixed_targeting_is_not_fails_closed_when_mapping_lookup_fails() {
+    async fn test_mixed_targeting_is_not_fails_closed_when_mapping_lookup_fails(
+        #[case] known_absent: KnownAbsentProperties,
+    ) {
         let context = TestContext::new(None).await;
         let team = context.insert_new_team(None).await.unwrap();
         let cohort_cache = Arc::new(CohortCacheManager::new(
@@ -2516,7 +2528,8 @@ mod tests {
             cohort_cache,
             group_type_cache,
             Some(HashMap::from([("organization".to_string(), json!("acme"))])),
-        );
+        )
+        .with_known_absent_properties(known_absent);
 
         // A mapping failure is deliberately not propagated: it must not poison person flags in
         // the same batch, so evaluation proceeds and fails only the flags that read a group.
@@ -7613,7 +7626,7 @@ mod tests {
         let result = matcher
             .evaluate_all_feature_flags(
                 flags.clone(),
-                Some(partial_overrides),
+                Some(partial_overrides.clone()),
                 None,
                 None,
                 Uuid::new_v4(),
@@ -7728,7 +7741,7 @@ mod tests {
 
         let result4 = matcher4
             .evaluate_all_feature_flags(
-                flags,
+                flags.clone(),
                 Some(complete_overrides_condition1),
                 None,
                 None,
@@ -7742,6 +7755,43 @@ mod tests {
         assert!(!result4.errors_while_computing_flags);
         let flag_result4 = result4.flags.get(&flag.key).unwrap();
         assert!(flag_result4.enabled);
+
+        // Test case 5: case 1 with 'focus' listed known absent.
+        let mut matcher5 = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            None, // device_id
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache.clone(),
+            empty_group_type_cache(),
+            None,
+        )
+        .with_known_absent_properties(known_absent_person(&["focus"]));
+
+        reset_fetch_calls_count();
+        let result5 = matcher5
+            .evaluate_all_feature_flags(
+                flags,
+                Some(partial_overrides),
+                None,
+                None,
+                Uuid::new_v4(),
+                None,
+                false,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            get_fetch_calls_count(),
+            0,
+            "a known-absent key counts as supplied, so no person fetch is needed"
+        );
+        assert!(!result5.errors_while_computing_flags);
+        assert!(
+            !result5.flags.get(&flag.key).unwrap().enabled,
+            "known-absent 'focus' must not match the stored value"
+        );
     }
 
     #[tokio::test]
@@ -7889,7 +7939,7 @@ mod tests {
             .evaluate_all_feature_flags(
                 flags.clone(),
                 None,
-                Some(partial_group_overrides),
+                Some(partial_group_overrides.clone()),
                 None,
                 Uuid::new_v4(),
                 None,
@@ -8046,12 +8096,12 @@ mod tests {
             router5,
             cohort_cache.clone(),
             group_type_cache.clone(),
-            Some(groups),
+            Some(groups.clone()),
         );
 
         let result5 = matcher5
             .evaluate_all_feature_flags(
-                flags,
+                flags.clone(),
                 None,
                 Some(mixed_group_overrides),
                 None,
@@ -8068,6 +8118,36 @@ mod tests {
         // - Condition 1: plan=pro (matches), region=us-west-2 (matches regex), feature_access=full (from DB merge)
         // - Condition 2: billing_email matches exactly
         assert!(flag_result5.enabled);
+
+        let mut matcher6 = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            None, // device_id
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache.clone(),
+            group_type_cache.clone(),
+            Some(groups),
+        )
+        .with_known_absent_properties(known_absent_group("organization", &["feature_access"]));
+
+        let result6 = matcher6
+            .evaluate_all_feature_flags(
+                flags,
+                None,
+                Some(partial_group_overrides),
+                None,
+                Uuid::new_v4(),
+                None,
+                false,
+            )
+            .await
+            .unwrap();
+
+        assert!(!result6.errors_while_computing_flags);
+        assert!(
+            !result6.flags.get(&flag.key).unwrap().enabled,
+            "known-absent 'feature_access' must not match the stored value"
+        );
     }
 
     #[tokio::test]
@@ -8337,9 +8417,11 @@ mod tests {
             elapsed < deadline * 2,
             "the hash key lookup, the group type lookup, and the properties fetch share one deadline, took {elapsed:?}"
         );
+        // The hash key lookup runs alongside the group type lookup, so both take a connection
+        // before the deadline. The properties fetch starts after it and must not take one.
         assert_eq!(
             stalled_db.connection_requests.load(Ordering::SeqCst),
-            1,
+            if with_continuity_flag { 2 } else { 1 },
             "a persons call that starts after the deadline must not take a connection"
         );
         assert_eq!(log.persons_db_deadline_exceeded, Some(first_stopped_call));
@@ -8408,6 +8490,543 @@ mod tests {
         assert!(!log.outcome_marks.degraded());
     }
 
+    const PARALLEL_LOOKUP_EMAIL: &str = "parallel@example.com";
+    const STORED_HASH_KEY: &str = "stored_hash_key";
+
+    #[derive(Clone, Copy, Debug)]
+    enum DbPropertyKind {
+        Person,
+        StaticCohort,
+        Group,
+    }
+
+    /// A ten-variant flag, so a different hash key almost always picks a different variant.
+    fn multivariate_continuity_flag(team_id: TeamId, id: i32, key: &str) -> FeatureFlag {
+        let variants = (0..10)
+            .map(|i| MultivariateFlagVariant {
+                key: format!("variant_{i}"),
+                rollout_percentage: 10.0,
+                ..Default::default()
+            })
+            .collect();
+        mock!(FeatureFlag,
+            id: id,
+            team_id: team_id,
+            key: key.mock_into(),
+            ensure_experience_continuity: Some(true),
+            filters: FlagFilters {
+                multivariate: Some(MultivariateFlagOptions {
+                    variants,
+                    ..Default::default()
+                }),
+                ..mock!(FlagFilters)
+            }
+        )
+    }
+
+    fn person_email_filter() -> PropertyFilter {
+        mock!(PropertyFilter,
+            key: "email".mock_into(),
+            value: Some(json!(PARALLEL_LOOKUP_EMAIL)),
+            prop_type: PropertyType::Person
+        )
+    }
+
+    fn continuity_property_flag(team_id: TeamId) -> FeatureFlag {
+        mock!(FeatureFlag,
+            id: 3,
+            team_id: team_id,
+            key: "continuity_property_flag".mock_into(),
+            ensure_experience_continuity: Some(true),
+            filters: person_email_filter().mock_into()
+        )
+    }
+
+    fn flag_outcome(response: &FlagsResponse, key: &str) -> Option<(bool, bool, String)> {
+        response
+            .flags
+            .get(key)
+            .map(|flag| (flag.enabled, flag.failed, flag.reason.code.clone()))
+    }
+
+    /// Inserts the person, plus the cohort membership or group row that `kind` reads, and
+    /// returns a flag that matches only when the properties fetch reads those rows.
+    async fn insert_person_and_db_property_flag(
+        context: &TestContext,
+        team_id: TeamId,
+        distinct_id: &str,
+        kind: Option<DbPropertyKind>,
+    ) -> Option<FeatureFlag> {
+        let person_id = context
+            .insert_person(
+                team_id,
+                distinct_id.to_string(),
+                Some(json!({"email": PARALLEL_LOOKUP_EMAIL})),
+            )
+            .await
+            .unwrap();
+        let filter = match kind? {
+            DbPropertyKind::Person => person_email_filter(),
+            DbPropertyKind::StaticCohort => {
+                let cohort = context
+                    .insert_cohort(team_id, Some("Static".to_string()), json!({}), true)
+                    .await
+                    .unwrap();
+                context
+                    .add_person_to_cohort(cohort.id, person_id)
+                    .await
+                    .unwrap();
+                mock!(PropertyFilter,
+                    key: "id".mock_into(),
+                    value: Some(json!(cohort.id)),
+                    operator: Some(OperatorType::In),
+                    prop_type: PropertyType::Cohort
+                )
+            }
+            DbPropertyKind::Group => {
+                context
+                    .create_group(
+                        team_id,
+                        "organization",
+                        "acme",
+                        json!({"tier": "enterprise"}),
+                    )
+                    .await
+                    .unwrap();
+                organization_tier_filter(OperatorType::Exact)
+            }
+        };
+        Some(mock!(FeatureFlag,
+            id: 2,
+            team_id: team_id,
+            key: "property_flag".mock_into(),
+            filters: filter.mock_into()
+        ))
+    }
+
+    fn matcher_with_real_caches(
+        context: &TestContext,
+        team_id: TeamId,
+        distinct_id: &str,
+        router: PostgresRouter,
+    ) -> FeatureFlagMatcher {
+        FeatureFlagMatcher::new(
+            distinct_id.to_string(),
+            None,
+            team_id,
+            router,
+            Arc::new(CohortCacheManager::new(
+                context.non_persons_reader.clone(),
+                None,
+                None,
+            )),
+            Arc::new(GroupTypeCacheManager::new(
+                context.persons_reader.clone(),
+                None,
+                None,
+            )),
+            Some(HashMap::from([("organization".to_string(), json!("acme"))])),
+        )
+    }
+
+    /// The properties fetch gets the whole persons DB deadline, not what a slower override lookup
+    /// leaves of it. A lookup that outlasts the deadline fails only the continuity flag.
+    #[tokio::test]
+    async fn test_slow_override_lookup_does_not_consume_property_fetch_deadline() {
+        let context = TestContext::new(None).await;
+        let team = context.insert_new_team(None).await.unwrap();
+        let distinct_id = "slow_lookup_user";
+        let property_flag = insert_person_and_db_property_flag(
+            &context,
+            team.id,
+            distinct_id,
+            Some(DbPropertyKind::Person),
+        )
+        .await
+        .unwrap();
+        let deadline = Duration::from_millis(1000);
+        let mut matcher = matcher_with_real_caches(
+            &context,
+            team.id,
+            distinct_id,
+            context.create_postgres_router(),
+        )
+        .with_persons_db_deadline(Some(tokio::time::Instant::now() + deadline));
+        let flags = flag_list_with_metadata(vec![property_flag]);
+        let precomputed = PrecomputedDependencyGraph::build(&flags, None);
+
+        let slow_lookup = async {
+            tokio::time::sleep(deadline + Duration::from_millis(100)).await;
+            HashKeyOverrideLookupResult::Failed
+        };
+        let response = matcher
+            .evaluate_flags_with_overrides(
+                crate::flags::flag_matching::FlagEvaluationOverrides::default(),
+                slow_lookup,
+                Uuid::new_v4(),
+                precomputed.evaluation_stages,
+                precomputed.flags_with_missing_deps,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            flag_outcome(&response, "property_flag"),
+            Some((true, false, "condition_match".to_string()))
+        );
+    }
+
+    /// When a request needs both the hash key override lookup and the properties fetch, the
+    /// continuity flag hashes on the override and the property flag matches on DB properties.
+    /// The canonical log fields come from both paths, so a lookup moved onto another task, which
+    /// does not inherit the canonical log scope, would drop them.
+    #[rstest::rstest]
+    #[case::person_with_stored_override(Some(DbPropertyKind::Person), true, None)]
+    #[case::static_cohort_with_stored_override(Some(DbPropertyKind::StaticCohort), true, None)]
+    #[case::group_with_stored_override(Some(DbPropertyKind::Group), true, None)]
+    #[case::person_with_written_override(Some(DbPropertyKind::Person), true, Some("anon_id"))]
+    #[case::group_with_written_override(Some(DbPropertyKind::Group), true, Some("anon_id"))]
+    #[case::continuity_only(None, true, None)]
+    #[case::property_only(Some(DbPropertyKind::Person), false, None)]
+    #[tokio::test]
+    async fn test_override_lookup_and_property_fetch_results_combine(
+        #[case] property_kind: Option<DbPropertyKind>,
+        #[case] with_continuity_flag: bool,
+        #[case] anon_distinct_id: Option<&str>,
+    ) {
+        let context = TestContext::new(None).await;
+        let team = context.insert_new_team(None).await.unwrap();
+        let distinct_id = "parallel_user";
+        let property_flag =
+            insert_person_and_db_property_flag(&context, team.id, distinct_id, property_kind).await;
+        let continuity_flag = multivariate_continuity_flag(team.id, 1, "continuity_flag");
+        if with_continuity_flag {
+            context
+                .insert_flag(team.id, Some(continuity_flag.clone().mock_into()))
+                .await
+                .unwrap();
+        }
+        if anon_distinct_id.is_none() && with_continuity_flag {
+            set_feature_flag_hash_key_overrides(
+                &context.create_postgres_router(),
+                team.id,
+                vec![distinct_id.to_string()],
+                STORED_HASH_KEY.to_string(),
+            )
+            .await
+            .unwrap();
+        }
+        let expected_hash_key = anon_distinct_id.unwrap_or(STORED_HASH_KEY);
+        let mut matcher = matcher_with_real_caches(
+            &context,
+            team.id,
+            distinct_id,
+            context.create_postgres_router(),
+        );
+        let expected_variant = matcher
+            .get_match(
+                &continuity_flag,
+                None,
+                None,
+                Some(&HashMap::from([(
+                    continuity_flag.key.clone(),
+                    expected_hash_key.to_string(),
+                )])),
+                &None,
+            )
+            .unwrap()
+            .variant;
+        if with_continuity_flag {
+            let variant_without_override = matcher
+                .get_match(&continuity_flag, None, None, None, &None)
+                .unwrap()
+                .variant;
+            assert_ne!(
+                expected_variant, variant_without_override,
+                "precondition: the override must pick a different variant than the distinct_id"
+            );
+        }
+        let flags: Vec<FeatureFlag> = with_continuity_flag
+            .then(|| continuity_flag.clone())
+            .into_iter()
+            .chain(property_flag.clone())
+            .collect();
+
+        let (response, log) = run_with_canonical_log(
+            FlagsCanonicalLogLine::new(Uuid::new_v4(), "127.0.0.1".to_string()),
+            matcher.evaluate_all_feature_flags(
+                flag_list_with_metadata(flags),
+                None,
+                None,
+                anon_distinct_id.map(str::to_string),
+                Uuid::new_v4(),
+                None,
+                false,
+            ),
+        )
+        .await;
+        let response = response.unwrap();
+
+        assert!(!response.errors_while_computing_flags);
+        assert_eq!(
+            response
+                .flags
+                .get("continuity_flag")
+                .map(|flag| flag.variant.clone()),
+            with_continuity_flag.then_some(expected_variant)
+        );
+        assert_eq!(
+            response
+                .flags
+                .get("property_flag")
+                .map(|flag| (flag.enabled, flag.reason.code.as_str())),
+            property_flag.as_ref().map(|_| (true, "condition_match"))
+        );
+        assert_eq!(
+            log.hash_key_override_status,
+            with_continuity_flag.then_some("found")
+        );
+        assert_eq!(
+            log.db_property_fetches,
+            usize::from(property_flag.is_some())
+        );
+        if anon_distinct_id.is_some() {
+            let stored = context
+                .get_feature_flag_hash_key_overrides(team.id, vec![distinct_id.to_string()])
+                .await
+                .unwrap();
+            assert_eq!(
+                stored.get("continuity_flag").map(String::as_str),
+                anon_distinct_id,
+                "the override path must still write the request's anon_distinct_id"
+            );
+        }
+    }
+
+    /// A failed override lookup fails only the continuity flags. A continuity flag that also
+    /// reads DB properties keeps the override error even though the properties fetch succeeded.
+    /// The override check reads the non-persons pool and the properties fetch does not, so only
+    /// the override lookup fails here.
+    #[rstest::rstest]
+    #[case::person(DbPropertyKind::Person)]
+    #[case::static_cohort(DbPropertyKind::StaticCohort)]
+    #[case::group(DbPropertyKind::Group)]
+    #[tokio::test]
+    async fn test_override_lookup_failure_errors_only_continuity_flags(
+        #[case] property_kind: DbPropertyKind,
+    ) {
+        let context = TestContext::new(None).await;
+        let team = context.insert_new_team(None).await.unwrap();
+        let distinct_id = "parallel_user";
+        let property_flag =
+            insert_person_and_db_property_flag(&context, team.id, distinct_id, Some(property_kind))
+                .await
+                .unwrap();
+        let continuity_flag = multivariate_continuity_flag(team.id, 1, "continuity_flag");
+        let continuity_property_flag = continuity_property_flag(team.id);
+        let rollout_flag =
+            mock!(FeatureFlag, id: 4, team_id: team.id, key: "rollout_flag".mock_into());
+        let failing_non_persons =
+            Arc::new(CountingFailingClient::new(|| sqlx::Error::PoolTimedOut));
+        let router = PostgresRouter::new(
+            context.persons_reader.clone(),
+            context.persons_writer.clone(),
+            failing_non_persons.clone(),
+            context.non_persons_writer.clone(),
+        );
+        let mut matcher = matcher_with_real_caches(&context, team.id, distinct_id, router);
+
+        let response = matcher
+            .evaluate_all_feature_flags(
+                flag_list_with_metadata(vec![
+                    continuity_flag,
+                    property_flag,
+                    continuity_property_flag,
+                    rollout_flag,
+                ]),
+                None,
+                None,
+                Some("anon_id".to_string()),
+                Uuid::new_v4(),
+                None,
+                false,
+            )
+            .await
+            .unwrap();
+
+        assert!(
+            failing_non_persons.calls.load(Ordering::SeqCst) > 0,
+            "precondition: the override check must reach the failing pool"
+        );
+        assert!(response.errors_while_computing_flags);
+        let outcome = |key: &str| flag_outcome(&response, key);
+        let failed_with = |code: &str| Some((false, true, code.to_string()));
+        let matched = Some((true, false, "condition_match".to_string()));
+        assert_eq!(
+            outcome("continuity_flag"),
+            failed_with("hash_key_override_error")
+        );
+        assert_eq!(
+            outcome("continuity_property_flag"),
+            failed_with("hash_key_override_error")
+        );
+        assert_eq!(outcome("property_flag"), matched);
+        assert_eq!(outcome("rollout_flag"), matched);
+    }
+
+    /// A failed properties fetch fails every flag that reads DB properties. The override lookup
+    /// reads the same persons pool, so when a continuity flag is present it fails too. A flag
+    /// that needs both reports the properties error, because DB preparation writes its errors
+    /// after the override errors.
+    #[rstest::rstest]
+    #[case::with_continuity_flags(true)]
+    #[case::without_continuity_flags(false)]
+    #[tokio::test]
+    async fn test_property_fetch_failure_fails_db_property_flags(
+        #[case] with_continuity_flags: bool,
+    ) {
+        let context = TestContext::new(None).await;
+        let team = context.insert_new_team(None).await.unwrap();
+        let distinct_id = "parallel_user";
+        let property_flag = insert_person_and_db_property_flag(
+            &context,
+            team.id,
+            distinct_id,
+            Some(DbPropertyKind::Person),
+        )
+        .await
+        .unwrap();
+        let continuity_flag = multivariate_continuity_flag(team.id, 1, "continuity_flag");
+        let continuity_property_flag = continuity_property_flag(team.id);
+        let rollout_flag =
+            mock!(FeatureFlag, id: 4, team_id: team.id, key: "rollout_flag".mock_into());
+        let mut flags = vec![property_flag, rollout_flag];
+        if with_continuity_flags {
+            flags.extend([continuity_flag, continuity_property_flag]);
+        }
+        let router = PostgresRouter::new(
+            setup_invalid_pg_client().await,
+            context.persons_writer.clone(),
+            context.non_persons_reader.clone(),
+            context.non_persons_writer.clone(),
+        );
+        let mut matcher = matcher_with_real_caches(&context, team.id, distinct_id, router);
+
+        let response = matcher
+            .evaluate_all_feature_flags(
+                flag_list_with_metadata(flags),
+                None,
+                None,
+                None,
+                Uuid::new_v4(),
+                None,
+                false,
+            )
+            .await
+            .unwrap();
+
+        assert!(response.errors_while_computing_flags);
+        let outcome = |key: &str| flag_outcome(&response, key);
+        let failed_with = |code: &str| Some((false, true, code.to_string()));
+        assert_eq!(
+            outcome("property_flag"),
+            failed_with("timeout:pool_timeout")
+        );
+        assert_eq!(
+            outcome("rollout_flag"),
+            Some((true, false, "condition_match".to_string()))
+        );
+        assert_eq!(
+            outcome("continuity_flag"),
+            with_continuity_flags
+                .then(|| failed_with("hash_key_override_error"))
+                .flatten()
+        );
+        assert_eq!(
+            outcome("continuity_property_flag"),
+            with_continuity_flags
+                .then(|| failed_with("timeout:pool_timeout"))
+                .flatten()
+        );
+    }
+
+    /// The override lookup and the properties fetch both start before either finishes. The
+    /// database never answers. When the two reads run one after the other, the second read starts
+    /// after the deadline and does not ask for a connection, so the count stays at 1.
+    #[rstest::rstest]
+    #[case::override_read(None)]
+    #[case::override_check(Some("anon_distinct_id"))]
+    #[tokio::test(start_paused = true)]
+    async fn test_override_lookup_and_property_fetch_start_together(
+        #[case] anon_distinct_id: Option<&str>,
+    ) {
+        let stalled_db = Arc::new(StalledPgClient::default());
+        let router = PostgresRouter::new(
+            stalled_db.clone(),
+            stalled_db.clone(),
+            stalled_db.clone(),
+            stalled_db.clone(),
+        );
+        let deadline = Duration::from_millis(500);
+        let mut matcher = FeatureFlagMatcher::new(
+            "stalled_user".to_string(),
+            None,
+            1,
+            router,
+            Arc::new(CohortCacheManager::new(stalled_db.clone(), None, None)),
+            Arc::new(GroupTypeCacheManager::new(stalled_db.clone(), None, None)),
+            None,
+        )
+        .with_persons_db_deadline(Some(tokio::time::Instant::now() + deadline));
+        let mut flags = flag_list_with_metadata(vec![
+            mock!(FeatureFlag,
+                id: 1,
+                key: "continuity_flag".mock_into(),
+                ensure_experience_continuity: Some(true)
+            ),
+            mock!(FeatureFlag,
+                id: 2,
+                key: "person_flag".mock_into(),
+                filters: person_email_filter().mock_into()
+            ),
+        ]);
+        // Preloaded cohorts keep the cohort definitions lookup off the stalled pool.
+        flags.cohorts = Some(Arc::from(Vec::new()));
+
+        let start = tokio::time::Instant::now();
+        let response = tokio::time::timeout(
+            Duration::from_secs(60),
+            matcher.evaluate_all_feature_flags(
+                flags,
+                None,
+                None,
+                anon_distinct_id.map(str::to_string),
+                Uuid::new_v4(),
+                None,
+                false,
+            ),
+        )
+        .await
+        .expect("a stalled persons DB must not stall flag evaluation")
+        .unwrap();
+        let elapsed = start.elapsed();
+
+        assert_eq!(
+            response.flags["continuity_flag"].reason.code,
+            "hash_key_override_error"
+        );
+        assert_eq!(
+            response.flags["person_flag"].reason.code,
+            "timeout:persons_db_deadline"
+        );
+        assert!(elapsed < deadline * 2, "took {elapsed:?}");
+        assert_eq!(
+            stalled_db.connection_requests.load(Ordering::SeqCst),
+            2,
+            "the override lookup and the properties fetch must both ask for a connection before the deadline"
+        );
+    }
+
     #[tokio::test]
     async fn test_hash_key_override_error_marks_continuity_flags_as_errors() {
         let context = TestContext::new(None).await;
@@ -8470,14 +9089,13 @@ mod tests {
         let overrides = crate::flags::flag_matching::FlagEvaluationOverrides {
             person_property_overrides: None,
             group_property_overrides: None,
-            hash_key_overrides: None, // hash_key_overrides (None simulates read failure)
-            hash_key_override_error: true, // hash_key_override_error (simulates the error occurred)
             request_hash_key_override: None,
         };
 
         let response = matcher
             .evaluate_flags_with_overrides(
                 overrides,
+                std::future::ready(HashKeyOverrideLookupResult::Failed),
                 Uuid::new_v4(),
                 precomputed.evaluation_stages,
                 precomputed.flags_with_missing_deps,
@@ -8587,8 +9205,6 @@ mod tests {
         let overrides = crate::flags::flag_matching::FlagEvaluationOverrides {
             person_property_overrides: None,
             group_property_overrides: None,
-            hash_key_overrides: None,
-            hash_key_override_error: true,
             request_hash_key_override: None,
         };
 
@@ -8597,6 +9213,7 @@ mod tests {
         let response = matcher
             .evaluate_flags_with_overrides(
                 overrides,
+                std::future::ready(HashKeyOverrideLookupResult::Failed),
                 Uuid::new_v4(),
                 precomputed.evaluation_stages,
                 precomputed.flags_with_missing_deps,
@@ -8695,6 +9312,7 @@ mod tests {
         let result = matcher
             .evaluate_flags_with_overrides(
                 Default::default(),
+                std::future::ready(HashKeyOverrideLookupResult::default()),
                 Uuid::new_v4(),
                 precomputed.evaluation_stages,
                 precomputed.flags_with_missing_deps,
@@ -8798,6 +9416,7 @@ mod tests {
         let result = matcher
             .evaluate_flags_with_overrides(
                 Default::default(),
+                std::future::ready(HashKeyOverrideLookupResult::default()),
                 Uuid::new_v4(),
                 precomputed.evaluation_stages,
                 precomputed.flags_with_missing_deps,
@@ -8898,6 +9517,7 @@ mod tests {
         let result = matcher
             .evaluate_flags_with_overrides(
                 Default::default(),
+                std::future::ready(HashKeyOverrideLookupResult::default()),
                 Uuid::new_v4(),
                 precomputed.evaluation_stages,
                 precomputed.flags_with_missing_deps,
@@ -8997,6 +9617,7 @@ mod tests {
         let result = matcher
             .evaluate_flags_with_overrides(
                 Default::default(),
+                std::future::ready(HashKeyOverrideLookupResult::default()),
                 Uuid::new_v4(),
                 precomputed.evaluation_stages,
                 precomputed.flags_with_missing_deps,
@@ -9095,6 +9716,7 @@ mod tests {
         let result = matcher
             .evaluate_flags_with_overrides(
                 Default::default(),
+                std::future::ready(HashKeyOverrideLookupResult::default()),
                 Uuid::new_v4(),
                 precomputed.evaluation_stages,
                 precomputed.flags_with_missing_deps,
@@ -10333,6 +10955,7 @@ mod tests {
         let result = matcher
             .evaluate_flags_with_overrides(
                 Default::default(),
+                std::future::ready(HashKeyOverrideLookupResult::default()),
                 Uuid::new_v4(),
                 precomputed.evaluation_stages,
                 precomputed.flags_with_missing_deps,
@@ -10425,6 +11048,7 @@ mod tests {
         let result = matcher
             .evaluate_flags_with_overrides(
                 Default::default(),
+                std::future::ready(HashKeyOverrideLookupResult::default()),
                 Uuid::new_v4(),
                 precomputed.evaluation_stages,
                 precomputed.flags_with_missing_deps,
@@ -12771,5 +13395,556 @@ mod tests {
         // Holdout check wins — user is in holdout, variant is holdout-42
         assert!(flag_result.enabled);
         assert_eq!(flag_result.variant.as_deref(), Some("holdout-42"));
+    }
+
+    fn known_absent_person(keys: &[&str]) -> KnownAbsentProperties {
+        KnownAbsentProperties {
+            person: keys.iter().map(|key| key.to_string()).collect(),
+            ..Default::default()
+        }
+    }
+
+    fn known_absent_group(group_type: &str, keys: &[&str]) -> KnownAbsentProperties {
+        KnownAbsentProperties {
+            groups: HashMap::from([(
+                group_type.to_string(),
+                keys.iter().map(|key| key.to_string()).collect(),
+            )]),
+            ..Default::default()
+        }
+    }
+
+    fn person_property_flag(
+        id: i32,
+        team_id: TeamId,
+        key: &str,
+        property: &str,
+        operator: OperatorType,
+    ) -> FeatureFlag {
+        mock!(FeatureFlag,
+            id: id,
+            team_id: team_id,
+            key: key.mock_into(),
+            filters: mock!(PropertyFilter,
+                key: property.mock_into(),
+                operator: Some(operator)
+            ).mock_into()
+        )
+    }
+
+    fn v2_person_flag(team_id: TeamId, key: &str, predicates: serde_json::Value) -> FeatureFlag {
+        mock!(FeatureFlag,
+            team_id: team_id,
+            key: key.mock_into(),
+            filters: decode_filters(json!({
+                "version": 2, "return_type": "boolean", "default_value": false,
+                "rules": [{
+                    "id": "00000000-0000-4000-8000-000000000001",
+                    "rule_type": "targeted_release",
+                    "targeting": {"properties": predicates},
+                    "value": true,
+                }],
+            }))
+            .unwrap()
+        )
+    }
+
+    struct KnownAbsentSubject {
+        context: TestContext,
+        team_id: TeamId,
+        distinct_id: String,
+        person_overrides: Option<HashMap<String, serde_json::Value>>,
+        groups: Option<HashMap<String, serde_json::Value>>,
+        group_overrides: Option<HashMap<String, HashMap<String, serde_json::Value>>>,
+    }
+
+    impl KnownAbsentSubject {
+        async fn new(person_properties: Option<serde_json::Value>) -> Self {
+            let context = TestContext::new(None).await;
+            let team = context.insert_new_team(None).await.unwrap();
+            let distinct_id = Uuid::new_v4().to_string();
+            context
+                .insert_person(team.id, distinct_id.clone(), person_properties)
+                .await
+                .unwrap();
+            Self {
+                context,
+                team_id: team.id,
+                distinct_id,
+                person_overrides: None,
+                groups: None,
+                group_overrides: None,
+            }
+        }
+
+        async fn with_enterprise_org() -> Self {
+            let mut subject = Self::new(None).await;
+            let group_key = Uuid::new_v4().to_string();
+            subject
+                .context
+                .create_group(
+                    subject.team_id,
+                    "organization",
+                    &group_key,
+                    json!({"tier": "enterprise"}),
+                )
+                .await
+                .unwrap();
+            subject.groups = Some(HashMap::from([(
+                "organization".to_string(),
+                json!(group_key),
+            )]));
+            subject.group_overrides = Some(HashMap::from([(
+                "organization".to_string(),
+                HashMap::from([("$group_key".to_string(), json!(group_key))]),
+            )]));
+            subject
+        }
+
+        async fn evaluate(
+            &self,
+            flags: Vec<FeatureFlag>,
+            known_absent: KnownAbsentProperties,
+        ) -> FlagsResponse {
+            let cohort_cache = Arc::new(CohortCacheManager::new(
+                self.context.non_persons_reader.clone(),
+                None,
+                None,
+            ));
+            let mut matcher = FeatureFlagMatcher::new(
+                self.distinct_id.clone(),
+                None,
+                self.team_id,
+                self.context.create_postgres_router(),
+                cohort_cache,
+                mock_group_type_cache(HashMap::from([
+                    ("project".to_string(), 0),
+                    ("organization".to_string(), 1),
+                ])),
+                self.groups.clone(),
+            )
+            .with_known_absent_properties(known_absent);
+            matcher
+                .evaluate_all_feature_flags(
+                    flag_list_with_metadata(flags),
+                    self.person_overrides.clone(),
+                    self.group_overrides.clone(),
+                    None,
+                    Uuid::new_v4(),
+                    None,
+                    false,
+                )
+                .await
+                .unwrap()
+        }
+
+        async fn evaluate_unlisted_and_listed(
+            &self,
+            flags: Vec<FeatureFlag>,
+            listed: KnownAbsentProperties,
+        ) -> (FlagsResponse, FlagsResponse) {
+            let unlisted = self
+                .evaluate(flags.clone(), KnownAbsentProperties::default())
+                .await;
+            reset_fetch_calls_count();
+            let listed = self.evaluate(flags, listed).await;
+            (unlisted, listed)
+        }
+    }
+
+    #[rstest::rstest]
+    #[case::db_skipped(false, 0)]
+    #[case::db_fetched(true, 1)]
+    #[tokio::test]
+    async fn test_known_absent_person_property_hides_stored_value(
+        #[case] force_fetch: bool,
+        #[case] expected_fetches: u64,
+    ) {
+        let subject =
+            KnownAbsentSubject::new(Some(json!({"plan": "pro", "email": "user@example.com"})))
+                .await;
+        let team_id = subject.team_id;
+        let mut flags = vec![
+            person_property_flag(1, team_id, "plan_is_set", "plan", OperatorType::IsSet),
+            person_property_flag(
+                2,
+                team_id,
+                "plan_is_not_set",
+                "plan",
+                OperatorType::IsNotSet,
+            ),
+        ];
+        if force_fetch {
+            flags.push(person_property_flag(
+                3,
+                team_id,
+                "email_is_set",
+                "email",
+                OperatorType::IsSet,
+            ));
+        }
+
+        reset_fetch_calls_count();
+        let result = subject
+            .evaluate(flags, known_absent_person(&["plan"]))
+            .await;
+
+        assert!(!result.errors_while_computing_flags);
+        assert!(!result.flags["plan_is_set"].enabled);
+        assert!(result.flags["plan_is_not_set"].enabled);
+        assert_eq!(get_fetch_calls_count(), expected_fetches);
+    }
+
+    #[rstest::rstest]
+    #[case::sent_value(vec![("plan", json!("pro"))], "plan")]
+    #[case::sent_geoip_key(vec![("$geoip_city_name", json!("Sydney"))], "$geoip_city_name")]
+    #[case::initial_os_copied_from_os(vec![("$os", json!("iOS"))], "$initial_os")]
+    #[case::os_name_aliased_from_os(vec![("$os", json!("iOS"))], "$os_name")]
+    #[case::injected_distinct_id(vec![], "distinct_id")]
+    #[tokio::test]
+    async fn test_known_absent_listing_wins_over_sent_and_synthesized_values(
+        #[case] sent: Vec<(&str, serde_json::Value)>,
+        #[case] listed_key: &str,
+    ) {
+        let mut subject = KnownAbsentSubject::new(None).await;
+        subject.person_overrides = Some(
+            sent.into_iter()
+                .map(|(key, value)| (key.to_string(), value))
+                .collect(),
+        );
+        let flag = person_property_flag(
+            1,
+            subject.team_id,
+            "is_not_set_flag",
+            listed_key,
+            OperatorType::IsNotSet,
+        );
+
+        let (unlisted, listed) = subject
+            .evaluate_unlisted_and_listed(vec![flag.clone()], known_absent_person(&[listed_key]))
+            .await;
+
+        assert!(
+            !unlisted.flags[&flag.key].enabled,
+            "without the listing, {listed_key} has a value"
+        );
+        assert!(!listed.errors_while_computing_flags);
+        assert!(
+            listed.flags[&flag.key].enabled,
+            "a listed {listed_key} must read as absent"
+        );
+    }
+
+    #[rstest::rstest]
+    #[case::os_name_from_os("$os", "$os", "$os_name")]
+    #[case::initial_os_from_os("$os", "$os", "$initial_os")]
+    #[case::initial_browser_from_browser("$browser", "$browser", "$initial_browser")]
+    #[case::initial_os_from_os_aliased_from_os_name("$os_name", "$os", "$initial_os")]
+    #[tokio::test]
+    async fn test_known_absent_source_key_does_not_feed_synthesized_values(
+        #[case] stored_key: &str,
+        #[case] listed_key: &str,
+        #[case] filter_key: &str,
+    ) {
+        let subject = KnownAbsentSubject::new(Some(json!({ stored_key: "stored" }))).await;
+        let flag = person_property_flag(
+            1,
+            subject.team_id,
+            "is_not_set_flag",
+            filter_key,
+            OperatorType::IsNotSet,
+        );
+
+        let (unlisted, listed) = subject
+            .evaluate_unlisted_and_listed(vec![flag.clone()], known_absent_person(&[listed_key]))
+            .await;
+
+        assert!(
+            !unlisted.flags[&flag.key].enabled,
+            "without the listing, {filter_key} is derived from the stored {stored_key}"
+        );
+        assert!(!listed.errors_while_computing_flags);
+        assert!(
+            listed.flags[&flag.key].enabled,
+            "a listed {listed_key} must not feed {filter_key}"
+        );
+    }
+
+    #[rstest::rstest]
+    #[case::group_aggregated_stored_property(Some(1), "tier", None)]
+    #[case::mixed_targeting_stored_property(None, "tier", Some(0))]
+    #[case::group_aggregated_group_key(Some(1), "$group_key", None)]
+    #[case::mixed_targeting_group_key(None, "$group_key", Some(0))]
+    #[tokio::test]
+    async fn test_known_absent_group_property_hides_stored_value(
+        #[case] aggregation: Option<i32>,
+        #[case] listed_key: &str,
+        #[case] expected_fetches: Option<u64>,
+    ) {
+        let subject = KnownAbsentSubject::with_enterprise_org().await;
+        let group_flag = |id: i32, key: &str, operator: OperatorType| {
+            mock!(FeatureFlag,
+                id: id,
+                team_id: subject.team_id,
+                key: key.mock_into(),
+                filters: FlagFilters {
+                    groups: vec![FlagPropertyGroup {
+                        properties: Some(vec![PropertyFilter {
+                            key: listed_key.to_string(),
+                            ..organization_tier_filter(operator)
+                        }]),
+                        ..mock!(FlagPropertyGroup)
+                    }],
+                    aggregation_group_type_index: aggregation,
+                    ..Default::default()
+                }
+            )
+        };
+        let flags = vec![
+            group_flag(1, "is_set_flag", OperatorType::IsSet),
+            group_flag(2, "is_not_set_flag", OperatorType::IsNotSet),
+        ];
+
+        let (unlisted, listed) = subject
+            .evaluate_unlisted_and_listed(flags, known_absent_group("organization", &[listed_key]))
+            .await;
+
+        assert!(unlisted.flags["is_set_flag"].enabled);
+        assert!(!unlisted.flags["is_not_set_flag"].enabled);
+        assert!(!listed.errors_while_computing_flags);
+        assert!(!listed.flags["is_set_flag"].enabled);
+        assert!(listed.flags["is_not_set_flag"].enabled);
+        if let Some(expected_fetches) = expected_fetches {
+            assert_eq!(get_fetch_calls_count(), expected_fetches);
+        }
+    }
+
+    #[rstest::rstest]
+    #[case::other_group_type(known_absent_group("project", &["tier"]))]
+    #[case::unknown_group_type(known_absent_group("no_such_type", &["tier"]))]
+    #[case::person_key_of_same_name(known_absent_person(&["tier"]))]
+    #[tokio::test]
+    async fn test_known_absent_key_listed_for_another_source_keeps_stored_group_value(
+        #[case] known_absent: KnownAbsentProperties,
+    ) {
+        let subject = KnownAbsentSubject::with_enterprise_org().await;
+        let flag = mixed_targeting_flag(subject.team_id, OperatorType::Exact);
+
+        let result = subject.evaluate(vec![flag.clone()], known_absent).await;
+
+        assert!(!result.errors_while_computing_flags);
+        assert!(result.flags[&flag.key].enabled);
+    }
+
+    #[rstest::rstest]
+    #[case::raw_key("created_at")]
+    #[case::sentinel_prefixed_key("__posthog_person_metadata__created_at")]
+    #[tokio::test]
+    async fn test_known_absent_never_hides_person_metadata_created_at(#[case] listed_key: &str) {
+        let subject = KnownAbsentSubject::new(None).await;
+        let flag = mock!(FeatureFlag,
+            team_id: subject.team_id,
+            filters: mock!(PropertyFilter,
+                key: "created_at".mock_into(),
+                value: Some(json!("2000-01-01")),
+                operator: Some(OperatorType::IsDateAfter),
+                prop_type: PropertyType::PersonMetadata
+            ).mock_into()
+        );
+        let known_absent = FlagRequest {
+            person_property_keys_known_absent: Some(json!([listed_key])),
+            ..Default::default()
+        }
+        .known_absent_properties()
+        .unwrap();
+
+        reset_fetch_calls_count();
+        let result = subject.evaluate(vec![flag.clone()], known_absent).await;
+
+        assert_eq!(
+            get_fetch_calls_count(),
+            1,
+            "the created_at column is only on the person row"
+        );
+        assert!(!result.errors_while_computing_flags);
+        assert!(result.flags[&flag.key].enabled);
+    }
+
+    #[tokio::test]
+    async fn test_known_absent_feature_enrollment_key_skips_db_and_falls_through() {
+        let subject =
+            KnownAbsentSubject::new(Some(json!({"$feature_enrollment/my-feature": true}))).await;
+        let flag = mock!(FeatureFlag,
+            team_id: subject.team_id,
+            key: "my-feature".mock_into(),
+            filters: FlagFilters {
+                groups: vec![mock!(FlagPropertyGroup, rollout_percentage: Some(0.0))],
+                feature_enrollment: Some(true),
+                ..Default::default()
+            }
+        );
+
+        let (unlisted, listed) = subject
+            .evaluate_unlisted_and_listed(
+                vec![flag.clone()],
+                known_absent_person(&["$feature_enrollment/my-feature"]),
+            )
+            .await;
+
+        assert!(unlisted.flags[&flag.key].enabled, "the person is enrolled");
+        assert_eq!(get_fetch_calls_count(), 0);
+        assert!(!listed.errors_while_computing_flags);
+        assert!(
+            !listed.flags[&flag.key].enabled,
+            "without the enrollment the 0% rollout decides"
+        );
+    }
+
+    enum PlanIsNotSetShape {
+        DynamicCohortLeaf,
+        FlagDependency,
+        V2,
+    }
+
+    #[rstest::rstest]
+    #[case::dynamic_cohort_leaf(PlanIsNotSetShape::DynamicCohortLeaf, None)]
+    #[case::flag_dependency(PlanIsNotSetShape::FlagDependency, None)]
+    #[case::v2_db_skipped(PlanIsNotSetShape::V2, Some(0))]
+    #[tokio::test]
+    async fn test_known_absent_key_reaches_plan_is_not_set_check(
+        #[case] shape: PlanIsNotSetShape,
+        #[case] expected_fetches: Option<u64>,
+    ) {
+        let subject = KnownAbsentSubject::new(Some(json!({"plan": "pro"}))).await;
+        let team_id = subject.team_id;
+        let (flags, asserted) = match shape {
+            PlanIsNotSetShape::DynamicCohortLeaf => {
+                let cohort = subject
+                    .context
+                    .insert_cohort(
+                        team_id,
+                        None,
+                        json!({"properties": {"type": "OR", "values": [{"type": "OR", "values": [{
+                            "key": "plan", "type": "person", "operator": "is_not_set",
+                            "value": "is_not_set", "negation": false,
+                        }]}]}}),
+                        false,
+                    )
+                    .await
+                    .unwrap();
+                let flag = mock!(FeatureFlag,
+                    team_id: team_id,
+                    filters: mock!(PropertyFilter,
+                        key: "id".mock_into(),
+                        value: Some(json!(cohort.id)),
+                        operator: Some(OperatorType::In),
+                        prop_type: PropertyType::Cohort
+                    ).mock_into()
+                );
+                (vec![flag.clone()], flag)
+            }
+            PlanIsNotSetShape::FlagDependency => {
+                let leaf =
+                    person_property_flag(23, team_id, "leaf_flag", "plan", OperatorType::IsNotSet);
+                let parent = mock!(FeatureFlag,
+                    id: 42,
+                    team_id: team_id,
+                    key: "parent_flag".mock_into(),
+                    filters: dep_filter(leaf.id, FlagValue::Boolean(true)).mock_into()
+                );
+                (vec![leaf, parent.clone()], parent)
+            }
+            PlanIsNotSetShape::V2 => {
+                let flag = v2_person_flag(
+                    team_id,
+                    "v2_plan_is_not_set",
+                    json!([{"key": "plan", "type": "person", "operator": "is_not_set", "value": null}]),
+                );
+                (vec![flag.clone()], flag)
+            }
+        };
+
+        let (unlisted, listed) = subject
+            .evaluate_unlisted_and_listed(flags, known_absent_person(&["plan"]))
+            .await;
+
+        assert!(!unlisted.flags[&asserted.key].failed);
+        assert!(
+            !unlisted.flags[&asserted.key].enabled,
+            "the stored plan is set"
+        );
+        assert!(!listed.errors_while_computing_flags);
+        assert!(
+            !listed.flags[&asserted.key].failed,
+            "the listing must not fail the flag"
+        );
+        assert!(listed.flags[&asserted.key].enabled);
+        if let Some(expected_fetches) = expected_fetches {
+            assert_eq!(get_fetch_calls_count(), expected_fetches);
+        }
+    }
+
+    /// `get_match` without preparation leaves the person state `Pending`, the one state in
+    /// which a predicate key can be missing without being listed.
+    #[rstest::rstest]
+    #[case::no_key_missing_nothing_listed(vec![("plan", "pro"), ("email", "user@example.com")], &[], Some(false))]
+    #[case::keys_missing_nothing_listed(vec![], &[], None)]
+    #[case::every_missing_key_listed(vec![], &["plan", "email"], Some(true))]
+    #[case::one_missing_key_unlisted(vec![], &["plan"], None)]
+    #[tokio::test]
+    async fn test_known_absent_v2_completeness_under_pending(
+        #[case] sent: Vec<(&str, &str)>,
+        #[case] listed: &[&str],
+        #[case] expected_match: Option<bool>,
+    ) {
+        let (_context, matcher, team_id) = matcher_for_team("test_user").await;
+        let matcher = matcher.with_known_absent_properties(known_absent_person(listed));
+        let flag = v2_person_flag(
+            team_id,
+            "v2_neither_set",
+            json!([
+                {"key": "plan", "type": "person", "operator": "is_not_set", "value": null},
+                {"key": "email", "type": "person", "operator": "is_not_set", "value": null},
+            ]),
+        );
+        let overrides: HashMap<String, serde_json::Value> = sent
+            .into_iter()
+            .map(|(key, value)| (key.to_string(), json!(value)))
+            .collect();
+        assert!(matcher.flag_evaluation_state.person_properties_pending());
+
+        let result = matcher.get_match(&flag, Some(&overrides), None, None, &None);
+
+        assert_eq!(
+            result.ok().map(|flag_match| flag_match.matches),
+            expected_match
+        );
+    }
+
+    #[rstest::rstest]
+    #[case::listed(&["plan"], true)]
+    #[case::unlisted(&[], false)]
+    #[tokio::test]
+    async fn test_known_absent_v1_completeness_under_pending(
+        #[case] listed: &[&str],
+        #[case] expected_match: bool,
+    ) {
+        let (_context, matcher, team_id) = matcher_for_team("test_user").await;
+        let matcher = matcher.with_known_absent_properties(known_absent_person(listed));
+        let flag = person_property_flag(
+            1,
+            team_id,
+            "v1_plan_is_not_set",
+            "plan",
+            OperatorType::IsNotSet,
+        );
+        let overrides: HashMap<String, serde_json::Value> = HashMap::new();
+        assert!(matcher.flag_evaluation_state.person_properties_pending());
+
+        let result = matcher
+            .get_match(&flag, Some(&overrides), None, None, &None)
+            .unwrap();
+
+        assert_eq!(result.matches, expected_match);
     }
 }

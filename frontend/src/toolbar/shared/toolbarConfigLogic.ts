@@ -13,6 +13,8 @@ import {
 import type { PostHog } from 'posthog-js/dist/module'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { asToolbarProject, toolbarAppPath, ToolbarProject } from 'lib/toolbar/toolbarProject'
+import { registerToolbarRuntime } from 'lib/toolbar/toolbarRuntime'
 
 import { toolbarLogger } from '~/toolbar/shared/toolbarLogger'
 import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/shared/toolbarPosthogJS'
@@ -23,12 +25,14 @@ import {
     asNonEmptyString,
     cleanToolbarAuthHash,
     generatePKCE,
+    joinWithUiHost,
     LOCALSTORAGE_KEY,
     OAUTH_LOCALSTORAGE_KEY,
     PKCE_STORAGE_KEY,
     readToolbarAuthHash,
     requestOAuthTokens,
     safeFetch,
+    ToolbarAuthParams,
 } from './utils'
 
 export type ApiHostSource = 'posthog_api_host' | 'api_url' | 'fallback_rejected' | 'fallback_absent'
@@ -60,6 +64,7 @@ export interface toolbarConfigLogicValues {
     ownsPageSession: boolean
     posthog: PostHog | null
     productTourId: string | null
+    project: ToolbarProject | null
     props: ToolbarProps
     refreshToken: string | null
     toolbarFlagsKey: string | undefined
@@ -106,10 +111,12 @@ export interface toolbarConfigLogicActions {
     setOAuthTokens: (
         accessToken: string,
         refreshToken: string | null,
-        clientId: string
+        clientId: string,
+        project: ToolbarProject
     ) => {
         accessToken: string
         clientId: string
+        project: ToolbarProject
         refreshToken: string | null
     }
     showButton: () => {
@@ -159,10 +166,16 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         showButton: true,
         hideButton: true,
         persistConfig: true,
-        setOAuthTokens: (accessToken: string, refreshToken: string | null, clientId: string) => ({
+        setOAuthTokens: (
+            accessToken: string,
+            refreshToken: string | null,
+            clientId: string,
+            project: ToolbarProject
+        ) => ({
             accessToken,
             refreshToken,
             clientId,
+            project,
         }),
         setAuthStatus: (status: 'idle' | 'checking' | 'authenticating' | 'error') => ({ status }),
         openUiHostConfigModal: true,
@@ -194,6 +207,14 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
             asNonEmptyString(props.clientId),
             {
                 setOAuthTokens: (_, { clientId }) => asNonEmptyString(clientId),
+                logout: () => null,
+                tokenExpired: () => null,
+            },
+        ],
+        project: [
+            asToolbarProject(props.teamId, props.projectId),
+            {
+                setOAuthTokens: (_, { project }) => project,
                 logout: () => null,
                 tokenExpired: () => null,
             },
@@ -440,6 +461,8 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
                 accessToken: values.accessToken ?? undefined,
                 refreshToken: values.refreshToken ?? undefined,
                 clientId: values.clientId ?? undefined,
+                teamId: values.project?.teamId,
+                projectId: values.project?.projectId,
                 actionId: values.actionId ?? undefined,
                 experimentId: values.experimentId ?? undefined,
                 productTourId: values.productTourId ?? undefined,
@@ -461,6 +484,8 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
                         accessToken: values.accessToken,
                         refreshToken: values.refreshToken,
                         clientId: values.clientId,
+                        teamId: values.project?.teamId,
+                        projectId: values.project?.projectId,
                         uiHost: values.uiHost,
                     })
                 )
@@ -471,6 +496,13 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
     })),
 
     afterMount(({ props, values, actions, cache }) => {
+        cache.unregisterRuntime = registerToolbarRuntime({
+            uiHost: () => values.uiHost,
+            posthog: () => values.posthog,
+            isAuthenticated: () => values.isAuthenticated,
+            authenticate: () => actions.authenticate(),
+            project: () => values.project,
+        })
         if (!values.ownsPageSession) {
             return
         }
@@ -485,6 +517,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         }
 
         restoreOAuthTokens(!!authParams, values, actions)
+        discardTokensWithoutProject(!!authParams, values, actions)
         maybeMigrateTemporaryToken(!!authParams, props, values, actions)
         initInstrumentation(props, values)
 
@@ -505,7 +538,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         //   fine for real API calls but CORS-rejects the cheap HEAD)
         if (isPostHogCloudHost(values.uiHost)) {
             if (authParams) {
-                startCodeExchange(values.uiHost, authParams, actions)
+                startCodeExchange(values.uiHost, authParams, values, actions)
             }
             return
         }
@@ -516,6 +549,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
     }),
 
     beforeUnmount(({ values, cache }) => {
+        cache.unregisterRuntime?.()
         if (cache.hashRetryTimeout !== undefined) {
             clearTimeout(cache.hashRetryTimeout)
         }
@@ -524,6 +558,12 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         }
     }),
 ])
+
+/** A PostHog app URL inside the project the toolbar session is scoped to. */
+export function toolbarAppUrl(path: string): string {
+    const values = toolbarConfigLogic.findMounted()?.values
+    return joinWithUiHost(values?.uiHost ?? '', toolbarAppPath(values?.project ?? null, path))
+}
 
 // Hostnames we trust enough to skip the authentication confirmation modal
 // and the reachability check, and to accept legacy (pre-uiHost-binding) tokens on.
@@ -619,9 +659,16 @@ export function canonicalizeApiHost(candidate: string | undefined | null): strin
 // ---------------------------------------------------------------------------
 
 type TokenActions = {
-    setOAuthTokens: (accessToken: string, refreshToken: string | null, clientId: string) => void
+    setOAuthTokens: (
+        accessToken: string,
+        refreshToken: string | null,
+        clientId: string,
+        project: ToolbarProject
+    ) => void
     setAuthStatus: (status: 'idle' | 'checking' | 'authenticating' | 'error') => void
+    tokenExpired: () => void
 }
+type SessionValues = { accessToken: string | null; project: ToolbarProject | null }
 type CheckActions = TokenActions & {
     openUiHostConfigModal: () => void
 }
@@ -651,7 +698,14 @@ function restoreOAuthTokens(
         localStorage.removeItem(OAUTH_LOCALSTORAGE_KEY)
         return
     }
-    const { accessToken, refreshToken, clientId, uiHost: storedUiHost } = parsed as Record<string, unknown>
+    const {
+        accessToken,
+        refreshToken,
+        clientId,
+        teamId,
+        projectId,
+        uiHost: storedUiHost,
+    } = parsed as Record<string, unknown>
     // Validate the required fields are non-empty strings — guards against a third-party script
     // writing garbage (or an older version writing a different shape) that would later
     // blow up on fetch header construction. refreshToken is optional (impersonation-minted
@@ -666,6 +720,13 @@ function restoreOAuthTokens(
         typeof clientId !== 'string' ||
         !clientId
     ) {
+        localStorage.removeItem(OAUTH_LOCALSTORAGE_KEY)
+        return
+    }
+    // Every API path is built from the project the token is scoped to, so tokens stored without it sign out.
+    const project = asToolbarProject(teamId, projectId)
+    if (!project) {
+        toolbarPosthogJS.capture('toolbar oauth tokens discarded', { reason: 'missing_project' })
         localStorage.removeItem(OAUTH_LOCALSTORAGE_KEY)
         return
     }
@@ -707,7 +768,23 @@ function restoreOAuthTokens(
         localStorage.removeItem(OAUTH_LOCALSTORAGE_KEY)
         return
     }
-    actions.setOAuthTokens(accessToken, storedRefreshToken, clientId)
+    actions.setOAuthTokens(accessToken, storedRefreshToken, clientId, project)
+}
+
+/**
+ * Sign out a session whose tokens came from toolbar params without the project they are scoped to. posthog-js passes
+ * the params a previous toolbar version stored, so this is the only path where tokens can arrive without one.
+ */
+function discardTokensWithoutProject(
+    pendingCodeExchange: boolean,
+    values: { accessToken: string | null; project: ToolbarProject | null },
+    actions: { tokenExpired: () => void }
+): void {
+    if (pendingCodeExchange || !values.accessToken || values.project) {
+        return
+    }
+    toolbarPosthogJS.capture('toolbar oauth tokens discarded', { reason: 'missing_project' })
+    actions.tokenExpired()
 }
 
 /**
@@ -785,9 +862,9 @@ function classifyFetchError(error: unknown): string {
  */
 function verifyUiHostReachability(
     props: ToolbarProps,
-    values: { uiHost: string; apiHost: string; isAuthenticated: boolean },
+    values: SessionValues & { uiHost: string; apiHost: string; isAuthenticated: boolean },
     actions: CheckActions,
-    authParams: { code: string; clientId: string } | null
+    authParams: ToolbarAuthParams | null
 ): void {
     actions.setAuthStatus('checking')
 
@@ -824,7 +901,7 @@ function verifyUiHostReachability(
             })
 
             if (authParams) {
-                startCodeExchange(values.uiHost, authParams, actions)
+                startCodeExchange(values.uiHost, authParams, values, actions)
             }
         })
         .catch((error: unknown) => {
@@ -852,15 +929,19 @@ function verifyUiHostReachability(
 /** Exchange an OAuth authorization code for access + refresh tokens. */
 function startCodeExchange(
     uiHost: string,
-    authParams: { code: string; clientId: string },
+    authParams: ToolbarAuthParams,
+    values: SessionValues,
     actions: TokenActions
 ): void {
-    void exchangeCodeForTokens(uiHost, authParams.code, authParams.clientId, actions).then((succeeded) => {
+    void exchangeCodeForTokens(uiHost, authParams, actions).then((succeeded) => {
         if (!succeeded) {
             // Code exchange failed (stale code, expired PKCE, network error).
             // Fall back to stored OAuth tokens so users don't have to
             // re-authenticate when the hash wasn't cleaned properly.
             restoreOAuthTokens(false, { accessToken: null, uiHost }, actions)
+            // The mount skipped this check while the exchange was pending, and a token from toolbar params is
+            // still live when the stored tokens could not replace it.
+            discardTokensWithoutProject(false, values, actions)
         }
     })
 }
@@ -873,10 +954,15 @@ const PKCE_TTL_MS = 10 * 60 * 1000 // 10 minutes
 
 async function exchangeCodeForTokens(
     uiHost: string,
-    code: string,
-    clientId: string,
+    { code, clientId, project }: ToolbarAuthParams,
     actions: TokenActions
 ): Promise<boolean> {
+    if (!project) {
+        toolbarPosthogJS.capture('toolbar oauth exchange', { status: 'error', error: 'missing_project' })
+        toolbarLogger.error('auth', 'The OAuth callback named no project, cannot exchange code')
+        lemonToast.error('Authentication failed. Please try again.')
+        return false
+    }
     actions.setAuthStatus('authenticating')
 
     let pkceData: { verifier?: string; ts?: number } = {}
@@ -917,7 +1003,7 @@ async function exchangeCodeForTokens(
                 has_refresh_token: !!refresh,
                 duration_ms: Math.round(performance.now() - startTime),
             })
-            actions.setOAuthTokens(access, refresh, clientId)
+            actions.setOAuthTokens(access, refresh, clientId, project)
             return true
         }
         const errorString = res.error ?? 'unknown'

@@ -22,7 +22,7 @@ import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { billingProductDisplayName } from 'lib/logic/billing/billingProductDisplayName'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 import { humanFriendlyCurrency } from 'lib/utils/numbers'
 
 import { BillingProductV2AddonType, BillingProductV2Type } from '~/types'
@@ -67,7 +67,7 @@ export const UnsubscribeSurveyModal = ({
     const { unsubscribeError, billingLoading, billing, isExternallyBilled } = useValues(billingLogic)
     const { openSupportForm } = useActions(supportLogic)
     const [randomizedReasons] = useState(() =>
-        inStorybook() || inStorybookTestRunner() ? UNSUBSCRIBE_REASONS : randomizeReasons(UNSUBSCRIBE_REASONS)
+        inStorybook() ? UNSUBSCRIBE_REASONS : randomizeReasons(UNSUBSCRIBE_REASONS)
     )
 
     const invoicesUrl = isExternallyBilled

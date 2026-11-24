@@ -1,0 +1,11 @@
+[
+    {
+        "lab": "Open weights",
+        "pattern": "gpt-oss|deepseek|glm|kimi|qwen|llama|mistral|minimax|gemma|nemotron|olmo|devstral|codestral|mimo|^phi"
+    },
+    { "lab": "Anthropic", "pattern": "claude|opus|sonnet|haiku|fable|anthropic" },
+    { "lab": "OpenAI", "pattern": "gpt|(?:^|[^a-z0-9_])o[1-9]|codex|openai|chatgpt" },
+    { "lab": "Google", "pattern": "gemini|google" },
+    { "lab": "xAI", "pattern": "grok|xai" },
+    { "lab": "Cursor", "pattern": "composer" }
+]
