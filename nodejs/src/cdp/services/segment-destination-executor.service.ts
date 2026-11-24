@@ -21,6 +21,7 @@ import {
     cdpTrackedFetch,
     getNextRetryTime,
     isFetchResponseRetriable,
+    parseRetryAfterMs,
     readFetchResponseText,
 } from '../utils/cdp-fetch'
 import { createInvocationResult } from '../utils/invocation-utils'
@@ -170,6 +171,7 @@ export class SegmentDestinationExecutorService {
 
         // Indicates if a retry is possible. Once we have peformed 1 successful non-GET request, we can't retry.
         let retriesPossible = true
+        let retryAfterMs: number | undefined
 
         const segmentDestinationId = isSegmentPluginHogFunction(invocation.hogFunction)
             ? invocation.hogFunction.template_id
@@ -342,6 +344,8 @@ export class SegmentDestinationExecutorService {
                             } (${reportableResponseText}). ${retriesPossible ? 'Scheduling retry...' : ''}`
                         )
 
+                        retryAfterMs = parseRetryAfterMs(fetchResponse)
+
                         // If it's retriable and we have retries left, we can trigger a retry, otherwise we just pass through to the function
                         if (retriesPossible || (options?.throwHttpErrors ?? true)) {
                             throw new SegmentFetchError(
@@ -403,7 +407,8 @@ export class SegmentDestinationExecutorService {
                     result.invocation.queueScheduledAt = getNextRetryTime(
                         this.serverConfig.CDP_FETCH_BACKOFF_BASE_MS,
                         this.serverConfig.CDP_FETCH_BACKOFF_MAX_MS,
-                        metadata.tries
+                        metadata.tries,
+                        retryAfterMs
                     )
                     return result
                 }

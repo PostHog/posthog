@@ -235,7 +235,8 @@ describe('NativeDestinationExecutorService', () => {
                 dump: () => Promise.resolve(),
             })
 
-            let minBackoffMs = DateTime.utc().plus({ milliseconds: defaultConfig.CDP_FETCH_BACKOFF_BASE_MS }).toMillis()
+            // The 60s Retry-After is longer than the linear backoff, so every retry waits it out.
+            const retryAfterAt = DateTime.utc().plus({ seconds: 60 }).toMillis()
             const result = await service.execute(invocation)
 
             expect(result.finished).toBe(false)
@@ -279,18 +280,10 @@ describe('NativeDestinationExecutorService', () => {
                 teamId: 1,
             })
 
-            let maxBackoffMs = DateTime.utc()
-                .plus({ milliseconds: defaultConfig.CDP_FETCH_BACKOFF_BASE_MS * 2 })
-                .toMillis()
-            let scheduledAt = result.invocation.queueScheduledAt!.toMillis()
-            expect(scheduledAt).toBeGreaterThanOrEqual(minBackoffMs)
-            expect(scheduledAt).toBeLessThan(maxBackoffMs)
+            expect(result.invocation.queueScheduledAt!.toMillis()).toBe(retryAfterAt)
 
             // second fetch call
 
-            minBackoffMs = DateTime.utc()
-                .plus({ milliseconds: defaultConfig.CDP_FETCH_BACKOFF_BASE_MS * 2 })
-                .toMillis()
             const invocationResults2 = await service.execute(result.invocation)
 
             expect(invocationResults2.finished).toBe(false)
@@ -311,12 +304,7 @@ describe('NativeDestinationExecutorService', () => {
                 teamId: 1,
             })
 
-            maxBackoffMs = DateTime.utc()
-                .plus({ milliseconds: defaultConfig.CDP_FETCH_BACKOFF_BASE_MS * 3 })
-                .toMillis()
-            scheduledAt = invocationResults2.invocation.queueScheduledAt!.toMillis()
-            expect(scheduledAt).toBeGreaterThanOrEqual(minBackoffMs)
-            expect(scheduledAt).toBeLessThan(maxBackoffMs)
+            expect(invocationResults2.invocation.queueScheduledAt!.toMillis()).toBe(retryAfterAt)
 
             // third fetch call
 

@@ -1,5 +1,3 @@
-import { DateTime } from 'luxon'
-
 import { instrumented } from '~/common/tracing/tracing-utils'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
@@ -21,7 +19,9 @@ import {
     MAX_FETCH_RESPONSE_BYTES,
     cdpTrackedFetch,
     fetchErrorDetail,
+    getNextRetryTime,
     isFetchResponseRetriable,
+    parseRetryAfterMs,
 } from '../utils/cdp-fetch'
 import { resolveHmacSha256Secret, signHmacSha256Request } from '../utils/hmac-sha256-signature'
 import { createInvocationResult } from '../utils/invocation-utils'
@@ -584,12 +584,6 @@ export class HogExecutorAsyncService {
                 : undefined
             const isNonFailure = isNonFailureStatus(fetchResponse?.status, nonFailureConfig)
 
-            const backoffMs = Math.min(
-                this.config.fetchBackoffBaseMs * result.invocation.state.attempts +
-                    Math.floor(Math.random() * this.config.fetchBackoffBaseMs),
-                this.config.fetchBackoffMaxMs
-            )
-
             const canRetry = isFetchResponseRetriable(fetchResponse, fetchError)
             const maxRetries = options?.maxFetchRetries ?? this.config.fetchRetries
             // `canRetry` only says the failure class is retriable. On the last attempt it is still
@@ -615,7 +609,12 @@ export class HogExecutorAsyncService {
                 await fetchResponse?.dump()
                 result.invocation.queueParameters = params
                 result.invocation.queuePriority = invocation.queuePriority + 1
-                result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: backoffMs })
+                result.invocation.queueScheduledAt = getNextRetryTime(
+                    this.config.fetchBackoffBaseMs,
+                    this.config.fetchBackoffMaxMs,
+                    result.invocation.state.attempts,
+                    parseRetryAfterMs(fetchResponse)
+                )
 
                 return result
             } else if (!isNonFailure) {

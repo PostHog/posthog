@@ -274,7 +274,36 @@ export const isFetchResponseRetriable = (response: FetchResponse | null, error: 
     return canRetry
 }
 
-export const getNextRetryTime = (backoffBaseMs: number, backoffMaxMs: number, tries: number): DateTime => {
+// Bounds a destination-supplied Retry-After, so a hostile or misconfigured value cannot park an invocation for hours.
+// It is separate from CDP_FETCH_BACKOFF_MAX_MS because a per-minute rate limit needs a wait longer than that cap.
+export const MAX_RETRY_AFTER_MS = 5 * 60 * 1000
+
+const RETRY_AFTER_STATUS_CODES = [429, 503]
+
+// Retry-After is delta-seconds or an HTTP-date. Returns undefined when it is absent, unparseable or already past,
+// so the caller falls back to the backoff.
+export function parseRetryAfterMs(response: FetchResponse | null | undefined): number | undefined {
+    if (!response || !RETRY_AFTER_STATUS_CODES.includes(response.status)) {
+        return undefined
+    }
+    const header = response.headers?.['retry-after']
+    if (!header) {
+        return undefined
+    }
+    const seconds = Number(header)
+    const ms = Number.isFinite(seconds) ? seconds * 1000 : Date.parse(header) - Date.now()
+    if (!Number.isFinite(ms) || ms <= 0) {
+        return undefined
+    }
+    return Math.min(ms, MAX_RETRY_AFTER_MS)
+}
+
+export const getNextRetryTime = (
+    backoffBaseMs: number,
+    backoffMaxMs: number,
+    tries: number,
+    retryAfterMs?: number
+): DateTime => {
     const backoffMs = Math.min(backoffBaseMs * tries + Math.floor(Math.random() * backoffBaseMs), backoffMaxMs)
-    return DateTime.utc().plus({ milliseconds: backoffMs })
+    return DateTime.utc().plus({ milliseconds: Math.max(backoffMs, retryAfterMs ?? 0) })
 }
