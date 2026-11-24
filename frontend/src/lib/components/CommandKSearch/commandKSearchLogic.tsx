@@ -141,7 +141,6 @@ export interface commandKSearchLogicValues {
     isPaletteEmpty: boolean
     localLists: LocalLists
     localQuery: string
-    sidebarItems: SearchItem[]
     mode: CommandKMode
     recentItems: SearchItem[]
     remote: RemoteSlots
@@ -155,6 +154,7 @@ export interface commandKSearchLogicValues {
     sections: CommandKSection[]
     selectableRows: CommandKRow[]
     shownQuery: SectionsQuery | null
+    sidebarItems: SearchItem[]
     suggestionsSection: CommandKSection | null
     tabAsksAi: boolean
     text: string
