@@ -44,6 +44,7 @@ from posthog.temporal.proxy_service.create import (
     WaitForCertificateInputs,
     WaitForDNSRecordsInputs,
     create_cloudflare_custom_hostname,
+    wait_for_cloudflare_certificate,
 )
 from posthog.temporal.proxy_service.delete import DeleteManagedProxyInputs
 
@@ -273,8 +274,10 @@ class TestCloudflareProxyActivation(CloudflareProxyTestMixin, TestCase):
         with responses.RequestsMock(assert_all_requests_are_fired=False) as http:
             self._cloudflare(http, exists=False)
             reconcile_proxy.run(str(self.organization.pk), str(self.record.pk))
+            reconcile_proxy.run(str(self.organization.pk), str(self.record.pk))
             self.assertEqual([call.request.method for call in http.calls], ["GET", "DELETE"])
-        self.assertTrue(ProxyRecord.objects.filter(pk=self.record.pk).exists())
+        self.record.refresh_from_db()
+        self.assertTrue(self.record.cloudflare_deprovisioned)
 
     @parameterized.expand([(False, ProxyRecord.Status.VALID), (True, ProxyRecord.Status.DELETING)])
     def test_redirect_job_does_not_restore_an_unavailable_proxy(self, active: bool, status: str) -> None:
@@ -381,6 +384,17 @@ class TestCloudflareProxyActivation(CloudflareProxyTestMixin, TestCase):
 
         self.record.refresh_from_db()
         self.assertTrue(self.record.needs_activation_recovery)
+        self.assertTrue(self.record.cloudflare_deprovisioned)
+        with (
+            responses.RequestsMock() as http,
+            patch(
+                "posthog.tasks.proxy.reconcile_proxy.apply_async",
+                side_effect=lambda args, kwargs, countdown: reconcile_proxy.run(*args, **kwargs),
+            ),
+        ):
+            reconcile_managed_proxies.run()
+            self.assertEqual(len(http.calls), 0)
+
         ProxyRecord.objects.filter(pk=self.record.pk).update(status=ProxyRecord.Status.ERRORING)
         Organization.objects.filter(pk=self.organization.pk).update(is_active=True)
         temporal = ProxyWorkflowTestClient()
@@ -398,8 +412,8 @@ class TestCloudflareProxyActivation(CloudflareProxyTestMixin, TestCase):
             reconcile_managed_proxies.run()
 
         self.record.refresh_from_db()
-        self.assertFalse(self.record.needs_activation_recovery)
-        self.assertEqual(temporal.started, {})
+        self.assertTrue(self.record.needs_activation_recovery)
+        self.assertEqual(list(temporal.started), [f"proxy-create-{self.record.id}"])
 
     @parameterized.expand([(ProxyRecord.Status.ERRORING,), (ProxyRecord.Status.VALID,)])
     def test_background_status_updates_preserve_deletion_intent(self, status: str) -> None:
@@ -503,6 +517,28 @@ class TestCloudflareProxyActivation(CloudflareProxyTestMixin, TestCase):
     CLOUDFLARE_ACCOUNT_ID="test-account",
 )
 class TestCloudflareProxyActivities(CloudflareProxyTestMixin, TransactionTestCase):
+    async def test_recovery_waits_for_the_cloudflare_certificate(self) -> None:
+        await ProxyRecord.objects.filter(pk=self.record.pk).aupdate(
+            status=ProxyRecord.Status.ISSUING, needs_activation_recovery=True, cloudflare_deprovisioned=True
+        )
+        inputs = CreateCloudflareProxyInputs(
+            organization_id=self.organization.pk, proxy_record_id=self.record.pk, domain=self.record.domain
+        )
+        with responses.RequestsMock(assert_all_requests_are_fired=False) as http:
+            self._cloudflare(http, exists=False)
+            await create_cloudflare_custom_hostname(inputs)
+
+        await self.record.arefresh_from_db()
+        self.assertTrue(self.record.needs_activation_recovery)
+        self.assertFalse(self.record.cloudflare_deprovisioned)
+
+        with responses.RequestsMock(assert_all_requests_are_fired=False) as http:
+            self._cloudflare(http, exists=True)
+            await wait_for_cloudflare_certificate(inputs)
+
+        await self.record.arefresh_from_db()
+        self.assertFalse(self.record.needs_activation_recovery)
+
     async def test_status_update_recovers_from_a_closed_connection(self) -> None:
         @sync_to_async
         def close_driver_connection() -> None:
