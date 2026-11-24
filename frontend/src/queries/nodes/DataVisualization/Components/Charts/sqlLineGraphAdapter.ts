@@ -36,6 +36,7 @@ import { AxisBreakdownSeries, BreakdownSeriesData } from '../seriesBreakdownLogi
 import { type SqlChartProps } from './SqlChart'
 
 export const MAX_SERIES = 200
+export const DEFAULT_SQL_MOVING_AVERAGE_INTERVALS = 3
 
 /** Without a breakdown, rows that share an x value would draw on top of each other in one slot, so they
  *  are summed per x value like the breakdown path does. A bar value chart draws one bar per row, so it keeps them. */
@@ -547,6 +548,7 @@ export function buildLineChartConfig({
     const leftSeries = seriesForAxis(ySeriesData, 'left')
     const rightSeries = seriesForAxis(ySeriesData, 'right')
     const labelFormatter = buildSqlDateLabelFormatter(xData, timezone)
+    const window = chartSettings.movingAverageIntervals ?? DEFAULT_SQL_MOVING_AVERAGE_INTERVALS
 
     return {
         xAxis: buildXAxisConfig(xData, chartSettings, timezone),
@@ -569,6 +571,14 @@ export function buildLineChartConfig({
         goalLines: schemaGoalLinesToConfigs(goalLines),
         showAxisLines: buildAxisLinesConfig(chartSettings),
         trendLines: buildTrendLineConfigs(ySeriesData),
+        movingAverage:
+            chartSettings.showMovingAverage && Number.isInteger(window) && window >= 2
+                ? ySeriesData?.map((series, index) => ({
+                      seriesKey: getSeriesKey(series, index),
+                      window,
+                      alignment: 'trailing',
+                  }))
+                : undefined,
         legend: buildLegendConfig(chartSettings, legendRenderItem),
         valueLabels: buildValueLabelsConfig(chartSettings, ySeriesData),
         curve: chartStyleCurve(chartSettings.chartStyle),

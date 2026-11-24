@@ -112,6 +112,7 @@ How far and how often:
 - Bad rates, a `HIGH` AWS impact, or an auto-pause move the project down one tier per run.
 - After one of those moves, the project cannot move down for those reasons again for 7 days.
   By then the week that caused the move has left the window, so a second move needs new bad sends.
+  The window is cut on whole UTC days, so bad rates and auto-pauses also wait until the day of the last move has left it. A `HIGH` AWS impact still moves the project down.
 - A staff suspension, or an AWS-paused tenant, drops the project straight to tier 0.
 - A project above tier 0 that sends nothing for 30 days moves down one tier, then one more for every further 30 days. Inactivity stops at the trusted floor, so a dormant trusted project keeps tier 3.
 - Pinned projects never move automatically.

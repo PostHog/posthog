@@ -29,12 +29,13 @@ from products.ai_observability.backend.api.offline_experiment_access import (
     OfflineEvaluationIngestionTeamSustainedThrottle,
 )
 from products.ai_observability.backend.api.offline_experiment_errors import OfflineEvaluationErrorSerializer
+from products.ai_observability.backend.api.offline_experiment_mutations import (
+    MUTATION_SCOPES,
+    OfflineExperimentMutationViewSet,
+)
 from products.ai_observability.backend.api.offline_experiment_parser import OfflineEvaluationJSONParser
 from products.ai_observability.backend.api.offline_experiment_read_serializers import OfflineExperimentReadSerializer
-from products.ai_observability.backend.api.offline_experiment_reads import (
-    READ_ERROR_RESPONSES,
-    OfflineExperimentReadViewSet,
-)
+from products.ai_observability.backend.api.offline_experiment_reads import READ_ERROR_RESPONSES
 from products.ai_observability.backend.api.offline_experiment_serializers import (
     ExperimentSubmissionSerializer,
     UploadSubmissionSerializer,
@@ -134,7 +135,7 @@ class OfflineExperimentMetadataSerializer(serializers.Serializer):
     tags = ResourceTagNamesField(required=False)
 
 
-class OfflineExperimentViewSet(OfflineExperimentReadViewSet):
+class OfflineExperimentViewSet(OfflineExperimentMutationViewSet):
     scope_object_write_actions = ["create", "upload", "complete", "fail", "partial_update"]
     psak_allowed_actions = ["create", "upload", "complete", "fail"]
     parser_classes = [OfflineEvaluationJSONParser]
@@ -145,7 +146,7 @@ class OfflineExperimentViewSet(OfflineExperimentReadViewSet):
         OfflineEvaluationIngestionTeamSustainedThrottle,
     ]
     serializer_class = ExperimentSubmissionSerializer
-    http_method_names = ["get", "post", "patch", "head", "options"]
+    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
 
     def dangerously_get_required_scopes(self, request: Request, view: viewsets.ViewSetMixin) -> list[str] | None:
         if self.action == "partial_update":
@@ -155,7 +156,7 @@ class OfflineExperimentViewSet(OfflineExperimentReadViewSet):
         return super().dangerously_get_required_scopes(request, view)
 
     def get_throttles(self) -> list[BaseThrottle]:
-        if self.action in self.psak_allowed_actions:
+        if self.action in self.psak_allowed_actions or self.action in MUTATION_SCOPES:
             return [throttle() for throttle in self.ingestion_throttle_classes]
         return super().get_throttles()
 

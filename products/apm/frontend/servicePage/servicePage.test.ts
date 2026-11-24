@@ -40,22 +40,17 @@ describe('servicePage', () => {
         )
     })
 
-    it('reads each percentile off the bucket where the cumulative count crosses it', () => {
-        const percentiles = latencyPercentileSeries({
-            timeBuckets: ['t0', 't1'],
-            // 1ms, 2ms and 5ms buckets. t0 has 90 fast, 8 medium and 2 slow spans; t1 is empty.
-            bucketsNs: [1_000_000, 2_000_000, 5_000_000],
-            labels: [],
-            cells: [
-                [90, 0],
-                [8, 0],
-                [2, 0],
-            ],
+    it('breaks the latency lines at buckets with no spans instead of dropping to zero', () => {
+        const percentiles = latencyPercentileSeries([
+            { time: 't0', count: 4, p50_ns: 20_000_000, p95_ns: 24_000_000, p99_ns: 31_000_000 },
+            { time: 't1', count: 0, p50_ns: null, p95_ns: null, p99_ns: null },
+        ])
+        expect(percentiles).toEqual({
+            times: ['t0', 't1'],
+            p50: [20_000_000, NaN],
+            p95: [24_000_000, NaN],
+            p99: [31_000_000, NaN],
         })
-        // Upper bucket edges: 1ms → 2ms, 2ms → 5ms, 5ms → 10ms.
-        expect(percentiles.p50).toEqual([2_000_000, NaN])
-        expect(percentiles.p95).toEqual([5_000_000, NaN])
-        expect(percentiles.p99).toEqual([10_000_000, NaN])
     })
 
     it('stacks errors under the rest of the requests and fills buckets without errors with zero', () => {

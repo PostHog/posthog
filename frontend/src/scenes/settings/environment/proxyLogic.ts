@@ -171,7 +171,7 @@ export interface proxyLogicActions {
             domain: string
         }
     }
-    deleteRecord: (id: ProxyRecord['id']) => ProxyRecord[]
+    deleteRecord: (id: ProxyRecord['id']) => ProxyRecord['id']
     deleteRecordFailure: (
         error: string,
         errorObject?: any
@@ -192,7 +192,7 @@ export interface proxyLogicActions {
             target_cname: string
             updated_at: string
         }[],
-        payload?: ProxyRecord[]
+        payload?: ProxyRecord['id']
     ) => {
         proxyRecords: {
             created_at: string
@@ -206,7 +206,7 @@ export interface proxyLogicActions {
             target_cname: string
             updated_at: string
         }[]
-        payload?: ProxyRecord[]
+        payload?: ProxyRecord['id']
     }
     diagnose: (id: ProxyRecord['id']) => {
         id: string
@@ -248,7 +248,7 @@ export interface proxyLogicActions {
             domain: string
         }
     }
-    retryRecord: (id: ProxyRecord['id']) => ProxyRecord[]
+    retryRecord: (id: ProxyRecord['id']) => ProxyRecord['id']
     retryRecordFailure: (
         error: string,
         errorObject?: any
@@ -258,10 +258,10 @@ export interface proxyLogicActions {
     }
     retryRecordSuccess: (
         proxyRecords: ProxyRecordApi[],
-        payload?: ProxyRecord[]
+        payload?: ProxyRecord['id']
     ) => {
         proxyRecords: ProxyRecordApi[]
-        payload?: ProxyRecord[]
+        payload?: ProxyRecord['id']
     }
     setCloudflareOptInChecked: (checked: boolean) => {
         checked: boolean

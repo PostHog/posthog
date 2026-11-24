@@ -320,7 +320,7 @@ export interface accountsOverviewTilesLogicActions {
         }
     ) => {
         tile: Omit<AccountsOverviewTile, 'id'> & {
-            id?: string | undefined
+            id?: string
         }
     }
     hideEditor: () => {

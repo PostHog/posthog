@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useId } from 'react'
 
 import { IconWarning } from '@posthog/icons'
 
@@ -14,7 +14,12 @@ import { NodeStatsLine } from './NodeStatsLine'
 export interface TraceTreeRowProps {
     node: TraceNodeApi
     depth: number
+    /** The 1-based place of the step among its siblings, and how many siblings there are. */
+    positionInSet: number
+    setSize: number
     selectedNodeId: string | null
+    /** The one row Tab lands on: the selected step, or the first step when none is selected. */
+    tabStopId: string | null
     onSelectNode: (id: string) => void
     onPrefetchNode: (id: string) => void
     evalOutcomes: ReadonlyMap<string, EvalRollupOutcome>
@@ -22,39 +27,44 @@ export interface TraceTreeRowProps {
     stepFeedback?: ReadonlyMap<string, TraceStepFeedbackApi>
     /** The steps that contain the search query, or null when nothing is searched. */
     matchingNodeIds?: ReadonlySet<string> | null
-    /** Changes on each step to a match, which scrolls the selected row into view. */
-    matchStepCount?: number
+}
+
+// A step with children owns their group, which sits beside the row and not inside it. The tree has no collapsed steps.
+function parentAttributes(groupId: string, hasChildren: boolean): { 'aria-owns'?: string; 'aria-expanded'?: true } {
+    return hasChildren ? { 'aria-owns': groupId, 'aria-expanded': true } : {}
 }
 
 export function TraceTreeRow({
     node,
     depth,
+    positionInSet,
+    setSize,
     selectedNodeId,
+    tabStopId,
     onSelectNode,
     onPrefetchNode,
     evalOutcomes,
     stepFeedback,
     matchingNodeIds = null,
-    matchStepCount = 0,
 }: TraceTreeRowProps): JSX.Element {
     const isSelected = node.id === selectedNodeId
-    const rowRef = useRef<HTMLButtonElement>(null)
-    useEffect(() => {
-        if (isSelected && matchStepCount > 0) {
-            rowRef.current?.scrollIntoView({ block: 'nearest' })
-        }
-    }, [isSelected, matchStepCount])
+    const groupId = useId()
+    const hasChildren = node.children.length > 0
     const evalOutcome = evalOutcomes.get(node.id) ?? null
     const feedbackCount = stepFeedback?.get(node.id)?.total ?? 0
     return (
-        <li>
+        <li role="none">
             <button
-                ref={rowRef}
                 type="button"
+                role="treeitem"
+                aria-selected={isSelected}
+                aria-level={depth + 1}
+                aria-posinset={positionInSet}
+                aria-setsize={setSize}
+                {...parentAttributes(groupId, hasChildren)}
+                tabIndex={node.id === tabStopId ? 0 : -1}
                 onClick={() => onSelectNode(node.id)}
                 onMouseEnter={() => onPrefetchNode(node.id)}
-                onFocus={() => onPrefetchNode(node.id)}
-                aria-current={isSelected ? 'true' : undefined}
                 data-attr="trace-view-tree-node"
                 className={cn(
                     'flex w-full min-w-0 items-start gap-2 rounded py-1 pr-1.5 text-left hover:bg-fill-button-tertiary-hover',
@@ -81,20 +91,22 @@ export function TraceTreeRow({
                     <NodeStatsLine stats={node.stats} model={node.model} compact />
                 </span>
             </button>
-            {node.children.length > 0 ? (
-                <ul className="m-0 list-none p-0">
-                    {node.children.map((child) => (
+            {hasChildren ? (
+                <ul id={groupId} role="group" className="m-0 list-none p-0">
+                    {node.children.map((child, index) => (
                         <TraceTreeRow
                             key={child.id}
                             node={child}
                             depth={depth + 1}
+                            positionInSet={index + 1}
+                            setSize={node.children.length}
                             selectedNodeId={selectedNodeId}
+                            tabStopId={tabStopId}
                             onSelectNode={onSelectNode}
                             onPrefetchNode={onPrefetchNode}
                             evalOutcomes={evalOutcomes}
                             stepFeedback={stepFeedback}
                             matchingNodeIds={matchingNodeIds}
-                            matchStepCount={matchStepCount}
                         />
                     ))}
                 </ul>

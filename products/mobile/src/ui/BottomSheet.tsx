@@ -22,6 +22,7 @@ interface BottomSheetProps {
     children: ReactNode
     paddingHorizontal?: number
     scrollGesture?: NativeGesture
+    dragResetKey?: string | null
     keyboardHeight?: SharedValue<number>
     /** Defaults to `surface`. Sheets that hold surface cards use the screen background. */
     backgroundColor?: string
@@ -35,6 +36,7 @@ export function BottomSheet({
     children,
     paddingHorizontal = 16,
     scrollGesture,
+    dragResetKey,
     keyboardHeight,
     backgroundColor,
     accessibilityLabel,
@@ -52,7 +54,7 @@ export function BottomSheet({
     const bottomPadding = bottomOffset(insets, 40)
     const { mounted, progress } = usePresence(visible, motion.sheet)
     const [height, setHeight] = useState(480)
-    const { drag, pan } = useSheetDrag(visible, onClose, scrollGesture)
+    const { drag, pan } = useSheetDrag(visible, onClose, scrollGesture, dragResetKey)
     useOverlayBack(visible, onClose)
 
     const sheetStyle = useAnimatedStyle(() => {

@@ -45,6 +45,7 @@ from products.workflows.backend.services import email_utm_defaults
 from products.workflows.backend.services.batch_jobs import create_batch_job
 from products.workflows.backend.services.default_email_sender import (
     clear_default_email_sender,
+    pick_default_email_sender,
     set_default_email_sender_if_unset,
 )
 from products.workflows.backend.services.email_sending_controls import (
@@ -87,6 +88,7 @@ __all__ = [
     "get_hog_flows_referencing_template_input_keys",
     "list_owned_workflow_health",
     "max_email_sending_tier",
+    "pick_default_email_sender",
     "set_default_email_sender_if_unset",
     "set_email_sending_tier",
     "suspend_email_sending",

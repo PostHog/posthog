@@ -1,6 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
 import { LemonButton, LemonSwitch, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { Text } from '@posthog/quill'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -9,12 +10,33 @@ import { LogsMetricRuleApi } from 'products/logs/frontend/generated/api.schemas'
 
 import { LogsMetricRuleModal } from './LogsMetricRuleModal'
 import { logsMetricRulesSectionLogic } from './logsMetricRulesSectionLogic'
+import { QuillLogsMetricRuleModal } from './QuillLogsMetricRuleModal'
+import { QuillLogsMetricRulesTable } from './QuillLogsMetricRulesTable'
 
 export function LogsMetricRulesSection(): JSX.Element | null {
     const enabled = useFeatureFlag('METRICS')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     if (!enabled) {
         return null
     }
+
+    if (todayRailNav) {
+        return (
+            <BindLogic logic={logsMetricRulesSectionLogic} props={{}}>
+                <div className="flex flex-col gap-3">
+                    <Text size="xs" variant="muted" render={<p className="m-0" />}>
+                        Generate metrics from your logs at ingestion time. Count log lines matching a filter, or
+                        aggregate a numeric log attribute, and use the result in dashboards, alerts, and queries in the
+                        Metrics product. Metrics are computed before drop rules, so you can drop noisy logs and keep the
+                        trend.
+                    </Text>
+                    <QuillLogsMetricRulesTable />
+                    <QuillLogsMetricRuleModal />
+                </div>
+            </BindLogic>
+        )
+    }
+
     return (
         <BindLogic logic={logsMetricRulesSectionLogic} props={{}}>
             <div className="space-y-3">

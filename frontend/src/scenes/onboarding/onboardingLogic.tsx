@@ -17,6 +17,7 @@ import { availableOnboardingProducts } from 'scenes/onboarding/shared/utils'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
+import type { ProductOnboardingCompleteProperties } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -108,8 +109,8 @@ export interface onboardingLogicActions {
         tab: SidePanelTab
     } // sidePanelStateLogic
     recordProductIntentOnboardingComplete: (
-        properties: import('scenes/teamLogic').ProductOnboardingCompleteProperties
-    ) => import('scenes/teamLogic').ProductOnboardingCompleteProperties // teamLogic
+        properties: ProductOnboardingCompleteProperties
+    ) => ProductOnboardingCompleteProperties // teamLogic
     updateCurrentTeam: (payload: Partial<TeamType>) => Partial<TeamType> // teamLogic
     updateCurrentTeamSuccess: (
         currentTeam: TeamPublicType | TeamType,

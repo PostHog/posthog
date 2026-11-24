@@ -1,4 +1,6 @@
-import { LemonBanner, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { Suspense, lazy } from 'react'
+
+import { LemonBanner, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 import { LLMProviderKeysSettings } from '@posthog/products-ai-observability/frontend/settings/LLMProviderKeysSettings'
 import { ParserRecipesSettings } from '@posthog/products-ai-observability/frontend/settings/ParserRecipesSettings'
 import { AIFeaturesSettings } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/ai_features/AIFeaturesSettings'
@@ -23,6 +25,7 @@ import { FEATURE_SUPPORT } from 'lib/components/SupportedPlatforms/featureSuppor
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { PersonalPosthogConnections } from 'lib/integrations/PosthogConnect'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
+import { retryImport } from 'lib/utils/retryImport'
 import { DefaultMinimumDetectableEffect } from 'scenes/experiments/DefaultMinimumDetectableEffect'
 import { GitHub, GitLab, Linear, Slack } from 'scenes/integrations/definitions'
 import { AgentPersonalInstructionsSettings } from 'scenes/settings/environment/AgentPersonalInstructionsSettings'
@@ -49,7 +52,6 @@ import { OrganizationMCPAccess } from 'scenes/settings/organization/Organization
 import { urls } from 'scenes/urls'
 
 import { ConfigScopeEnumApi } from '~/generated/core/api.schemas'
-import { AccessResolutionPreview } from '~/layout/navigation-3000/sidepanel/panels/access_control/ResolutionPreview/AccessResolutionPreview'
 import {
     DefaultRoleSelector,
     RolesAccessControls,
@@ -96,9 +98,11 @@ import { WorkflowsDailyLimitsSettings } from 'products/workflows/frontend/scenes
 import { WorkflowsEmailTrackingConsentSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsEmailTrackingConsentSettings'
 import { WorkflowsEngagementEventsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsEngagementEventsSettings'
 import { WorkflowsFrequencyCapSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsFrequencyCapSettings'
+import { WorkflowsRunLinkTagSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsRunLinkTagSettings'
 import { WorkflowsUtmDefaultsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsUtmDefaultsSettings'
 
 import { SettingScopeTag } from './components/SettingScopeTag'
+import { SettingStatusTag } from './components/SettingStatusTag'
 import {
     ActivityLogNotifications,
     ActivityLogOrgLevelSettings,
@@ -210,6 +214,7 @@ import { SettingSection } from './types'
 import { AllowImpersonation } from './user/AllowImpersonation'
 import { ChangePassword, ChangePasswordTitle } from './user/ChangePassword'
 import { ConnectedApps } from './user/ConnectedApps'
+import { CustomizationIRL } from './user/CustomizationIRL'
 import { HedgehogModeSettings } from './user/HedgehogModeSettings'
 import { LoginSessions } from './user/LoginSessions'
 import { OptOutCapture } from './user/OptOutCapture'
@@ -227,6 +232,15 @@ import { UpdateEmailPreferences } from './user/UpdateEmailPreferences'
 import { UserDangerZone } from './user/UserDangerZone'
 import { UserDetails } from './user/UserDetails'
 import { WebAnalyticsAchievementsSetting } from './user/WebAnalyticsAchievementsSetting'
+
+// This map ships with the app shell, so the setting's code loads only when its section renders.
+const EvalSuggestionsSettings = lazy(() =>
+    retryImport(() =>
+        import('@posthog/products-ai-observability/frontend/settings/EvalSuggestionsSettings').then((m) => ({
+            default: m.EvalSuggestionsSettings,
+        }))
+    )
+)
 
 export const SETTINGS_MAP: SettingSection[] = [
     // ENVIRONMENT
@@ -306,16 +320,13 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'js-snippet-version',
                 title: (
                     <>
-                        Snippet version{' '}
-                        <LemonTag type="warning" className="ml-1 uppercase">
-                            Experimental
-                        </LemonTag>
+                        Snippet version <SettingStatusTag status="experimental" />
                     </>
                 ),
                 description: 'Pin the snippet to a specific version of posthog-js. Defaults to the latest v1 release.',
                 flag: ['JS_SNIPPET_VERSIONING'],
                 component: <JsSnippetVersionPin />,
-                keywords: ['version', 'pin', 'snippet', 'sdk', 'posthog-js'],
+                keywords: ['version', 'pin', 'snippet', 'sdk', 'posthog-js', 'experimental'],
             },
         ],
     },
@@ -736,6 +747,18 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <ParserRecipesSettings />,
                 keywords: ['parser', 'recipe', 'normalize', 'trace', 'provider', 'custom parsing', 'content'],
             },
+            {
+                id: 'ai-observability-eval-suggestions',
+                title: 'Suggested evals',
+                description: 'Up to 3 eval ideas a week at the top of the evaluations page, based on your traces.',
+                component: (
+                    <Suspense fallback={<Spinner />}>
+                        <EvalSuggestionsSettings />
+                    </Suspense>
+                ),
+                flag: 'LLM_ANALYTICS_EVAL_SUGGESTIONS',
+                keywords: ['suggestions', 'suggested evals', 'evaluations', 'evals', 'turn off'],
+            },
         ],
     },
     {
@@ -984,7 +1007,7 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'error-tracking-tag-rules',
                 title: 'Tag rules',
-                description: 'Tag new issues based on rules you define.',
+                description: 'Tag issues based on rules you define.',
                 component: <TagRules />,
                 flag: 'ERROR_TRACKING_ISSUE_TAGS',
                 keywords: ['tag', 'label', 'rule', 'triage', 'categorize'],
@@ -1523,7 +1546,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'revenue-analytics-filter-test-accounts',
                 title: 'Filter out internal and test users from revenue analytics',
                 description: 'Exclude test accounts from revenue calculations and reports.',
-                component: <RevenueAnalyticsFilterTestAccountsConfiguration />,
+                component: <RevenueAnalyticsFilterTestAccountsConfiguration hideTitle />,
                 keywords: ['test account', 'internal', 'exclude', 'filter', 'revenue'],
             },
             {
@@ -1532,7 +1555,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Revenue events',
                 description: 'Configure which events represent revenue-generating actions.',
                 docsUrl: 'https://posthog.com/docs/revenue-analytics',
-                component: <EventConfiguration />,
+                component: <EventConfiguration hideTitle />,
                 keywords: ['purchase', 'payment', 'subscription', 'charge'],
             },
             {
@@ -1540,7 +1563,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'revenue-analytics-external-data-sources',
                 title: 'External data sources',
                 description: 'Connect external data sources like Stripe for revenue tracking.',
-                component: <ExternalDataSourceConfiguration />,
+                component: <ExternalDataSourceConfiguration hideTitle />,
                 keywords: ['stripe', 'import', 'sync', 'data warehouse'],
             },
         ],
@@ -1683,9 +1706,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: (
                     <>
                         AI agent
-                        <LemonTag type="highlight" size="small" className="ml-1">
-                            Beta
-                        </LemonTag>
+                        <SettingStatusTag status="beta" />
                     </>
                 ),
                 description:
@@ -1970,6 +1991,23 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'Default UTM tags for new broadcasts and workflow emails, so visits from your emails show up as their own campaigns in web analytics. Each email can still change them.',
                 component: <WorkflowsUtmDefaultsSettings />,
                 keywords: ['workflows', 'broadcasts', 'email', 'utm', 'campaign', 'links', 'web analytics'],
+            },
+            {
+                id: 'workflows-email-run-link-tag',
+                title: 'Connect email clicks to sessions',
+                description:
+                    'Connects each tracked link click in your workflow and broadcast emails to the session it starts on your site, so you can see what the person did next, including the session replay when recording is on. It works for links on the domain you send email from, including its subdomains, and your site needs posthog-js. Tracked links carry an extra URL parameter to make the connection.',
+                component: <WorkflowsRunLinkTagSettings />,
+                keywords: [
+                    'workflows',
+                    'broadcasts',
+                    'email',
+                    'links',
+                    'clicks',
+                    'session',
+                    'replay',
+                    'ph_workflow_run',
+                ],
             },
             {
                 id: 'workflows-email-tracking-consent',
@@ -2659,26 +2697,6 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'organization',
-        id: 'organization-access-resolution',
-        title: 'Access resolution preview',
-        flag: 'ACCESS_CONTROL_RESOLUTION_PREVIEW',
-        // Temporary migration surface: reachable only from the access control
-        // settings banner, never from the settings navigation or search
-        hideFromNavigation: true,
-        unavailableFallback: { sectionId: 'organization-roles', label: 'Go to access control settings' },
-        settings: [
-            {
-                id: 'organization-access-resolution-preview',
-                title: 'Access resolution preview',
-                description:
-                    'PostHog is changing how access levels combine: the most specific rule will decide, instead of the highest one. Review what will be different for your organization before the change takes effect.',
-                component: <AccessResolutionPreview />,
-                keywords: ['access control', 'resolution', 'rbac', 'permission', 'override'],
-            },
-        ],
-    },
-    {
-        level: 'organization',
         id: 'organization-security',
         title: 'Security',
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
@@ -2876,15 +2894,7 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'customization-irl',
                 title: 'Customization IRL',
-                component: (
-                    <div>
-                        Grab some{' '}
-                        <Link to="https://posthog.com/merch" target="_blank">
-                            PostHog merch
-                        </Link>{' '}
-                        to customize yourself outside of the app
-                    </div>
-                ),
+                component: <CustomizationIRL />,
             },
         ],
     },

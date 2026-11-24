@@ -182,6 +182,19 @@ class TestInheritedCtes(SimpleTestCase):
             with self.assertRaises(QueryError):
                 resolve_types(query, context, "clickhouse", scopes=[parent.type])
 
+    @parameterized.expand(
+        [
+            ("SELECT team_id, event FROM events", ["team_id", "event"]),
+            ("SELECT team_id, id FROM system.batch_exports", ["team_id", "id"]),
+        ]
+    )
+    def test_asterisk_over_cte_keeps_every_selected_column(self, cte_body: str, expected: list[str]) -> None:
+        context = HogQLContext(database=Database(), enable_select_queries=True)
+        query = resolve_types(parse_select(f"WITH c AS ({cte_body}) SELECT * FROM c"), context, "clickhouse")
+
+        assert isinstance(query.type, ast.SelectQueryType)
+        assert list(query.type.columns) == expected
+
 
 class TestResolver(BaseTest):
     maxDiff = None
@@ -869,7 +882,7 @@ class TestResolver(BaseTest):
     ):
         scope = ast.SelectQueryType(tables=tables)
 
-        with self.assertRaises(ResolutionError) as context:
+        with self.assertRaises(QueryError) as context:
             lookup_field_by_name(scope, "properties", self.context)
 
         self.assertEqual(
@@ -1563,7 +1576,8 @@ class TestResolver(BaseTest):
             "(SELECT id, properties.email AS email FROM "
             "(SELECT DISTINCT person_id FROM events) "
             "AS source INNER JOIN "
-            "persons ON equals(persons.id, source.person_id) ORDER BY id ASC) "
+            "persons ON and(equals(persons.id, source.person_id), globalIn(persons.id, "
+            "(SELECT source.person_id FROM (SELECT DISTINCT person_id FROM events) AS source))) ORDER BY id ASC) "
             f"LIMIT {MAX_SELECT_RETURNED_ROWS}"
         )
 

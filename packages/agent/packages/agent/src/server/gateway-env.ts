@@ -11,8 +11,9 @@ import {
 import type { GatewayEnv } from "../adapters/claude/session/options";
 import type { Task } from "../types";
 import {
+  fallbackGatewayProduct,
+  type GatewayProduct,
   modelIdForGatewayRoute,
-  resolveGatewayProduct,
   resolveGatewayTarget,
   resolveLlmGatewayUrl,
 } from "../utils/gateway";
@@ -23,6 +24,7 @@ export interface GatewayEnvInput {
   runSpanContext?: SpanContext;
   isInternal?: boolean;
   originProduct?: Task["origin_product"] | null;
+  gatewayProduct?: GatewayProduct;
   signalReportId?: string | null;
   aiStage?: string | null;
   aiAgentName?: string | null;
@@ -38,6 +40,7 @@ export interface GatewayEnvInput {
   prewarmed?: boolean | null;
   executionEnvironment?: "local" | "cloud";
   sharedPromptCache?: boolean;
+  runPolicySource?: string;
 }
 
 export function buildGatewayEnv(
@@ -49,6 +52,7 @@ export function buildGatewayEnv(
     runSpanContext,
     isInternal = false,
     originProduct,
+    gatewayProduct,
     signalReportId,
     aiStage,
     aiAgentName,
@@ -64,11 +68,12 @@ export function buildGatewayEnv(
     prewarmed,
     executionEnvironment,
     sharedPromptCache,
+    runPolicySource,
   }: GatewayEnvInput = {},
   logger: Logger,
 ): GatewayEnv {
   const { apiKey, apiUrl, projectId, serviceTier } = config;
-  const product = resolveGatewayProduct({ isInternal, originProduct });
+  const product = gatewayProduct ?? fallbackGatewayProduct(isInternal);
   // Go-gateway runs authenticate with the per-run scoped token minted by the
   // worker (pinned product + on-behalf-of team, per-run spend cap), not the
   // run's per-team OAuth token, whose team has no gateway wallet. A routed
@@ -129,6 +134,7 @@ export function buildGatewayEnv(
     task_snapshot_kind: snapshotKind,
     task_prewarmed: prewarmed,
     task_execution_environment: executionEnvironment ?? "cloud",
+    task_run_policy_source: runPolicySource,
   };
   // The Claude path appends the project scope in buildEnvironment from
   // POSTHOG_PROJECT_ID; the codex path has no such hook, so its record below
@@ -219,13 +225,13 @@ export interface PiProviderRoute {
 export function buildPiProviderRoute(
   config: Pick<AgentServerConfig, "apiKey" | "apiUrl" | "projectId">,
   {
-    originProduct,
+    gatewayProduct,
     aiStage,
     taskId,
     model,
     properties,
   }: {
-    originProduct?: Task["origin_product"] | null;
+    gatewayProduct?: GatewayProduct;
     aiStage?: string | null;
     taskId?: string | null;
     model?: string;
@@ -235,7 +241,7 @@ export function buildPiProviderRoute(
 ): PiProviderRoute {
   const gatewayToken = process.env.AI_GATEWAY_TOKEN?.trim() || undefined;
   const target = resolveGatewayTarget({
-    product: resolveGatewayProduct({ originProduct }),
+    product: gatewayProduct ?? fallbackGatewayProduct(),
     aiStage,
     posthogHost: config.apiUrl,
   });

@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { posix, win32 } from 'node:path'
 import { z } from 'zod'
 
 import { defineCommand } from '@/core/command'
@@ -6,7 +7,8 @@ import { HogError } from '@/core/errors'
 import { escapeControls } from '@/core/output'
 import type { Runtime } from '@/core/runtime'
 import { parseOrThrow, type ParseFailure } from '@/core/schema'
-import { extractFile } from '@/updates/archive'
+import { checkWorker } from '@/error-tracking/worker'
+import { brokenArchive, extractAll } from '@/updates/archive'
 import { rememberRelease } from '@/updates/check'
 import {
     detectInstallMethod,
@@ -26,7 +28,7 @@ const VersionOption = z
     .transform((text) => text.replace(/^v/, ''))
     .refine((text) => parseVersion(text) !== undefined, { error: 'Pass a version like 0.1.2.' })
 
-type Action = 'upgraded' | 'ran' | 'declined' | 'run_command' | 'explain' | 'up_to_date' | 'available'
+type Action = 'upgraded' | 'repaired' | 'ran' | 'declined' | 'run_command' | 'explain' | 'up_to_date' | 'available'
 
 interface UpgradeResult {
     action: Action
@@ -132,9 +134,19 @@ async function replaceSelf(runtime: Runtime, method: InstallMethod, manifest: Ma
         )
     }
 
-    const binary = extractFile(archive, artifact.file, binaryName(target))
+    const files = extractAll(archive, artifact.file)
+    const binary = files.get(binaryName(target))
+    if (!binary) {
+        throw brokenArchive(`it has no ${binaryName(target)}`)
+    }
+    files.delete(binaryName(target))
+    // The paths follow the platform hog runs on, not the one of this code.
+    const path = runtime.platform === 'win32' ? win32 : posix
     try {
-        await runtime.replaceExecutable(method.path, binary)
+        await runtime.replaceExecutables([
+            ...[...files].map(([name, contents]) => ({ path: path.join(path.dirname(method.path), name), contents })),
+            { path: method.path, contents: binary },
+        ])
     } catch (error) {
         const code = (error as NodeJS.ErrnoException).code
         if (code === 'EACCES' || code === 'EPERM') {
@@ -161,7 +173,7 @@ export default defineCommand({
     },
     writes: true,
     notes: [
-        'hog never updates itself on its own. It replaces its own binary only when the install script put it there or you downloaded it yourself.',
+        'hog never updates itself on its own. It replaces its own binary and hog-worker, the program next to it, only when the install script put them there or you downloaded them yourself.',
         'A copy that Homebrew, npm, pnpm or bun installed updates through that package manager: at a terminal hog asks, then runs its command. Agents get the command to run.',
     ].join('\n'),
     examples: ['hog upgrade', 'hog upgrade --check', 'hog upgrade --version 0.1.2'],
@@ -204,6 +216,19 @@ export default defineCommand({
         })
 
         if (!updateAvailable) {
+            // An older hog replaces only itself, so the files next to this one can be missing or from that release.
+            const intact =
+                options.check ||
+                !selfUpdates(method) ||
+                manifest.version !== current ||
+                (await checkWorker({ ...runtime, execPath: method.path }).then(
+                    () => true,
+                    () => false
+                ))
+            if (!intact) {
+                await replaceSelf(runtime, method, manifest)
+                return result('repaired', null)
+            }
             return result('up_to_date', null)
         }
         if (options.check) {
@@ -248,6 +273,12 @@ export default defineCommand({
             case 'upgraded':
                 out.report({
                     result: `Updated hog from ${result.current} to ${result.latest}`,
+                    effects: [`Replaced ${path}`],
+                })
+                return
+            case 'repaired':
+                out.report({
+                    result: `Installed hog ${result.current} again, because the files next to it didn't match it`,
                     effects: [`Replaced ${path}`],
                 })
                 return

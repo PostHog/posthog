@@ -695,6 +695,12 @@ export interface ScoutConfig {
    */
   description?: string;
   /**
+   * The name the team set for the scout. Empty string when unset; absent
+   * entirely on backends predating the field. Read it through
+   * `scoutDisplayName`, which falls back to the skill name.
+   */
+  display_name?: string;
+  /**
    * Where the scout came from: "canonical" for a scout PostHog ships and
    * maintains (seeded from products/signals/skills), "custom" for one a team
    * hand-authored. The serializer defaults to "custom" when the skill is absent;
@@ -5205,6 +5211,13 @@ export class PostHogAPIClient {
         extractRequestErrorMessage(error, "Couldn’t clear the conversation."),
       );
     }
+  }
+
+  async heartbeatTaskRun(taskId: string, runId: string): Promise<void> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/heartbeat/`;
+    const url = new URL(`${this.api.baseUrl}${path}`);
+    await this.api.fetcher.fetch({ method: "post", url, path });
   }
 
   // AbortController + setTimeout because Hermes, which runs this client on

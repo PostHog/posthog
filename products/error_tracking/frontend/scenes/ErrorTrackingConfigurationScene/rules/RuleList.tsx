@@ -10,11 +10,13 @@ import { LemonButton, LemonCard, LemonCheckbox, LemonDialog, LemonDivider, Spinn
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
 
 import { AnyPropertyFilter, FilterLogicalOperator } from '~/types'
 
 import { errorTrackingEditAccessDisabledReason } from '../../../utils'
+import { QuillRuleList } from './QuillRuleList'
 import { rulesLogic } from './rulesLogic'
 import { SortableRuleItem } from './SortableRuleItem'
 import { ErrorTrackingRule, ErrorTrackingRuleType } from './types'
@@ -59,18 +61,54 @@ export function RuleList({
         deleteSelectedRules,
     } = useActions(logic)
     const { openModal } = useActions(modalLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     useEffect(() => {
         loadRules()
         onMount?.()
     }, [loadRules, onMount])
 
+    const selectedRuleCount = selectedRuleIds.length
+
+    const confirmDeleteSelectedRules = (): void =>
+        LemonDialog.open({
+            title: 'Delete rules',
+            description: `Are you sure you want to delete ${selectedRuleCount} ${
+                selectedRuleCount === 1 ? 'rule' : 'rules'
+            }?`,
+            secondaryButton: {
+                type: 'secondary',
+                children: 'Cancel',
+            },
+            primaryButton: {
+                type: 'primary',
+                status: 'danger',
+                onClick: deleteSelectedRules,
+                children: 'Delete',
+            },
+        })
+
+    if (todayRailNav) {
+        return (
+            <QuillRuleList
+                ruleType={ruleType}
+                modalLogic={modalLogic}
+                modal={modal}
+                taxonomicGroupTypes={taxonomicGroupTypes}
+                pageKeyPrefix={pageKeyPrefix}
+                description={description}
+                renderCardHeaderExtra={renderCardHeaderExtra}
+                headerActions={headerActions}
+                onDeleteSelected={confirmDeleteSelectedRules}
+            />
+        )
+    }
+
     if (!initialLoadComplete) {
         return <Spinner />
     }
 
     const displayRules = (isReorderingRules ? allRules : rules) as ErrorTrackingRule[]
-    const selectedRuleCount = selectedRuleIds.length
     const allRulesSelected = rules.length > 0 && selectedRuleCount === rules.length
 
     return (
@@ -116,24 +154,7 @@ export function RuleList({
                                 icon={<IconTrash />}
                                 disabled={selectedRuleCount === 0}
                                 loading={rulesLoading}
-                                onClick={() =>
-                                    LemonDialog.open({
-                                        title: 'Delete rules',
-                                        description: `Are you sure you want to delete ${selectedRuleCount} ${
-                                            selectedRuleCount === 1 ? 'rule' : 'rules'
-                                        }?`,
-                                        secondaryButton: {
-                                            type: 'secondary',
-                                            children: 'Cancel',
-                                        },
-                                        primaryButton: {
-                                            type: 'primary',
-                                            status: 'danger',
-                                            onClick: deleteSelectedRules,
-                                            children: 'Delete',
-                                        },
-                                    })
-                                }
+                                onClick={confirmDeleteSelectedRules}
                             >
                                 Delete{selectedRuleCount > 0 ? ` ${selectedRuleCount}` : ''}
                             </LemonButton>

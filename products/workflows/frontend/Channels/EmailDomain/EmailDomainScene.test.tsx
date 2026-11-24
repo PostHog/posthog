@@ -470,6 +470,92 @@ describe('EmailDomainScene', () => {
         expect(element('email-domain-records-added')).toBeInTheDocument()
     })
 
+    it.each([
+        ['reaches ready once its records verify again', true, undefined],
+        ['stays stopped while the provider still reports it pending', false, 'failed'],
+    ])('a domain whose sending stopped %s after one verify', async (_, recordsFixed, sendingStatusAfter) => {
+        seedSender()
+        backend.stopsSending(DOMAIN)
+        await open(urls.workflowsEmailDomain(SENDER_ID))
+        expectStep('Sending stopped')
+        expect(screen.queryByText(/You can send from/)).not.toBeInTheDocument()
+
+        if (recordsFixed) {
+            backend.verifyAtProviderOnly(DOMAIN)
+        }
+        click('email-domain-check-again')
+        await flush()
+
+        expect(!!screen.queryByText(/You can send from/)).toBe(recordsFixed)
+        expect((backend.sender(SENDER_ID)?.config as Record<string, unknown> | undefined)?.ses_sending_status).toBe(
+            sendingStatusAfter
+        )
+        expect(backend.requestsTo('email_verify')).toHaveLength(1)
+    })
+
+    it.each([
+        ['verified', true],
+        ['pending', false],
+    ])(
+        'shows a stopped domain the provider reports %s as stopped, and repairs it only on a check',
+        async (_, recordsFixedBeforeOpen) => {
+            seedSender()
+            backend.stopsSending(DOMAIN, { recordsRemoved: !recordsFixedBeforeOpen })
+            if (recordsFixedBeforeOpen) {
+                backend.verifyAtProviderOnly(DOMAIN)
+            } else {
+                backend.sesReports(DOMAIN, 'pending')
+            }
+            await open(urls.workflowsEmailDomain(SENDER_ID))
+            await flush(60_000)
+
+            expectStep('Sending stopped')
+            expect(backend.requestsTo('email_verify')).toHaveLength(0)
+
+            backend.verifyAtProviderOnly(DOMAIN)
+            click('email-domain-check-again')
+            await flush()
+
+            expectStep(/You can send from/)
+            expect(backend.sender(SENDER_ID)?.config).not.toHaveProperty('ses_sending_status')
+        }
+    )
+
+    it('shows a repaired domain as stopped again when a sender name save returns a new stop', async () => {
+        seedSender()
+        backend.stopsSending(DOMAIN)
+        backend.verifyAtProviderOnly(DOMAIN)
+        await open(urls.workflowsEmailDomain(SENDER_ID))
+        click('email-domain-check-again')
+        await flush()
+        expectStep(/You can send from/)
+        backend.stopsSending(DOMAIN, { recordsRemoved: true })
+
+        typeInto('email-domain-sender-name', 'Acme Team')
+        click('email-domain-save-sender-name')
+        await flush()
+
+        expectStep('Sending stopped')
+        expect(screen.getAllByText(/^0 of \d+ found$/).length).toBeGreaterThan(0)
+    })
+
+    it('keeps the MAIL FROM subdomain a repair adopted when the sender name is saved afterwards', async () => {
+        seedSender()
+        backend.stopsSending(DOMAIN)
+        backend.verifyAtProviderOnly(DOMAIN)
+        backend.sesUsesMailFrom(DOMAIN, 'bounce')
+        await open(urls.workflowsEmailDomain(SENDER_ID))
+        click('email-domain-check-again')
+        await flush()
+        expectStep(/You can send from/)
+
+        typeInto('email-domain-sender-name', 'Acme Team')
+        click('email-domain-save-sender-name')
+        await flush()
+
+        expect(backend.senderConfig(SENDER_ID)).toMatchObject({ name: 'Acme Team', mail_from_subdomain: 'bounce' })
+    })
+
     it('lets the person restart a stopped verification again after the first restart fails', async () => {
         seedSender()
         backend.sesReports(DOMAIN, 'failed')

@@ -24,6 +24,7 @@ import type {
     UserBasicType,
 } from '../../../../../frontend/src/types'
 import { resolveDefaultEmailSender } from '../../Channels/defaultEmailSender'
+import type { SandboxSenderSurface } from '../../Channels/sandboxSender'
 import { sandboxSenderLogic } from '../../Channels/sandboxSenderLogic'
 import type { WorkflowEmailSandboxStatusApi } from '../../generated/api.schemas'
 import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
@@ -260,8 +261,8 @@ export interface hogFlowEditorLogicActions {
     loadCategories: () => {
         value: true
     } // optOutCategoriesLogic
-    provisionSandboxSender: (surface: import('../../Channels/sandboxSender').SandboxSenderSurface) => {
-        surface: import('../../Channels/sandboxSender').SandboxSenderSurface
+    provisionSandboxSender: (surface: SandboxSenderSurface) => {
+        surface: SandboxSenderSurface
     } // sandboxSenderLogic
     loadWorkflowSuccess: (
         originalWorkflow:
@@ -829,6 +830,7 @@ export interface hogFlowEditorLogicActions {
                                 >
                                 message_category_id?: string | null | undefined
                                 message_category_type?: 'marketing' | 'transactional' | undefined
+                                sensitive?: boolean | undefined
                                 skip_frequency_cap?: boolean | undefined
                                 template_id: 'template-email'
                                 template_uuid?: string | undefined
@@ -1025,7 +1027,7 @@ export interface hogFlowEditorLogicActions {
                         }
                       | undefined
                   created_at: string
-                  created_by?: UserBasicType | null | undefined
+                  created_by?: UserBasicType | null
                   description?: string | undefined
                   edges: {
                       from: string
@@ -1782,6 +1784,7 @@ export interface hogFlowEditorLogicActions {
                                 >
                                 message_category_id?: string | null | undefined
                                 message_category_type?: 'marketing' | 'transactional' | undefined
+                                sensitive?: boolean | undefined
                                 skip_frequency_cap?: boolean | undefined
                                 template_id: 'template-email'
                                 template_uuid?: string | undefined
@@ -1978,7 +1981,7 @@ export interface hogFlowEditorLogicActions {
                         }
                       | undefined
                   created_at: string
-                  created_by?: UserBasicType | null | undefined
+                  created_by?: UserBasicType | null
                   description?: string | undefined
                   edges: {
                       from: string
@@ -2777,6 +2780,26 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     }
 
                     if (!isHogFlowActionNode && 'template_id' in config && config.template_id === 'template-email') {
+                        // The API sets templating from the template only on save, so a new step that moves to the
+                        // test sender first would lose it. A copy keeps its own, as a saved step without one runs as
+                        // Hog. The schema type says boolean, but this template names the engine.
+                        const schemaTemplating: unknown = values.hogFunctionTemplatesById[
+                            config.template_id
+                        ]?.inputs_schema?.find((schema) => schema.key === 'email')?.templating
+                        if (
+                            !values.isCopyingNode &&
+                            config.inputs?.email &&
+                            !config.inputs.email.templating &&
+                            (schemaTemplating === 'liquid' || schemaTemplating === 'hog')
+                        ) {
+                            config = {
+                                ...config,
+                                inputs: {
+                                    ...config.inputs,
+                                    email: { ...config.inputs.email, templating: schemaTemplating },
+                                },
+                            }
+                        }
                         const emailInput = config.inputs?.email
                         const team = values.currentTeam
                         const sender = resolveDefaultEmailSender(

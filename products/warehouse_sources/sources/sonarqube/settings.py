@@ -56,6 +56,11 @@ class ProjectFanout:
     kind: Literal["quality_gate_status", "hotspots", "component_measures", "measures_history", "project_rows"]
     # Query param names that carry the project key.
     project_params: tuple[str, ...] = ("component",)
+    # The list endpoint whose items the fan-out runs over, the item field that names each one, and the
+    # column that carries that name on `project_rows` rows. Most endpoints run once per project.
+    parent: str = "projects"
+    parent_key: str = "key"
+    parent_column: str = "project"
     page_size: int = PAGE_SIZE
     # Hard per-project page cap for endpoints that refuse p*ps beyond 10,000. None means no cap.
     max_pages: Optional[int] = None
@@ -213,6 +218,66 @@ SONARQUBE_ENDPOINTS: dict[str, SonarqubeEndpointConfig] = {
         paginated=False,
         per_issue=True,
         should_sync_default=False,
+    ),
+    # Quality profiles of every language. The endpoint returns every profile in one unpaged response.
+    "quality_profiles": SonarqubeEndpointConfig(
+        name="quality_profiles",
+        path="/api/qualityprofiles/search",
+        response_key="profiles",
+        paginated=False,
+    ),
+    # The profile each project uses for each language, the default profile included. Read per project
+    # with /api/qualityprofiles/search, because /api/qualityprofiles/projects lists only the projects
+    # bound to a profile explicitly and leaves out those that use the default.
+    "project_quality_profiles": SonarqubeEndpointConfig(
+        name="project_quality_profiles",
+        path="/api/qualityprofiles/search",
+        response_key="profiles",
+        primary_keys=["project", "key"],
+        paginated=False,
+        fanout=ProjectFanout(kind="project_rows", project_params=("project",)),
+    ),
+    # Every directory and file of each project's main branch. Row count grows with files, so it is off
+    # by default.
+    "components": SonarqubeEndpointConfig(
+        name="components",
+        path="/api/components/tree",
+        response_key="components",
+        primary_keys=["project", "key"],
+        extra_params={"strategy": "all"},
+        should_sync_default=False,
+        fanout=ProjectFanout(kind="project_rows"),
+    ),
+    # Languages the instance can analyze. Unpaged: `ps` defaults to 0, which returns all of them.
+    "languages": SonarqubeEndpointConfig(
+        name="languages",
+        path="/api/languages/list",
+        response_key="languages",
+        paginated=False,
+    ),
+    # User groups. Like the users table, this needs the Administer System permission, so it's off by
+    # default. Groups have had no id since SonarQube 10.0, so the name is the key.
+    "user_groups": SonarqubeEndpointConfig(
+        name="user_groups",
+        path="/api/user_groups/search",
+        response_key="groups",
+        primary_keys=["name"],
+        should_sync_default=False,
+    ),
+    # Members of each user group, one row per group and user. Needs Administer System, off by default.
+    "user_group_members": SonarqubeEndpointConfig(
+        name="user_group_members",
+        path="/api/user_groups/users",
+        response_key="users",
+        primary_keys=["group", "login"],
+        should_sync_default=False,
+        fanout=ProjectFanout(
+            kind="project_rows",
+            project_params=("name",),
+            parent="user_groups",
+            parent_key="name",
+            parent_column="group",
+        ),
     ),
     # Users. /api/users/search requires Administer System permission, so it's off by default —
     # a token without it can still sync everything else.

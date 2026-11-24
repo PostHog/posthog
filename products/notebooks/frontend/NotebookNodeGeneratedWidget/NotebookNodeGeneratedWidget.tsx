@@ -66,7 +66,8 @@ function ExpandedWidget({
 }): JSX.Element | null {
     const nodeLogic = useMountedLogic(notebookNodeLogic)
     const componentPanelState = useComponentPanelState()
-    const { isEditable, notebookLogic } = useValues(nodeLogic)
+    const { isEditable: canEditNotebook, notebookLogic } = useValues(nodeLogic)
+    const isEditable = canEditNotebook && !componentPanelState?.outputOnly
     const { currentTeamId } = useValues(teamLogic)
     const { user } = useValues(userLogic)
     const notebookShortId = notebookLogic.props.shortId

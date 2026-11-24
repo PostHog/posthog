@@ -72,7 +72,7 @@ export interface legalDocumentsLogicValues {
     currentOrganization: OrganizationType | null // organizationLogic
     currentOrganizationId: string // organizationLogic
     isAdminOrOwner: boolean | null // organizationLogic
-    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
+    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean // userLogic
     user: UserType | null // userLogic
     baaBlockReason: BaaBlockReason | null
     deletingId: string | null
@@ -180,7 +180,7 @@ export interface legalDocumentsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         isOnQualifyingAddonTrial: (billing: BillingType | null) => boolean
         hasBaaEntitlement: (
-            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean, // userLogic
+            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean,
             isOnQualifyingAddonTrial: boolean
         ) => boolean
         baaBlockReason: (

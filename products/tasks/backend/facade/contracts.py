@@ -36,6 +36,13 @@ class DesktopAccessReason(LabeledStrEnum):
     PREPAID_CREDITS = "prepaid_credits", "prepaid_credits"
 
 
+class PersonalGitHubRepoAccess(StrEnum):
+    OK = "ok"
+    NOT_CONNECTED = "not_connected"
+    NEEDS_RECONNECT = "needs_reconnect"
+    NO_REPO_ACCESS = "no_repo_access"
+
+
 @dataclass(frozen=True)
 class TaskDTO:
     """A code task."""
@@ -1110,6 +1117,33 @@ class WarmTaskDTO:
 class TaskStatusMismatchRow:
     stored_status: str
     derived_status: str
+    count: int
+
+
+@dataclass(frozen=True)
+class StaleLiveRunRow:
+    profile: str
+    run_environment: str
+    rule: str
+    count: int
+
+
+@dataclass(frozen=True)
+class SweptRunRow:
+    profile: str
+    count: int
+
+
+@dataclass(frozen=True)
+class FencedRunTokensRow:
+    profile: str
+    outcome: str
+    count: int
+
+
+@dataclass(frozen=True)
+class ReopenedSweptRunsRow:
+    outcome: str
     count: int
 
 

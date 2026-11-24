@@ -11,6 +11,7 @@ import type { Backlog } from '../cards'
 import { ProviderEdge, TruthRecord, UNIT_EMAIL_DOMAIN, startProviderEdge } from '../provider-edge'
 import { atLeastOnce } from './invariants'
 import { FollowUpAnswer, JournalEntry, Judge, createJudge } from './judge'
+import { edgeTruth } from './truth'
 
 const TRACKING_KEYS = 'scenario-tracking-key'
 const UNIT = 'run-a-1'
@@ -26,6 +27,9 @@ describe('judge', () => {
     let clockMs: number
     let probeTakesMs: number
     let resident: ResidentBacklog | undefined
+    let truthFails: string | undefined
+    let polls: number
+    let probeAnswers: number
     let judge: Judge
     let caDir: string
 
@@ -39,11 +43,23 @@ describe('judge', () => {
 
     const judgeOf = (): Judge =>
         createJudge({
-            edgeUrl: edge.url,
+            truth: {
+                head: (read) => edgeTruth(edge.url).head(read),
+                after: (cursor, read) => {
+                    if (truthFails === undefined) {
+                        return edgeTruth(edge.url).after(cursor, read)
+                    }
+                    clockMs += probeTakesMs
+                    return Promise.reject(new Error(truthFails))
+                },
+            },
             probe: {
                 unfinishedJobs: () => {
                     clockMs += probeTakesMs
-                    return Promise.resolve(unfinishedJobs)
+                    polls += 1
+                    return polls > probeAnswers
+                        ? Promise.reject(new Error('The operation was aborted due to timeout'))
+                        : Promise.resolve(unfinishedJobs)
                 },
             },
             fetchRetries: 3,
@@ -69,6 +85,9 @@ describe('judge', () => {
         clockMs = 0
         probeTakesMs = 10
         resident = undefined
+        truthFails = undefined
+        polls = 0
+        probeAnswers = Infinity
         judge = judgeOf()
         await judge.open(SEED)
     })
@@ -231,6 +250,7 @@ describe('judge', () => {
                 observed: 1,
                 violation: `${UNIT} email: the last of 1 attempts was answered 0`,
                 unitIds: [UNIT],
+                crossedBy: UNIT,
             },
         ],
     ])('at_least_once for a unit %s', async (_story, entry, act, expected) => {
@@ -356,6 +376,7 @@ describe('judge', () => {
                 observed: 2,
                 violation: `${UNIT} email: accepted 3 times; 2 duplicates against 1 job the janitor reset`,
                 unitIds: [UNIT],
+                crossedBy: UNIT,
             },
         ],
     ])('duplicate_sends for a unit %s', async (_story, act, janitorResets, gate, expected) => {
@@ -371,6 +392,25 @@ describe('judge', () => {
         expect(result).toMatchObject({ name: 'duplicate_sends', ...expected })
     })
 
+    it('crosses the duplicate_sends gate at the step whose unit counted every extra acceptance', async () => {
+        const units = [
+            { ...offered(), unitId: UNIT, offeredAt: 1_000, step: 0 },
+            { ...offered(), unitId: 'run-a-2', offeredAt: 2_000, step: 1 },
+        ]
+        units.forEach((unit) => judge.record(unit))
+        await deliverTwice(UNIT)
+        await deliver(UNIT)
+        await deliverTwice('run-a-2')
+
+        const [result] = await judge.check([{ name: 'duplicate_sends', params: {} }], { duplicate_sends: 1 }, NO_RESETS)
+
+        expect({
+            passed: result.passed,
+            observed: result.observed,
+            crossedAtStep: units.find(({ unitId }) => unitId === result.crossedBy)?.step,
+        }).toEqual({ passed: false, observed: 3, crossedAtStep: 0 })
+    })
+
     it.each<[string, JournalEntry['kind'], JournalEntry['answer'], number | undefined, object]>([
         ['accepted', 'transactional', { accepted: true }, undefined, { passed: true, observed: 0, unitIds: [] }],
         [
@@ -383,6 +423,7 @@ describe('judge', () => {
                 observed: 1,
                 violation: `${UNIT}: the intake answered 422 recipient_suppressed`,
                 unitIds: [UNIT],
+                crossedBy: UNIT,
             },
         ],
         [
@@ -680,4 +721,51 @@ describe('judge', () => {
             expect(await judge.converge(50, NEVER_ABORTED)).toMatchObject(expected)
         }
     )
+
+    it('ends at its deadline with the truth it read and the read that failed, rather than throwing', async () => {
+        judge.record(offered())
+        await deliver(UNIT)
+        truthFails = 'The operation was aborted due to timeout'
+
+        const convergence = await judge.converge(50, NEVER_ABORTED)
+
+        expect(convergence).toEqual({
+            converged: false,
+            unfinishedJobs: null,
+            unrecorded: [UNIT],
+            tookMs: expect.any(Number),
+            unread: 'The operation was aborted due to timeout',
+        })
+    })
+
+    it('reports the unfinished jobs as unknown when its last poll fails after an earlier poll counted some', async () => {
+        unfinishedJobs = 5
+        probeAnswers = 1
+        judge.record(offered())
+        await deliver(UNIT)
+
+        const convergence = await judge.converge(50, NEVER_ABORTED)
+
+        expect(convergence).toEqual({
+            converged: false,
+            unfinishedJobs: null,
+            unrecorded: [],
+            tookMs: expect.any(Number),
+            unread: 'The operation was aborted due to timeout',
+        })
+    })
+
+    it('judges on the truth it already read when its last read fails, and names the failed read', async () => {
+        judge.record(offered())
+        await deliver(UNIT)
+        await judge.converge(50, NEVER_ABORTED)
+        truthFails = 'The operation was aborted due to timeout'
+
+        const [result] = await judge.check([{ name: 'at_least_once', params: {} }], {}, NO_RESETS)
+
+        expect({ result, unread: judge.evidence().unread }).toEqual({
+            result: expect.objectContaining({ passed: true }),
+            unread: 'The operation was aborted due to timeout',
+        })
+    })
 })

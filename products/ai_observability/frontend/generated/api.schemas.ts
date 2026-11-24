@@ -384,6 +384,16 @@ export const OfflineExperimentStatusEnumApi = {
 } as const
 
 export interface OfflineExperimentReadApi {
+    /**
+     * Most recent item, result, or payload change.
+     * @nullable
+     */
+    updated_at?: string | null
+    /**
+     * Number of items when the experiment closed.
+     * @nullable
+     */
+    closed_item_count?: number | null
     /** User who submitted the experiment, or null for service credentials. */
     readonly created_by: UserBasicApi | null
     /** Project tag names assigned to this experiment. */
@@ -679,6 +689,7 @@ export interface PatchedOfflineExperimentMetadataApi {
  * * `not_provided` - Not provided
  * * `available` - Available
  * * `expired` - Expired
+ * * `deleted` - Deleted
  */
 export type PayloadStateEnumApi = (typeof PayloadStateEnumApi)[keyof typeof PayloadStateEnumApi]
 
@@ -686,6 +697,7 @@ export const PayloadStateEnumApi = {
     NotProvided: 'not_provided',
     Available: 'available',
     Expired: 'expired',
+    Deleted: 'deleted',
 } as const
 
 /**
@@ -705,6 +717,15 @@ export const OfflineEvaluationResultStatusEnumApi = {
 } as const
 
 export interface OfflineResultCellApi {
+    /** Whether the item's input, output, or expected output changed after this score. */
+    is_stale: boolean
+    /** Current revision for updates and deletes. */
+    revision?: number
+    /**
+     * Time of the latest score update. For composites, the oldest input score time.
+     * @nullable
+     */
+    score_updated_at?: string | null
     /**
      * Input result UUIDs for a computed score, in formula input order. Null for reported scores.
      * @nullable
@@ -744,7 +765,8 @@ export interface OfflineResultCellApi {
      *
      * * `not_provided` - Not provided
      * * `available` - Available
-     * * `expired` - Expired */
+     * * `expired` - Expired
+     * * `deleted` - Deleted */
     payload_state: PayloadStateEnumApi
     /**
      * Payload expires 30 days after first acceptance; deletion runs hourly.
@@ -756,6 +778,13 @@ export interface OfflineResultCellApi {
 }
 
 export interface OfflineItemReadApi {
+    /** Current revision for updates and deletes. */
+    revision?: number
+    /**
+     * Last change to the input, output, or expected output.
+     * @nullable
+     */
+    content_updated_at?: string | null
     /**
      * Model used for the item, falling back to the experiment's model.
      * @nullable
@@ -801,7 +830,8 @@ export interface OfflineItemReadApi {
      *
      * * `not_provided` - Not provided
      * * `available` - Available
-     * * `expired` - Expired */
+     * * `expired` - Expired
+     * * `deleted` - Deleted */
     payload_state: PayloadStateEnumApi
     /**
      * Payload expires 30 days after first acceptance; deletion runs hourly.
@@ -1032,6 +1062,46 @@ export interface OfflineItemPageApi {
     scorer_versions: OfflineScorerVersionReadApi[]
 }
 
+export interface PatchedOfflineItemUpdateApi {
+    /**
+     * Revision returned by the latest read of this item, result, or payload.
+     * @minimum 0
+     */
+    revision: number
+    /**
+     * Case identifier.
+     * @maxLength 255
+     * @nullable
+     */
+    case_key?: string | null
+    /**
+     * Trial identifier.
+     * @maxLength 255
+     * @nullable
+     */
+    trial?: string | null
+    /**
+     * Model used for this item.
+     * @maxLength 255
+     * @nullable
+     */
+    model_version?: string | null
+    /**
+     * Trace for this item's application execution.
+     * @maxLength 255
+     * @nullable
+     */
+    application_trace_id?: string | null
+}
+
+export interface OfflineRevisionApi {
+    /**
+     * Revision returned by the latest read of this item, result, or payload.
+     * @minimum 0
+     */
+    revision: number
+}
+
 export type OfflineExperimentItemPayloadInputApiInput =
     | { [key: string]: unknown }
     | unknown[]
@@ -1070,13 +1140,21 @@ export interface OfflineExperimentItemPayloadInputApi {
 }
 
 export interface OfflineItemPayloadReadApi {
+    /** Current revision of the payload owner. */
+    revision?: number
+    /**
+     * Time of explicit payload deletion.
+     * @nullable
+     */
+    deleted_at?: string | null
     /** Owning item UUID. */
     id: string
     /** Durable payload storage state.
      *
      * * `not_provided` - Not provided
      * * `available` - Available
-     * * `expired` - Expired */
+     * * `expired` - Expired
+     * * `deleted` - Deleted */
     payload_state: PayloadStateEnumApi
     /**
      * Payload retention deadline.
@@ -1089,7 +1167,26 @@ export interface OfflineItemPayloadReadApi {
     data: OfflineExperimentItemPayloadInputApi | null
 }
 
+export interface PatchedOfflineItemPayloadUpdateApi {
+    /**
+     * Revision returned by the latest read of this item, result, or payload.
+     * @minimum 0
+     */
+    revision: number
+    /** Top-level fields to update. Omitted fields keep their current values. */
+    payload: OfflineExperimentItemPayloadInputApi
+}
+
 export interface OfflineResultReadApi {
+    /** Whether the item's input, output, or expected output changed after this score. */
+    is_stale: boolean
+    /** Current revision for updates and deletes. */
+    revision?: number
+    /**
+     * Time of the latest score update. For composites, the oldest input score time.
+     * @nullable
+     */
+    score_updated_at?: string | null
     /**
      * Input result UUIDs for a computed score, in formula input order. Null for reported scores.
      * @nullable
@@ -1129,7 +1226,8 @@ export interface OfflineResultReadApi {
      *
      * * `not_provided` - Not provided
      * * `available` - Available
-     * * `expired` - Expired */
+     * * `expired` - Expired
+     * * `deleted` - Deleted */
     payload_state: PayloadStateEnumApi
     /**
      * Payload expires 30 days after first acceptance; deletion runs hourly.
@@ -1172,6 +1270,29 @@ export interface OfflineResultCellsApi {
     results: OfflineResultCellApi[]
 }
 
+export interface PatchedOfflineResultUpdateApi {
+    /**
+     * Revision returned by the latest read of this item, result, or payload.
+     * @minimum 0
+     */
+    revision: number
+    /** Execution status for this reported result.
+     *
+     * * `ok` - OK
+     * * `error` - Error
+     * * `skipped` - Skipped
+     * * `not_applicable` - Not applicable */
+    status?: OfflineEvaluationResultStatusEnumApi
+    /** Score for a successful result, validated against the pinned version. */
+    value?: number | boolean | string[] | null
+    /**
+     * Error code for a failed execution.
+     * @maxLength 128
+     * @nullable
+     */
+    error_code?: string | null
+}
+
 /**
  * @nullable
  */
@@ -1187,13 +1308,21 @@ export interface OfflineEvaluationResultPayloadInputApi {
 }
 
 export interface OfflineResultPayloadReadApi {
+    /** Current revision of the payload owner. */
+    revision?: number
+    /**
+     * Time of explicit payload deletion.
+     * @nullable
+     */
+    deleted_at?: string | null
     /** Owning result UUID. */
     id: string
     /** Durable payload storage state.
      *
      * * `not_provided` - Not provided
      * * `available` - Available
-     * * `expired` - Expired */
+     * * `expired` - Expired
+     * * `deleted` - Deleted */
     payload_state: PayloadStateEnumApi
     /**
      * Payload retention deadline.
@@ -1204,6 +1333,16 @@ export interface OfflineResultPayloadReadApi {
     available: boolean
     /** Stored reasoning/error payload; null if unavailable. */
     data: OfflineEvaluationResultPayloadInputApi | null
+}
+
+export interface PatchedOfflineResultPayloadUpdateApi {
+    /**
+     * Revision returned by the latest read of this item, result, or payload.
+     * @minimum 0
+     */
+    revision: number
+    /** Top-level fields to update. Omitted fields keep their current values. */
+    payload: OfflineEvaluationResultPayloadInputApi
 }
 
 export interface OfflineStatusCountsApi {
@@ -3071,6 +3210,16 @@ export interface EvalSuggestionDismissApi {
     reason?: EvalSuggestionDismissReasonEnumApi | null
 }
 
+export interface EvalSuggestionSettingsApi {
+    /** Whether the project gets suggestions. While false, the list returns none and the weekly run skips the project. */
+    enabled: boolean
+}
+
+export interface PatchedEvalSuggestionSettingsApi {
+    /** Whether the project gets suggestions. While false, the list returns none and the weekly run skips the project. */
+    enabled?: boolean
+}
+
 /**
  * * `active` - Active
  * * `paused` - Paused
@@ -4000,8 +4149,6 @@ export interface PassRateOverviewApi {
     median: number | null
     /** Median pass rate in each period, over evaluations with results in both. Null when none has. */
     medianComparison: PeriodComparisonApi | null
-    /** Median pass rate per bucket, aligned with `buckets`. */
-    medianTrend: (number | null)[]
 }
 
 export interface EvaluationsOverviewApi {
@@ -5331,7 +5478,7 @@ export interface LLMProviderModelsSummaryApi {
     provider: string
     /** How many of this provider's models appear in `models`. */
     model_count: number
-    /** True when this provider's models can only be listed by passing `key_id` for one of the team's provider keys, so `model_count` is 0 until a key is supplied. False means PostHog funds some of the provider's models in the playground. LLM-judge evaluations and LLM taggers always run on one of the team's own provider keys, whatever this value is. */
+    /** True when this provider's models can only be listed by passing `key_id` for one of the team's provider keys, so `model_count` is 0 until a key is supplied. False means PostHog funds some of the provider's models in the playground. LLM-judge evaluations always run on one of the team's own provider keys, whatever this value is. */
     requires_provider_key: boolean
 }
 
@@ -6423,281 +6570,6 @@ export interface LLMPromptResolveResponseApi {
     referenced_by: LLMPromptReferencedByApi[]
 }
 
-/**
- * * `llm` - LLM
- * * `hog` - Hog
- */
-export type TaggerTypeEnumApi = (typeof TaggerTypeEnumApi)[keyof typeof TaggerTypeEnumApi]
-
-export const TaggerTypeEnumApi = {
-    Llm: 'llm',
-    Hog: 'hog',
-} as const
-
-export interface TagDefinitionApi {
-    /**
-     * Tag identifier
-     * @maxLength 100
-     */
-    name: string
-    /**
-     * Description to help the LLM classify
-     * @maxLength 500
-     */
-    description?: string
-}
-
-export interface LLMTaggerConfigApi {
-    /**
-     * Prompt instructing the LLM how to tag generations
-     * @minLength 1
-     */
-    prompt: string
-    /** Available tags the LLM can assign */
-    tags: TagDefinitionApi[]
-    /**
-     * Minimum number of tags to apply
-     * @minimum 0
-     */
-    min_tags?: number
-    /**
-     * Maximum number of tags to apply (null = no limit)
-     * @minimum 1
-     * @nullable
-     */
-    max_tags?: number | null
-}
-
-export interface HogTaggerConfigApi {
-    /**
-     * Hog source code to classify a generation into tags.
-     * @minLength 1
-     */
-    source: string
-    /** Optional tag whitelist. Leave empty to allow any tag returned by the Hog code. */
-    tags?: TagDefinitionApi[]
-}
-
-export type TaggerConfigApi = LLMTaggerConfigApi | HogTaggerConfigApi
-
-export type TaggerConditionApiPropertiesItem = { [key: string]: unknown }
-
-export interface TaggerConditionApi {
-    /**
-     * Stable identifier for this condition
-     * @maxLength 100
-     */
-    id: string
-    /**
-     * Percentage of matching events to apply this condition to
-     * @minimum 0
-     * @maximum 100
-     */
-    rollout_percentage?: number
-    /** Property filters that scope when this condition fires */
-    properties?: TaggerConditionApiPropertiesItem[]
-}
-
-/**
- * * `openai` - Openai
- * * `anthropic` - Anthropic
- * * `gemini` - Gemini
- * * `openrouter` - Openrouter
- * * `fireworks` - Fireworks
- * * `azure_openai` - Azure OpenAI
- * * `together_ai` - Together AI
- * * `minimax` - MiniMax
- * * `openai_compatible` - OpenAI-compatible
- */
-export type LLMCompletionProviderEnumApi =
-    (typeof LLMCompletionProviderEnumApi)[keyof typeof LLMCompletionProviderEnumApi]
-
-export const LLMCompletionProviderEnumApi = {
-    Openai: 'openai',
-    Anthropic: 'anthropic',
-    Gemini: 'gemini',
-    Openrouter: 'openrouter',
-    Fireworks: 'fireworks',
-    AzureOpenai: 'azure_openai',
-    TogetherAi: 'together_ai',
-    Minimax: 'minimax',
-    OpenaiCompatible: 'openai_compatible',
-} as const
-
-/**
- * Nested serializer for model configuration.
- */
-export interface TaggerModelConfigurationApi {
-    /** LLM provider to use for this tagger.
-     *
-     * * `openai` - Openai
-     * * `anthropic` - Anthropic
-     * * `gemini` - Gemini
-     * * `openrouter` - Openrouter
-     * * `fireworks` - Fireworks
-     * * `azure_openai` - Azure OpenAI
-     * * `together_ai` - Together AI
-     * * `minimax` - MiniMax
-     * * `openai_compatible` - OpenAI-compatible */
-    provider: LLMCompletionProviderEnumApi
-    /**
-     * Provider model identifier to use for this tagger.
-     * @maxLength 100
-     */
-    model: string
-    /**
-     * Existing LLM provider key UUID for the current project. Do not invent this value; use a real provider key ID returned by PostHog, or omit/null when no provider key should be pinned.
-     * @nullable
-     */
-    provider_key_id?: string | null
-    /** @nullable */
-    readonly provider_key_name: string | null
-}
-
-export interface TaggerApi {
-    readonly id: string
-    /** @maxLength 400 */
-    name: string
-    description?: string
-    enabled?: boolean
-    tagger_type?: TaggerTypeEnumApi
-    /** Tagger configuration. For tagger_type 'llm': {prompt, tags, min_tags?, max_tags?}. For tagger_type 'hog': {source, tags?}. */
-    tagger_config: TaggerConfigApi
-    /** Conditions that scope when the tagger runs */
-    conditions?: TaggerConditionApi[]
-    model_configuration?: TaggerModelConfigurationApi | null
-    readonly created_at: string
-    readonly updated_at: string
-    readonly created_by: UserBasicApi
-    deleted?: boolean
-    /**
-     * The evaluation that replaced this tagger when it was migrated. Null until then.
-     * @nullable
-     */
-    readonly migrated_to_evaluation_id: string | null
-}
-
-export interface PaginatedTaggerListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: TaggerApi[]
-}
-
-export interface TaggerModelConfigurationWriteApi {
-    /** LLM provider to use for this tagger.
-     *
-     * * `openai` - Openai
-     * * `anthropic` - Anthropic
-     * * `gemini` - Gemini
-     * * `openrouter` - Openrouter
-     * * `fireworks` - Fireworks
-     * * `azure_openai` - Azure OpenAI
-     * * `together_ai` - Together AI
-     * * `minimax` - MiniMax
-     * * `openai_compatible` - OpenAI-compatible */
-    provider: LLMCompletionProviderEnumApi
-    /**
-     * Provider model identifier to use for this tagger.
-     * @maxLength 100
-     */
-    model: string
-    /**
-     * Existing LLM provider key UUID for the current project. Do not invent this value; use a real provider key ID returned by PostHog, or omit/null when no provider key should be pinned.
-     * @nullable
-     */
-    provider_key_id?: string | null
-}
-
-export interface TaggerUpdateApi {
-    /** @maxLength 400 */
-    name: string
-    description?: string
-    enabled?: boolean
-    tagger_type?: TaggerTypeEnumApi
-    /** Tagger configuration. For tagger_type 'llm': {prompt, tags, min_tags?, max_tags?}. For tagger_type 'hog': {source, tags?}. */
-    tagger_config: TaggerConfigApi
-    /** Conditions that scope when the tagger runs */
-    conditions?: TaggerConditionApi[]
-    model_configuration?: TaggerModelConfigurationWriteApi | null
-    deleted?: boolean
-}
-
-export interface PatchedTaggerUpdateApi {
-    /** @maxLength 400 */
-    name?: string
-    description?: string
-    enabled?: boolean
-    tagger_type?: TaggerTypeEnumApi
-    /** Tagger configuration. For tagger_type 'llm': {prompt, tags, min_tags?, max_tags?}. For tagger_type 'hog': {source, tags?}. */
-    tagger_config?: TaggerConfigApi
-    /** Conditions that scope when the tagger runs */
-    conditions?: TaggerConditionApi[]
-    model_configuration?: TaggerModelConfigurationWriteApi | null
-    deleted?: boolean
-}
-
-export interface TestHogTaggerTagApi {
-    /**
-     * Tag identifier to allow in Hog test results.
-     * @maxLength 100
-     */
-    name: string
-    /**
-     * Optional description for the tag.
-     * @maxLength 500
-     */
-    description?: string
-}
-
-export interface TestHogTaggerRequestApi {
-    /**
-     * Hog source code to test. Return a tag name string, a list of tag name strings, or null.
-     * @minLength 1
-     */
-    source: string
-    /**
-     * Number of recent $ai_generation events to test against (1-10, default 5).
-     * @minimum 1
-     * @maximum 10
-     */
-    sample_count?: number
-    /** Optional tag whitelist. Returned tags outside this list are filtered out. */
-    tags?: TestHogTaggerTagApi[]
-}
-
-export interface TestHogTaggerResultItemApi {
-    /** UUID of the sampled $ai_generation event. */
-    event_uuid: string
-    /**
-     * Trace ID if available.
-     * @nullable
-     */
-    trace_id?: string | null
-    /** First 200 characters of the generation input. */
-    input_preview: string
-    /** First 200 characters of the generation output. */
-    output_preview: string
-    /** Tag names returned by the Hog code. */
-    tags: string[]
-    /** Text written to stdout by the Hog code. */
-    reasoning: string
-    /**
-     * Error message if the Hog code failed.
-     * @nullable
-     */
-    error?: string | null
-}
-
-export interface TestHogTaggerResponseApi {
-    /** Per-event Hog tagger test results. */
-    results: TestHogTaggerResultItemApi[]
-    /** Optional message, for example when no recent AI events were found. */
-    message?: string
-}
-
 export type LlmAnalyticsPersonalSpendListParams = {
     /**
      * When set, additionally return a `by_bucket` breakdown: a time-ascending UTC cost series for the scoped product at this bucket size in minutes, with per-bucket cost split into uncached input / output / cache read / cache creation components plus the matching token sums. Supported bucket sizes: 5, 15, 30, 60. The window may span at most 600 buckets of the chosen size (e.g. 50 hours at 5-minute buckets).
@@ -6898,6 +6770,22 @@ export type AiObservabilityOfflineExperimentsItemsListParams = {
     scorer_version_ids?: string
 }
 
+export type AiObservabilityOfflineExperimentsItemsDestroyParams = {
+    /**
+     * Revision returned by the latest read of this item, result, or payload.
+     * @minimum 0
+     */
+    revision: number
+}
+
+export type AiObservabilityOfflineExperimentsItemsPayloadDestroyParams = {
+    /**
+     * Revision returned by the latest read of this item, result, or payload.
+     * @minimum 0
+     */
+    revision: number
+}
+
 export type AiObservabilityOfflineExperimentsItemsResultsListParams = {
     /**
      * Continuation cursor returned by the previous page.
@@ -6936,6 +6824,22 @@ export type AiObservabilityOfflineExperimentsResultCellsRetrieveParams = {
      * @maxLength 739
      */
     scorer_version_ids: string
+}
+
+export type AiObservabilityOfflineExperimentsResultsDestroyParams = {
+    /**
+     * Revision returned by the latest read of this item, result, or payload.
+     * @minimum 0
+     */
+    revision: number
+}
+
+export type AiObservabilityOfflineExperimentsResultsPayloadDestroyParams = {
+    /**
+     * Revision returned by the latest read of this item, result, or payload.
+     * @minimum 0
+     */
+    revision: number
 }
 
 export type AiObservabilityOfflineExperimentsScorerSummariesListParams = {
@@ -7997,42 +7901,4 @@ export type LlmPromptsResolveNameRetrieveParams = {
      * Exact prompt version UUID to resolve. Can be used together with version for extra safety.
      */
     version_id?: string
-}
-
-export type TaggersListParams = {
-    /**
-     * Filter by enabled status
-     */
-    enabled?: boolean
-    /**
-     * Multiple values may be separated by commas.
-     */
-    id__in?: string[]
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * Only the tagger that was migrated to this evaluation
-     */
-    migrated_to_evaluation_id?: string
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-    /**
-     * Ordering
-     *
-     * * `created_at` - Created At
-     * * `-created_at` - Created At (descending)
-     * * `updated_at` - Updated At
-     * * `-updated_at` - Updated At (descending)
-     * * `name` - Name
-     * * `-name` - Name (descending)
-     */
-    order_by?: string[]
-    /**
-     * Search in name or description
-     */
-    search?: string
 }
