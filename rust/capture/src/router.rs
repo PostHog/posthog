@@ -61,6 +61,9 @@ pub struct State {
     pub timesource: Arc<dyn TimeSource + Send + Sync>,
     pub redis: Arc<dyn Client + Send + Sync>,
     pub global_rate_limiter_token_distinctid: Option<Arc<GlobalRateLimiter>>,
+    /// Per-token budget, checked after the per-(token, distinct_id) one with
+    /// the same over-limit action. `None` unless `GLOBAL_RATE_LIMIT_TOKEN_ENABLED`.
+    pub global_rate_limiter_token: Option<Arc<GlobalRateLimiter>>,
     pub quota_limiter: Arc<CaptureQuotaLimiter>,
     pub token_dropper: Arc<TokenDropper>,
     /// Restriction service scoped to all pipelines this capture deployment
@@ -174,6 +177,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     outputs: Arc<OutputRegistry>,
     redis: Arc<R>,
     global_rate_limiter_token_distinctid: Option<Arc<GlobalRateLimiter>>,
+    global_rate_limiter_token: Option<Arc<GlobalRateLimiter>>,
     quota_limiter: CaptureQuotaLimiter,
     token_dropper: TokenDropper,
     event_restriction_service: Option<EventRestrictionService>,
@@ -205,6 +209,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         timesource: Arc::new(timesource),
         redis,
         global_rate_limiter_token_distinctid,
+        global_rate_limiter_token,
         quota_limiter: Arc::new(quota_limiter),
         event_payload_size_limit,
         token_dropper: Arc::new(token_dropper),

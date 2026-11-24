@@ -20,7 +20,7 @@ use super::response::BatchResponse;
 use super::types::{Batch, Event, EventResult, OptionKeys, Options, ValidatedEvent, WrappedEvent};
 use crate::event_restrictions::{EventContext, EventRestrictionService};
 use crate::events::ai_byte_limit::charge_ai_bytes;
-use crate::global_rate_limiter::{GlobalRateLimitKey, GlobalRateLimiter};
+use crate::global_rate_limiter::{GlobalRateLimitKind, GlobalRateLimiter};
 use crate::v0_request::{exceeds_max_ai_event_bytes, is_ai_event};
 use limiters::overflow::{OverflowLimiter, OverflowLimiterResult};
 use tracing::Level;
@@ -229,8 +229,22 @@ async fn run_pipeline(
 
     if state.capture_mode.applies_global_rate_limit() {
         if let Some(ref limiter) = state.global_rate_limiter_token_distinctid {
-            let _ = apply_token_distinct_id_limits(
+            let _ = apply_global_rate_limit(
                 limiter,
+                GlobalRateLimitKind::TokenDistinctId,
+                context,
+                state.ingestion_warning_emitter.as_deref(),
+                &mut events,
+            )
+            .await;
+        }
+        // Runs second, so an event the per-distinct_id limiter limited counts
+        // here as already disabled, and the per-distinct_id results are the
+        // same with or without this limiter.
+        if let Some(ref limiter) = state.global_rate_limiter_token {
+            let _ = apply_global_rate_limit(
+                limiter,
+                GlobalRateLimitKind::Token,
                 context,
                 state.ingestion_warning_emitter.as_deref(),
                 &mut events,
@@ -1091,10 +1105,10 @@ async fn apply_ai_byte_limits(
     }
 }
 
-/// Per-batch tally from the shared global rate limiter. Counts events, not
+/// Per-batch tally from one global rate limiter. Counts events, not
 /// distinct_ids: `allowed + limited + already_disabled` covers every non-Drop event.
 #[derive(Debug, Default, PartialEq, Eq)]
-struct TokenDistinctIdTally {
+struct GlobalRateLimitTally {
     allowed: u64,
     limited: u64,
     already_disabled: u64,
@@ -1102,12 +1116,13 @@ struct TokenDistinctIdTally {
     already_disabled_over_budget: u64,
 }
 
-async fn apply_token_distinct_id_limits(
+async fn apply_global_rate_limit(
     limiter: &GlobalRateLimiter,
+    kind: GlobalRateLimitKind,
     context: &RequestContext,
     emitter: Option<&dyn WarningEmitter>,
     events: &mut [WrappedEvent],
-) -> TokenDistinctIdTally {
+) -> GlobalRateLimitTally {
     let mut limited_distinct_ids: HashSet<&str> = HashSet::new();
     let mut limited_event_count: u64 = 0;
     let mut allowed_count: u64 = 0;
@@ -1118,9 +1133,9 @@ async fn apply_token_distinct_id_limits(
         if event.result != EventResult::Ok {
             continue;
         }
-        let cache_key =
-            GlobalRateLimitKey::TokenDistinctId(&context.api_token, &event.event.distinct_id)
-                .to_cache_key();
+        let cache_key = kind
+            .key(&context.api_token, &event.event.distinct_id)
+            .to_cache_key();
         // Charge every event, even one whose person processing is already off:
         // its volume belongs in the key's fleet count, and the v0 path charges
         // it too. The check reads only the local cache.
@@ -1159,7 +1174,7 @@ async fn apply_token_distinct_id_limits(
     if allowed_count > 0 {
         metrics::counter!(
             CAPTURE_V1_RATE_LIMITER,
-            "limiter" => "token_distinct_id",
+            "limiter" => kind.label(),
             "outcome" => "allowed",
         )
         .increment(allowed_count);
@@ -1168,7 +1183,7 @@ async fn apply_token_distinct_id_limits(
     if already_disabled_over_budget_count > 0 {
         metrics::counter!(
             CAPTURE_V1_RATE_LIMITER,
-            "limiter" => "token_distinct_id",
+            "limiter" => kind.label(),
             "outcome" => "already_disabled",
             "over_budget" => "true",
         )
@@ -1180,7 +1195,7 @@ async fn apply_token_distinct_id_limits(
     if already_disabled_under_budget_count > 0 {
         metrics::counter!(
             CAPTURE_V1_RATE_LIMITER,
-            "limiter" => "token_distinct_id",
+            "limiter" => kind.label(),
             "outcome" => "already_disabled",
             "over_budget" => "false",
         )
@@ -1198,7 +1213,7 @@ async fn apply_token_distinct_id_limits(
 
         metrics::counter!(
             CAPTURE_V1_RATE_LIMITER,
-            "limiter" => "token_distinct_id",
+            "limiter" => kind.label(),
             "outcome" => "limited",
         )
         .increment(limited_event_count);
@@ -1207,19 +1222,25 @@ async fn apply_token_distinct_id_limits(
             limited_event_count = limited_event_count,
             distinct_id_count = distinct_id_count,
             distinct_ids = %preview,
-            "events rate limited by distinct_id -- person processing disabled"
+            "events rate limited by {} -- person processing disabled",
+            kind.counted_per()
         );
 
-        emit_rate_limit_warning(
-            emitter,
-            &context.warning_context(),
-            CAPTURE_V1_RATE_LIMIT,
-            &limited_distinct_ids,
-            limited_event_count,
-        );
+        // `HighVolumeDistinctId` reports one hot distinct_id, which misleads
+        // for a per-token limit. A per-token type needs a new warning registry
+        // entry, so this limit emits no warning.
+        if kind == GlobalRateLimitKind::TokenDistinctId {
+            emit_rate_limit_warning(
+                emitter,
+                &context.warning_context(),
+                CAPTURE_V1_RATE_LIMIT,
+                &limited_distinct_ids,
+                limited_event_count,
+            );
+        }
     }
 
-    TokenDistinctIdTally {
+    GlobalRateLimitTally {
         allowed: allowed_count,
         limited: limited_event_count,
         already_disabled: already_disabled_count,
@@ -2767,7 +2788,7 @@ mod tests {
         assert_eq!(events[0].destination, Destination::Dlq);
     }
 
-    // --- apply_token_distinct_id_limits ---
+    // --- apply_global_rate_limit ---
 
     use async_trait::async_trait;
     use limiters::global_rate_limiter::{
@@ -2860,7 +2881,14 @@ mod tests {
             wrapped_event("$identify", "user-2"),
         ];
 
-        apply_token_distinct_id_limits(&limiter, &ctx, None, &mut events).await;
+        apply_global_rate_limit(
+            &limiter,
+            GlobalRateLimitKind::TokenDistinctId,
+            &ctx,
+            None,
+            &mut events,
+        )
+        .await;
 
         for ev in &events {
             assert_eq!(ev.result, EventResult::Ok);
@@ -2878,7 +2906,14 @@ mod tests {
             wrapped_event("$identify", "user-2"),
         ];
 
-        apply_token_distinct_id_limits(&limiter, &ctx, None, &mut events).await;
+        apply_global_rate_limit(
+            &limiter,
+            GlobalRateLimitKind::TokenDistinctId,
+            &ctx,
+            None,
+            &mut events,
+        )
+        .await;
 
         let ok_ev = find_by_did(&events, "user-1");
         assert_eq!(ok_ev.result, EventResult::Ok);
@@ -2898,7 +2933,14 @@ mod tests {
         let ctx = td_context();
         let mut events = vec![malformed_wrapped_event()];
 
-        apply_token_distinct_id_limits(&limiter, &ctx, None, &mut events).await;
+        apply_global_rate_limit(
+            &limiter,
+            GlobalRateLimitKind::TokenDistinctId,
+            &ctx,
+            None,
+            &mut events,
+        )
+        .await;
 
         let ev = &events[0];
         assert_eq!(ev.result, EventResult::Drop);
@@ -2916,7 +2958,14 @@ mod tests {
             wrapped_event("$click", "user-1"),
         ];
 
-        apply_token_distinct_id_limits(&limiter, &ctx, None, &mut events).await;
+        apply_global_rate_limit(
+            &limiter,
+            GlobalRateLimitKind::TokenDistinctId,
+            &ctx,
+            None,
+            &mut events,
+        )
+        .await;
 
         for ev in &events {
             assert_eq!(ev.result, EventResult::Warning, "should be Warning");
@@ -2948,7 +2997,14 @@ mod tests {
         let pd = events.iter_mut().find(|e| e.uuid == pre_drop_uuid).unwrap();
         pd.result = EventResult::Drop;
 
-        apply_token_distinct_id_limits(&limiter, &ctx, None, &mut events).await;
+        apply_global_rate_limit(
+            &limiter,
+            GlobalRateLimitKind::TokenDistinctId,
+            &ctx,
+            None,
+            &mut events,
+        )
+        .await;
 
         // Pre-dropped event untouched
         let dropped = find_by_did(&events, "user-1");
@@ -2983,7 +3039,14 @@ mod tests {
         ];
 
         apply_overflow_stamping(Some(&burst), None, &ctx, &mut events);
-        let tally = apply_token_distinct_id_limits(&global, &ctx, None, &mut events).await;
+        let tally = apply_global_rate_limit(
+            &global,
+            GlobalRateLimitKind::TokenDistinctId,
+            &ctx,
+            None,
+            &mut events,
+        )
+        .await;
 
         // events[1] is the one the burst limiter sent to overflow.
         let spread = &events[1];
@@ -3017,7 +3080,14 @@ mod tests {
         events[0].force_disable_person_processing = true;
         events[0].details = Some(DETAIL_PERSON_PROCESSING_DISABLED);
 
-        let tally = apply_token_distinct_id_limits(&limiter, &ctx, None, &mut events).await;
+        let tally = apply_global_rate_limit(
+            &limiter,
+            GlobalRateLimitKind::TokenDistinctId,
+            &ctx,
+            None,
+            &mut events,
+        )
+        .await;
 
         assert!(
             calls
@@ -3028,7 +3098,7 @@ mod tests {
         );
         assert_eq!(
             tally,
-            TokenDistinctIdTally {
+            GlobalRateLimitTally {
                 allowed: 1,
                 limited: 0,
                 already_disabled: 1,
@@ -3067,7 +3137,14 @@ mod tests {
         // user-3 was dropped by an earlier stage.
         events[2].result = EventResult::Drop;
 
-        let tally = apply_token_distinct_id_limits(&limiter, &ctx, None, &mut events).await;
+        let tally = apply_global_rate_limit(
+            &limiter,
+            GlobalRateLimitKind::TokenDistinctId,
+            &ctx,
+            None,
+            &mut events,
+        )
+        .await;
 
         let mut seen = calls.lock().unwrap().clone();
         seen.sort();
@@ -3078,7 +3155,7 @@ mod tests {
         );
         assert_eq!(
             tally,
-            TokenDistinctIdTally {
+            GlobalRateLimitTally {
                 allowed: 1,
                 limited: 0,
                 already_disabled: 1,
@@ -3110,11 +3187,18 @@ mod tests {
             wrapped_event("$pageview", "cool-1"),
         ];
 
-        let tally = apply_token_distinct_id_limits(&limiter, &ctx, None, &mut events).await;
+        let tally = apply_global_rate_limit(
+            &limiter,
+            GlobalRateLimitKind::TokenDistinctId,
+            &ctx,
+            None,
+            &mut events,
+        )
+        .await;
 
         assert_eq!(
             tally,
-            TokenDistinctIdTally {
+            GlobalRateLimitTally {
                 allowed: 1,
                 limited: 4,
                 already_disabled: 0,
@@ -3146,7 +3230,14 @@ mod tests {
             .map(|did| wrapped_event("$pageview", did))
             .collect();
 
-        apply_token_distinct_id_limits(&limiter, &ctx, Some(&emitter), &mut events).await;
+        apply_global_rate_limit(
+            &limiter,
+            GlobalRateLimitKind::TokenDistinctId,
+            &ctx,
+            Some(&emitter),
+            &mut events,
+        )
+        .await;
 
         let emitted = emitter.emitted();
         assert_eq!(emitted.len(), 1, "one warning per batch, not per event");
@@ -3176,7 +3267,14 @@ mod tests {
         let emitter = CollectingEmitter::default();
         let mut events = vec![wrapped_event("$pageview", "user-1")];
 
-        apply_token_distinct_id_limits(&limiter, &ctx, Some(&emitter), &mut events).await;
+        apply_global_rate_limit(
+            &limiter,
+            GlobalRateLimitKind::TokenDistinctId,
+            &ctx,
+            Some(&emitter),
+            &mut events,
+        )
+        .await;
 
         assert!(emitter.emitted().is_empty());
     }
@@ -3193,7 +3291,14 @@ mod tests {
             vec![wrapped_event("$pageview", "user-1")
                 .with_destination(Destination::AnalyticsHistorical)];
 
-        apply_token_distinct_id_limits(&limiter, &ctx, None, &mut events).await;
+        apply_global_rate_limit(
+            &limiter,
+            GlobalRateLimitKind::TokenDistinctId,
+            &ctx,
+            None,
+            &mut events,
+        )
+        .await;
 
         let ev = find_by_did(&events, "user-1");
         assert_eq!(ev.result, EventResult::Warning);
@@ -3377,7 +3482,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn apply_token_distinct_id_limits_preserves_order_with_interleaved_limits() {
+    async fn apply_global_rate_limit_preserves_order_with_interleaved_limits() {
         // Limit slots 1 and 3 only — verifies interleaved limited/non-limited
         // entries don't shuffle.
         let limiter = mock_limiter(vec!["phc_tok:user-pos-1", "phc_tok:user-pos-3"]);
@@ -3390,7 +3495,14 @@ mod tests {
             wrapped_event("$pageview", "user-pos-4"),
         ];
 
-        apply_token_distinct_id_limits(&limiter, &ctx, None, &mut events).await;
+        apply_global_rate_limit(
+            &limiter,
+            GlobalRateLimitKind::TokenDistinctId,
+            &ctx,
+            None,
+            &mut events,
+        )
+        .await;
 
         assert_eq!(
             distinct_id_sequence(&events),
@@ -3448,11 +3560,18 @@ mod tests {
         let mut tdctx = test_utils::test_context();
         tdctx.api_token = "phc_tok".to_string();
         let limiter = mock_limiter(vec!["phc_tok:user-pos-2"]);
-        apply_token_distinct_id_limits(&limiter, &tdctx, None, &mut events).await;
+        apply_global_rate_limit(
+            &limiter,
+            GlobalRateLimitKind::TokenDistinctId,
+            &tdctx,
+            None,
+            &mut events,
+        )
+        .await;
         assert_eq!(
             distinct_id_sequence(&events),
             expected,
-            "order changed after apply_token_distinct_id_limits",
+            "order changed after apply_global_rate_limit",
         );
     }
 
@@ -4525,6 +4644,59 @@ mod tests {
             entry.details,
             Some(DETAIL_PERSON_PROCESSING_DISABLED),
             "Events mode must apply the GRL and flag the hot key"
+        );
+    }
+
+    #[rstest::rstest]
+    #[case::per_token_limiter_off(false, 0)]
+    #[case::per_token_limiter_on(true, 3)]
+    #[tokio::test]
+    async fn per_token_limit_catches_a_new_distinct_id_on_every_event(
+        #[case] per_token_enabled: bool,
+        #[case] expected_limited: usize,
+    ) {
+        // Each distinct_id is charged once, so the per-distinct_id budget of 2
+        // never fills. The per-token budget of 3 fills on the third event.
+        let collector = Arc::new(CollectingEmitter::new());
+        let mut builder = TestStateBuilder::new()
+            .with_global_rate_limiter(Arc::new(GlobalRateLimiter::mock_budget(2)))
+            .with_ingestion_warning_emitter(collector.clone());
+        if per_token_enabled {
+            builder =
+                builder.with_global_rate_limiter_token(Arc::new(GlobalRateLimiter::mock_budget(3)));
+        }
+        let ts = builder.build();
+        let mut ctx = test_utils::test_analytics_context();
+        let batch = valid_batch(
+            (0..5)
+                .map(|i| Event {
+                    distinct_id: format!("synthetic-{i}"),
+                    ..valid_event()
+                })
+                .collect(),
+        );
+
+        let resp = process_batch(&ts.state, &mut ctx, batch).await.unwrap();
+
+        let limited = resp
+            .entries()
+            .iter()
+            .filter(|(_, entry)| {
+                entry.result == EventResult::Warning
+                    && entry.details == Some(DETAIL_PERSON_PROCESSING_DISABLED)
+            })
+            .count();
+        assert_eq!(limited, expected_limited);
+        let overflowed = ts
+            .mock_producer
+            .get_records()
+            .iter()
+            .filter(|r| &*r.topic == "events_overflow")
+            .count();
+        assert_eq!(overflowed, expected_limited);
+        assert!(
+            collector.emitted().is_empty(),
+            "a per-token limit must not send the per-distinct_id warning"
         );
     }
 

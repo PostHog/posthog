@@ -29,9 +29,44 @@ fn truncate_str(s: &str, max_chars: usize) -> &str {
 }
 
 pub enum GlobalRateLimitKey<'a> {
-    /// Token-only key. Not currently used in production call sites.
     Token(&'a str),
     TokenDistinctId(&'a str, &'a str),
+}
+
+/// Which key an event limiter counts on. Each kind is a separate limiter with
+/// its own budget, Redis prefix and metrics.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GlobalRateLimitKind {
+    TokenDistinctId,
+    /// Catches traffic spread across distinct_ids, which the per-distinct_id
+    /// budget never sees.
+    Token,
+}
+
+impl GlobalRateLimitKind {
+    pub fn key<'a>(self, token: &'a str, distinct_id: &'a str) -> GlobalRateLimitKey<'a> {
+        match self {
+            Self::TokenDistinctId => GlobalRateLimitKey::TokenDistinctId(token, distinct_id),
+            Self::Token => GlobalRateLimitKey::Token(token),
+        }
+    }
+
+    /// The `limiter` label on capture's rate limiter metrics. Dashboards and
+    /// alerts match on these values.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::TokenDistinctId => "token_distinct_id",
+            Self::Token => "token",
+        }
+    }
+
+    /// What the limit is counted per, as log messages name it.
+    pub fn counted_per(self) -> &'static str {
+        match self {
+            Self::TokenDistinctId => "distinct_id",
+            Self::Token => "token",
+        }
+    }
 }
 
 impl<'a> GlobalRateLimitKey<'a> {
@@ -109,6 +144,7 @@ struct RedisClusterUrls<'a> {
 pub struct GlobalRateLimiter {
     limiter: Box<dyn CommonGlobalRateLimiter>,
     dry_run: bool,
+    metrics_scope: Arc<str>,
 }
 
 impl GlobalRateLimiter {
@@ -145,7 +181,6 @@ impl GlobalRateLimiter {
     }
 
     /// Create a per-token rate limiter sharing the given Redis instances.
-    /// Not currently wired into production call sites -- retained for future use.
     pub fn new_token(
         config: &Config,
         redis_instances: Vec<Arc<dyn Client + Send + Sync>>,
@@ -168,7 +203,9 @@ impl GlobalRateLimiter {
                 // No dynamic source for the token-only limiter; its resolver's token
                 // fallback never fires for bare token keys.
                 enable_dynamic_source: false,
-                dry_run: config.global_rate_limit_dry_run,
+                // Its own flag lets it run dry while the per-(token, distinct_id)
+                // limiter enforces under the shared one.
+                dry_run: config.global_rate_limit_dry_run || config.global_rate_limit_token_dry_run,
             },
         )
     }
@@ -353,6 +390,7 @@ impl GlobalRateLimiter {
         Ok(Self {
             limiter: Box::new(limiter),
             dry_run,
+            metrics_scope: Arc::from(spec.metrics_scope),
         })
     }
 
@@ -388,9 +426,11 @@ impl GlobalRateLimiter {
                 counter!(
                     "capture_global_rate_limiter_dry_run",
                     "key_type" => if response.is_custom_limited { "custom" } else { "global" },
+                    "scope" => self.metrics_scope.clone(),
                 )
                 .increment(1);
                 warn!(
+                    scope = &*self.metrics_scope,
                     key = key,
                     current_count = response.current_count,
                     threshold = response.threshold,
@@ -551,6 +591,7 @@ impl GlobalRateLimiter {
         Self {
             limiter: Box::new(limiter),
             dry_run: false,
+            metrics_scope: Arc::from("test"),
         }
     }
 
@@ -578,7 +619,13 @@ impl GlobalRateLimiter {
         Self {
             limiter: Box::new(limiter),
             dry_run: false,
+            metrics_scope: Arc::from("test"),
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn is_dry_run(&self) -> bool {
+        self.dry_run
     }
 
     #[cfg(test)]
@@ -586,6 +633,7 @@ impl GlobalRateLimiter {
         Self {
             limiter: Box::new(limiter),
             dry_run: true,
+            metrics_scope: Arc::from("test"),
         }
     }
 
@@ -849,6 +897,29 @@ mod tests {
         assert!(
             err.to_string().contains(expected),
             "expected {expected:?} in {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn token_limiter_reads_its_own_overrides() {
+        let config = shard_config(&[
+            ("GLOBAL_RATE_LIMIT_TOKEN_OVERRIDES_CSV", "phc_big=10000000"),
+            (
+                "GLOBAL_RATE_LIMIT_TOKEN_DISTINCTID_OVERRIDES_CSV",
+                "phc_other=10",
+            ),
+        ]);
+
+        let limiter = GlobalRateLimiter::new_token(
+            &config,
+            vec![Arc::new(common_redis::MockRedisClient::new())],
+        )
+        .expect("valid config");
+
+        assert!(limiter.is_custom_key("phc_big"));
+        assert!(
+            !limiter.is_custom_key("phc_other"),
+            "the per-(token, distinct_id) overrides must not reach the per-token limiter"
         );
     }
 

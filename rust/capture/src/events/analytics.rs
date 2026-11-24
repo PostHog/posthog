@@ -24,7 +24,7 @@ use crate::{
     debug_or_info,
     event_restrictions::{EventContext as RestrictionEventContext, EventRestrictionService},
     events::{ai_byte_limit::drop_ai_byte_limited, overflow_stamping::stamp_overflow_reason},
-    global_rate_limiter::{GlobalRateLimitKey, GlobalRateLimiter},
+    global_rate_limiter::{GlobalRateLimitKind, GlobalRateLimiter},
     ingestion_warnings::{
         emit_distinct_id_truncated_warning, emit_rate_limit_warning,
         legacy::{emit_processing_abort_warning, request_context},
@@ -262,6 +262,7 @@ pub async fn process_events(
     restriction_service: Option<EventRestrictionService>,
     historical_cfg: router::HistoricalConfig,
     global_rate_limiter: Option<Arc<GlobalRateLimiter>>,
+    global_rate_limiter_token: Option<Arc<GlobalRateLimiter>>,
     overflow_limiter: Option<Arc<OverflowLimiter>>,
     ai_events_overflow_limiter: Option<Arc<OverflowLimiter>>,
     ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
@@ -283,6 +284,7 @@ pub async fn process_events(
         restriction_service,
         historical_cfg,
         global_rate_limiter,
+        global_rate_limiter_token,
         overflow_limiter,
         ai_events_overflow_limiter,
         ingestion_warning_emitter,
@@ -305,6 +307,7 @@ async fn process_events_inner(
     restriction_service: Option<EventRestrictionService>,
     historical_cfg: router::HistoricalConfig,
     global_rate_limiter: Option<Arc<GlobalRateLimiter>>,
+    global_rate_limiter_token: Option<Arc<GlobalRateLimiter>>,
     overflow_limiter: Option<Arc<OverflowLimiter>>,
     ai_events_overflow_limiter: Option<Arc<OverflowLimiter>>,
     ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
@@ -503,95 +506,31 @@ async fn process_events_inner(
     // those bytes crossed the wire either way.
     drop_ai_byte_limited(&mut events, ai_byte_rate_limiter.as_ref()).await;
 
-    // Per-(token, distinct_id) global rate limiting: skip person processing for
-    // hot distinct_ids and reroute AnalyticsMain events to overflow.
+    // Global rate limiting: skip person processing for hot keys and reroute
+    // AnalyticsMain events to overflow.
     if context.capture_mode.applies_global_rate_limit() {
         if let Some(ref limiter) = global_rate_limiter {
-            let mut limited_distinct_ids: HashSet<&str> = HashSet::new();
-            let mut limited_event_count: u64 = 0;
-            let mut already_disabled_event_count: u64 = 0;
-            let mut already_disabled_over_budget_count: u64 = 0;
-            for event in events.iter_mut() {
-                let cache_key =
-                    GlobalRateLimitKey::TokenDistinctId(&context.token, &event.event.distinct_id)
-                        .to_cache_key();
-                // Charge every event, even one an event restriction already
-                // stripped of person processing: its volume belongs in the
-                // key's fleet count, or a covered key starts from zero when the
-                // restriction lifts. The check reads only the local cache.
-                let limited = limiter.is_limited(&cache_key, 1).await.is_some();
-
-                // Person processing is already off: nothing left to take away,
-                // so stamp nothing and keep it out of the customer-facing tallies.
-                if event.metadata.skip_person_processing {
-                    already_disabled_event_count += 1;
-                    if limited {
-                        already_disabled_over_budget_count += 1;
-                    }
-                    continue;
-                }
-
-                if limited {
-                    event.metadata.skip_person_processing = true;
-                    // Reroute the hot key to overflow on AnalyticsMain only. Historical
-                    // never overflows. An AI hot key loses person processing but stays
-                    // on its lane.
-                    if event.metadata.data_type == DataType::AnalyticsMain {
-                        event.metadata.overflow_reason = Some(OverflowReason::ForceLimited);
-                    }
-                    limited_distinct_ids.insert(&event.event.distinct_id);
-                    limited_event_count += 1;
-                }
-            }
-            if limited_event_count > 0 {
-                let ids: Vec<&str> = limited_distinct_ids.iter().copied().collect();
-                let preview: String = if ids.len() > 10 {
-                    format!("{}...", ids[..10].join(", "))
-                } else {
-                    ids.join(", ")
-                };
-                counter!(
-                    "capture_events_rate_limited_token_distinctid",
-                    "reason" => "global_rate_limit_token_distinctid",
-                )
-                .increment(limited_event_count);
-                warn!(
-                    token = context.token,
-                    limited_event_count = limited_event_count,
-                    distinct_id_count = limited_distinct_ids.len(),
-                    distinct_ids = %preview,
-                    "events rate limited by distinct_id -- person processing disabled"
-                );
-            }
-
-            // Enforcement alerting needs the over_budget arm; keep both arms emitted.
-            if already_disabled_over_budget_count > 0 {
-                counter!(
-                    "capture_global_rate_limiter_already_disabled",
-                    "over_budget" => "true",
-                )
-                .increment(already_disabled_over_budget_count);
-            }
-
-            let already_disabled_under_budget_count =
-                already_disabled_event_count - already_disabled_over_budget_count;
-            if already_disabled_under_budget_count > 0 {
-                counter!(
-                    "capture_global_rate_limiter_already_disabled",
-                    "over_budget" => "false",
-                )
-                .increment(already_disabled_under_budget_count);
-            }
-
-            if limited_event_count > 0 {
-                emit_rate_limit_warning(
-                    ingestion_warning_emitter.as_deref(),
-                    &request_context(context),
-                    CAPTURE_LEGACY_RATE_LIMIT,
-                    &limited_distinct_ids,
-                    limited_event_count,
-                );
-            }
+            apply_global_rate_limit(
+                limiter,
+                GlobalRateLimitKind::TokenDistinctId,
+                context,
+                ingestion_warning_emitter.as_deref(),
+                &mut events,
+            )
+            .await;
+        }
+        // Runs second, so an event the per-distinct_id limiter limited counts
+        // here as already disabled, and the per-distinct_id results are the
+        // same with or without this limiter.
+        if let Some(ref limiter) = global_rate_limiter_token {
+            apply_global_rate_limit(
+                limiter,
+                GlobalRateLimitKind::Token,
+                context,
+                ingestion_warning_emitter.as_deref(),
+                &mut events,
+            )
+            .await;
         }
     }
 
@@ -649,6 +588,128 @@ async fn process_events_inner(
     }
 
     Ok(())
+}
+
+/// Counter names for one legacy-path limiter. The per-token limiter has its
+/// own, so its volume never reaches the per-distinct_id limiter's alerts.
+struct LegacyRateLimitMetrics {
+    limited: &'static str,
+    limited_reason: &'static str,
+    already_disabled: &'static str,
+}
+
+fn legacy_rate_limit_metrics(kind: GlobalRateLimitKind) -> LegacyRateLimitMetrics {
+    match kind {
+        GlobalRateLimitKind::TokenDistinctId => LegacyRateLimitMetrics {
+            limited: "capture_events_rate_limited_token_distinctid",
+            limited_reason: "global_rate_limit_token_distinctid",
+            already_disabled: "capture_global_rate_limiter_already_disabled",
+        },
+        GlobalRateLimitKind::Token => LegacyRateLimitMetrics {
+            limited: "capture_events_rate_limited_token",
+            limited_reason: "global_rate_limit_token",
+            already_disabled: "capture_global_rate_limiter_token_already_disabled",
+        },
+    }
+}
+
+async fn apply_global_rate_limit(
+    limiter: &GlobalRateLimiter,
+    kind: GlobalRateLimitKind,
+    context: &ProcessingContext,
+    ingestion_warning_emitter: Option<&dyn WarningEmitter>,
+    events: &mut [ProcessedEvent],
+) {
+    let metric_names = legacy_rate_limit_metrics(kind);
+    let mut limited_distinct_ids: HashSet<&str> = HashSet::new();
+    let mut limited_event_count: u64 = 0;
+    let mut already_disabled_event_count: u64 = 0;
+    let mut already_disabled_over_budget_count: u64 = 0;
+    for event in events.iter_mut() {
+        let cache_key = kind
+            .key(&context.token, &event.event.distinct_id)
+            .to_cache_key();
+        // Charge every event, even one an event restriction already
+        // stripped of person processing: its volume belongs in the
+        // key's fleet count, or a covered key starts from zero when the
+        // restriction lifts. The check reads only the local cache.
+        let limited = limiter.is_limited(&cache_key, 1).await.is_some();
+
+        // Person processing is already off: nothing left to take away,
+        // so stamp nothing and keep it out of the customer-facing tallies.
+        if event.metadata.skip_person_processing {
+            already_disabled_event_count += 1;
+            if limited {
+                already_disabled_over_budget_count += 1;
+            }
+            continue;
+        }
+
+        if limited {
+            event.metadata.skip_person_processing = true;
+            // Reroute the hot key to overflow on AnalyticsMain only. Historical
+            // never overflows. An AI hot key loses person processing but stays
+            // on its lane.
+            if event.metadata.data_type == DataType::AnalyticsMain {
+                event.metadata.overflow_reason = Some(OverflowReason::ForceLimited);
+            }
+            limited_distinct_ids.insert(&event.event.distinct_id);
+            limited_event_count += 1;
+        }
+    }
+    if limited_event_count > 0 {
+        let ids: Vec<&str> = limited_distinct_ids.iter().copied().collect();
+        let preview: String = if ids.len() > 10 {
+            format!("{}...", ids[..10].join(", "))
+        } else {
+            ids.join(", ")
+        };
+        counter!(
+            metric_names.limited,
+            "reason" => metric_names.limited_reason,
+        )
+        .increment(limited_event_count);
+        warn!(
+            token = context.token,
+            limited_event_count = limited_event_count,
+            distinct_id_count = limited_distinct_ids.len(),
+            distinct_ids = %preview,
+            "events rate limited by {} -- person processing disabled",
+            kind.counted_per()
+        );
+    }
+
+    // Enforcement alerting needs the over_budget arm; keep both arms emitted.
+    if already_disabled_over_budget_count > 0 {
+        counter!(
+            metric_names.already_disabled,
+            "over_budget" => "true",
+        )
+        .increment(already_disabled_over_budget_count);
+    }
+
+    let already_disabled_under_budget_count =
+        already_disabled_event_count - already_disabled_over_budget_count;
+    if already_disabled_under_budget_count > 0 {
+        counter!(
+            metric_names.already_disabled,
+            "over_budget" => "false",
+        )
+        .increment(already_disabled_under_budget_count);
+    }
+
+    // `HighVolumeDistinctId` reports one hot distinct_id, which misleads for a
+    // per-token limit. A per-token type needs a new warning registry entry, so
+    // this limit emits no warning.
+    if limited_event_count > 0 && kind == GlobalRateLimitKind::TokenDistinctId {
+        emit_rate_limit_warning(
+            ingestion_warning_emitter,
+            &request_context(context),
+            CAPTURE_LEGACY_RATE_LIMIT,
+            &limited_distinct_ids,
+            limited_event_count,
+        );
+    }
 }
 
 #[cfg(test)]
@@ -727,6 +788,7 @@ mod tests {
         restriction_service: Option<EventRestrictionService>,
         historical_cfg: router::HistoricalConfig,
         global_rate_limiter: Option<Arc<GlobalRateLimiter>>,
+        global_rate_limiter_token: Option<Arc<GlobalRateLimiter>>,
         overflow_limiter: Option<Arc<OverflowLimiter>>,
         ai_events_overflow_limiter: Option<Arc<OverflowLimiter>>,
         ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
@@ -740,6 +802,7 @@ mod tests {
                 restriction_service: None,
                 historical_cfg: router::HistoricalConfig::new(false, 1),
                 global_rate_limiter: None,
+                global_rate_limiter_token: None,
                 overflow_limiter: None,
                 ai_events_overflow_limiter: None,
                 ingestion_warning_emitter: None,
@@ -760,6 +823,7 @@ mod tests {
             options.restriction_service,
             options.historical_cfg,
             options.global_rate_limiter,
+            options.global_rate_limiter_token,
             options.overflow_limiter,
             options.ai_events_overflow_limiter,
             options.ingestion_warning_emitter,
@@ -1461,6 +1525,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             vec![small_event, oversized_event],
             &context,
             limiter,
@@ -1802,6 +1867,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             vec![small_event, oversized_event],
             &context,
             limiter,
@@ -1864,6 +1930,7 @@ mod tests {
             Arc::new(TokenDropper::default()),
             None,
             router::HistoricalConfig::new(false, 1),
+            None,
             None,
             None,
             None,
@@ -2729,6 +2796,65 @@ mod tests {
             captured[0].metadata.overflow_reason,
             Some(OverflowReason::ForceLimited),
             "globally limited AnalyticsMain should be rerouted to overflow"
+        );
+    }
+
+    #[rstest::rstest]
+    #[case::per_token_limiter_off(false, 0)]
+    #[case::per_token_limiter_on(true, 3)]
+    #[tokio::test]
+    async fn per_token_limit_catches_a_new_distinct_id_on_every_event(
+        #[case] per_token_enabled: bool,
+        #[case] expected_limited: usize,
+    ) {
+        // Each distinct_id is charged once, so the per-distinct_id budget of 2
+        // never fills. The per-token budget of 3 fills on the third event.
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let context = create_test_context(now, None);
+        let events = (0..5)
+            .map(|i| {
+                let mut event =
+                    create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, None);
+                event
+                    .properties
+                    .insert("distinct_id".to_string(), json!(format!("synthetic-{i}")));
+                event
+            })
+            .collect();
+
+        let sink = MockSink::new();
+        let collector = Arc::new(CollectingEmitter::new());
+
+        run_pipeline(
+            Arc::new(OutputRegistry::single(sink.clone())),
+            events,
+            &context,
+            PipelineOptions {
+                global_rate_limiter: Some(Arc::new(GlobalRateLimiter::mock_budget(2))),
+                global_rate_limiter_token: per_token_enabled
+                    .then(|| Arc::new(GlobalRateLimiter::mock_budget(3))),
+                ingestion_warning_emitter: Some(collector.clone()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        let captured = sink.get_events();
+        assert_eq!(captured.len(), 5);
+        let limited = captured
+            .iter()
+            .filter(|e| {
+                e.metadata.skip_person_processing
+                    && e.metadata.overflow_reason == Some(OverflowReason::ForceLimited)
+            })
+            .count();
+        assert_eq!(limited, expected_limited);
+        assert!(
+            collector.emitted().is_empty(),
+            "a per-token limit must not send the per-distinct_id warning"
         );
     }
 

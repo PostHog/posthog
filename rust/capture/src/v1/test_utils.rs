@@ -592,6 +592,7 @@ pub struct TestStateBuilder {
     historical_threshold_days: Option<i64>,
     restriction_service: Option<EventRestrictionService>,
     global_rate_limiter: Option<Arc<GlobalRateLimiter>>,
+    global_rate_limiter_token: Option<Arc<GlobalRateLimiter>>,
     ai_byte_rate_limiter: Option<Arc<GlobalRateLimiter>>,
     mock_producer: Option<MockKafkaProducer>,
     ai_gateway_signing_secret: Option<String>,
@@ -618,6 +619,7 @@ impl TestStateBuilder {
             historical_threshold_days: None,
             restriction_service: None,
             global_rate_limiter: None,
+            global_rate_limiter_token: None,
             ai_byte_rate_limiter: None,
             mock_producer: None,
             ai_gateway_signing_secret: None,
@@ -696,6 +698,12 @@ impl TestStateBuilder {
     /// Add a global rate limiter.
     pub fn with_global_rate_limiter(mut self, limiter: Arc<GlobalRateLimiter>) -> Self {
         self.global_rate_limiter = Some(limiter);
+        self
+    }
+
+    /// Add the per-token global rate limiter.
+    pub fn with_global_rate_limiter_token(mut self, limiter: Arc<GlobalRateLimiter>) -> Self {
+        self.global_rate_limiter_token = Some(limiter);
         self
     }
 
@@ -821,6 +829,7 @@ impl TestStateBuilder {
             timesource,
             redis,
             global_rate_limiter_token_distinctid: self.global_rate_limiter,
+            global_rate_limiter_token: self.global_rate_limiter_token,
             quota_limiter: Arc::new(quota_limiter),
             token_dropper: Arc::new(TokenDropper::default()),
             event_restriction_service: self.restriction_service,

@@ -158,6 +158,8 @@ mod tests {
             global_rate_limit_local_cache_idle_timeout_secs: 300,
             global_rate_limit_read_timeout_ms: 250,
             global_rate_limit_write_timeout_ms: 250,
+            global_rate_limit_token_enabled: false,
+            global_rate_limit_token_dry_run: true,
             global_rate_limit_token_threshold: 300_000,
             global_rate_limit_token_overrides_csv: None,
             global_rate_limit_token_local_cache_max_entries: 300_000,

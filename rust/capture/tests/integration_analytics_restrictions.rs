@@ -113,6 +113,7 @@ async fn setup_analytics_router_with_restriction(
         Arc::new(OutputRegistry::single(sink)),
         redis,
         None, // global_rate_limiter_token_distinctid
+        None, // global_rate_limiter_token
         quota_limiter,
         TokenDropper::default(),
         Some(service),
@@ -523,6 +524,7 @@ async fn setup_analytics_router_with_redirect_to_topic(
         Arc::new(OutputRegistry::single(sink)),
         redis,
         None, // global_rate_limiter_token_distinctid
+        None, // global_rate_limiter_token
         quota_limiter,
         TokenDropper::default(),
         Some(service),

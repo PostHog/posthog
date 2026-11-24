@@ -85,6 +85,7 @@ fn make_test_client(mode: CaptureMode) -> (TestClient, CapturingSink) {
         Arc::new(OutputRegistry::single(sink.clone())),
         redis.clone(),
         None,
+        None, // global_rate_limiter_token
         CaptureQuotaLimiter::new(&cfg, redis, Duration::from_secs(60)),
         TokenDropper::default(),
         None,

@@ -1105,6 +1105,7 @@ fn build_router_for_mode_at(mode: CaptureMode, fixed_time: &str) -> (Router, Mem
             Arc::new(OutputRegistry::single(sink.clone())),
             redis,
             None, // global_rate_limiter_token_distinctid
+            None, // global_rate_limiter_token
             quota_limiter,
             TokenDropper::default(),
             None, // event_restriction_service
