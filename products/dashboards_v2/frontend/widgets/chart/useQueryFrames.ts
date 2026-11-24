@@ -15,12 +15,15 @@ export function useQueryFrames(query: WidgetQuery, runQuery: RunQuery): QueryFra
     useEffect(() => {
         let cancelled = false
         setResult({ status: 'loading' })
-        runQuery(JSON.parse(queryKey) as WidgetQuery).then(
-            (frames) => !cancelled && setResult({ status: 'ready', frames }),
-            (error: unknown) =>
-                !cancelled &&
-                setResult({ status: 'error', message: error instanceof Error ? error.message : String(error) })
-        )
+        // A runner that throws before it returns a promise still ends in the tile's error state.
+        Promise.resolve()
+            .then(() => runQuery(JSON.parse(queryKey) as WidgetQuery))
+            .then(
+                (frames) => !cancelled && setResult({ status: 'ready', frames }),
+                (error: unknown) =>
+                    !cancelled &&
+                    setResult({ status: 'error', message: error instanceof Error ? error.message : String(error) })
+            )
         return () => {
             cancelled = true
         }

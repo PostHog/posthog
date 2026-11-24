@@ -1,3 +1,5 @@
+import { useMemo } from 'react'
+
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
 import type { ContentWidget } from '../../dashboard/dashboardTypes'
@@ -41,13 +43,20 @@ function ChartData({
     states?: ChartStates
 }): JSX.Element {
     const result = useQueryFrames(widget.config.query, runQuery)
-    const options = widget.config.viz.options ?? {}
+    const parsed = useMemo(
+        () => viz.optionsSchema.safeParse(widget.config.viz.options ?? {}),
+        [viz.optionsSchema, widget.config.viz.options]
+    )
     // The kind of chart wins over the host's defaults, which win over the built-in states.
     const Loading = viz.Loading ?? states?.Loading ?? DefaultLoading
     const Empty = viz.Empty ?? states?.Empty ?? DefaultEmpty
     const ErrorState = viz.Error ?? states?.Error ?? DefaultError
     const isEmpty = viz.isEmpty ?? states?.isEmpty ?? hasNoValues
 
+    if (!parsed.success) {
+        return <Message>This chart's options are not valid for its chart type.</Message>
+    }
+    const options = parsed.data
     if (result.status === 'loading') {
         return <Loading options={options} />
     }
