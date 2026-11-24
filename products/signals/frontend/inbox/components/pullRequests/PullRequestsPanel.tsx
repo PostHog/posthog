@@ -46,6 +46,7 @@ function PullRequestRow({ pr }: { pr: PRBrowserItemApi }): JSX.Element {
     const { monitorPR } = useActions(pullRequestsLogic)
     const { label, color } = pullRequestStateMeta(pr)
     const isMonitoring = Boolean(monitoringUrls[pr.url])
+    const closedDisabledReason = pr.state === 'closed' ? 'Closed pull requests cannot be monitored' : undefined
     const reportStatus = pr.report ? (pr.report.status as SignalReportStatus) : null
     const reportId = pr.report && reportStatus !== SignalReportStatus.FAILED ? pr.report.id : null
 
@@ -97,7 +98,8 @@ function PullRequestRow({ pr }: { pr: PRBrowserItemApi }): JSX.Element {
                             size="xsmall"
                             type="secondary"
                             loading={isMonitoring}
-                            disabled={isMonitoring}
+                            disabled={isMonitoring && !closedDisabledReason}
+                            disabledReason={closedDisabledReason}
                             data-attr="inbox-pr-retry"
                             onClick={() => monitorPR(pr.url)}
                         >
@@ -113,7 +115,8 @@ function PullRequestRow({ pr }: { pr: PRBrowserItemApi }): JSX.Element {
                         size="xsmall"
                         type="secondary"
                         loading={isMonitoring}
-                        disabled={isMonitoring}
+                        disabled={isMonitoring && !closedDisabledReason}
+                        disabledReason={closedDisabledReason}
                         data-attr="inbox-pr-monitor"
                         onClick={() => monitorPR(pr.url)}
                     >

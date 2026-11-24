@@ -44,6 +44,42 @@ MONITORING_EVIDENCE_ARTEFACT_TYPES = (
 )
 
 
+def _is_restricted_note(artefact_type: str, content: str) -> bool:
+    if artefact_type != SignalReportArtefact.ArtefactType.NOTE:
+        return False
+    try:
+        parsed = json.loads(content)
+    except ValueError:
+        return True
+    return isinstance(parsed, dict) and bool({"analytics_query_context", "restricted_to_user_id"} & parsed.keys())
+
+
+def _public_evidence_artefacts(team_id: int, report_id: UUID, field_chars: int) -> list[Mapping[str, object]]:
+    rows = (
+        SignalReportArtefact.objects.using("default")
+        .filter(team_id=team_id, report_id=report_id, type__in=MONITORING_EVIDENCE_ARTEFACT_TYPES)
+        .order_by("-created_at", "-id")
+        .values("id", "type", "content", "actor_kind", "task_id", "created_at")[: MONITORING_EVIDENCE_MAX_ROWS * 4]
+    )
+    visible: list[Mapping[str, object]] = []
+    for row in rows:
+        if _is_restricted_note(str(row["type"]), str(row["content"])):
+            continue
+        visible.append(
+            {
+                "id": row["id"],
+                "type": row["type"],
+                "content_excerpt": str(row["content"])[:field_chars],
+                "actor_kind": row["actor_kind"],
+                "task_id": row["task_id"],
+                "created_at": row["created_at"],
+            }
+        )
+        if len(visible) >= MONITORING_EVIDENCE_MAX_ROWS:
+            break
+    return visible
+
+
 def current_research_attempt(
     *, team_id: int, report_id: str | UUID, attempt_id: str | UUID, lock: bool = False
 ) -> SignalReportMonitoringAttempt | None:
@@ -211,15 +247,7 @@ def monitoring_research_evidence(
                 "window_end",
             )[:MONITORING_EVIDENCE_MAX_ROWS]
         ),
-        "artefacts": list(
-            SignalReportArtefact.objects.using("default")
-            .filter(team_id=team_id, report_id=attempt.report_id, type__in=MONITORING_EVIDENCE_ARTEFACT_TYPES)
-            .order_by("-created_at", "-id")
-            .annotate(content_excerpt=Substr("content", 1, field_chars))
-            .values("id", "type", "content_excerpt", "actor_kind", "task_id", "created_at")[
-                :MONITORING_EVIDENCE_MAX_ROWS
-            ]
-        ),
+        "artefacts": _public_evidence_artefacts(team_id, attempt.report_id, field_chars),
         "implementations": list(
             SignalReportArtefact.objects.using("default")
             .filter(

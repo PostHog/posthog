@@ -6,6 +6,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle
 
+from posthog.api.integration import github_rate_limited_response
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
@@ -113,7 +114,9 @@ class _BasePRViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         elif isinstance(exc, PRMonitoringUnavailable):
             payload = {"detail": str(exc), **({"report_id": str(exc.report_id)} if exc.report_id else {})}
             return Response(payload, status=status.HTTP_503_SERVICE_UNAVAILABLE)
-        elif isinstance(exc, (GitHubIntegrationError, GitHubRateLimitError, EgressBudgetExhausted)):
+        elif isinstance(exc, GitHubRateLimitError):
+            return github_rate_limited_response(exc)
+        elif isinstance(exc, (GitHubIntegrationError, EgressBudgetExhausted)):
             return Response(
                 {"detail": "GitHub is temporarily unavailable. Try again shortly."},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,

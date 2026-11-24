@@ -1,6 +1,9 @@
 import json
+import asyncio
 from dataclasses import replace
 from uuid import UUID
+
+from pydantic import JsonValue
 
 from posthog.egress.limiter.policies import Priority
 from posthog.models import User
@@ -124,7 +127,7 @@ async def research_pull_request(inputs: MonitorPRInput) -> None:
         + json.dumps(PRMonitoringOutput.model_json_schema())
     )
 
-    def associate(run_id: UUID) -> None:
+    def associate(run_id: UUID) -> dict[str, JsonValue]:
         task_id = get_task_id_for_run(run_id, inputs.team_id)
         if task_id is None:
             raise ValueError("The PR research task was not created in this project")
@@ -136,9 +139,13 @@ async def research_pull_request(inputs: MonitorPRInput) -> None:
             product=SIGNALS_PRODUCT,
             type=TASK_RUN_TYPE_RESEARCH,
         )
+        return {
+            "initial_prompt_override": prompt,
+            **({"pending_user_message": prompt} if context.runtime == "pi" else {}),
+        }
 
     session, output = await MultiTurnSession.start(
-        prompt=prompt,
+        prompt=f"Research post-merge impact for {pr.repository}#{pr.number}.",
         context=context,
         model=PRMonitoringOutput,
         profile=PR_MONITORING,
@@ -153,7 +160,18 @@ async def research_pull_request(inputs: MonitorPRInput) -> None:
         output_schema=PRMonitoringOutput.model_json_schema(),
         analytics_query_context=[{}],
     )
+    completed = False
+    error_detail: str | None = None
     try:
         await database_sync_to_async_pool(finish_monitoring_research)(inputs, output, pr)
+        completed = True
+    except (Exception, asyncio.CancelledError) as error:
+        error_detail = str(error) or type(error).__name__
+        raise
     finally:
-        await session.end()
+        await asyncio.shield(
+            session.end(
+                status="completed" if completed else "failed",
+                error=None if completed else error_detail,
+            )
+        )

@@ -1,8 +1,10 @@
 from datetime import UTC, datetime, timedelta
+from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, Mock, patch
 
+from django.apps import apps
 from django.core.cache import cache
 from django.test import SimpleTestCase
 from django.utils import timezone
@@ -10,11 +12,14 @@ from django.utils import timezone
 from parameterized import parameterized
 from pydantic import ValidationError
 
+from posthog.constants import AvailableFeature
+from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models import Integration, OrganizationMembership, Team, User
 from posthog.models.integration import GitHubIntegration
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.models import (
     SignalReport,
     SignalReportCheck,
@@ -22,6 +27,7 @@ from products.signals.backend.models import (
     SignalReportSuggestedReviewer,
 )
 from products.signals.backend.monitor_pr import (
+    PR_RESEARCH_DAILY_ATTEMPT_LIMIT,
     MonitorPRInput,
     PRMonitoringOutput,
     fail_monitoring_research,
@@ -225,6 +231,21 @@ class TestMonitorPR(APIBaseTest):
         if scenario == "unmeasurable":
             assert report.status == SignalReport.Status.PENDING_INPUT
             assert not SignalReportCheck.objects.for_team(self.team.id).filter(report=report).exists()
+            raw_inbox_only = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="inbox-only",
+                user=self.user,
+                secure_value=hash_key_value(raw_inbox_only),
+                scopes=["inbox:read"],
+                scoped_teams=[self.team.id],
+            )
+            inbox_only_artefacts = self.client.get(
+                f"/api/projects/{self.team.id}/signals/reports/{report.id}/artefacts/",
+                HTTP_AUTHORIZATION=f"Bearer {raw_inbox_only}",
+            ).json()["results"]
+            assert [row["content"]["note"] for row in inbox_only_artefacts if row["type"] == "note"] == [
+                "You don't have access to this assessment's evidence."
+            ]
             self.pr.update(state="closed", merged=True, merged_at=merged_at.isoformat())
             update_pull_request_state(
                 team_id=self.team.id, repository="example/widget", number=42, state="merged", merged_at=merged_at
@@ -471,11 +492,15 @@ class TestMonitorPR(APIBaseTest):
         cache.clear()
         queued_refreshes: list[tuple[int, int]] = []
         captured_start: dict = {}
+        ended_runs: list[tuple[str, str | None]] = []
 
         async def fake_start(**kwargs):
             captured_start.update(kwargs)
             session = AsyncMock()
+            session.end.side_effect = lambda status="completed", error=None: ended_runs.append((status, error))
             return session, fake_output
+
+        task = apps.get_model("tasks", "Task").objects.create(team=self.team, title="PR research", description="PR")
 
         with (
             patch(
@@ -489,6 +514,10 @@ class TestMonitorPR(APIBaseTest):
             patch(
                 "products.signals.backend.monitor_pr_research.get_or_create_signals_sandbox_env",
                 return_value="env-1",
+            ),
+            patch(
+                "products.signals.backend.monitor_pr_research.get_task_id_for_run",
+                return_value=task.id,
             ),
             patch("products.signals.backend.monitor_pr_research.MultiTurnSession.start", side_effect=fake_start),
         ):
@@ -522,15 +551,19 @@ class TestMonitorPR(APIBaseTest):
                 }
             )
             fake_output = duration_output
-            report, inputs = self.request_report()
+            report, inputs = self.request_report(note="Private launch target")
             load_pull_request(self.team.id, PR_URL)
             integration_id = Integration.objects.get(team=self.team, kind="github").id
             assert queued_refreshes == [(self.team.id, integration_id)]
 
             async_to_sync(research_pull_request)(inputs)
+            assert "Private launch target" not in captured_start["prompt"]
+            dispatch_state = captured_start["before_task_dispatch"](uuid4())
+            assert "Private launch target" in dispatch_state["initial_prompt_override"]
             assert captured_start["analytics_query_context"] == [{}]
             assert captured_start["context"].github_read_access is False
             assert captured_start["context"].github_token_scope == "read"
+            assert ended_runs == [("completed", None)]
             report.refresh_from_db()
             assert report.status == SignalReport.Status.READY
             assert "baseline" not in report.summary
@@ -545,4 +578,80 @@ class TestMonitorPR(APIBaseTest):
                 "results"
             ]
             notes = [row["content"]["note"] for row in artefacts if row["type"] == "note"]
-            assert notes == ["You don't have access to this assessment's evidence."]
+            assert notes == [
+                "You don't have access to this assessment's evidence.",
+                "You don't have access to this assessment's evidence.",
+            ]
+
+            self.client.force_login(teammate)
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+                {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+            ]
+            self.organization.save(update_fields=["available_product_features"])
+            AccessControl.objects.create(
+                team=self.team,
+                resource="action",
+                resource_id="777",
+                access_level="none",
+            )
+            denied_report, denied_inputs = self._request_for_pr("https://github.com/example/widget/pull/43")
+            ended_runs.clear()
+            fake_output = duration_output.model_copy(update={"inspected_commit": "b" * 40})
+            with self.assertRaises(ValueError):
+                async_to_sync(research_pull_request)(denied_inputs)
+            assert len(ended_runs) == 1 and ended_runs[0][0] == "failed" and ended_runs[0][1]
+            assert not SignalReportCheck.objects.for_team(self.team.id).filter(report=denied_report).exists()
+
+            ended_runs.clear()
+            fake_output = PRMonitoringOutput.model_validate(
+                {
+                    **_valid_output_payload(),
+                    "metric": {
+                        **_valid_output_payload()["metric"],
+                        "query": trends_metric_query(series=[{"kind": "ActionsNode", "id": 777}]),
+                    },
+                }
+            )
+            with self.assertRaises(ValueError):
+                async_to_sync(research_pull_request)(denied_inputs)
+            assert len(ended_runs) == 1 and ended_runs[0][0] == "failed" and ended_runs[0][1]
+            assert not SignalReportCheck.objects.for_team(self.team.id).filter(report=denied_report).exists()
+
+    def _request_for_pr(self, pr_url: str) -> tuple[SignalReport, MonitorPRInput]:
+        response = self.client.post(self.url, {"pr_url": pr_url})
+        assert response.status_code == 202, response.json()
+        return SignalReport.objects.get(id=response.json()["report_id"]), self.dispatched[-1][1]
+
+    def test_rate_limits_pending_repo_discovery_and_daily_attempt_caps(self):
+        list_url = f"/api/projects/{self.team.id}/signals/pull_requests/"
+        rate_error = GitHubRateLimitError("rate limited", retry_after=45)
+        with (
+            patch.object(User, "get_github_login", return_value="example-author"),
+            patch.object(GitHubIntegration, "api_request", side_effect=rate_error),
+            patch.object(GitHubIntegration, "get_pull_request", side_effect=rate_error),
+        ):
+            list_rate = self.client.get(list_url)
+            post_rate = self.client.post(self.url, {"pr_url": PR_URL})
+        assert list_rate.status_code == 429 and list_rate.headers.get("Retry-After") == "45"
+        assert post_rate.status_code == 429 and post_rate.headers.get("Retry-After") == "45"
+
+        integration = Integration.objects.get(team=self.team, kind="github")
+        with (
+            patch.object(User, "get_github_login", return_value="example-author"),
+            patch.object(GitHubIntegration, "list_all_cached_repositories", return_value=[]),
+        ):
+            assert self.client.post(self.url, {"pr_url": PR_URL}).status_code == 503
+            assert self.client.get(list_url).status_code == 503
+            integration.repository_cache = []
+            integration.repository_cache_updated_at = timezone.now()
+            integration.save(update_fields=["repository_cache", "repository_cache_updated_at"])
+            assert self.client.post(self.url, {"pr_url": PR_URL}).status_code == 400
+            empty_list = self.client.get(list_url)
+            assert empty_list.status_code == 200 and empty_list.data["results"] == []
+
+        for _ in range(PR_RESEARCH_DAILY_ATTEMPT_LIMIT):
+            report, inputs = self.request_report(expected_status=202)
+            fail_monitoring_research(inputs)
+        capped = self.client.post(self.url, {"pr_url": PR_URL})
+        assert capped.status_code == 429 and int(capped.headers["Retry-After"]) >= 1

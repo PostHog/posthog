@@ -115,6 +115,7 @@ PR_MONITORING = replace(
     key="signals.pr_monitoring",
     mcp_scopes="signals_assessment",
     mcp_store_servers=False,
+    network=NetworkPolicy(levels=(NetworkAccess.CUSTOM,), allowed_domains=tuple(GITHUB_ONLY_DOMAINS)),
 )
 
 MONITORING_ASSESSMENT = replace(RESEARCH, key="signals.monitoring_assessment", mcp_scopes="signals_assessment")
