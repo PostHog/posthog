@@ -15,9 +15,9 @@ import { propertyEventVolumeQuery } from './propertyEventVolumeQuery'
 const formatCount = (value: number): string => value.toLocaleString()
 
 export function PropertyEventVolumeCard({ propertyName }: { propertyName: string }): JSX.Element {
-    const { currentTeamId } = useValues(teamLogic)
+    const { currentTeamId, timezone } = useValues(teamLogic)
     const theme = useChartTheme()
-    const query = useMemo(() => propertyEventVolumeQuery(propertyName), [propertyName])
+    const query = useMemo(() => propertyEventVolumeQuery(propertyName, timezone), [propertyName, timezone])
     const { response, responseLoading, responseError } = useValues(
         dataNodeLogic({ query, key: `definition-usage-event-volume-${currentTeamId}-${propertyName}` })
     )

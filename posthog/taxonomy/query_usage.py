@@ -154,6 +154,18 @@ def _fetch_uncached_query_usage(
 
 
 def _previous_window_covered(team: Team, app_source: str, windows: QueryUsageWindows) -> bool:
+    # The answer depends only on the project, the source and the window, so one lookup serves every definition.
+    # When no row matches, LIMIT 1 cannot stop the scan early, so a repeat of the lookup per definition is expensive.
+    cache_key = f"query_usage_coverage:v1:{team.pk}:{app_source}:{windows.previous_start.isoformat()}"
+    cached = cache.get(cache_key)
+    if isinstance(cached, bool):
+        return cached
+    covered = _query_previous_window_covered(team, app_source, windows)
+    cache.set(cache_key, covered, timeout=QUERY_USAGE_CACHE_TTL_SECONDS)
+    return covered
+
+
+def _query_previous_window_covered(team: Team, app_source: str, windows: QueryUsageWindows) -> bool:
     rows = sync_execute(
         """
         SELECT 1

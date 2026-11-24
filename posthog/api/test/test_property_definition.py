@@ -1256,18 +1256,18 @@ class TestPropertyUsageMetricsAPI(ClickhouseTestMixin, APIBaseTest):
         self._usage_row(browser, datetime(2026, 3, 20, 9, tzinfo=UTC), 1000, metric_name="failed")
         self._usage_row(browser, datetime(2026, 3, 20, 9, tzinfo=UTC), 1000, team_id=self.team.pk + 1000)
         self._usage_row("property:group:1:industry", datetime(2026, 3, 20, 9, tzinfo=UTC), 7)
-        payload = {
-            "properties": [
-                {"type": "event", "name": "$browser"},
-                {"name": "$os"},
-                {"type": "group", "name": "industry", "group_type_index": 0},
-                {"type": "group", "name": "industry", "group_type_index": 1},
-            ]
-        }
+        properties = [
+            {"type": "event", "name": "$browser"},
+            {"name": "$os"},
+            {"type": "group", "name": "industry", "group_type_index": 0},
+            {"type": "group", "name": "industry", "group_type_index": 1},
+        ]
 
-        def summarize() -> list[tuple]:
+        def summarize(properties: list[dict]) -> list[tuple]:
             response = self.client.post(
-                f"/api/projects/{self.team.pk}/property_definitions/usage_metrics/", payload, format="json"
+                f"/api/projects/{self.team.pk}/property_definitions/usage_metrics/",
+                {"properties": properties},
+                format="json",
             )
             assert response.status_code == status.HTTP_200_OK
             results = response.json()["results"]
@@ -1290,10 +1290,14 @@ class TestPropertyUsageMetricsAPI(ClickhouseTestMixin, APIBaseTest):
             ("group", "industry", 0, 0, other_previous, []),
             ("group", "industry", 1, 7, other_previous, [("2026-03-20", 7)]),
         ]
-        assert summarize() == expected
+        assert summarize(properties) == expected
 
         self._usage_row(browser, datetime(2026, 3, 20, 10, tzinfo=UTC), 1)
-        assert summarize() == expected
+        self._usage_row(browser, datetime(2026, 1, 19, 14, tzinfo=UTC), 50)
+        assert summarize(properties) == expected
+        assert summarize([{"type": "event", "name": "$device_type"}]) == [
+            ("event", "$device_type", None, 0, other_previous, [])
+        ]
 
     def test_rejects_empty_property_list(self) -> None:
         response = self.client.post(
