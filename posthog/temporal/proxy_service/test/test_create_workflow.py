@@ -338,9 +338,15 @@ class TestCloudflareProxyActivation(CloudflareProxyTestMixin, TestCase):
         with cloudflare_proxy_lock(self.record.id):
             self.assertTrue(ProxyRecord.objects.filter(pk=self.record.pk).exists())
 
-    def test_hourly_sweep_spreads_recovery_and_leaves_active_failed_provisioning_alone(self) -> None:
+    def test_hourly_sweep_spreads_recovery_and_skips_healthy_and_failed_proxies(self) -> None:
         self.record.status = ProxyRecord.Status.ERRORING
         self.record.save(update_fields=["status"])
+        ProxyRecord.objects.create(
+            organization=self.organization,
+            domain="healthy.example.com",
+            target_cname="healthy.proxy.example.com",
+            status=ProxyRecord.Status.VALID,
+        )
         interrupted = ProxyRecord.objects.create(
             organization=self.organization,
             domain="interrupted.example.com",
@@ -364,6 +370,35 @@ class TestCloudflareProxyActivation(CloudflareProxyTestMixin, TestCase):
         temporal = ProxyWorkflowTestClient()
         with patch("posthog.tasks.proxy.async_connect", return_value=temporal):
             reconcile_proxy.run(str(self.organization.pk), str(self.record.pk), from_sweep=True)
+        self.assertEqual(temporal.started, {})
+
+    def test_hourly_sweep_recovers_suspended_proxy_after_monitor_error_and_missed_enqueue(self) -> None:
+        Organization.objects.filter(pk=self.organization.pk).update(is_active=False)
+        with responses.RequestsMock(assert_all_requests_are_fired=False) as http:
+            self._cloudflare(http, exists=True)
+            reconcile_proxy.run(str(self.organization.pk), str(self.record.pk))
+            self.assertEqual([call.request.method for call in http.calls], ["GET", "DELETE", "DELETE"])
+
+        self.record.refresh_from_db()
+        self.assertTrue(self.record.needs_activation_recovery)
+        ProxyRecord.objects.filter(pk=self.record.pk).update(status=ProxyRecord.Status.ERRORING)
+        Organization.objects.filter(pk=self.organization.pk).update(is_active=True)
+        temporal = ProxyWorkflowTestClient()
+
+        with (
+            patch("posthog.tasks.proxy.async_connect", return_value=temporal),
+            patch(
+                "posthog.tasks.proxy.reconcile_proxy.apply_async",
+                side_effect=lambda args, kwargs, countdown: reconcile_proxy.run(*args, **kwargs),
+            ),
+        ):
+            reconcile_managed_proxies.run()
+            self.assertEqual(list(temporal.started), [f"proxy-create-{self.record.id}"])
+            temporal.started.clear()
+            reconcile_managed_proxies.run()
+
+        self.record.refresh_from_db()
+        self.assertFalse(self.record.needs_activation_recovery)
         self.assertEqual(temporal.started, {})
 
     @parameterized.expand([(ProxyRecord.Status.ERRORING,), (ProxyRecord.Status.VALID,)])
