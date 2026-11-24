@@ -67,6 +67,7 @@ export function oauthPost(
         method: 'POST',
         form,
         timeoutMs,
+        posthog: true,
     })
 }
 
