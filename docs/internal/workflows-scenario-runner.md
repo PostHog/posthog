@@ -308,7 +308,8 @@ A failed check runs again at once.
 A dependency that first fails on a confirming check gets a confirming check of its own, even when the run is stopping.
 A dependency went away when both checks failed and the runner's event loop does not explain it.
 A check that ran out its 2-second timeout while the loop was busy for half or more of the check is unheard: the runner also hosts the edge and runs the probes, so a saturated loop times them out against healthy services.
-A refusal, a reset, an unknown or unreachable host, an HTTP status or a Postgres server error is an answer, however late the busy loop delivered it.
+An error that carries a refusal, reset or unknown-host code, an HTTP status or a Postgres server error is an answer, however late the busy loop delivered it.
+An untyped error past the budget, such as ioredis's `Connection is closed.`, is not: on a busy loop it reads as unheard, with its error kept in `probes.json`.
 The dependency is unheard only when both of its checks were unheard.
 A dependency that answers the second check recovered.
 `probes.json` keeps every failed check with its reason, time, kind and the loop's busy share.
