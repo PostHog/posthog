@@ -727,17 +727,18 @@ function productsWithWatchedChanges(products, changedFiles, deletedFiles, watche
 // diffProducts is the set the diff reached when a cascade widened the matrix, else null.
 function decideProductChange({ affectedProducts, allProducts, watched, changedFiles, deletedFiles, direct, dependentsOf }) {
     const none = { runLegacyReason: '', diffProducts: null, dependentCascade: '' }
-    if (affectedProducts.length === 0) {
-        console.error('No product changes detected')
-        return { ...none, products: [], runLegacy: false }
-    }
     const everything = (runLegacyReason) => ({ ...none, products: allProducts, runLegacy: true, runLegacyReason })
+    // Before the empty check: a policy-only diff reaches no product, yet it changes every watched set.
     const policyChanges = watchedPolicyChanges(changedFiles)
     if (policyChanges.length > 0) {
         console.error(
             `hoglint's policy or engine changed (${JSON.stringify(policyChanges)}) — the watched sets come from this diff, so all products + Django run`
         )
         return everything('watched_policy')
+    }
+    if (affectedProducts.length === 0) {
+        console.error('No product changes detected')
+        return { ...none, products: [], runLegacy: false }
     }
     if (watched.status !== 'ok') {
         console.error(`hoglint gave no complete watched answer (${watched.status}) — testing all products + Django`)

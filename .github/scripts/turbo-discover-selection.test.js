@@ -579,6 +579,9 @@ test('a missing answer, a failed level or a change to hoglint itself widens to e
         [{ affectedProducts: ['canvas', 'tasks'] }, 'non_isolated_product'],
         [{ changedFiles: ['products/canvas/backend/logic/layout.py', 'tools/hoglint/presets/posthog.toml'] }, 'watched_policy'],
         [{ changedFiles: ['products/canvas/backend/logic/layout.py', 'hoglint.toml'] }, 'watched_policy'],
+        // A policy-only diff reaches no product, and still changes every watched set.
+        [{ affectedProducts: [], watched: null, changedFiles: ['hoglint.toml'] }, 'watched_policy'],
+        [{ affectedProducts: [], watched: null, changedFiles: ['tools/hoglint/presets/posthog.toml'] }, 'watched_policy'],
     ]
     for (const [overrides, reason] of cases) {
         const { products, runLegacy, runLegacyReason } = decideCanvas(overrides)
