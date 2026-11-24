@@ -85,6 +85,13 @@
     animation: MCPWrapped__float 5s ease-in-out infinite;
 }
 
+// A highlighter stroke behind a word, the way posthog.com marks what matters.
+.MCPWrapped__highlight {
+    padding: 0 0.15em;
+    background: linear-gradient(transparent 58%, rgb(255 206 28 / 85%) 58%, rgb(255 206 28 / 85%) 92%, transparent 92%);
+    box-decoration-break: clone;
+}
+
 .MCPWrapped__rise {
     animation: MCPWrapped__rise 500ms ease-out both;
 }

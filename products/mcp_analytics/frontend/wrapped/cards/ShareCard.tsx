@@ -1,6 +1,7 @@
 import { useActions } from 'kea'
 import { useRef, useState } from 'react'
 
+import { colors } from '@posthog/brand/colors'
 import { IconBolt, IconCheckCircle, IconClock, IconLogomark, IconTerminal, IconWrench } from '@posthog/icons'
 import { LemonButton, lemonToast } from '@posthog/lemon-ui'
 
@@ -20,23 +21,36 @@ import { ARCHETYPE_HOGGIES } from '../wrappedTheme'
 
 const MCP_ANALYTICS_URL = 'https://posthog.com/mcp-analytics'
 
-const TILE_ICONS = {
-    calls: IconTerminal,
-    tool: IconWrench,
-    reliability: IconCheckCircle,
-    rush_hour: IconClock,
-    speed: IconBolt,
+// Each number gets its own brand colour, so the list reads like a poster rather than a table.
+const STAT_ICONS = {
+    calls: { Icon: IconTerminal, color: colors.tangerine.core },
+    tool: { Icon: IconWrench, color: colors.cobalt.core },
+    reliability: { Icon: IconCheckCircle, color: colors.green.darker },
+    rush_hour: { Icon: IconClock, color: colors.yellow.core },
+    speed: { Icon: IconBolt, color: colors.violet.core },
 } as const
 
-function TileIcon({ tile }: { tile: ShareTile }): JSX.Element {
-    if (tile.kind === 'app') {
-        return <HarnessLogo category={tile.value} className="size-4" />
+function StatIcon({ tile }: { tile: ShareTile }): JSX.Element {
+    if (tile.kind === 'app' || tile.kind === 'model') {
+        return (
+            <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-white shadow-sm">
+                {tile.kind === 'app' ? (
+                    <HarnessLogo category={tile.value} className="size-3.5" />
+                ) : (
+                    <BrandMark name={labMark(modelLab(tile.value))} className="size-3.5" />
+                )}
+            </span>
+        )
     }
-    if (tile.kind === 'model') {
-        return <BrandMark name={labMark(modelLab(tile.value))} className="size-4" />
-    }
-    const Icon = TILE_ICONS[tile.kind]
-    return <Icon className="size-4" />
+    const { Icon, color } = STAT_ICONS[tile.kind]
+    return (
+        <span
+            className="flex size-6 shrink-0 items-center justify-center rounded-full text-white"
+            style={{ background: color }}
+        >
+            <Icon className="size-3.5" />
+        </span>
+    )
 }
 
 export function ShareCard({
@@ -107,8 +121,12 @@ export function ShareCard({
     return (
         <WrappedCard ref={cardRef} cardKey="share" kicker={`MCP Wrapped · ${year}`} hideHoggie>
             <div className="MCPWrapped__rise">
-                <div className="text-sm font-bold opacity-75">{projectName}</div>
-                <h2 className="m-0 text-4xl font-bold leading-tight">{ARCHETYPE_NAMES[archetype]}</h2>
+                <div className="text-sm opacity-75">
+                    How AI agents used <strong>{projectName}</strong>'s MCP server
+                </div>
+                <h2 className="m-0 text-4xl font-bold leading-tight">
+                    <span className="MCPWrapped__highlight">{ARCHETYPE_NAMES[archetype]}</span>
+                </h2>
             </div>
             <div className="MCPWrapped__pop flex flex-col items-center gap-1 text-center">
                 <div className="relative flex justify-center">
@@ -117,31 +135,29 @@ export function ShareCard({
                 </div>
                 <p className="m-0 text-base font-bold">{ARCHETYPE_TAGLINES[archetype]}</p>
             </div>
-            <div className="MCPWrapped__rise grid grid-cols-2 gap-2">
+            <dl className="MCPWrapped__rise m-0 grid grid-cols-2 gap-x-5">
                 {tiles.map((tile, index) => (
                     <div
                         key={tile.label}
                         className={cn(
-                            'flex min-w-0 items-center gap-2 rounded-xl bg-white/15 p-2.5',
-                            // An odd tile out spans the row, so the grid stays balanced when data is missing.
+                            'flex min-w-0 items-center gap-2.5 border-t border-black/10 py-2',
+                            // An odd stat out spans the row, so the list stays balanced when data is missing.
                             tiles.length % 2 === 1 && index === tiles.length - 1 && 'col-span-2'
                         )}
                     >
-                        <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-white text-black">
-                            <TileIcon tile={tile} />
-                        </span>
-                        <span className="min-w-0">
-                            <span className="block text-xs opacity-75">{tile.label}</span>
-                            <span
-                                className={cn('block truncate text-sm font-bold', tile.kind === 'tool' && 'font-mono')}
+                        <StatIcon tile={tile} />
+                        <div className="min-w-0">
+                            <dt className="text-xs opacity-60">{tile.label}</dt>
+                            <dd
+                                className={cn('m-0 truncate text-base font-bold', tile.kind === 'tool' && 'font-mono')}
                                 title={tile.value}
                             >
                                 {tile.value}
-                            </span>
-                        </span>
+                            </dd>
+                        </div>
                     </div>
                 ))}
-            </div>
+            </dl>
             <div className={`${SHARE_ACTIONS_CLASS} flex gap-2`}>
                 {canShareFiles() && (
                     <LemonButton
@@ -176,10 +192,10 @@ export function ShareCard({
             <LinkPrimitive
                 to={MCP_ANALYTICS_URL}
                 target="_blank"
-                className="MCPWrapped__rise mt-auto flex items-center justify-center gap-2 text-current no-underline"
+                className="MCPWrapped__rise mt-auto flex items-center justify-center gap-2 border-t-2 border-dashed border-black/15 pt-3 text-current no-underline"
                 data-attr="mcp-wrapped-share-plug"
             >
-                <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-white text-black">
+                <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-black text-white">
                     <IconLogomark className="size-5" />
                 </span>
                 <span className="text-xs leading-tight">
