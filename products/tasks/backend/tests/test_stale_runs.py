@@ -257,6 +257,7 @@ class TestCollectStaleLiveRuns(TestCase):
             ("terminated", SimpleNamespace(status=WorkflowExecutionStatus.TERMINATED), True),
             ("not_found", _WORKFLOW_NOT_FOUND, True),
             ("unknown_because_temporal_is_down", RPCError("unavailable", RPCStatusCode.UNAVAILABLE, b""), False),
+            ("unknown_because_the_lookup_timed_out", TimeoutError("timed out"), False),
         ]
     )
     def test_sweep_ends_a_quiet_run_only_when_its_workflow_is_gone(
