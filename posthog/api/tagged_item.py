@@ -621,6 +621,7 @@ class TaggedItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             visible_objects = self.user_access_control.filter_queryset_by_access_level(
                 tagged_objects, include_all_if_admin=include_all_if_admin, resource=resource
             )
+            # nosemgrep: orm-field-injection -- object_field comes from the fixed TAGGABLE_MODELS registry
             visible &= ~Q(tagged_items__content_type=content_type) | Q(
                 **{f"tagged_items__{entry.object_field}__in": visible_objects.values("pk")}
             )
