@@ -58,6 +58,9 @@ describe('todayShellLogic', () => {
         ['/project/1/exports', 'settings'],
         ['/project/1/airplane', null],
         ['/project/1/homework', null],
+        ['/project/1/feature-flags-old', null],
+        ['/project/1/experiments-old', null],
+        ['/project/1/early_access_features-old', null],
     ])('puts %s under %s', (pathname, pane) => {
         expect(railPaneForPath(pathname, {})).toBe(pane)
     })
@@ -169,19 +172,75 @@ describe('todayShellLogic', () => {
     })
 
     test.each([
-        ['/project/1/error-tracking', 'monitor', 'products'],
-        ['/project/1/error-tracking/0190-issue', 'monitor', 'products'],
-        ['/project/1/logs', 'monitor', 'products'],
-        ['/project/1/tracing', 'monitor', 'products'],
-        ['/project/1/inbox/scouts', 'products', 'products'],
-        ['/project/1/inbox/scouts/checkout-errors', 'products', 'products'],
-        ['/project/1/ai-observability/traces', 'monitor', null],
-        ['/project/1/prompt-management/prompts', 'monitor', 'products'],
-        ['/project/1/application-observability', 'products', 'products'],
-        ['/project/1/inbox/reports', 'products', 'products'],
-    ])('puts %s under %s with monitor-area on, and under %s with it off', (pathname, pane, paneWithoutMonitor) => {
-        expect(railPaneForPath(pathname, { [FEATURE_FLAGS.MONITOR_AREA]: true })).toBe(pane)
-        expect(railPaneForPath(pathname, {})).toBe(paneWithoutMonitor)
+        ['/project/1/error-tracking', 'monitor', 'products', FEATURE_FLAGS.MONITOR_AREA],
+        ['/project/1/error-tracking/0190-issue', 'monitor', 'products', FEATURE_FLAGS.MONITOR_AREA],
+        ['/project/1/logs', 'monitor', 'products', FEATURE_FLAGS.MONITOR_AREA],
+        ['/project/1/tracing', 'monitor', 'products', FEATURE_FLAGS.MONITOR_AREA],
+        ['/project/1/inbox/scouts', 'products', 'products', FEATURE_FLAGS.MONITOR_AREA],
+        ['/project/1/inbox/scouts/checkout-errors', 'products', 'products', FEATURE_FLAGS.MONITOR_AREA],
+        ['/project/1/ai-observability/traces', 'monitor', null, FEATURE_FLAGS.MONITOR_AREA],
+        ['/project/1/prompt-management/prompts', 'monitor', 'products', FEATURE_FLAGS.MONITOR_AREA],
+        ['/project/1/application-observability', 'products', 'products', FEATURE_FLAGS.MONITOR_AREA],
+        ['/project/1/inbox/reports', 'products', 'products', FEATURE_FLAGS.MONITOR_AREA],
+        ['/project/1/data-management/sources', 'data', 'products', FEATURE_FLAGS.DATA_AREA],
+        ['/project/1/data-management/sources/managed-0190/schemas', 'data', 'products', FEATURE_FLAGS.DATA_AREA],
+        ['/project/1/data-warehouse/new-source', 'data', 'products', FEATURE_FLAGS.DATA_AREA],
+        ['/project/1/data-warehouse/connect-destination', 'data', 'products', FEATURE_FLAGS.DATA_AREA],
+        ['/project/1/data-management/events/0190-event', 'data', 'products', FEATURE_FLAGS.DATA_AREA],
+        ['/project/1/data-management/properties', 'data', 'products', FEATURE_FLAGS.DATA_AREA],
+        ['/project/1/models/0190-model', 'data', 'products', FEATURE_FLAGS.DATA_AREA],
+        ['/project/1/data-catalog', 'data', 'products', FEATURE_FLAGS.DATA_AREA],
+        ['/project/1/data-management/destinations', 'data', 'products', FEATURE_FLAGS.DATA_AREA],
+        ['/project/1/pipeline/batch-exports/0190-export', 'data', null, FEATURE_FLAGS.DATA_AREA],
+        ['/project/1/sql', 'products', 'products', FEATURE_FLAGS.DATA_AREA],
+        ['/project/1/etl', 'data', 'products', FEATURE_FLAGS.DATA_AREA],
+        ['/project/1/data-management/transformations', 'data', 'products', FEATURE_FLAGS.DATA_AREA],
+        ['/project/1/data-management/event-filtering', 'data', 'products', FEATURE_FLAGS.DATA_AREA],
+        ['/project/1/managed_migrations', 'data', 'products', FEATURE_FLAGS.DATA_AREA],
+        ['/project/1/data-ops', 'data', 'products', FEATURE_FLAGS.DATA_AREA],
+        ['/project/1/models', 'data', 'products', FEATURE_FLAGS.DATA_AREA],
+        ['/project/1/data-management/managed-viewsets', 'data', 'products', FEATURE_FLAGS.DATA_AREA],
+        ['/project/1/data-management/events', 'data', 'products', FEATURE_FLAGS.DATA_AREA],
+        ['/project/1/data-management/schema', 'data', 'products', FEATURE_FLAGS.DATA_AREA],
+        ['/project/1/data-management/core-events', 'data', 'products', FEATURE_FLAGS.DATA_AREA],
+        ['/project/1/data-management/actions', 'data', 'products', FEATURE_FLAGS.DATA_AREA],
+        ['/project/1/data-management/revenue', 'data', 'products', FEATURE_FLAGS.DATA_AREA],
+        ['/project/1/data-management/warehouse-properties', 'data', 'products', FEATURE_FLAGS.DATA_AREA],
+        ['/project/1/data-management/variables', 'data', 'products', FEATURE_FLAGS.DATA_AREA],
+        ['/project/1/data-management/warehouse-destinations', 'data', 'products', FEATURE_FLAGS.DATA_AREA],
+        ['/project/1/endpoints', 'data', 'products', FEATURE_FLAGS.DATA_AREA],
+        ['/project/1/toolbar', 'data', 'products', FEATURE_FLAGS.DATA_AREA],
+        ['/project/1/wizard/runs', 'data', 'products', FEATURE_FLAGS.DATA_AREA],
+        ['/project/1/metrics', 'monitor', 'products', FEATURE_FLAGS.MONITOR_AREA],
+        ['/project/1/uptime-monitoring', 'monitor', 'products', FEATURE_FLAGS.MONITOR_AREA],
+        ['/project/1/ai-observability/dashboard', 'monitor', 'products', FEATURE_FLAGS.MONITOR_AREA],
+        ['/project/1/ai-evals/evaluations', 'monitor', 'products', FEATURE_FLAGS.MONITOR_AREA],
+        ['/project/1/ai-observability/clusters', 'monitor', 'products', FEATURE_FLAGS.MONITOR_AREA],
+        ['/project/1/ai-observability/playground', 'monitor', 'products', FEATURE_FLAGS.MONITOR_AREA],
+    ])('%s selects %s, or %s when %s is off', (pathname, pane, paneWithoutArea, areaFlag) => {
+        expect(railPaneForPath(pathname, { [areaFlag]: true })).toBe(pane)
+        expect(railPaneForPath(pathname, {})).toBe(paneWithoutArea)
+
+        for (const enabled of [true, false]) {
+            initKeaTests()
+            const flags = { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true, [areaFlag]: enabled }
+            featureFlagLogic.actions.setFeatureFlags(Object.keys(flags), flags)
+            const logic = todayShellLogic()
+            logic.mount()
+            logic.actions.pickPane('products')
+            router.actions.push(pathname, { source: 'area-test' }, { tab: 'details' })
+            expect(logic.values.activePane).toBe((enabled ? pane : paneWithoutArea) ?? 'products')
+            expect(router.values.location.pathname).toBe(pathname)
+            expect(router.values.location.search).toBe('?source=area-test')
+            expect(router.values.location.hash).toBe('#tab=details')
+
+            logic.actions.pickPane('products')
+            initKeaTests()
+            featureFlagLogic.actions.setFeatureFlags(Object.keys(flags), flags)
+            router.actions.push(pathname)
+            todayShellLogic.mount()
+            expect(todayShellLogic.values.activePane).toBe((enabled ? pane : paneWithoutArea) ?? 'products')
+        }
     })
 
     test.each([
@@ -207,20 +266,36 @@ describe('todayShellLogic', () => {
     )
 
     test.each([
-        ['/project/1/data-management/sources', 'data', 'products'],
-        ['/project/1/data-management/sources/managed-0190/schemas', 'data', 'products'],
-        ['/project/1/data-warehouse/new-source', 'data', 'products'],
-        ['/project/1/data-warehouse/connect-destination', 'data', 'products'],
-        ['/project/1/data-management/events/0190-event', 'data', 'products'],
-        ['/project/1/data-management/properties', 'data', 'products'],
-        ['/project/1/models/0190-model', 'data', 'products'],
-        ['/project/1/data-catalog', 'data', 'products'],
-        ['/project/1/data-management/destinations', 'data', 'products'],
-        ['/project/1/pipeline/batch-exports/0190-export', 'data', null],
-        ['/project/1/sql', 'products', 'products'],
-    ])('puts %s under %s with data-area on, and under %s with it off', (pathname, pane, paneWithoutData) => {
-        expect(railPaneForPath(pathname, { [FEATURE_FLAGS.DATA_AREA]: true })).toBe(pane)
-        expect(railPaneForPath(pathname, {})).toBe(paneWithoutData)
+        '/feature-flags',
+        '/feature-flags/new',
+        '/feature-flags/12',
+        '/experiments',
+        '/experiments/new',
+        '/experiments/12',
+        '/early_access_features',
+        '/early_access_features/new',
+        '/early_access_features/12',
+    ])('selects Release for %s only with releases-area enabled', (pathname) => {
+        for (const enabled of [true, false]) {
+            initKeaTests()
+            const flags = { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true, [FEATURE_FLAGS.RELEASES_AREA]: enabled }
+            featureFlagLogic.actions.setFeatureFlags(Object.keys(flags), flags)
+            const logic = todayShellLogic()
+            logic.mount()
+            logic.actions.pickPane('products')
+            router.actions.push(`/project/1${pathname}`, { source: 'area-test' }, { tab: 'details' })
+            expect(logic.values.activePane).toBe(enabled ? 'release' : 'products')
+            expect(router.values.location.pathname).toBe(`/project/1${pathname}`)
+            expect(router.values.location.search).toBe('?source=area-test')
+            expect(router.values.location.hash).toBe('#tab=details')
+
+            logic.actions.pickPane('products')
+            initKeaTests()
+            featureFlagLogic.actions.setFeatureFlags(Object.keys(flags), flags)
+            router.actions.push(`/project/1${pathname}`)
+            todayShellLogic.mount()
+            expect(todayShellLogic.values.activePane).toBe(enabled ? 'release' : 'products')
+        }
     })
 
     test.each([
@@ -244,16 +319,19 @@ describe('todayShellLogic', () => {
         }
     )
 
-    test.each([true, false])('with monitor-area %s, Error tracking opened from Products keeps Products', (enabled) => {
-        const flags = { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true, [FEATURE_FLAGS.MONITOR_AREA]: enabled }
-        featureFlagLogic.actions.setFeatureFlags(Object.keys(flags), flags)
-        const logic = todayShellLogic()
-        logic.mount()
+    test.each([true, false])(
+        'with monitor-area %s, Error tracking opened from Products selects its area',
+        (enabled) => {
+            const flags = { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true, [FEATURE_FLAGS.MONITOR_AREA]: enabled }
+            featureFlagLogic.actions.setFeatureFlags(Object.keys(flags), flags)
+            const logic = todayShellLogic()
+            logic.mount()
 
-        logic.actions.pickPane('products')
-        router.actions.push('/project/1/error-tracking')
-        expect(logic.values.activePane).toBe('products')
-    })
+            logic.actions.pickPane('products')
+            router.actions.push('/project/1/error-tracking')
+            expect(logic.values.activePane).toBe(enabled ? 'monitor' : 'products')
+        }
+    )
 
     test.each([
         ['products', 'analytics'],
@@ -345,11 +423,11 @@ describe('todayShellLogic', () => {
         ['/project/1/marketing', 'analytics'],
         ['/project/1/mcp-analytics', 'analytics'],
         ['/project/1/sql', 'products'],
-        ['/project/1/support/tickets', 'products'],
-        ['/project/1/persons', 'products'],
-        ['/project/1/cohorts', 'products'],
-        ['/project/1/groups/0', 'products'],
-        ['/project/1/customer_analytics/accounts', 'products'],
+        ['/project/1/support/tickets', 'people'],
+        ['/project/1/persons', 'people'],
+        ['/project/1/cohorts', 'people'],
+        ['/project/1/groups/0', 'people'],
+        ['/project/1/customer_analytics/accounts', 'people'],
         ['/project/1/person/ada%40example.com', 'people'],
     ])('%s opened while the Products pane is open shows the %s pane', (pathname, pane) => {
         const logic = todayShellLogic()
@@ -390,12 +468,11 @@ describe('todayShellLogic', () => {
         ['/project/1/web', 'analytics'],
         ['/project/1/marketing', 'analytics'],
         ['/project/1/mcp-analytics', 'analytics'],
-        ['/project/1/cohorts', 'products'],
+        ['/project/1/cohorts', 'people'],
         ['/project/1/ai', 'spaces'],
     ])('a reload on %s after picking the Products pane shows the %s pane', (pathname, pane) => {
         todayShellLogic.mount()
         todayShellLogic.actions.pickPane('products')
-        router.actions.push('/project/1/persons')
 
         // A reload starts a new kea context and keeps localStorage.
         initKeaTests()

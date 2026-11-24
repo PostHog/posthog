@@ -144,7 +144,13 @@ export function railPaneForPath(pathname: string, featureFlags: FeatureFlagsSet)
     if (isPeopleListPath(path) || isPeopleDetailPath(path)) {
         return 'people'
     }
-    if (isUnderPath(path, '/releases')) {
+    if (
+        isUnderPath(path, '/releases') ||
+        (isTodayPaneEnabled('release', featureFlags) &&
+            [urls.featureFlags(), urls.experiments(), urls.earlyAccessFeatures()].some((prefix) =>
+                isUnderPath(path, prefix)
+            ))
+    ) {
         return 'release'
     }
     // Notebooks, dashboards and insights are analytics, list pages included, so they never open the Products pane.
@@ -198,13 +204,6 @@ function productsPaneListsPath(path: string): boolean {
     return !!navProductHrefForPath(path, navProductPages)
 }
 
-function productsPaneKeepsPath(path: string, routePane: TodayRailPane | null): boolean {
-    return (
-        ((routePane === 'monitor' || routePane === 'data') && productsPaneListsPath(path)) ||
-        (routePane === 'people' && isPeopleListPath(path))
-    )
-}
-
 /**
  * Whether an open Analytics pane stays open on this page: a product By PostHog lists, the SQL editor its sidebar links
  * to, a person, group or cohort, an error tracking issue, or an event or property definition, so a drill-in from an
@@ -232,15 +231,6 @@ function paneAfterNavigation(
 ): TodayRailPane | null {
     const path = removeProjectIdIfPresent(pathname)
     const routePane = railPaneForPath(pathname, featureFlags)
-    if (openPane === 'products' && productsPaneKeepsPath(path, routePane)) {
-        return openPane
-    }
-    if (
-        shownPane === 'release' &&
-        ['/feature-flags', '/experiments', '/early_access_features'].some((prefix) => isUnderPath(path, prefix))
-    ) {
-        return shownPane
-    }
     if (shownPane === 'analytics' && analyticsPaneKeepsPath(path, routePane)) {
         return shownPane
     }
