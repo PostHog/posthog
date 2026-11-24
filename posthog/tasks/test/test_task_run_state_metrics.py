@@ -310,7 +310,9 @@ class TestCaptureTaskStatusShadowMetrics(TestCase):
         organization = Organization.objects.create(name="Test Org")
         team = Team.objects.create(organization=organization, name="Test Team")
         task = Task.objects.create(team=team, title="t", description="d", origin_product=Task.OriginProduct.SLACK)
-        TaskRun.objects.create(task=task, team=team, status=TaskRun.Status.IN_PROGRESS)
+        TaskRun.objects.create(
+            task=task, team=team, status=TaskRun.Status.IN_PROGRESS, created_at=timezone.now() - timedelta(hours=1)
+        )
         Task.objects.filter(pk=task.pk).update(status=Task.Status.QUEUED)
         registry = CollectorRegistry()
         context = MagicMock()
@@ -323,5 +325,7 @@ class TestCaptureTaskStatusShadowMetrics(TestCase):
         labels = {"stored_status": "queued", "derived_status": "running"}
         assert registry.get_sample_value("posthog_tasks_status_shadow_mismatches", labels) == 1
         assert registry.get_sample_value("posthog_tasks_status_shadow_repaired", labels) == 1
+        stale_labels = {"profile": "none", "run_environment": "cloud", "rule": "heartbeat"}
+        assert registry.get_sample_value("posthog_tasks_stale_live_runs", stale_labels) == 1
         task.refresh_from_db()
         assert task.status == Task.Status.RUNNING

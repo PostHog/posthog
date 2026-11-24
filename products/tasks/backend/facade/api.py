@@ -252,6 +252,7 @@ from products.tasks.backend.run_options import (
     run_options_record as run_options_record,
     validate_run_options as validate_run_options,
 )
+from products.tasks.backend.stale_runs import collect_stale_live_runs
 from products.tasks.backend.storage import (
     TaskRunLog as TaskRunLog,
     read_run_log,
@@ -273,6 +274,8 @@ from products.tasks.backend.task_profiles import (
 )
 from products.tasks.backend.task_run_sync import (
     collect_status_mismatches,
+    done_mode,
+    keeps_done,
     repair_status_mismatches,
     sync_task_pr_urls,
     sync_task_status,
@@ -378,6 +381,7 @@ __all__ = [
     "readonly_github_integration_id",
     "check_task_run_startable",
     "collect_task_run_state_metrics",
+    "collect_stale_live_task_runs",
     "collect_task_status_mismatches",
     "compute_repository_readiness",
     "create_and_run_task",
@@ -492,6 +496,7 @@ __all__ = [
     "claim_mobile_push_cooldown",
     "release_mobile_push_cooldown",
     "record_run_failure_cause",
+    "record_local_task_run_heartbeat",
     "signal_task_run_client_activity",
     "redispatch_task_run",
     "relay_task_run_message",
@@ -2130,6 +2135,15 @@ def repair_task_status_mismatches() -> list[contracts.TaskStatusMismatchRow]:
     ]
 
 
+def collect_stale_live_task_runs() -> list[contracts.StaleLiveRunRow]:
+    return [
+        contracts.StaleLiveRunRow(
+            profile=row.profile or "none", run_environment=row.environment, rule=row.rule.value, count=row.count
+        )
+        for row in collect_stale_live_runs()
+    ]
+
+
 # --- Writes ---
 
 
@@ -2610,11 +2624,49 @@ def promote_run_to_user_authorship(run_id: str | UUID, actor_user_id: int) -> bo
 def signal_task_run_client_activity(run_id: str | UUID, task_id: str | UUID, team_id: int) -> None:
     """Best-effort: tell the run's workflow a client command landed, so the idle timer resets."""
     try:
-        run = TaskRun.objects.filter(id=run_id, task_id=task_id, team_id=team_id).only("id", "task_id", "state").first()
+        run = (
+            TaskRun.objects.filter(id=run_id, task_id=task_id, team_id=team_id)
+            .only("id", "task_id", "team_id", "state")
+            .first()
+        )
         if run is not None:
             run.signal_client_activity()
     except Exception:
         logger.warning("Failed to signal client activity for task run %s", run_id)
+
+
+def _task_keeps_done(task: Task) -> bool:
+    return task.status == Task.Status.DONE and keeps_done(done_mode(task.profile, task.team_id))
+
+
+def record_local_task_run_heartbeat(
+    run_id: str | UUID, task_id: str | UUID, team_id: int
+) -> Literal["recorded", "not_found", "not_live_local"]:
+    run = TaskRun.objects.filter(id=run_id, task_id=task_id, team_id=team_id).only("id", "environment").first()
+    task = Task.objects.filter(id=task_id, team_id=team_id).only("id", "team_id", "profile", "status").first()
+    if run is None or task is None:
+        return "not_found"
+    if run.environment != TaskRun.Environment.LOCAL:
+        return "not_live_local"
+    warm_done_mode(task)
+    with transaction.atomic():
+        locked_task = (
+            Task.objects.select_for_update().only("id", "team_id", "profile", "status", "state").get(pk=task.pk)
+        )
+        locked_run = TaskRun.objects.select_for_update().get(pk=run.pk)
+        if not locked_run.matches_task_ownership(locked_task):
+            return "not_found"
+        if locked_run.status == TaskRun.Status.COMPLETED:
+            if wake_refusal(locked_task, source="local_run_heartbeat") is not None:
+                return "not_live_local"
+            locked_run.status = TaskRun.Status.QUEUED
+            locked_run.completed_at = None
+            locked_run.queued_at = django_timezone.now()
+            locked_run.save(update_fields=["status", "completed_at", "queued_at", "updated_at"])
+        elif locked_run.is_terminal or _task_keeps_done(locked_task):
+            return "not_live_local"
+        locked_run.record_client_heartbeat()
+    return "recorded"
 
 
 def slack_actor_state_updates(*, user_id: int, slack_user_id: str | None = None) -> dict[str, Any]:
@@ -4632,12 +4684,19 @@ def validate_task_run_sandbox_token(
         claims = validate_sandbox_event_ingest_token(token)
     except (InvalidTokenError, ValueError):
         return False
-    return (
-        claims.run_id == str(run_id)
-        and claims.task_id == str(task_id)
-        and claims.team_id == team_id
-        and claims.sandbox_id == sandbox_id
-    )
+    if (
+        claims.run_id != str(run_id)
+        or claims.task_id != str(task_id)
+        or claims.team_id != team_id
+        or claims.sandbox_id != sandbox_id
+    ):
+        return False
+    run = TaskRun.objects.filter(id=run_id, task_id=task_id, team_id=team_id).only("id", "status").first()
+    if run is not None and run.is_terminal:
+        from products.tasks.backend.metrics import observe_ended_run_credential_used
+
+        observe_ended_run_credential_used(surface="task_run_sandbox_token")
+    return True
 
 
 def issue_codex_subscription_access_grant(

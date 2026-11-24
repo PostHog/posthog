@@ -1121,6 +1121,14 @@ class TaskStatusMismatchRow:
 
 
 @dataclass(frozen=True)
+class StaleLiveRunRow:
+    profile: str
+    run_environment: str
+    rule: str
+    count: int
+
+
+@dataclass(frozen=True)
 class TaskRunGaugeRow:
     """One metric value keyed by (status, environment, origin_product)."""
 
