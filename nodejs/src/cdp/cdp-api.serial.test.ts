@@ -3934,6 +3934,12 @@ describe('CDP API', () => {
                 ],
                 ['a file without a name', () => withFile({ filename: '' }), () => codeSend, '"filename"'],
                 [
+                    'a reply thread whose parent is not a Message-ID',
+                    () => ({ ...codeSend, thread: { inReplyTo: '<parent>', references: [] } }),
+                    () => ({ ...codeSend, thread: { inReplyTo: '<parent@example.com>', references: [] } }),
+                    '"inReplyTo"',
+                ],
+                [
                     'a file field this version does not know',
                     () => withFile({ disposition: 'inline' }),
                     () => codeSend,

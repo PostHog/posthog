@@ -203,7 +203,8 @@ def _observe_cdp_call(seconds: float) -> None:
 
 SANDBOX_FIELDS_UNSUPPORTED = (
     "This project has no verified sending domain, so this email would go out from the PostHog test sender, which "
-    "can't send `cc`, `bcc` or `attachments`. Remove those fields, or verify a sending domain at {setup_url}."
+    "can't send `cc`, `bcc`, `attachments` or reply headers. Remove those fields, or verify a sending domain at "
+    "{setup_url}."
 )
 
 # The CDP service names the reason it refused a send in the body's `error`. A retry of the same request gets the
