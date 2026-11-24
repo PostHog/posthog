@@ -472,6 +472,8 @@ class TestQueryBatchTelemetryTargets(_QueryBatchMixin, NonAtomicAPIBaseTest):
         self.assertTrue(response.is_closed)
 
     @parameterized.expand([("headers", False), ("body", True)])
+    @patch.object(query_batch_module, "MAX_BATCHES_PER_USER", query_batch_module.MAX_BATCHES_PER_ORG)
+    @patch.object(query_batch_module, "MAX_OPEN_BATCHES_PER_USER", query_batch_module.MAX_OPEN_BATCHES_PER_ORG)
     def test_disconnecting_logql_batches_closes_upstream_and_releases_admission(
         self, _name: str, send_headers: bool
     ) -> None:
@@ -561,6 +563,7 @@ class TestQueryBatchTelemetryTargets(_QueryBatchMixin, NonAtomicAPIBaseTest):
 
         self.assertEqual(lines[0]["result"]["result"]["results"], _matrix(0)["data"])
 
+    @patch.object(query_batch_module, "MAX_OPEN_BATCHES_PER_USER", query_batch_module.MAX_OPEN_BATCHES_PER_ORG)
     def test_timeout_and_disconnect_hold_admission_until_http_cleanup_finishes(self) -> None:
         inputs = [
             QueryBatchInput(
