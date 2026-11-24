@@ -38,6 +38,7 @@ export function makeTraceListItem(overrides: Partial<TraceListItemApi> = {}): Tr
         toolsCalled: [],
         isSupportTrace: false,
         totalsPartial: false,
+        costAndLatencyPartial: false,
         review: null,
         ...overrides,
     }

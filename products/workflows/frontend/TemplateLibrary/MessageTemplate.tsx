@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { IconLock, IconTrash } from '@posthog/icons'
+import { IconBolt, IconLock, IconTrash } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -36,6 +36,7 @@ import { impactTab } from '../Transactional/impact/impactTab'
 import { openEmailMetricSends } from '../Transactional/log/emailMetricSends'
 import { TransactionalEmailLog } from '../Transactional/log/TransactionalEmailLog'
 import { transactionalEditorGlobals, variablesInEmail } from '../Transactional/wizard/emailVariables'
+import { urlForEventWorkflowWithEmailTemplate } from '../Workflows/emailTemplateWorkflowPrefill'
 import { WorkflowInvocations } from '../Workflows/WorkflowInvocations'
 import { workflowLogic } from '../Workflows/workflowLogic'
 import { WorkflowMetrics } from '../Workflows/WorkflowMetrics'
@@ -49,6 +50,7 @@ import { newTemplateAgentLogic } from './newTemplateAgentLogic'
 import { QuillMessageTemplateActions } from './QuillMessageTemplateActions'
 import { SendTestEmailModal } from './SendTestEmailModal'
 import { NEW_TEMPLATE_AGENT_HEADLINES } from './templateAgentContext'
+import { templateWorkflowDisabledReason } from './templateWorkflowDisabledReason'
 import { TransactionalEmailApiExample } from './TransactionalEmailApiExample'
 
 export const scene: SceneExport<MessageTemplateSceneLogicProps> = {
@@ -146,6 +148,16 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                 : !template.name
                   ? 'Name is required'
                   : undefined)
+    const sendOnEventDisabledReason =
+        editDisabledReason ??
+        templateWorkflowDisabledReason({
+            draftsEnabled,
+            hasDraft,
+            hasUnsavedChanges,
+            templateChanged,
+            isSavingSensitive,
+            sensitive: !!originalTemplate.sensitive,
+        })
     const sendTestDisabledReason =
         editDisabledReason ?? (!template.content.email?.subject ? 'Add a subject first' : undefined)
 
@@ -252,6 +264,30 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                         aria-label="Protect sensitive data"
                                         data-attr="message-template-sensitive-toggle"
                                     />
+                                </div>
+                            </LemonCard>
+                            <LemonCard hoverEffect={false} className="max-w-200 p-4">
+                                <div className="flex flex-wrap items-start justify-between gap-4">
+                                    <div className="flex items-start gap-3 min-w-0 flex-1">
+                                        <IconBolt className="text-xl text-secondary shrink-0 mt-0.5" />
+                                        <div className="min-w-0">
+                                            <div className="font-semibold">Send this email when an event happens</div>
+                                            <p className="text-secondary text-sm m-0 mt-1">
+                                                Create a workflow that sends this email to a person each time they do an
+                                                event you pick, without code. Values you pass as variables in the API
+                                                come from the event&apos;s properties instead. The workflow gets its own
+                                                copy of the email, so later edits here don&apos;t change it.
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <LemonButton
+                                        type="secondary"
+                                        to={urlForEventWorkflowWithEmailTemplate(props.id)}
+                                        disabledReason={sendOnEventDisabledReason}
+                                        data-attr="message-template-send-on-event"
+                                    >
+                                        Create workflow
+                                    </LemonButton>
                                 </div>
                             </LemonCard>
                             <TransactionalEmailApiExample templateId={props.id} />

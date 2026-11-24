@@ -900,12 +900,16 @@ class TestSQLV2Run(APIBaseTest):
         # Journey 5: a local (Python-made) frame can't push to ClickHouse, so the join runs in
         # the sandbox's DuckDB — SQL as written, hogql refs shipped as materialization inputs.
         self._record_done_run("node-df2", "select id from persons")
-        code = "select * from df2 join new_events on df2.id = new_events.id"
+        code = "select * from df2 join new_events on df2.id = new_events.id limit {limit_rows}"
         response = self.client.post(
             self.run_url,
             data={
                 "node_id": "join-node",
                 "code": code,
+                "variables": [
+                    {"name": "limit_rows", "type": "number", "value": 5},
+                    {"name": "unrelated", "type": "boolean", "value": True},
+                ],
                 "refs": {
                     "df2": {"node_id": "node-df2"},
                     "new_events": {"node_id": "node-py", "kind": "local"},
@@ -916,9 +920,11 @@ class TestSQLV2Run(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         run = NotebookNodeRun.objects.for_team(self.team.id).get(id=response.json()["run_id"])
         self.assertEqual(run.node_type, NotebookNodeRun.NodeType.DUCKDB)
-        self.assertEqual(run.code, code)  # not CTE-rewritten: DuckDB runs the SQL as written
+        self.assertEqual(run.code, code.replace("{limit_rows}", "$limit_rows"))
         dispatched = mock_start.call_args.args[0]
         self.assertEqual(dispatched.node_type, "duckdb")
+        self.assertEqual(run.bound_variables, {"limit_rows": 5})
+        self.assertEqual(dispatched.variables, run.bound_variables)
         self.assertEqual(
             [(i["name"], i["kind"]) for i in dispatched.inputs], [("df2", "hogql"), ("new_events", "local")]
         )
@@ -1572,6 +1578,12 @@ class TestSQLV2RunResult(APIBaseTest):
                 team=self.team, notebook=other_notebook, node_id="n1", status=NotebookNodeRun.Status.DONE
             )
         self.assertEqual(self.client.get(self._url(str(other_run.id))).status_code, 404)
+
+    def test_result_for_a_specific_cell_requires_a_matching_node_id(self):
+        run = self._create_run(NotebookNodeRun.Status.DONE, envelope={"first_page": [[42]]})
+        url = self._url(str(run.id))
+        self.assertEqual(self.client.get(url, {"node_id": run.node_id}).status_code, 200)
+        self.assertEqual(self.client.get(url, {"node_id": "another-cell"}).status_code, 404)
 
     def test_query_restricted_member_cannot_read_result(self):
         # The result envelope is analytics rows, so a query-denied notebook reader must not read them back.
@@ -3289,6 +3301,7 @@ class TestSQLV2RunWithNotebookVariables(APIBaseTest):
         run = NotebookNodeRun.objects.for_team(self.team.id).get(id=response.json()["run_id"])
         self.assertEqual(run.code, code)
         self.assertEqual(mock_start.call_args.args[0].variables, {"country": "US", "days": 30})
+        self.assertEqual(run.bound_variables, mock_start.call_args.args[0].variables)
 
     @patch("products.notebooks.backend.sql_v2_dispatch.enqueue_direct_run")
     def test_a_run_without_variables_is_unchanged(self, _mock_enqueue):

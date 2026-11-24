@@ -31,7 +31,6 @@ from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.constants import AvailableFeature, GroupTypeIndex
-from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.group.group import Group
 from posthog.models.group.util import ListGroupsResult, create_group, list_groups, raw_create_group_ch
@@ -54,6 +53,7 @@ from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.event_definitions.backend.models import PropertyDefinition
+from products.groups.backend.facade.api import create_group_type_detail_dashboard
 from products.groups.backend.presentation.views import _decode_groups_cursor, _encode_groups_cursor
 from products.notebooks.backend.facade.content import convert_notebook_content_to_markdown, is_markdown_notebook_content
 from products.notebooks.backend.models import Notebook, ResourceNotebook
@@ -1655,8 +1655,10 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
 
-        dashboard = create_group_type_mapping_detail_dashboard(group_type, self.user)
-        update_group_type_mapping_fields(group_type, fields={"detail_dashboard_id": dashboard.id}, caller_tag="test")
+        dashboard_id = create_group_type_detail_dashboard(
+            self.team, self.user, group_type="organization", name_singular=None, name_plural=None
+        )
+        update_group_type_mapping_fields(group_type, fields={"detail_dashboard_id": dashboard_id}, caller_tag="test")
 
         response = self.client.put(
             f"/api/projects/{self.team.id}/groups_types/create_detail_dashboard",
