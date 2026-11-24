@@ -471,8 +471,10 @@ class EventsScan:
         resolver reads a CTE when one has the table's dotted name. Without `database`, no joined table counts as one
         that folds identifier case."""
         join = node.select_from
-        alias = _events_join_alias(join, ctes) if join is not None else None
-        if join is None or alias is None:
+        if join is None:
+            return None
+        alias = _events_join_alias(join, ctes)
+        if alias is None:
             return None
         cte_names = frozenset(ctes)
         scan = cls(

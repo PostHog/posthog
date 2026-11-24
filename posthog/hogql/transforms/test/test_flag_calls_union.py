@@ -1969,6 +1969,18 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
                     "ORDER BY timestamp",
                     [("recent", "$pageview", None)],
                 ),
+                (
+                    "flag_calls_and_url_pageviews_on_aliased_events",
+                    "SELECT e.distinct_id, e.event, e.properties.source FROM events AS e "
+                    f"WHERE matchesAction({{url_mixed}}) AND {LAST_WEEK} ORDER BY e.timestamp",
+                    [("recent", "$feature_flag_called", "flag_evaluations")],
+                ),
+                (
+                    "flag_calls_after_a_subquery",
+                    f"{MATCHES_ACTION_ROWS} WHERE distinct_id IN (SELECT distinct_id FROM person_distinct_ids) "
+                    f"AND matchesAction({{flag}}) AND {LAST_WEEK} ORDER BY timestamp",
+                    [("recent", "$feature_flag_called", "flag_evaluations")],
+                ),
             )
         ]
     )
@@ -1985,6 +1997,7 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
                 ("flag", "probe flag", [flag_step]),
                 ("mixed", "probe flag or pageview", [flag_step, {"event": "$pageview"}]),
                 ("pageview", "pageview", [{"event": "$pageview"}]),
+                ("url_mixed", "probe flag or url pageview", [flag_step, {"event": "$pageview", "url": "example.com"}]),
             )
         }
 
