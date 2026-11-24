@@ -131,8 +131,9 @@ def _get_waiting_for_concurrency_quota(
             wait_seconds=round(delay, 1),
             waits_done=waits_done,
         )
-        # A worker that shuts down ends the wait early. Return the 429, so that the caller raises the
-        # retryable error and Temporal runs the activity again on another worker.
+        # The wait ends early only in a run that installs a shutdown signal. A SimpleSource run does
+        # not install one, so for DoiT today this is a plain sleep, like a long report read. If a
+        # signal ends the wait, return the 429 so that the caller raises the retryable error.
         if interruptible_wait(delay):
             return response
         waits_done += 1

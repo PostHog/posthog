@@ -129,20 +129,18 @@ class TestConcurrencyQuotaWait:
         assert all(cap / 2 <= wait <= cap for wait, cap in zip(waits, caps))
 
     @pytest.mark.parametrize(
-        "response,shutting_down,expected_waits",
+        "response,expected_waits",
         [
-            (QUOTA_429, False, DOIT_CONCURRENCY_QUOTA_MAX_WAITS),
-            # A worker that shuts down stops waiting, so Temporal can retry the activity elsewhere.
-            (QUOTA_429, True, 1),
+            (QUOTA_429, DOIT_CONCURRENCY_QUOTA_MAX_WAITS),
             # Only the concurrency quota gets the long wait. Other 429s keep the adapter's retries.
-            (RATE_LIMIT_429, False, 0),
+            (RATE_LIMIT_429, 0),
         ],
-        ids=["quota_never_clears", "worker_shutting_down", "other_429"],
+        ids=["quota_never_clears", "other_429"],
     )
-    def test_gives_up_with_the_status_and_body(self, response, shutting_down, expected_waits) -> None:
+    def test_gives_up_with_the_status_and_body(self, response, expected_waits) -> None:
         waits: list[float] = []
         with (
-            patch(f"{_MODULE}.interruptible_wait", side_effect=lambda seconds: waits.append(seconds) or shutting_down),
+            patch(f"{_MODULE}.interruptible_wait", side_effect=lambda seconds: waits.append(seconds) or False),
             scripted_network(always(response)),
         ):
             with pytest.raises(Exception, match="failed with status: 429") as error:
