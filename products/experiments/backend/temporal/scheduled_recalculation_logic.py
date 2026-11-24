@@ -436,7 +436,13 @@ def count_total_exposures(experiment: Experiment) -> int:
     with tags_context(
         product=Product.EXPERIMENTS, team_id=experiment.team_id, org_id=str(experiment.team.organization_id)
     ):
-        runner = ExperimentExposuresQueryRunner(query=query, team=experiment.team, error_event_context=None)
+        runner = ExperimentExposuresQueryRunner(
+            query=query,
+            team=experiment.team,
+            error_event_context=None,
+            # A scheduled run has no user. Warehouse access was checked when the exposure was saved and launched.
+            bypass_warehouse_access_control=True,
+        )
         response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
 
     total_exposures = getattr(response, "total_exposures", None) or {}

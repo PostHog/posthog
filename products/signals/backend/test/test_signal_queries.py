@@ -26,6 +26,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.errors import ClickHouseAtCapacity
 from posthog.models import Integration, Team
+from posthog.models.scoping import team_scope
 
 from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
 from products.signals.backend.facade.api import (
@@ -67,6 +68,7 @@ from products.signals.backend.temporal.signal_queries import (
     retract_source_signals,
 )
 from products.signals.backend.temporal.types import SignalData
+from products.signals.backend.test.test_scout_harness_api import _make_run
 
 _MODEL_TABLE = f"sharded_posthog_document_embeddings_{EMBEDDING_MODEL.value.replace('-', '_')}"
 
@@ -1147,4 +1149,26 @@ class TestSpendReportingQueries(_SignalEmbeddingsTestBase):
             "generation": {"total_spend": 132.125, "incomplete": True},
             "implementation": {"total_spend": 50, "incomplete": False},
             "shared_scout_runs": {"total_spend": None, "incomplete": False},
+            "scout_authored": False,
+        }
+
+    def test_scout_authored_report_has_only_shared_scout_run_spend(self) -> None:
+        report = SignalReport.objects.create(team=self.team, triggering_signal_id=uuid.uuid4())
+        with team_scope(self.team.id):
+            run = _make_run(self.team, emitted_report_ids=[str(report.id)])
+        SignalSpend.objects.for_team(self.team.id).create(
+            team=self.team,
+            kind=SignalSpend.Kind.SCOUT_RUN,
+            scout_run=run,
+            task_run_id=run.task_run_id,
+            spend=14,
+            finalized_at=timezone.now(),
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/spend/")
+        assert response.status_code == 200, response.content
+        assert response.json() == {
+            "generation": {"total_spend": None, "incomplete": False},
+            "implementation": {"total_spend": None, "incomplete": False},
+            "shared_scout_runs": {"total_spend": 14, "incomplete": False},
+            "scout_authored": True,
         }

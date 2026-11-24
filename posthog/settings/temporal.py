@@ -116,6 +116,7 @@ SANDBOX_LLM_GATEWAY_URL: str | None = get_from_env("SANDBOX_LLM_GATEWAY_URL", No
 # ai_product values so one product migrates without moving every other sandbox caller.
 # Both must be set; clearing either rolls back to the Python gateway.
 SANDBOX_AI_GATEWAY_URL: str | None = get_from_env("SANDBOX_AI_GATEWAY_URL", None, optional=True)
+SANDBOX_AI_GATEWAY_WORKER_URL: str | None = get_from_env("SANDBOX_AI_GATEWAY_WORKER_URL", None, optional=True)
 SANDBOX_AI_GATEWAY_PRODUCTS: str | None = get_from_env("SANDBOX_AI_GATEWAY_PRODUCTS", None, optional=True)
 # Gateway credential (phs_) the worker uses to mint per-run phe_ scoped tokens for
 # gateway-routed sandbox runs. Unset: runs get no token and the agent server keeps them

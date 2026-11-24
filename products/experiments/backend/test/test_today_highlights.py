@@ -126,9 +126,10 @@ class TestExperiments(BaseTest):
 
     def test_the_number_skips_ignored_experiments_and_results_without_a_change(self) -> None:
         results = MagicMock(
-            side_effect=lambda *, team_id, experiment_id: {12: stored(arm("test", None)), 13: stored(arm("test", 0.1))}[
-                experiment_id
-            ]
+            side_effect=lambda *, team_id, experiment_id, user_id: {
+                12: stored(arm("test", None)),
+                13: stored(arm("test", 0.1)),
+            }[experiment_id]
         )
 
         found = self._find(
