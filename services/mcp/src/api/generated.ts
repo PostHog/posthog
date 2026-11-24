@@ -19197,6 +19197,56 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `project` - Project
+     * * `role` - Role
+     */
+    export type DefaultPinnedAccountPropertiesSourceKindEnum = typeof DefaultPinnedAccountPropertiesSourceKindEnum[keyof typeof DefaultPinnedAccountPropertiesSourceKindEnum];
+
+
+    export const DefaultPinnedAccountPropertiesSourceKindEnum = {
+      Project: 'project',
+      Role: 'role',
+    } as const;
+
+    export interface PinnedAccountPropertiesRole {
+      /** Organization role UUID. */
+      readonly id: string;
+      /** Organization role name. */
+      readonly name: string;
+    }
+
+    export interface DefaultPinnedAccountPropertiesSource {
+      /** Whether this default option is the project default or a role default.
+       *
+       * * `project` - Project
+       * * `role` - Role */
+      readonly kind: DefaultPinnedAccountPropertiesSourceKindEnum;
+      /** Role this default belongs to when kind is role, or null for the project default. */
+      readonly role: PinnedAccountPropertiesRole | null;
+    }
+
+    export interface PinnedAccountProperty {
+      /** Type of this pinned account property: a custom property, a relationship, or a built-in account field.
+       *
+       * * `custom_property` - Custom property
+       * * `relationship` - Relationship
+       * * `account_field` - Account field */
+      kind: AccountPropertyPinKindEnum;
+      /**
+         * Team-scoped custom property or relationship definition UUID. For an account_field pin, the account field name, such as stripe_customer_id.
+         * @maxLength 64
+         */
+      id: string;
+    }
+
+    export interface AvailableDefaultPinnedAccountProperties {
+      /** Which default this entry represents. */
+      readonly source: DefaultPinnedAccountPropertiesSource;
+      /** Ordered account properties saved for this default. */
+      readonly pinned_properties: readonly PinnedAccountProperty[];
+    }
+
+    /**
      * Discovered detail fields and their value distributions.
      */
     export type AvailableFiltersResponseDetailFields = { [key: string]: unknown };
@@ -35803,6 +35853,34 @@ export namespace Schemas {
          * @maxLength 7340032
          */
       image_base64?: string;
+    }
+
+    export interface DashboardImportInput {
+      /** What the failed import read.
+       *
+       * * `grafana` - Grafana
+       * * `screenshot` - Screenshot */
+      source: DashboardImportSourceEnum;
+      /**
+         * The dashboard name the user gave. Null when the user gave none.
+         * @nullable
+         */
+      name: string | null;
+      /**
+         * The Grafana dashboard JSON model, when the source is 'grafana'.
+         * @nullable
+         */
+      grafana_json: string | null;
+      /**
+         * The screenshot as base64, without a data URL prefix, when the source is 'screenshot'.
+         * @nullable
+         */
+      image_base64: string | null;
+      /**
+         * Media type of `image_base64`, for example 'image/png'. Null without a screenshot.
+         * @nullable
+         */
+      image_content_type: string | null;
     }
 
     export interface _DashboardPatchTileLayoutBoxOpenApi {
@@ -57185,6 +57263,19 @@ export namespace Schemas {
       latest_at: string | null;
     }
 
+    export interface FollowedDefaultPinnedProperties {
+      /** Follow the project default or the default of one of the requesting user's roles.
+       *
+       * * `project` - Project
+       * * `role` - Role */
+      kind: DefaultPinnedAccountPropertiesSourceKindEnum;
+      /**
+         * Role whose default to follow. Required when kind is role.
+         * @nullable
+         */
+      role_id?: string | null;
+    }
+
     /**
      * Request body for `forget`.
      */
@@ -65670,6 +65761,7 @@ export namespace Schemas {
      * * `endpoints` - Endpoints
      * * `replay_vision` - Replay Vision
      * * `analytics` - Product analytics
+     * * `slack` - Slack
      * * `freshdesk` - Freshdesk
      * * `freshservice` - Freshservice
      * * `front` - Front
@@ -65833,6 +65925,7 @@ export namespace Schemas {
       Endpoints: 'endpoints',
       ReplayVision: 'replay_vision',
       Analytics: 'analytics',
+      Slack: 'slack',
       Freshdesk: 'freshdesk',
       Freshservice: 'freshservice',
       Front: 'front',
@@ -66046,6 +66139,7 @@ export namespace Schemas {
        * * `endpoints` - Endpoints
        * * `replay_vision` - Replay Vision
        * * `analytics` - Product analytics
+       * * `slack` - Slack
        * * `freshdesk` - Freshdesk
        * * `freshservice` - Freshservice
        * * `front` - Front
@@ -96341,6 +96435,13 @@ export namespace Schemas {
       id: string;
     }
 
+    export interface TeamCustomerAnalyticsRoleDefaultPinnedProperties {
+      /** Organization role whose members inherit these properties. */
+      role_id: string;
+      /** Ordered account properties shown to members of this role. */
+      pinned_properties: TeamCustomerAnalyticsPinnedAccountProperty[];
+    }
+
     export interface TeamCustomerAnalyticsConfig {
       /** Event used as the activity signal (DAU/WAU/MAU). */
       activity_event?: unknown;
@@ -96359,6 +96460,8 @@ export namespace Schemas {
       account_group_type_index?: number | null;
       /** Ordered account properties shown until a user saves a personal pinned-property selection. Pass an empty list to show no properties by default. */
       default_pinned_properties?: TeamCustomerAnalyticsPinnedAccountProperty[];
+      /** Default pinned account properties per organization role. A user who has not saved a personal selection sees the merged defaults of every role they belong to, ordered by role name, instead of default_pinned_properties. Replaces every role's defaults on write. */
+      role_default_pinned_properties?: TeamCustomerAnalyticsRoleDefaultPinnedProperties[];
     }
 
     export interface TeamWorkflowsConfig {
@@ -100496,20 +100599,6 @@ export namespace Schemas {
       readonly personal_api_keys_limit?: number;
     }
 
-    export interface PinnedAccountProperty {
-      /** Type of this pinned account property: a custom property, a relationship, or a built-in account field.
-       *
-       * * `custom_property` - Custom property
-       * * `relationship` - Relationship
-       * * `account_field` - Account field */
-      kind: AccountPropertyPinKindEnum;
-      /**
-         * Team-scoped custom property or relationship definition UUID. For an account_field pin, the account field name, such as stripe_customer_id.
-         * @maxLength 64
-         */
-      id: string;
-    }
-
     /**
      * * `weekdays` - Weekdays
      * * `every_day` - Every day
@@ -100537,6 +100626,8 @@ export namespace Schemas {
     export interface PatchedUserCustomerAnalyticsConfigUpdate {
       /** Complete ordered list of account properties to pin. Omit to keep the current pins; pass an empty list to clear them. */
       pinned_properties?: PinnedAccountProperty[];
+      /** Show a default set of pinned properties and keep it in sync with later changes to that default. Replaces any personal pins. Cannot be combined with pinned_properties. */
+      followed_default?: FollowedDefaultPinnedProperties;
       /** Task digest email preferences to change. Omit the object to keep them all; omit a field inside it to keep that one. */
       task_digest?: TaskDigestPreferencesUpdate;
       /** Complete personal account tab configuration. Omit to keep it unchanged. */
@@ -101540,6 +101631,31 @@ export namespace Schemas {
       server_human_id: string | null;
       server_name: string | null;
       synced_at: string;
+    }
+
+    /**
+     * * `personal` - Personal
+     * * `role` - Role
+     * * `project` - Project
+     */
+    export type PinnedAccountPropertiesSourceKindEnum = typeof PinnedAccountPropertiesSourceKindEnum[keyof typeof PinnedAccountPropertiesSourceKindEnum];
+
+
+    export const PinnedAccountPropertiesSourceKindEnum = {
+      Personal: 'personal',
+      Role: 'role',
+      Project: 'project',
+    } as const;
+
+    export interface PinnedAccountPropertiesSource {
+      /** Whether pinned_properties comes from personal pins, merged role defaults, or the project default.
+       *
+       * * `personal` - Personal
+       * * `role` - Role
+       * * `project` - Project */
+      readonly kind: PinnedAccountPropertiesSourceKindEnum;
+      /** Roles that added pins to pinned_properties, in merge order. Empty unless kind is role. */
+      readonly roles: readonly PinnedAccountPropertiesRole[];
     }
 
     export interface PinnedSceneTabs {
@@ -104584,6 +104700,12 @@ export namespace Schemas {
       max_live_pipelines: number;
       /** Pipelines that count against max_live_pipelines now. Can exceed it if the limit was lowered. */
       live_pipelines: number;
+      /** The project's monthly training budget, in whole US dollars. A training run is refused once training_spend_usd reaches it. A run in progress is never stopped. 0 means training is turned off. */
+      max_training_spend_usd_per_month: number;
+      /** Token and compute cost, in US dollars, of the project's sandbox training runs created this UTC calendar month, a run in progress included. A run whose cost is not recorded yet counts as 0. */
+      training_spend_usd: number;
+      /** When training_spend_usd resets to 0: the start of the next UTC calendar month. */
+      training_spend_resets_at: string;
       /** Where max_training_runs_per_day comes from. project: an override for this project. default: the fleet-wide default. code: the built-in default, because no override is set or no override was readable.
        *
        * * `project` - Project
@@ -104602,6 +104724,12 @@ export namespace Schemas {
        * * `default` - Default
        * * `code` - Code */
       max_live_pipelines_source: LimitSourceEnum;
+      /** Where max_training_spend_usd_per_month comes from. project: an override for this project. default: the fleet-wide default. code: the built-in default, because no override is set or no override was readable.
+       *
+       * * `project` - Project
+       * * `default` - Default
+       * * `code` - Code */
+      max_training_spend_usd_per_month_source: LimitSourceEnum;
     }
 
     /**
@@ -111412,6 +111540,7 @@ export namespace Schemas {
      * * `health_checks` - health_checks
      * * `replay_vision` - replay_vision
      * * `analytics` - analytics
+     * * `slack` - slack
      * * `freshdesk` - freshdesk
      * * `freshservice` - freshservice
      * * `front` - front
@@ -111575,6 +111704,7 @@ export namespace Schemas {
       HealthChecks: 'health_checks',
       ReplayVision: 'replay_vision',
       Analytics: 'analytics',
+      Slack: 'slack',
       Freshdesk: 'freshdesk',
       Freshservice: 'freshservice',
       Front: 'front',
@@ -112213,6 +112343,7 @@ export namespace Schemas {
        * * `health_checks` - health_checks
        * * `replay_vision` - replay_vision
        * * `analytics` - analytics
+       * * `slack` - slack
        * * `freshdesk` - freshdesk
        * * `freshservice` - freshservice
        * * `front` - front
@@ -121249,6 +121380,43 @@ export namespace Schemas {
       is_private_without_access: boolean;
     }
 
+    export interface SlackChannelScoutCreate {
+      /**
+         * Name shown wherever people identify this scout. The scout's skill name is generated from it.
+         * @maxLength 200
+         */
+      display_name: string;
+      /** Id of the Slack data warehouse source to read. */
+      source_id: string;
+      /**
+         * Ids of the channels to read, at most 20. Every channel must already have synced its message table.
+         * @minItems 1
+         * @maxItems 20
+         * @items.maxLength 64
+         */
+      channel_ids: string[];
+      /**
+         * What the scout looks for in the messages, in plain words. Blank uses a default focus on bug reports, repeated requests, and complaints.
+         * @maxLength 4000
+         */
+      steer?: string;
+      /**
+         * Optional five-field cron expression evaluated in the project timezone, e.g. '0 9 * * 1-5'. Occurrences must be at least 30 minutes apart. Omit for the daily default.
+         * @maxLength 100
+         * @nullable
+         */
+      run_cron_schedule?: string | null;
+      /** Whether the scout files reports in the inbox. False is a dry run: it runs and logs only. */
+      emit?: boolean;
+    }
+
+    export interface SlackChannelScoutCreateResponse {
+      /** True when this request created the scout. */
+      created: boolean;
+      /** The new scout's skill name, its permanent identifier. Its config records the Slack source as owner. */
+      skill_name: string;
+    }
+
     /**
      * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
      */
@@ -121272,6 +121440,30 @@ export namespace Schemas {
       lastRefreshedAt?: string | null;
       /** Whether more channels match the current search beyond this page. */
       has_more?: boolean;
+    }
+
+    export interface SlackScoutChannel {
+      /** The Slack channel id, which is also the name of its warehouse schema. */
+      id: string;
+      /** The channel name, without the leading #. */
+      name: string;
+      /**
+         * HogQL name of the channel's message table. Null until the channel's first sync writes the table.
+         * @nullable
+         */
+      table_name: string | null;
+    }
+
+    export interface SlackScoutChannelSource {
+      /** Id of the Slack data warehouse source. */
+      id: string;
+      /** Channels the source syncs, ordered by name. */
+      channels: SlackScoutChannel[];
+    }
+
+    export interface SlackScoutChannelSources {
+      /** The project's Slack data warehouse sources. Empty when the project has not connected Slack. */
+      sources: SlackScoutChannelSource[];
     }
 
     /**
@@ -122520,6 +122712,35 @@ export namespace Schemas {
       /** Values for the provider's `settings`, by setting key, from the `providers` endpoint. A setting with a null `default` is required, such as Mailgun's `region`. */
       settings?: StartProviderImportSettings;
     }
+
+    export interface TrainingRunCapReached {
+      /** Why the run did not start. */
+      detail: string;
+      /** Sandbox training runs the project started that count against its daily limit, across all its pipelines. */
+      used: number;
+      /** The project's daily limit of sandbox training runs. */
+      limit: number;
+      /**
+         * When the next training run can start. Null when training runs are turned off for the project.
+         * @nullable
+         */
+      next_slot_at: string | null;
+    }
+
+    export interface TrainingBudgetReached {
+      /** Why the run did not start. */
+      detail: string;
+      /** Always 'training_budget_reached'. Tells this refusal apart from the daily limit, which has no code. */
+      code: string;
+      /** Token and compute cost, in US dollars, of the project's sandbox training runs created this UTC calendar month, across all its pipelines. A run whose cost is not recorded yet counts as 0. */
+      spent_usd: number;
+      /** The project's monthly training budget, in whole US dollars. 0 means training is turned off. */
+      limit_usd: number;
+      /** When the budget resets: the start of the next UTC calendar month. */
+      resets_at: string;
+    }
+
+    export type StartTrainingRefused = TrainingRunCapReached | TrainingBudgetReached;
 
     export interface StartTrainingRequest {
       /**
@@ -128027,20 +128248,6 @@ export namespace Schemas {
       regenerate?: boolean;
     }
 
-    export interface TrainingRunCapReached {
-      /** Why the run did not start. */
-      detail: string;
-      /** Sandbox training runs the project started that count against its daily limit, across all its pipelines. */
-      used: number;
-      /** The project's daily limit of sandbox training runs. */
-      limit: number;
-      /**
-         * When the next training run can start. Null when training runs are turned off for the project.
-         * @nullable
-         */
-      next_slot_at: string | null;
-    }
-
     /**
      * One prior completed training run plus its full iteration trail.
      */
@@ -129011,6 +129218,10 @@ export namespace Schemas {
     export interface UserCustomerAnalyticsConfig {
       /** Account properties pinned in sidebar display order. */
       readonly pinned_properties: readonly PinnedAccountProperty[];
+      /** Where pinned_properties came from: personal pins, merged role defaults, or the project default. */
+      readonly pinned_properties_source: PinnedAccountPropertiesSource;
+      /** Project and role defaults the requesting user can reset their pinned properties to. */
+      readonly available_default_pinned_properties: readonly AvailableDefaultPinnedAccountProperties[];
       /** Task digest email preferences. Disabled until the user turns the digest on. */
       readonly task_digest: TaskDigestPreferences;
       /** Personal order, visibility, and default for account tabs. */
@@ -150656,6 +150867,11 @@ export namespace Schemas {
      * @minLength 1
      */
     search?: string;
+    /**
+     * Returns only the scouts another product stood up for one of its own objects, e.g. `slack` for Slack channel scouts or `replay_vision` for Replay Vision scanner scouts. Omit for the whole fleet.
+     * @minLength 1
+     */
+    source_product?: string;
     /**
      * Comma-separated tags, e.g. `revenue,on-call`. Returns the scouts carrying at least one of them. Values are normalized the same way stored tags are, so `On Call` matches `on-call`. Omit for the whole fleet.
      * @minLength 1

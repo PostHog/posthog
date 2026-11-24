@@ -62,6 +62,15 @@ export interface AccountPropertyOption {
     kind: AccountSidebarProperty['kind'] | 'account'
 }
 
+export type FollowedDefaultPinnedProperties = { kind: 'project' } | { kind: 'role'; role_id: string }
+
+export interface AccountPropertyDefaultOption {
+    key: string
+    label: string
+    pinnedPropertyKeys: string[]
+    followedDefault: FollowedDefaultPinnedProperties
+}
+
 export const ACCOUNT_PROPERTY_KIND_LABELS: Record<AccountPropertyOption['kind'], string> = {
     custom: 'Custom property',
     relationship: 'Relationship',

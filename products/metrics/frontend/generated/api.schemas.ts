@@ -606,6 +606,34 @@ export interface DashboardImportCreateApi {
     image_base64?: string
 }
 
+export interface DashboardImportInputApi {
+    /** What the failed import read.
+     *
+     * * `grafana` - Grafana
+     * * `screenshot` - Screenshot */
+    source: DashboardImportSourceEnumApi
+    /**
+     * The dashboard name the user gave. Null when the user gave none.
+     * @nullable
+     */
+    name: string | null
+    /**
+     * The Grafana dashboard JSON model, when the source is 'grafana'.
+     * @nullable
+     */
+    grafana_json: string | null
+    /**
+     * The screenshot as base64, without a data URL prefix, when the source is 'screenshot'.
+     * @nullable
+     */
+    image_base64: string | null
+    /**
+     * Media type of `image_base64`, for example 'image/png'. Null without a screenshot.
+     * @nullable
+     */
+    image_content_type: string | null
+}
+
 /**
  * * `promql` - Promql
  * * `builder` - Builder
