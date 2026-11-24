@@ -968,19 +968,24 @@ mod tests {
     }
 
     #[rstest]
-    #[case::in_known_member("in", true, true)]
-    #[case::in_known_non_member("in", false, false)]
-    #[case::not_in_known_member("not_in", true, false)]
-    #[case::not_in_known_non_member("not_in", false, true)]
+    #[case::in_known_member("in", false, true, true)]
+    #[case::in_known_non_member("in", false, false, false)]
+    #[case::not_in_known_member("not_in", false, true, false)]
+    #[case::not_in_known_non_member("not_in", false, false, true)]
+    #[case::in_known_non_member_criteria_match("in", true, false, false)]
+    #[case::not_in_known_non_member_criteria_match("not_in", true, false, true)]
     fn test_evaluate_dynamic_cohorts_uses_known_membership_of_non_static_dependency(
         #[case] operator: &str,
+        #[case] dependency_criteria_match: bool,
         #[case] known_member: bool,
         #[case] expected: bool,
     ) {
-        let behavioral = create_dynamic_cohort_with_filters(
-            20,
-            json!({"properties": {"type": "AND", "values": [behavioral_leaf_json()]}}),
-        );
+        let dependency_filters = if dependency_criteria_match {
+            json!({"properties": {"type": "OR", "values": [behavioral_leaf_json(), email_leaf("user@example.com")]}})
+        } else {
+            json!({"properties": {"type": "AND", "values": [behavioral_leaf_json()]}})
+        };
+        let behavioral = create_dynamic_cohort_with_filters(20, dependency_filters);
         let wrapper = create_dynamic_cohort_with_filters(
             30,
             json!({"properties": {"type": "AND", "values": [
