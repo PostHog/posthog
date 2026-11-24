@@ -339,8 +339,39 @@ class TestMetricSubjectAccess(BaseTest):
         assert restricted.readable.contains(SubjectType.POSTHOG_TABLE, events.id) is allowed
         assert bool(restricted.readable.posthog_table_ids) is allowed
 
-    def test_failed_composition_cannot_record_empty_references(self) -> None:
-        assert pin_referenced_subjects(self.team.id, "custom_sql", {"query": "SELECT 1"}, subject=self.subject) is None
+    @parameterized.expand(
+        [
+            ("metric_query_without_placeholder", "metric", "SELECT 1"),
+            (
+                "table_query_alias_shadows_its_column",
+                "table",
+                "SELECT max(amount) AS amount FROM revenue_rows HAVING max(amount) > 0",
+            ),
+        ]
+    )
+    def test_unusable_config_fails_closed_without_reporting_an_exception(
+        self, _name: str, subject_type: str, query: str
+    ) -> None:
+        subject = (
+            self.subject if subject_type == "metric" else resolve_subject(self.team.id, "table", self.metric_table.id)
+        )
+        context = DenialContext(
+            readable=readable_subjects(self.team.id, set()),
+            denied=set(),
+            database=DeferredDatabase.built(Database.create_for(team=self.team, user=self.user)),
+            metadata=subject_metadata(self.team.id),
+        )
+        config = {"query": query}
+
+        with patch("products.data_quality.backend.logic.subject_access.capture_exception") as capture:
+            pinned = pin_referenced_subjects(self.team.id, "custom_sql", config, subject=subject)
+            reads_unreadable = definition_reads_unreadable_subject(
+                self.team.id, "custom_sql", config, context, subject=subject
+            )
+
+        assert pinned is None
+        assert reads_unreadable is True
+        capture.assert_not_called()
 
     def _check_and_suite(self) -> tuple[DataQualityCheck, DataQualitySuiteRun]:
         check, _ = upsert_check(

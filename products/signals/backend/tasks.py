@@ -61,6 +61,7 @@ from products.signals.backend.inbox_push_notifications import notify_pull_reques
 from products.signals.backend.inbox_summary import github_datetime, sync_pull_request_participants
 from products.signals.backend.models import (
     SignalReport,
+    SignalReportArtefact,
     SignalReportPullRequest,
     SignalReportRefund,
     SignalReportTrackerIssue,
@@ -74,6 +75,7 @@ from products.signals.backend.personal_ranking_tasks import build_personal_inbox
 from products.signals.backend.pr_origin import write_origin_section
 from products.signals.backend.pull_request_body import BodyEditOutcome
 from products.signals.backend.pull_request_label import apply_pull_request_label
+from products.signals.backend.pull_request_merger import PullRequestMerger
 from products.signals.backend.pull_requests import update_pull_request_review_decision, update_pull_request_state
 from products.signals.backend.rated_usage_tasks import (
     enqueue_signals_rated_usage as enqueue_signals_rated_usage,
@@ -212,6 +214,7 @@ def refresh_linked_pull_request_state(self: Task, team_id: int, pr_url: str) -> 
         number=details.number,
         state=details.state,
         merged_at=details.merged_at,
+        merged_by=details.merged_by,
     )
 
 
@@ -302,7 +305,12 @@ def refresh_pull_request_review_decision(team_id: int, repository: str, pr_numbe
         if not details.get("success") or details.get("merged") is not True or merged_at is None:
             raise GitHubIntegrationError("Could not verify the pull request merge time")
         update_pull_request_state(
-            team_id=team_id, repository=pr.repository, number=pr.number, state="merged", merged_at=merged_at
+            team_id=team_id,
+            repository=pr.repository,
+            number=pr.number,
+            state="merged",
+            merged_at=merged_at,
+            merged_by=PullRequestMerger.from_github(details.get("merged_by")),
         )
     snapshot = github.get_pull_request_snapshot(pr.url)
     if not snapshot.get("success"):
@@ -314,6 +322,21 @@ def refresh_pull_request_review_decision(team_id: int, repository: str, pr_numbe
             error=snapshot.get("error"),
         )
         return
+    # A state-change webhook writes the state its payload carried, so one handled late can store a
+    # stale state over a newer one. This read is fresh, so it repairs that on the next PR event. A merge
+    # stays with the paths that also record its merge time.
+    snapshot_state = snapshot.get("state")
+    if (
+        pr.state != SignalReportPullRequest.State.MERGED
+        and snapshot_state != pr.state
+        and snapshot_state
+        in {
+            SignalReportPullRequest.State.DRAFT,
+            SignalReportPullRequest.State.OPEN,
+            SignalReportPullRequest.State.CLOSED,
+        }
+    ):
+        update_pull_request_state(team_id=team_id, repository=pr.repository, number=pr.number, state=snapshot_state)
     raw_review_decision = snapshot.get("review_decision")
     review_decision = raw_review_decision if isinstance(raw_review_decision, str) else None
     update_pull_request_review_decision(
@@ -451,13 +474,21 @@ def link_report_tracker_issues(self, team_id: int, task_id: str, pr_url: str) ->
     Both edits share this task so they run in sequence. Two tasks would race on the same body and
     keep failing each other's changed-body check.
     """
-    report_ids = (
-        SignalReport.objects.filter(team_id=team_id)
-        .filter(SignalReport.reports_for_task_filter(task_id))
-        .values_list("id", flat=True)
-    )
+    report_ids = SignalReport.pr_target_report_ids_for_tasks(team_id, [task_id])
+    # A task with several reports attaches its PR to the reports it fixes explicitly.
+    if (parsed := GitHubIntegration.parse_pull_request_url(pr_url)) is not None:
+        report_ids.update(
+            str(report_id)
+            for report_id in SignalReportArtefact.objects.filter(
+                team_id=team_id,
+                type=SignalReportArtefact.ArtefactType.PULL_REQUEST,
+                task_id=task_id,
+                pull_request__repository__iexact=parsed.repository,
+                pull_request__number=parsed.number,
+            ).values_list("report_id", flat=True)
+        )
     retry_needed = False
-    for report_id in report_ids:
+    for report_id in sorted(report_ids):
         origin = write_origin_section(team_id=team_id, report_id=str(report_id), task_id=task_id, pr_url=pr_url)
         retry_needed = retry_needed or origin == BodyEditOutcome.FAILED
         linked = link_pull_request_to_tracker_issue(team_id=team_id, report_id=str(report_id), pr_url=pr_url)

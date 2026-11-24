@@ -85,9 +85,22 @@ class TestGetRows:
         assert result.saved_states == [CoupaResumeConfig(next_offset=PAGE_SIZE)]
         assert result.committed_states == [CoupaResumeConfig(next_offset=PAGE_SIZE)]
 
-    def test_scope_rejection_falls_back_to_scopeless_token(self) -> None:
+    @pytest.mark.parametrize(
+        "endpoint, scope, api_path",
+        [
+            ("invoices", "core.invoice.read", "/api/invoices"),
+            ("accounts", "core.accounting.read", "/api/accounts"),
+            ("account_types", "core.accounting.read", "/api/account_types"),
+            ("commodities", "core.common.read", "/api/commodities"),
+            ("departments", "core.common.read", "/api/departments"),
+            ("receiving_transactions", "core.inventory.receiving.read", "/api/receiving_transactions"),
+        ],
+    )
+    def test_scope_rejection_falls_back_to_scopeless_token(self, endpoint: str, scope: str, api_path: str) -> None:
+        # Coupa lists scope names only on each instance's /oauth2/scopes page, so an
+        # instance that names a scope differently must still sync with a scopeless token.
         result = _driver().run(
-            "invoices",
+            endpoint,
             [
                 ScriptedResponse(status=400, json={"error": "invalid_scope"}),
                 _token_response(),
@@ -96,8 +109,8 @@ class TestGetRows:
         )
 
         assert result.raised is None
-        assert result.paths == ["/oauth2/token", "/oauth2/token", "/api/invoices"]
-        assert _form_body(result.requests[0].body)["scope"] == ["core.invoice.read"]
+        assert result.paths == ["/oauth2/token", "/oauth2/token", api_path]
+        assert _form_body(result.requests[0].body)["scope"] == [scope]
         assert "scope" not in _form_body(result.requests[1].body)
 
     def test_non_scope_400_does_not_fall_back(self) -> None:

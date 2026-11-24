@@ -229,6 +229,15 @@ class AccountAudienceCustomPropertyFilter:
 
 AccountAssignmentStatus = Literal["all", "assigned", "unassigned"]
 
+SuggestionsScoutRunReason = Literal[
+    "first_run",
+    "backstop",
+    "opted_in",
+    "published",
+    "suggestion_resolved",
+    "sends_matured",
+]
+
 
 @frozen
 class AccountAudienceFilters:
@@ -342,6 +351,12 @@ class ProviderContactsResult:
 class ContactsCaptureFailed(Exception):
     """Capture didn't acknowledge every event of a part. Sending the part again is safe."""
 
+    def __init__(self, message: str, *, acknowledged: int = 0, new_people: int = 0) -> None:
+        super().__init__(message)
+        # The part's people whose events capture did take, and how many of them are new.
+        self.acknowledged = acknowledged
+        self.new_people = new_people
+
 
 class ContactsImportAccessLost(Exception):
     """The person who started the import can't edit persons in the project anymore. Another try finds the same."""
@@ -349,6 +364,10 @@ class ContactsImportAccessLost(Exception):
 
 class ContactsCohortGone(Exception):
     """The cohort a list fills was deleted or isn't static anymore. Another try finds the same."""
+
+
+class ContactsPartMissing(Exception):
+    """A stored part of a contact list can't be read, so nothing may treat the list as complete."""
 
 
 class ContactsCleanupFailed(Exception):
@@ -362,6 +381,8 @@ class ContactChunkOutcome:
     people: int
     # Of them, the people PostHog had once ingestion caught up.
     found: int
+    # Of them, the people PostHog didn't have when the list was stored.
+    new_people: int = 0
 
 
 @frozen
@@ -422,6 +443,53 @@ class EmailSendingSuspensionChange:
 
 
 @frozen
+class EmailInfrastructureHealth:
+    """How the email every project in this region sends through PostHog fared, rounded for display."""
+
+    emails_sent_at_least: int
+    delivery_rate: float
+    bounce_rate: float
+    complaint_rate: float
+
+
+@frozen
+class EmailSendingNextTier:
+    """What a project needs to do for the daily check to move it up one tier."""
+
+    emails_per_day: int
+    daily_target: int
+    days_required: int
+    days_reached: int
+    # The tier check does not promote a project before this, however much it sends.
+    not_before: datetime
+
+
+@frozen
+class EmailSendingRecentRates:
+    """The short window the daily check demotes on, next to the limits it holds the rates to."""
+
+    window_days: int
+    emails_sent: int
+    bounce_rate: float
+    complaint_rate: float
+    complaints: int
+    max_bounce_rate: float
+    max_complaint_rate: float
+    # The daily check's verdicts on these numbers, which also apply its minimum-volume rules.
+    bounces_within_limits: bool
+    complaints_within_limits: bool
+
+
+@frozen
+class EmailSendingAllowanceChange:
+    changed_at: datetime
+    previous_emails_per_day: int
+    emails_per_day: int
+    # The tier decision reason the change was logged with, or staff_set for a hand-set tier.
+    reason: str
+
+
+@frozen
 class EmailSendingAllowance:
     """A project's sending tier, what it allows, and how much of that it has used."""
 
@@ -433,6 +501,12 @@ class EmailSendingAllowance:
     enforced: bool
     # The largest batch a slow enough sending rate limit allows. None when no rate raises the cap.
     rate_limited_max_batch_audience: int | None = None
+    # None at the top tier and for a tier staff pinned, which the daily check never moves.
+    next_tier: EmailSendingNextTier | None = None
+    # None for a tier staff pinned, which the daily check never moves.
+    recent_rates: EmailSendingRecentRates | None = None
+    # Newest first.
+    recent_changes: tuple[EmailSendingAllowanceChange, ...] = ()
 
 
 class StaffPausedError(Exception):
@@ -1422,3 +1496,10 @@ class SandboxSenderStatus:
     display_name: str
     organization_blocked: bool
     adoption_enabled: bool
+
+
+@frozen
+class ConversionGoalBackfill:
+    workflows_read: int
+    revisions_read: int
+    goals_found: int

@@ -2,10 +2,12 @@ from dataclasses import asdict
 from uuid import UUID
 
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.utils import asyncify
 
+from products.messaging.backend.provider_imports.metrics import IMPORT_CHUNK_DURATION, IMPORT_CHUNK_RETRIES
 from products.messaging.backend.provider_imports.runs import finish_run, record_people_import, run_step
 from products.messaging.backend.temporal.inputs import (
     ContactChunkInputs,
@@ -17,6 +19,7 @@ from products.messaging.backend.temporal.inputs import (
     RecordPeopleImportInputs,
 )
 from products.workflows.backend.facade.people_import import (
+    ContactsCaptureFailed,
     discard_staged_contacts,
     fail_contacts_cohort,
     fill_contacts_cohort,
@@ -48,15 +51,28 @@ def discard_staged_contacts_activity(inputs: ProviderImportRunInputs) -> None:
 @activity.defn(name="messaging-provider-import.import_contact_chunk")
 @asyncify
 def import_contact_chunk_activity(inputs: ContactChunkInputs) -> ContactChunkResult:
-    with HeartbeaterSync():
-        outcome = import_contact_chunk(
-            inputs.team_id,
-            inputs.storage_prefix,
-            inputs.chunk,
-            send_events=inputs.send_events,
-            created_by_id=inputs.created_by_id,
-        )
-    return ContactChunkResult(people=outcome.people, found=outcome.found, attempt=activity.info().attempt)
+    labels = {"provider": inputs.provider, "step": inputs.step}
+    attempt = activity.info().attempt
+    if attempt > 1:
+        IMPORT_CHUNK_RETRIES.labels(**labels).inc()
+    with HeartbeaterSync(), IMPORT_CHUNK_DURATION.labels(**labels).time():
+        try:
+            outcome = import_contact_chunk(
+                inputs.team_id,
+                inputs.storage_prefix,
+                inputs.chunk,
+                send_events=inputs.send_events,
+                created_by_id=inputs.created_by_id,
+                wait_for_people=inputs.wait_for_people,
+            )
+        except ContactsCaptureFailed as error:
+            # The workflow reads the details to count the people capture did take from a part that failed.
+            raise ApplicationError(
+                str(error), error.acknowledged, error.new_people, type="ContactsCaptureFailed"
+            ) from error
+    return ContactChunkResult(
+        people=outcome.people, found=outcome.found, attempt=attempt, new_people=outcome.new_people
+    )
 
 
 @activity.defn(name="messaging-provider-import.fill_contacts_cohort")

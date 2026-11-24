@@ -178,7 +178,11 @@ def stop_slack_agent_design_stream(input: StopSlackAgentDesignStreamInput) -> No
         stream_pending_slack_attachments,
     )
     from products.tasks.backend.models import TaskRun
-    from products.tasks.backend.temporal.process_task.utils import is_explicit_slack_reply, turn_person_message
+    from products.tasks.backend.temporal.process_task.utils import (
+        is_explicit_slack_reply,
+        turn_person_message,
+        turn_person_message_ts,
+    )
 
     try:
         context = SlackThreadContext.from_dict(input.slack_thread_context)
@@ -189,6 +193,7 @@ def stop_slack_agent_design_stream(input: StopSlackAgentDesignStreamInput) -> No
             actor_slack_user_id=input.actor_slack_user_id,
             turn_trace_id=input.trace_id,
             turn_person_message=turn_person_message(input.run_id, input.message_id, mention=input.mention),
+            turn_person_message_ts=turn_person_message_ts(input.run_id, input.message_id),
         )
         if (
             task_run is not None

@@ -110,6 +110,27 @@ class TestProviderImportsAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert [step["key"] for step in response.json()[0]["steps"]] == ["contacts"]
 
+    def test_the_list_leaves_out_items_that_getting_the_run_returns(
+        self, _mock_client_class: MagicMock, _start_workflow: MagicMock
+    ) -> None:
+        items = [{"label": f"Template {i}", "status": "created", "url": None, "notes": ["Check it."]} for i in range(3)]
+        run = ProviderImportRun.objects.for_team(self.team.id).create(
+            team=self.team,
+            provider="customerio",
+            steps=["suppressions"],
+            status="completed",
+            progress={"suppressions": {"status": "completed", "items": items, "items_omitted": 7}},
+        )
+
+        listed = self.client.get(self._url()).json()[0]["steps"][0]
+        detail = self.client.get(f"{self._url()}{run.id}/").json()["steps"][0]
+
+        assert (listed["items"], listed["items_omitted"]) == ([], 10)
+        assert ([item["label"] for item in detail["items"]], detail["items_omitted"]) == (
+            ["Template 0", "Template 1", "Template 2"],
+            7,
+        )
+
     @parameterized.expand(
         [
             ("unknown_step", ["automations"], None, status.HTTP_400_BAD_REQUEST, "no step named automations"),
@@ -186,7 +207,7 @@ class TestProviderImportsAPI(APIBaseTest):
 
 @patch("products.messaging.backend.facade.provider_imports.feature_enabled_or_false", return_value=False)
 class TestProviderImportFlag(APIBaseTest):
-    @parameterized.expand([("resend",), ("postmark",)])
+    @parameterized.expand([("resend",), ("postmark",), ("mailchimp",)])
     def test_a_flagged_provider_stays_hidden_and_refused_while_its_flag_is_off(
         self, _flag: MagicMock, provider: str
     ) -> None:

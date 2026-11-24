@@ -51,6 +51,7 @@ from posthog.models import Organization, OrganizationIPRestrictions, User
 from posthog.models.activity_logging.model_activity import ImpersonatedContext
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.organization_external_project_link import OrganizationExternalProjectLink
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team.team import Team
 from posthog.models.uploaded_media import UploadedMedia
@@ -180,6 +181,10 @@ MEMBER_NOTICE_ALLOWED_TAGS = {"a", "b", "br", "code", "em", "i", "li", "ol", "p"
 MEMBER_NOTICE_ALLOWED_ATTRIBUTES = {"a": {"href", "title"}}
 MEMBER_NOTICE_MAX_LENGTH = 1000
 
+AI_DATA_PROCESSING_LOCKED_MESSAGE = (
+    "AI data processing is locked for this organization by admin request. Contact PostHog support to change this."
+)
+
 
 def sanitize_member_notice_html(message: str) -> str:
     return nh3.clean(
@@ -220,6 +225,16 @@ class OrganizationMemberNoticeField(serializers.JSONField):
         serializer = OrganizationMemberNoticeSerializer(data=data)
         serializer.is_valid(raise_exception=True)
         return serializer.validated_data
+
+
+class OrganizationExternalProjectLinkSerializer(serializers.ModelSerializer):
+    name = serializers.CharField(read_only=True, help_text="Name shown for the project in the project switcher.")
+    url = serializers.URLField(read_only=True, help_text="Full URL of the project on the other PostHog instance.")
+
+    class Meta:
+        model = OrganizationExternalProjectLink
+        fields = ("id", "name", "url")
+        read_only_fields = fields
 
 
 class OrganizationTeamBasicSerializer(TeamBasicSerializer):
@@ -288,6 +303,11 @@ class OrganizationSerializer(
     ip_restrictions_warning = serializers.SerializerMethodField(
         help_text="A warning when the current request's IP address is not in the saved allowlist.",
     )
+    external_project_links = OrganizationExternalProjectLinkSerializer(
+        many=True,
+        read_only=True,
+        help_text="Projects on other PostHog instances, such as another cloud region, shown in the project switcher. Set by PostHog staff.",
+    )
 
     class Meta:
         model = Organization
@@ -318,6 +338,7 @@ class OrganizationSerializer(
             "member_notice",
             "member_count",
             "is_ai_data_processing_approved",
+            "is_ai_data_processing_locked",
             "is_ai_training_opted_in",
             "is_ai_training_locked",
             "is_ai_training_cta_shown",
@@ -331,10 +352,12 @@ class OrganizationSerializer(
             "ip_restrictions",
             "ip_restrictions_enabled",
             "ip_restrictions_warning",
+            "external_project_links",
         ]
         read_only_fields = [
             "id",
             "ip_restrictions_warning",
+            "external_project_links",
             "slug",
             "created_at",
             "updated_at",
@@ -350,6 +373,7 @@ class OrganizationSerializer(
             "is_active",
             "is_not_active_reason",
             "is_pending_deletion",
+            "is_ai_data_processing_locked",
             "is_ai_training_locked",
             "is_ai_training_cta_shown",
             "has_signed_baa",
@@ -403,6 +427,16 @@ class OrganizationSerializer(
         ip_restrictions = validated_data.pop("ip_restrictions", None)
         ip_restrictions_enabled = validated_data.pop("ip_restrictions_enabled", None)
         with transaction.atomic():
+            # Support can lock AI off while this request is in flight. Read the stored consent under a row
+            # lock so an approval cannot slip past the lock, and so saving the stale instance cannot undo it.
+            instance.is_ai_data_processing_locked, instance.is_ai_data_processing_approved = (
+                # nosemgrep: hot-parent-row-select-for-update -- the organization row is the resource being changed
+                Organization.objects.select_for_update()
+                .filter(pk=instance.pk)
+                .values_list("is_ai_data_processing_locked", "is_ai_data_processing_approved")
+                .get()
+            )
+            self.validate_is_ai_data_processing_approved(validated_data.get("is_ai_data_processing_approved"))
             instance = super().update(instance, validated_data, *args, **kwargs)
             if ip_restrictions is not None or ip_restrictions_enabled is not None:
                 defaults: dict[str, Any] = {}
@@ -593,6 +627,16 @@ class OrganizationSerializer(
                     "You must upgrade your plan to configure public sharing settings.",
                     code="payment_required",
                 )
+        return value
+
+    def validate_is_ai_data_processing_approved(self, value: bool | None) -> bool | None:
+        if (
+            self.instance
+            and value
+            and not self.instance.is_ai_data_processing_approved
+            and self.instance.is_ai_data_processing_locked
+        ):
+            raise serializers.ValidationError(AI_DATA_PROCESSING_LOCKED_MESSAGE, code="locked")
         return value
 
     def validate_is_ai_training_opted_in(self, value: bool | None) -> bool | None:
@@ -803,7 +847,9 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         user = cast(User, self.request.user)
         # The serializer reads `ip_restrictions` for every organization in a list response. Load the
         # config up front so each row does not add its own reverse one-to-one query.
-        queryset = user.organizations.all().select_related("ip_restrictions_config")
+        queryset = (
+            user.organizations.all().select_related("ip_restrictions_config").prefetch_related("external_project_links")
+        )
         # Organization scopes only: these endpoints refuse a team-scoped credential outright in
         # `APIScopePermission`, so narrowing by its teams' organizations would only turn that 403 into a 404.
         if scoped_organizations := get_authenticator_scoped_organization_ids(self.request.successful_authenticator):
@@ -837,6 +883,7 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def perform_destroy(self, organization: Organization):
         from ee.billing.billing_manager import BillingManager
+        from ee.billing.billing_types import BillingProvider
 
         # Check if bulk deletion operations are disabled via environment variable
         # Organizations contain teams, so we need to block organization deletion too
@@ -852,6 +899,13 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 billing_manager = BillingManager(license)
                 billing = billing_manager.get_billing(organization)
                 if billing.get("has_active_subscription"):
+                    if billing.get("billing_provider") == BillingProvider.VERCEL:
+                        raise exceptions.ValidationError(
+                            "Billing for this organization is managed by Vercel. "
+                            "To end the subscription, uninstall the PostHog integration from your Vercel team, "
+                            "then delete the organization. If you no longer have access to that Vercel team, "
+                            "disconnect Vercel in Settings > Organization > Integrations instead."
+                        )
                     raise exceptions.ValidationError(
                         "Cannot delete organization with an active subscription. "
                         "Please cancel your subscription first in the billing page."
@@ -984,6 +1038,9 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # Nothing to request if PostHog AI is already enabled for the org.
         if organization.is_ai_data_processing_approved:
             raise exceptions.ValidationError("PostHog AI is already enabled for this organization.")
+
+        if organization.is_ai_data_processing_locked:
+            raise exceptions.ValidationError(AI_DATA_PROCESSING_LOCKED_MESSAGE, code="locked")
 
         # Members only — admins can enable PostHog AI themselves, so there's nobody to ask.
         resource, subject = Resource.organization(organization.id), request_subject(request)

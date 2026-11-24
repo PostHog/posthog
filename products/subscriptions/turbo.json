@@ -13,7 +13,9 @@
                 "!backend/temporal/**/test_*.py",
                 "!backend/temporal/**/test/**",
                 "backend/scopes.py",
-                "backend/apps.py"
+                "backend/activity_log_config.py",
+                "backend/apps.py",
+                "backend/admin.py"
             ],
             "outputs": [],
             "cache": true

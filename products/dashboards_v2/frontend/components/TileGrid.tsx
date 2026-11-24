@@ -9,10 +9,10 @@ import type { Compactor, Layout, LayoutItem } from 'react-grid-layout'
 import { useDragAutoScroll } from 'scenes/dashboard/useDragAutoScroll'
 
 import { type DropTarget, dashboardV2Logic } from '../dashboardV2Logic'
+import { type Gesture, type PlacedItem, bottomOf, placeTiles } from '../grid/placeTiles'
 import { dropIntoGrid, findTile, toPlacedItems, withSectionRows } from '../layout/dashboardEdits'
 import { GRID, type Tile, type TilePlace, columnWidthPx, isSection, spanPx } from '../layout/dashboardTypes'
 import { type DropZones, gridUnderPointer, readDropZones } from '../layout/dropTargets'
-import { type Gesture, type PlacedItem, bottomOf, placeTiles } from '../layout/placeTiles'
 import { widgetSize } from '../layout/widgetSizes'
 import { TileFrame } from './TileFrame'
 
@@ -20,7 +20,7 @@ const GHOST_ID = '__drop-preview'
 const MARGIN: [number, number] = [GRID.gapPx, GRID.gapPx]
 const NO_PADDING: [number, number] = [0, 0]
 // A press inside a section's own grid belongs to the tile there, so the section must not start moving too.
-const DRAG_CANCEL = '.DashboardV2__section-body, button, a, input, textarea, [role="menuitem"]'
+const DRAG_CANCEL = '.DashboardV2__section-body, .DashboardV2__footer, button, a, input, textarea, [role="menuitem"]'
 
 interface TileGridProps {
     gridId: string

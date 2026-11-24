@@ -48,7 +48,7 @@ AmazonSNS,,,,,,amazon-sns
 AmazonSQS,,,,,,amazon-sqs
 AmazonSellingPartner,region client_id client_secret refresh_token,,,marketplace_ids,,amazon-selling-partner
 Amplemarket,api_key,,,,,amplemarket
-Amplitude,api_key secret_key region,,,,,amplitude
+Amplitude,api_key secret_key region management_api_key,,,,,amplitude
 AnodotCost,,,,,,anodot-cost
 Anomalo,,,,,,anomalo
 Anthropic,api_key,,,,,anthropic
@@ -59,6 +59,7 @@ Apitally,api_key,,,,,apitally
 Apollo,api_key,,,,,apollo
 AppLovin,api_key campaign_api_key account_id,,,,,app-lovin
 AppStoreConnect,issuer_id key_id private_key vendor_number,,,app_ids,,app-store-connect
+Appbot,api_username api_password,,,,,appbot
 Appcues,api_key api_secret account_id region,,,,,appcues
 Appdirect,,,,,,appdirect
 Appdynamics,host account_name auth_method,,,metric_paths event_types,,appdynamics
@@ -703,7 +704,7 @@ Klar,,,,,,klar
 Klarna,api_key username region environment,,,,,klarna
 Klaus,subdomain api_token,,,,,klaus
 Klaviyo,api_key,,,conversion_metric_id,,klaviyo
-Knock,api_key,,,object_collections audience_keys in_app_feed_channel_ids,,knock
+Knock,api_key service_token,,,object_collections audience_keys in_app_feed_channel_ids management_environment,,knock
 Knowbe4,api_key region,,,,,knowbe4
 Kommo,subdomain api_key,,,,,kommo
 Komodor,api_key region,,,,,komodor
@@ -973,7 +974,7 @@ Pike13,,,,,,pike13
 Pinecone,api_key,,,,,pinecone
 Pingdom,api_token,,,,,pingdom
 Pingone,,,,,,pingone
-PinterestAds,,pinterest_ads_integration_id,ad_account_id,,,pinterest-ads
+PinterestAds,,pinterest_ads_integration_id,ad_account_id,reporting_timezone,,pinterest-ads
 PinterestOrganic,,,,,,pinterest-organic
 Pipedrive,company_domain api_token,,,,,pipedrive
 Pipeliner,service_url space_id username password,,,,,pipeliner

@@ -23,7 +23,7 @@ from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.templates.fixtures import template_slack
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.logs.backend.models import LogsAlertConfiguration
-from products.logs.backend.platform_cutover import NATIVE_CREATE_FLAG
+from products.logs.backend.platform_ownership import NATIVE_CREATE_FLAG
 
 SLACK = {"type": "slack", "slack_workspace_id": 42, "slack_channel_id": "C123", "slack_channel_name": "alerts"}
 WEBHOOK = {"type": "webhook", "webhook_url": "https://example.com/hook"}

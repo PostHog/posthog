@@ -1,5 +1,5 @@
 import { Extension } from '@tiptap/core'
-import { NodeSelection, Plugin, PluginKey, Selection } from '@tiptap/pm/state'
+import { NodeSelection, Plugin, PluginKey, Selection, TextSelection } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
 
 import { blockAtPos, moveBlock } from './emailCommands'
@@ -82,6 +82,10 @@ export const EmailVisibilityBadges = Extension.create({
     },
 })
 
+function isHtmlBlockSelected(selection: Selection): boolean {
+    return selection instanceof NodeSelection && selection.node.type.name === 'emailHtml'
+}
+
 export const EmailBlockKeymap = Extension.create({
     name: 'emailBlockKeymap',
     addKeyboardShortcuts() {
@@ -89,13 +93,40 @@ export const EmailBlockKeymap = Extension.create({
             const block = blockAtPos(this.editor.state.doc, this.editor.state.selection.from)
             return block ? moveBlock(this.editor, block, direction) : false
         }
-        return { 'Alt-ArrowUp': move(-1), 'Alt-ArrowDown': move(1) }
+        // The first press selects the text of the block being edited, as most editors do, so a delete right after it
+        // can't take the whole email. A second press selects everything.
+        let emptyBlockPress: Selection | null = null
+        const selectBlockText = (): boolean => {
+            const { selection, tr } = this.editor.state
+            const { $from, $to } = selection
+            if (!$from.parent.isTextblock || !$from.sameParent($to)) {
+                return false
+            }
+            const start = $from.start()
+            const end = $from.end()
+            // An empty block has nothing to select, so the first press there keeps the cursor where it is.
+            if (start === end) {
+                // Any edit or cursor move replaces the selection, so only an immediate second press matches it.
+                const secondPress = emptyBlockPress === selection
+                emptyBlockPress = secondPress ? null : selection
+                return !secondPress
+            }
+            emptyBlockPress = null
+            if (selection.from === start && selection.to === end) {
+                return false
+            }
+            this.editor.view.dispatch(tr.setSelection(TextSelection.create(tr.doc, start, end)))
+            return true
+        }
+        return { 'Alt-ArrowUp': move(-1), 'Alt-ArrowDown': move(1), 'Mod-a': selectBlockText }
     },
     addProseMirrorPlugins() {
         return [
             new Plugin({
                 key: new PluginKey('emailClickOutOfNode'),
                 props: {
+                    // A key pressed on a selected HTML block would replace it, and an imported email is one whole block.
+                    handleTextInput: (view) => isHtmlBlockSelected(view.state.selection),
                     // Chrome leaves the native selection on a selected block inside a column when the click lands
                     // elsewhere, so the block stayed selected and the next keystroke replaced it.
                     handleClick: (view, pos, event) => {

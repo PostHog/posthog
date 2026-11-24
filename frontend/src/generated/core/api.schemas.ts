@@ -1890,6 +1890,13 @@ export interface TeamCustomerAnalyticsPinnedAccountPropertyApi {
     id: string
 }
 
+export interface TeamCustomerAnalyticsRoleDefaultPinnedPropertiesApi {
+    /** Organization role whose members inherit these properties. */
+    role_id: string
+    /** Ordered account properties shown to members of this role. */
+    pinned_properties: TeamCustomerAnalyticsPinnedAccountPropertyApi[]
+}
+
 export interface TeamCustomerAnalyticsConfigApi {
     /** Event used as the activity signal (DAU/WAU/MAU). */
     activity_event?: unknown
@@ -1908,6 +1915,8 @@ export interface TeamCustomerAnalyticsConfigApi {
     account_group_type_index?: number | null
     /** Ordered account properties shown until a user saves a personal pinned-property selection. Pass an empty list to show no properties by default. */
     default_pinned_properties?: TeamCustomerAnalyticsPinnedAccountPropertyApi[]
+    /** Default pinned account properties per organization role. A user who has not saved a personal selection sees the merged defaults of every role they belong to, ordered by role name, instead of default_pinned_properties. Replaces every role's defaults on write. */
+    role_default_pinned_properties?: TeamCustomerAnalyticsRoleDefaultPinnedPropertiesApi[]
 }
 
 /**
@@ -5964,7 +5973,7 @@ export interface UploadedMediaStartUploadApi {
      */
     name: string
     /**
-     * Library to add this image to once uploaded, e.g. 'email'.
+     * Library to add this image to once uploaded, e.g. 'email'. Use 'conversations' for a support ticket reply image. No library lists those.
      * @maxLength 100
      */
     purpose: string
@@ -6504,6 +6513,14 @@ export interface OrganizationMemberNoticeApi {
     action?: OrganizationMemberNoticeActionApi | null
 }
 
+export interface OrganizationExternalProjectLinkApi {
+    readonly id: string
+    /** Name shown for the project in the project switcher. */
+    readonly name: string
+    /** Full URL of the project on the other PostHog instance. */
+    readonly url: string
+}
+
 export type OrganizationApiProjectsItem = { [key: string]: unknown }
 
 export type OrganizationApiMetadata = { [key: string]: string }
@@ -6566,6 +6583,11 @@ export interface OrganizationApi {
     /** @nullable */
     is_ai_data_processing_approved?: boolean | null
     /**
+     * When True, AI data processing cannot be turned on through the UI or API, and members cannot ask admins to turn it on. Set at the organization's request.
+     * @nullable
+     */
+    readonly is_ai_data_processing_locked: boolean | null
+    /**
      * When True, this organization allows its data to be used to train PostHog AI models.
      * @nullable
      */
@@ -6622,6 +6644,8 @@ export interface OrganizationApi {
      * @nullable
      */
     readonly ip_restrictions_warning: string | null
+    /** Projects on other PostHog instances, such as another cloud region, shown in the project switcher. Set by PostHog staff. */
+    readonly external_project_links: readonly OrganizationExternalProjectLinkApi[]
 }
 
 /**
@@ -7910,7 +7934,7 @@ export const UploadedMediaListPurpose = {
 } as const
 
 /**
- * Library to add this image to. Omit to upload without joining a library (as dashboard text cards and notebooks do).
+ * Library to add this image to. Omit to upload without joining a library (as dashboard text cards and notebooks do). `conversations` marks a support reply image, which no library lists.
  */
 export type UploadedMediaCreateBodyPurpose =
     (typeof UploadedMediaCreateBodyPurpose)[keyof typeof UploadedMediaCreateBodyPurpose]
@@ -7919,12 +7943,13 @@ export const UploadedMediaCreateBodyPurpose = {
     Email: 'email',
     Canvas: 'canvas',
     Experiment: 'experiment',
+    Conversations: 'conversations',
 } as const
 
 export type UploadedMediaCreateBody = {
     /** Image file. Must be under 4MB and a real, decodable image. */
     image: Blob
-    /** Library to add this image to. Omit to upload without joining a library (as dashboard text cards and notebooks do). */
+    /** Library to add this image to. Omit to upload without joining a library (as dashboard text cards and notebooks do). `conversations` marks a support reply image, which no library lists. */
     purpose?: UploadedMediaCreateBodyPurpose
 }
 

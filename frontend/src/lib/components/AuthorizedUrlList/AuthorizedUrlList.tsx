@@ -4,25 +4,14 @@ import type { KeyboardEvent } from 'react'
 
 import { IconCopy, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 
-import { TeamMembershipLevel } from 'lib/constants'
 import { IconOpenInApp } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
-import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
-import { isOAuthMode } from 'lib/utils/oauthClient'
-import { teamLogic } from 'scenes/teamLogic'
-import { userLogic } from 'scenes/userLogic'
 
-import {
-    AccessControlLevel,
-    AccessControlResourceType,
-    AvailableFeature,
-    ExperimentIdType,
-    ToolbarUserIntent,
-} from '~/types'
+import { ExperimentIdType, ToolbarUserIntent } from '~/types'
 
 import { AuthorizedUrlForm } from './AuthorizedUrlForm'
 import { AuthorizedUrlListType, KeyedAppUrl, authorizedUrlListLogic } from './authorizedUrlListLogic'
@@ -72,30 +61,11 @@ export function AuthorizedUrlList({
         allowWildCards,
     })
 
-    const { urlsKeyed, launchUrl, editUrlIndex, isAddUrlFormVisible, onlyAllowDomains } = useValues(logic)
+    const { urlsKeyed, launchUrl, editUrlIndex, isAddUrlFormVisible, onlyAllowDomains, writeDisabledReason } =
+        useValues(logic)
     const { addUrl, removeUrl, newUrl, setEditUrlIndex, copyLaunchCode } = useActions(logic)
 
-    const { currentTeam } = useValues(teamLogic)
-    const { hasAvailableFeature } = useValues(userLogic)
     const quillSurface = useQuillSurface()
-
-    // Mirrors `validate_team_attrs`: `app_urls` needs project admin, or web analytics editor when access
-    // controls are on. `recording_domains` needs project admin even when access controls are on.
-    let writeDisabledReason: string | null = null
-    if (type !== AuthorizedUrlListType.RECORDING_DOMAINS && hasAvailableFeature(AvailableFeature.ACCESS_CONTROL)) {
-        // OAuth mode has no app context to read the access level from, so only the backend enforces it there.
-        if (!isOAuthMode()) {
-            writeDisabledReason = getAccessControlDisabledReason(
-                AccessControlResourceType.WebAnalytics,
-                AccessControlLevel.Editor
-            )
-        }
-    } else if (
-        currentTeam?.effective_membership_level != null &&
-        currentTeam.effective_membership_level < TeamMembershipLevel.Admin
-    ) {
-        writeDisabledReason = 'Only project admins can change authorized URLs. Ask a project admin to do it.'
-    }
 
     const noAuthorizedUrls = !urlsKeyed.some((url) => url.type === 'authorized')
 

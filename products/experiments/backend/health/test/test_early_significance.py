@@ -30,7 +30,10 @@ from products.experiments.backend.health.primary_metric import load_primary_metr
 from products.experiments.backend.health.skips import CheckSkip
 from products.experiments.backend.health.test.factories import ENDED, RUNNING_CONTEXT
 from products.experiments.backend.logic.result_stats import BaselineStats, Interval, MetricResultStats, VariantStats
-from products.experiments.backend.metric_calculation.config import build_primary_calculation_configs
+from products.experiments.backend.metric_calculation.config import (
+    build_primary_calculation_configs,
+    team_experiments_configs,
+)
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
@@ -342,5 +345,5 @@ class TestEarlySignificanceFromStoredResults(BaseTest):
         )
         if finding:
             self.assertIn('"Checkout funnel"' if shared else '"purchase conversion"', finding.detail)
-        primary = load_primary_metric(experiment)
+        primary = load_primary_metric(experiment, team_config=team_experiments_configs([self.team.id])[self.team.id])
         self.assertEqual(primary.exposures if primary else None, 2000 if under_current_key else None)

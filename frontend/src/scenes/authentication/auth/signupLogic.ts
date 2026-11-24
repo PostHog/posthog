@@ -8,7 +8,7 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api, { ApiError } from 'lib/api'
+import api, { ApiError, NetworkError } from 'lib/api'
 import { ValidatedPasswordResult, loadPasswordEstimator, validatePassword } from 'lib/components/PasswordStrength'
 import { getReferralFollowUp } from 'lib/components/SignupReferralSource'
 import { CLOUD_HOSTNAMES, FEATURE_FLAGS } from 'lib/constants'
@@ -333,6 +333,19 @@ function throttledSignupMessage(retryAfterSeconds: number | null, googleAvailabl
     return `Too many signup attempts from your network. Try again ${retryAfter}${googleSuggestion}.`
 }
 
+export const SIGNUP_NETWORK_ERROR_CODE = 'network_error'
+
+export function signupGenericError(e: unknown): { code?: string; detail?: string } {
+    if (e instanceof NetworkError) {
+        return {
+            code: SIGNUP_NETWORK_ERROR_CODE,
+            detail: "We couldn't reach PostHog. Check your connection and try again. Your details are still filled in.",
+        }
+    }
+    const error = e as Record<string, any>
+    return { code: error.code, detail: error.detail }
+}
+
 export const signupLogic = kea<signupLogicType>([
     path(['scenes', 'authentication', 'auth', 'signupLogic']),
     loaders({
@@ -641,12 +654,7 @@ export const signupLogic = kea<signupLogicType>([
                             },
                         })
                     } else {
-                        actions.setSignupPanelOnboardingManualErrors({
-                            generic: {
-                                code: error.code,
-                                detail: error.detail,
-                            },
-                        })
+                        actions.setSignupPanelOnboardingManualErrors({ generic: signupGenericError(e) })
                     }
                     throw e
                 }
