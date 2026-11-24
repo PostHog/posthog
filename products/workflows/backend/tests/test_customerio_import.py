@@ -1247,7 +1247,7 @@ class TestWorkflowImportAPI(APIBaseTest):
         # A longer URL that starts with `hero`, and one whose query the HTML escapes.
         hero_webp, sized = f"{hero}.webp", f"{hero}?w=1&amp;h=2"
         logo = "https://userimg-assets.customeriomail.com/images/client-env-1/logo(1).png"
-        accented = "https://userimg-assets.customeriomail.com/images/client-env-1/été.png"
+        accented = "https://userimg-assets.customeriomail.com/images/client-env-1/été\u202fPM.png"
         # Neither may be requested: one only has an address at send time, one unescapes to another host.
         templated = "https://userimg-assets.customeriomail.com/images/client-env-1/v.png?v={{ person.properties.v }}"
         smuggled = "https://userimg-assets.customeriomail.com&#64;evil.example.com/a.png"
@@ -1332,6 +1332,11 @@ class TestWorkflowImportAPI(APIBaseTest):
             == 5
         )
         assert all(call.kwargs["allow_redirects"] is False for call in mock_get.call_args_list)
+
+        copies[1].stop_serving()
+        taken_down = self._import(campaigns=campaigns)
+        assert any(hero_webp in n["message"] for n in taken_down["notes"])
+        assert [call.args[0] for call in mock_get.call_args_list].count(hero_webp) == 1
 
     @patch("products.workflows.backend.presentation.views.workflow_import_drafts._REQUEST_SECONDS", 0)
     @patch("products.workflows.backend.services.email_images.requests.get")
