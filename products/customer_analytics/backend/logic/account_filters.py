@@ -16,6 +16,10 @@ from django.utils.dateparse import parse_date, parse_datetime
 from posthog.models.tagged_item import TaggedItem
 from posthog.utils import relative_date_parse
 
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
+from products.authorization.backend.presentation.querysets import filter_queryset
 from products.customer_analytics.backend.domain import parse_company_domain
 from products.customer_analytics.backend.facade import contracts
 from products.customer_analytics.backend.models import Account, AccountRelationship, CustomPropertyValue, DisplayType
@@ -58,6 +62,15 @@ ACCOUNT_DIRECT_FIELDS = {
     contracts.AccountTableField.CHURNED_AT: "churned_at",
     contracts.AccountTableField.IGNORED_AT: "ignored_at",
 }
+
+
+def accounts_visible_to(team_id: int, subject: Subject, *, require_resource_access: bool = False) -> QuerySet[Account]:
+    accounts = Account.objects.for_team(team_id)
+    resource = Resource(type=ResourceType.ACCOUNT, project_id=team_id)
+    with authorization.authorization_session():
+        if require_resource_access and not authorization.check(resource=resource, action=Action.VIEW, subject=subject):
+            return accounts.none()
+        return filter_queryset(accounts, resource=resource, subject=subject)
 
 
 def parse_email_search(query: str) -> str | None:

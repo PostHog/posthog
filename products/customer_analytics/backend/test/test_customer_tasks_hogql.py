@@ -13,8 +13,8 @@ from posthog.models import OrganizationMembership, Team, User
 from posthog.models.organization import AvailableFeature
 from posthog.paging import PageRequest
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
+from products.authorization.backend.facade.contracts import Subject
 from products.customer_analytics.backend.facade import api, contracts
 from products.customer_analytics.backend.models import Account
 from products.customer_analytics.backend.models.customer_task import CustomerTask
@@ -103,7 +103,7 @@ class TestCustomerTasksHogqlAccess(NonAtomicBaseTest):
         ).results
         tasks = api.list_customer_tasks(
             team_id=self.team.id,
-            user_access_control=UserAccessControl(user=viewer, team=self.team),
+            subject=Subject(user_id=viewer.pk),
             filters=contracts.CustomerTaskListFilters(),
             page=PageRequest(limit=100),
         )

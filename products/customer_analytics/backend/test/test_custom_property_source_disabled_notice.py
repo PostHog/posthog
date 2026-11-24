@@ -9,8 +9,8 @@ from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership
 from posthog.paging import PageRequest
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
+from products.authorization.backend.facade.contracts import Subject
 from products.customer_analytics.backend.facade import contracts
 from products.customer_analytics.backend.logic.custom_property_source_disabled_notice import (
     CONFIGURATION_ACCOUNTS_PATH,
@@ -95,10 +95,9 @@ class TestNotifySourceAutoDisabled(BaseTest):
         assert local_due_at.date().isoformat() == "2026-09-21"
         assert local_due_at.time() == time(23, 59, 59)
 
-        access = UserAccessControl(user=self.user, team=self.team)
         tasks = list_customer_tasks(
             team_id=self.team.id,
-            user_access_control=access,
+            subject=Subject(user_id=self.user.pk),
             filters=contracts.CustomerTaskListFilters(assigned_to="me"),
             page=PageRequest(limit=10),
         )

@@ -15,6 +15,7 @@ from slack_sdk.errors import SlackApiError
 from posthog.models import Team
 from posthog.models.comment import Comment
 
+from products.authorization.backend.facade.contracts import Subject
 from products.conversations.backend.channel_summary_ids import build_channel_summary_workflow_id
 from products.conversations.backend.facade.api import (
     SupportMessageSendError,
@@ -195,8 +196,7 @@ class TestResolveSupportSlackSender(BaseTest):
 class TestListAccountTickets(BaseTest):
     def setUp(self) -> None:
         super().setUp()
-        self.access_control = MagicMock()
-        self.access_control.filter_queryset_by_access_level.side_effect = lambda queryset: queryset
+        self.subject = Subject(user_id=self.user.pk)
 
     def _create_ticket(self, *, team: Team, organization_id: str | None, number: int, last_message_at=None) -> Ticket:
         return Ticket.objects.create(
@@ -214,7 +214,7 @@ class TestListAccountTickets(BaseTest):
         self._create_ticket(team=self.team, organization_id="acct-2", number=2)
         self._create_ticket(team=other_team, organization_id="acct-1", number=1)
 
-        result = list_account_tickets(self.team.pk, "acct-1", self.access_control)
+        result = list_account_tickets(self.team.pk, "acct-1", self.subject)
 
         assert [t.id for t in result] == [str(mine.id)]
         assert result[0].deep_link.endswith(f"/project/{self.team.pk}/support/tickets/1")
@@ -252,7 +252,7 @@ class TestListAccountTickets(BaseTest):
             item_context={"author_type": "support", "is_private": True},
         )
 
-        result = list_account_tickets(self.team.pk, "acct-1", self.access_control)
+        result = list_account_tickets(self.team.pk, "acct-1", self.subject)
 
         assert result[0].last_message is not None
         assert result[0].last_message.sender.name == "Example customer"
@@ -260,7 +260,7 @@ class TestListAccountTickets(BaseTest):
         assert result[0].last_message.sender.distinct_id == ticket.distinct_id
         assert result[0].last_message.direction == "inbound"
 
-        message_page = list_account_ticket_messages(self.team.pk, "acct-1", str(ticket.id), self.access_control)
+        message_page = list_account_ticket_messages(self.team.pk, "acct-1", str(ticket.id), self.subject)
         assert message_page is not None
         messages, count = message_page
         assert count == 3
@@ -288,7 +288,7 @@ class TestListAccountTickets(BaseTest):
             },
         )
 
-        result = list_account_tickets(self.team.pk, "acct-1", self.access_control)
+        result = list_account_tickets(self.team.pk, "acct-1", self.subject)
 
         assert result[0].last_message is not None
         assert result[0].last_message.sender.name == "Imported agent"
@@ -355,8 +355,8 @@ class TestListAccountTickets(BaseTest):
             item_context=item_context,
         )
 
-        tickets = list_account_tickets(self.team.pk, "acct-1", self.access_control)
-        message_page = list_account_ticket_messages(self.team.pk, "acct-1", str(ticket.id), self.access_control)
+        tickets = list_account_tickets(self.team.pk, "acct-1", self.subject)
+        message_page = list_account_ticket_messages(self.team.pk, "acct-1", str(ticket.id), self.subject)
 
         assert tickets[0].last_message is not None
         assert tickets[0].last_message.sender.name == expected_name
@@ -371,14 +371,14 @@ class TestListAccountTickets(BaseTest):
         self._create_ticket(team=self.team, organization_id="acct-1", number=2, last_message_at=newer)
         self._create_ticket(team=self.team, organization_id="acct-1", number=3, last_message_at=None)
 
-        result = list_account_tickets(self.team.pk, "acct-1", self.access_control)
+        result = list_account_tickets(self.team.pk, "acct-1", self.subject)
 
         assert [t.ticket_number for t in result] == [2, 1, 3]
 
     def test_empty_organization_id_matches_nothing(self):
         self._create_ticket(team=self.team, organization_id="acct-1", number=1)
 
-        assert list_account_tickets(self.team.pk, "", self.access_control) == []
+        assert list_account_tickets(self.team.pk, "", self.subject) == []
 
 
 ACCOUNT_ID = "e1f4a5b6-0000-4000-8000-000000000001"

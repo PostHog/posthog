@@ -23,7 +23,11 @@ from products.access_control.backend.facade import (
     api as access_control_api,
     contracts as access_control_contracts,
 )
-from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import CheckRequest, Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
+from products.authorization.backend.presentation.querysets import filter_queryset
+from products.authorization.backend.presentation.resources import resource_for_object
 from products.customer_analytics.backend.constants import CUSTOMER_TASK_MAX_TAGS
 from products.customer_analytics.backend.facade import contracts
 from products.customer_analytics.backend.facade.contracts import (
@@ -36,6 +40,7 @@ from products.customer_analytics.backend.facade.contracts import (
     CustomerTaskRoleNotFound,
     CustomerTaskTagLimitExceeded,
 )
+from products.customer_analytics.backend.logic.account_filters import accounts_visible_to
 from products.customer_analytics.backend.models import Account, CustomerTask, CustomerTaskActivity
 from products.customer_analytics.backend.models.customer_task import CustomerTaskActivityType, CustomerTaskStatus
 
@@ -136,11 +141,6 @@ def _set_customer_task_tags(team_id: int, updates: Iterable[tuple[CustomerTask, 
         Tag.objects.filter(team_id=team_id, id__in=removed_tag_ids, tagged_items__isnull=True).delete()
 
 
-def _visible_account_queryset(team_id: int, user_access_control: UserAccessControl) -> QuerySet[Account]:
-    accounts = Account.objects.for_team(team_id)
-    return user_access_control.filter_queryset_by_access_level(accounts, resource="account")
-
-
 def _task_by_id(queryset: QuerySet[CustomerTask], task_id: UUID | str) -> CustomerTask | None:
     try:
         return queryset.filter(id=task_id).first()
@@ -148,27 +148,29 @@ def _task_by_id(queryset: QuerySet[CustomerTask], task_id: UUID | str) -> Custom
         return None
 
 
-def _visible_task_queryset(team_id: int, user_access_control: UserAccessControl) -> QuerySet[CustomerTask]:
-    visible_account_ids = _visible_account_queryset(team_id, user_access_control).values("id")
+def _visible_task_queryset(team_id: int, subject: Subject) -> QuerySet[CustomerTask]:
+    visible_account_ids = accounts_visible_to(team_id, subject).values("id")
     account_filter = Q(account__isnull=True) | Q(account_id__in=visible_account_ids)
-    return user_access_control.filter_queryset_by_access_level(
-        _task_queryset(team_id), resource="customer_task"
+    return filter_queryset(
+        _task_queryset(team_id), resource=Resource(type=ResourceType.CUSTOMER_TASK, project_id=team_id), subject=subject
     ).filter(account_filter)
 
 
-def _account_for_write(team_id: int, account_id: UUID | None, user_access_control: UserAccessControl) -> Account | None:
+def _account_for_write(team_id: int, account_id: UUID | None, subject: Subject) -> Account | None:
     if account_id is None:
         return None
-    account = _visible_account_queryset(team_id, user_access_control).filter(id=account_id).first()
+    account = accounts_visible_to(team_id, subject).filter(id=account_id).first()
     if account is None:
         raise CustomerTaskAccountNotFound()
     return account
 
 
-def _validate_assignee_access(*, team: Team, account: Account | None, access: UserAccessControl) -> None:
-    if not access.check_access_level_for_object(team, required_level="member"):
+def _validate_assignee_access(*, team: Team, account: Account | None, subject: Subject) -> None:
+    if not authorization.check(resource=Resource.project(team.id), action=Action.VIEW, subject=subject):
         raise CustomerTaskAssigneeInvalid()
-    if account is not None and not access.check_access_level_for_object(account, required_level="viewer"):
+    if account is not None and not authorization.check(
+        resource=resource_for_object(account), action=Action.VIEW, subject=subject
+    ):
         raise CustomerTaskAssigneeCannotViewAccount()
 
 
@@ -188,7 +190,7 @@ def _validate_assignee(
     assignee = User.objects.filter(id=assignee_id).first()
     if assignee is None:
         raise CustomerTaskAssigneeInvalid()
-    _validate_assignee_access(team=team, account=account, access=UserAccessControl(user=assignee, team=team))
+    _validate_assignee_access(team=team, account=account, subject=Subject(user_id=assignee.pk))
     return assignee
 
 
@@ -199,28 +201,55 @@ class _CustomerTaskBulkValidation:
         team: Team,
         visible_tasks: list[CustomerTask],
         input: contracts.UpdateCustomerTaskInput,
-        user_access_control: UserAccessControl,
+        subject: Subject,
     ) -> None:
         self.team = team
-        self.user_access_control = user_access_control
+        self.subject = subject
         self.accounts = {task.account.id: task.account for task in visible_tasks if task.account is not None}
-        self.assignee_ids = {task.assigned_to_id for task in visible_tasks if task.assigned_to_id is not None}
-        if input.assigned_to_id_provided and input.assigned_to_id is not None:
-            self.assignee_ids.add(input.assigned_to_id)
-        self.validated_pairs: set[tuple[UUID | None, int]] = set()
+        self.assignee_pairs = {
+            (
+                input.account_id if input.account_id_provided else task.account_id,
+                assignee_id,
+            )
+            for task in visible_tasks
+            if (assignee_id := input.assigned_to_id if input.assigned_to_id_provided else task.assigned_to_id)
+            is not None
+        }
 
     @cached_property
-    def assignee_access(self) -> dict[int, UserAccessControl]:
-        return UserAccessControl.for_user_ids(user_ids=self.assignee_ids, team=self.team)
+    def assignees(self) -> dict[int, User]:
+        members = OrganizationMembership.objects.filter(
+            user_id__in={user_id for _, user_id in self.assignee_pairs},
+            organization_id=self.team.organization_id,
+        ).select_related("user")
+        return {member.user_id: member.user for member in members}
+
+    @cached_property
+    def assignee_permissions(self) -> dict[CheckRequest, bool]:
+        project = Resource.project(self.team.pk)
+        requests: set[CheckRequest] = set()
+        for account_id, assignee_id in self.assignee_pairs:
+            if assignee_id not in self.assignees:
+                continue
+            subject = Subject(user_id=assignee_id)
+            requests.add(CheckRequest(resource=project, action=Action.VIEW, subject=subject))
+            if account_id is not None:
+                requests.add(
+                    CheckRequest(
+                        resource=resource_for_object(self.accounts[account_id]), action=Action.VIEW, subject=subject
+                    )
+                )
+        batch = list(requests)
+        return dict(zip(batch, authorization.check(batch), strict=True))
 
     def can_edit(self, task: CustomerTask) -> bool:
-        return self.user_access_control.check_access_level_for_object(task, required_level="editor")
+        return authorization.check(resource=resource_for_object(task), action=Action.EDIT, subject=self.subject)
 
     def get_account(self, account_id: UUID | None) -> Account | None:
         if account_id is None:
             return None
         if account_id not in self.accounts:
-            account = _account_for_write(self.team.id, account_id, self.user_access_control)
+            account = _account_for_write(self.team.id, account_id, self.subject)
             if account is None:
                 raise CustomerTaskAccountNotFound()
             self.accounts[account_id] = account
@@ -229,14 +258,22 @@ class _CustomerTaskBulkValidation:
     def get_assignee(self, account: Account | None, assignee_id: int | None) -> User | None:
         if assignee_id is None:
             return None
-        access = self.assignee_access.get(assignee_id)
-        if access is None:
+        assignee = self.assignees.get(assignee_id)
+        if assignee is None:
             raise CustomerTaskAssigneeInvalid()
-        pair = (account.id if account is not None else None, assignee_id)
-        if pair not in self.validated_pairs:
-            _validate_assignee_access(team=self.team, account=account, access=access)
-            self.validated_pairs.add(pair)
-        return access.user
+        subject = Subject(user_id=assignee_id)
+        if not self.assignee_permissions[
+            CheckRequest(resource=Resource.project(self.team.pk), action=Action.VIEW, subject=subject)
+        ]:
+            raise CustomerTaskAssigneeInvalid()
+        if (
+            account is not None
+            and not self.assignee_permissions[
+                CheckRequest(resource=resource_for_object(account), action=Action.VIEW, subject=subject)
+            ]
+        ):
+            raise CustomerTaskAssigneeCannotViewAccount()
+        return assignee
 
 
 def _set_customer_task_assignee_access(
@@ -274,12 +311,16 @@ def _set_customer_task_assignee_access(
         )
 
 
-def can_edit_customer_task(task: CustomerTask, user_access_control: UserAccessControl) -> bool:
-    return task.archived_at is None and user_access_control.check_access_level_for_object(task, "editor")
+def can_edit_customer_task(task: CustomerTask, subject: Subject) -> bool:
+    return task.archived_at is None and authorization.check(
+        resource=resource_for_object(task), action=Action.EDIT, subject=subject
+    )
 
 
-def can_restore_customer_task(task: CustomerTask, user_access_control: UserAccessControl) -> bool:
-    return task.archived_at is not None and user_access_control.check_access_level_for_object(task, "editor")
+def can_restore_customer_task(task: CustomerTask, subject: Subject) -> bool:
+    return task.archived_at is not None and authorization.check(
+        resource=resource_for_object(task), action=Action.EDIT, subject=subject
+    )
 
 
 def _timestamp(value: datetime | None) -> str | None:
@@ -408,10 +449,8 @@ def remove_customer_task_assignee_access_for_account(*, team: Team, account_id: 
         )
 
 
-def _list_role_member_user_ids(team_id: int, user_access_control: UserAccessControl, role_id: UUID) -> list[int]:
-    team = user_access_control.team
-    if team is None or team.id != team_id:
-        team = Team.objects.only("organization_id").get(id=team_id)
+def _list_role_member_user_ids(team_id: int, role_id: UUID) -> list[int]:
+    team = Team.objects.only("organization_id").get(id=team_id)
     if not access_control_api.role_belongs_to_organization(role_id=role_id, organization_id=team.organization_id):
         raise CustomerTaskRoleNotFound()
     return access_control_api.valid_role_member_user_ids(role_id=role_id)
@@ -420,25 +459,23 @@ def _list_role_member_user_ids(team_id: int, user_access_control: UserAccessCont
 def list_customer_tasks(
     *,
     team_id: int,
-    user_access_control: UserAccessControl,
+    subject: Subject,
     filters: contracts.CustomerTaskListFilters,
     page: PageRequest,
 ) -> Page[CustomerTask]:
-    queryset = _visible_task_queryset(team_id, user_access_control)
+    queryset = _visible_task_queryset(team_id, subject)
     if filters.search:
         queryset = queryset.filter(Q(name__icontains=filters.search) | Q(description__icontains=filters.search))
     if filters.account_id is not None:
         queryset = queryset.filter(account_id=filters.account_id)
     if filters.assigned_to == "me":
-        queryset = queryset.filter(assigned_to_id=user_access_control.user.id)
+        queryset = queryset.filter(assigned_to_id=subject.user_id)
     elif filters.assigned_to == "unassigned":
         queryset = queryset.filter(assigned_to_id__isnull=True)
     elif filters.assigned_to:
         queryset = queryset.filter(assigned_to_id=int(filters.assigned_to))
     if filters.assigned_role_id is not None:
-        queryset = queryset.filter(
-            assigned_to_id__in=_list_role_member_user_ids(team_id, user_access_control, filters.assigned_role_id)
-        )
+        queryset = queryset.filter(assigned_to_id__in=_list_role_member_user_ids(team_id, filters.assigned_role_id))
     if filters.statuses:
         queryset = queryset.filter(status__in=filters.statuses)
     if filters.archive_state == "active":
@@ -462,16 +499,12 @@ def list_customer_tasks(
     return select_page(queryset, page)
 
 
-def get_customer_task(
-    *, team_id: int, task_id: UUID | str, user_access_control: UserAccessControl
-) -> CustomerTask | None:
-    return _task_by_id(_visible_task_queryset(team_id, user_access_control), task_id)
+def get_customer_task(*, team_id: int, task_id: UUID | str, subject: Subject) -> CustomerTask | None:
+    return _task_by_id(_visible_task_queryset(team_id, subject), task_id)
 
 
-def _task_for_write(
-    *, team_id: int, task_id: UUID | str, user_access_control: UserAccessControl
-) -> CustomerTask | None:
-    queryset = _visible_task_queryset(team_id, user_access_control).select_for_update(of=("self",))
+def _task_for_write(*, team_id: int, task_id: UUID | str, subject: Subject) -> CustomerTask | None:
+    queryset = _visible_task_queryset(team_id, subject).select_for_update(of=("self",))
     return _task_by_id(queryset, task_id)
 
 
@@ -480,10 +513,10 @@ def create_customer_task(
     team: Team,
     input: contracts.CreateCustomerTaskInput,
     actor: User | None,
-    user_access_control: UserAccessControl,
+    subject: Subject,
     task_id: UUID | None = None,
 ) -> CustomerTask:
-    account = _account_for_write(team.id, input.account_id, user_access_control)
+    account = _account_for_write(team.id, input.account_id, subject)
     assignee = _validate_assignee(team=team, account=account, assignee_id=input.assigned_to_id)
     completed_at = timezone.now() if input.status == CustomerTaskStatus.COMPLETED else None
     completed_by = actor if completed_at is not None and actor is not None else assignee if completed_at else None
@@ -541,13 +574,13 @@ def _prepare_customer_task_update(
     task: CustomerTask,
     input: contracts.UpdateCustomerTaskInput,
     actor: User | None,
-    user_access_control: UserAccessControl,
+    subject: Subject,
     validation: _CustomerTaskBulkValidation | None = None,
 ) -> _CustomerTaskWrite | None:
     can_edit = (
         validation.can_edit(task)
         if validation is not None
-        else can_access_customer_task_object(task=task, user_access_control=user_access_control, write=True)
+        else can_access_customer_task_object(task=task, subject=subject, write=True)
     )
     if not can_edit:
         raise CustomerTaskAccessDenied()
@@ -580,7 +613,7 @@ def _prepare_customer_task_update(
         account = validation.get_account(account_id)
         assignee = validation.get_assignee(account, assignee_id)
     else:
-        account = _account_for_write(team.id, account_id, user_access_control)
+        account = _account_for_write(team.id, account_id, subject)
         assignee = _validate_assignee(team=team, account=account, assignee_id=assignee_id)
     requested_status = input.status if input.status_provided else task.status
     if requested_status is None:
@@ -697,15 +730,13 @@ def update_customer_task(
     task_id: UUID | str,
     input: contracts.UpdateCustomerTaskInput,
     actor: User | None,
-    user_access_control: UserAccessControl,
+    subject: Subject,
 ) -> CustomerTask | None:
     with transaction.atomic():
-        task = _task_for_write(team_id=team.id, task_id=task_id, user_access_control=user_access_control)
+        task = _task_for_write(team_id=team.id, task_id=task_id, subject=subject)
         if task is None:
             return None
-        write = _prepare_customer_task_update(
-            team=team, task=task, input=input, actor=actor, user_access_control=user_access_control
-        )
+        write = _prepare_customer_task_update(team=team, task=task, input=input, actor=actor, subject=subject)
         if write is not None:
             task.save()
             if write.tag_names is not None:
@@ -722,21 +753,19 @@ def bulk_update_customer_tasks(
     input: contracts.UpdateCustomerTaskInput,
     archived: bool | None,
     actor: User | None,
-    user_access_control: UserAccessControl,
+    subject: Subject,
 ) -> int | None:
     try:
-        with transaction.atomic():
+        with authorization.authorization_session(), transaction.atomic():
             tasks = list(
-                _visible_task_queryset(team.id, user_access_control)
+                _visible_task_queryset(team.id, subject)
                 .filter(id__in=task_ids)
                 .order_by("id")
                 .select_for_update(of=("self",))
             )
             if len(tasks) != len(task_ids):
                 return None
-            validation = _CustomerTaskBulkValidation(
-                team=team, visible_tasks=tasks, input=input, user_access_control=user_access_control
-            )
+            validation = _CustomerTaskBulkValidation(team=team, visible_tasks=tasks, input=input, subject=subject)
             writes: list[_CustomerTaskWrite] = []
             now = timezone.now()
             for task in tasks:
@@ -746,7 +775,7 @@ def bulk_update_customer_tasks(
                         task=task,
                         input=input,
                         actor=actor,
-                        user_access_control=user_access_control,
+                        subject=subject,
                         validation=validation,
                     )
                     if write is None:
@@ -796,13 +825,13 @@ def bulk_update_customer_tasks(
 
 
 def archive_customer_task(
-    *, team_id: int, task_id: UUID | str, actor: User | None, user_access_control: UserAccessControl
+    *, team_id: int, task_id: UUID | str, actor: User | None, subject: Subject
 ) -> CustomerTask | None:
     with transaction.atomic():
-        task = _task_for_write(team_id=team_id, task_id=task_id, user_access_control=user_access_control)
+        task = _task_for_write(team_id=team_id, task_id=task_id, subject=subject)
         if task is None:
             return None
-        if not can_access_customer_task_object(task=task, user_access_control=user_access_control, write=True):
+        if not can_access_customer_task_object(task=task, subject=subject, write=True):
             raise CustomerTaskAccessDenied()
         if task.archived_at is None:
             task.archived_at = timezone.now()
@@ -812,13 +841,13 @@ def archive_customer_task(
 
 
 def restore_customer_task(
-    *, team_id: int, task_id: UUID | str, actor: User | None, user_access_control: UserAccessControl
+    *, team_id: int, task_id: UUID | str, actor: User | None, subject: Subject
 ) -> CustomerTask | None:
     with transaction.atomic():
-        task = _task_for_write(team_id=team_id, task_id=task_id, user_access_control=user_access_control)
+        task = _task_for_write(team_id=team_id, task_id=task_id, subject=subject)
         if task is None:
             return None
-        if not can_access_customer_task_object(task=task, user_access_control=user_access_control, write=True):
+        if not can_access_customer_task_object(task=task, subject=subject, write=True):
             raise CustomerTaskAccessDenied()
         if task.archived_at is not None:
             task.archived_at = None
@@ -831,7 +860,7 @@ def _list_visible_historical_account_ids(
     *,
     team_id: int,
     activities: list[CustomerTaskActivity],
-    user_access_control: UserAccessControl,
+    subject: Subject,
 ) -> frozenset[str]:
     historical_account_ids: set[UUID] = set()
     for activity in activities:
@@ -858,32 +887,32 @@ def _list_visible_historical_account_ids(
                     continue
     if not historical_account_ids:
         return frozenset()
-    visible_ids = _visible_account_queryset(team_id, user_access_control).filter(id__in=historical_account_ids)
+    visible_ids = accounts_visible_to(team_id, subject).filter(id__in=historical_account_ids)
     return frozenset(str(account_id) for account_id in visible_ids.values_list("id", flat=True))
 
 
 def list_customer_task_activities(
-    *, team_id: int, task_id: UUID | str, user_access_control: UserAccessControl, page: PageRequest
+    *, team_id: int, task_id: UUID | str, subject: Subject, page: PageRequest
 ) -> _CustomerTaskActivityPage | None:
-    task = get_customer_task(team_id=team_id, task_id=task_id, user_access_control=user_access_control)
-    if task is None or not can_access_customer_task_object(
-        task=task, user_access_control=user_access_control, write=False
-    ):
+    task = get_customer_task(team_id=team_id, task_id=task_id, subject=subject)
+    if task is None or not can_access_customer_task_object(task=task, subject=subject, write=False):
         return None
     queryset = CustomerTaskActivity.objects.for_team(team_id).filter(task_id=task.id).select_related("actor")
     activities = select_page(queryset.order_by("-created_at", "-id"), page)
     visible_account_ids = _list_visible_historical_account_ids(
         team_id=team_id,
         activities=activities.results,
-        user_access_control=user_access_control,
+        subject=subject,
     )
     return _CustomerTaskActivityPage(activities=activities, visible_account_ids=visible_account_ids)
 
 
-def can_access_customer_task_object(*, task: CustomerTask, user_access_control: UserAccessControl, write: bool) -> bool:
+def can_access_customer_task_object(*, task: CustomerTask, subject: Subject, write: bool) -> bool:
     if (
         task.account_id is not None
-        and not _visible_account_queryset(task.team_id, user_access_control).filter(id=task.account_id).exists()
+        and not accounts_visible_to(task.team_id, subject).filter(id=task.account_id).exists()
     ):
         return False
-    return user_access_control.check_access_level_for_object(task, "editor" if write else "viewer")
+    return authorization.check(
+        resource=resource_for_object(task), action=Action.EDIT if write else Action.VIEW, subject=subject
+    )

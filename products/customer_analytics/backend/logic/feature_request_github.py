@@ -1,12 +1,11 @@
 import re
 from datetime import datetime
 from functools import partial
-from typing import TYPE_CHECKING, Literal, cast
+from typing import Literal
 from urllib.parse import urlparse
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import Model
 from django.utils import timezone
 
 import requests
@@ -21,6 +20,9 @@ from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.models.integration.github import GitHubIntegration
 from posthog.permissions import posthog_feature_flag_enabled
 
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.customer_analytics.backend.constants import CUSTOMER_ANALYTICS_FEATURE_REQUESTS_FLAG
 from products.customer_analytics.backend.facade import contracts
 from products.customer_analytics.backend.logic.feature_requests import (
@@ -37,9 +39,6 @@ from products.customer_analytics.backend.models import (
     FeatureRequestHistorySource,
     FeatureRequestStatus,
 )
-
-if TYPE_CHECKING:
-    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 
 class GitHubLinkUnavailableError(ValueError):
@@ -179,7 +178,7 @@ def _integration(
     team_id: int,
     integration_id: int | None,
     installation_id: str | None = None,
-    user_access_control: "UserAccessControl | None" = None,
+    subject: Subject | None = None,
 ) -> IntegrationRecord:
     if integration_id is None:
         raise FeatureRequestValidationError("integration_id", "Reconnect the GitHub integration before resuming sync.")
@@ -198,8 +197,15 @@ def _integration(
         raise FeatureRequestValidationError(
             "integration_id", "Select an available GitHub integration for this project."
         )
-    if user_access_control is not None and not user_access_control.check_access_level_for_object(
-        cast(Model, integration), required_level="viewer"
+    if subject is not None and not authorization.check(
+        resource=Resource(
+            type=ResourceType.INTEGRATION,
+            id=str(integration.id),
+            project_id=integration.team_id,
+            created_by_id=integration.created_by_id,
+        ),
+        action=Action.VIEW,
+        subject=subject,
     ):
         raise FeatureRequestValidationError("integration_id", "Select a GitHub integration you can access.")
     return integration
@@ -255,11 +261,9 @@ def _fetch_issue(
         raise
 
 
-def _editable_request(
-    team_id: int, request_id: UUID, expected_version: int, user_access_control: "UserAccessControl"
-) -> FeatureRequest | None:
+def _editable_request(team_id: int, request_id: UUID, expected_version: int, subject: Subject) -> FeatureRequest | None:
     request = _get_accessible_feature_request_for_update(
-        team_id=team_id, feature_request_id=request_id, user_access_control=user_access_control
+        team_id=team_id, feature_request_id=request_id, subject=subject
     )
     if request is not None:
         if request.archived_at is not None:
@@ -313,18 +317,18 @@ def link_feature_request_github(
     feature_request_id: UUID,
     input: contracts.LinkFeatureRequestGitHubInput,
     actor_id: int,
-    user_access_control: "UserAccessControl",
+    subject: Subject,
 ) -> contracts.FeatureRequestView | None:
     repository, issue_number = _parse_issue_url(input.issue_url)
     with transaction.atomic():
-        request = _editable_request(team_id, feature_request_id, input.expected_version, user_access_control)
+        request = _editable_request(team_id, feature_request_id, input.expected_version, subject)
         if request is None:
             return None
         if FeatureRequestGitHubLink.objects.for_team(team_id).filter(feature_request=request).exists():
             raise FeatureRequestValidationError(
                 "issue_url", "This request already has a GitHub issue. Unlink it before adding another."
             )
-    integration = _integration(team_id, input.integration_id, user_access_control=user_access_control)
+    integration = _integration(team_id, input.integration_id, subject=subject)
     installation_id = integration.integration_id or ""
     with bound_contextvars(
         team_id=team_id,
@@ -334,12 +338,10 @@ def link_feature_request_github(
     ):
         issue = _fetch_issue(integration, repository, issue_number)
     with transaction.atomic():
-        request = _editable_request(team_id, feature_request_id, input.expected_version, user_access_control)
+        request = _editable_request(team_id, feature_request_id, input.expected_version, subject)
         if request is None:
             return None
-        integration = _integration(
-            team_id, input.integration_id, installation_id, user_access_control=user_access_control
-        )
+        integration = _integration(team_id, input.integration_id, installation_id, subject=subject)
         if FeatureRequestGitHubLink.objects.for_team(team_id).filter(feature_request=request).exists():
             raise FeatureRequestConflictError(_CONFLICT_MESSAGE)
         _ensure_initial_history(request)
@@ -363,9 +365,7 @@ def link_feature_request_github(
             integration_id=integration.id,
             changed=True,
         )
-    return _refresh_feature_request(
-        team_id=team_id, feature_request_id=feature_request_id, user_access_control=user_access_control
-    )
+    return _refresh_feature_request(team_id=team_id, feature_request_id=feature_request_id, subject=subject)
 
 
 def set_feature_request_github_sync(
@@ -375,10 +375,10 @@ def set_feature_request_github_sync(
     expected_version: int,
     enabled: bool,
     actor_id: int,
-    user_access_control: "UserAccessControl",
+    subject: Subject,
 ) -> contracts.FeatureRequestView | None:
     with transaction.atomic():
-        request = _editable_request(team_id, feature_request_id, expected_version, user_access_control)
+        request = _editable_request(team_id, feature_request_id, expected_version, subject)
         if request is None:
             return None
         link = FeatureRequestGitHubLink.objects.for_team(team_id).filter(feature_request=request).first()
@@ -399,12 +399,8 @@ def set_feature_request_github_sync(
                 integration_id=link.integration_id,
                 changed=changed,
             )
-            return _refresh_feature_request(
-                team_id=team_id, feature_request_id=feature_request_id, user_access_control=user_access_control
-            )
-    integration = _integration(
-        team_id, link.integration_id, link.installation_id, user_access_control=user_access_control
-    )
+            return _refresh_feature_request(team_id=team_id, feature_request_id=feature_request_id, subject=subject)
+    integration = _integration(team_id, link.integration_id, link.installation_id, subject=subject)
     with bound_contextvars(
         team_id=team_id,
         feature_request_id=str(feature_request_id),
@@ -414,13 +410,13 @@ def set_feature_request_github_sync(
     ):
         issue = _fetch_issue(integration, link.repository, link.issue_number)
     with transaction.atomic():
-        request = _editable_request(team_id, feature_request_id, expected_version, user_access_control)
+        request = _editable_request(team_id, feature_request_id, expected_version, subject)
         if request is None:
             return None
         current = FeatureRequestGitHubLink.objects.for_team(team_id).select_for_update().filter(id=link.id).first()
         if current is None or current.integration_id != link.integration_id:
             raise FeatureRequestConflictError(_CONFLICT_MESSAGE)
-        _integration(team_id, current.integration_id, current.installation_id, user_access_control=user_access_control)
+        _integration(team_id, current.integration_id, current.installation_id, subject=subject)
         if current.github_updated_at is not None and issue.updated_at < current.github_updated_at:
             raise FeatureRequestConflictError(_CONFLICT_MESSAGE)
         _ensure_initial_history(request)
@@ -441,9 +437,7 @@ def set_feature_request_github_sync(
             integration_id=current.integration_id,
             changed=bool(changed),
         )
-    return _refresh_feature_request(
-        team_id=team_id, feature_request_id=feature_request_id, user_access_control=user_access_control
-    )
+    return _refresh_feature_request(team_id=team_id, feature_request_id=feature_request_id, subject=subject)
 
 
 def unlink_feature_request_github(
@@ -452,10 +446,10 @@ def unlink_feature_request_github(
     feature_request_id: UUID,
     expected_version: int,
     actor_id: int,
-    user_access_control: "UserAccessControl",
+    subject: Subject,
 ) -> contracts.FeatureRequestView | None:
     with transaction.atomic():
-        request = _editable_request(team_id, feature_request_id, expected_version, user_access_control)
+        request = _editable_request(team_id, feature_request_id, expected_version, subject)
         if request is None:
             return None
         link = FeatureRequestGitHubLink.objects.for_team(team_id).filter(feature_request=request).first()
@@ -474,9 +468,7 @@ def unlink_feature_request_github(
                 integration_id=integration_id,
                 changed=True,
             )
-    return _refresh_feature_request(
-        team_id=team_id, feature_request_id=feature_request_id, user_access_control=user_access_control
-    )
+    return _refresh_feature_request(team_id=team_id, feature_request_id=feature_request_id, subject=subject)
 
 
 def _eligible_integration(link: FeatureRequestGitHubLink) -> tuple[IntegrationRecord | None, str | None]:

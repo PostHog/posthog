@@ -12,7 +12,9 @@ from posthog.dataclasses import frozen
 from posthog.email import EmailMessage
 from posthog.models import Team, User
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import Action
 from products.customer_analytics.backend.logic.customer_tasks import _visible_task_queryset
 from products.customer_analytics.backend.models.customer_task import CustomerTaskStatus
 
@@ -39,8 +41,10 @@ class CustomerTaskDigest:
 def build_customer_task_digest(*, user: User, team: Team, reference_time: datetime) -> CustomerTaskDigest | None:
     if timezone.is_naive(reference_time):
         raise ValueError("reference_time must include a timezone")
-    access = UserAccessControl(user=user, team=team)
-    if not user.is_active or not access.check_access_level_for_object(team, required_level="member"):
+    subject = Subject(user_id=user.pk)
+    if not user.is_active or not authorization.check(
+        resource=Resource.project(team.id), action=Action.VIEW, subject=subject
+    ):
         return None
 
     project_timezone = ZoneInfo(team.timezone)
@@ -48,7 +52,7 @@ def build_customer_task_digest(*, user: User, team: Team, reference_time: dateti
     today_start = datetime.combine(today, time.min, tzinfo=project_timezone)
     tomorrow_start = datetime.combine(today + timedelta(days=1), time.min, tzinfo=project_timezone)
     weekend_start = datetime.combine(today + timedelta(days=5 - today.weekday()), time.min, tzinfo=project_timezone)
-    tasks = _visible_task_queryset(team.id, access).filter(
+    tasks = _visible_task_queryset(team.id, subject).filter(
         assigned_to_id=user.id,
         status__in=[CustomerTaskStatus.OPEN, CustomerTaskStatus.IN_PROGRESS],
         archived_at__isnull=True,

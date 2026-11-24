@@ -954,11 +954,15 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
             authorization.reuse_current_rules(self.user_access_control, permissions)
         return permissions
 
+    @property
+    def access_control_team(self) -> Team:
+        return self.team
+
     @cached_property
     def user_access_control(self) -> "UserAccessControl":
         team: Optional[Team] = None
         try:
-            team = self.team
+            team = self.access_control_team
         except (Team.DoesNotExist, KeyError):
             pass
 

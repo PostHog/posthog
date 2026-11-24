@@ -52,6 +52,12 @@ from posthog.hogql.database.schema.tagged_items import TaggedItemsTable
 from posthog.hogql.errors import ResolutionError, TableAccessDeniedError
 from posthog.hogql.parser import parse_expr, parse_select
 
+from posthog.models import User
+
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
+
 
 class _AccountScopedPostgresTable(PostgresTable, DANGEROUS_NoTeamIdCheckTable):
     """PostgresTable variant for FK-only junction tables that lack a `team_id` column.
@@ -573,8 +579,18 @@ def _require_ticket_access(context: HogQLContext, table_name: str) -> None:
     database = context.database
     if database is None or database.is_table_access_denied("system.support_tickets"):
         raise TableAccessDeniedError(table_name)
-    if database.user_access_control and not database.user_access_control.check_access_level_for_resource(
-        "ticket", "viewer"
+    team_id = database.authorization_team_id
+    user_id = database.authorization_user_id
+    if user_id is None and isinstance(context.user, User):
+        user_id = context.user.pk
+        team_id = context.team_id if context.team_id is not None else context.team.pk if context.team else None
+    if user_id is not None and (
+        team_id is None
+        or not authorization.check(
+            resource=Resource(type=ResourceType.TICKET, project_id=team_id),
+            action=Action.VIEW,
+            subject=Subject(user_id=user_id),
+        )
     ):
         raise TableAccessDeniedError(table_name)
 

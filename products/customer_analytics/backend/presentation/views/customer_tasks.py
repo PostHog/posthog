@@ -24,9 +24,8 @@ from posthog.models.integer_field_bounds import INTEGER_FIELD_MAX
 from posthog.paging import Page, PageRequest
 from posthog.permissions import PostHogFeatureFlagPermission, get_authenticator_scoped_team_ids
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.authorization.backend.facade import api as authorization
-from products.authorization.backend.facade.contracts import Resource
+from products.authorization.backend.facade.contracts import Resource, Subject
 from products.authorization.backend.facade.enums import Action
 from products.customer_analytics.backend.facade import api, contracts
 from products.customer_analytics.backend.facade.constants import (
@@ -415,13 +414,9 @@ class CustomerTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         assert parent_team is not None
         return parent_team
 
-    @cached_property
-    def user_access_control(self) -> UserAccessControl:
-        return UserAccessControl(
-            user=cast(User, self.request.user),
-            team=self.canonical_team,
-            organization_id=self.organization_id,
-        )
+    @property
+    def access_control_team(self) -> Team:
+        return self.canonical_team
 
     @validated_request(
         query_serializer=CustomerTaskListQuerySerializer,
@@ -449,7 +444,7 @@ class CustomerTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             self,
             lambda page: api.list_customer_tasks(
                 team_id=self.canonical_team_id,
-                user_access_control=self.user_access_control,
+                subject=Subject(user_id=request.user.pk),
                 filters=filters,
                 page=page,
             ),
@@ -461,7 +456,7 @@ class CustomerTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         task = api.get_customer_task(
             team_id=self.canonical_team_id,
             task_id=self.kwargs["pk"],
-            user_access_control=self.user_access_control,
+            subject=Subject(user_id=request.user.pk),
         )
         if task is None:
             return Response({"detail": "Task not found."}, status=status.HTTP_404_NOT_FOUND)
@@ -475,7 +470,7 @@ class CustomerTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             team=self.canonical_team,
             input=contracts.CreateCustomerTaskInput(**serializer.validated_data),
             actor=cast(User, request.user),
-            user_access_control=self.user_access_control,
+            subject=Subject(user_id=request.user.pk),
         )
         return Response(CustomerTaskSerializer(instance=task).data, status=status.HTTP_201_CREATED)
 
@@ -499,7 +494,7 @@ class CustomerTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 tags_provided="tags" in request.data,
             ),
             actor=cast(User, request.user),
-            user_access_control=self.user_access_control,
+            subject=Subject(user_id=request.user.pk),
         )
         if task is None:
             return Response({"detail": "Task not found."}, status=status.HTTP_404_NOT_FOUND)
@@ -541,7 +536,7 @@ class CustomerTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             ),
             archived=archived,
             actor=cast(User, request.user),
-            user_access_control=self.user_access_control,
+            subject=Subject(user_id=request.user.pk),
         )
         if count is None:
             return Response({"detail": "Task not found."}, status=status.HTTP_404_NOT_FOUND)
@@ -554,7 +549,7 @@ class CustomerTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             team_id=self.canonical_team_id,
             task_id=self.kwargs["pk"],
             actor=cast(User, request.user),
-            user_access_control=self.user_access_control,
+            subject=Subject(user_id=request.user.pk),
         )
         if task is None:
             return Response({"detail": "Task not found."}, status=status.HTTP_404_NOT_FOUND)
@@ -567,7 +562,7 @@ class CustomerTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             team_id=self.canonical_team_id,
             task_id=self.kwargs["pk"],
             actor=cast(User, request.user),
-            user_access_control=self.user_access_control,
+            subject=Subject(user_id=request.user.pk),
         )
         if task is None:
             return Response({"detail": "Task not found."}, status=status.HTTP_404_NOT_FOUND)
@@ -585,7 +580,7 @@ class CustomerTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             result = api.list_customer_task_activities(
                 team_id=self.canonical_team_id,
                 task_id=self.kwargs["pk"],
-                user_access_control=self.user_access_control,
+                subject=Subject(user_id=request.user.pk),
                 page=page,
             )
             if result is None:

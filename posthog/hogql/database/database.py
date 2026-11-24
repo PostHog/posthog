@@ -974,6 +974,8 @@ class Database(BaseModel):
         self._tables_awaiting_first_sync = None
         self._serialization_errors: dict[str, str] = {}  # table_key -> error_message
         self.user_access_control: Optional[UserAccessControl] = None
+        self.authorization_user_id: int | None = None
+        self.authorization_team_id: int | None = None
 
     def get_timezone(self) -> str:
         return self._timezone or "UTC"
@@ -1469,6 +1471,8 @@ class Database(BaseModel):
         without querying."""
         if user_access_control is not None:
             self.user_access_control = user_access_control
+            self.authorization_user_id = user_access_control.user.pk
+            self.authorization_team_id = user_access_control.team.pk if user_access_control.team is not None else None
 
         # Record only denials we actually applied, so a database with no "system" node denies nothing.
         removed: set[str] = set()

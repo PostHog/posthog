@@ -1,5 +1,5 @@
 from collections.abc import Iterable, Mapping
-from typing import TYPE_CHECKING, Protocol, cast
+from typing import Protocol, cast
 from urllib.parse import urlparse
 from uuid import UUID
 
@@ -29,8 +29,12 @@ from posthog.models import UploadedMedia, User
 from posthog.paging import Page, PageRequest
 from posthog.queryset_paging import select_page
 
-from products.access_control.backend.facade.contracts import ObjectAccessRef
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
+from products.authorization.backend.presentation.resources import resource_for_object
 from products.customer_analytics.backend.facade import contracts
+from products.customer_analytics.backend.logic.account_filters import accounts_visible_to
 from products.customer_analytics.backend.models import (
     Account,
     FeatureRequest,
@@ -43,9 +47,6 @@ from products.customer_analytics.backend.models import (
     FeatureRequestProductArea,
     FeatureRequestProductAreaLink,
 )
-
-if TYPE_CHECKING:
-    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 
 class _FeatureRequestWithPermissionLinks(Protocol):
@@ -118,13 +119,17 @@ def _to_account_link_view(
     )
 
 
-def _get_feature_request_can_update(feature_request: FeatureRequest, user_access_control: "UserAccessControl") -> bool:
+def _get_feature_request_can_update(feature_request: FeatureRequest, subject: Subject) -> bool:
     account_links = cast(_FeatureRequestWithPermissionLinks, feature_request)._permission_account_links
     return (
-        user_access_control.check_access_level_for_resource("customer_analytics", required_level="editor")
+        authorization.check(
+            resource=Resource(type=ResourceType.CUSTOMER_ANALYTICS, project_id=feature_request.team_id),
+            action=Action.EDIT,
+            subject=subject,
+        )
         and bool(account_links)
         and all(
-            user_access_control.check_access_level_for_object(link.account, required_level="editor")
+            authorization.check(resource=resource_for_object(link.account), action=Action.EDIT, subject=subject)
             for link in account_links
         )
     )
@@ -140,7 +145,7 @@ def _github_link_integrations(
 
 def _can_view_github_link(
     link: FeatureRequestGitHubLink | None,
-    user_access_control: "UserAccessControl",
+    subject: Subject,
     integrations: Mapping[int, IntegrationRecord] | None = None,
 ) -> bool:
     """`integrations` holds the rows read up front for a page. Without it the row is read here."""
@@ -156,24 +161,25 @@ def _can_view_github_link(
             integration = None
     if integration is None:
         return False
-    return user_access_control.check_access_level_for_ref(
-        ObjectAccessRef(
-            resource="integration",
+    return authorization.check(
+        resource=Resource(
+            type=ResourceType.INTEGRATION,
             id=str(integration.id),
-            team_id=integration.team_id,
+            project_id=integration.team_id,
             created_by_id=integration.created_by_id,
         ),
-        required_level="viewer",
+        action=Action.VIEW,
+        subject=subject,
     )
 
 
 def _to_github_link_view(
     link: FeatureRequestGitHubLink | None,
     *,
-    user_access_control: "UserAccessControl",
+    subject: Subject,
     integrations: Mapping[int, IntegrationRecord] | None = None,
 ) -> contracts.FeatureRequestGitHubLinkView | None:
-    if not _can_view_github_link(link, user_access_control, integrations):
+    if not _can_view_github_link(link, subject, integrations):
         return None
     assert link is not None
     return contracts.FeatureRequestGitHubLinkView(
@@ -191,7 +197,7 @@ def _to_github_link_view(
 def _to_feature_request_view(
     feature_request: FeatureRequest,
     *,
-    user_access_control: "UserAccessControl",
+    subject: Subject,
     include_evidence: bool = True,
     github_integrations: Mapping[int, IntegrationRecord] | None = None,
 ) -> contracts.FeatureRequestView:
@@ -216,14 +222,14 @@ def _to_feature_request_view(
         archived_at=feature_request.archived_at,
         archived_by=feature_request.archived_by_id,
         version=feature_request.version,
-        can_update=_get_feature_request_can_update(feature_request, user_access_control),
+        can_update=_get_feature_request_can_update(feature_request, subject),
         account=legacy_account,
         account_links=account_links,
         evidence_count=sum(link.evidence_count for link in account_links),
         product_areas=[_to_product_area_view(area) for area in feature_request.product_areas.all()],
         github_link=_to_github_link_view(
             getattr(feature_request, "github_link", None),
-            user_access_control=user_access_control,
+            subject=subject,
             integrations=github_integrations,
         ),
         created_by=feature_request.created_by_id,
@@ -233,20 +239,20 @@ def _to_feature_request_view(
     )
 
 
-def _accessible_account_ids(team_id: int, user_access_control: "UserAccessControl") -> QuerySet[Account]:
+def _accessible_account_ids(team_id: int, subject: Subject) -> QuerySet[Account]:
     return cast(
         QuerySet[Account],
-        user_access_control.filter_queryset_by_access_level(Account.objects.for_team(team_id)).values("id"),
+        accounts_visible_to(team_id, subject).values("id"),
     )
 
 
 def _feature_request_queryset(
     team_id: int,
-    user_access_control: "UserAccessControl",
+    subject: Subject,
     *,
     include_evidence: bool = True,
 ) -> QuerySet[FeatureRequest]:
-    accessible_account_ids = _accessible_account_ids(team_id, user_access_control)
+    accessible_account_ids = _accessible_account_ids(team_id, subject)
     visible_links = (
         FeatureRequestAccountLink.objects.for_team(team_id)
         .filter(account_id__in=accessible_account_ids, unlinked_at__isnull=True)
@@ -383,7 +389,7 @@ def _apply_filters(
 
 
 def _get_accessible_feature_request_for_update(
-    *, team_id: int, feature_request_id: UUID, user_access_control: "UserAccessControl"
+    *, team_id: int, feature_request_id: UUID, subject: Subject
 ) -> FeatureRequest | None:
     feature_request = FeatureRequest.objects.for_team(team_id).select_for_update().filter(id=feature_request_id).first()
     if feature_request is None:
@@ -395,46 +401,37 @@ def _get_accessible_feature_request_for_update(
     )
     linked_account_ids = {link.account_id for link in account_links}
     accessible_account_ids = set(
-        user_access_control.filter_queryset_by_access_level(Account.objects.for_team(team_id))
-        .filter(id__in=linked_account_ids)
-        .values_list("id", flat=True)
+        accounts_visible_to(team_id, subject).filter(id__in=linked_account_ids).values_list("id", flat=True)
     )
     if linked_account_ids != accessible_account_ids:
         return None
     if any(
-        not user_access_control.check_access_level_for_object(link.account, required_level="editor")
+        not authorization.check(resource=resource_for_object(link.account), action=Action.EDIT, subject=subject)
         for link in account_links
     ):
         raise PermissionDenied
     return feature_request
 
 
-def _get_accessible_account(*, team_id: int, account_id: UUID, user_access_control: "UserAccessControl") -> Account:
-    account = (
-        user_access_control.filter_queryset_by_access_level(Account.objects.for_team(team_id))
-        .filter(id=account_id)
-        .first()
-    )
+def _get_accessible_account(*, team_id: int, account_id: UUID, subject: Subject) -> Account:
+    account = accounts_visible_to(team_id, subject).filter(id=account_id).first()
     if account is None:
         raise FeatureRequestValidationError("account_id", "Select an account you can access.")
-    if not user_access_control.check_access_level_for_object(account, required_level="editor"):
+    if not authorization.check(resource=resource_for_object(account), action=Action.EDIT, subject=subject):
         raise PermissionDenied
     return account
 
 
-def _get_accessible_accounts(
-    *, team_id: int, account_ids: tuple[UUID, ...], user_access_control: "UserAccessControl"
-) -> list[Account]:
+def _get_accessible_accounts(*, team_id: int, account_ids: tuple[UUID, ...], subject: Subject) -> list[Account]:
     unique_ids = tuple(dict.fromkeys(account_ids))
     if not unique_ids:
         raise FeatureRequestValidationError("account_ids", "Select at least one account.")
-    accounts = list(
-        user_access_control.filter_queryset_by_access_level(Account.objects.for_team(team_id)).filter(id__in=unique_ids)
-    )
+    accounts = list(accounts_visible_to(team_id, subject).filter(id__in=unique_ids))
     if len(accounts) != len(unique_ids):
         raise FeatureRequestValidationError("account_ids", "Select accounts you can access.")
     if any(
-        not user_access_control.check_access_level_for_object(account, required_level="editor") for account in accounts
+        not authorization.check(resource=resource_for_object(account), action=Action.EDIT, subject=subject)
+        for account in accounts
     ):
         raise PermissionDenied
     return accounts
@@ -606,12 +603,12 @@ def _ensure_initial_history(
 
 
 def _refresh_feature_request(
-    *, team_id: int, feature_request_id: UUID, user_access_control: "UserAccessControl"
+    *, team_id: int, feature_request_id: UUID, subject: Subject
 ) -> contracts.FeatureRequestView:
-    refreshed = _feature_request_queryset(team_id, user_access_control).filter(id=feature_request_id).first()
+    refreshed = _feature_request_queryset(team_id, subject).filter(id=feature_request_id).first()
     if refreshed is None:
         raise FeatureRequestValidationError("feature_request_id", "This feature request is no longer available.")
-    return _to_feature_request_view(refreshed, user_access_control=user_access_control)
+    return _to_feature_request_view(refreshed, subject=subject)
 
 
 def list_product_areas(
@@ -674,20 +671,18 @@ def update_product_area(
 def list_feature_requests(
     *,
     team_id: int,
-    user_access_control: "UserAccessControl",
+    subject: Subject,
     filters: contracts.FeatureRequestListFilters,
     page: PageRequest,
 ) -> Page[contracts.FeatureRequestView]:
     account_filter_ids: tuple[UUID, ...] = ()
     if filters.account_ids:
         account_filter_ids = tuple(
-            user_access_control.filter_queryset_by_access_level(Account.objects.for_team(team_id))
-            .filter(id__in=filters.account_ids)
-            .values_list("id", flat=True)
+            accounts_visible_to(team_id, subject).filter(id__in=filters.account_ids).values_list("id", flat=True)
         )
-    accessible_account_ids = _accessible_account_ids(team_id, user_access_control)
+    accessible_account_ids = _accessible_account_ids(team_id, subject)
     queryset = _apply_filters(
-        _feature_request_queryset(team_id, user_access_control, include_evidence=False),
+        _feature_request_queryset(team_id, subject, include_evidence=False),
         filters,
         account_filter_ids,
     )
@@ -699,7 +694,7 @@ def list_feature_requests(
     return selected.map(
         lambda item: _to_feature_request_view(
             item,
-            user_access_control=user_access_control,
+            subject=subject,
             include_evidence=False,
             github_integrations=github_integrations,
         )
@@ -707,14 +702,10 @@ def list_feature_requests(
 
 
 def get_feature_request(
-    *, team_id: int, feature_request_id: UUID, user_access_control: "UserAccessControl"
+    *, team_id: int, feature_request_id: UUID, subject: Subject
 ) -> contracts.FeatureRequestView | None:
-    feature_request = _feature_request_queryset(team_id, user_access_control).filter(id=feature_request_id).first()
-    return (
-        _to_feature_request_view(feature_request, user_access_control=user_access_control)
-        if feature_request is not None
-        else None
-    )
+    feature_request = _feature_request_queryset(team_id, subject).filter(id=feature_request_id).first()
+    return _to_feature_request_view(feature_request, subject=subject) if feature_request is not None else None
 
 
 def create_feature_request(
@@ -722,7 +713,7 @@ def create_feature_request(
     team_id: int,
     input: contracts.CreateFeatureRequestInput,
     actor_id: int,
-    user_access_control: "UserAccessControl",
+    subject: Subject,
 ) -> contracts.FeatureRequestCreateOutcome:
     title = input.title.strip()
     description = input.description.strip()
@@ -737,18 +728,18 @@ def create_feature_request(
     )
     existing = FeatureRequest.objects.for_team(team_id).filter(idempotency_key=input.idempotency_key).first()
     if existing is not None:
-        accessible_existing = _feature_request_queryset(team_id, user_access_control).filter(id=existing.id).first()
+        accessible_existing = _feature_request_queryset(team_id, subject).filter(id=existing.id).first()
         if accessible_existing is None:
             raise FeatureRequestValidationError("idempotency_key", "This idempotency key is already in use.")
         return contracts.FeatureRequestCreateOutcome(
-            request=_to_feature_request_view(accessible_existing, user_access_control=user_access_control),
+            request=_to_feature_request_view(accessible_existing, subject=subject),
             created=False,
         )
 
     accessible_account = _get_accessible_account(
         team_id=team_id,
         account_id=input.account_id,
-        user_access_control=user_access_control,
+        subject=subject,
     )
     unique_product_area_ids = tuple(dict.fromkeys(input.product_area_ids))
     product_areas = list(
@@ -812,7 +803,7 @@ def create_feature_request(
         request=_refresh_feature_request(
             team_id=team_id,
             feature_request_id=feature_request.id,
-            user_access_control=user_access_control,
+            subject=subject,
         ),
         created=created,
     )
@@ -824,13 +815,13 @@ def update_feature_request(
     feature_request_id: UUID,
     input: contracts.UpdateFeatureRequestInput,
     actor_id: int,
-    user_access_control: "UserAccessControl",
+    subject: Subject,
 ) -> contracts.FeatureRequestView | None:
     with transaction.atomic():
         feature_request = _get_accessible_feature_request_for_update(
             team_id=team_id,
             feature_request_id=feature_request_id,
-            user_access_control=user_access_control,
+            subject=subject,
         )
         if feature_request is None:
             return None
@@ -882,7 +873,7 @@ def update_feature_request(
             accounts = _get_accessible_accounts(
                 team_id=team_id,
                 account_ids=input.account_ids,
-                user_access_control=user_access_control,
+                subject=subject,
             )
             requested_ids = {account.id for account in accounts}
             active_links = list(
@@ -975,7 +966,7 @@ def update_feature_request(
     return _refresh_feature_request(
         team_id=team_id,
         feature_request_id=feature_request_id,
-        user_access_control=user_access_control,
+        subject=subject,
     )
 
 
@@ -1045,7 +1036,7 @@ def _get_evidence_account_link(
     feature_request_id: UUID,
     account_link_id: UUID,
     expected_version: int,
-    user_access_control: "UserAccessControl",
+    subject: Subject,
 ) -> tuple[FeatureRequest, FeatureRequestAccountLink] | None:
     feature_request = FeatureRequest.objects.for_team(team_id).select_for_update().filter(id=feature_request_id).first()
     if feature_request is None:
@@ -1065,7 +1056,7 @@ def _get_evidence_account_link(
     _get_accessible_account(
         team_id=team_id,
         account_id=account_link.account_id,
-        user_access_control=user_access_control,
+        subject=subject,
     )
     if feature_request.archived_at is not None:
         raise FeatureRequestValidationError("feature_request", "Restore this request before editing evidence.")
@@ -1115,7 +1106,7 @@ def add_feature_request_account(
     feature_request_id: UUID,
     input: contracts.AddFeatureRequestAccountInput,
     actor_id: int,
-    user_access_control: "UserAccessControl",
+    subject: Subject,
 ) -> contracts.FeatureRequestView | None:
     evidence_input = input.evidence
     validated_evidence = (
@@ -1125,7 +1116,7 @@ def add_feature_request_account(
         feature_request = _get_accessible_feature_request_for_update(
             team_id=team_id,
             feature_request_id=feature_request_id,
-            user_access_control=user_access_control,
+            subject=subject,
         )
         if feature_request is None:
             return None
@@ -1137,7 +1128,7 @@ def add_feature_request_account(
         account = _get_accessible_account(
             team_id=team_id,
             account_id=input.account_id,
-            user_access_control=user_access_control,
+            subject=subject,
         )
         active_links = list(
             FeatureRequestAccountLink.objects.for_team(team_id)
@@ -1196,7 +1187,7 @@ def add_feature_request_account(
     return _refresh_feature_request(
         team_id=team_id,
         feature_request_id=feature_request_id,
-        user_access_control=user_access_control,
+        subject=subject,
     )
 
 
@@ -1206,7 +1197,7 @@ def create_feature_request_evidence(
     feature_request_id: UUID,
     input: contracts.CreateFeatureRequestEvidenceInput,
     actor_id: int,
-    user_access_control: "UserAccessControl",
+    subject: Subject,
 ) -> contracts.FeatureRequestView | None:
     validated_evidence = _validate_evidence(team_id=team_id, input=input)
     with transaction.atomic():
@@ -1215,7 +1206,7 @@ def create_feature_request_evidence(
             feature_request_id=feature_request_id,
             account_link_id=input.account_link_id,
             expected_version=input.expected_version,
-            user_access_control=user_access_control,
+            subject=subject,
         )
         if result is None:
             return None
@@ -1241,7 +1232,7 @@ def create_feature_request_evidence(
     return _refresh_feature_request(
         team_id=team_id,
         feature_request_id=feature_request_id,
-        user_access_control=user_access_control,
+        subject=subject,
     )
 
 
@@ -1251,7 +1242,7 @@ def update_feature_request_evidence(
     feature_request_id: UUID,
     input: contracts.UpdateFeatureRequestEvidenceInput,
     actor_id: int,
-    user_access_control: "UserAccessControl",
+    subject: Subject,
 ) -> contracts.FeatureRequestView | None:
     with transaction.atomic():
         evidence = (
@@ -1267,7 +1258,7 @@ def update_feature_request_evidence(
             feature_request_id=feature_request_id,
             account_link_id=evidence.account_link_id,
             expected_version=input.expected_version,
-            user_access_control=user_access_control,
+            subject=subject,
         )
         if result is None:
             return None
@@ -1308,7 +1299,7 @@ def update_feature_request_evidence(
     return _refresh_feature_request(
         team_id=team_id,
         feature_request_id=feature_request_id,
-        user_access_control=user_access_control,
+        subject=subject,
     )
 
 
@@ -1318,7 +1309,7 @@ def delete_feature_request_evidence(
     feature_request_id: UUID,
     input: contracts.DeleteFeatureRequestEvidenceInput,
     actor_id: int,
-    user_access_control: "UserAccessControl",
+    subject: Subject,
 ) -> contracts.FeatureRequestView | None:
     with transaction.atomic():
         evidence = (
@@ -1334,7 +1325,7 @@ def delete_feature_request_evidence(
             feature_request_id=feature_request_id,
             account_link_id=evidence.account_link_id,
             expected_version=input.expected_version,
-            user_access_control=user_access_control,
+            subject=subject,
         )
         if result is None:
             return None
@@ -1350,7 +1341,7 @@ def delete_feature_request_evidence(
     return _refresh_feature_request(
         team_id=team_id,
         feature_request_id=feature_request_id,
-        user_access_control=user_access_control,
+        subject=subject,
     )
 
 
@@ -1361,13 +1352,13 @@ def set_feature_request_archived(
     expected_version: int,
     archived: bool,
     actor_id: int,
-    user_access_control: "UserAccessControl",
+    subject: Subject,
 ) -> contracts.FeatureRequestView | None:
     with transaction.atomic():
         feature_request = _get_accessible_feature_request_for_update(
             team_id=team_id,
             feature_request_id=feature_request_id,
-            user_access_control=user_access_control,
+            subject=subject,
         )
         if feature_request is None:
             return None
@@ -1388,19 +1379,19 @@ def set_feature_request_archived(
     return _refresh_feature_request(
         team_id=team_id,
         feature_request_id=feature_request_id,
-        user_access_control=user_access_control,
+        subject=subject,
     )
 
 
 def list_feature_request_history(
-    *, team_id: int, feature_request_id: UUID, user_access_control: "UserAccessControl"
+    *, team_id: int, feature_request_id: UUID, subject: Subject
 ) -> list[contracts.FeatureRequestHistoryView] | None:
-    if not _feature_request_queryset(team_id, user_access_control).filter(id=feature_request_id).exists():
+    if not _feature_request_queryset(team_id, subject).filter(id=feature_request_id).exists():
         return None
     github_link = (
         FeatureRequestGitHubLink.objects.for_team(team_id).filter(feature_request_id=feature_request_id).first()
     )
-    can_view_github_link = _can_view_github_link(github_link, user_access_control)
+    can_view_github_link = _can_view_github_link(github_link, subject)
     history = list(
         FeatureRequestHistory.objects.for_team(team_id)
         .filter(feature_request_id=feature_request_id)
@@ -1421,9 +1412,7 @@ def list_feature_request_history(
                     account_ids = []
                 history_account_ids.update(account_id for account_id in account_ids if account_id is not None)
     accessible_account_ids = set(
-        user_access_control.filter_queryset_by_access_level(Account.objects.for_team(team_id))
-        .filter(id__in=history_account_ids)
-        .values_list("id", flat=True)
+        accounts_visible_to(team_id, subject).filter(id__in=history_account_ids).values_list("id", flat=True)
     )
     actors = User.objects.filter(id__in={entry.actor_id for entry in history if entry.actor_id is not None})
     actor_names = {actor.id: actor.get_full_name().strip() or actor.email for actor in actors}
@@ -1451,12 +1440,12 @@ def list_feature_request_history(
 
 
 def list_feature_request_status_history(
-    *, team_id: int, feature_request_id: UUID, user_access_control: "UserAccessControl"
+    *, team_id: int, feature_request_id: UUID, subject: Subject
 ) -> list[contracts.FeatureRequestStatusHistoryView] | None:
     history = list_feature_request_history(
         team_id=team_id,
         feature_request_id=feature_request_id,
-        user_access_control=user_access_control,
+        subject=subject,
     )
     if history is None:
         return None
