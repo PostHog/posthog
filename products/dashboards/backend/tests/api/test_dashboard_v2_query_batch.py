@@ -2,7 +2,7 @@ import gc
 import json
 import asyncio
 import datetime as dt
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Callable, Iterator
 from contextlib import aclosing, contextmanager
 from threading import Event
 from typing import Any, cast
@@ -560,6 +560,110 @@ class TestQueryBatchTelemetryTargets(_QueryBatchMixin, NonAtomicAPIBaseTest):
                 batch._open.release()
 
         self.assertEqual(lines[0]["result"]["result"]["results"], _matrix(0)["data"])
+
+    def test_timeout_and_disconnect_hold_admission_until_http_cleanup_finishes(self) -> None:
+        inputs = [
+            QueryBatchInput(
+                target=QueryBatchTarget(ref_id="logs", language=QueryBatchLanguage.LOGQL, query='{service_name="api"}'),
+                date_from="now-1h",
+                date_to="now",
+            )
+        ]
+        batches = [
+            QueryBatch(
+                team=self.team, user=self.user, inputs=inputs, dashboard_id=None, client_query_id=f"cleanup-{index}"
+            )
+            for index in range(3)
+        ]
+
+        async def exercise() -> None:
+            loop = asyncio.get_running_loop()
+            closing: asyncio.Queue[Callable[[], None]] = asyncio.Queue()
+            cleanup_complete = Event()
+            request_count = 0
+
+            class GatedBody(httpx.AsyncByteStream):
+                async def __aiter__(self) -> AsyncIterator[bytes]:
+                    yield b"{"
+                    await asyncio.Event().wait()
+
+                async def aclose(self) -> None:
+                    worker_loop = asyncio.get_running_loop()
+                    allow_close = asyncio.Event()
+
+                    def release() -> None:
+                        try:
+                            worker_loop.call_soon_threadsafe(allow_close.set)
+                        except RuntimeError:
+                            pass
+
+                    loop.call_soon_threadsafe(closing.put_nowait, release)
+                    await allow_close.wait()
+                    cleanup_complete.set()
+
+            def upstream(_request: httpx.Request) -> httpx.Response:
+                nonlocal request_count
+                request_count += 1
+                return (
+                    httpx.Response(200, stream=GatedBody())
+                    if request_count == 1
+                    else httpx.Response(200, json=_matrix(0))
+                )
+
+            async def consume(batch: QueryBatch) -> list[dict]:
+                async with aclosing(cast(Any, batch.astream())) as stream:
+                    return [json.loads(chunk) async for chunk in stream if chunk.strip()]
+
+            release_cleanup: Callable[[], None] | None = None
+            reader: asyncio.Task[list[dict]] | None = None
+            worker: asyncio.Future[None] | None = None
+            with (
+                override_settings(SNUFFLE_APM_TIMEOUT_SECONDS=0.01),
+                patch("products.dashboards.backend.v2.query_batch.MAX_BATCHES_PER_ORG", 1),
+                patch(
+                    "posthog.api.snuffle_proxy.internal_httpx_async_client",
+                    side_effect=lambda **kwargs: httpx.AsyncClient(transport=httpx.MockTransport(upstream), **kwargs),
+                ),
+            ):
+                try:
+                    reader = asyncio.create_task(consume(batches[0]))
+                    release_cleanup = await asyncio.wait_for(closing.get(), timeout=5)
+                    worker = asyncio.wrap_future(batches[0]._futures[0])
+                    reader.cancel()
+                    await asyncio.gather(reader, return_exceptions=True)
+                    await asyncio.to_thread(wait_until, batches[0]._logql_cancelled.is_set)
+                    done, _ = await asyncio.wait({worker}, timeout=1)
+                    self.assertFalse(done, "The worker finished before its HTTP response cleanup was released")
+                    blocked = await consume(batches[1])
+                    self.assertEqual(
+                        blocked, [{"i": 0, "error": "Too many dashboards are loading at once. Try again shortly."}]
+                    )
+                    release_cleanup()
+                    release_cleanup = None
+                    await asyncio.wait_for(asyncio.gather(worker, return_exceptions=True), timeout=5)
+                    self.assertTrue(cleanup_complete.is_set())
+                    await asyncio.to_thread(
+                        wait_until, lambda: query_batch_module._org_batches.get(self.team.organization_id, 0) == 0
+                    )
+                    with override_settings(SNUFFLE_APM_TIMEOUT_SECONDS=60):
+                        fresh = await consume(batches[2])
+                    self.assertEqual(fresh[0]["result"]["result"]["results"], _matrix(0)["data"])
+                finally:
+                    if release_cleanup is not None:
+                        release_cleanup()
+                    if reader is not None:
+                        reader.cancel()
+                        await asyncio.gather(reader, return_exceptions=True)
+                    if worker is not None:
+                        await asyncio.wait_for(asyncio.gather(worker, return_exceptions=True), timeout=5)
+
+        try:
+            asyncio.run(exercise())
+        finally:
+            for batch in batches:
+                batch._close(complete=False)
+                batch._watchdog.cancel()
+                batch._open.release()
 
     @patch("products.dashboards.backend.v2.telemetry.budget_enabled", return_value=True)
     @patch("products.dashboards.backend.v2.telemetry.api_queries_budget_enforcement_enabled", return_value=True)
