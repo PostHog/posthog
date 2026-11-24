@@ -17,7 +17,7 @@ from posthog.event_usage import groups
 from posthog.models import ProxyRecord
 from posthog.models.messaging import MessagingRecord
 from posthog.models.organization import Organization
-from posthog.models.proxy_record import CLOUDFLARE_RECOVERY_STATES, CloudflareActivationState
+from posthog.models.proxy_record import CLOUDFLARE_RECOVERY_STATES
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.schedule import a_schedule_exists
@@ -99,24 +99,23 @@ def update_record(*, proxy_record_id: uuid.UUID, message: str | None = None, sta
         updates["message"] = message
     if status is not None:
         updates["status"] = status
-    if (
-        status == ProxyRecord.Status.VALID
-        and records.filter(cloudflare_activation_state__in=CLOUDFLARE_RECOVERY_STATES).exists()
-    ):
-        from posthog.managed_proxy import cloudflare_proxy_lock  # noqa: PLC0415
-
-        # Cleanup must see the final status if it runs after recovery completes.
-        with cloudflare_proxy_lock(proxy_record_id):
-            active_records = records.filter(
-                cloudflare_activation_state=CloudflareActivationState.RECOVERY_PENDING
-            ).exclude(organization__is_active=False)
-            if active_records.update(**updates, cloudflare_activation_state=CloudflareActivationState.IDLE):
-                return
-
     # A failed deletion and late provisioning updates must not erase deletion intent.
     # Keep this conditional in SQL so an API deletion cannot race a stale record save.
     if not records.update(**updates):
         raise RecordDeletedException("proxy record was deleted or marked for deletion before workflow completed")
+
+    if status == ProxyRecord.Status.VALID:
+        organization_id = (
+            records.filter(cloudflare_activation_state__in=CLOUDFLARE_RECOVERY_STATES)
+            .exclude(organization__is_active=False)
+            .exclude(organization__is_pending_deletion=True)
+            .values_list("organization_id", flat=True)
+            .first()
+        )
+        if organization_id is not None:
+            from posthog.tasks.proxy import enqueue_proxy_reconciliation  # noqa: PLC0415
+
+            enqueue_proxy_reconciliation(str(organization_id), str(proxy_record_id))
 
 
 @dataclass

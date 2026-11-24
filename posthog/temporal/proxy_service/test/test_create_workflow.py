@@ -447,16 +447,46 @@ class TestCloudflareProxyActivities(CloudflareProxyTestMixin, TransactionTestCas
                 self._cloudflare(http, exists=True)
                 await sync_to_async(reconcile_proxy.run)(*self.proxy_args)
 
-        await activity_update_proxy_record(
-            UpdateProxyRecordInputs(
-                organization_id=self.organization.pk,
-                proxy_record_id=self.record.pk,
-                status=ProxyRecord.Status.VALID,
+        with (
+            responses.RequestsMock(assert_all_requests_are_fired=False) as http,
+            patch.object(reconcile_proxy, "delay", side_effect=reconcile_proxy.run),
+        ):
+            self._cloudflare(http, exists=True)
+            await activity_update_proxy_record(
+                UpdateProxyRecordInputs(self.organization.pk, self.record.pk, ProxyRecord.Status.VALID)
             )
-        )
         await self.record.arefresh_from_db()
         expected_state = CloudflareActivationState.SUSPENDED if deactivate else CloudflareActivationState.IDLE
         self.assertEqual(self.record.cloudflare_activation_state, expected_state)
+
+    async def test_delayed_valid_status_does_not_skip_hostname_restoration(self) -> None:
+        organization = Organization.objects.filter(pk=self.organization.pk)
+        await organization.aupdate(is_active=False)
+        with responses.RequestsMock(assert_all_requests_are_fired=False) as http:
+            self._cloudflare(http, exists=True)
+            http.replace(responses.DELETE, self.kv_url, status=503, json={"success": False})
+            with self.assertRaises(CloudflareAPIError):
+                await sync_to_async(reconcile_proxy.run)(*self.proxy_args)
+            self.assertEqual([call.request.method for call in http.calls], ["GET", "DELETE", "DELETE"])
+
+        await organization.aupdate(is_active=True)
+        queued = []
+        with patch.object(reconcile_proxy, "delay", side_effect=lambda *args: queued.append(args)):
+            await activity_update_proxy_record(
+                UpdateProxyRecordInputs(self.organization.pk, self.record.pk, ProxyRecord.Status.VALID)
+            )
+
+        await self.record.arefresh_from_db()
+        self.assertEqual(self.record.cloudflare_activation_state, CloudflareActivationState.RECOVERY_PENDING)
+        self.assertEqual(queued, [self.proxy_args])
+
+        with responses.RequestsMock(assert_all_requests_are_fired=False) as http:
+            self._cloudflare(http, exists=False)
+            await sync_to_async(reconcile_proxy.run)(*queued[0])
+            self.assertEqual([call.request.method for call in http.calls], ["GET", "POST", "PUT"])
+
+        await self.record.arefresh_from_db()
+        self.assertEqual(self.record.cloudflare_activation_state, CloudflareActivationState.IDLE)
 
     @parameterized.expand([(True, False), (True, None), (False, False), (True, True)])
     async def test_creation_respects_organization_activation(self, active: bool, pending_deletion: bool | None) -> None:
