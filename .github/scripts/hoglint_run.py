@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.14"
-# dependencies = ["hoglint==0.2.4", "django==6.1.3"]
+# dependencies = ["hoglint==0.2.5", "django==6.1.3"]
 # ///
 """Run the pinned hoglint with this script's arguments.
 

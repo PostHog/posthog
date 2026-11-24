@@ -3396,17 +3396,17 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "hoglint"
-version = "0.2.4"
+version = "0.2.5"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "orjson" },
     { name = "pyyaml" },
 ]
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/26/d2/60e988c8b647e514be17d35f5cd5f14f47c01e2beb4fd9b138b060ce726e/hoglint-0.2.4-cp312-abi3-macosx_10_12_x86_64.whl", hash = "sha256:2aa31eb4cdf08d49cd797ed1ec70815f490d5310968a60f73a280ea289ccbf6f", size = 6150541, upload-time = "2026-11-20T10:34:18.319Z" },
-    { url = "https://files.pythonhosted.org/packages/9f/7e/3fe47f433432fd35ce4463ccce7a6485160779821a1c95f1bb8f2101c9e4/hoglint-0.2.4-cp312-abi3-macosx_11_0_arm64.whl", hash = "sha256:0d6dc0852cef3eff2dbea889ad9f7ebce770865a9a01f22945d7ec0389a3f486", size = 5878056, upload-time = "2026-11-20T10:34:20.369Z" },
-    { url = "https://files.pythonhosted.org/packages/f0/19/e46a1ec1edf94ae7a35a79f2a4a12a7b9ef05eb67b90a536b0e89c9a5cf5/hoglint-0.2.4-cp312-abi3-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:2366a45225a9521d4d76e39dcb4a842182ba95d43db0107974cbfc615d275d50", size = 5958787, upload-time = "2026-11-20T10:34:22.327Z" },
-    { url = "https://files.pythonhosted.org/packages/b8/2a/d29fa25d41b534772540206c29a239d582953b6d4d35d10d9eb6a284bd1b/hoglint-0.2.4-cp312-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:3cff86d79f644603a79ed6e59324631173fe7d4be9949b3a771f038f3449a88b", size = 6337927, upload-time = "2026-11-20T10:34:24.779Z" },
+    { url = "https://files.pythonhosted.org/packages/b2/8b/1a069b87095fb4c7309fb8977439ea6d79380c701a0f7a5bb11a43be3464/hoglint-0.2.5-cp312-abi3-macosx_10_12_x86_64.whl", hash = "sha256:de163901b3f0128104150102fb87b13f35b5f6045d5fe05f68511c25c3ff6cf6", size = 6241962, upload-time = "2026-11-24T17:52:09.72Z" },
+    { url = "https://files.pythonhosted.org/packages/5f/d0/6f6f6623ae41840e2a013901400e6cbec880974769daa2985cf81a5f9270/hoglint-0.2.5-cp312-abi3-macosx_11_0_arm64.whl", hash = "sha256:412773a2ecec71375747df783858ef733ac5273c67980d9d44c3cc412504561c", size = 5964953, upload-time = "2026-11-24T17:52:12.232Z" },
+    { url = "https://files.pythonhosted.org/packages/f8/99/ab4feec085728cca0ac861446321bd92a90f4eff8bd3f21ec34017567cfa/hoglint-0.2.5-cp312-abi3-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:04553f0903f1a636ebd46c1c29cb22573ecd98f3d6252050a0e9790bdc4311e8", size = 6054304, upload-time = "2026-11-24T17:52:14.596Z" },
+    { url = "https://files.pythonhosted.org/packages/29/f8/c26d17ee69aa1ee163c26462776d16b3a1f730b9c9367700dbf42e760ca1/hoglint-0.2.5-cp312-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:9d4107836b2a226b1f23921f809ed8bf443b54762a15744511e103b7a84bbd5f", size = 6438648, upload-time = "2026-11-24T17:52:16.744Z" },
 ]
 
 [[package]]
@@ -6555,7 +6555,7 @@ dev = [
     { name = "flameprof", specifier = "~=0.4" },
     { name = "grpcio-tools", specifier = "~=1.75.1" },
     { name = "hogli", editable = "tools/hogli" },
-    { name = "hoglint", specifier = "==0.2.4" },
+    { name = "hoglint", specifier = "==0.2.5" },
     { name = "hypothesis", specifier = "~=6.151.14" },
     { name = "libcst", specifier = ">=1.9.0,<2.0.0" },
     { name = "mypy", specifier = "~=2.4.1" },

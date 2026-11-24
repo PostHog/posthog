@@ -14,6 +14,22 @@ sections   = ["posthog"]  # the PostHog pack (hoglint:posthog): drives
 [discovery]
 dataclass_decorators        = ["dataclasses.dataclass", "posthog.dataclasses.frozen", "pydantic.dataclasses.dataclass"]
 frozen_dataclass_decorators = ["posthog.dataclasses.frozen"]
+# A registered Temporal item is read as itself when its outermost decorator is Temporal's own `defn`
+# and each decorator under it is one of these wrappers, in this form (`name()`: a factory a call of
+# which is the decorator). Each first-party wrapper's file is watched with the item. Any other
+# decorated item is unread.
+registering_decorators = ["temporalio.activity.defn", "temporalio.workflow.defn"]
+wrapper_decorators = [
+  "posthog.temporal.common.utils.close_db_connections",
+  "posthog.temporal.common.utils.asyncify",
+  "posthog.temporal.common.scoped.scoped_temporal()",
+  "products.replay_vision.backend.temporal.decorators.track_activity()",
+  "products.batch_exports.backend.temporal.utils.handle_non_retryable_errors()",
+  "products.wizard.backend.temporal.activities.errors.sanitize_activity_errors",
+  "products.warehouse_sources.backend.temporal.data_imports.util.with_internal_db_retries",
+  "products.signals.backend.trial.reports.trial_report_activity",
+  "posthoganalytics.scoped()",
+]
 # A pydantic model's annotated class attributes are its fields, as a dataclass's are.
 dataclass_bases             = ["pydantic.BaseModel", "pydantic.main.BaseModel"]
 # A string is a path edge only where the code holds a path: a patch target; the first argument of
