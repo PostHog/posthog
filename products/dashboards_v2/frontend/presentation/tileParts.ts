@@ -5,7 +5,7 @@ import type { PresentationEdit } from './presentationEdits'
 
 /**
  * Whether a content tile has anything to put in a part. The header has the title and the widget type's header actions.
- * The description renders under the title, so it needs one. The footer needs something from the widget type.
+ * The description is a tooltip beside the title, so it needs one. The footer needs something from the widget type.
  */
 export function hasPart(widget: ContentWidget, part: keyof ContentWidgetParts, slots: WidgetSlots): boolean {
     switch (part) {

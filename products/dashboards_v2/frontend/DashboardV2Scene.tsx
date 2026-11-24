@@ -54,7 +54,12 @@ function DashboardV2(): JSX.Element {
             controller={controller}
             header={
                 <header className="flex flex-wrap items-center justify-between gap-2">
-                    <h1 className="text-lg font-semibold m-0">{dashboard.title}</h1>
+                    <div className="flex flex-col gap-1 min-w-0">
+                        <h1 className="text-lg font-semibold m-0">{dashboard.title}</h1>
+                        {dashboard.description && (
+                            <p className="text-sm text-muted-foreground m-0">{dashboard.description}</p>
+                        )}
+                    </div>
                     <DashboardV2Actions />
                 </header>
             }

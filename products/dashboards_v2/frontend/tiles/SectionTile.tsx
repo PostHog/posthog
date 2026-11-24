@@ -1,13 +1,14 @@
 import { type ReactNode, useCallback, useState } from 'react'
 
-import { IconChevronDown, IconChevronRight, IconDrag, IconTrash } from '@posthog/icons'
+import { IconChevronDown, IconChevronRight, IconDrag } from '@posthog/icons'
 import { Button, Card, CardAction, CardContent, CardHeader, CardTitle, Input } from '@posthog/quill'
 
 import { GRID, type SectionWidget, type Tile, spanPx } from '../dashboard/dashboardTypes'
 import { useDashboardV2 } from '../dashboard/dashboardV2Context'
 import type { OnSectionRows } from '../grid/TileGrid'
 import { AddTileMenu } from './AddTileMenu'
-import { TileContextMenu, useSectionActions } from './TileContextMenu'
+import { TileContextMenu, hasTileMenu, useSectionActions } from './TileContextMenu'
+import { TileMenuButton } from './TileMenuButton'
 
 export interface SectionGridProps {
     gridId: string
@@ -40,7 +41,8 @@ export function SectionTile({
     const collapsed = !!widget.collapsed
     const [draft, setDraft] = useState<string | null>(null)
     const actions = useSectionActions(id, widget, () => setDraft(widget.title))
-    const remove = actions.find((action) => action.key === 'remove')
+    const hasMenu = hasTileMenu(actions)
+    const showAdd = editable && can('addTile')
 
     const onLiveRows = useCallback(
         (rows: number | null): void =>
@@ -61,21 +63,10 @@ export function SectionTile({
                 <SectionHeader
                     draggable={editable}
                     actions={
-                        editable && (
+                        (showAdd || hasMenu) && (
                             <SectionActions>
-                                {can('addTile') && <AddTileMenu gridId={id} />}
-                                {remove && (
-                                    <Button
-                                        size="icon-xs"
-                                        tooltip={remove.label}
-                                        aria-label={remove.label}
-                                        data-attr={remove.dataAttr}
-                                        disabledReason={remove.disabledReason}
-                                        onClick={remove.onSelect}
-                                    >
-                                        <IconTrash />
-                                    </Button>
-                                )}
+                                {showAdd && <AddTileMenu gridId={id} />}
+                                {hasMenu && <TileMenuButton />}
                             </SectionActions>
                         )
                     }
