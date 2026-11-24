@@ -47,7 +47,7 @@ Choose the location by the work the skill requires:
 - `.agents/skills/` contains skills that require a checkout of the PostHog repository to develop, test, or debug PostHog itself. These skills stay in the repository.
 
 Staff-only access does not determine placement.
-For example, `checking-deploy-timing` works through MCP without a checkout, so it stays under `products/`, marked `audience: internal`.
+For example, only PostHog staff can use `checking-deploy-timing`, but it works through MCP without a checkout. So it lives under `products/` and is marked `audience: internal`.
 A skill that changes a customer's application also stays published; it does not require PostHog source code.
 
 If a skill mixes customer diagnosis with PostHog development, keep the diagnosis published and move the development guidance into an existing internal skill or reference.
@@ -56,10 +56,10 @@ Published skills must not require internal skill files to complete their main wo
 
 ### Who the skill is for
 
-Every product skill ships in the release, but the MCP server's `learn` command serves a customer's agent only the skills listed in `services/mcp/src/skills/served-skills.json`.
+Every product skill is published, but the MCP server's `learn` command serves a customer's agent only the skills listed in `services/mcp/src/skills/served-skills.json`.
 `hogli lint:skills` fails until each product skill has exactly one of these:
 
-- An entry in that file, for a skill a customer's agent can follow with only what a customer has. Write `"<skill-name>": {}`, or `{"feature_flag": "<flag>"}` when the product's MCP tools need a feature flag, so that only callers with the flag get the skill. A person on `team-context-and-mcp` approves each change to the file.
+- An entry in that file, for a skill a customer's agent can follow with only what a customer has. Write `"<skill-name>": {}`, or `{"feature_flag": "<flag>"}` when the product's MCP tools need a feature flag, so that only callers with the flag get the skill. CODEOWNERS requires a review from `team-context-and-mcp` for that file.
 - `audience: internal` under `metadata` in the frontmatter, for a skill written for a PostHog job or for staff, such as a scout runbook.
 
 `hogli init:skill` scaffolds published product skills.
