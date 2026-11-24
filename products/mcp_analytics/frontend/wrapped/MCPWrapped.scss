@@ -79,6 +79,12 @@
     animation: MCPWrapped__float 5s ease-in-out infinite;
 }
 
+// The personality card's hedgehog, floating large in the lower half instead of sitting in the corner.
+.MCPWrapped__hero-hoggie {
+    filter: drop-shadow(0 18px 22px rgb(10 8 30 / 40%));
+    animation: MCPWrapped__float 5s ease-in-out infinite;
+}
+
 .MCPWrapped__rise {
     animation: MCPWrapped__rise 500ms ease-out both;
 }
@@ -158,6 +164,7 @@
     }
 
     .MCPWrapped__hoggie,
+    .MCPWrapped__hero-hoggie,
     .MCPWrapped__rise,
     .MCPWrapped__grow-x,
     .MCPWrapped__pop {

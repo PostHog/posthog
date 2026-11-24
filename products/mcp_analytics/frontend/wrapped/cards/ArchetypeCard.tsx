@@ -26,13 +26,18 @@ function describe(card: MCPWrappedArchetypeCardApi): string {
 }
 
 export function ArchetypeCard({ card }: { card: MCPWrappedArchetypeCardApi }): JSX.Element {
+    const Hoggie = ARCHETYPE_HOGGIES[card.archetype]
     return (
-        <WrappedCard cardKey="archetype" kicker="Your server's personality" hoggie={ARCHETYPE_HOGGIES[card.archetype]}>
+        <WrappedCard cardKey="archetype" kicker="Your server's personality" hideHoggie>
             <h2 className="MCPWrapped__pop m-0 text-4xl font-bold leading-tight">{ARCHETYPE_NAMES[card.archetype]}</h2>
             <p className="MCPWrapped__rise m-0 text-base">
                 <strong className="block">{ARCHETYPE_TAGLINES[card.archetype]}</strong>
                 {describe(card)}
             </p>
+            <div className="MCPWrapped__pop relative mt-auto flex justify-center">
+                <span className="absolute bottom-6 size-56 rounded-full bg-white/20 blur-3xl" />
+                <Hoggie className="MCPWrapped__hero-hoggie relative size-72" loading="eager" />
+            </div>
         </WrappedCard>
     )
 }

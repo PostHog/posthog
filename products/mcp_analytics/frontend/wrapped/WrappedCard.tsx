@@ -11,11 +11,13 @@ export interface WrappedCardProps {
     kicker: string
     children: React.ReactNode
     hoggie?: ComponentType<HoggiePngProps>
+    // For a card that shows its own, larger hedgehog instead of the one in the corner.
+    hideHoggie?: boolean
 }
 
 /** The poster every story card sits on: its ground, a small heading, and a hedgehog in the corner. */
 export const WrappedCard = forwardRef<HTMLDivElement, WrappedCardProps>(function WrappedCard(
-    { cardKey, kicker, children, hoggie },
+    { cardKey, kicker, children, hoggie, hideHoggie },
     ref
 ): JSX.Element {
     const theme = CARD_THEMES[cardKey]
@@ -31,7 +33,7 @@ export const WrappedCard = forwardRef<HTMLDivElement, WrappedCardProps>(function
                 {kicker}
             </span>
             {children}
-            <Hoggie className="MCPWrapped__hoggie" loading="eager" />
+            {!hideHoggie && <Hoggie className="MCPWrapped__hoggie" loading="eager" />}
         </div>
     )
 })
