@@ -49,7 +49,7 @@ from two_factor.utils import default_device
 from posthog.schema import SessionReplayListConfiguration, UserUIConfiguration
 
 from posthog.after_response import run_after_response
-from posthog.api.email_verification import EmailVerificationCodeUndeliverable, email_verification_code_verifier
+from posthog.api.email_verification import email_verification_code_verifier
 from posthog.api.notification_settings import validate_notification_settings
 from posthog.api.oauth.toolbar_service import (
     ToolbarOAuthError,
@@ -881,18 +881,11 @@ class UserSerializer(serializers.ModelSerializer):
                     code="sso_enforced_new_email",
                 )
             validated_data.pop("email", None)  # staged as pending_email below, not written to `email` directly
-            previous_pending_email = instance.pending_email
             instance.pending_email = EmailNormalizer.normalize(new_email)
             instance.save(update_fields=["pending_email"])
             # The code is bound to the captured address, so a concurrent email change cannot
             # redirect this code: once a different address is staged, the code stops verifying.
-            try:
-                email_verification_code_verifier.send_code(instance, target_email=new_email)
-            except EmailVerificationCodeUndeliverable:
-                # No code can reach this address, so keeping it staged would leave a change that can never complete.
-                instance.pending_email = previous_pending_email
-                instance.save(update_fields=["pending_email"])
-                raise
+            email_verification_code_verifier.send_code(instance, target_email=new_email)
             report_user_email_change_requested(cast(User, instance), verification_required=True)
 
         if validated_data.get("notification_settings"):

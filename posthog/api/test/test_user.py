@@ -1418,15 +1418,12 @@ class TestUserAPI(APIBaseTest):
         assert self.user.pending_email == "beta.gamma@example.com"
         assert mock_send_code.call_args[0][2] == "beta.gamma@example.com"
 
-    @patch("posthog.api.user.is_email_available", return_value=True)
-    def test_email_change_to_a_refused_address_leaves_nothing_staged(self, _mock_is_email_available):
+    def test_email_change_to_a_refused_address_reports_it(self):
         with workflows_refuses_the_recipient():
             response = self.client.patch("/api/users/@me/", {"email": "refused@example.com"})
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert response.json()["code"] == "email_verification_code_undeliverable"
-        self.user.refresh_from_db()
-        assert self.user.pending_email is None
 
     @patch("posthog.api.user.is_email_available", return_value=False)
     def test_email_change_without_email_configured_writes_the_normalized_address(self, _mock_is_email_available):
