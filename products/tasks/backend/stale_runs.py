@@ -292,7 +292,8 @@ def runs_to_sweep() -> list[RunToSweep]:
 
 def reopen_swept_run(run_id: UUID, task_id: UUID, team_id: int, *, dry_run: bool = False) -> bool:
     with transaction.atomic():
-        Task.objects.select_for_update().get(pk=task_id, team_id=team_id)
+        if Task.objects.select_for_update().only("id").filter(pk=task_id, team_id=team_id).first() is None:
+            return False
         run = (
             TaskRun.objects.select_for_update()
             .filter(

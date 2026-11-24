@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from datetime import timedelta
 from io import StringIO
 from types import SimpleNamespace
@@ -107,19 +108,30 @@ class TestReopenSweptTaskRuns(TestCase):
         self.assertEqual(rows, [ReopenedSweptRunsRow(outcome=outcome, count=1)] if outcome else [])
         self.assertEqual(run.status, TaskRun.Status.FAILED)
 
-    def test_leaves_a_run_that_was_resumed_after_it_was_listed(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "resumed",
+                lambda run: TaskRun.objects.filter(id=run.id).update(status=TaskRun.Status.QUEUED, state={}),
+                TaskRun.Status.QUEUED,
+            ),
+            ("deleted_with_its_task", lambda run: Task.objects.filter(id=run.task_id).delete(), None),
+        ]
+    )
+    def test_leaves_a_run_that_moved_on_after_it_was_listed(
+        self, _name: str, move_on: Callable[[TaskRun], Any], status_after: str | None
+    ) -> None:
         run = self._failed_run()
 
-        def mode_while_the_run_is_resumed(*args: Any, **kwargs: Any) -> dict[str, str]:
-            TaskRun.objects.filter(id=run.id).update(status=TaskRun.Status.QUEUED, state={})
+        def mode_while_the_run_moves_on(*args: Any, **kwargs: Any) -> dict[str, str]:
+            move_on(run)
             return {}
 
-        with patch(FLAG_PAYLOAD, side_effect=mode_while_the_run_is_resumed):
+        with patch(FLAG_PAYLOAD, side_effect=mode_while_the_run_moves_on):
             rows = tasks_facade.reopen_swept_task_runs(profile=USER.key)
 
-        run.refresh_from_db()
         self.assertEqual(rows, [ReopenedSweptRunsRow(outcome="moved_on", count=1)])
-        self.assertEqual(run.status, TaskRun.Status.QUEUED)
+        self.assertEqual(TaskRun.objects.filter(id=run.id).values_list("status", flat=True).first(), status_after)
 
     def test_reopens_a_run_whose_workflow_is_gone_when_the_check_is_skipped(self) -> None:
         run = self._failed_run()
