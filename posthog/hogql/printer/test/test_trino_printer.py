@@ -409,7 +409,7 @@ def test_ignores_clickhouse_cte_materialization_hint() -> None:
         ("hasAny([1, 2], [2, 3])", "(cardinality(array_intersect(ARRAY[1, 2], ARRAY[2, 3])) > 0)"),
         (
             "range(2, 5)",
-            "filter(element_at(transform(ARRAY[ROW(2, greatest((5) - 1, 2))]",
+            "filter(element_at(transform(ARRAY[ROW(CAST(2 AS BIGINT), CAST(greatest((5) - 1, 2) AS BIGINT))]",
         ),
         ("tuple(1, 2).1", "(ROW(1, 2))[1]"),
         ("extract(user_id, 'id-(.*)')", 'regexp_extract("users"."user_id", \'id-(.*)\', 1)'),
@@ -478,7 +478,8 @@ def test_ignores_clickhouse_cte_materialization_hint() -> None:
         ("coalesce(properties.enabled, false)", "coalesce(CAST(json_extract_scalar("),
         ("positionCaseInsensitive(user_id, 'ab')", 'strpos(lower("users"."user_id"), lower('),
         ("lowerUTF8(user_id)", 'lower("users"."user_id")'),
-        ("arrayEnumerate([10, 20])", "ARRAY[ROW(1, cardinality(ARRAY[10, 20]))]"),
+        ("arrayEnumerate([10, 20])", "ROW(CAST(1 AS BIGINT), CAST(cardinality(ARRAY[10, 20]) AS BIGINT))"),
+        ("range(1000)", "fail('Trino mode supports arrays of up to 1,000,000 entries"),
         ("arrayExists(x -> x > 1, [1, 2])", 'any_match(ARRAY[1, 2], "x" -> ("x" > 1))'),
         ("cutToFirstSignificantSubdomain(user_id)", "array_join(slice(filter(split(lower(trim(TRAILING '.' FROM"),
         ("mapFromArrays([user_id], [1])", "map(__hogql_args[1], __hogql_args[2])"),
@@ -502,7 +503,7 @@ def test_ignores_clickhouse_cte_materialization_hint() -> None:
         ("arrayPopBack([1, 2])", "slice(ARRAY[1, 2], 1, greatest(cardinality(ARRAY[1, 2]) - 1, 0))"),
         ("arrayPushFront([1], 2)", "concat(ARRAY[2], ARRAY[1])"),
         ("arrayPushBack([1], 2)", "concat(ARRAY[1], ARRAY[2])"),
-        ("arrayDifference([1, 3])", "ARRAY[1, 3][__hogql_index] - ARRAY[1, 3][__hogql_index - 1]"),
+        ("arrayDifference([1, 3])", "__hogql_bound_array[__hogql_index] - __hogql_bound_array[__hogql_index - 1]"),
         ("arrayUniq([1, 1, 2])", "cardinality(array_distinct(ARRAY[1, 1, 2]))"),
         ("arrayWithConstant(2, 7)", "repeat(7, CAST(2 AS BIGINT))"),
         ("base64Encode(user_id)", 'to_base64(to_utf8("users"."user_id"))'),
@@ -525,11 +526,11 @@ def test_ignores_clickhouse_cte_materialization_hint() -> None:
         ("arrayCompact([1, 1, 2])", "element_at(__hogql_result, -1) IS DISTINCT FROM __hogql_value"),
         (
             "arrayEnumerateDense([10, 20, 10])",
-            "array_position(transform(array_distinct(slice(ARRAY[10, 20, 10]",
+            "array_position(transform(array_distinct(slice(__hogql_bound_array",
         ),
         (
             "arrayEnumerateUniq([10, 20, 10], [1, 1, 1])",
-            "cardinality(filter(slice(zip(ARRAY[10, 20, 10], ARRAY[1, 1, 1])",
+            "transform(ARRAY[zip(ARRAY[10, 20, 10], ARRAY[1, 1, 1])], __hogql_bound_array",
         ),
         ("arrayFirstIndex(x -> x > 1, [1, 2])", 'coalesce(array_position(transform(ARRAY[1, 2], "x" ->'),
         (
@@ -1066,8 +1067,8 @@ def test_regex_character_classes_keep_clickhouse_meaning(pattern: str, expected:
         ),
         (
             "SELECT range(1, length(user_id) + 1, 3) FROM users",
-            "__hogql_sequence_bounds[2]), 3)",
-            "__hogql_sequence_bounds[2]))",
+            "__hogql_sequence_block * 30000)), 3)",
+            "__hogql_sequence_block * 30000)))",
         ),
         (
             "SELECT toFloat(tupleElement(kv, 2)) FROM users ARRAY JOIN JSONExtractKeysAndValuesRaw(user_id) AS kv",
@@ -1809,9 +1810,9 @@ def test_rejects_currency_conversion_without_an_exchange_rate_locator() -> None:
 @pytest.mark.parametrize(
     ("source", "expected"),
     [
-        ("numbers(3)", "ROW(0, greatest((3) - 1, 0))"),
-        ("numbers(4, 2)", "ROW(4, greatest((6) - 1, 4))"),
-        ("numbers(0)", "ROW(0, greatest((0) - 1, 0))"),
+        ("numbers(3)", "ROW(CAST(0 AS BIGINT), CAST(greatest((3) - 1, 0) AS BIGINT))"),
+        ("numbers(4, 2)", "ROW(CAST(4 AS BIGINT), CAST(greatest((6) - 1, 4) AS BIGINT))"),
+        ("numbers(0)", "ROW(CAST(0 AS BIGINT), CAST(greatest((0) - 1, 0) AS BIGINT))"),
     ],
 )
 def test_lowers_numbers_to_bounded_unnest(source: str, expected: str) -> None:
