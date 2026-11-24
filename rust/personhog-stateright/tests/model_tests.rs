@@ -310,11 +310,9 @@ fn stale_router_across_a_live_handoff() -> HandoffModel {
 /// is answered from a cache the new owner has written past.
 #[test]
 fn a_stale_router_cannot_read_past_cutover() {
-    let checker =
-        stale_router_across_a_live_handoff().explore("a_stale_router_cannot_read_past_cutover");
-    assert!(checker.discovery("strong_reads_complete").is_none());
-    assert!(checker.discovery("no_lost_acked_write").is_none());
-    assert!(checker.discovery("no_split_write_acceptance").is_none());
+    stale_router_across_a_live_handoff()
+        .explore("a_stale_router_cannot_read_past_cutover")
+        .assert_properties();
 }
 
 /// The rejected rule: with reads left unfenced, the old owner answers the
