@@ -62,6 +62,15 @@ describe('htmlToEmailText', () => {
         expect(htmlToEmailText(html)).toEqual(expected)
     })
 
+    it('keeps every filter of a long chain that another filter follows', () => {
+        const chain = '|replace:"=","&#x3D;"|replace:&quot;`&quot;,&quot;&#x60;&quot;'.repeat(40_000)
+
+        const text = htmlToEmailText(`<p>{{ x ${chain}|upcase }}</p>`)
+
+        expect(text.match(/replace/g)).toHaveLength(80_000)
+        expect(text).toMatch(/upcase }}$/)
+    })
+
     // Liquid fails a whole send over one bad tag, so each of these has to render wherever its html does.
     it.each([
         [

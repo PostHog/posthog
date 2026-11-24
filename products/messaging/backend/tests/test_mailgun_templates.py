@@ -137,7 +137,7 @@ class TestMailgunTemplateConversion(SimpleTestCase):
                 "after_raw_html",
                 "{{{a}}}%recipient.x%",
                 True,
-                '{{ variables.a | join: "," | raw }}{{ variables.x | join: "," | escape | replace: "=", "&#x3D;" | replace: "`", "&#x60;" | raw }}',
+                '{{ variables.a | join: "," | raw }}{{ variables.x | join: "," | escape | replace: "=", "&amp;#x3D;" | replace: "`", "&amp;#x60;" | raw }}',
             ),
         ]
     )

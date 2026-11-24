@@ -87,7 +87,8 @@ _DATE_TOKENS = {
 # A run of one letter is one token, so a run with no strftime code, such as DDD (day of the year), stays as written.
 _DATE_TOKEN = re.compile(r"([A-Za-z])\1*|[^A-Za-z]+")
 _MAX_OUTPUT_CHARS = 5_000_000
-HTML_ESCAPE = ' | escape | replace: "=", "&#x3D;" | replace: "`", "&#x60;"'
+# The entities are written escaped, because an editor that parses the HTML decodes it once, and so does a send.
+HTML_ESCAPE = ' | escape | replace: "=", "&amp;#x3D;" | replace: "`", "&amp;#x60;"'
 
 
 @frozen

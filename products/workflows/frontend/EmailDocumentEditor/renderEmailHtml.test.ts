@@ -191,6 +191,17 @@ describe('renderEmailHtml', () => {
         expect(html).toContain('<style>.x{color:red}</style><p>Mine</p>')
     })
 
+    it.each([
+        ['text', '<p>{{ x | escape | replace: "=", "&amp;#x3D;" | raw }}</p>'],
+        ['a link', '<a href="/{{ x | escape | replace: &quot;=&quot;, &quot;&amp;#x3D;&quot; }}">Go</a>'],
+    ])('keeps the entities an imported value escapes to in %s when a whole document is unwrapped', (_, imported) => {
+        const own = `<html><head></head><body>${imported}</body></html>`
+
+        expect(renderEmailHtml(doc({ type: 'emailHtml', attrs: { html: own } }, paragraph('After')))).toContain(
+            imported
+        )
+    })
+
     it('restores the font inside columns, because the row around them zeroes it', () => {
         const html = renderEmailHtml(
             doc({
