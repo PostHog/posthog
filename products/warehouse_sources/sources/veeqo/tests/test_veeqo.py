@@ -249,6 +249,51 @@ class TestNestedTables:
                     {"sellable_id": 51, "warehouse_id": 1, "product_id": 5},
                 ],
             ),
+            (
+                "product_properties_flatten_every_sellable",
+                "product_properties",
+                [
+                    {
+                        "id": 8,
+                        "sellables": [
+                            {
+                                "id": 80,
+                                "variant_option_specifics": [
+                                    {"id": 1, "product_property_id": 9, "product_property_name": "Size", "value": "S"},
+                                    {
+                                        "id": 2,
+                                        "product_property_id": 10,
+                                        "product_property_name": "Fit",
+                                        "value": "Slim",
+                                    },
+                                ],
+                            },
+                            {"id": 81, "variant_option_specifics": []},
+                            {"id": 82, "variant_option_specifics": None},
+                            "not-a-sellable",
+                        ],
+                    },
+                    {"id": 9, "sellables": None},
+                ],
+                [
+                    {
+                        "id": 1,
+                        "product_property_id": 9,
+                        "product_property_name": "Size",
+                        "value": "S",
+                        "sellable_id": 80,
+                        "product_id": 8,
+                    },
+                    {
+                        "id": 2,
+                        "product_property_id": 10,
+                        "product_property_name": "Fit",
+                        "value": "Slim",
+                        "sellable_id": 80,
+                        "product_id": 8,
+                    },
+                ],
+            ),
         ]
     )
     def test_rows_are_exploded_from_the_parent_list(
@@ -271,6 +316,47 @@ class TestNestedTables:
 
         assert result.params("page") == ["1", "2"]
         assert result.rows == [{"id": 1, "order_id": 900}]
+
+
+class TestCompanyTable:
+    @parameterized.expand(
+        [
+            (
+                "activation_codes_dropped_from_users",
+                {
+                    "id": 10001,
+                    "name": "Example Co",
+                    "settings": {"currency_code": "USD"},
+                    "owner": {"id": 1, "login": "Owner", "activation_code": "fake-code-1"},
+                    "employees": [
+                        {"id": 1, "login": "Owner", "activation_code": "fake-code-1"},
+                        {"id": 2, "login": "Packer", "activation_code": None},
+                    ],
+                },
+                {
+                    "id": 10001,
+                    "name": "Example Co",
+                    "settings": {"currency_code": "USD"},
+                    "owner": {"id": 1, "login": "Owner"},
+                    "employees": [{"id": 1, "login": "Owner"}, {"id": 2, "login": "Packer"}],
+                },
+            ),
+            (
+                "missing_or_null_users_pass_through",
+                {"id": 10002, "name": "Example Co", "owner": None},
+                {"id": 10002, "name": "Example Co", "owner": None},
+            ),
+        ]
+    )
+    def test_single_object_body_is_one_row(
+        self, _name: str, body: dict[str, Any], expected_row: dict[str, Any]
+    ) -> None:
+        result = _run([_page(body), _page(body)], endpoint="company")
+
+        assert result.raised is None
+        assert result.paths == ["/current_company"]
+        assert result.params("page") == [None]
+        assert result.rows == [expected_row]
 
 
 class TestFanoutTables:

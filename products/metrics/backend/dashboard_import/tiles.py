@@ -11,7 +11,9 @@ from products.metrics.backend.dashboard_import.layout import MIN_INSIGHT_HEIGHT,
 from products.metrics.backend.dashboard_import.spec import DisplaySpec, DisplayType, GridLayout, PanelQuery, TileDraft
 from products.metrics.backend.dashboard_import.validation import PanelValidator
 
+# The insight name and description columns hold 400 characters. A longer value fails the whole dashboard.
 MAX_INSIGHT_NAME_LENGTH = 400
+MAX_INSIGHT_DESCRIPTION_LENGTH = 400
 DEFAULT_SQL_DATE_FROM = "-24h"
 
 _SQL_DISPLAY: dict[DisplayType, ChartDisplayType] = {
@@ -121,7 +123,7 @@ def insight_tile(*, name: str, description: str, query: dict[str, Any], layout: 
     return TileDraft(
         kind="insight",
         name=name[:MAX_INSIGHT_NAME_LENGTH] or "Untitled panel",
-        description=description,
+        description=description[:MAX_INSIGHT_DESCRIPTION_LENGTH],
         query=query,
         layout=layout.clamped(min_w=MIN_INSIGHT_WIDTH, min_h=MIN_INSIGHT_HEIGHT),
     )

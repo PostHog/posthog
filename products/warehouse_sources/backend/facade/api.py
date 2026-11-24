@@ -24,6 +24,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 from uuid import UUID
 
+from django.db import transaction
 from django.db.models import OuterRef, Prefetch, Q, QuerySet, Subquery
 from django.utils import timezone
 
@@ -75,6 +76,7 @@ from products.warehouse_sources.backend.models.util import (
     validate_warehouse_table_url_pattern,
 )
 from products.warehouse_sources.backend.source_status import effective_source_status
+from products.warehouse_sources.backend.temporal.data_imports.query_folder_state import query_folder_staged_at
 from products.warehouse_sources.backend.types import ExternalDataSourceType, WarehouseColumnAnnotationDescriptionSource
 from products.warehouse_sources.backend.view_consumers import saved_queries_feeding_consumers
 from products.warehouse_sources.backend.webhook_registration import schema_needs_webhook, sources_missing_webhook
@@ -103,6 +105,7 @@ __all__ = [
     "direct_access_table_ids",
     "team_has_had_direct_query_source",
     "discard_backing_table",
+    "publish_backing_table",
     "record_table_row_count",
     "allowed_table_ids",
     "live_table_exists",
@@ -903,6 +906,54 @@ def record_table_row_count(team_id: int, table_id: UUID, row_count: int) -> None
     """Set a table's row count, unless the table was deleted in the meantime."""
     _DataWarehouseTable.objects.filter(team_id=team_id, id=table_id).exclude(deleted=True).update(
         row_count=row_count, updated_at=timezone.now()
+    )
+
+
+_PUBLISHED_BACKING_TABLE_FIELDS = [
+    "format",
+    "url_pattern",
+    "queryable_folder",
+    "created_via",
+    "columns",
+    "column_order",
+    "row_count",
+    "size_in_s3_mib",
+    "updated_at",
+]
+
+
+def _a_later_folder_is_published(published_folder: str | None, staged_folder: str) -> bool:
+    published_at = query_folder_staged_at(published_folder)
+    staged_at = query_folder_staged_at(staged_folder)
+    return published_at is not None and staged_at is not None and published_at > staged_at
+
+
+def publish_backing_table(
+    team_id: int, table_id: UUID, snapshot: contracts.BackingTableSnapshot
+) -> contracts.BackingTablePublish | None:
+    """Write a materialization's snapshot to its backing table, unless a later-staged folder is already there."""
+    with transaction.atomic():
+        table = _DataWarehouseTable.raw_objects.select_for_update().get(team_id=team_id, id=table_id)
+        if _a_later_folder_is_published(table.queryable_folder, snapshot.queryable_folder):
+            return None
+
+        replaced_size_in_s3_mib = table.size_in_s3_mib
+        replaced_columns = (table.columns, table.column_order)
+        table.format = snapshot.format
+        table.url_pattern = snapshot.url_pattern
+        table.queryable_folder = snapshot.queryable_folder
+        # Backing tables created before created_via existed have no value. Without the marker, the
+        # save below rejects a backing table for a model in the models namespace.
+        if table.created_via is None:
+            table.created_via = _DataWarehouseTable.CreatedVia.MATERIALIZED_VIEW
+        table.set_columns(snapshot.columns)
+        table.row_count = snapshot.row_count
+        table.size_in_s3_mib = snapshot.size_in_s3_mib
+        table.save(update_fields=_PUBLISHED_BACKING_TABLE_FIELDS, internally_computed_url_pattern=True)
+
+    return contracts.BackingTablePublish(
+        replaced_size_in_s3_mib=replaced_size_in_s3_mib,
+        columns_changed=(table.columns, table.column_order) != replaced_columns,
     )
 
 

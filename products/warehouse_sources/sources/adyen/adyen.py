@@ -30,6 +30,7 @@ ADYEN_HOSTS: dict[str, dict[str, str]] = {
         "management": "https://management-test.adyen.com/v3",
         "reports": "https://ca-test.adyen.com",
         "legal_entity": "https://kyc-test.adyen.com/lem/v4",
+        "capital": "https://balanceplatform-api-test.adyen.com/capital/v1",
     },
     "live": {
         "transfers": "https://balanceplatform-api-live.adyen.com/btl/v4",
@@ -37,6 +38,7 @@ ADYEN_HOSTS: dict[str, dict[str, str]] = {
         "management": "https://management-live.adyen.com/v3",
         "reports": "https://ca-live.adyen.com",
         "legal_entity": "https://kyc-live.adyen.com/lem/v4",
+        "capital": "https://balanceplatform-api-live.adyen.com/capital/v1",
     },
 }
 
@@ -55,6 +57,8 @@ MAX_CONSECUTIVE_MISSING_BATCHES = 3
 MAX_BATCHES_PER_SYNC = 500
 # Report files can be large; yield them in chunks rather than one list per file.
 REPORT_CHUNK_SIZE = 5000
+# The payout schedule executions endpoint takes a page number in `offset`, capped at 100.
+MAX_EXECUTION_PAGES = 100
 
 _IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9._-]{1,100}$")
 
@@ -171,15 +175,15 @@ def iter_windows(
         window_start = window_end
 
 
-def next_cursor(payload: Any) -> str | None:
-    """Pull the opaque cursor out of `_links.next`.
+def next_cursor(payload: Any, links_key: str = "_links") -> str | None:
+    """Pull the opaque cursor out of `_links.next` (or `link.next` on the Configuration API).
 
     Only the cursor is kept — the next page is rebuilt against our own host, so a tampered
     response can't point the authenticated request at another server.
     """
     if not isinstance(payload, dict):
         return None
-    links = payload.get("_links")
+    links = payload.get(links_key)
     if not isinstance(links, dict):
         return None
     next_link = links.get("next")
@@ -476,10 +480,107 @@ def _iter_fanout_objects(
     for index, parent_id in enumerate(parent_ids):
         if index < start_parent_index:
             continue
-        payload = _request(session, f"{host}{config.path.format(parent_id=parent_id)}", logger).json()
+        payload = _request(session, _fanout_url(host, config, parent_id), logger).json()
         manager.save_state(AdyenResumeConfig(parent_index=index + 1))
-        if isinstance(payload, dict) and payload.get("id"):
-            yield [payload]
+        if config.pagination == "fanout_list":
+            items = extract_items(payload, config.data_key)
+        else:
+            items = [payload] if isinstance(payload, dict) and payload.get("id") else []
+        if items:
+            yield items
+        else:
+            manager.safe_point()
+
+
+def _fanout_url(host: str, config: AdyenEndpointConfig, parent_id: str) -> str:
+    if config.parent_query_param:
+        return _build_url(host, config.path, {config.parent_query_param: parent_id})
+    return f"{host}{config.path.format(parent_id=parent_id)}"
+
+
+def _iter_payout_schedule_ids(
+    session: requests.Session,
+    host: str,
+    balance_account_id: str,
+    logger: FilteringBoundLogger,
+    manager: ResumableSourceManager[AdyenResumeConfig],
+) -> Iterator[str]:
+    path = f"/balanceAccounts/{balance_account_id}/payoutSchedules"
+    page_cursor: str | None = None
+    while True:
+        params: dict[str, Any] = {"limit": PAGE_SIZE}
+        if page_cursor:
+            params["cursor"] = page_cursor
+        payload = _request(session, _build_url(host, path, params), logger).json()
+        # The staged cursor never covers the balance account being read, so a hand-off here
+        # re-reads it whole and loses nothing.
+        manager.safe_point()
+        for schedule in extract_items(payload, "balanceAccountPayoutSchedules"):
+            schedule_id = schedule.get("id")
+            if isinstance(schedule_id, str) and _IDENTIFIER_RE.match(schedule_id):
+                yield schedule_id
+        next_page_cursor = next_cursor(payload, links_key="link")
+        if not next_page_cursor or next_page_cursor == page_cursor:
+            return
+        page_cursor = next_page_cursor
+
+
+def _fetch_payout_schedule_executions(
+    session: requests.Session,
+    config: AdyenEndpointConfig,
+    host: str,
+    balance_account_id: str,
+    schedule_id: str,
+    logger: FilteringBoundLogger,
+    manager: ResumableSourceManager[AdyenResumeConfig],
+) -> list[dict[str, Any]]:
+    path = config.path.format(parent_id=balance_account_id, schedule_id=schedule_id)
+    rows: list[dict[str, Any]] = []
+    for page_number in range(1, MAX_EXECUTION_PAGES + 1):
+        payload = _request(session, _build_url(host, path, {"limit": PAGE_SIZE, "offset": page_number}), logger).json()
+        manager.safe_point()
+        items = extract_items(payload, config.data_key)
+        # Execution ids are only documented per schedule, so the parents go into the primary key.
+        rows.extend({**item, "balanceAccountId": balance_account_id, "payoutScheduleId": schedule_id} for item in items)
+        if len(items) < PAGE_SIZE:
+            return rows
+    logger.warning(
+        "Adyen payout schedule executions hit the page cap",
+        balance_account_id=balance_account_id,
+        payout_schedule_id=schedule_id,
+        max_pages=MAX_EXECUTION_PAGES,
+    )
+    return rows
+
+
+def _iter_payout_schedule_executions(
+    session: requests.Session,
+    config: AdyenEndpointConfig,
+    environment: Optional[str],
+    balance_platform: str,
+    logger: FilteringBoundLogger,
+    manager: ResumableSourceManager[AdyenResumeConfig],
+    start_parent_index: int,
+) -> Iterator[list[dict[str, Any]]]:
+    balance_account_ids = _collect_ids(
+        session, _parent_endpoint(config), environment, balance_platform, logger, manager, config.parent_field
+    )
+    host = base_url(environment, config.api)
+
+    for index, balance_account_id in enumerate(balance_account_ids):
+        if index < start_parent_index:
+            continue
+        # One batch per balance account, so the resume index staged below covers every row yielded.
+        rows: list[dict[str, Any]] = []
+        for schedule_id in _iter_payout_schedule_ids(session, host, balance_account_id, logger, manager):
+            rows.extend(
+                _fetch_payout_schedule_executions(
+                    session, config, host, balance_account_id, schedule_id, logger, manager
+                )
+            )
+        manager.save_state(AdyenResumeConfig(parent_index=index + 1))
+        if rows:
+            yield rows
         else:
             manager.safe_point()
 
@@ -584,10 +685,15 @@ def get_rows(
         )
         return
 
-    if config.pagination in ("fanout_offset", "fanout_object"):
+    if config.pagination in ("fanout_offset", "fanout_object", "fanout_list", "payout_executions"):
         platform = _require_identifier(balance_platform, "Balance platform ID")
         start_parent_index = resume.parent_index if resume is not None and resume.parent_index is not None else 0
-        iter_fanout = _iter_fanout_pages if config.pagination == "fanout_offset" else _iter_fanout_objects
+        iter_fanout = {
+            "fanout_offset": _iter_fanout_pages,
+            "fanout_object": _iter_fanout_objects,
+            "fanout_list": _iter_fanout_objects,
+            "payout_executions": _iter_payout_schedule_executions,
+        }[config.pagination]
         yield from iter_fanout(
             session, config, environment, platform, logger, resumable_source_manager, start_parent_index
         )
