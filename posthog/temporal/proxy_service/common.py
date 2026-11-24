@@ -19,7 +19,7 @@ from posthog.models.organization import Organization
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.schedule import schedule_exists
-from posthog.temporal.common.utils import close_stale_db_connections
+from posthog.temporal.common.utils import close_stale_db_connections, on_asyncify_pool
 from posthog.temporal.proxy_service.proto import ProxyProvisionerServiceStub
 
 LOGGER = get_logger(__name__)
@@ -89,8 +89,12 @@ def record_exists(proxy_record_id: uuid.UUID) -> bool:
     return len(pr) > 0
 
 
-@sync_to_async
-def update_record(*, proxy_record_id: uuid.UUID, message: t.Optional[str] = None, status: t.Optional[str] = None):
+async def update_record(*, proxy_record_id: uuid.UUID, message: str | None = None, status: str | None = None) -> None:
+    executor = on_asyncify_pool if status == ProxyRecord.Status.VALID else sync_to_async
+    await executor(_update_record)(proxy_record_id=proxy_record_id, message=message, status=status)
+
+
+def _update_record(*, proxy_record_id: uuid.UUID, message: str | None, status: str | None) -> None:
     close_stale_db_connections()
     connection.ensure_connection()
     records = ProxyRecord.objects.filter(id=proxy_record_id).exclude(status=ProxyRecord.Status.DELETING)

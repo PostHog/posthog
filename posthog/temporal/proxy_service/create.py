@@ -9,11 +9,13 @@ import ipaddress
 from dataclasses import asdict, dataclass, replace
 
 from django.conf import settings
+from django.db import DatabaseError
 
 import grpc.aio
 import requests
 import dns.resolver
 import temporalio.common
+from redis.exceptions import RedisError
 from structlog import get_logger
 from temporalio import activity, workflow
 from temporalio.client import (
@@ -347,6 +349,13 @@ async def wait_for_cloudflare_certificate(inputs: CreateCloudflareProxyInputs):
         hostname_info = await asyncio.to_thread(get_custom_hostname_by_domain, inputs.domain)
 
         if hostname_info is None:
+            from posthog.managed_proxy import recover_cloudflare_certificate_hostname  # noqa: PLC0415
+
+            # Reused workflows have verified DNS but do not revisit hostname creation.
+            if await on_asyncify_pool(recover_cloudflare_certificate_hostname)(
+                inputs.organization_id, inputs.proxy_record_id
+            ):
+                raise ApplicationError("Cloudflare hostname was restored and is waiting for a certificate")
             raise NonRetriableException(f"Custom Hostname not found for domain {inputs.domain}")
 
         if hostname_info.ssl.status == CustomHostnameSSLStatus.ACTIVE:
@@ -369,7 +378,7 @@ async def wait_for_cloudflare_certificate(inputs: CreateCloudflareProxyInputs):
         raise NonRetriableException(f"Cloudflare API error: {e}") from e
     except ApplicationError:
         raise
-    except (ConnectionError, TimeoutError, OSError):
+    except (ConnectionError, TimeoutError, OSError, DatabaseError, RedisError):
         raise
     except NonRetriableException:
         raise
