@@ -248,6 +248,23 @@ export function peakMultiple(heat: readonly number[]): string | null {
     return multiple >= 10 ? 'over 10×' : `${multiple.toFixed(1)}×`
 }
 
+export interface Stat {
+    value: string
+    label: string
+}
+
+/** The numbers under the personality that explain it: volume, reliability, and speed when it was measured. */
+export function personalityStats(cards: MCPWrappedCardsApi): Stat[] {
+    const stats: Stat[] = [
+        { value: formatCallCount(cards.tool_calls.total_calls), label: 'tool calls' },
+        { value: formatPercent(cards.reliability.success_rate), label: 'error-free' },
+    ]
+    if (cards.speed) {
+        stats.push({ value: formatDuration(cards.speed.p95_duration_ms), label: 'p95 response' })
+    }
+    return stats
+}
+
 /** The tiles on the share card: only values from cards the project actually has, six at most. */
 export function shareTiles(cards: MCPWrappedCardsApi): ShareTile[] {
     const tiles: ShareTile[] = [{ label: 'Tool calls', value: formatCallCount(cards.tool_calls.total_calls) }]

@@ -1,5 +1,5 @@
-import type { MCPWrappedArchetypeCardApi } from '../../generated/api.schemas'
-import { ARCHETYPE_NAMES, ARCHETYPE_TAGLINES, formatDuration, formatPercent } from '../storyCards'
+import type { MCPWrappedArchetypeCardApi, MCPWrappedCardsApi } from '../../generated/api.schemas'
+import { ARCHETYPE_NAMES, ARCHETYPE_TAGLINES, formatDuration, formatPercent, personalityStats } from '../storyCards'
 import { WrappedCard } from '../WrappedCard'
 import { ARCHETYPE_HOGGIES } from '../wrappedTheme'
 
@@ -23,7 +23,8 @@ function describe(card: MCPWrappedArchetypeCardApi): string {
     }
 }
 
-export function ArchetypeCard({ card }: { card: MCPWrappedArchetypeCardApi }): JSX.Element {
+export function ArchetypeCard({ cards }: { cards: MCPWrappedCardsApi }): JSX.Element {
+    const card = cards.archetype
     return (
         <WrappedCard cardKey="archetype" kicker="Your server's personality" hoggie={ARCHETYPE_HOGGIES[card.archetype]}>
             <h2 className="MCPWrapped__pop m-0 text-4xl font-bold leading-tight">{ARCHETYPE_NAMES[card.archetype]}</h2>
@@ -31,6 +32,14 @@ export function ArchetypeCard({ card }: { card: MCPWrappedArchetypeCardApi }): J
                 <strong className="block">{ARCHETYPE_TAGLINES[card.archetype]}</strong>
                 {describe(card)}
             </p>
+            <div className="MCPWrapped__rise mt-1 grid grid-cols-3 gap-2">
+                {personalityStats(cards).map((stat) => (
+                    <div key={stat.label} className="MCPWrapped__tile flex flex-col rounded-xl px-3 py-2.5">
+                        <span className="text-xl font-bold tabular-nums">{stat.value}</span>
+                        <span className="text-xs opacity-75">{stat.label}</span>
+                    </div>
+                ))}
+            </div>
         </WrappedCard>
     )
 }
