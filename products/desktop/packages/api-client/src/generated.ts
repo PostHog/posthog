@@ -17500,6 +17500,16 @@ export namespace Schemas {
          */
         id: string;
     };
+    export type TeamCustomerAnalyticsRoleDefaultPinnedProperties = {
+        /**
+         * Organization role whose members inherit these properties.
+         */
+        role_id: string;
+        /**
+         * Ordered account properties shown to members of this role.
+         */
+        pinned_properties: Array<TeamCustomerAnalyticsPinnedAccountProperty>;
+    };
     export type TeamCustomerAnalyticsConfig = Partial<{
         activity_event: unknown;
         signup_pageview_event: unknown;
@@ -17508,6 +17518,7 @@ export namespace Schemas {
         payment_event: unknown;
         account_group_type_index: number | null;
         default_pinned_properties: Array<TeamCustomerAnalyticsPinnedAccountProperty>;
+        role_default_pinned_properties: Array<TeamCustomerAnalyticsRoleDefaultPinnedProperties>;
     }>;
     export type TeamWorkflowsConfig = Partial<{
         capture_workflows_engagement_events: boolean;

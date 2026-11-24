@@ -169,8 +169,14 @@ def create_dashboard_from_tiles(
     template = DashboardTemplate(
         template_name=name, dashboard_description=description, dashboard_filters=filters, tiles=tiles, tags=tags
     )
+    # With the template's values set here, the template step logs no second "updated" activity entry.
     dashboard = Dashboard.objects.create(
-        team_id=team.id, name=name, created_by=user, creation_mode=Dashboard.CreationMode.TEMPLATE
+        team_id=team.id,
+        name=name,
+        description=description,
+        filters=filters,
+        created_by=user,
+        creation_mode=Dashboard.CreationMode.TEMPLATE,
     )
     from posthog.helpers.dashboard_templates import create_from_template
 
@@ -1002,6 +1008,15 @@ def create_starter_dashboard(*, team_id: int) -> DashboardRef:
     Run inside the caller's transaction. The caller makes it the team's primary dashboard.
     """
     dashboard = templates_logic.create_starter_dashboard(team_id=team_id)
+    return DashboardRef(id=dashboard.id, name=dashboard.name)
+
+
+def create_unlisted_dashboard(*, team: "Team", user: User, template: DashboardTemplateDefinition) -> DashboardRef:
+    """Create an unlisted dashboard from a template definition, with the template's tiles.
+
+    Run inside the caller's transaction. The caller enforces one unlisted dashboard per template tag.
+    """
+    dashboard = templates_logic.create_unlisted_dashboard(team=team, user=user, template=template)
     return DashboardRef(id=dashboard.id, name=dashboard.name)
 
 

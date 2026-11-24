@@ -60,6 +60,9 @@ NIGHT_OWL_SHARE = 0.4
 WEEKEND_WARRIOR_SHARE = 0.35
 SPEED_DEMON_P95_MS = 250
 ROCKET_GROWTH_MULTIPLE = 5
+# Reliable and quick together, for a server with no stronger usage pattern than doing its job well.
+SUPERHERO_SUCCESS_RATE = 0.995
+SUPERHERO_P95_MS = 1000
 
 
 class Archetype(StrEnum):
@@ -69,6 +72,7 @@ class Archetype(StrEnum):
     WEEKEND_WARRIOR = "weekend_warrior"
     SPEED_DEMON = "speed_demon"
     ROCKET = "rocket"
+    SUPERHERO = "superhero"
     ALL_ROUNDER = "all_rounder"
 
 
@@ -399,4 +403,7 @@ def _archetype(
         return ArchetypeCard(archetype=Archetype.SPEED_DEMON, evidence=speed.p95_duration_ms)
     if tool_calls.growth_multiple is not None and tool_calls.growth_multiple >= ROCKET_GROWTH_MULTIPLE:
         return ArchetypeCard(archetype=Archetype.ROCKET, evidence=tool_calls.growth_multiple)
+    success_rate = 1 - aggregates.total.errors / total_calls
+    if speed is not None and success_rate >= SUPERHERO_SUCCESS_RATE and speed.p95_duration_ms < SUPERHERO_P95_MS:
+        return ArchetypeCard(archetype=Archetype.SUPERHERO, evidence=_ratio(success_rate))
     return ArchetypeCard(archetype=Archetype.ALL_ROUNDER, evidence=None)
