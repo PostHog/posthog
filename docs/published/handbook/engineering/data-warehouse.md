@@ -105,6 +105,8 @@ Views and insights can be saved or updated before running the SQL. Save and upda
 
 Choose **Save as cohort** after running a single query against PostHog. Return a column named `person_id`, `actor_id`, or `distinct_id`. A query on the `persons` table can also return `id`. Give the cohort a name to save a static snapshot with the query's filters and variables.
 
+In a Markdown notebook, open the SQL cell’s **⋯** menu after running it. **Save as warehouse table** saves the returned rows under a new name. To refresh a table created by that cell, choose **Update from this run** and confirm **Replace rows**. **Manage table** opens the table in the warehouse, where you can delete it. **Save as cohort** saves a static cohort when the result includes a `person_id`, `actor_id`, or `distinct_id` column. Direct SQL runs keep up to 300 rows. SQL results stored in the notebook’s compute sandbox can be saved from runs of up to 10,000 rows.
+
 On an empty dashboard, **Write SQL** opens the SQL editor with that dashboard selected. **Save & add to dashboard** saves the insight, adds it to the dashboard, and returns to it. This shortcut requires permission to edit the dashboard.
 The insight picker keeps names readable at narrow widths. Scroll the table horizontally to reach additional columns and the add/remove controls.
 
@@ -176,6 +178,7 @@ The comparison picker adds the previous period or a custom offset, including one
 Generated comparison queries use `{filters.previous}` (or its column-bound form) for the comparison range and `{filters.compareDate(expr)}` to align date dimensions. Custom native date columns use `{filters.previous.native(expr)}`. Month, quarter, and year dimensions pass their bucket as a second argument to `compareDate`, so month lengths and leap years do not move points into the wrong bucket. `HogQLFilters.compareFilter` supplies the comparison offset; missing offsets use the previous period.
 
 Use the table picker in the data pane to browse PostHog, warehouse, view, and system tables, with direct-connection tables grouped by schema.
+If a table name is too long to fit, the picker keeps its ending visible. Hover over the table or focus it with the keyboard to see its full name. The selected name wraps in the data pane.
 The selected table is highlighted; expanding a folder does not select it.
 Direct connections group tables by schema. Search matches table and folder names without changing the sidebar search.
 

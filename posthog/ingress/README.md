@@ -159,7 +159,7 @@ That is deliberate: eager loading would drag every product's webhook module onto
 Keep the module itself cheap to import and defer the heavy work into the handler.
 
 The module may import its own product's `facade/` and nothing else of the product.
-An import-linter contract holds that for a sealed product, and `hogli product:lint` holds it by AST for every product that has a `webhook_consumers.py`, relative imports included.
+hoglint's `webhook-consumers-use-facade` rule holds that for every product that has a `webhook_consumers.py`, relative imports included.
 
 Registration is validated and fail-closed.
 A consumer that names a provider app nobody declares, reuses a name already taken for that provider, or registers for an event type the provider does not declare raises `RegistryError` at build, rather than sitting there looking registered and never running.

@@ -16,7 +16,7 @@ def classify_hog_function_for_abuse(
     # During a rolling deploy, a worker on an older release raises TypeError on an unknown keyword.
     enabled_content_hash: str | None = None,
 ) -> None:
-    hog_function = shadow.scorable_hog_functions().filter(team_id=team_id, id=hog_function_id).first()
+    hog_function = shadow.scorable_hog_functions(enabled_only=False).filter(team_id=team_id, id=hog_function_id).first()
     if hog_function is not None:
         shadow.classify_if_due(hog_function)
 

@@ -537,6 +537,10 @@ export const NotebooksSqlV2RunsRetrieveParams = () => zod.object({
     short_id: zod.string(),
 })
 
+export const NotebooksSqlV2RunsRetrieveQueryParams = () => zod.object({
+    node_id: zod.string().optional().describe('Only return the run if it belongs to this cell.'),
+})
+
 /**
  * Stop a running cell. Idempotent: interrupting an already-finished run returns its outcome unchanged.
  */

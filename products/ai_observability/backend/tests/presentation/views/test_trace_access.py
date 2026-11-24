@@ -18,6 +18,7 @@ class TestTraceViewSetResourceLevelAccess(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand(
         [
             ("the list", "get", ""),
+            ("the list's metrics", "get", "metrics/"),
             ("the list's previews", "post", "previews/"),
             ("the list's people", "post", "people/"),
             ("the list's sentiment", "post", "sentiment/"),

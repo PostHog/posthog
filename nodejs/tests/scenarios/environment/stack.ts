@@ -3,7 +3,7 @@ import { closeSync, openSync, writeFileSync } from 'fs'
 import Redis from 'ioredis'
 import { Producer } from 'node-rdkafka'
 import path from 'path'
-import { Client } from 'pg'
+import { Client, DatabaseError } from 'pg'
 import { promisify } from 'util'
 
 import { getDefaultConfig, overrideWithEnv } from '~/common/config/config'
@@ -14,7 +14,7 @@ import { PluginsServerConfig } from '~/types'
 import { signal as sendSignal } from './processes'
 import { ConsumerGroup, ROLE_PORTS, RoleSpec, SCENARIO_SESSION_PREFIX, SES_RATE_LIMITER_VALKEY } from './roles'
 
-const PROBE_TIMEOUT_MS = 2000
+export const PROBE_TIMEOUT_MS = 2000
 
 export const SES_RATE_LIMIT_KEY = '@posthog/ses/global'
 
@@ -390,19 +390,25 @@ async function pingKafka(): Promise<void> {
     await new Promise((resolve) => producer.disconnect(resolve))
 }
 
+class HttpAnswer extends Error {}
+
 export async function expectOk(url: string): Promise<void> {
     const { status } = await internalFetch(url, { timeoutMs: PROBE_TIMEOUT_MS })
     if (status !== 200) {
-        throw new Error(`${url} answered ${status}`)
+        throw new HttpAnswer(`${url} answered ${status}`)
     }
 }
 
-export async function downServices(
+export type ProbeFailure = { name: string; reason: string; unanswered: boolean }
+
+export type Probes = Record<string, () => Promise<unknown>>
+
+export function dependencyProbes(
     edgeUrl: string | undefined,
     postgresUrl: string,
     sesValkey: { host: string; port: number }
-): Promise<string[]> {
-    const probes: Record<string, () => Promise<unknown>> = {
+): Probes {
+    return {
         postgres: () => withPostgres((client) => client.query('SELECT 1'), postgresUrl),
         kafka: pingKafka,
         redis: () => pingRedis(STACK.redis),
@@ -410,13 +416,40 @@ export async function downServices(
         personhog: () => expectOk(STACK.personhogReadinessUrl),
         'provider-edge': () => (edgeUrl ? expectOk(`${edgeUrl}/_health`) : Promise.reject(new Error('not started'))),
     }
-    const results = await Promise.all(
-        Object.entries(probes).map(([name, probe]) =>
-            probe().then(
-                () => null,
-                () => name
-            )
-        )
-    )
-    return results.filter((name): name is string => name !== null)
 }
+
+const ANSWER_CODES = new Set(['ECONNREFUSED', 'ECONNRESET', 'ENOTFOUND', 'EHOSTUNREACH'])
+
+const TIMER_SLACK_MS = 10
+
+const codeOf = (error: unknown): unknown =>
+    typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined
+
+const isTypedAnswer = (error: unknown): boolean =>
+    error instanceof HttpAnswer || error instanceof DatabaseError || ANSWER_CODES.has(String(codeOf(error)))
+
+const isAnswer = (error: unknown): boolean =>
+    isTypedAnswer(error) || (error instanceof Error && isTypedAnswer(error.cause))
+
+export async function failedProbes(probes: Probes): Promise<ProbeFailure[]> {
+    const results = await Promise.all(
+        Object.entries(probes).map(async ([name, probe]): Promise<ProbeFailure | null> => {
+            const startedAt = performance.now()
+            try {
+                await probe()
+                return null
+            } catch (error) {
+                const ranOutItsClock = performance.now() - startedAt >= PROBE_TIMEOUT_MS - TIMER_SLACK_MS
+                const reason = error instanceof Error ? error.message : String(error)
+                return { name, reason, unanswered: ranOutItsClock && !isAnswer(error) }
+            }
+        })
+    )
+    return results.filter((failure): failure is ProbeFailure => failure !== null)
+}
+
+export const downServices = (
+    edgeUrl: string | undefined,
+    postgresUrl: string,
+    sesValkey: { host: string; port: number }
+): Promise<ProbeFailure[]> => failedProbes(dependencyProbes(edgeUrl, postgresUrl, sesValkey))

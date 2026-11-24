@@ -7,6 +7,7 @@ from temporalio.exceptions import ApplicationError
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.utils import asyncify
 
+from products.messaging.backend.provider_imports.metrics import IMPORT_CHUNK_DURATION, IMPORT_CHUNK_RETRIES
 from products.messaging.backend.provider_imports.runs import finish_run, record_people_import, run_step
 from products.messaging.backend.temporal.inputs import (
     ContactChunkInputs,
@@ -50,7 +51,11 @@ def discard_staged_contacts_activity(inputs: ProviderImportRunInputs) -> None:
 @activity.defn(name="messaging-provider-import.import_contact_chunk")
 @asyncify
 def import_contact_chunk_activity(inputs: ContactChunkInputs) -> ContactChunkResult:
-    with HeartbeaterSync():
+    labels = {"provider": inputs.provider, "step": inputs.step}
+    attempt = activity.info().attempt
+    if attempt > 1:
+        IMPORT_CHUNK_RETRIES.labels(**labels).inc()
+    with HeartbeaterSync(), IMPORT_CHUNK_DURATION.labels(**labels).time():
         try:
             outcome = import_contact_chunk(
                 inputs.team_id,
@@ -66,7 +71,7 @@ def import_contact_chunk_activity(inputs: ContactChunkInputs) -> ContactChunkRes
                 str(error), error.acknowledged, error.new_people, type="ContactsCaptureFailed"
             ) from error
     return ContactChunkResult(
-        people=outcome.people, found=outcome.found, attempt=activity.info().attempt, new_people=outcome.new_people
+        people=outcome.people, found=outcome.found, attempt=attempt, new_people=outcome.new_people
     )
 
 

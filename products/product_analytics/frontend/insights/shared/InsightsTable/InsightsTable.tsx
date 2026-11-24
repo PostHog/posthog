@@ -20,6 +20,7 @@ import { IndexedTrendResult } from 'products/product_analytics/frontend/insights
 import { AggregationColumnItem, AggregationColumnTitle, CALC_COLUMN_LABELS } from './columns/AggregationColumn'
 import { BreakdownColumnItem, BreakdownColumnTitle, MultipleBreakdownColumnTitle } from './columns/BreakdownColumn'
 import { ColorCustomizationColumnItem, ColorCustomizationColumnTitle } from './columns/ColorCustomizationColumn'
+import { EventCountColumnItem, EventCountColumnTitle } from './columns/EventCountColumn'
 import { SeriesCheckColumnItem, SeriesCheckColumnTitle } from './columns/SeriesCheckColumn'
 import { SeriesColumnItem, formatCompareLabel } from './columns/SeriesColumn'
 import { ValueColumnItem, ValueColumnTitle } from './columns/ValueColumn'
@@ -318,6 +319,14 @@ export function InsightsTable({
                             />
                         )
                     },
+                    sorter: column.sorter,
+                    key: column.key,
+                    align: 'right',
+                }
+            case 'event-count':
+                return {
+                    title: <EventCountColumnTitle title={column.title} />,
+                    render: (_: any, item: IndexedTrendResult) => <EventCountColumnItem item={item} />,
                     sorter: column.sorter,
                     key: column.key,
                     align: 'right',

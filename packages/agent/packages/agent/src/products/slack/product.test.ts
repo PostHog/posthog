@@ -19,13 +19,18 @@ const question: QuestionRequest = {
 
 async function configure(
   launchOptions: Record<string, unknown>,
-  originProduct?: string,
+  interactionOrigin?: string,
   services: ProductServices = {
     sendReply: vi.fn().mockResolvedValue(undefined),
   },
 ): Promise<SessionBehavior> {
   return slackProduct().configureSession({
-    launch: { taskId: "task-1", runId: "run-1", originProduct, launchOptions },
+    launch: {
+      taskId: "task-1",
+      runId: "run-1",
+      interactionOrigin,
+      launchOptions,
+    },
     services,
   });
 }

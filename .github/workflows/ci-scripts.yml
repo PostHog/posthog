@@ -42,9 +42,9 @@ on:
             - tools/change-prover/**
             - rust/bin/write-deploy-requirements
             - manage.py
-            # test_tach_map.py holds tach_map.py's pin to the locked tach version,
-            # and a routine dependency bump is what moves it.
-            - uv.lock
+            # test_hoglint_map.py holds hoglint_map.py's pin to the dev group's
+            # hoglint pin, and a hoglint bump is what moves it.
+            - pyproject.toml
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -96,7 +96,6 @@ jobs:
                       **/product.yaml
                       /pnpm-workspace.yaml
                       /uv.lock
-                      /tach.toml
                       /pyproject.toml
                       package.json
                   sparse-checkout-cone-mode: false

@@ -3,10 +3,12 @@ from __future__ import annotations
 import json
 import time
 import asyncio
+from collections.abc import Callable, Coroutine
 from typing import Any
 
 from django.conf import settings
 from django.db import close_old_connections, transaction
+from django.utils import timezone
 
 import httpx
 import httpx_sse
@@ -79,6 +81,7 @@ from ee.hogai.sandbox import (
 logger = structlog.get_logger(__name__)
 
 HEARTBEAT_INTERVAL_SECONDS = 30
+LIVENESS_WRITE_TIMEOUT_SECONDS = 10
 TOOL_CALL_ONLY_HEARTBEAT_REPORT_SECONDS = 45 * 60
 SSE_CONNECT_TIMEOUT_SECONDS = 30
 SSE_READ_TIMEOUT_SECONDS = 300  # 5 min per chunk
@@ -336,6 +339,65 @@ async def _mark_error_unless_run_is_terminal(
     return False
 
 
+def _write_liveness(task_run: TaskRunModel, *, heartbeat: bool, agent_status: TaskRunModel.AgentStatus | None) -> None:
+    if not settings.TEST:
+        close_old_connections()
+    TaskRunModel.write_liveness(
+        task_run.id,
+        task_run.team_id,
+        heartbeat_at=timezone.now() if heartbeat else None,
+        agent_status=agent_status,
+    )
+
+
+class _LivenessRecorder:
+    def __init__(self, task_run: TaskRunModel | None) -> None:
+        self._task_run = task_run
+        self._lock = asyncio.Lock()
+        self._writes: set[asyncio.Task[None]] = set()
+        self._heartbeat_pending = False
+
+    def heartbeat(self, *, busy: Callable[[], bool]) -> None:
+        if self._heartbeat_pending:
+            return
+        self._heartbeat_pending = True
+        self._schedule(self._write_heartbeat(busy))
+
+    def status(self, agent_status: TaskRunModel.AgentStatus) -> None:
+        self._schedule(self._write_status(agent_status))
+
+    async def drain(self) -> None:
+        if self._writes:
+            await asyncio.wait(self._writes, timeout=LIVENESS_WRITE_TIMEOUT_SECONDS)
+
+    def _schedule(self, write: Coroutine[Any, Any, None]) -> None:
+        task = asyncio.create_task(write)
+        self._writes.add(task)
+        task.add_done_callback(self._writes.discard)
+
+    async def _write_heartbeat(self, busy: Callable[[], bool]) -> None:
+        try:
+            async with self._lock:
+                await self._persist(heartbeat=True, agent_status=TaskRunModel.AgentStatus.BUSY if busy() else None)
+        finally:
+            self._heartbeat_pending = False
+
+    async def _write_status(self, agent_status: TaskRunModel.AgentStatus) -> None:
+        async with self._lock:
+            await self._persist(heartbeat=False, agent_status=agent_status)
+
+    async def _persist(self, *, heartbeat: bool, agent_status: TaskRunModel.AgentStatus | None) -> None:
+        if self._task_run is None:
+            return
+        try:
+            await asyncio.wait_for(
+                asyncio.to_thread(_write_liveness, self._task_run, heartbeat=heartbeat, agent_status=agent_status),
+                timeout=LIVENESS_WRITE_TIMEOUT_SECONDS,
+            )
+        except Exception as e:
+            logger.warning("relay_liveness_write_failed", run_id=str(self._task_run.id), error=str(e))
+
+
 async def _background_heartbeat(
     stop_event: asyncio.Event,
     workflow_handle: temporalio.client.WorkflowHandle | None = None,
@@ -345,6 +407,7 @@ async def _background_heartbeat(
     inactivity_timeout_seconds: float = INACTIVITY_TIMEOUT_DEFAULT_SECONDS,
     open_tool_calls: set[str] | None = None,
     run_id: str | None = None,
+    liveness: _LivenessRecorder | None = None,
 ) -> None:
     """Heartbeat to Temporal periodically, independent of event flow.
 
@@ -396,6 +459,8 @@ async def _background_heartbeat(
                     )
                 except Exception as e:
                     logger.warning("relay_workflow_heartbeat_signal_failed", error=str(e))
+                if liveness is not None:
+                    liveness.heartbeat(busy=lambda: _agent_has_work_in_flight(agent_active, open_tool_calls))
 
 
 def _agent_has_work_in_flight(agent_active: list[bool] | None, open_tool_calls: set[str] | None) -> bool:
@@ -483,6 +548,7 @@ async def _relay_loop(
     last_text_flush: list[float] = [0.0]
     final_message_tracker = FinalMessageTracker()
     stop_heartbeat = asyncio.Event()
+    liveness = _LivenessRecorder(task_run)
     heartbeat_task = asyncio.create_task(
         _background_heartbeat(
             stop_heartbeat,
@@ -493,6 +559,7 @@ async def _relay_loop(
             inactivity_timeout_seconds=inactivity_timeout_seconds,
             open_tool_calls=open_tool_calls,
             run_id=run_id,
+            liveness=liveness,
         )
     )
 
@@ -578,6 +645,7 @@ async def _relay_loop(
                                         )
                                     else:
                                         await _signal_safely(workflow_handle, "agent_state_changed", arg=False)
+                                        liveness.status(TaskRunModel.AgentStatus.READY)
                                         await _signal_safely(
                                             workflow_handle,
                                             "agent_turn_completed",
@@ -623,6 +691,7 @@ async def _relay_loop(
                                 agent_active[0] = True
                                 if workflow_handle is not None:
                                     await _signal_safely(workflow_handle, "agent_state_changed", arg=True)
+                                    liveness.status(TaskRunModel.AgentStatus.BUSY)
 
                             # Agent-design signal fan-out: first session/update opens the
                             # child relay; tool_call → step, agent_message_chunk → markdown.
@@ -674,6 +743,9 @@ async def _relay_loop(
                                     logger.warning(
                                         "relay_workflow_heartbeat_signal_failed", run_id=run_id, error=str(e)
                                     )
+                                liveness.heartbeat(
+                                    busy=lambda: _agent_has_work_in_flight(agent_active, open_tool_calls)
+                                )
 
                             if _is_terminal_event(event_data):
                                 await _flush_pending_text(workflow_handle, pending_text_parts, last_text_flush)
@@ -767,6 +839,7 @@ async def _relay_loop(
             await heartbeat_task
         except asyncio.CancelledError:
             pass
+        await liveness.drain()
 
 
 async def _mark_sandbox_error_best_effort(redis_stream: TaskRunRedisStream, run_id: str, message: str) -> None:

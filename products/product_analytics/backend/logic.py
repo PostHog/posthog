@@ -352,6 +352,21 @@ def get_or_create_saved_insight(
     return insight.id, created
 
 
+def create_sample_insight(*, team_id: int, name: str, description: str, query: dict[str, Any]) -> int:
+    return Insight.objects.create(team_id=team_id, name=name, description=description, is_sample=True, query=query).id
+
+
+def update_insight_description_and_query(
+    *, team_id: int, insight_id: int, description: str, query: dict[str, Any]
+) -> None:
+    insight = Insight.objects.filter(team_id=team_id, pk=insight_id).first()
+    if insight is None:
+        return
+    insight.description = description
+    insight.query = query
+    insight.save()
+
+
 def create_insight_explanation(
     *, team_id: int, insight_id: int, user_id: int, data: dict[str, Any]
 ) -> InsightExplanation:

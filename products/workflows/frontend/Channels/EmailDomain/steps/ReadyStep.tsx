@@ -27,7 +27,7 @@ const NEXT_STEP: Record<EmailDomainSetupOrigin, () => JSX.Element> = {
     transactional: SendFromCodeNextCard,
 }
 
-export function ReadyStep(): JSX.Element {
+export function ReadyStep({ nextStep }: { nextStep?: JSX.Element }): JSX.Element {
     const { domain } = useValues(emailDomainSenderLogic)
     const { origin } = useValues(emailDomainLogic)
     const NextStep = NEXT_STEP[origin]
@@ -119,7 +119,7 @@ export function ReadyStep(): JSX.Element {
                     },
                 ]}
             />
-            <NextStep />
+            {nextStep ?? <NextStep />}
         </div>
     )
 }
