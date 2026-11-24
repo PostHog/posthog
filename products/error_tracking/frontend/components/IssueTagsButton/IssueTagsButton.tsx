@@ -30,14 +30,16 @@ export function IssueTagsButton({
     tags,
     onTagClick,
     size = 'sm',
+    defaultOpen = false,
 }: {
     tags: Pick<ErrorTrackingIssueTag, 'key' | 'label'>[] | null | undefined
     onTagClick: (key: string) => void
     size?: 'sm' | 'default'
+    defaultOpen?: boolean
 }): JSX.Element | null {
     const { searchParams } = useValues(router)
     const { issueTagRuleKeys } = useValues(issueTagRuleKeysLogic)
-    const [open, setOpen] = useState(false)
+    const [open, setOpen] = useState(defaultOpen)
 
     if (!tags?.length) {
         return null
@@ -54,46 +56,55 @@ export function IssueTagsButton({
             <PopoverContent align="start" className="w-56 p-1" aria-label="Issue tags">
                 {/* The scrollbar shows over the list, so a list that scrolls keeps its buttons clear of it. */}
                 <ScrollArea viewportClassName="max-h-80 group-data-[has-overflow-y]/scroll-area:pe-2.5">
-                    {tags.map((tag) => (
-                        <div key={tag.key} className="flex items-center gap-1 rounded-sm px-1 hover:bg-fill-hover">
-                            <Item
-                                variant="menuItem"
-                                size="xs"
-                                render={<button type="button" />}
-                                className="min-w-0 flex-1 p-0 text-left hover:bg-transparent"
-                                aria-label={`Show issues tagged ${tag.label}`}
-                                data-attr="error-tracking-issue-tags-button-tag"
-                                onClick={() => {
-                                    setOpen(false)
-                                    onTagClick(tag.key)
-                                }}
+                    <div role="list">
+                        {tags.map((tag) => (
+                            <div
+                                key={tag.key}
+                                role="listitem"
+                                className="flex items-center gap-1 rounded-sm px-1 hover:bg-fill-hover"
                             >
-                                <ItemContent variant="menuItem" className="min-w-0">
-                                    <ItemTitle className="block w-full min-w-0 truncate font-normal">
-                                        {tag.label}
-                                    </ItemTitle>
-                                </ItemContent>
-                            </Item>
-                            {issueTagRuleKeys?.includes(tag.key) && (
-                                <Button
-                                    variant="default"
-                                    size="icon-sm"
-                                    tooltip="Manage tag rules"
-                                    aria-label="Manage tag rules"
-                                    data-attr="error-tracking-issue-tags-button-manage-rules"
-                                    // configurationRedirect keeps the search params, which hold the list filters, so
-                                    // opening the rules does not reset them.
-                                    render={
-                                        <LinkPrimitive
-                                            to={configurationRedirect(TAG_RULES_SETTING_ID, searchParams, {})}
-                                        />
-                                    }
+                                <Item
+                                    variant="menuItem"
+                                    size="xs"
+                                    render={<button type="button" />}
+                                    className="min-w-0 flex-1 p-0 text-left hover:bg-transparent"
+                                    aria-label={`Show issues tagged ${tag.label}`}
+                                    data-attr="error-tracking-issue-tags-button-tag"
+                                    onClick={() => {
+                                        setOpen(false)
+                                        onTagClick(tag.key)
+                                    }}
                                 >
-                                    <IconGear />
-                                </Button>
-                            )}
-                        </div>
-                    ))}
+                                    <ItemContent variant="menuItem" className="min-w-0">
+                                        <ItemTitle
+                                            className="block w-full min-w-0 truncate font-normal"
+                                            title={tag.label}
+                                        >
+                                            {tag.label}
+                                        </ItemTitle>
+                                    </ItemContent>
+                                </Item>
+                                {issueTagRuleKeys?.includes(tag.key) && (
+                                    <Button
+                                        variant="default"
+                                        size="icon-sm"
+                                        tooltip="Manage tag rules"
+                                        aria-label="Manage tag rules"
+                                        data-attr="error-tracking-issue-tags-button-manage-rules"
+                                        // configurationRedirect keeps the search params, which hold the list filters, so
+                                        // opening the rules does not reset them.
+                                        render={
+                                            <LinkPrimitive
+                                                to={configurationRedirect(TAG_RULES_SETTING_ID, searchParams, {})}
+                                            />
+                                        }
+                                    >
+                                        <IconGear />
+                                    </Button>
+                                )}
+                            </div>
+                        ))}
+                    </div>
                 </ScrollArea>
             </PopoverContent>
         </Popover>

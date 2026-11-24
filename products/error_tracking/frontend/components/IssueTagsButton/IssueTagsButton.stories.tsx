@@ -5,8 +5,6 @@ import { ButtonGroup } from 'lib/ui/quill'
 import { mswDecorator } from '~/mocks/browser'
 import type { ErrorTrackingIssueTag } from '~/queries/schema/schema-general'
 
-import { userEvent } from 'storybook/test'
-
 import { IssueSeveritySelect } from '../IssueSeveritySelect'
 import { IssueStatusSelect } from '../IssueStatusSelect'
 import { IssueTagsButton } from './IssueTagsButton'
@@ -43,14 +41,14 @@ const MANY_TAGS: Tag[] = [
     })),
 ]
 
-function IssueTagsButtonStory({ tags }: { tags: Tag[] }): JSX.Element {
+function IssueTagsButtonStory({ tags, defaultOpen }: { tags: Tag[]; defaultOpen?: boolean }): JSX.Element {
     return (
         // The popover opens below the button, so the box is tall enough to hold it in the snapshot.
         <div className="min-h-100">
             <ButtonGroup>
                 <IssueStatusSelect status="active" onChange={() => {}} />
                 <IssueSeveritySelect severity="high" onChange={() => {}} />
-                <IssueTagsButton tags={tags} onTagClick={() => {}} />
+                <IssueTagsButton tags={tags} onTagClick={() => {}} defaultOpen={defaultOpen} />
             </ButtonGroup>
         </div>
     )
@@ -82,13 +80,12 @@ export const NoTags: Story = {
 export const OneTag: Story = { args: { tags: [RULE_TAGS[0]] } }
 
 export const ManyTagsOpen: Story = {
-    args: { tags: MANY_TAGS },
+    args: { tags: MANY_TAGS, defaultOpen: true },
     parameters: {
-        testOptions: { waitForSelector: '[data-attr="error-tracking-issue-tags-button-manage-rules"]' },
-    },
-    play: async ({ canvasElement }) => {
-        await userEvent.click(
-            canvasElement.querySelector('[data-attr="error-tracking-issue-tags-button"]') as HTMLElement
-        )
+        testOptions: {
+            waitForSelector: '[data-attr="error-tracking-issue-tags-button-manage-rules"]',
+            // The popover renders in a portal outside #storybook-root, so the snapshot takes the whole body.
+            snapshotTargetSelector: 'body',
+        },
     },
 }
