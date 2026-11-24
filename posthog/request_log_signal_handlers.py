@@ -9,7 +9,7 @@ from django_structlog import signals
 
 _STARTED_AT_ATTR = "_structlog_started_at"
 
-_CREDENTIAL_QUERY_PARAMS = frozenset({"personal_api_key", "token", "access_token", "api_key"})
+CREDENTIAL_QUERY_PARAMS = frozenset({"personal_api_key", "token", "access_token", "api_key"})
 _REDACTED = "<redacted>"
 
 
@@ -20,7 +20,7 @@ def redact_credential_query_params(request_line: str) -> str:
     params = query.split("&")
     for index, param in enumerate(params):
         name, has_value, _ = param.partition("=")
-        if has_value and unquote_plus(name).lower() in _CREDENTIAL_QUERY_PARAMS:
+        if has_value and unquote_plus(name).lower() in CREDENTIAL_QUERY_PARAMS:
             params[index] = f"{name}={_REDACTED}"
     return f"{path}?{'&'.join(params)}"
 

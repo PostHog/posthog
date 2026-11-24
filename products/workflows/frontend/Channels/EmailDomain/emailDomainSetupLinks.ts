@@ -5,7 +5,15 @@ import { urls } from 'scenes/urls'
 
 import { DEFAULT_EMAIL_DOMAIN_SETUP_ORIGIN, EmailDomainSetupOrigin, originSearchParams } from './emailDomainSetupOrigin'
 
-export type EmailDomainSetupEntry = 'channels' | 'broadcast' | 'add_sender' | 'transactional' | 'configure'
+export type EmailDomainSetupEntry =
+    | 'channels'
+    | 'broadcast'
+    | 'add_sender'
+    | 'transactional'
+    | 'configure'
+    | 'email_step'
+    | 'sandbox_sender_banner'
+    | 'sandbox_sender_banner_repair'
 
 export const emailDomainSetupPath = (
     id: number | 'new',

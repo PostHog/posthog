@@ -3,7 +3,7 @@
 [project]
 name = "change-prover"
 version = "0.0.0"
-description = "Proves a bot's npm dependency update for the Dependency proof check, and scans added packages with GuardDog"
+description = "Proves a bot's npm update or Python SDK bump for the Dependency proof check, and scans added packages with GuardDog"
 requires-python = "==3.12.*"
 # The prove job runs pnpm on pull request input, so it installs nothing but this.
 dependencies = ["pyyaml==6.0.3"]

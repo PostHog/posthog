@@ -13,6 +13,7 @@ import {
     PersonPropertyFilter,
     Team,
 } from '../types'
+import type { PendingWake } from './services/cyclotron-v2/types'
 import type { QueuedSend } from './services/hogflows/transactional-email'
 import type { HogErrorClass } from './utils/hog-error-classification'
 import type { RebuildableInputsSource } from './utils/rebuildable-inputs'
@@ -243,6 +244,7 @@ export type MinimalAppMetric = {
         | 'disabled_permanently'
         | 'rate_limited'
         | 'masked'
+        | 'audience_truncated'
         | 'filtering_failed'
         | 'inputs_failed'
         | 'missing_credential'
@@ -276,6 +278,8 @@ export type MinimalAppMetric = {
         | 'email_blocked'
         | 'email_unsubscribed'
         | 'email_untracked'
+        | 'email_sending_limit_delayed'
+        | 'email_sending_limit_delayed_over_1h'
         | 'email_sandbox_sent'
         | 'email_sandbox_failed'
         | 'email_sandbox_blocked'
@@ -382,6 +386,7 @@ export type CyclotronJobInvocation = {
     sealed?: string
     // The stored token could not be opened, so the state holds only its plaintext fields and must not run.
     stateUnreadable?: true
+    pendingWake?: PendingWake
 }
 
 // The result of an execution
@@ -505,15 +510,6 @@ export type MessageOptOutRecord = {
     identifier: string
     // A message category id, or '$all' for all marketing messages.
     categoryId: string
-}
-
-export type QueuedIdempotencyKey = {
-    hash: string
-    fingerprint: string
-    currentFingerprint?: string
-    senderKind?: 'email_sandbox'
-    scheduledAt?: string
-    replayFields?: Record<string, number>
 }
 
 export type HogFlowInvocationContext = {
@@ -649,7 +645,6 @@ export type HogFlowInvocationContext = {
     senderKind?: 'email_sandbox'
     scheduledAt?: string
     statusAt?: string
-    idempotencyKey?: QueuedIdempotencyKey
     // Sticky counter incremented by the rerun paginator on rehydration. Lets
     // the lifecycle row producer derive `attempts` / `is_retry` for hog flows
     // the same way it does for hog functions, so the `max_attempts` guard on

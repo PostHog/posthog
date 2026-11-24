@@ -5294,7 +5294,7 @@ def _enforce_object_access(obj, user_access_control: "UserAccessControl", requir
 
 # --- Custom property values ---
 
-# Re-exported from logic so the presentation layer can catch them — the import-linter forbids
+# Re-exported from logic so the presentation layer can catch them — hoglint forbids
 # presentation importing logic directly, so these errors are part of the facade's surface.
 CustomPropertyDefinitionNotFound = _custom_property_values_logic.CustomPropertyDefinitionNotFound
 CustomPropertyValueHistoryTooLong = _custom_property_values_logic.CustomPropertyValueHistoryTooLong
@@ -5707,6 +5707,7 @@ def _to_customer_task_view(task: CustomerTask, user_access_control: "UserAccessC
         updated_at=task.updated_at,
         can_edit=_customer_tasks_logic.can_edit_customer_task(task, user_access_control),
         can_restore=_customer_tasks_logic.can_restore_customer_task(task, user_access_control),
+        tags=_customer_tasks_logic.list_customer_task_tag_names(task),
     )
 
 

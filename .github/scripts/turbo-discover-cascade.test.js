@@ -1,10 +1,10 @@
 // Run with: node --test .github/scripts/turbo-discover-cascade.test.js
 //
 // Unit tests for the dependent-cascade logic in turbo-discover.js:
-// productGraphFromTachMap, tachDependents, loadTachModuleGraph, and the lib
+// productGraphFromImportMap, importDependents, loadImportGraph, and the lib
 // package import scan (libImportName, productsImportingModule,
 // coreFilesImportingModule, getAffectedLibPackages). Uses a synthetic graph and
-// a temp-dir tree throughout — never asserts against the real tach map or the
+// a temp-dir tree throughout — never asserts against the real hoglint map or the
 // real products/, which would turn into change-detector tests that break on
 // every unrelated import.
 
@@ -16,17 +16,17 @@ const os = require('node:os')
 const path = require('node:path')
 
 const {
-    productGraphFromTachMap,
-    tachDependents,
+    productGraphFromImportMap,
+    importDependents,
     contractCascadeIsDirect,
-    loadTachModuleGraph,
+    loadImportGraph,
     getAffectedLibPackages,
     libImportName,
     productsImportingModule,
     coreFilesImportingModule,
 } = require('./turbo-discover')
 
-// Graph literals use the shape productGraphFromTachMap emits: product directory
+// Graph literals use the shape productGraphFromImportMap emits: product directory
 // name -> sorted product directory names it imports.
 const graph = (edges) => new Map(Object.entries(edges))
 
@@ -44,7 +44,7 @@ test('the file map collapses to a product graph: importers outside products/ and
         'products/__init__.py': ['products/data_modeling/backend/apps.py'],
     }
     assert.deepEqual(
-        productGraphFromTachMap(fileMap),
+        productGraphFromImportMap(fileMap),
         graph({
             data_warehouse: [],
             data_modeling: ['data_warehouse'],
@@ -54,7 +54,7 @@ test('the file map collapses to a product graph: importers outside products/ and
 })
 
 test('normalization round-trip: dashed input resolves against underscored directory names and returns dashed output', () => {
-    const dependents = tachDependents(
+    const dependents = importDependents(
         ['data-warehouse'],
         graph({ data_warehouse: [], data_modeling: ['data_warehouse'] })
     )
@@ -64,8 +64,8 @@ test('normalization round-trip: dashed input resolves against underscored direct
 test('cycle safety: terminates and returns correct dependents with a 2-cycle and a 3-cycle present', () => {
     const cyclic = graph({ a: ['b'], b: ['a'], x: ['y'], y: ['z'], z: ['x'], downstream: ['z'] })
 
-    assert.deepEqual(tachDependents(['a'], cyclic).sort(), ['b'])
-    assert.deepEqual(tachDependents(['x'], cyclic).sort(), ['downstream', 'y', 'z'])
+    assert.deepEqual(importDependents(['a'], cyclic).sort(), ['b'])
+    assert.deepEqual(importDependents(['x'], cyclic).sort(), ['downstream', 'y', 'z'])
 })
 
 // The default must stay transitive: a change in c can break a's tests through b
@@ -73,8 +73,8 @@ test('cycle safety: terminates and returns correct dependents with a 2-cycle and
 // catch that before master. A flipped default would under-test every gate run.
 test('direct stops at the first hop while the default stays transitive', () => {
     const chain = graph({ a: ['b'], b: ['c'], c: [] })
-    assert.deepEqual(tachDependents(['c'], chain, { direct: true }), ['b'])
-    assert.deepEqual(tachDependents(['c'], chain).sort(), ['a', 'b'])
+    assert.deepEqual(importDependents(['c'], chain, { direct: true }), ['b'])
+    assert.deepEqual(importDependents(['c'], chain).sort(), ['a', 'b'])
 })
 
 // The merge queue and master never select, so a one-hop cascade there would let
@@ -91,7 +91,7 @@ test('a contract change takes one hop only on a selecting run with the kill swit
 })
 
 test('direct dependents terminate on a cycle rather than walking it', () => {
-    assert.deepEqual(tachDependents(['b'], graph({ a: ['b'], b: ['a'], downstream: ['a'] }), { direct: true }), ['a'])
+    assert.deepEqual(importDependents(['b'], graph({ a: ['b'], b: ['a'], downstream: ['a'] }), { direct: true }), ['a'])
 })
 
 test("core is never a node: two products that only meet through posthog are not each other's dependents", () => {
@@ -99,26 +99,26 @@ test("core is never a node: two products that only meet through posthog are not 
         'products/x/backend/api.py': ['posthog/api/router.py'],
         'posthog/api/router.py': ['products/y/backend/routes.py'],
     }
-    const collapsed = productGraphFromTachMap(fileMap)
+    const collapsed = productGraphFromImportMap(fileMap)
     assert.deepEqual(collapsed, graph({ x: [], y: [] }))
-    assert.deepEqual(tachDependents(['x'], collapsed), [])
-    assert.deepEqual(tachDependents(['y'], collapsed), [])
+    assert.deepEqual(importDependents(['x'], collapsed), [])
+    assert.deepEqual(importDependents(['y'], collapsed), [])
 })
 
 test('changed products are excluded from their own dependent set', () => {
-    assert.deepEqual(tachDependents(['a', 'b'], graph({ a: ['b'], b: [] })), [])
+    assert.deepEqual(importDependents(['a', 'b'], graph({ a: ['b'], b: [] })), [])
 })
 
 // The callers widen on null and would crash on a throw, so a run that cannot
 // start has to come back as "unknown", not as an exception. A repo root that
-// does not exist fails the spawn before any real uv or tach is involved.
+// does not exist fails the spawn before any real uv or hoglint is involved.
 test('fail closed: a run that cannot start yields null instead of throwing', () => {
-    assert.equal(loadTachModuleGraph('/nonexistent/repo-root'), null)
+    assert.equal(loadImportGraph('/nonexistent/repo-root'), null)
 })
 
 // --- Lib packages as cascade sources ---
 //
-// A lib package is a uv distribution, so tach reports imports of it as
+// A lib package is a uv distribution, so hoglint reads imports of it as
 // third-party and no consumer declares an edge to it. Its consumers are found by
 // scanning for import statements instead.
 
@@ -167,7 +167,7 @@ test('a lib change reaches both its importers and the products that depend on th
         const direct = productsImportingModule('owners_yaml', root)
         assert.deepEqual(direct, ['stamphog'])
         const products = graph({ stamphog: [], downstream: ['stamphog'] })
-        assert.deepEqual([...new Set([...direct, ...tachDependents(direct, products)])].sort(), [
+        assert.deepEqual([...new Set([...direct, ...importDependents(direct, products)])].sort(), [
             'downstream',
             'stamphog',
         ])

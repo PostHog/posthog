@@ -1,18 +1,23 @@
 import re
+import copy
 import json
+import threading
+from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 from uuid import uuid4
 
-from posthog.test.base import BaseTest
+import pytest
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 
 from posthog.integrations import IntegrationManager, IntegrationRecord
 
@@ -30,12 +35,28 @@ from products.messaging.backend.models.message_suppression import MessageSuppres
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.provider_import_run import ProviderImportRun
 from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
-from products.messaging.backend.provider_imports import resend, runs
-from products.messaging.backend.provider_imports.base import ImportCredentialsInvalid, ImportProviderUnavailable
+from products.messaging.backend.provider_imports import contacts, resend, runs
+from products.messaging.backend.provider_imports.base import (
+    ImportCredentialsInvalid,
+    ImportProviderUnavailable,
+    ImportStepBlocked,
+    ImportStepError,
+)
+from products.messaging.backend.provider_imports.liquid_text import literal_liquid
 from products.messaging.backend.provider_imports.resend_templates import convert_template, convert_text
+from products.messaging.backend.services import resend_client
 from products.messaging.backend.services.suppression import remove_suppressions
+from products.messaging.backend.temporal import (
+    client as temporal_client,
+    workflow as temporal_workflow,
+)
+from products.messaging.backend.tests.people_import_recorder import PeopleImportRecorder
+from products.workflows.backend.facade.contracts import ContactsCaptureFailed
+from products.workflows.backend.facade.people_import import import_contact_chunk
 from products.workflows.backend.facade.workflows import get_workflow
 
+# A contacts run must import who opted out or bounced in Resend too.
+OPT_OUT_STEPS = ["suppressions", "opt_outs", "topic_opt_outs"]
 FIXTURES = json.loads((Path(__file__).parent / "fixtures" / "resend_account.json").read_text())
 ALL_STEPS = ["topics", "suppressions", "opt_outs", "topic_opt_outs", "templates", "automations", "domains"]
 API_KEY = "re_full_access_key"
@@ -50,6 +71,16 @@ def _sync_email_template() -> None:
             "inputs_schema": [{"key": "email", "type": "native_email", "label": "Email", "required": True}],
         }
     )
+
+
+def _import_contacts() -> dict[str, float]:
+    return {
+        outcome: REGISTRY.get_sample_value(
+            "messaging_provider_import_contacts_total", {"provider": "resend", "step": "contacts", "outcome": outcome}
+        )
+        or 0
+        for outcome in ("imported", "failed")
+    }
 
 
 class FakeResend:
@@ -71,11 +102,19 @@ class FakeResend:
         if self.failures.get(path):
             status, headers = self.failures[path].pop(0)
             return self._response(status, {"name": "rate_limit_exceeded", "message": "Too many"}, headers)
+        if match := re.fullmatch(r"/segments/([^/]+)/contacts", path):
+            members = set(self.data["segment_contacts"].get(match.group(1), []))
+            return self._page([row for row in self.data["contacts"] if row["id"] in members], params)
         if match := re.fullmatch(r"/contacts/([^/]+)/topics", path):
             return self._page(self.data["contact_topics"].get(match.group(1), []), params)
+        if match := re.fullmatch(r"/contacts/([^/]+)", path):
+            for row in self.data["contacts"]:
+                if row["id"] == match.group(1):
+                    return self._response(200, {**row, "properties": self.data["contact_properties"].get(row["id"])})
+            return self._response(404, {"name": "not_found", "message": "Not found"})
         if match := re.fullmatch(r"/(templates|domains|automations|segments)/([^/]+)", path):
             for row in self.data[match.group(1)]:
-                if match.group(2) in (row["id"], row.get("alias")):
+                if unquote(match.group(2)) in (row["id"], row.get("alias")):
                     return self._response(200, row)
             return self._response(404, {"name": "not_found", "message": "Not found"})
         return self._page(self.data[path.strip("/")], params)
@@ -169,6 +208,28 @@ class TestResendImport(BaseTest):
         }
         assert "/contacts/c0000000-0000-4000-8000-000000000001/topics" not in self.resend.calls
 
+    @parameterized.expand(
+        [
+            ("with_topic_preferences", ["topics", "topic_opt_outs"], "Your Resend contacts keep their choice"),
+            ("topics_only", ["topics"], "import Topic preferences too"),
+        ]
+    )
+    def test_topic_notes_name_every_topic_once(self, _name: str, steps: list[str], follow_up: str) -> None:
+        self.resend.data["topics"] = [
+            *FIXTURES["topics"],
+            {"id": "t-4", "name": "Weekly digest", "default_subscription": "opt_out", "visibility": "public"},
+            {"id": "t-5", "name": "Événements", "default_subscription": "opt_out", "visibility": "public"},
+            {"id": "t-6", "name": "Sales outreach", "default_subscription": "opt_in", "visibility": "private"},
+        ]
+
+        warnings = self._run(steps).progress["topics"]["warnings"]
+
+        private_name = FIXTURES["topics"][2]["name"]
+        assert len(warnings) == 2
+        assert warnings[0].startswith("Resend sends these only to people who opted in: Weekly digest, Événements. ")
+        assert follow_up in warnings[0]
+        assert warnings[1].startswith(f"Private in Resend, so not imported: {private_name}, Sales outreach. ")
+
     @parameterized.expand([("completed", True), ("failed_step", False)])
     def test_key_is_gone_when_the_run_ends(self, _name: str, completes: bool) -> None:
         run = runs.start_run(self.team.id, "resend", ["suppressions"], API_KEY, self.user.id)
@@ -217,6 +278,53 @@ class TestResendImport(BaseTest):
 
         assert not ProviderImportRun.objects.for_team(self.team.id).exists()
 
+    @parameterized.expand([("new_people", "New people from contacts"), ("contact_properties", "Contact properties")])
+    def test_a_step_that_only_adds_to_contacts_needs_contacts_selected(self, step: str, label: str) -> None:
+        with self.assertRaisesRegex(runs.InvalidImportSteps, f"{label} needs Contacts selected too"):
+            runs.start_run(self.team.id, "resend", ["opt_outs", step], API_KEY, self.user.id)
+
+        assert not ProviderImportRun.objects.for_team(self.team.id).exists()
+
+    def test_contacts_need_the_opt_out_steps_in_the_run(self) -> None:
+        with self.assertRaisesRegex(
+            runs.InvalidImportSteps, "Contacts needs Suppression list, Topic preferences selected too"
+        ):
+            runs.start_run(self.team.id, "resend", ["opt_outs", "contacts", "new_people"], API_KEY, self.user.id)
+
+        assert not ProviderImportRun.objects.for_team(self.team.id).exists()
+
+    def test_quick_steps_run_before_the_steps_that_read_contacts_one_at_a_time(self) -> None:
+        run = runs.start_run(
+            self.team.id,
+            "resend",
+            ["contact_properties", "domains", *OPT_OUT_STEPS, "contacts", "templates"],
+            API_KEY,
+            self.user.id,
+        )
+
+        assert run.steps == [
+            "suppressions",
+            "opt_outs",
+            "templates",
+            "domains",
+            "topic_opt_outs",
+            "contacts",
+            "contact_properties",
+        ]
+
+    def test_contacts_wait_for_the_opt_outs_the_run_includes(self) -> None:
+        self.resend.failures["/contacts"] = [(500, {})] * 10
+        run = runs.start_run(self.team.id, "resend", [*OPT_OUT_STEPS, "contacts"], API_KEY, self.user.id)
+
+        with self.assertRaises(ImportProviderUnavailable):
+            runs.run_step(self.team.id, run.id, "opt_outs", attempt=1)
+        with self.assertRaises(ImportStepBlocked):
+            runs.run_step(self.team.id, run.id, "contacts", attempt=1)
+
+        assert self.resend.calls.count("/contacts") == 4
+        run.refresh_from_db()
+        assert "Unsubscribed contacts" in run.progress["contacts"]["last_error"]
+
     @parameterized.expand([("rate_limit", 429, {"retry-after": "7"}, 7.0), ("server_error", 503, {}, 2.0)])
     def test_a_passing_failure_waits_and_the_step_completes(
         self, _name: str, status: int, headers: dict[str, str], waited: float
@@ -259,6 +367,14 @@ class TestResendImport(BaseTest):
         run = self._run(["topic_opt_outs"])
 
         assert "/contacts/c0000000-0000-4000-8000-000000000001/topics" in self.resend.calls
+        assert run.status == "completed"
+
+    def test_topic_choices_are_not_read_when_every_topic_is_private(self) -> None:
+        self.resend.data["topics"] = [topic for topic in FIXTURES["topics"] if topic.get("visibility") == "private"]
+
+        run = self._run(["topic_opt_outs"])
+
+        assert "/contacts" not in self.resend.calls
         assert run.status == "completed"
 
     @parameterized.expand([("same_key", API_KEY, 2), ("another_key", "re_another_account_key", 3)])
@@ -518,11 +634,19 @@ class TestResendImport(BaseTest):
         assert ["no subject" in note for note in imported.subject_notes] == [True]
         assert ["no sender" in note for note in imported.sender_notes] == [True]
 
-    def test_a_template_without_a_display_name_uses_the_senders_name(self) -> None:
-        sender = cast(IntegrationRecord, SimpleNamespace(id=7, config={"name": "Acme team", "verified": True}))
+    @parameterized.expand(
+        [
+            ("plain", "Acme team", "Acme team"),
+            ("liquid_stays_text", "{{ variables.reset_token }}", literal_liquid("{{ variables.reset_token }}")),
+        ]
+    )
+    def test_a_template_without_a_display_name_uses_the_senders_name(
+        self, _name: str, stored: str, expected: str
+    ) -> None:
+        sender = cast(IntegrationRecord, SimpleNamespace(id=7, config={"name": stored, "verified": True}))
         template = {**FIXTURES["templates"][0], "from": "hello@example.com"}
 
-        assert resend._imported_email(template, {"hello@example.com": sender}).from_name == "Acme team"
+        assert resend._imported_email(template, {"hello@example.com": sender}).from_name == expected
 
     def test_a_segment_resend_no_longer_has_leaves_the_step_to_fill_in(self) -> None:
         self.resend.data = {**self.resend.data, "segments": []}
@@ -549,6 +673,430 @@ class TestResendImport(BaseTest):
         assert [item.label for item in domains.items] == [domain["name"] for domain in FIXTURES["domains"]]
         org_domain = next(item for item in domains.items if item.label == "mail.example.org")
         assert any("feedback" in note for note in org_domain.notes)
+
+
+class TestResendContacts(ClickhouseTestMixin, BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.resend = FakeResend()
+        _sync_email_template()
+        client = "products.messaging.backend.services.resend_client"
+        for target, kwargs in (
+            (f"{client}.requests.get", {"side_effect": self.resend.get}),
+            (f"{client}.REQUESTS_PER_SECOND", {"new": 100000}),
+            ("products.messaging.backend.provider_imports.runs.start_provider_import_workflow", {}),
+        ):
+            patcher = patch(target, **kwargs)
+            self.addCleanup(patcher.stop)
+            patcher.start()
+        self.people = PeopleImportRecorder(self)
+
+    def test_an_opt_out_reaches_the_spelling_the_matched_person_has(self) -> None:
+        _create_person(team=self.team, distinct_ids=["user-hal"], properties={"email": "Happy@Example.com"})
+        flush_persons_and_events()
+        # Stored by an earlier import under the provider's spelling.
+        MessageRecipientPreference.objects.create(
+            team_id=self.team.id, identifier="happy@example.com", preferences={"$all": "OPTED_OUT"}
+        )
+
+        run = runs.start_run(self.team.id, "resend", [*OPT_OUT_STEPS, "contacts"], API_KEY, self.user.id)
+        with self.captureOnCommitCallbacks(execute=True):
+            for step in run.steps:
+                runs.run_step(self.team.id, run.id, step, attempt=1)
+
+        preferences = dict(
+            MessageRecipientPreference.objects.filter(team_id=self.team.id).values_list("identifier", "preferences")
+        )
+        assert preferences["Happy@Example.com"] == {"$all": "OPTED_OUT"}
+
+    def test_a_contact_id_cannot_reach_another_resend_endpoint(self) -> None:
+        crafted = "x/../../api-keys"
+        self.resend.data["contacts"] = [{**self.resend.data["contacts"][0], "id": crafted}]
+
+        run = runs.start_run(
+            self.team.id, "resend", [*OPT_OUT_STEPS, "contacts", "contact_properties"], API_KEY, self.user.id
+        )
+        with self.captureOnCommitCallbacks(execute=True):
+            for step in run.steps:
+                runs.run_step(self.team.id, run.id, step, attempt=1)
+
+        assert "/contacts/x%2F..%2F..%2Fapi-keys" in self.resend.calls
+        assert not any(call.endswith("api-keys") and "%2F" not in call for call in self.resend.calls)
+
+    @parameterized.expand([("properties_defined", True), ("no_properties_defined", False)])
+    def test_contact_properties_fill_only_what_the_person_lacks(self, _name: str, defined: bool) -> None:
+        if not defined:
+            self.resend.data["contact-properties"] = []
+        _create_person(team=self.team, distinct_ids=["user-hal"], properties={"email": "Happy@Example.com"})
+        flush_persons_and_events()
+
+        run = runs.start_run(
+            self.team.id, "resend", [*OPT_OUT_STEPS, "contacts", "contact_properties"], API_KEY, self.user.id
+        )
+        with self.captureOnCommitCallbacks(execute=True):
+            for step in run.steps:
+                runs.run_step(self.team.id, run.id, step, attempt=1)
+        run.refresh_from_db()
+
+        sent = [(event["distinct_id"], event["properties"]) for event in self.people.events]
+        if defined:
+            # The identity and $ names stay out, and a property with no value adds nothing.
+            assert sent == [
+                (
+                    "user-hal",
+                    {"$set_once": {"email": "happy@example.com", "plan": "pro", "seats": "3"}, "$geoip_disable": True},
+                )
+            ]
+            assert run.progress["contact_properties"]["counts"] == {"people": 1, "contacts": 4}
+        else:
+            assert run.progress["contact_properties"]["status"] == "completed"
+            assert not any(re.fullmatch(r"/contacts/[^/]+", call) for call in self.resend.calls)
+
+    @parameterized.expand([("ended_long_ago",), ("run_deleted",)])
+    def test_the_hourly_sweep_deletes_contacts_any_ended_run_left_behind(self, state: str) -> None:
+        steps = [*OPT_OUT_STEPS, "contacts", "new_people"]
+        ended = runs.start_run(self.team.id, "resend", steps, API_KEY, self.user.id)
+        for step in ended.steps:
+            runs.run_step(self.team.id, ended.id, step, attempt=1)
+        ended_runs = ProviderImportRun.objects.for_team(self.team.id).filter(id=ended.id)
+        if state == "ended_long_ago":
+            ended_runs.update(status="failed", finished_at=timezone.now() - timedelta(days=30))
+        else:
+            ended_runs.delete()
+        running = runs.start_run(self.team.id, "resend", steps, API_KEY, self.user.id)
+        for step in running.steps:
+            runs.run_step(self.team.id, running.id, step, attempt=1)
+        assert {key.split("/")[2] for key in self.people.stored} == {str(ended.id), str(running.id)}
+
+        runs.close_stale_runs()
+
+        assert {key.split("/")[2] for key in self.people.stored} == {str(running.id)}
+
+    def test_a_run_whose_workflow_never_sent_its_contacts_fails_their_cohort_and_deletes_them(self) -> None:
+        run = runs.start_run(self.team.id, "resend", [*OPT_OUT_STEPS, "contacts", "new_people"], API_KEY, self.user.id)
+        for step in run.steps:
+            runs.run_step(self.team.id, run.id, step, attempt=1)
+        ProviderImportRun.objects.for_team(self.team.id).filter(id=run.id).update(
+            created_at=timezone.now() - runs.STALE_RUN_AGE * 2
+        )
+
+        contacts_before = _import_contacts()
+        # Storage fails during the first sweep, and the next hourly sweep deletes the contacts.
+        with (
+            patch.object(self.people.storage, "delete_objects", side_effect=ConnectionError("storage is down")),
+            patch("products.messaging.backend.provider_imports.runs.report_user_action") as report,
+        ):
+            assert runs.close_stale_runs() == 1
+        assert self.people.stored != {}
+        properties = report.call_args.args[2]
+        assert (properties["stage"], properties["error_class"]) == ("failed", "PeopleImportFailed")
+        assert properties["counts"]["contacts"] == {"imported": 0, "skipped": 1, "failed": 3}
+        runs.close_stale_runs()
+
+        assert _import_contacts() == {**contacts_before, "failed": contacts_before["failed"] + 3}
+        run.refresh_from_db()
+        plans = run.progress["contacts"]["people_imports"]
+        cohorts = Cohort.objects.filter(id__in=[plan["cohort_id"] for plan in plans])
+        assert (run.status, run.progress["contacts"]["status"]) == ("failed", "failed")
+        assert len(plans) == 2
+        assert {(cohort.is_calculating, cohort.errors_calculating) for cohort in cohorts} == {(False, 1)}
+        assert self.people.stored == {}
+
+    def test_every_cohort_shares_one_set_of_unsubscribed_contacts(self) -> None:
+        self.resend.data["segments"] = [
+            {**self.resend.data["segments"][0], "id": f"seg-{n}", "name": f"Segment {n}"} for n in range(3)
+        ]
+        lists: list[Any] = []
+        save = resend.save_contact_lists
+
+        def record(context: Any, everyone: Any, segments: Any, *args: Any) -> Any:
+            lists.extend([everyone, *segments])
+            return save(context, everyone, segments, *args)
+
+        run = runs.start_run(self.team.id, "resend", [*OPT_OUT_STEPS, "contacts"], API_KEY, self.user.id)
+        with (
+            patch.object(resend, "save_contact_lists", side_effect=record),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            for step in run.steps:
+                runs.run_step(self.team.id, run.id, step, attempt=1)
+
+        assert len(lists) == 4 and lists[0].non_members
+        assert len({id(contact_list.non_members) for contact_list in lists}) == 1
+
+    def test_a_contact_only_a_segment_lists_waits_for_the_next_import(self) -> None:
+        late = {**self.resend.data["contacts"][0], "id": "c-late", "email": "late@example.com", "unsubscribed": True}
+        listed = list(self.resend.data["contacts"])
+        lists: list[Any] = []
+        save = resend.save_contact_lists
+
+        def record(context: Any, everyone: Any, segments: Any, *args: Any) -> Any:
+            lists.extend([everyone, *segments])
+            return save(context, everyone, segments, *args)
+
+        def get(url: str, params: dict | None = None, **kwargs: Any) -> Any:
+            # The contact joins after the contact list was read, and unsubscribes too.
+            self.resend.data["contacts"] = [*listed, late] if "/segments/" in url else listed
+            return FakeResend.get(self.resend, url, params=params, **kwargs)
+
+        self.resend.data["segment_contacts"] = {"seg-1": [*self.resend.data["segment_contacts"]["seg-1"], "c-late"]}
+        self.resend.data["contacts"] = [*listed]
+        run = runs.start_run(self.team.id, "resend", [*OPT_OUT_STEPS, "contacts", "new_people"], API_KEY, self.user.id)
+        with (
+            patch("products.messaging.backend.services.resend_client.requests.get", side_effect=get),
+            patch.object(resend, "save_contact_lists", side_effect=record),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            for step in run.steps:
+                runs.run_step(self.team.id, run.id, step, attempt=1)
+
+        everyone, segment = lists
+        assert segment.rows
+        assert "late@example.com" not in {row["email"] for row in [*everyone.rows, *segment.rows]}
+
+    def test_a_segment_id_cannot_reach_another_resend_endpoint(self) -> None:
+        self.resend.data["segments"] = [{**self.resend.data["segments"][0], "id": "s/../../api-keys"}]
+
+        run = runs.start_run(self.team.id, "resend", [*OPT_OUT_STEPS, "contacts"], API_KEY, self.user.id)
+        with self.captureOnCommitCallbacks(execute=True):
+            for step in run.steps:
+                runs.run_step(self.team.id, run.id, step, attempt=1)
+
+        assert "/segments/s%2F..%2F..%2Fapi-keys/contacts" in self.resend.calls
+
+    def test_automation_references_cannot_reach_another_resend_endpoint(self) -> None:
+        automations = copy.deepcopy(self.resend.data["automations"])
+        for automation in automations:
+            for step in automation["steps"]:
+                if step["type"] == "add_to_segment":
+                    step["config"]["segment_id"] = "s/../../api-keys"
+                if step["type"] == "send_email":
+                    step["config"]["template"]["id"] = "t/../../api-keys"
+        self.resend.data["automations"] = automations
+
+        run = runs.start_run(self.team.id, "resend", ["automations"], API_KEY, self.user.id)
+        with self.captureOnCommitCallbacks(execute=True):
+            for step in run.steps:
+                runs.run_step(self.team.id, run.id, step, attempt=1)
+
+        assert "/segments/s%2F..%2F..%2Fapi-keys" in self.resend.calls
+        assert "/templates/t%2F..%2F..%2Fapi-keys" in self.resend.calls
+        assert not any("/api-keys" in call and "%2F" not in call for call in self.resend.calls)
+
+    def test_listed_ids_cannot_reach_another_resend_endpoint(self) -> None:
+        for key, bad_id in (("templates", ".."), ("automations", "a/../../api-keys"), ("domains", ".")):
+            self.resend.data[key] = [{**self.resend.data[key][0], "id": bad_id}]
+
+        run = runs.start_run(self.team.id, "resend", ["templates", "automations", "domains"], API_KEY, self.user.id)
+        with self.captureOnCommitCallbacks(execute=True):
+            for step in run.steps:
+                runs.run_step(self.team.id, run.id, step, attempt=1)
+
+        assert "/templates/%2E%2E" in self.resend.calls
+        assert "/automations/a%2F..%2F..%2Fapi-keys" in self.resend.calls
+        assert "/domains/%2E" in self.resend.calls
+        assert not {"/templates/..", "/domains/."} & set(self.resend.calls)
+
+    def test_an_account_with_too_many_segments_fills_no_cohort(self) -> None:
+        segment = self.resend.data["segments"][0]
+        self.resend.data["segments"] = [segment, {**segment, "id": "seg-2", "name": "Second"}]
+        run = runs.start_run(self.team.id, "resend", [*OPT_OUT_STEPS, "contacts"], API_KEY, self.user.id)
+
+        with patch.object(resend, "MAX_SEGMENTS", 1), self.captureOnCommitCallbacks(execute=True):
+            for step in OPT_OUT_STEPS:
+                runs.run_step(self.team.id, run.id, step, attempt=1)
+            with self.assertRaises(ImportStepError):
+                runs.run_step(self.team.id, run.id, "contacts", attempt=1)
+        run.refresh_from_db()
+
+        assert "segments" in run.progress["contacts"]["last_error"]
+        assert not Cohort.objects.filter(team_id=self.team.id, is_static=True).exists()
+
+    @parameterized.expand([("with_contacts", True), ("without_contacts", False)])
+    def test_an_automation_says_its_segment_is_filled_only_when_the_run_imports_contacts(
+        self, _name: str, filled: bool
+    ) -> None:
+        steps = [*OPT_OUT_STEPS, "contacts", "automations"] if filled else ["automations"]
+        run = runs.start_run(self.team.id, "resend", steps, API_KEY, self.user.id)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            for step in run.steps:
+                try:
+                    runs.run_step(self.team.id, run.id, step, attempt=1)
+                except (ImportProviderUnavailable, ImportStepBlocked):
+                    pass
+        run.refresh_from_db()
+
+        notes = [note for item in run.progress["automations"]["items"] for note in item["notes"]]
+        expected = (
+            "This import's Contacts step adds the segment's contacts to it once it finishes. If it doesn't finish, "
+            "import Contacts again."
+            if filled
+            else "Import Contacts too to add the people already in the segment."
+        )
+        assert any(expected in note for note in notes)
+
+    def test_a_contacts_cohort_that_cannot_be_imported_fills_no_segment_but_still_carries_opt_outs(self) -> None:
+        Cohort.objects.create(
+            team_id=self.team.id, name="Resend contacts", description="Imported from Resend contacts.", deleted=True
+        )
+        # Stored by an earlier import under another spelling of a Resend contact's address.
+        MessageRecipientPreference.objects.create(
+            team_id=self.team.id, identifier="HAPPY@example.com", preferences={"$all": "OPTED_OUT"}
+        )
+
+        steps = [*OPT_OUT_STEPS, "contacts", "new_people", "automations"]
+        run = runs.start_run(self.team.id, "resend", steps, API_KEY, self.user.id)
+        with self.captureOnCommitCallbacks(execute=True):
+            for step in run.steps:
+                try:
+                    runs.run_step(self.team.id, run.id, step, attempt=1)
+                except ImportStepError:
+                    assert step == "contacts"
+        run.refresh_from_db()
+
+        assert not run.progress["contacts"].get("people_imports") and self.people.events == []
+        assert run.progress["contacts"]["status"] != "completed"
+        assert "Resend contacts couldn't be imported" in run.progress["contacts"]["last_error"]
+        notes = [note for item in run.progress["automations"]["items"] for note in item["notes"]]
+        assert notes and not any("added the segment's contacts" in note for note in notes)
+        preferences = dict(
+            MessageRecipientPreference.objects.filter(team_id=self.team.id).values_list("identifier", "preferences")
+        )
+        assert preferences["happy@example.com"] == {"$all": "OPTED_OUT"}
+
+    @parameterized.expand(
+        [
+            (
+                "with_new_people",
+                [*OPT_OUT_STEPS, "contacts", "new_people", "automations"],
+                [("unsubscribed@example.com", False), ("left-a-topic@example.com", True), ("user-hal", True)],
+                # The people import only takes addresses Django validates, which leaves out Björk's.
+                {
+                    "people_to_send": 3,
+                    "people": 3,
+                    "new_people": 2,
+                    "not_sent": 0,
+                    "skipped_new_people": 0,
+                    "dropped": 1,
+                },
+                False,
+            ),
+            (
+                "matching_people_only",
+                [*OPT_OUT_STEPS, "contacts", "automations"],
+                [("user-hal", True)],
+                {
+                    "people_to_send": 1,
+                    "people": 1,
+                    "new_people": 0,
+                    "not_sent": 0,
+                    "skipped_new_people": 2,
+                    "dropped": 1,
+                },
+                False,
+            ),
+            (
+                "capture_refuses",
+                [*OPT_OUT_STEPS, "contacts", "new_people", "automations"],
+                [("unsubscribed@example.com", False), ("left-a-topic@example.com", True), ("user-hal", True)],
+                {
+                    "people_to_send": 3,
+                    "people": 0,
+                    "new_people": 0,
+                    "not_sent": 3,
+                    "skipped_new_people": 0,
+                    "dropped": 1,
+                },
+                True,
+            ),
+        ]
+    )
+    def test_contacts_become_people_once_and_fill_the_cohort_automations_use(
+        self,
+        _name: str,
+        steps: list[str],
+        staged: list[tuple[str, bool]],
+        counts: dict[str, int],
+        capture_refuses: bool,
+    ) -> None:
+        _create_person(team=self.team, distinct_ids=["user-hal"], properties={"email": "Happy@Example.com"})
+        flush_persons_and_events()
+        self.resend.data["contacts"] += [
+            {"id": f"c0000000-0000-4000-8000-00000000000{n}", "email": email, "unsubscribed": False}
+            for n, email in ((5, "HAPPY@example.com"), (6, " left-a-topic@example.com "), (7, "not-an-email"))
+        ]
+
+        run = runs.start_run(self.team.id, "resend", steps, API_KEY, self.user.id)
+        with self.captureOnCommitCallbacks(execute=True):
+            for step in run.steps:
+                runs.run_step(self.team.id, run.id, step, attempt=1)
+        run.refresh_from_db()
+        # The workflow sends the stored list once the step completes. A contact who unsubscribed becomes a person but
+        # stays out of the cohort.
+        plan, segment_plan = run.progress["contacts"]["people_imports"]
+        people = self.people.people(plan)
+        segment_people = self.people.people(segment_plan)
+        assert "people" not in run.progress["contacts"]["counts"]
+        # Sends the list the way the workflow does, and records what capture took.
+        self.people.capture_refuses = capture_refuses
+        try:
+            sent = import_contact_chunk(
+                self.team.id,
+                plan["storage_prefix"],
+                0,
+                send_events=True,
+                created_by_id=self.user.id,
+                wait_for_people=False,
+            )
+            outcome = {"sent": sent.people, "new_people": sent.new_people, "failed_lists": 0}
+        except ContactsCaptureFailed:
+            outcome = {"sent": 0, "new_people": 0, "failed_lists": 1}
+        assert set(plan) == {"cohort_id", "storage_prefix", "chunks", "send_events", "created_by_id"}
+        [everyone_plan, _] = runs.run_step(self.team.id, run.id, "contacts", attempt=2)
+        assert (everyone_plan.provider, everyone_plan.step) == ("resend", "contacts")
+        contacts_before = _import_contacts()
+        runs.record_people_import(self.team.id, run.id, "contacts", outcome)
+        runs.record_people_import(self.team.id, run.id, "contacts", outcome)
+        outcomes = {"imported": counts["people"], "failed": counts["not_sent"]}
+        assert {key: _import_contacts()[key] - contacts_before[key] for key in outcomes} == outcomes
+        with patch("products.messaging.backend.provider_imports.runs.report_user_action") as report:
+            runs.finish_run(self.team.id, run.id)
+        assert outcomes.items() <= report.call_args.args[2]["counts"]["contacts"].items()
+        run.refresh_from_db()
+        assert run.progress["contacts"]["last_error"] == (
+            "3 contacts didn't reach PostHog, so their people weren't created or updated. Import again to retry."
+            if capture_refuses
+            else None
+        )
+        assert (Cohort.objects.get(id=plan["cohort_id"]).name, plan["send_events"]) == ("Resend contacts", True)
+        assert [(person["distinct_id"], person.get("member", True)) for person in people] == staged
+        assert people[-1]["properties"] == {"email": "happy@example.com", "first_name": "Hal", "last_name": "Happy"}
+        assert run.progress["contacts"]["processed"] == 7
+        assert run.progress["contacts"]["counts"] == {**counts, "repeats_merged": 2, "invalid_skipped": 1}
+        notes = run.progress["contacts"]["items"][0]["notes"]
+        assert {
+            "2 contacts had the same email as another contact, ignoring capital letters and spaces, so they were "
+            "merged with that contact.",
+            "1 contact had no valid email, so it was skipped.",
+        } <= set(notes)
+        segment_cohorts = Cohort.objects.filter(team_id=self.team.id, description="Imported from Resend segment seg-1.")
+        assert segment_cohorts.count() == 1
+        # The segment's list only sets its cohort's members, so its contacts' events go out once, with the list above.
+        assert (segment_plan["cohort_id"], segment_plan["send_events"]) == (segment_cohorts.get().id, False)
+        assert [person["distinct_id"] for person in segment_people] == ["user-hal"]
+        workflow = get_workflow(
+            team_id=self.team.id,
+            workflow_id=next(
+                item["url"].split("/")[2]
+                for item in run.progress["automations"]["items"]
+                if item["label"] == "Welcome series"
+            ),
+            user_access_control=None,
+            required_level=None,
+        )
+        tag = next(action for action in cast(list[dict[str, Any]], workflow.actions) if action["id"] == "tag")
+        assert tag["config"]["inputs"]["cohort_id"]["value"] == segment_cohorts.get().id
 
 
 class TestResendTemplateConversion(SimpleTestCase):
@@ -607,3 +1155,157 @@ class TestResendTemplateConversion(SimpleTestCase):
         assert "FIRST_NAME" in joined
         assert "ORDER" in joined
         assert "isn't published" in joined
+
+
+class TestResendClientPace(SimpleTestCase):
+    LIMIT = {"ratelimit-limit": "10", "ratelimit-policy": "10;w=1"}
+
+    @parameterized.expand(
+        [
+            ("no_limit_headers", [(200, {})], [0.5, 0.5, 0.5]),
+            ("limit_headers", [(200, {**LIMIT, "ratelimit-remaining": "6"})], [0.5, 0.125, 0.125]),
+            (
+                "window_used_up",
+                [(200, {"ratelimit-limit": "10", "ratelimit-remaining": "0", "ratelimit-reset": "1"})],
+                [1.0, 1.0, 1.0],
+            ),
+            (
+                "live_sending_filled_the_window",
+                [
+                    (200, {**LIMIT, "ratelimit-remaining": "0", "ratelimit-reset": "1"}),
+                    (200, {**LIMIT, "ratelimit-remaining": "6"}),
+                ],
+                [1.0, 0.25, 0.25],
+            ),
+            ("garbage_limit", [(200, {"ratelimit-limit": "-3", "ratelimit-policy": "x"})], [0.5, 0.5, 0.5]),
+            ("limit_without_a_window", [(200, {"ratelimit-limit": "10", "ratelimit-remaining": "6"})], [0.5, 0.5, 0.5]),
+            (
+                "per_minute_limit_without_a_window",
+                [
+                    (200, {"ratelimit-limit": "60", "ratelimit-remaining": "50", "ratelimit-reset": "59"}),
+                    (200, {"ratelimit-limit": "60", "ratelimit-remaining": "40", "ratelimit-reset": "1"}),
+                ],
+                [0.5, 1.23, 1.23],
+            ),
+            (
+                "huge_reset_without_a_window",
+                [(200, {"ratelimit-limit": "10", "ratelimit-remaining": "6", "ratelimit-reset": "9" * 400})],
+                [0.5, 7.5, 7.5],
+            ),
+            (
+                "huge_window",
+                [(200, {"ratelimit-limit": "10", "ratelimit-remaining": "6", "ratelimit-policy": "10;w=" + "9" * 400})],
+                [0.5, 7.5, 7.5],
+            ),
+            (
+                "window_too_long_to_read",
+                [
+                    (
+                        200,
+                        {"ratelimit-limit": "10", "ratelimit-remaining": "6", "ratelimit-policy": "10;w=" + "9" * 5000},
+                    )
+                ],
+                [0.5, 0.5, 0.5],
+            ),
+            (
+                "live_sending_got_a_429",
+                [
+                    (429, {**LIMIT, "ratelimit-remaining": "0", "ratelimit-reset": "1", "retry-after": "1"}),
+                    (200, {**LIMIT, "ratelimit-remaining": "6"}),
+                ],
+                [1.0, 0.25, 0.25, 0.25],
+            ),
+        ]
+    )
+    def test_requests_follow_the_rate_limit_resend_reports(
+        self, _name: str, responses: list[tuple[int, dict[str, str]]], gaps: list[float]
+    ) -> None:
+        clock = [0.0]
+        sent_at: list[float] = []
+
+        def sleep(seconds: float) -> None:
+            clock[0] += seconds
+
+        def get(*_: Any, **__: Any) -> MagicMock:
+            status, headers = responses[min(len(sent_at), len(responses) - 1)]
+            sent_at.append(clock[0])
+            return FakeResend._response(status, {}, headers)
+
+        client_module = "products.messaging.backend.services.resend_client"
+        with (
+            patch(f"{client_module}.time.monotonic", side_effect=lambda: clock[0]),
+            patch(f"{client_module}.time.sleep", side_effect=sleep),
+            patch(f"{client_module}.requests.get", side_effect=get),
+        ):
+            client = resend_client.ResendClient(API_KEY)
+            for _ in range(4):
+                client.get("/domains")
+
+        assert [later - earlier for earlier, later in zip(sent_at, sent_at[1:])] == pytest.approx(gaps, abs=0.01)
+
+    def test_a_request_waiting_for_its_time_also_waits_out_a_full_window(self) -> None:
+        clock = [0.0]
+        sent_at: list[float] = []
+        full_window = {**self.LIMIT, "ratelimit-remaining": "0", "ratelimit-reset": "2"}
+        open_window = {**self.LIMIT, "ratelimit-remaining": "6"}
+
+        def get(*_: Any, **__: Any) -> MagicMock:
+            sent_at.append(clock[0])
+            return FakeResend._response(200, {}, full_window if len(sent_at) == 2 else open_window)
+
+        client_module = "products.messaging.backend.services.resend_client"
+        with (
+            patch(f"{client_module}.time.monotonic", side_effect=lambda: clock[0]),
+            patch(f"{client_module}.requests.get", side_effect=get),
+        ):
+            client = resend_client.ResendClient(API_KEY)
+
+            other_request = [True]
+
+            def sleep(seconds: float) -> None:
+                if other_request:
+                    other_request.pop()
+                    client.get("/domains")
+                clock[0] += seconds
+
+            client.get("/domains")
+            with patch(f"{client_module}.time.sleep", side_effect=sleep):
+                client.get("/domains")
+
+        assert sent_at[2] >= sent_at[1] + 2
+
+    def test_a_rejected_read_stops_the_rest_of_the_page(self) -> None:
+        reads: list[str] = []
+        rejected = threading.Event()
+
+        def get(url: str, **_: Any) -> MagicMock:
+            reads.append(url)
+            if url.endswith("/contacts/c3"):
+                rejected.set()
+                return FakeResend._response(401, {"name": "invalid_api_key", "message": "API key is invalid"})
+            rejected.wait(timeout=5)
+            return FakeResend._response(200, {})
+
+        client_module = "products.messaging.backend.services.resend_client"
+        with (
+            patch(f"{client_module}.time.sleep"),
+            patch(f"{client_module}.REQUESTS_PER_SECOND", 100000),
+            patch(f"{client_module}.requests.get", side_effect=get),
+        ):
+            client = resend_client.ResendClient(API_KEY)
+            with self.assertRaises(resend_client.ResendKeyRejected):
+                client.each(lambda contact_id: client.get(f"/contacts/{contact_id}"), [f"c{i}" for i in range(100)])
+
+        assert len(reads) < 10
+
+
+class TestResendImportBudget(SimpleTestCase):
+    def test_the_largest_account_finishes_the_steps_that_read_contacts_one_at_a_time(self) -> None:
+        # Resend returns a contact's topics and properties only one contact per request.
+        per_scan = timedelta(seconds=contacts.MAX_CONTACT_MEMBERSHIPS / resend_client.REQUESTS_PER_SECOND)
+        scans = ["topic_opt_outs", "contact_properties"]
+
+        assert all(step in {spec.key for spec in resend.ResendImportProvider.steps} for step in scans)
+        assert per_scan * len(scans) < temporal_client.RUN_EXECUTION_TIMEOUT
+        assert per_scan < temporal_workflow.STEP_TIMEOUT
+        assert runs.STALE_RUN_AGE > temporal_client.RUN_EXECUTION_TIMEOUT

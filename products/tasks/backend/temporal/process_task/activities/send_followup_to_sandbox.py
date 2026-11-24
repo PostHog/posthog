@@ -445,11 +445,13 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> str | None:
 
     if input.message_id:
         person_message = (input.context or {}).get("person_message")
+        person_message_ts = (input.context or {}).get("person_message_ts")
         record_delivered_message(
             input.run_id,
             input.message_id,
             actor_slack_user_id=actor_slack_user_id,
             person_message=person_message if isinstance(person_message, str) else None,
+            person_message_ts=person_message_ts if isinstance(person_message_ts, str) else None,
         )
 
     result = send_user_message(
@@ -647,7 +649,7 @@ def _refresh_sandbox_mcp(
         token=access_token,
         team_id=task_run.team_id,
         user_id=actor_user.id,
-        include_personal=include_personal_mcp_for_task(task_run.task),
+        include_personal=include_personal_mcp_for_task(task_run.task, state),
         interaction_origin=(state or {}).get("interaction_origin"),
         slack_reply_context=(state or {}).get("slack_reply_context") is True,
         allowed_installation_ids=loop_mcp_installation_allowlist(state),

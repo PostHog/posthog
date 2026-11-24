@@ -1,9 +1,10 @@
-import { Counter } from 'prom-client'
 import { z } from 'zod'
 
+import type { CdpConfig } from '~/cdp/config'
 import { EmailAttachmentMetadata, MAX_EMAIL_ATTACHMENTS } from '~/cdp/schema/cyclotron'
+import type { CommonConfig } from '~/common/config'
 import { buildIntegerMatcher } from '~/common/config/matchers'
-import { RedisV2 } from '~/common/redis/redis-v2'
+import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { logger } from '~/common/utils/logger'
 
 import { sendNeedsFilesUntil } from './attachment-horizon'
@@ -28,6 +29,48 @@ end
 redis.call('SET', KEYS[1], total, 'EX', ARGV[3])
 return 1
 `
+
+// A hung Valkey must not hold the caller's request open.
+const VALKEY_TIMEOUT_MS = 1000
+
+export type EmailAttachmentsValkeyConfig = Pick<
+    CdpConfig,
+    | 'CDP_EMAIL_ATTACHMENTS_VALKEY_HOST'
+    | 'CDP_EMAIL_ATTACHMENTS_VALKEY_PORT'
+    | 'CDP_EMAIL_ATTACHMENTS_VALKEY_PASSWORD'
+    | 'CDP_EMAIL_ATTACHMENTS_VALKEY_TLS'
+> &
+    Pick<CommonConfig, 'REDIS_POOL_MIN_SIZE' | 'REDIS_POOL_MAX_SIZE'>
+
+/** Creates a connection to the Valkey that holds the daily upload byte budget. Returns null when the host is unset. */
+export function createEmailAttachmentsValkeyPool(config: EmailAttachmentsValkeyConfig): RedisV2 | null {
+    const name = 'workflows-email-upload-budget'
+    if (!config.CDP_EMAIL_ATTACHMENTS_VALKEY_HOST) {
+        logger.info('🔑', `[${name}] no email upload budget Valkey host configured`)
+        return null
+    }
+
+    return createRedisV2PoolFromConfig({
+        connection: {
+            url: config.CDP_EMAIL_ATTACHMENTS_VALKEY_HOST,
+            options: {
+                port: config.CDP_EMAIL_ATTACHMENTS_VALKEY_PORT,
+                password: config.CDP_EMAIL_ATTACHMENTS_VALKEY_PASSWORD,
+                tls: config.CDP_EMAIL_ATTACHMENTS_VALKEY_TLS ? {} : undefined,
+                // The caller's timeout only stops the wait. This one aborts the command, so a hung
+                // Valkey cannot keep every pool connection borrowed.
+                commandTimeout: VALKEY_TIMEOUT_MS,
+            },
+            name,
+            // The counter is optional, so its outage must not stop cdp-api.
+            exitOnRepeatedErrors: false,
+        },
+        // No connection at boot, so cdp-api starts without the counter.
+        poolMinSize: 0,
+        poolMaxSize: config.REDIS_POOL_MAX_SIZE,
+        acquireTimeoutMillis: VALKEY_TIMEOUT_MS,
+    })
+}
 
 const UploadsRequestSchema = z.object({
     files: z
@@ -58,16 +101,6 @@ export type AcceptedSendFiles = { files: EmailAttachmentMetadata[]; attachmentBy
 const DJANGO_SEND_TIMEOUT_MS = 10_000
 export const ATTACHMENT_VERIFICATION_DEADLINE_MS = DJANGO_SEND_TIMEOUT_MS / 2
 
-const uploadRequestsTotal = new Counter({
-    name: 'cdp_email_attachments_upload_requests_total',
-    help: 'Upload requests for the files of transactional emails, by outcome: answered, or the refusal code',
-    labelNames: ['outcome'],
-})
-
-export function countUploadRequest(outcome: string): void {
-    uploadRequestsTotal.inc({ outcome })
-}
-
 const DELIVERY_UNAVAILABLE = { status: 503, body: { error: 'delivery_unavailable' } } as const satisfies SendRefusal
 
 export class AttachmentUploads {
@@ -82,12 +115,6 @@ export class AttachmentUploads {
     }
 
     public async prepare(teamId: number, body: unknown): Promise<UploadsAnswer> {
-        const answer = await this.answer(teamId, body)
-        countUploadRequest(String(answer.body.error ?? 'answered'))
-        return answer
-    }
-
-    private async answer(teamId: number, body: unknown): Promise<UploadsAnswer> {
         if (!this.isAllowed(teamId)) {
             return { status: 400, body: { error: 'field_not_accepted' } }
         }

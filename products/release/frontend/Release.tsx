@@ -24,6 +24,7 @@ import { todayShellLogic } from '~/layout/today/todayShellLogic'
 
 import { ReleaseDetailsCard } from './ReleaseDetailsCard'
 import { ReleaseHistory } from './ReleaseHistory'
+import { ReleaseLaunchDialog } from './ReleaseLaunchDialog'
 import { ReleaseLinkedCard } from './ReleaseLinkedCard'
 import { ReleaseLoadError } from './ReleaseLoadError'
 import { releaseLogic } from './releaseLogic'
@@ -162,6 +163,7 @@ function ReleaseContent({ id }: ReleaseSceneProps): JSX.Element {
                     </div>
                 </div>
                 <ReleaseScheduleDialog />
+                <ReleaseLaunchDialog />
                 <ReleaseMergeIntoDialog />
             </div>
         </SceneContent>

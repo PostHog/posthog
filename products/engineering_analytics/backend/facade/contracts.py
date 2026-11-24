@@ -1438,6 +1438,60 @@ class RevertShareBucket:
     revert_share: float | None
 
 
+class PullRequestAuthorship(LabeledStrEnum):
+    BOT = "bot", "Bot account"
+    AGENT_CONTEXT = "agent_context", "Agent context filled in"
+    NO_AGENT_CONTEXT = "no_agent_context", "No agent context"
+
+
+class PullRequestApproval(LabeledStrEnum):
+    HUMAN = "human", "Approved by a person"
+    AUTOMATED_ONLY = "automated_only", "Approved by bots only"
+    NONE = "none", "No approval before merge"
+
+
+@dataclass(frozen=True)
+class AuthorshipRevertOutcome:
+    authorship: PullRequestAuthorship
+    merged_pr_count: int
+    reverted_pr_count: int
+    reverted_share: float | None
+
+
+@dataclass(frozen=True)
+class ApprovalRevertOutcome:
+    approval: PullRequestApproval
+    merged_pr_count: int
+    reverted_pr_count: int
+    reverted_share: float | None
+
+
+@dataclass(frozen=True)
+class RevertedPullRequest:
+    number: int
+    title: str
+    merged_at: datetime
+    authorship: PullRequestAuthorship
+    approval: PullRequestApproval | None
+    reverting_pr_number: int
+    reverted_at: datetime
+    merge_to_revert_seconds: int
+
+
+@dataclass(frozen=True)
+class RevertOutcomes:
+    merged_pr_count: int
+    reverted_pr_count: int | None
+    reverted_share: float | None
+    body_data_available: bool
+    review_data_available: bool
+    by_authorship: list[AuthorshipRevertOutcome]
+    by_approval: list[ApprovalRevertOutcome]
+    reverted_pull_requests: list[RevertedPullRequest]
+    truncated: bool
+    limit: int
+
+
 class DeliveryStage(LabeledStrEnum):
     """A pre-merge leg of a PR's path to production, named for the timestamps that bound it.
 

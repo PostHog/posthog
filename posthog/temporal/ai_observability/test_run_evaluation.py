@@ -200,7 +200,7 @@ async def test_execution_telemetry_covers_output_types(
                 EmitInternalTelemetryInputs(evaluation=evaluation, team_id=1, result=result)
             )
 
-    capture.assert_called_once_with(sync_mode=True, disabled=True)
+    capture.assert_called_once_with(sync_mode=True, max_retries=1, timeout=5, disabled=True)
     capture.return_value.flush.assert_called_once_with()
     capture.return_value.capture.assert_called_once_with(
         distinct_id="org-test-org",
@@ -1301,7 +1301,7 @@ def test_unmapped_provider_rejection_on_a_posthog_key_still_raises() -> None:
     [(1, False, False), (3, False, True), (3, True, False), (5, True, True)],
 )
 @pytest.mark.parametrize("provider,is_byok", [("openai", False), ("openai", True), ("openai_compatible", True)])
-@pytest.mark.parametrize("status", [500, 503])
+@pytest.mark.parametrize("status", [500, 502, 503])
 @override_settings(OPENAI_API_KEY="example-token")
 def test_provider_server_failures_are_reported_only_when_retries_end(
     attempt: int, backfill: bool, exhausted: bool, provider: str, is_byok: bool, status: int
@@ -1339,8 +1339,9 @@ def test_provider_server_failures_are_reported_only_when_retries_end(
         spec.return_value.resolve.return_value = MagicMock(
             provider=provider, model="gpt-5-mini", provider_key=key, is_byok=is_byok
         )
-        with pytest.raises(openai.InternalServerError if exhausted else TransientJudgeError) as raised:
-            env.run(
+
+        def run() -> EvaluationActivityResult:
+            return env.run(
                 call_llm_judge,
                 evaluation={"id": "test-evaluation", "team_id": 1, "evaluation_config": {"prompt": "Polite?"}},
                 system_prompt="",
@@ -1349,8 +1350,18 @@ def test_provider_server_failures_are_reported_only_when_retries_end(
                 backfill=backfill,
             )
 
-    assert is_expected_activity_failure(raised.value) is (not exhausted)
-    assert any(log["event"] == "Unhandled error from LLM client" for log in logs) is exhausted
+        if exhausted and provider == "openai_compatible" and not backfill:
+            result = run()
+            assert result["skip_reason"] == "endpoint_server_error"
+            assert f"HTTP {status}" in result["reasoning"]
+            reported = False
+        else:
+            with pytest.raises(openai.InternalServerError if exhausted else TransientJudgeError) as raised:
+                run()
+            assert is_expected_activity_failure(raised.value) is (not exhausted)
+            reported = exhausted
+
+    assert any(log["event"] == "Unhandled error from LLM client" for log in logs) is reported
     assert transport.call_count == 1
 
 

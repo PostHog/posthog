@@ -4,7 +4,7 @@
 
 - Key entry points: `posthog/api/__init__.py` (API URL routing skeleton; products register their own routes in `products/<name>/backend/routes.py` via `register_routes(routers)`), `posthog/settings/web.py` (Django settings, INSTALLED_APPS), `products/` (product apps)
 - [Monorepo layout](docs/internal/monorepo-layout.md) — read when you need to place a new directory, or to work out which tree owns something (products, services, common, tools)
-- [Products README](products/README.md) — read before creating a product or changing one's structure; covers the isolation rules `product:lint` enforces
+- [Products README](products/README.md) — read before creating a product or changing one's structure; covers the structure rules `product:lint` enforces and the isolation rules hoglint enforces
 - [Products architecture](products/architecture.md) — read when designing a product's DTOs, facade, or contract with the rest of the repo
 - A directory may carry its own `AGENTS.md` that wins locally (`posthog/temporal/`, `rust/`, `frontend/src/`, most of `products/`). Check for one before working in an unfamiliar tree.
 
@@ -242,7 +242,7 @@ ALWAYS invoke the matching skill **first** — do not skip it, and do not attemp
 - `/extending-the-admin-console` — adding or changing a panel, staff action or tool in a `console.py`, adding a Django admin action, or moving one into PostHog Admin
 - `/routing-outbound-api-calls` — adding or changing Python code that calls a third-party HTTP API, or changing any domain under `posthog/egress/` (budget, lanes, identity, metrics, headers)
 - `/authenticating-to-clickhouse` — adding a service, sidecar, or container that connects to ClickHouse, adding a `ClickHouseUser`, or building or changing a ClickHouse pool or client by hand; it must stay token-aware (a native pool carries the credential provider, an HTTP client resolves the token per call) or it silently uses the static password
-- `/building-on-capture-v1` — sending events to capture from PostHog code, changing `rust/capture/src/v1/`, or adding a per-event option or a property that capture or ingestion must read
+- `/building-on-capture-v1` — sending events to capture from PostHog code, changing any code under `rust/capture/` or the `capture_internal` helpers, or adding a per-event option or a property that capture or ingestion must read
 - `/writing-clickhouse-queries` — adding or changing a ClickHouse call site (`sync_execute`, `execute_hogql_query`, a `QueryRunner`), including the `Workload` it passes
 - `/adding-activity-logging` — adding activity logging (the audit trail) to a model, writing or changing a `model_activity_signal` receiver or an activity describer, auditing which write paths of a model are logged, or debugging a change that is missing from the activity log
 - `/adding-inbound-webhooks` — adding a webhook endpoint for a third party that sends to PostHog, adding a consumer for a provider that already has an endpoint, or migrating a verifier the `inbound-webhooks-go-through-ingress` rule flags

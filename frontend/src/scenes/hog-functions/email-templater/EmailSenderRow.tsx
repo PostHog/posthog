@@ -1,22 +1,33 @@
 import { useActions, useAsyncActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useContext, useRef, useState } from 'react'
+import { useContext, useEffect, useRef, useState } from 'react'
 
-import { IconExternal, IconPencil, IconPlus } from '@posthog/icons'
+import { IconPencil, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonDropdown } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { objectsEqual } from 'lib/utils/objects'
-import { urls } from 'scenes/urls'
+
+import { IntegrationType } from '~/types'
+
+import { EmailSetupModal } from 'products/workflows/frontend/Channels/EmailSetup/EmailSetupModal'
 
 import { EmailHeaderRow } from './EmailHeaderRow'
-import { fromRowError, selectedSenders, senderAddressError, senderFrom } from './emailSenderFields'
+import {
+    fromRowError,
+    isSendingStopped,
+    selectedSenderIds,
+    selectedSenders,
+    senderAddressError,
+    senderFrom,
+} from './emailSenderFields'
 import { EmailSenderForm } from './EmailSenderForm'
 import { EmailSenderPicker } from './EmailSenderPicker'
 import { emailTemplaterLogic } from './emailTemplaterLogic'
 import { SandboxSenderChoiceContext } from './SandboxSenderChoiceContext'
 import { sandboxSenderHint } from './sandboxSenderOptions'
+import { TestSenderRow } from './TestSenderRow'
 
 /** The From row: pick senders in one click, and set a custom name, address, or reply-to only when needed. */
 export function EmailSenderRow(): JSX.Element {
@@ -25,9 +36,18 @@ export function EmailSenderRow(): JSX.Element {
     const { flushPendingDesignEdit } = useAsyncActions(emailTemplaterLogic)
     const sandbox = useContext(SandboxSenderChoiceContext)
     const { integrations, integrationsLoading } = useValues(integrationsLogic)
+    const { loadIntegrations } = useAsyncActions(integrationsLogic)
     const senderRotationEnabled = useFeatureFlag('WORKFLOWS_EMAIL_SENDER_ROTATION')
     const [isEditing, setIsEditing] = useState(false)
+    const [senderSetupOpen, setSenderSetupOpen] = useState(false)
     const openedWith = useRef<unknown>(null)
+    const mounted = useRef(true)
+    useEffect(() => {
+        mounted.current = true
+        return () => {
+            mounted.current = false
+        }
+    }, [])
 
     // A workflow or broadcast email can rotate senders and fill sender fields from person data.
     // A transactional template sends from one sender with values from the API call.
@@ -61,6 +81,42 @@ export function EmailSenderRow(): JSX.Element {
         replyTo ? `Replies go to ${replyTo}` : null,
     ].filter(Boolean)
 
+    const finishSenderSetup = (integrationId?: number): void => {
+        setSenderSetupOpen(false)
+        if (!integrationId || selectedSenderIds(from).length > 0) {
+            return
+        }
+        if (!sandbox?.selected) {
+            setEmailTemplateValue('from', { ...from, integrationId })
+            return
+        }
+        // A test sender step only leaves it for a sender that can send, so closing during DNS setup keeps it.
+        const canSend = (list: IntegrationType[] | null | undefined): boolean => {
+            const sender = list?.find((candidate) => candidate.kind === 'email' && candidate.id === integrationId)
+            return sender?.config?.verified === true && !isSendingStopped(sender)
+        }
+        if (canSend(senders)) {
+            changeFrom({ ...from, integrationId })
+            return
+        }
+        // The sender list reloads only after the domain verifies, so a quick click can still see it unverified.
+        void loadIntegrations()
+            .then(() => {
+                // Another step's editor reuses the templater, so a closed row must not write to it.
+                if (mounted.current && canSend(integrationsLogic.findMounted()?.values.integrations)) {
+                    changeFrom({ ...from, integrationId })
+                }
+            })
+            .catch(() => {})
+    }
+    const senderSetup = senderSetupOpen ? (
+        <EmailSetupModal
+            entry={isWorkflowEmail ? 'email_step' : 'transactional'}
+            onComplete={finishSenderSetup}
+            onClose={finishSenderSetup}
+        />
+    ) : null
+
     const onVisibilityChange = (visible: boolean): void => {
         if (visible) {
             openedWith.current = { from, replyTo }
@@ -76,84 +132,101 @@ export function EmailSenderRow(): JSX.Element {
         setIsEditing(visible)
     }
 
+    // The setup sits outside every row, so it stays open when its new sender swaps one row for another.
+    if (sandbox?.selected && sandbox.onlySender) {
+        return (
+            <>
+                <TestSenderRow sandbox={sandbox} senders={senders} onAddSender={() => setSenderSetupOpen(true)} />
+                {senderSetup}
+            </>
+        )
+    }
+
     if (!sandbox && !integrationsLoading && senders.length === 0) {
         return (
-            <EmailHeaderRow label="From" className="py-1">
-                <div className="flex-1 min-w-0 text-secondary">No email senders yet</div>
-                <LemonButton
-                    size="small"
-                    type="secondary"
-                    to={urls.workflows('channels')}
-                    targetBlank
-                    icon={<IconExternal />}
-                    data-attr={`${dataAttrPrefix}-sender-connect`}
-                >
-                    Connect email sender
-                </LemonButton>
-            </EmailHeaderRow>
+            <>
+                <EmailHeaderRow label="From" className="py-1">
+                    <div className="flex-1 min-w-0 text-secondary">No email senders yet</div>
+                    <LemonButton
+                        size="small"
+                        type="primary"
+                        onClick={() => setSenderSetupOpen(true)}
+                        icon={<IconPlus />}
+                        // pinned: data-attr values feed autocapture dashboards
+                        data-attr={`${dataAttrPrefix}-sender-connect`}
+                    >
+                        Set up email sender
+                    </LemonButton>
+                </EmailHeaderRow>
+                {senderSetup}
+            </>
         )
     }
 
     return (
-        <EmailHeaderRow
-            label="From"
-            error={fromRowError(logicProps.fieldErrors?.from || addressError, selected)}
-            className="py-1"
-        >
-            <div className="flex-1 min-w-0">
-                <EmailSenderPicker
-                    from={from}
-                    senders={senders}
-                    allowRotation={isWorkflowEmail && senderRotationEnabled}
-                    dataAttrPrefix={dataAttrPrefix}
-                    sandbox={sandbox}
-                    onChooseSandbox={() => switchSenderKind(() => sandbox?.onSelect())}
-                    onChangeFrom={changeFrom}
-                />
-                {notes.length > 0 ? (
-                    <div className="flex flex-wrap gap-x-3 mt-0.5 text-xs text-secondary">
-                        {notes.map((note, index) => (
-                            <span key={index} className="min-w-0 truncate">
-                                {note}
-                            </span>
-                        ))}
-                    </div>
-                ) : null}
-            </div>
-            {!sandbox?.selected && (
-                <LemonDropdown
-                    visible={isEditing}
-                    onVisibilityChange={onVisibilityChange}
-                    closeOnClickInside={false}
-                    placement="bottom-end"
-                    overlay={
-                        <EmailSenderForm
-                            from={from}
-                            replyTo={replyTo}
-                            senders={senders}
-                            variables={isWorkflowEmail ? logicProps.variables : undefined}
-                            dataAttrPrefix={dataAttrPrefix}
-                            onChangeFrom={(next) => setEmailTemplateValue('from', next)}
-                            onChangeReplyTo={(next) => setEmailTemplateValue('replyTo', next)}
-                            onClear={clearCustomSender}
-                            onDone={() => onVisibilityChange(false)}
-                        />
-                    }
-                >
-                    <LemonButton
-                        size="xsmall"
-                        type="secondary"
-                        className="shrink-0"
-                        icon={hasOverrides ? <IconPencil /> : <IconPlus />}
-                        status={addressError ? 'danger' : 'default'}
-                        tooltip="Set a display name, address, or reply-to for this email"
-                        // pinned: data-attr values feed autocapture dashboards
-                        data-attr={isWorkflowEmail ? 'email-from-custom-sender' : 'transactional-email-sender-edit'}
+        <>
+            <EmailHeaderRow
+                label="From"
+                error={fromRowError(logicProps.fieldErrors?.from || addressError, selected)}
+                className="py-1"
+            >
+                <div className="flex-1 min-w-0">
+                    <EmailSenderPicker
+                        from={from}
+                        senders={senders}
+                        allowRotation={isWorkflowEmail && senderRotationEnabled}
+                        dataAttrPrefix={dataAttrPrefix}
+                        sandbox={sandbox}
+                        onChooseSandbox={() => switchSenderKind(() => sandbox?.onSelect())}
+                        onChangeFrom={changeFrom}
+                        onAddSender={() => setSenderSetupOpen(true)}
+                    />
+                    {notes.length > 0 ? (
+                        <div className="flex flex-wrap gap-x-3 mt-0.5 text-xs text-secondary">
+                            {notes.map((note, index) => (
+                                <span key={index} className="min-w-0 truncate">
+                                    {note}
+                                </span>
+                            ))}
+                        </div>
+                    ) : null}
+                </div>
+                {!sandbox?.selected && (
+                    <LemonDropdown
+                        visible={isEditing}
+                        onVisibilityChange={onVisibilityChange}
+                        closeOnClickInside={false}
+                        placement="bottom-end"
+                        overlay={
+                            <EmailSenderForm
+                                from={from}
+                                replyTo={replyTo}
+                                senders={senders}
+                                variables={isWorkflowEmail ? logicProps.variables : undefined}
+                                dataAttrPrefix={dataAttrPrefix}
+                                onChangeFrom={(next) => setEmailTemplateValue('from', next)}
+                                onChangeReplyTo={(next) => setEmailTemplateValue('replyTo', next)}
+                                onClear={clearCustomSender}
+                                onDone={() => onVisibilityChange(false)}
+                            />
+                        }
                     >
-                        Custom sender
-                    </LemonButton>
-                </LemonDropdown>
-            )}
-        </EmailHeaderRow>
+                        <LemonButton
+                            size="xsmall"
+                            type="secondary"
+                            className="shrink-0"
+                            icon={hasOverrides ? <IconPencil /> : <IconPlus />}
+                            status={addressError ? 'danger' : 'default'}
+                            tooltip="Set a display name, address, or reply-to for this email"
+                            // pinned: data-attr values feed autocapture dashboards
+                            data-attr={isWorkflowEmail ? 'email-from-custom-sender' : 'transactional-email-sender-edit'}
+                        >
+                            Custom sender
+                        </LemonButton>
+                    </LemonDropdown>
+                )}
+            </EmailHeaderRow>
+            {senderSetup}
+        </>
     )
 }

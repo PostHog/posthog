@@ -4,7 +4,6 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { Node } from '@xyflow/react'
 import { BindLogic, useValues } from 'kea'
 import { router } from 'kea-router'
-import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -13,6 +12,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { IntegrationType } from '~/types'
 
+import { sandboxSenderLogic } from '../../../../Channels/sandboxSenderLogic'
 import { WorkflowLogicProps, workflowLogic } from '../../../workflowLogic'
 import type { HogFlowAction } from '../../types'
 import { getHogFlowStep } from '../HogFlowSteps'
@@ -64,7 +64,7 @@ jest.mock('react-email-editor', () => {
     }
 })
 
-const LOGIC_PROPS: WorkflowLogicProps = { id: 'new' }
+const LOGIC_PROPS: WorkflowLogicProps = { id: '01a1fd90-70c5-7d67-a6be-f302e3c6f41c' }
 const STEP_ID = 'email_step'
 
 const SANDBOX_STATUS = {
@@ -80,6 +80,17 @@ const OWN_SENDER = {
     display_name: 'hello@example.com',
     config: { verified: true },
 } as unknown as IntegrationType
+const SECOND_SENDER = {
+    id: 8,
+    kind: 'email',
+    display_name: 'news@example.com',
+    config: { verified: true },
+} as unknown as IntegrationType
+const VERIFYING_SENDER = { ...OWN_SENDER, config: { email: 'hello@example.com', verified: false } } as IntegrationType
+const STOPPED_SENDER = {
+    ...OWN_SENDER,
+    config: { email: 'hello@example.com', domain: 'example.com', verified: true, ses_sending_status: 'failed' },
+} as IntegrationType
 
 const EMAIL_TEMPLATE = {
     id: 'template-email',
@@ -142,6 +153,13 @@ const SANDBOX_STEP = {
     },
 } as HogFlowAction
 
+const TRIGGER = {
+    id: 'trigger_node',
+    type: 'trigger',
+    name: 'Trigger',
+    config: { type: 'event', filters: { events: [{ id: '$pageview', type: 'events' }] } },
+} as HogFlowAction
+
 function storedStep(): HogFlowAction | undefined {
     return workflowLogic(LOGIC_PROPS).values.workflow.actions.find((action) => action.id === STEP_ID)
 }
@@ -156,17 +174,37 @@ function StoredStepConfiguration(): JSX.Element | null {
     return getHogFlowStep(action, hogFunctionTemplatesById)?.renderConfiguration(node) ?? null
 }
 
-async function renderStep(step: HogFlowAction): Promise<void> {
-    const wfLogic = workflowLogic(LOGIC_PROPS)
-    wfLogic.mount()
-    await expectLogic(wfLogic).toDispatchActions(['loadHogFunctionTemplatesByIdSuccess'])
-    wfLogic.actions.setWorkflowInfo({ actions: [...wfLogic.values.workflow.actions, step] })
+function useSenderMocks(senders: IntegrationType[]): void {
+    useMocks({ get: { '/api/projects/:team_id/integrations/': { results: senders, next: null } } })
+}
+
+function showSenderRow(show = true): void {
+    featureFlagLogic.mount()
+    featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_EMAIL_HEADER]: show })
+}
+
+let savedStep: HogFlowAction
+
+function savedWorkflow(): Record<string, unknown> {
+    return {
+        id: LOGIC_PROPS.id,
+        name: 'Welcome',
+        status: 'draft',
+        trigger: TRIGGER.config,
+        actions: [TRIGGER, savedStep],
+        edges: [{ from: TRIGGER.id, to: savedStep.id, type: 'continue' }],
+    }
+}
+
+async function renderStep(step: HogFlowAction, readyTestId = 'workflow-email-sender-select'): Promise<void> {
+    savedStep = step
+    workflowLogic(LOGIC_PROPS).mount()
     render(
         <BindLogic logic={workflowLogic} props={LOGIC_PROPS}>
             <StoredStepConfiguration />
         </BindLogic>
     )
-    await screen.findByTestId('workflow-email-sender-select')
+    await screen.findByTestId(readyTestId)
 }
 
 function openFromPicker(): HTMLElement {
@@ -199,6 +237,14 @@ describe('SandboxSenderChoiceProvider', () => {
                 '/api/projects/:team_id/hog_function_templates': { results: [EMAIL_TEMPLATE], count: 1 },
                 '/api/projects/:team_id/integrations/': { results: [OWN_SENDER], next: null },
                 '/api/projects/:team_id/workflow_email_sandbox/status/': SANDBOX_STATUS,
+                '/api/projects/:team_id/hog_flows/:id/': ({ params }) =>
+                    params.id === LOGIC_PROPS.id ? [200, savedWorkflow()] : [404, { detail: 'Not found.' }],
+            },
+            patch: {
+                '/api/projects/:team_id/hog_flows/:id/': async ({ request }) => [
+                    200,
+                    { ...savedWorkflow(), ...((await request.json()) as Record<string, unknown>) },
+                ],
             },
         })
         initKeaTests()
@@ -214,6 +260,7 @@ describe('SandboxSenderChoiceProvider', () => {
     ])(
         'asks before the From picker drops own-sender settings, and %s decides the step kind',
         async (decision, expected) => {
+            useSenderMocks([VERIFYING_SENDER])
             await renderStep(ownStep({ replyTo: 'help@example.com' }))
 
             fireEvent.click(within(openFromPicker()).getByText('PostHog test sender'))
@@ -223,14 +270,43 @@ describe('SandboxSenderChoiceProvider', () => {
         }
     )
 
-    it.each<[string, string, HogFlowAction, string, string]>([
-        ['an own step to the PostHog test sender', 'legacy', ownStep(), 'PostHog test sender', 'email_sandbox'],
-        ['a sandbox step to an own sender', 'legacy', SANDBOX_STEP, 'hello@example.com', 'function_email'],
-        ['an own step to the PostHog test sender', 'sender row', ownStep(), 'PostHog test sender', 'email_sandbox'],
-        ['a sandbox step to an own sender', 'sender row', SANDBOX_STEP, 'hello@example.com', 'function_email'],
+    it.each<[string, string, HogFlowAction, IntegrationType[], string, string]>([
+        [
+            'an own step to the PostHog test sender',
+            'legacy',
+            ownStep(),
+            [VERIFYING_SENDER],
+            'PostHog test sender',
+            'email_sandbox',
+        ],
+        [
+            'a sandbox step to an own sender',
+            'legacy',
+            SANDBOX_STEP,
+            [OWN_SENDER, SECOND_SENDER],
+            'hello@example.com',
+            'function_email',
+        ],
+        [
+            'an own step to the PostHog test sender',
+            'sender row',
+            ownStep(),
+            [VERIFYING_SENDER],
+            'PostHog test sender',
+            'email_sandbox',
+        ],
+        [
+            'a sandbox step to an own sender',
+            'sender row',
+            SANDBOX_STEP,
+            [OWN_SENDER, SECOND_SENDER],
+            'hello@example.com',
+            'function_email',
+        ],
     ])(
         'switches %s from the open editor with the %s header, which stays open and keeps a canvas edit not yet exported',
-        async (_, header, step, sender, expected) => {
+        async (_, header, step, senders, sender, expected) => {
+            useSenderMocks(senders)
             featureFlagLogic.mount()
             featureFlagLogic.actions.setFeatureFlags([], {
                 [FEATURE_FLAGS.WORKFLOWS_EMAIL_HEADER]: header === 'sender row',
@@ -246,6 +322,65 @@ describe('SandboxSenderChoiceProvider', () => {
             })
             expect(router.values.searchParams.editor).toEqual('email')
             expect(screen.getByText('Done')).toBeInTheDocument()
+        }
+    )
+
+    it.each(['legacy', 'sender row'])(
+        'moves a sandbox step to the own sender picked in the From picker, with the %s header',
+        async (header) => {
+            useSenderMocks([OWN_SENDER, SECOND_SENDER])
+            showSenderRow(header === 'sender row')
+            await renderStep(SANDBOX_STEP)
+
+            fireEvent.click(within(openFromPicker()).getByText('hello@example.com'))
+
+            await waitFor(() =>
+                expect(screen.getByTestId('workflow-email-sender-select')).toHaveTextContent('hello@example.com')
+            )
+        }
+    )
+
+    it.each<[string, IntegrationType[], RegExp]>([
+        ['a sender is still verifying', [VERIFYING_SENDER], /^hello@example\.com isn't verified yet\.$/],
+        ['the only verified sender stopped sending', [STOPPED_SENDER], /^Sending stopped for example\.com: /],
+        ['the project has no sender', [], /^$/],
+    ])('shows the PostHog test sender without a choice while %s', async (_, senders, warning) => {
+        useSenderMocks(senders)
+        showSenderRow()
+        await renderStep(SANDBOX_STEP, 'workflow-email-test-sender')
+
+        const row = screen.getByTestId('workflow-email-test-sender')
+        expect(within(row).getByText('PostHog test sender')).toBeInTheDocument()
+        expect(within(row).queryByText(/verified yet\.|^Sending stopped for/)?.textContent ?? '').toMatch(warning)
+        expect(
+            within(row).getByText(
+                "Save your changes and wait until they're saved. Reload this page after you verify a sender."
+            )
+        ).toBeInTheDocument()
+        expect(screen.queryByTestId('workflow-email-sender-select')).not.toBeInTheDocument()
+
+        fireEvent.click(screen.getByTestId('workflow-email-test-sender-add'))
+        await waitFor(() => expect(document.getElementById('email-domain-another-domain')).toBeInTheDocument())
+    })
+
+    it.each<[string, string, IntegrationType[], boolean]>([
+        ['no sender is verified yet', 'legacy', [VERIFYING_SENDER], true],
+        ['the only verified sender stopped sending', 'legacy', [STOPPED_SENDER], true],
+        ['a verified sender can send', 'legacy', [OWN_SENDER], false],
+        ['no sender is verified yet', 'sender row', [VERIFYING_SENDER], true],
+        ['the only verified sender stopped sending', 'sender row', [STOPPED_SENDER], true],
+        ['a verified sender can send', 'sender row', [OWN_SENDER], false],
+    ])(
+        'offers the PostHog test sender on an own step when %s, with the %s header',
+        async (_, header, senders, offered) => {
+            useSenderMocks(senders)
+            showSenderRow(header === 'sender row')
+            await renderStep(ownStep({ from: { integrationId: 7 } }))
+            await waitFor(() => expect(sandboxSenderLogic.values.sandboxStatus).toEqual(SANDBOX_STATUS))
+
+            const menu = openFromPicker()
+            await within(menu).findAllByText(/hello@example\.com/)
+            expect(!!within(menu).queryByText('PostHog test sender')).toEqual(offered)
         }
     )
 

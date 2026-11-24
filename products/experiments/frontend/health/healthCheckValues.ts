@@ -27,7 +27,7 @@ export interface HealthSplitRow {
     plannedPercentage: number | null
 }
 
-const HANDLING_LABELS: Record<string, string> = {
+export const HANDLING_LABELS: Record<string, string> = {
     exclude: 'Exclude from analysis',
     first_seen: 'Use first seen variant',
 }
@@ -123,6 +123,10 @@ function textReading(label: string, values: HealthCheckValues | undefined, key: 
     return reading(label, typeof value === 'string' ? value : null)
 }
 
+function booleanReading(label: string, value: unknown, whenTrue: string, whenFalse: string): HealthReading | null {
+    return typeof value === 'boolean' ? reading(label, value ? whenTrue : whenFalse) : null
+}
+
 function receivedReading(values: HealthCheckValues | undefined): HealthReading | null {
     if (typeof values?.event !== 'string' || values.event_received === undefined) {
         return null
@@ -185,7 +189,6 @@ function flagReading(values: HealthCheckValues | undefined): HealthReading | nul
 /** What a check read, in the order the panel lists it. The p-value shows with the rule that judges it instead. */
 export function healthCheckReadings(values: HealthCheckValues | undefined, units: string): HealthReading[] {
     const handling = values?.multiple_variant_handling
-    const onlyMatured = values?.only_count_matured_users
     const primaryMetrics = numberValue(values, 'primary_metric_count')
     const waitingMetrics = numberValue(values, 'waiting_metric_count')
     const calculatedAt = values?.calculated_at
@@ -214,9 +217,11 @@ export function healthCheckReadings(values: HealthCheckValues | undefined, units
             formatHealthPercentage
         ),
         unservedReading(values, units),
-        reading(
+        booleanReading(
             'Require completed conversion or retention window',
-            typeof onlyMatured === 'boolean' ? (onlyMatured ? 'On' : 'Off') : null
+            values?.only_count_matured_users,
+            'On',
+            'Off'
         ),
         reading(
             "Primary metrics that can't count users yet",
@@ -261,6 +266,7 @@ export function healthCheckReadings(values: HealthCheckValues | undefined, units
             'flag_service_call_percentage',
             formatHealthPercentage
         ),
+        booleanReading('Internal and test users', values?.filters_test_accounts, 'Left out', 'Counted'),
     ].filter((line): line is HealthReading => line !== null)
 }
 

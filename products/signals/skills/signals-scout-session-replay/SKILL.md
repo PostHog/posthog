@@ -322,7 +322,7 @@ Write a scratchpad entry whenever you observe something a future run should know
 
 - key `pattern:session-replay:capture-baseline` — _"~1,800 recordings/day vs ~24k event-sessions/day → capture_ratio ~0.075, steady 14d. Web only. Recheck ratio, not levels."_
 - key `noise:session-replay:editor-canvas` — _"/editor is a drag-and-drop canvas; rapid same-spot clicks are normal use, not rage — require console errors to investigate."_
-- key `dedupe:session-replay:checkout-rageclick` — _"Filed a friction cluster on /checkout 'Pay now' 2026-06-10 (9/day → 110/day, 23 persons). Skip unless it recovers and re-spikes."_
+- key `dedupe:session-replay:checkout-rageclick` — _"Filed a friction cluster on /checkout 'Pay now' 2026-06-10 (9/day → 110/day, 23 persons). Skip unless it recovers and re-spikes."_ Set `expires_at` about two weeks past the last read that confirmed the cluster: a surface quiet that long that re-spikes is a new episode.
 - key `addressed:session-replay:scanner-health` — _"Filed a scanner watch-gap bundle 2026-06-08. Don't re-file unless the failing set changes."_
 - key `report:session-replay:<surface>` — the `report_id` of a report you filed for a cliff or friction cluster on this surface (a URL/element, or the scanner-health bundle), so the next run edits it (`append_evidence` with the fresh window) instead of duplicating.
 - key `reviewer:session-replay:<area>` — a resolved owner (bare lowercase GitHub login) for a page / flow / platform surface, so reports route to a human faster.

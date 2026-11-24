@@ -1,57 +1,45 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
+
+from unittest.mock import patch
 
 from parameterized import parameterized
 
-from products.ai_observability.backend.logic.traces.trace import Trace
+from products.ai_observability.backend.logic.traces.trace import Trace, TraceCompleteness, read_completeness
 from products.ai_observability.backend.logic.traces.trace_queries import PersonRow
 
 from .rows import T0, make_row
+
+SECOND = timedelta(seconds=1)
 
 
 def trace(*rows: dict[str, Any], person: PersonRow | None = None) -> Trace:
     return Trace("trace-1", [make_row(**{"uuid": f"e{index}", **row}) for index, row in enumerate(rows)], person)
 
 
-@parameterized.expand(
-    [
-        (
-            "the root trace event reports the wall clock",
-            [{"event": "$ai_trace", "latency": 9.0}, {"event": "$ai_generation", "latency": 2.0}],
-            9.0,
-        ),
-        (
-            "only generations report latency, so they are summed",
-            [
-                {"event": "$ai_generation", "latency": 1.25},
-                {"event": "$ai_generation", "latency": 2.5, "parent_id": "span"},
-                {"event": "$ai_span", "span_id": "span"},
-            ],
-            3.75,
-        ),
-        (
-            "otherwise the direct children of the trace are summed",
-            [
-                {"event": "$ai_span", "span_id": "a", "latency": 4.0},
-                {"event": "$ai_generation", "parent_id": "a", "latency": 3.0},
-                {"event": "$ai_span", "latency": 1.0},
-            ],
-            5.0,
-        ),
-    ]
-)
-def test_total_latency(_name: str, rows: list[dict[str, Any]], expected: float) -> None:
-    assert trace(*rows).totals.latency_s == expected
+def test_total_latency_and_cost_read_the_values_the_query_computed() -> None:
+    totals = trace(
+        {
+            "event": "$ai_generation",
+            "latency": 1.0,
+            "total_cost_usd": 0.1,
+            "trace_latency_s": 9.5,
+            "trace_cost_usd": 2.5,
+        }
+    ).totals
+
+    assert (totals.latency_s, totals.cost_usd) == (9.5, 2.5)
 
 
-def test_totals_count_generations_and_embeddings_only_and_keep_unknown_cost_unknown() -> None:
+def test_total_tokens_count_generations_and_embeddings_only() -> None:
     totals = trace(
         {"event": "$ai_generation", "input_tokens": 3, "cache_read_input_tokens": 2},
         {"event": "$ai_embedding", "input_tokens": 4},
-        {"event": "$ai_span", "input_tokens": 100, "total_cost_usd": 5.0},
+        {"event": "$ai_span", "input_tokens": 100},
     ).totals
 
-    assert (totals.input_tokens, totals.output_tokens, totals.cost_usd, totals.cache_read_tokens) == (7, None, None, 2)
+    assert (totals.input_tokens, totals.output_tokens, totals.cache_read_tokens) == (7, None, 2)
 
 
 def test_name_prefers_the_earliest_named_trace_event_over_other_events() -> None:
@@ -108,9 +96,7 @@ def test_thread_node_ids_hold_the_user_visible_generation() -> None:
 
 @parameterized.expand(
     [
-        ("email wins", PersonRow(distinct_id="u", email="ada@example.com", name="Ada"), "ada@example.com"),
-        ("then name", PersonRow(distinct_id="u", email=None, name="Ada"), "Ada"),
-        ("then distinct id", PersonRow(distinct_id="u", email=None, name=None), "u"),
+        ("a person", PersonRow(distinct_id="u", display_name="Ada"), "Ada"),
         ("no person", None, None),
     ]
 )
@@ -157,6 +143,11 @@ def test_person_label(_name: str, person: PersonRow | None, expected: str | None
             "e0",
         ),
         ("a trace without nodes falls back to the root", [], "trace-1"),
+        (
+            "a chain of spans deeper than the recursion limit still gives the first top-level node",
+            [{"span_id": f"s{i}", "parent_id": f"s{i - 1}" if i else None} for i in range(1_500)],
+            "e0",
+        ),
     ]
 )
 def test_default_node_id(_name: str, rows: list[dict[str, Any]], expected: str) -> None:
@@ -173,3 +164,80 @@ def test_node_ids_by_alias_map_sdk_ids_of_tree_nodes_to_their_uuids() -> None:
     ).node_ids_by_alias
 
     assert aliases == {"span-a": "e0", "gen-a": "e1"}
+
+
+@parameterized.expand(
+    [
+        (
+            "the earliest of two",
+            {"uuid": "a", "timestamp": T0 + SECOND, "is_error": True, "error_text": "late"},
+            {"uuid": "b", "timestamp": T0, "is_error": True, "error_text": "early"},
+            "early",
+        ),
+        (
+            "a later one when the earliest has no text",
+            {"uuid": "a", "timestamp": T0, "is_error": True, "error_text": None},
+            {"uuid": "b", "timestamp": T0 + SECOND, "is_error": True, "error_text": "Rate limit reached"},
+            "Rate limit reached",
+        ),
+    ]
+)
+def test_first_error_text_is_the_earliest_errored_events_text(
+    _name: str, first: dict[str, Any], second: dict[str, Any], expected: str
+) -> None:
+    assert trace(first, second).first_error_text == expected
+
+
+@parameterized.expand(
+    [
+        ("no error", {"error_text": None}),
+        ("an error without text", {"is_error": True, "error_text": None}),
+    ]
+)
+def test_first_error_text_is_null(_name: str, row: dict[str, Any]) -> None:
+    assert trace(row).first_error_text is None
+
+
+def test_tools_called_are_distinct_in_first_call_order() -> None:
+    called = trace(
+        {"uuid": "a", "event": "$ai_generation", "timestamp": T0, "tools_called": ("search", "fetch")},
+        {"uuid": "b", "event": "$ai_generation", "timestamp": T0 + SECOND, "tools_called": ("fetch", "write")},
+    )
+
+    assert called.tools_called == ("search", "fetch", "write")
+
+
+@parameterized.expand([("one support event", [False, True], True), ("none", [False, False], False)])
+def test_is_support_trace(_name: str, flags: list[bool], expected: bool) -> None:
+    assert trace(*({"is_support": flag} for flag in flags)).is_support_trace is expected
+
+
+def test_a_trace_builds_no_tree_until_asked() -> None:
+    with patch("products.ai_observability.backend.logic.traces.trace.build_tree") as build_tree:
+        lazy = trace({"event": "$ai_generation", "generation_id": "gen-a"})
+        _ = (lazy.name, lazy.totals, lazy.error_count, lazy.default_node_id)
+
+    build_tree.assert_not_called()
+
+
+@parameterized.expand(
+    [
+        ("from ai_events", False, None, (False, False)),
+        ("from ai_events, cut by the row cap", True, None, (True, False)),
+        ("from the shared table, starting a buffer after the bound", False, T0 - timedelta(minutes=10), (False, False)),
+        ("from the shared table, starting inside the buffer", False, T0 - timedelta(minutes=9), (True, True)),
+        ("from the shared table, cut by the row cap", True, T0 - timedelta(hours=1), (True, False)),
+        (
+            "from the shared table, with the bound in another zone",
+            False,
+            (T0 - timedelta(minutes=9)).astimezone(ZoneInfo("America/Los_Angeles")),
+            (True, True),
+        ),
+    ]
+)
+def test_read_completeness(
+    _name: str, truncated: bool, read_start: datetime | None, expected: tuple[bool, bool]
+) -> None:
+    assert read_completeness(truncated=truncated, first_timestamp=T0, read_start=read_start) == TraceCompleteness(
+        partial=expected[0], cost_and_latency_partial=expected[1]
+    )

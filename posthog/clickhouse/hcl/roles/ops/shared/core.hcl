@@ -402,8 +402,8 @@ database "posthog" {
     column "lc_estimated_bytes" {
       type = "SimpleAggregateFunction(max, Int64)"
     }
-    column "lc_warehouse_table_ids" {
-      type = "SimpleAggregateFunction(max, Array(String))"
+    column "log_comment" {
+      type = "SimpleAggregateFunction(max, String)"
     }
     engine "buffer" {
       database   = "posthog"
@@ -812,8 +812,9 @@ database "posthog" {
     column "lc_estimated_bytes" {
       type = "SimpleAggregateFunction(max, Int64)"
     }
-    column "lc_warehouse_table_ids" {
-      type = "SimpleAggregateFunction(max, Array(String))"
+    column "log_comment" {
+      type = "SimpleAggregateFunction(max, String)"
+      ttl  = "toDateTime(initial_query_start_time) + toIntervalMonth(1)"
     }
     column "query_id" {
       type  = "String"

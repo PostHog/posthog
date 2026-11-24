@@ -17,9 +17,23 @@ from pydantic import BaseModel, ConfigDict, Field
 from posthog.dataclasses import frozen
 
 from products.tasks.backend.logic.services.run_actor import get_task_run_credential_user, user_has_current_team_access
+from products.tasks.backend.logic.services.sandbox_config import (
+    agent_egress_staging_environment,
+    agent_egress_staging_probe_enabled,
+)
 from products.tasks.backend.models import TaskRun
 
 AGENT_EGRESS_CAPABILITY_REFRESH_SECONDS = 180
+
+
+def read_agent_egress_config(path: Path) -> bytes:
+    if not settings.AGENT_EGRESS_PROBE_CONFIG_DIR:
+        raise ValueError("Set AGENT_EGRESS_PROBE_CONFIG_DIR to a dedicated probe configuration directory")
+    directory = Path(settings.AGENT_EGRESS_PROBE_CONFIG_DIR).resolve(strict=True)
+    resolved = path.resolve(strict=True)
+    if not resolved.is_relative_to(directory):
+        raise ValueError("The egress configuration is outside its directory")
+    return resolved.read_bytes()
 
 
 class AgentEgressProbeConfig(BaseModel):
@@ -38,24 +52,38 @@ class AgentEgressProbeConfig(BaseModel):
     dev_proxy_ipv4: str | None = None
     sandbox_id: str | None = None
 
+    @staticmethod
+    def require_environment(*, cleanup: bool = False) -> None:
+        if (
+            not (settings.DEBUG and settings.SANDBOX_PROVIDER == "MODAL_DOCKER")
+            and not agent_egress_staging_probe_enabled()
+            and not (cleanup and agent_egress_staging_environment())
+        ):
+            raise ValueError("Egress probes require DEBUG and SANDBOX_PROVIDER=MODAL_DOCKER, or a staging probe opt-in")
+
+    def validate_controller(self, *, cleanup: bool = False) -> None:
+        self.require_environment(cleanup=cleanup)
+        if agent_egress_staging_environment() and (
+            (not cleanup and str(self.run_id) != settings.AGENT_EGRESS_STAGING_PROBE_RUN_ID)
+            or self.sandbox_id is not None
+            or self.dev_proxy_ipv4 is not None
+        ):
+            raise ValueError("Staging probes require the selected run, a fresh VM and no tunnel override")
+
     @classmethod
-    def load(cls, path: Path) -> AgentEgressProbeConfig:
-        if not settings.DEBUG or settings.SANDBOX_PROVIDER != "MODAL_DOCKER":
-            raise ValueError("Egress probes require DEBUG and SANDBOX_PROVIDER=MODAL_DOCKER")
+    def load(cls, path: Path, *, cleanup: bool = False) -> AgentEgressProbeConfig:
+        cls.require_environment(cleanup=cleanup)
         if not settings.AGENT_EGRESS_PROBE_CONFIG_DIR:
             raise ValueError("Set AGENT_EGRESS_PROBE_CONFIG_DIR to a dedicated probe configuration directory")
         try:
-            directory = Path(settings.AGENT_EGRESS_PROBE_CONFIG_DIR).resolve(strict=True)
-            resolved = path.resolve(strict=True)
-            if not resolved.is_relative_to(directory):
-                raise ValueError("The probe configuration is outside its directory")
-            return cls.model_validate_json(resolved.read_bytes())
+            config = cls.model_validate_json(read_agent_egress_config(path))
+            config.validate_controller(cleanup=cleanup)
+            return config
         except (OSError, ValueError):
             raise ValueError("Invalid egress probe configuration") from None
 
     def eligible_run(self) -> TaskRun:
-        if not settings.DEBUG or settings.SANDBOX_PROVIDER != "MODAL_DOCKER":
-            raise ValueError("Egress probes require DEBUG and SANDBOX_PROVIDER=MODAL_DOCKER")
+        self.validate_controller()
         run = TaskRun.objects.select_related("task__created_by", "task__team").get(id=self.run_id, team_id=self.team_id)
         if (
             run.is_terminal

@@ -24,6 +24,7 @@ from products.batch_exports.backend.facade.destinations.snowflake import (
     SnowflakeWarehouseUsageError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import (
+    BatchWriteOutcome,
     DestinationBatchContext,
     DestinationRunContext,
 )
@@ -213,6 +214,25 @@ class TestConfigurationErrors:
 
         assert caught.value.detail == MISSING_INTEGRATION_DETAIL
         assert str(caught.value).startswith(f"{ctx.destination_name}:")
+
+
+@pytest.mark.parametrize(
+    "sync_type,primary_keys",
+    [("full_refresh", ()), ("incremental", ("id",)), ("incremental", ())],
+    ids=["full_refresh", "merge", "append"],
+)
+async def test_bytes_written_sums_every_file_put_to_the_stage(sync_type: str, primary_keys: tuple[str, ...]) -> None:
+    client = FakeSnowflakeClient()
+    ctx = _ctx(sync_type=sync_type, primary_keys=primary_keys)
+    writer = LocalSnowflakeWriter(ctx, client)
+
+    outcome = await writer.write_batch(
+        _batches(_rows([1], ["a"]), _rows([2], ["b"])),
+        DestinationBatchContext(run=ctx, batch_index=0, is_final_batch=False),
+    )
+
+    assert len(client.uploaded_bytes) == 2
+    assert outcome == BatchWriteOutcome(rows_written=2, bytes_written=sum(client.uploaded_bytes))
 
 
 class TestFullRefresh:

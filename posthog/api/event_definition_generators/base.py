@@ -41,6 +41,12 @@ class EventDefinitionGenerator(ABC):
         """
         pass
 
+    def hash_inputs(self) -> dict[str, str]:
+        """
+        Extra inputs to the schema hash, for a generator whose output depends on more than its version.
+        """
+        return {}
+
     def calculate_schema_hash(
         self,
         event_definitions: QuerySet[EventDefinition],
@@ -64,6 +70,7 @@ class EventDefinitionGenerator(ABC):
         hash_input = {
             "version": self.generator_version(),
             "schemas": schema_data,
+            **self.hash_inputs(),
         }
 
         return hashlib.sha256(orjson.dumps(hash_input, option=orjson.OPT_SORT_KEYS)).hexdigest()[:32]

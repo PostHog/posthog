@@ -25,7 +25,7 @@ from redis.exceptions import ConnectionError as RedisConnectionError
 from posthog import redis
 from posthog.constants import FlagRequestType
 from posthog.errors import CHQueryErrorUnknownTable
-from posthog.helpers.dashboard_templates import (
+from posthog.helpers.feature_flag_usage_insights import (
     FEATURE_FLAG_ENRICHED_INTERACTION_INSIGHT_NAME,
     FEATURE_FLAG_ENRICHED_VIEW_INSIGHT_NAME,
 )
@@ -751,6 +751,7 @@ class TestSdkBreakdown(BaseTest):
             "posthog-unity",
             "posthog-godot",
             "posthog-unreal",
+            "posthog-electron",
             "posthog-server",
             "other",
         ]
@@ -1254,6 +1255,22 @@ class TestEnrichedAnalytics(BaseTest):
 
         flag.refresh_from_db()
         self.assertEqual(flag.has_enriched_analytics, True)
+
+    def test_soft_deleted_usage_dashboard_gets_enriched_insights_for_a_restore(self) -> None:
+        flag = FeatureFlag.objects.create(team=self.team, key="test_flag", created_by=self.user)
+        dashboard = create_usage_dashboard(flag, self.user)
+        dashboard.deleted = True
+        dashboard.save()
+
+        with patch(
+            "products.feature_flags.backend.flag_analytics.sync_execute", return_value=[(self.team.id, "test_flag")]
+        ):
+            find_flags_with_enriched_analytics(datetime.datetime(2021, 1, 1), datetime.datetime(2021, 1, 2))
+
+        dashboard.deleted = False
+        dashboard.save()
+        flag.refresh_from_db()
+        assert flag.usage_dashboard_has_enriched_insights
 
 
 class TestFindFlagsWithEnrichedAnalyticsTask(SimpleTestCase):

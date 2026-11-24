@@ -217,7 +217,11 @@ def create_source_for_upload(
 
 
 def create_file_upload_source(
-    table: DataWarehouseTable, upload: UploadedFile, read_settings: UploadReadSettings
+    table: DataWarehouseTable,
+    upload: UploadedFile,
+    read_settings: UploadReadSettings,
+    *,
+    notebook_cell: str | None = None,
 ) -> ExternalDataSchema:
     """Create the source that imports a saved table made from an upload, then start the first sync.
 
@@ -226,7 +230,11 @@ def create_file_upload_source(
     """
     preserve = needs_preserved_column_names(read_settings.columns.keys())
     with transaction.atomic():
-        source = create_source_for_upload(table, upload_job_inputs(upload, table.name))
+        source = create_source_for_upload(
+            table,
+            upload_job_inputs(upload, table.name),
+            connection_metadata={"notebook_cell": notebook_cell} if notebook_cell else None,
+        )
         schema = ExternalDataSchema.objects.create(
             name=table.name,
             team_id=table.team_id,
@@ -316,7 +324,13 @@ def _file_read_in_place(schema: ExternalDataSchema) -> HostedUpload | None:
     return parse_hosted_upload(schema.team_id, ref.url_pattern)
 
 
-def replace_file_upload(schema: ExternalDataSchema, upload: UploadedFile, read_settings: UploadReadSettings) -> str:
+def replace_file_upload(
+    schema: ExternalDataSchema,
+    upload: UploadedFile,
+    read_settings: UploadReadSettings,
+    *,
+    notebook_cell: str | None = None,
+) -> str:
     """Point the schema's source at a new upload and start a billable full refresh of it.
 
     The table keeps its row and its name. The old file is recorded as superseded and is deleted
@@ -327,6 +341,8 @@ def replace_file_upload(schema: ExternalDataSchema, upload: UploadedFile, read_s
         source = lock_source(str(schema.source_id), schema.team_id)
         if source is None:
             raise FileUploadSourceError("This table's source was deleted.")
+        if notebook_cell is not None and (source.connection_metadata or {}).get("notebook_cell") != notebook_cell:
+            raise FileUploadSourceError("This table was not created by this notebook cell. Save under a new name.")
         # Checked under the source's lock, so two replacements of one table can't both pass it.
         latest_job = (
             ExternalDataJob.objects.filter(team_id=schema.team_id, schema_id=schema.id).order_by("-created_at").first()

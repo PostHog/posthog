@@ -4,13 +4,13 @@ from products.warehouse_sources.sources.bigcommerce._config import BigCommerceSo
 from products.warehouse_sources.sources.bigcommerce.bigcommerce import (
     BigCommerceResumeConfig,
     bigcommerce_source,
-    order_fan_out_source,
+    fan_out_source,
     validate_credentials as validate_bigcommerce_credentials,
 )
 from products.warehouse_sources.sources.bigcommerce.settings import (
     ENDPOINTS,
+    FAN_OUT_PARENTS,
     INCREMENTAL_FIELDS,
-    ORDER_FAN_OUT_ENDPOINTS,
     PARTITION_FIELDS,
     PRIMARY_KEYS,
 )
@@ -126,10 +126,10 @@ class BigCommerceSource(ResumableSource[BigCommerceSourceConfig, BigCommerceResu
         # incrementally — guard against a stale schema requesting it elsewhere.
         use_incremental = inputs.should_use_incremental_field and inputs.schema_name in INCREMENTAL_FIELDS
 
-        if inputs.schema_name in ORDER_FAN_OUT_ENDPOINTS:
+        if inputs.schema_name in FAN_OUT_PARENTS:
             response = SourceResponse(
                 name=inputs.schema_name,
-                items=lambda: order_fan_out_source(
+                items=lambda: fan_out_source(
                     config.store_hash, config.access_token, inputs.schema_name, resumable_source_manager
                 ),
                 primary_keys=PRIMARY_KEYS[inputs.schema_name],

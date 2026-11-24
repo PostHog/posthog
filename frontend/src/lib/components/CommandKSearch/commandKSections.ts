@@ -23,6 +23,7 @@ const TRAILING_SOURCES: RemoteSource[] = ['persons', 'groups']
 /** Lists that filter in memory on every keystroke, in the order they render in Search mode. */
 const LOCAL_SOURCES = [
     'products',
+    'sidebar',
     'data-management',
     'people',
     'health',
@@ -32,6 +33,9 @@ const LOCAL_SOURCES = [
     'create',
 ] as const
 type LocalSource = (typeof LOCAL_SOURCES)[number]
+
+const RANKED_PAGE_SOURCES: LocalSource[] = ['products', 'data-management', 'people', 'health']
+const RANKED_LOCAL_SOURCES: LocalSource[] = [...RANKED_PAGE_SOURCES, 'sidebar']
 
 export type CommandKMode = 'empty' | 'key' | 'value' | 'search'
 
@@ -105,6 +109,7 @@ const SECTION_LABELS: Record<Exclude<CommandKSectionKey, `group-${string}`>, str
     starred: 'Starred',
     results: 'Results',
     products: 'Products',
+    sidebar: 'Sidebar',
     'data-management': 'Data management',
     people: 'People',
     health: 'Health',
@@ -365,6 +370,16 @@ const plainName = (item: SearchItem): string =>
         .replace(/\s*\([^)]*\)\s*$/, '')
         .trim()
 
+function rankablePages(local: LocalLists): SearchItem[] {
+    const productHrefs = new Set(local.products.map((item) => item.href))
+    return [
+        ...local.products,
+        ...RANKED_PAGE_SOURCES.filter((source) => source !== 'products').flatMap((source) =>
+            local[source].filter((item) => !item.href || !productHrefs.has(item.href))
+        ),
+    ]
+}
+
 export function rankableSettings(local: LocalLists, localQuery: string): SearchItem[] {
     const productDestinations = new Set(
         local.products.filter((item) => !item.parentName).map((item) => `${plainName(item)}|${item.href ?? ''}`)
@@ -402,7 +417,8 @@ function rankedResultsSections(
         query: freeText,
         highlightWords: words,
         results,
-        products: localQuery ? local.products : [],
+        products: localQuery ? rankablePages(local) : [],
+        sidebar: localQuery ? local.sidebar : [],
         state,
         scoped: (query.match(FILTER_TOKEN) ?? []).some((token) => token.trim().startsWith('type:')),
     })
@@ -454,7 +470,10 @@ function lowerSections(
         for (const source of LOCAL_SOURCES) {
             const themeItem =
                 source === 'settings' && input.themeItem && !shown.has(input.themeItem.id) ? input.themeItem : null
-            if (ranked && (source === 'products' || (source === 'settings' && settingsRanked && !themeItem))) {
+            if (
+                ranked &&
+                (RANKED_LOCAL_SOURCES.includes(source) || (source === 'settings' && settingsRanked && !themeItem))
+            ) {
                 continue
             }
             const filtered =

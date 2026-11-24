@@ -1,4 +1,5 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import type { FieldName } from 'kea-forms/lib'
 import { router, urlToAction } from 'kea-router'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -99,10 +100,10 @@ export interface authLogicActions {
         values?: LoginForm
     } // loginLogic
     setLoginValue: (
-        key: import('node_modules/kea-forms/lib').FieldName,
+        key: FieldName,
         value: any
     ) => {
-        name: import('node_modules/kea-forms/lib').FieldName
+        name: FieldName
         value: any
     } // loginLogic
     submitLogin: () => {
@@ -274,8 +275,13 @@ export const authLogic = kea<authLogicType>([
                 panel: number,
                 pendingInvite: PendingInvite | null
             ): AuthPageStep => {
+                // A pending login code owns the page, even on a fresh load: the trip to the provider
+                // already happened.
+                if (codeVerificationRequired) {
+                    return 'login_code'
+                }
                 if (accountPath === 'login') {
-                    return codeVerificationRequired ? 'login_code' : 'login'
+                    return 'login'
                 }
                 if (accountPath === 'signup') {
                     if (pendingInvite) {
@@ -410,7 +416,14 @@ export const authLogic = kea<authLogicType>([
     urlToAction(({ actions, values }) => {
         // `?email=` gives the `generate_demo_data` command a quick login link. Demo signup is left to
         // `signupLogic`, which signs the demo user in straight away.
-        const prefillEmail = (_: Record<string, any>, { email }: Record<string, any>): void => {
+        const prefillEmail = (
+            _: Record<string, any>,
+            { email, code_verification_pending }: Record<string, any>
+        ): void => {
+            // The IdP round trip returns with a code emailed; a precheck can bounce the person back to it.
+            if (code_verification_pending) {
+                return
+            }
             if (email && !(values.preflight?.demo && values.entry === 'signup')) {
                 actions.setLoginValue('email', email)
                 actions.precheck({ email })

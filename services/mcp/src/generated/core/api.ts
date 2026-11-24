@@ -3226,8 +3226,6 @@ export const organizationsProjectsPartialUpdateBodySessionRecordingMinimumDurati
 
 export const organizationsProjectsPartialUpdateBodySessionRecordingTriggerMatchTypeConfigMax = 24
 
-export const organizationsProjectsPartialUpdateBodyRecordingDomainsItemMax = 200
-
 export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemOnePropertiesOneItemOneOperatorDefault = `exact`
 export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemOnePropertiesOneItemOneTypeDefault = `event`
 export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemOnePropertiesOneItemTwoTypeDefault = `person`
@@ -3444,10 +3442,6 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                 'ID of the dashboard shown on the product analytics Home tab. Null shows the built-in generic view.'
             ),
         live_events_columns: zod.array(zod.string()).nullish(),
-        recording_domains: zod
-            .array(zod.string().max(organizationsProjectsPartialUpdateBodyRecordingDomainsItemMax).nullable())
-            .nullish()
-            .describe('Origins permitted to record session replays and heatmaps. Empty list allows all origins.'),
         inject_web_apps: zod.boolean().nullish(),
         extra_settings: zod.unknown().optional(),
         modifiers: zod.unknown().optional(),
@@ -6186,7 +6180,7 @@ export const UploadedMediaListQueryParams = () => zod.object({
 })
 
 /**
- * Step 2 of the presigned upload flow: verifies the object POSTed to the upload_url, sniffs its real content type, and activates it — after this it appears in the library and is publicly servable.
+ * Step 2 of the presigned upload flow: verifies the object POSTed to the upload_url, sniffs its real content type, and activates it — after this it is publicly servable, and it appears in its library unless its purpose is upload-only (`conversations`).
  */
 export const UploadedMediaCompleteUploadCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this uploaded media.'),
@@ -6220,7 +6214,9 @@ export const UploadedMediaStartUploadCreateBody = () => zod.object({
     purpose: zod
         .string()
         .max(uploadedMediaStartUploadCreateBodyPurposeMax)
-        .describe("Library to add this image to once uploaded, e.g. 'email'."),
+        .describe(
+            "Library to add this image to once uploaded, e.g. 'email'. Use 'conversations' for a support ticket reply image. No library lists those."
+        ),
 })
 
 /**

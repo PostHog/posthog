@@ -65,13 +65,53 @@ const FLAG_SETUP_CHECKS = [
 ]
 
 const SETUP: ExperimentHealthSetupApi = {
-    release_conditions: [{ rollout_percentage: 50, property_count: 1, aggregation_group_type_index: null }],
+    release_conditions: [
+        {
+            rollout_percentage: 100,
+            property_count: 1,
+            aggregation_group_type_index: null,
+            variant: 'test',
+            reachable: true,
+        },
+        {
+            rollout_percentage: 50,
+            property_count: 0,
+            aggregation_group_type_index: null,
+            variant: null,
+            reachable: true,
+        },
+        {
+            rollout_percentage: 0,
+            property_count: 1,
+            aggregation_group_type_index: null,
+            variant: null,
+            reachable: false,
+        },
+    ],
     early_exit: false,
     bucketing_identifier: 'distinct_id',
     aggregation_group_type_index: null,
     evaluation_runtime: 'all',
     evaluation_contexts: ['web-app'],
     ensure_experience_continuity: false,
+    exposure: { event: null, action: null, activation: null },
+    analysis: {
+        stats_method: 'frequentist',
+        confidence_level: 0.95,
+        sequential_testing: true,
+        sequential_testing_from_project_default: true,
+        cuped: true,
+        cuped_lookback_days: 14,
+        cuped_from_project_default: false,
+        cuped_lookback_days_from_project_default: true,
+        metrics_without_cuped_support: ['Day 7 retention'],
+        filters_test_accounts: true,
+        test_account_filter_count: 2,
+        multiple_variant_handling: 'exclude',
+        only_count_matured_users: false,
+        baseline_variant: 'control',
+        excluded_variants: [],
+    },
 }
 
 const meta: Meta<typeof HealthChecksPanel> = {
@@ -331,6 +371,7 @@ const CHECKS_WITH_ROWS: HealthPanelCheck[] = [
             matched_count: 4277,
             traffic_since_at: '2026-10-27T12:00:00Z',
             flag_service_call_percentage: 92.4,
+            filters_test_accounts: true,
         },
         rows: [
             { variant: 'control', variant_matched_count: 2140, forced_count: 0, forced_percentage: 0 },

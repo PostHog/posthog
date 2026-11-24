@@ -209,6 +209,12 @@ export interface SessionUpdateCurrentMode {
     mode?: string
 }
 
+/** The agent's whole config after any change, such as a model switch. Each option carries its id and current value. */
+export interface SessionUpdateConfigOptions {
+    sessionUpdate: 'config_option_update'
+    configOptions?: { id?: string; currentValue?: unknown }[]
+}
+
 export type SessionUpdateBody =
     | SessionUpdateAgentMessageChunk
     | SessionUpdateAgentMessage
@@ -216,6 +222,7 @@ export type SessionUpdateBody =
     | SessionUpdateToolCall
     | SessionUpdateToolCallUpdate
     | SessionUpdateCurrentMode
+    | SessionUpdateConfigOptions
 
 export interface SessionUpdateParams {
     sessionId?: string
@@ -235,6 +242,7 @@ const KNOWN_SESSION_UPDATES: ReadonlySet<string> = new Set([
     'tool_call',
     'tool_call_update',
     'current_mode_update',
+    'config_option_update',
 ])
 
 export function isKnownSessionUpdate(update: unknown): update is SessionUpdateBody {

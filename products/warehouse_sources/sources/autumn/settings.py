@@ -1,4 +1,5 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any
 
 from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType
 
@@ -33,6 +34,12 @@ class AutumnEndpointConfig:
     # Customer-scoped endpoints take a single customer_id, so the table walks customers.list and
     # issues one request per customer, stamping customer_id onto each row.
     customer_fan_out: bool = False
+    # Balance-scoped endpoints take a customer_id and a feature_id, so the table walks customers.list
+    # and issues paginated requests for each feature key in the customer's balances.
+    customer_feature_fan_out: bool = False
+    # Static body params sent on every request, e.g. statuses to include expired history.
+    extra_body: dict[str, Any] = field(default_factory=dict)
+    unsupported_api_versions: tuple[str, ...] = ()
 
 
 AUTUMN_ENDPOINTS: dict[str, AutumnEndpointConfig] = {
@@ -101,6 +108,44 @@ AUTUMN_ENDPOINTS: dict[str, AutumnEndpointConfig] = {
         primary_keys=["customer_id", "parent_plan_id", "license_plan_id"],
         paginated=False,
         customer_fan_out=True,
+    ),
+    # The cross-customer lists default to live rows only, so ask for expired history too.
+    "Balances": AutumnEndpointConfig(
+        name="Balances",
+        path="/v1/balances.list",
+        # id can be a caller-chosen balance_id; internal_id is the balance row itself.
+        primary_keys=["customer_id", "internal_id"],
+        page_size=AUTUMN_V2_4_MAX_PAGE_SIZE,
+        partition_key="created_at",
+        extra_body={"statuses": ["active", "expired"]},
+    ),
+    "Subscriptions": AutumnEndpointConfig(
+        name="Subscriptions",
+        path="/v1/subscriptions.list",
+        # id falls back to a caller-chosen subscription_id, so it is only unique per customer.
+        primary_keys=["customer_id", "id"],
+        page_size=AUTUMN_V2_4_MAX_PAGE_SIZE,
+        partition_key="created_at",
+        extra_body={"statuses": ["active", "scheduled", "expired"]},
+    ),
+    "Purchases": AutumnEndpointConfig(
+        name="Purchases",
+        path="/v1/purchases.list",
+        primary_keys=["customer_id", "id"],
+        page_size=AUTUMN_V2_4_MAX_PAGE_SIZE,
+        partition_key="created_at",
+        extra_body={"statuses": ["active", "scheduled", "expired"]},
+    ),
+    "BalanceLedger": AutumnEndpointConfig(
+        name="BalanceLedger",
+        path="/v1/balances.list_ledger",
+        # One entry can show in the ledger of each balance that paid for it, so the key carries
+        # the feature whose balance was listed.
+        primary_keys=["customer_id", "balance_feature_id", "id"],
+        page_size=AUTUMN_V2_4_MAX_PAGE_SIZE,
+        partition_key="occurred_at",
+        customer_feature_fan_out=True,
+        unsupported_api_versions=(AUTUMN_API_VERSION_2_3_0,),
     ),
 }
 

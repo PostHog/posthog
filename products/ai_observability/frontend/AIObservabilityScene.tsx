@@ -56,12 +56,14 @@ import { aiObservabilityEmptyState } from './emptyState/aiObservabilityEmptyStat
 import { useSortableColumns } from './hooks/useSortableColumns'
 import { InstrumentationChecklistCard } from './instrumentationChecklist/InstrumentationChecklistCard'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
+import { HomeHost } from './redesign/home/HomeHost'
 import { ShellHost } from './redesign/shell/ShellHost'
 import { toFullPageListParams } from './redesign/trace/traceBackLink'
 import { TraceDrawerQueryHost } from './redesign/trace/TraceDrawerQueryHost'
 import { withoutTraceDrawerParams } from './redesign/trace/traceDrawerRows'
 import { useTraceDrawerRows } from './redesign/trace/TraceDrawerRowsHost'
 import { TraceListRow } from './redesign/trace/traceListRows'
+import { TracesListHost } from './redesign/traces/TracesListHost'
 import { AIObservabilitySelfDriving } from './selfDriving/AIObservabilitySelfDriving'
 import { aiObservabilityDashboardLogic } from './tabs/aiObservabilityDashboardLogic'
 import { aiObservabilityErrorsLogic } from './tabs/aiObservabilityErrorsLogic'
@@ -570,7 +572,13 @@ function AIObservabilitySceneContent(): JSX.Element {
     }
     return (
         <ShellHost>
-            <TabBody tab={activeTab} />
+            {activeTab === 'traces' ? (
+                <TracesListHost />
+            ) : activeTab === 'dashboard' ? (
+                <HomeHost />
+            ) : (
+                <TabBody tab={activeTab} />
+            )}
         </ShellHost>
     )
 }

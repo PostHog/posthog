@@ -474,6 +474,51 @@ describe('inboxReportDetailLogic', () => {
             capture.mockRestore()
         })
 
+        it('sends one actionability change and takes the status the change moved the report to', async () => {
+            const capture = jest.spyOn(posthog, 'capture')
+            const bodies: Record<string, unknown>[] = []
+            const save = jest.fn(async ({ request }: MockResolverInfo): Promise<[number, SignalReport]> => {
+                const body = (await request.json()) as Record<string, unknown>
+                bodies.push(body)
+                return [
+                    200,
+                    {
+                        ...REPORT,
+                        actionability: 'requires_human_input',
+                        already_addressed: body.already_addressed === true,
+                        status: SignalReportStatus.PENDING_INPUT,
+                        updated_at: '2026-10-10T12:00:00Z',
+                    },
+                ]
+            })
+            useMocks({ put: { '/api/projects/:team_id/signals/reports/:id/actionability/': save } })
+            logic.actions.setReport({ ...REPORT, actionability: 'immediately_actionable', already_addressed: false })
+            logic.actions.updateActionability({ actionability: 'requires_human_input' })
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.report).toMatchObject({
+                actionability: 'requires_human_input',
+                already_addressed: false,
+                status: SignalReportStatus.PENDING_INPUT,
+            })
+            logic.actions.updateActionability({ alreadyAddressed: true })
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.report?.already_addressed).toBe(true)
+            expect(logic.values.actionabilitySaving).toBe(false)
+            expect(bodies).toEqual([{ actionability: 'requires_human_input' }, { already_addressed: true }])
+            const decisionEvents = capture.mock.calls
+                .filter(([event]) => event === INBOX_EVENTS.REPORT_DECISION_CHANGED)
+                .map(([, properties]) => properties)
+            expect(decisionEvents).toEqual([
+                expect.objectContaining({
+                    decision: 'actionability',
+                    previous_value: 'immediately_actionable',
+                    new_value: 'requires_human_input',
+                }),
+                expect.objectContaining({ decision: 'already_addressed', previous_value: 'false', new_value: 'true' }),
+            ])
+            capture.mockRestore()
+        })
+
         it.each([200, 500])(
             'guards Monitoring submissions and releases the guard after response %s',
             async (responseStatus) => {
@@ -1317,19 +1362,33 @@ describe('inboxReportDetailLogic', () => {
             })
         })
 
-        it('links an inaccessible repository to the GitHub settings and stops polling its checks', async () => {
-            const inaccessible = {
-                code: 'github_repository_inaccessible',
-                error: "PostHog's GitHub connection can't access example/repo. A project admin must give the GitHub app access to this repository, or reconnect GitHub.",
-                remediation_url: '/project/2/settings/project-integrations',
-            }
+        it.each([
+            [
+                'an inaccessible repository',
+                404,
+                {
+                    code: 'github_repository_inaccessible',
+                    error: "PostHog's GitHub connection can't access example/repo. A project admin must give the GitHub app access to this repository, or reconnect GitHub.",
+                    remediation_url: '/project/2/settings/project-integrations',
+                },
+            ],
+            [
+                'a suspended GitHub installation',
+                403,
+                {
+                    code: 'github_installation_unavailable',
+                    error: "PostHog's GitHub connection is suspended or was uninstalled. A project admin must reconnect GitHub.",
+                    remediation_url: '/project/2/settings/project-integrations',
+                },
+            ],
+        ])('links %s to the GitHub settings and stops polling its checks', async (_name, status, inaccessible) => {
             useMocks({
                 get: {
                     '/api/projects/:team_id/signals/reports/:id/pr_checks/': () => {
                         prChecksRequests += 1
-                        return [404, inaccessible]
+                        return [status, inaccessible]
                     },
-                    '/api/projects/:team_id/signals/reports/:id/pr_comments/': [404, inaccessible],
+                    '/api/projects/:team_id/signals/reports/:id/pr_comments/': [status, inaccessible],
                 },
             })
             logic.unmount()
@@ -1342,7 +1401,7 @@ describe('inboxReportDetailLogic', () => {
                 const expected = {
                     message: inaccessible.error,
                     remediationUrl: inaccessible.remediation_url,
-                    code: 'github_repository_inaccessible',
+                    code: inaccessible.code,
                 }
                 expect(logic.values.prChecksError).toEqual(expected)
                 expect(logic.values.prCommentsError).toEqual(expected)
@@ -1353,6 +1412,33 @@ describe('inboxReportDetailLogic', () => {
             } finally {
                 jest.useRealTimers()
             }
+        })
+        it('shows a load error when a PR response has no checks or comments', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/signals/reports/:id/pr_checks/': {},
+                    '/api/projects/:team_id/signals/reports/:id/pr_comments/': {},
+                },
+            })
+            logic.unmount()
+            logic = inboxReportDetailLogic({ reportId: PR_REPORT.id, report: PR_REPORT })
+            logic.mount()
+
+            // Without the guard, kea rejects the undefined reducer value instead, and that error is what gets reported.
+            await expectLogic(logic)
+                .toDispatchActionsInAnyOrder([
+                    (action) =>
+                        action.type === logic.actionTypes.loadPrChecksFailure &&
+                        action.payload.error === 'Invalid PR checks response',
+                    (action) =>
+                        action.type === logic.actionTypes.loadPrCommentsFailure &&
+                        action.payload.error === 'Invalid PR comments response',
+                ])
+                .toFinishAllListeners()
+            expect(logic.values.prChecks).toBeNull()
+            expect(logic.values.prComments).toBeNull()
+            expect(logic.values.prChecksError?.message).toBe("Couldn't load the PR checks from GitHub.")
+            expect(logic.values.prCommentsError?.message).toBe("Couldn't load the PR comments from GitHub.")
         })
     })
 
