@@ -1,8 +1,11 @@
 import re
+import datetime as dt
 
+from opentelemetry import trace
 from temporalio import activity, workflow
 from temporalio.common import MetricCounter, MetricHistogramFloat
 
+from products.data_modeling.backend.facade.enums import MaterializationRunTrigger
 from products.data_modeling.backend.temporal.activities.utils import is_externally_aborted
 from products.managed_warehouse.backend.facade.contracts import TRINO_INSTANCE_REPLACED_ERROR_PREFIX
 
@@ -36,6 +39,7 @@ DATA_MODELING_LATENCY_HISTOGRAM_BUCKETS = [
 DATA_MODELING_DURATION_HISTOGRAM_METRICS = (
     "data_modeling_node_duration_seconds",
     "data_modeling_dag_duration_seconds",
+    "data_modeling_request_to_finish_seconds",
 )
 DATA_MODELING_DURATION_HISTOGRAM_BUCKETS = [
     5.0,
@@ -58,6 +62,14 @@ DATA_MODELING_DURATION_HISTOGRAM_BUCKETS = [
 AD_HOC_TIER = "ad_hoc"
 UNKNOWN_RUN_MODE = "unknown"
 
+COMPLETED_STATUS = "completed"
+FAILED_STATUS = "failed"
+CANCELLED_STATUS = "cancelled"
+QUALITY_BLOCKED_STATUS = "quality_blocked"
+
+TRIGGER_SPAN_ATTRIBUTE = "trigger"
+REQUESTED_AT_SPAN_ATTRIBUTE = "requested_at"
+
 # Tier schedule runs are `execute-dag-{dag_id}:{seconds}[:{anchor}]-{timestamp}`, and their Trino
 # shadows are `execute-dag-trino-{dag_id}:{seconds}[:{anchor}]`.
 _TIER_WORKFLOW_ID = re.compile(r"^execute-dag-(?:trino-)?[0-9a-f-]{36}:(\d+)")
@@ -79,6 +91,56 @@ def tier_label(dag_workflow_id: str | None) -> str:
     """The cadence tier in seconds of the DAG run with this workflow id, or `ad_hoc` for any other run."""
     match = _TIER_WORKFLOW_ID.match(dag_workflow_id or "")
     return match.group(1) if match else AD_HOC_TIER
+
+
+def run_trigger(dag_workflow_id: str, requested_trigger: str) -> str:
+    if tier_label(dag_workflow_id) != AD_HOC_TIER:
+        return MaterializationRunTrigger.SCHEDULED.value
+    return requested_trigger
+
+
+def tag_run_request_on_workflow_span(trigger: str, requested_at: str | None) -> None:
+    span = trace.get_current_span()
+    span.set_attribute(TRIGGER_SPAN_ATTRIBUTE, trigger)
+    if requested_at:
+        span.set_attribute(REQUESTED_AT_SPAN_ATTRIBUTE, requested_at)
+
+
+def _requested_time(requested_at: str | None) -> dt.datetime:
+    workflow_started_at = workflow.info().workflow_start_time
+    if not requested_at:
+        return workflow_started_at
+    try:
+        requested = dt.datetime.fromisoformat(requested_at)
+    except ValueError:
+        return workflow_started_at
+    return requested if requested.tzinfo else requested.replace(tzinfo=dt.UTC)
+
+
+def get_request_to_finish_metric(trigger: str, engine: str, *, status: str) -> MetricHistogramFloat:
+    return (
+        workflow.metric_meter()
+        .with_additional_attributes({"trigger": trigger, "engine": engine, "status": status})
+        .create_histogram_float(
+            "data_modeling_request_to_finish_seconds",
+            "Time from the request for a run to the end of that run, for every outcome. "
+            "The request time is the start of the workflow when the start of the run sent none. "
+            "Trigger is manual, scheduled, endpoint, property_sync, or unknown. "
+            "Status is a DAG or node finished status, or cancelled.",
+            "s",
+        )
+    )
+
+
+def _is_started_by_another_workflow() -> bool:
+    return workflow.info().parent is not None
+
+
+def record_request_to_finish(trigger: str, requested_at: str | None, *, engine: str, status: str) -> None:
+    if _is_started_by_another_workflow():
+        return
+    seconds = (workflow.now() - _requested_time(requested_at)).total_seconds()
+    get_request_to_finish_metric(trigger, engine, status=status).record(max(seconds, 0.0))
 
 
 def get_node_suspended_metric(engine: str) -> MetricCounter:
