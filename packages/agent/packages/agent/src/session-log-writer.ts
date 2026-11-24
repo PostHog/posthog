@@ -583,22 +583,24 @@ export class SessionLogWriter {
         );
         sentBytes += this.sumBytes(chunk);
       } catch (error) {
-        if (!(error instanceof PostHogAPIError) || error.retryable) {
-          const unsent = [chunk, ...stack.reverse()].flat();
-          return { sentBytes, rejected, unsent, error };
-        }
+        const rejectedByServer =
+          error instanceof PostHogAPIError && !error.retryable;
         if (
-          chunk.length === 1 ||
-          !SessionLogWriter.SPLIT_STATUSES.has(error.status)
+          rejectedByServer &&
+          (chunk.length === 1 ||
+            !SessionLogWriter.SPLIT_STATUSES.has(error.status))
         ) {
           rejected.push(...chunk);
-        } else if (splitRequests < SessionLogWriter.SPLIT_REQUESTS_MAX) {
+        } else if (
+          rejectedByServer &&
+          splitRequests < SessionLogWriter.SPLIT_REQUESTS_MAX
+        ) {
           const middle = Math.ceil(chunk.length / 2);
           stack.push(chunk.slice(middle), chunk.slice(0, middle));
           splitRequests += 2;
         } else {
           const unsent = [chunk, ...stack.reverse()].flat();
-          return { sentBytes, rejected, unsent };
+          return { sentBytes, rejected, unsent, error };
         }
       }
     }
@@ -670,7 +672,9 @@ export class SessionLogWriter {
     const gap = this.gapOf(dropped);
     if (!gap) return;
     session.gap = this.mergeGap(session.gap, gap);
-    this.emitToSinks(sessionId, this.buildGapMarker(gap));
+    if (this.sinks.length > 0) {
+      this.emitToSinks(sessionId, this.buildGapMarker(gap));
+    }
   }
 
   private buildGapMarker(gap: SessionLogGap): StoredNotification {
