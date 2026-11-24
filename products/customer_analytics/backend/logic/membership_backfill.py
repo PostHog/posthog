@@ -212,9 +212,13 @@ def get_membership_group_column(group_type_index: int, *, native_json: bool) -> 
 
 
 def get_membership_activity_filter(*, native_json: bool) -> str:
-    if native_json:
-        return "ifNull(toJSONString(properties.`$update_person_last_seen_at`), '') != 'false'"
-    return "JSONExtractRaw(properties, '$update_person_last_seen_at') != 'false'"
+    # Flag calls never count, so the backfill agrees with ingestion on every flag evaluations mode.
+    last_seen_filter = (
+        "ifNull(toJSONString(properties.`$update_person_last_seen_at`), '') != 'false'"
+        if native_json
+        else "JSONExtractRaw(properties, '$update_person_last_seen_at') != 'false'"
+    )
+    return f"event != '$feature_flag_called' AND {last_seen_filter}"
 
 
 def get_membership_batch_sql(*, group_type_index: int, catching_up: bool, native_json: bool = False) -> str:
