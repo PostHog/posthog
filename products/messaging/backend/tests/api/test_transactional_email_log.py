@@ -8,12 +8,16 @@ from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
+from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 from rest_framework import status
+
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.constants import AvailableFeature
+from posthog.errors import wrap_clickhouse_query_error
 from posthog.models import Element, OrganizationMembership, Team
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
@@ -680,7 +684,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json() == {"recipients": 4, "converted": 2, "revenue": 55.0, "median_hours_to_convert": 5.0}
 
-    def _seed_impact_sends(self) -> None:
+    def _seed_impact_sends(self) -> dict[str, str]:
         create_person(team=self.team, distinct_ids=["clicker", "clicker-phone"])
         for name in ["early", "slow", "sent-two-days-late", "reader", "late", "bounced"]:
             create_person(team=self.team, distinct_ids=[name])
@@ -733,14 +737,17 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         for distinct_id, session_id, run_id in landings:
             self._land(distinct_id, session_id, run_id)
         flush_persons_and_events()
+        return message_ids
 
-    def _land(self, distinct_id: str, session_id: str, run_id: str | None) -> None:
+    def _land(
+        self, distinct_id: str, session_id: str, run_id: str | None, at: datetime = NOW - timedelta(minutes=5)
+    ) -> None:
         query = f"?plan=pro&ph_workflow_run={run_id}" if run_id else "?plan=pro"
         _create_event(
             team=self.team,
             event="$pageview",
             distinct_id=distinct_id,
-            timestamp=NOW - timedelta(minutes=5),
+            timestamp=at,
             properties={"$current_url": f"https://example.com/reset{query}", "$session_id": session_id},
         )
 
@@ -771,6 +778,32 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             "after_click": {"sends": 3, "converted": 2},
             "without_click": {"sends": 3, "converted": 2},
         }
+
+    def test_keeps_the_funnel_and_conversions_when_the_session_count_fails(self, _flag):
+        self._seed_impact_sends()
+        timeout = wrap_clickhouse_query_error(ServerException("Timeout exceeded", code=159))
+
+        def time_out_the_session_count(query, *args, **kwargs):
+            if kwargs["query_type"] == "transactional_email_impact_sessions":
+                raise timeout
+            return execute_hogql_query(query, *args, **kwargs)
+
+        with (
+            patch(
+                "products.messaging.backend.services.transactional_email_log.execute_hogql_query",
+                side_effect=time_out_the_session_count,
+            ),
+            patch("products.messaging.backend.services.transactional_email_log.capture_exception") as reported,
+        ):
+            impact = self._impact(event="purchase", date_from=(NOW - timedelta(days=29)).isoformat())
+
+        assert impact == {
+            **IMPACT_COUNTS,
+            "after_click": {"sends": 3, "converted": 2},
+            "without_click": {"sends": 3, "converted": 2},
+            "sessions": None,
+        }
+        reported.assert_called_once_with(timeout)
 
     def test_counts_conversions_of_sends_whose_ids_overflow_the_teams_clickhouse_query_size(self, _flag):
         long_distinct_ids = [f"long-{index:02d}-{'€' * 380}" for index in range(LONG_ID_SENDS)]
@@ -858,13 +891,18 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         return queries
 
     def test_impact_follows_a_click_and_its_conversion_past_the_end_of_the_period(self, _flag):
-        self._seed_impact_sends()
+        slow_id = self._seed_impact_sends()["slow"]
         slow_sent_at = NOW - timedelta(minutes=SLOW_SEND_MINUTES_AGO)
+        period_end = slow_sent_at + timedelta(days=1)
+        self._land("slow", "in-the-period", slow_id, at=slow_sent_at + timedelta(hours=2))
+        self._land("slow", "in-the-week-after", slow_id, at=period_end + timedelta(days=6))
+        self._land("slow", "past-the-week-after", slow_id, at=period_end + timedelta(days=8))
+        flush_persons_and_events()
 
         assert self._impact(
             event="purchase",
             date_from=(slow_sent_at - timedelta(hours=1)).isoformat(),
-            date_to=(slow_sent_at + timedelta(days=1)).isoformat(),
+            date_to=period_end.isoformat(),
         ) == {
             "sent": 1,
             "delivered": 1,
@@ -875,7 +913,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             "window_days": 7,
             "after_click": {"sends": 1, "converted": 1},
             "without_click": {"sends": 0, "converted": 0},
-            "sessions": 0,
+            "sessions": 2,
             "link_tagging_enabled": True,
         }
 
@@ -977,6 +1015,9 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_counts_conversions_only_with_query_access(self, _flag):
+        clicked_id = self._send(30, "jane@example.com", [("sent", 1, ""), ("delivered", 2, ""), ("clicked", 60, "")])
+        self._land("jane", "jane-session", clicked_id)
+        flush_persons_and_events()
         self._deny_member("query")
 
         funnel = self.client.get(self._url("impact/"), {"workflow_id": self.workflow_id})
@@ -984,7 +1025,11 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         results = self.client.get(self._url("results/"), {"workflow_id": self.workflow_id, "event": "purchase"})
 
         assert funnel.status_code == status.HTTP_200_OK, funnel.json()
-        assert (funnel.json()["sessions"], funnel.json()["link_tagging_enabled"]) == (None, True)
+        assert (funnel.json()["clicked"], funnel.json()["sessions"], funnel.json()["link_tagging_enabled"]) == (
+            1,
+            None,
+            True,
+        )
         assert conversions.status_code == status.HTTP_403_FORBIDDEN, conversions.json()
         assert results.status_code == status.HTTP_403_FORBIDDEN, results.json()
 

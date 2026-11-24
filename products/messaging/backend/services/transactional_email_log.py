@@ -21,6 +21,7 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.execute import default_settings, sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
+from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 from posthog.settings import CLICKHOUSE_PER_TEAM_QUERY_SETTINGS
 
@@ -648,7 +649,7 @@ def transactional_email_impact(
     link_tagging_enabled = team.workflows_config.email_workflow_run_link_tag_enabled
     sessions: int | None = None
     if link_tagging_enabled and can_query_events:
-        sessions = _sessions_started_by_clicks(team, user, workflow_id, period) if clicked else 0
+        sessions = _sessions_with_a_pageview_from_the_email(team, user, workflow_id, period) if clicked else 0
     after_click: TransactionalEmailConversions | None = None
     without_click: TransactionalEmailConversions | None = None
     if event:
@@ -671,7 +672,19 @@ def transactional_email_impact(
     )
 
 
-def _sessions_started_by_clicks(team: Team, user: User | None, workflow_id: str, period: _Period) -> int:
+def _sessions_with_a_pageview_from_the_email(
+    team: Team, user: User | None, workflow_id: str, period: _Period
+) -> int | None:
+    # The session count reads the events table, which the funnel and the conversions don't need, so a failed count
+    # leaves sessions empty and keeps the rest of the response.
+    try:
+        return _count_sessions(team, user, workflow_id, period)
+    except Exception as error:
+        capture_exception(error)
+        return None
+
+
+def _count_sessions(team: Team, user: User | None, workflow_id: str, period: _Period) -> int:
     rows = _execute(
         team.id,
         f"""
