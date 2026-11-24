@@ -84,11 +84,14 @@ class CampaignMonitorMessageTimelinePaginator(BasePaginator):
             request.params = {**(request.params or {}), "sentBeforeID": self._cursor}
 
     def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
-        last = data[-1] if data else None
-        last_id = last.get("MessageID") if isinstance(last, dict) else None
-        if not last_id:
+        if not data:
             self._has_next_page = False
             return
+        last = data[-1]
+        last_id = last.get("MessageID") if isinstance(last, dict) else None
+        if not last_id:
+            # Without the cursor, stopping here would publish a truncated timeline as complete.
+            raise ValueError("Campaign Monitor message timeline page ended without a MessageID cursor")
         if last_id == self._cursor:
             # The API ignored the cursor and served the same page again — fail loud, not loop.
             raise ValueError("Campaign Monitor message timeline cursor is not advancing")

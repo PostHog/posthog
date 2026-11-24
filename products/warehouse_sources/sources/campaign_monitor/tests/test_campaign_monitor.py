@@ -118,6 +118,7 @@ class TestTransactionalMessageTimeline:
             # The API ignored the cursor and served the same page again: fail instead of looping.
             ([[{"MessageID": "m1"}], [{"MessageID": "m1"}]], "not advancing"),
             ([{"Code": 1, "Message": "Fail"}], "list response body"),
+            ([[{"MessageID": "m1"}, {"Recipient": "a@example.com"}]], "without a MessageID"),
         ],
     )
     def test_unexpected_pages_raise(self, pages: list[Any], expected_error: str) -> None:
