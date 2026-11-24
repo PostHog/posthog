@@ -96,6 +96,8 @@ Pick the first path that works:
 When you publish records yourself or hand them over, never create a second `_dmarc` record.
 If the domain already has one, the DMARC record shows as `verified`; keep it.
 A `pending` DMARC record can also mean the lookup timed out, so confirm the domain has no `_dmarc` record before adding one.
+A `_dmarc` record without a valid policy, such as one that lacks a `p=` tag right after `v=DMARC1;`, keeps DMARC `pending`, and waiting never fixes it.
+Ask the person to fix that record, for example to `v=DMARC1; p=none;`, or to delete it so the parent domain's policy applies.
 
 ### 5. Poll, then verify once
 
@@ -109,7 +111,7 @@ Call `integrations-email-status-retrieve` with `refresh=true` after the records 
 
 After about 15 minutes without `verified`, stop polling and call `integrations-email-verify-create` once, since it also starts any setup the email provider is missing, such as DKIM.
 If it returns `success`, the sender is ready: go to step 6.
-Otherwise call `integrations-email-status-retrieve` with `refresh=true` and publish any record it lists as `pending`, as in step 4.
+Otherwise call `integrations-email-status-retrieve` with `refresh=true` and publish or fix any record it lists as `pending`, as in step 4, including a `_dmarc` record without a policy.
 Then tell the person the sender is not verified yet: name each record still `pending` and the exact name it must be published at, since a record under the wrong name never resolves, and say they can ask you to check again later or verify the sender in PostHog.
 
 ### 6. Wrap up
