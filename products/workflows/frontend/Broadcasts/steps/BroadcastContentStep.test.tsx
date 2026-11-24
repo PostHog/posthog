@@ -25,8 +25,8 @@ describe('BroadcastContentStep', () => {
     })
 
     it.each([
-        { trackingEnabled: true, shown: /are connected to the sessions they start/, hidden: /Links stay as written/ },
-        { trackingEnabled: false, shown: /Links stay as written/, hidden: /are connected to the sessions they start/ },
+        { trackingEnabled: true, shown: /Connect clicks to sessions/, hidden: /Links stay as written/ },
+        { trackingEnabled: false, shown: /Links stay as written/, hidden: /Connect clicks to sessions/ },
     ])('with tracking $trackingEnabled shows $shown', async ({ trackingEnabled, shown, hidden }) => {
         const wizard = broadcastWizardLogic({ id: 'new' })
         wizard.mount()
