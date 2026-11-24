@@ -188,13 +188,14 @@ class TestMailchimpImport(BaseTest):
         [
             ("not_in_the_body", "<p>Hi</p>", "Hi *|FNAME|*, news", "Hi {{ person.properties.first_name }}, news"),
             ("markup", "<p>Hi</p>", "<!-- 5 > 3 & more", "&lt;!-- 5 > 3 & more"),
-            ("audience_tag", "<p>Hi</p>", "*|LIST:NAME|* news", "Weekly newsletter news"),
+            ("audience_tag", "<p>Hi</p>", "*|LIST:NAME|* news", "Weekly &lt;newsletter> news"),
             ("already_in_the_body", "<p>*|MC_PREVIEW_TEXT|*</p>", "News", None),
             ("none", "<p>Hi</p>", "", None),
         ]
     )
     def test_preview_text_is_kept_once(self, _name: str, body: str, preview: str, expected: str | None) -> None:
         campaign = self.mailchimp.data["campaigns"][0]
+        self.mailchimp.data["lists"][0]["name"] = "Weekly <newsletter>"
         campaign["settings"]["preview_text"] = preview
         campaign["content"]["html"] = body
 

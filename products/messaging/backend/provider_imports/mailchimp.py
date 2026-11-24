@@ -878,7 +878,7 @@ def _fetch_templates(
     def campaigns_from(template_id: int) -> list[dict[str, Any]]:
         nonlocal made_from
         if made_from is None:
-            made_from = _campaigns_by_template(client)
+            made_from = _campaigns_by_template(client, {int(template["id"]) for template in by_key.values()})
         return made_from.get(template_id, [])
 
     yield from _paged_emails(
@@ -889,23 +889,29 @@ def _fetch_templates(
     )
 
 
-def _campaigns_by_template(client: MailchimpClient) -> dict[int, list[dict[str, Any]]]:
-    """The campaigns made from each saved template, newest first."""
-    campaigns = client.all(
-        "/campaigns",
-        "campaigns",
-        {
-            "fields": "campaigns.id,campaigns.create_time,campaigns.settings,total_items",
-            "sort_field": "create_time",
-            "sort_dir": "ASC",
-        },
-    )
+def _campaigns_by_template(client: MailchimpClient, template_ids: set[int]) -> dict[int, list[dict[str, Any]]]:
+    """The newest campaigns made from each saved template, newest first."""
+    params = {
+        "fields": (
+            "campaigns.id,campaigns.settings.template_id,campaigns.settings.title,campaigns.settings.subject_line,"
+            "total_items"
+        ),
+        "sort_field": "create_time",
+        "sort_dir": "DESC",
+    }
     by_template: dict[int, list[dict[str, Any]]] = {}
-    for campaign in reversed(campaigns):
-        template_id = _as_dict(campaign.get("settings")).get("template_id")
-        if isinstance(template_id, int) and template_id and campaign.get("id"):
-            by_template.setdefault(template_id, []).append(campaign)
-    return by_template
+    offset = 0
+    while True:
+        page = client.page("/campaigns", "campaigns", offset, params)
+        for campaign in page.items:
+            template_id = _as_dict(campaign.get("settings")).get("template_id")
+            if template_id in template_ids and campaign.get("id"):
+                kept = by_template.setdefault(template_id, [])
+                if len(kept) < MAX_CAMPAIGNS_PER_TEMPLATE:
+                    kept.append(campaign)
+        offset += len(page.items)
+        if not page.items or offset >= page.total:
+            return by_template
 
 
 def _read_template(
@@ -924,7 +930,7 @@ def _read_template(
     body = _clean(content.get("html"))
     notes: tuple[str, ...] = ()
     if not body.strip():
-        for campaign in campaigns_from(template_id)[:MAX_CAMPAIGNS_PER_TEMPLATE]:
+        for campaign in campaigns_from(template_id):
             body = _campaign_html(client, str(campaign["id"]))
             if not body.strip():
                 continue
@@ -1134,8 +1140,8 @@ def _save_emails(context: ImportContext, emails: list[_Email]) -> SavedPage:
         preview_notes: tuple[str, ...] = ()
         if source.preview:
             # The send puts the preheader into the HTML as it is.
-            preview = convert_text(source.preview.replace("<", "&lt;"), is_html=False, fixed=source.fixed)
-            email["preheader"] = preview.text
+            preview = convert_text(source.preview, is_html=False, fixed=source.fixed)
+            email["preheader"] = preview.text.replace("<", "&lt;")
             if preview.merge_fields or preview.unsupported:
                 preview_notes = ("The preview text uses merge tags. Check it with a test send.",)
         sender_notes: tuple[str, ...] = ()
