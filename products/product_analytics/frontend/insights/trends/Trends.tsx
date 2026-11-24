@@ -27,6 +27,7 @@ import { TrendsPieChart } from 'products/product_analytics/frontend/insights/tre
 import { TrendsProportionBar } from 'products/product_analytics/frontend/insights/trends/TrendsProportionBar/TrendsProportionBar'
 import { TrendsSlopeChart } from 'products/product_analytics/frontend/insights/trends/TrendsSlopeChart/TrendsSlopeChart'
 
+import { getBreakdownLimitNotice } from './breakdownLimitNotice'
 import { trendsDataLogic } from './trendsDataLogic'
 // Maps carry ~1 MB of d3-geo + topojson data only the map display needs; kept lazy.
 const WorldMap = lazyWithRetry(() =>
@@ -48,8 +49,16 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
     const { insightProps, showPersonsModal: insightLogicShowPersonsModal } = useValues(insightLogic)
     const showPersonsModal = insightLogicShowPersonsModal && !inSharedMode
 
-    const { display, series, breakdownFilter, hasBreakdownMore, breakdownValuesLoading, isLifecycle, isStickiness } =
-        useValues(trendsDataLogic(insightProps))
+    const {
+        display,
+        series,
+        indexedResults,
+        breakdownFilter,
+        hasBreakdownMore,
+        breakdownValuesLoading,
+        isLifecycle,
+        isStickiness,
+    } = useValues(trendsDataLogic(insightProps))
     const { updateBreakdownFilter } = useActions(trendsDataLogic(insightProps))
 
     const commonProps = {
@@ -174,8 +183,10 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
                 breakdownFilter &&
                 hasBreakdownMore && (
                     <div className="p-4">
-                        <div className="text-secondary">
-                            Breakdown limited to {breakdownFilter.breakdown_limit || 25} - more available
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-secondary">
+                            <span>
+                                {getBreakdownLimitNotice(indexedResults, breakdownFilter.breakdown_limit || 25)}
+                            </span>
                             <LemonButton
                                 onClick={() =>
                                     updateBreakdownFilter({
@@ -186,7 +197,6 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
                                 loading={breakdownValuesLoading}
                                 size="xsmall"
                                 type="secondary"
-                                className="inline-block ml-2"
                             >
                                 Set to {(breakdownFilter.breakdown_limit || 25) * 2}
                             </LemonButton>

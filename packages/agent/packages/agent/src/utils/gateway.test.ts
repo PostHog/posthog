@@ -1,136 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  type GatewayProduct,
   getLlmGatewayUrl,
   resolveAiProduct,
-  resolveGatewayProduct,
   resolveGatewayTarget,
   resolveLlmGatewayUrl,
 } from "./gateway";
 import routingCases from "./gateway-routing-cases.json";
-
-describe("resolveGatewayProduct", () => {
-  it.each([
-    { isInternal: false, originProduct: undefined, expected: "posthog_code" },
-    {
-      isInternal: undefined,
-      originProduct: undefined,
-      expected: "posthog_code",
-    },
-    {
-      isInternal: false,
-      originProduct: "signal_report",
-      expected: "signals",
-    },
-    {
-      isInternal: true,
-      originProduct: undefined,
-      expected: "background_agents",
-    },
-    {
-      isInternal: true,
-      originProduct: "session_summaries",
-      expected: "background_agents",
-    },
-    { isInternal: true, originProduct: "signal_report", expected: "signals" },
-    {
-      isInternal: false,
-      originProduct: "signals_scout",
-      expected: "signals",
-    },
-    {
-      isInternal: false,
-      originProduct: "signals_chat",
-      expected: "signals",
-    },
-    {
-      isInternal: true,
-      originProduct: "signals_chat",
-      expected: "signals",
-    },
-    {
-      isInternal: true,
-      originProduct: "scout_suggestions",
-      expected: "signals",
-    },
-    {
-      isInternal: false,
-      originProduct: "posthog_ai",
-      expected: "posthog_ai",
-    },
-    {
-      isInternal: true,
-      originProduct: "signals_scout",
-      expected: "signals",
-    },
-    {
-      isInternal: true,
-      originProduct: "posthog_ai",
-      expected: "posthog_ai",
-    },
-    {
-      isInternal: true,
-      originProduct: "metrics_import",
-      expected: "posthog_ai",
-    },
-    {
-      isInternal: false,
-      originProduct: "feature_flags",
-      expected: "posthog_ai",
-    },
-    {
-      isInternal: false,
-      originProduct: "support_reply",
-      expected: "conversations",
-    },
-    {
-      isInternal: false,
-      originProduct: "workflow",
-      expected: "workflows",
-    },
-    {
-      isInternal: true,
-      originProduct: "support_reply",
-      expected: "conversations",
-    },
-    {
-      isInternal: true,
-      originProduct: "review_hog",
-      expected: "review_hog",
-    },
-    {
-      isInternal: false,
-      originProduct: "review_hog",
-      expected: "posthog_code",
-    },
-    {
-      isInternal: true,
-      originProduct: "account_audit",
-      expected: "account_audit",
-    },
-    {
-      isInternal: false,
-      originProduct: "account_audit",
-      expected: "posthog_code",
-    },
-    {
-      isInternal: true,
-      originProduct: "loop",
-      expected: "posthog_code",
-    },
-    {
-      isInternal: false,
-      originProduct: "loop",
-      expected: "posthog_code",
-    },
-  ] as const)(
-    "isInternal=$isInternal originProduct=$originProduct -> $expected",
-    ({ isInternal, originProduct, expected }) => {
-      expect(resolveGatewayProduct({ isInternal, originProduct })).toBe(
-        expected,
-      );
-    },
-  );
-});
 
 describe("resolveLlmGatewayUrl", () => {
   it("appends the product slug to an env-provided base URL", () => {
@@ -654,24 +530,22 @@ describe("resolveAiProduct", () => {
 // consume gateway-routing-cases.json so the resolvers cannot drift independently.
 describe("shared routing contract", () => {
   it.each(routingCases.resolve_ai_product)(
-    "resolves $origin_product/$ai_stage -> $expected",
-    ({ origin_product, ai_stage, internal, expected }) => {
-      const product = resolveGatewayProduct({
-        isInternal: internal,
-        originProduct: origin_product,
-      });
-      expect(resolveAiProduct({ product, aiStage: ai_stage })).toBe(expected);
+    "resolves $product/$ai_stage -> $expected",
+    ({ product, ai_stage, expected }) => {
+      expect(
+        resolveAiProduct({
+          product: product as GatewayProduct,
+          aiStage: ai_stage,
+        }),
+      ).toBe(expected);
     },
   );
 
   it.each(routingCases.routed)(
-    "routes $origin_product/$ai_stage under [$allowlist] -> $expected",
-    ({ origin_product, ai_stage, internal, allowlist, expected }) => {
+    "routes $product/$ai_stage under [$allowlist] -> $expected",
+    ({ product, ai_stage, allowlist, expected }) => {
       const target = resolveGatewayTarget({
-        product: resolveGatewayProduct({
-          isInternal: internal,
-          originProduct: origin_product,
-        }),
+        product: product as GatewayProduct,
         aiStage: ai_stage,
         posthogHost: "https://us.posthog.com",
         env: {

@@ -14,6 +14,7 @@ import { mswDecorator } from '~/mocks/browser'
 
 import { mockDailyQuietRuns, mockScoutConfigs, mockScoutRuns } from '../../../__mocks__/scoutConfigs'
 import { inboxSceneLogic } from '../../../inboxSceneLogic'
+import { QuillScoutSceneTitle } from './QuillScoutSceneTitle'
 import { ScoutDetailView } from './ScoutDetailView'
 import { trialFixtureConfig } from './trials/scoutTrialsFixtures'
 import { createScoutTrialsStoryMocks } from './trials/scoutTrialsStoryMocks'
@@ -51,6 +52,28 @@ export default meta
 type Story = StoryObj<typeof ScoutDetailView>
 
 export const ScoutPage: Story = {}
+
+// The page under the new navigation: the scene title the inbox renders, with its actions, over the scout summary.
+// The wrapper stands in for the scene padding the inbox title and page sit in.
+export const ScoutPageNewNavigation: Story = {
+    parameters: {
+        featureFlags: [
+            FEATURE_FLAGS.PRODUCT_AUTONOMY,
+            FEATURE_FLAGS.PHAI_SANDBOX_MODE,
+            FEATURE_FLAGS.TODAY_RAIL_NAV,
+            FEATURE_FLAGS.SCENE_MENU_BAR,
+        ],
+        testOptions: { waitForLoadersToDisappear: false, snapshotBrowsers: [] },
+    },
+    render: (args) => (
+        <div className="flex flex-col p-4">
+            <QuillScoutSceneTitle skillName={args.skillName} />
+            <div className="-mx-4 flex flex-col">
+                <ScoutDetailView {...args} />
+            </div>
+        </div>
+    ),
+}
 
 // A scout that filed nothing: no reports segment, and Runs leads the tabs.
 export const ScoutPageNoReports: Story = {
