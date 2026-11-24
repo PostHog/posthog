@@ -2,8 +2,6 @@ import type { Meta, StoryObj } from '@storybook/react'
 import { waitFor, within } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-
 import { mswDecorator } from '~/mocks/browser'
 
 import { makeReport } from '../../__mocks__/inboxMocks'
@@ -13,13 +11,13 @@ import { ImplementButton } from './ImplementButton'
 const meta: Meta<typeof ImplementButton> = {
     title: 'Scenes-App/Inbox/ImplementButton',
     component: ImplementButton,
-    parameters: { layout: 'centered', featureFlags: [FEATURE_FLAGS.PHAI_SANDBOX_MODE] },
+    parameters: { layout: 'centered' },
 }
 export default meta
 
 type Story = StoryObj<typeof ImplementButton>
 
-const report = makeReport({ title: 'Exceptions spiked after the 18 June deploy' })
+const report = makeReport({ title: 'Exceptions spiked after the 18 June deploy', repo_slug: 'example/app' })
 
 export const Default: Story = {
     render: () => <ImplementButton report={report} />,
@@ -40,22 +38,11 @@ export const NoRepository: Story = {
                 },
                 '/api/projects/:id/tasks/@me/config/': { ai_run_preferences: {}, resolved_ai_run_defaults: null },
             },
-            post: {
-                '/api/projects/:id/tasks/': [
-                    400,
-                    {
-                        type: 'validation_error',
-                        code: 'report_implementation_repository_unresolved',
-                        attr: 'repository',
-                        detail: 'Select a repository to continue.',
-                    },
-                ],
-            },
         }),
     ],
     render: () => <ImplementButton report={{ ...report, repo_slug: null }} />,
     play: async ({ canvasElement }) => {
-        const button = await within(canvasElement).findByText('Implement')
+        const button = await within(canvasElement).findByText('Select repository')
         await waitFor(() => {
             const access = reportGithubAccessLogic({ report: { ...report, repo_slug: null } }).values
             if (access.loading || access.disabledReason || !access.repositoryIntegrationId) {

@@ -24,6 +24,7 @@ from products.signals.backend.source_filters import (
     pending_window,
     record_fetch_failure,
     record_window_processed,
+    saved_filter_fingerprint,
 )
 
 logger = structlog.get_logger(__name__)
@@ -40,6 +41,7 @@ class FetchedWindow:
     # Where a capped batch ended. The next fetch resumes there instead of the stored window clearing.
     resume_from: datetime | None
     resume_after_id: str | None
+    filter_fingerprint: str
 
 
 def replay_window_start(
@@ -66,6 +68,11 @@ def fetch_records(
     last_synced_at = datetime.fromisoformat(raw_last_synced_at) if raw_last_synced_at else None
     source_config = context.get("source_config")
     filtered = isinstance(source_config, dict) and HOGQL_FILTER_KEY in source_config
+    filter_fingerprint = (
+        saved_filter_fingerprint(source_config[HOGQL_FILTER_KEY])
+        if isinstance(source_config, dict) and filtered
+        else ""
+    )
     stored = pending_window(key)
     pending = stored.start if stored is not None else None
     tracked = filtered or pending is not None
@@ -96,7 +103,7 @@ def fetch_records(
     except Exception as error:
         if filtered and window_start is not None:
             try:
-                record_fetch_failure(key, window_start=window_start, error=error)
+                record_fetch_failure(key, window_start=window_start, error=error, filter_fingerprint=filter_fingerprint)
             except Exception:
                 logger.exception(
                     "Could not record a failed fetch window",
@@ -114,6 +121,7 @@ def fetch_records(
         resume_from=_aware(context.get(WINDOW_END_KEY)) if capped else None,
         resume_after_id=context.get(WINDOW_END_ID_KEY) if capped else None,
         tracked=tracked,
+        filter_fingerprint=filter_fingerprint,
     )
 
 
@@ -125,6 +133,7 @@ def complete_fetch(fetched: FetchedWindow) -> None:
             malformed_count=fetched.malformed_count,
             resume_from=fetched.resume_from,
             resume_after_id=fetched.resume_after_id,
+            filter_fingerprint=fetched.filter_fingerprint,
         )
 
 

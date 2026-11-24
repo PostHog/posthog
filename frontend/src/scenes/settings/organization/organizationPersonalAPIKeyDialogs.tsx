@@ -1,10 +1,23 @@
 import posthog from 'posthog-js'
 
-import { LemonDialog } from '@posthog/lemon-ui'
+import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
+
+import { LemonField } from 'lib/lemon-ui/LemonField'
+import { matchesConfirmationText } from 'lib/utils/confirmationText'
+import { pluralize } from 'lib/utils/strings'
 
 import type { OrganizationPersonalAPIKeyApi } from 'products/platform_features/frontend/generated/api.schemas'
 
-import type { KeyAction, KeyActionTarget } from './organizationPersonalAPIKeysLogic'
+import {
+    type BulkKeySummary,
+    type KeyAction,
+    type KeyActionTarget,
+    formatRetryStart,
+} from './organizationPersonalAPIKeysLogic'
+
+const ROLL_ALL_PHRASE = 'roll all keys'
+const REVOKE_ALL_PHRASE = 'revoke all keys'
+const NONE_IN_OTHER_ORGANIZATIONS = 'None of these keys work in other organizations.'
 
 function confirmOnce(onConfirm: () => void): () => void {
     let confirmed = false
@@ -19,6 +32,10 @@ function confirmOnce(onConfirm: () => void): () => void {
 
 function captureDialogOpened(action: KeyAction, target: KeyActionTarget): void {
     posthog.capture('organization personal api key action dialog opened', { action, target })
+}
+
+function agree(count: number, singular: string, plural: string): string {
+    return count === 1 ? singular : plural
 }
 
 function keyName(key: OrganizationPersonalAPIKeyApi, owner: string): JSX.Element {
@@ -80,5 +97,126 @@ export function openRevokeKeyDialog(key: OrganizationPersonalAPIKeyApi, owner: s
             'data-attr': 'organization-personal-api-key-revoke-confirm',
         },
         secondaryButton: { children: 'Cancel' },
+    })
+}
+
+interface BulkDialogOptions {
+    action: KeyAction
+    title: string
+    description: string
+    counts: string[]
+    footer?: string
+    phrase: string
+    confirmationDataAttr: string
+    submitLabel: string
+    onConfirm: () => void
+}
+
+function openBulkKeyActionDialog({
+    action,
+    title,
+    description,
+    counts,
+    footer,
+    phrase,
+    confirmationDataAttr,
+    submitLabel,
+    onConfirm,
+}: BulkDialogOptions): void {
+    captureDialogOpened(action, 'all')
+    const typeToConfirm = `Type "${phrase}" to confirm`
+    LemonDialog.openForm({
+        dialogKey: `organization-personal-api-keys-${action}-all`,
+        maxWidth: 480,
+        title,
+        description,
+        initialValues: { confirmation: '' },
+        content: (
+            <div className="space-y-4">
+                <ul className="list-disc pl-5 space-y-1">
+                    {counts.map((line) => (
+                        <li key={line}>{line}</li>
+                    ))}
+                </ul>
+                {footer ? <p>{footer}</p> : null}
+                <LemonField name="confirmation" label={typeToConfirm}>
+                    <LemonInput autoFocus data-attr={confirmationDataAttr} />
+                </LemonField>
+            </div>
+        ),
+        errors: {
+            confirmation: (value?: string) =>
+                matchesConfirmationText(value ?? '', phrase) ? undefined : 'The text does not match.',
+        },
+        primaryButtonProps: { status: 'danger', children: submitLabel },
+        onSubmit: confirmOnce(onConfirm),
+    })
+}
+
+function searchIgnoredLines(search: string): string[] {
+    return search.trim() ? ['Your search does not limit this. It acts on every key in the organization.'] : []
+}
+
+function ownedByMeLine(ownedByMe: number): string {
+    return ownedByMe
+        ? `${pluralize(ownedByMe, 'key')} ${agree(ownedByMe, 'belongs', 'belong')} to you.`
+        : 'None of these keys belong to you.'
+}
+
+export function openRollAllKeysDialog(
+    { total, alsoInOtherOrganizations, ownedByMe }: BulkKeySummary,
+    search: string,
+    retrySince: string | null,
+    onConfirm: () => void
+): void {
+    openBulkKeyActionDialog({
+        action: 'roll',
+        title: 'Roll all personal API keys?',
+        description:
+            'Every personal API key with access to this organization gets a new secret that is not shown to anyone. Each key keeps its scopes and settings, but stops working until its owner rolls it again in their own settings. Each owner gets an email about this change.',
+        counts: [
+            `This rolls ${pluralize(total, 'key')}.`,
+            ...(retrySince
+                ? [
+                      `Keys rolled since your first attempt at ${formatRetryStart(retrySince)} will be skipped, so their new secrets keep working.`,
+                  ]
+                : []),
+            ...searchIgnoredLines(search),
+            alsoInOtherOrganizations
+                ? `${pluralize(alsoInOtherOrganizations, 'key')} also ${agree(alsoInOtherOrganizations, 'works', 'work')} in other organizations and ${agree(alsoInOtherOrganizations, 'stops', 'stop')} working there too.`
+                : NONE_IN_OTHER_ORGANIZATIONS,
+            ownedByMeLine(ownedByMe),
+        ],
+        phrase: ROLL_ALL_PHRASE,
+        confirmationDataAttr: 'organization-personal-api-keys-roll-all-confirmation-input',
+        submitLabel: 'Roll all keys',
+        onConfirm,
+    })
+}
+
+export function openRevokeAllKeysDialog(
+    { total, alsoInOtherOrganizations, ownedByMe }: BulkKeySummary,
+    search: string,
+    onConfirm: () => void
+): void {
+    const keys = total === 1 ? 'the 1 personal API key' : `all ${total} personal API keys`
+    openBulkKeyActionDialog({
+        action: 'revoke',
+        title: 'Revoke all personal API keys?',
+        description: `This deletes ${keys} that can access this organization. Integrations and scripts that use ${agree(total, 'it', 'them')} will stop working right away. You can't undo this.`,
+        counts: [
+            alsoInOtherOrganizations
+                ? `${pluralize(alsoInOtherOrganizations, 'key')} also ${agree(alsoInOtherOrganizations, 'works', 'work')} in other organizations and will stop working there too.`
+                : NONE_IN_OTHER_ORGANIZATIONS,
+            ownedByMe
+                ? `${ownedByMe} of these keys ${agree(ownedByMe, 'is', 'are')} yours.`
+                : 'None of these keys are yours.',
+            ...(search.trim() ? ['This includes keys hidden by your search.'] : []),
+        ],
+        footer: "We'll email each key owner. They'll need to create a new key to reconnect.",
+        phrase: REVOKE_ALL_PHRASE,
+        confirmationDataAttr: 'organization-personal-api-keys-revoke-all-confirmation-input',
+        submitLabel: 'Revoke all keys',
+        onConfirm,
     })
 }

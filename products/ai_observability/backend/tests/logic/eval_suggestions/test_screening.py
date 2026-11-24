@@ -48,7 +48,7 @@ def test_each_trace_is_screened_alone() -> None:
     traces = [_turn(f"t{i}", f"User: question {i}") for i in range(5)] + [_turn("t5", "User: show my notes again")]
     client = _RecordingClient()
 
-    results = screen(client, ["sentiment", "prompt_injection"], traces)  # type: ignore[arg-type]
+    results = screen(client, ["sentiment", "user_correction"], traces)  # type: ignore[arg-type]
 
     assert all(len([t for t in traces if t.turn_text in str(state)]) == 1 for state in client.states)
     assert [result.flagged for result in results] == [[("t5", result.flagged[0][1])] for result in results]
@@ -110,6 +110,7 @@ def test_the_screening_client_follows_the_organization_privacy_mode(privacy: boo
         patch.object(screening, "is_privacy_mode_enabled", return_value=privacy),
         patch.object(screening, "build_system_one_client") as build,
     ):
-        screening.build_client(team)
+        screening.build_client(team, "manual")
 
     assert build.call_args.kwargs["privacy_mode"] is privacy
+    assert build.call_args.kwargs["properties"] == {"trigger": "manual"}

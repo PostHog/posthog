@@ -78,7 +78,17 @@ def _course_chapter_rows(course: dict[str, Any]) -> list[dict[str, Any]]:
     return [{"chapter_id": chapter_id, "course_id": course.get("id")} for chapter_id in course.get("chapter_ids") or []]
 
 
-_PARENT_DATA_MAPS = {"contents": _course_chapter_rows}
+def _product_bundle_rows(product: dict[str, Any]) -> list[dict[str, Any]]:
+    if product.get("productable_type") != "Bundle" or product.get("productable_id") is None:
+        return []
+    return [{"bundle_id": product["productable_id"]}]
+
+
+_PARENT_DATA_MAPS = {
+    "contents": _course_chapter_rows,
+    "bundle_courses": _product_bundle_rows,
+    "bundle_enrollments": _product_bundle_rows,
+}
 
 
 def _fanout_source(
@@ -88,6 +98,7 @@ def _fanout_source(
     team_id: int,
     job_id: str,
     resumable_source_manager: ResumableSourceManager[ThinkificResumeConfig],
+    incremental_params: dict[str, Any],
 ) -> SourceResponse:
     assert config.fanout is not None
 
@@ -127,6 +138,7 @@ def _fanout_source(
             # endpoint and stop after a single page.
             parent_endpoint_extra={"paginator": _paginator(), "data_selector": "items"},
             child_endpoint_extra={"paginator": _paginator(), "data_selector": "items"},
+            child_params_extra=incremental_params,
             parent_data_map=_PARENT_DATA_MAPS.get(config.name),
             resume_hook=save_checkpoint,
             initial_paginator_state=initial_state,
@@ -169,16 +181,18 @@ def thinkific_source(
 ) -> SourceResponse:
     config = THINKIFIC_ENDPOINTS[endpoint]
 
-    if config.fanout is not None:
-        return _fanout_source(config, api_key, subdomain, team_id, job_id, resumable_source_manager)
-
-    params: dict[str, Any] = {"limit": config.page_size}
+    incremental_params: dict[str, Any] = {}
     if config.supports_incremental and should_use_incremental_field and db_incremental_field_last_value is not None:
         # Inclusive, day-granularity server-side filter on `updated_at`: re-fetch the whole boundary
         # day so updates that landed after the watermark within the same day aren't skipped. Re-pulled
         # rows are deduped by the primary key on merge. We deliberately use `updated_on_or_after`
         # rather than the exclusive `updated_after` to avoid that same-day gap.
-        params["query[updated_on_or_after]"] = _format_incremental_date(db_incremental_field_last_value)
+        incremental_params["query[updated_on_or_after]"] = _format_incremental_date(db_incremental_field_last_value)
+
+    if config.fanout is not None:
+        return _fanout_source(config, api_key, subdomain, team_id, job_id, resumable_source_manager, incremental_params)
+
+    params: dict[str, Any] = {"limit": config.page_size, **incremental_params}
 
     rest_config: RESTAPIConfig = {
         "client": {

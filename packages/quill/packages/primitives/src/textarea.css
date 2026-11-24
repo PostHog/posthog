@@ -27,7 +27,7 @@
         box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring) 30%, transparent);
     }
 
-    .quill-textarea:disabled {
+    .quill-textarea:is(:disabled, [aria-disabled='true']) {
         cursor: not-allowed;
         opacity: 0.5;
     }

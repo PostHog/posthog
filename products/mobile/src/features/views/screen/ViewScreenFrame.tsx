@@ -5,6 +5,7 @@ import { View } from 'react-native'
 import { currentDefaultPageHref } from '@/features/settings/defaultPageStore'
 import { ChartSelectionProvider } from '@/ui/chart/selection/ChartSelectionProvider'
 import { OverlayHost } from '@/ui/OverlayPortal'
+import { ScreenBlur } from '@/ui/ScreenBlur'
 import { createStyles } from '@/ui/theme'
 
 import { ChartSheetsProvider } from '../pointSheet/ChartSheetsProvider'
@@ -28,8 +29,7 @@ export function ViewScreenFrame({ children, chrome, overlayHost = true }: ViewSc
         <View style={styles.screen} testID="view-screen">
             <ChartSheetsProvider>
                 <ChartSelectionProvider>
-                    {children}
-                    {chrome}
+                    <ScreenBlur chrome={chrome}>{children}</ScreenBlur>
                 </ChartSelectionProvider>
             </ChartSheetsProvider>
         </View>

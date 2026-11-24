@@ -4,9 +4,8 @@ import { IconCheckCircle, IconCircleDashed, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
-import { urls } from 'scenes/urls'
 
-import { openEmailDomainSetupPage } from '../../Channels/EmailDomain/openEmailDomainSetupPage'
+import { emailDomainSetupPath, startEmailDomainSetup } from '../../Channels/EmailDomain/emailDomainSetupLinks'
 import { sendingDomainLogic } from './sendingDomainLogic'
 
 export function SendingDomainRow(): JSX.Element | null {
@@ -53,7 +52,7 @@ export function SendingDomainRow(): JSX.Element | null {
                     <LemonButton
                         type="primary"
                         size="small"
-                        to={urls.workflowsEmailDomain(sendingDomain.integrationId)}
+                        to={emailDomainSetupPath(sendingDomain.integrationId, 'transactional')}
                         data-attr="send-from-code-check-dns-records"
                     >
                         Check DNS records
@@ -68,7 +67,7 @@ export function SendingDomainRow(): JSX.Element | null {
                     <LemonButton
                         type="primary"
                         size="small"
-                        onClick={() => openEmailDomainSetupPage('transactional')}
+                        onClick={() => startEmailDomainSetup('transactional', 'transactional')}
                         data-attr="send-from-code-set-up-domain"
                     >
                         Set up a domain

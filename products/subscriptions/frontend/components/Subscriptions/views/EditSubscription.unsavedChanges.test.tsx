@@ -92,7 +92,7 @@ describe('EditSubscription unsaved changes', () => {
                     at_limit: false,
                 },
                 '/api/organizations/@current/': MOCK_DEFAULT_ORGANIZATION,
-                '/api/organizations/@current/members/': { count: 0, results: [] },
+                '/api/organizations/:organization_id/members/': { count: 0, results: [] },
             },
         })
         initKeaTests()
@@ -139,7 +139,7 @@ describe('EditSubscription unsaved changes', () => {
                         at_limit: false,
                     },
                     '/api/organizations/@current/': MOCK_DEFAULT_ORGANIZATION,
-                    '/api/organizations/@current/members/': { count: 0, results: [] },
+                    '/api/organizations/:organization_id/members/': { count: 0, results: [] },
                 },
                 patch: { '/api/environments/:team/subscriptions/1': patch },
             })
@@ -228,7 +228,7 @@ describe('EditSubscription unsaved changes', () => {
                         at_limit: false,
                     },
                     '/api/organizations/@current/': MOCK_DEFAULT_ORGANIZATION,
-                    '/api/organizations/@current/members/': listMembers,
+                    '/api/organizations/:organization_id/members/': listMembers,
                 },
                 patch: { '/api/environments/:team/subscriptions/1': subscription },
             })

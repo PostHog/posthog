@@ -1,0 +1,83 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "Dreaming scout record",
+    "description": "One change the memory upkeep scout made, or tried to make, to one scratchpad entry. Subject is the owning scout's skill name, and the entry's key goes in `dream_key`, because a key can be longer than a subject may be. Holds no entry content, because entries can hold customer data.",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+        "dream_record_version",
+        "dream_owner_skill",
+        "dream_action",
+        "dream_key",
+        "dream_reason",
+        "dream_content_chars_before",
+        "dream_content_chars_after",
+        "dream_entry_age_days",
+        "dream_evidence"
+    ],
+    "properties": {
+        "dream_record_version": {
+            "const": "1",
+            "description": "Definition version. Charts filter on it, so bump it when a field's meaning changes."
+        },
+        "dream_owner_skill": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "The `created_by_skill` of the entry the change touched. For a learning or a digest you wrote, the scout whose memory or feedback it came from, or `fleet` when it spans scouts."
+        },
+        "dream_action": {
+            "enum": [
+                "retire",
+                "set_expiry",
+                "correct",
+                "record_disagreement",
+                "fold",
+                "write_learning",
+                "write_digest",
+                "skip_conflict"
+            ],
+            "description": "What you did. `fold` is the rewrite of the surviving entry; each entry folded into it is its own `retire` record. `skip_conflict` is a write that `if_updated_at` refused."
+        },
+        "dream_key": {
+            "type": "string",
+            "maxLength": 300,
+            "description": "The key of the entry the change touched."
+        },
+        "dream_reason": {
+            "enum": [
+                "stale",
+                "wrong_content",
+                "time_boxed",
+                "duplicate",
+                "superseded",
+                "never_read",
+                "conflicting_claims",
+                "repeated_feedback",
+                "evidence_still_holds",
+                "digest",
+                "write_conflict"
+            ],
+            "description": "Why. `stale`: the live state no longer matches. `never_read`: the owning scout's runs rebuild or ignore it. `evidence_still_holds`: a learning re-confirmed and extended."
+        },
+        "dream_content_chars_before": {
+            "type": ["integer", "null"],
+            "minimum": 0,
+            "description": "Length of the entry's content before the change. Null when the change created the entry."
+        },
+        "dream_content_chars_after": {
+            "type": ["integer", "null"],
+            "minimum": 0,
+            "description": "Length of the entry's content after the change. Null for `skip_conflict`, where nothing was written."
+        },
+        "dream_entry_age_days": {
+            "type": ["number", "null"],
+            "minimum": 0,
+            "description": "Days since the entry's `updated_at` before the change. Null when the change created the entry."
+        },
+        "dream_evidence": {
+            "type": "string",
+            "maxLength": 300,
+            "description": "One line naming the evidence, such as a run id, report ids or the read that showed the live state. No entry content."
+        }
+    }
+}

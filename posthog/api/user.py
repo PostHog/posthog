@@ -43,7 +43,6 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from social_django.models import UserSocialAuth
 from two_factor.forms import TOTPDeviceForm
 from two_factor.utils import default_device
 
@@ -109,6 +108,7 @@ from posthog.helpers.two_factor_session import (
     normalize_verification_code,
     set_two_factor_verified_in_session,
 )
+from posthog.helpers.user_email_change import UserEmailChange
 from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, resolve_login_organization
 from posthog.ip_restrictions import get_ip_blocked_organization_ids
 from posthog.middleware import (
@@ -170,7 +170,9 @@ from posthog.tasks.email import (
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_safe_cache, render_template, safe_cache_set
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.dashboards.backend.facade.api import find_dashboard_team_id
 from products.notifications.backend.facade.api import NotificationType
 
@@ -1421,26 +1423,19 @@ class UserViewSet(
             # `pending_email` holds whatever case the change was staged in.
             new_email = EmailNormalizer.normalize(user.pending_email)
             # Anyone can claim the address while the change waits for this code.
-            taken = (
-                EmailValidationHelper.user_exists_with_stripped_alias(new_email, exclude_user_id=user.pk)
-                or EmailValidationHelper.user_exists_with_gmail_canonical(new_email, exclude_user_id=user.pk)
-                or EmailLookupHandler.users_matching_email(new_email, User.objects.all()).exclude(pk=user.pk).exists()
-            )
-            if taken:
+            change = UserEmailChange(user=user, new_email=new_email)
+            if change.is_taken():
                 refuse_pending_email_promotion()
             try:
                 with transaction.atomic():
-                    user.email = EmailNormalizer.normalize(new_email)
-                    user.pending_email = None
-                    user.save(update_fields=["email", "pending_email"])
-                    # Delete social auth so the old external identity can't keep logging in.
-                    UserSocialAuth.objects.filter(user=user).delete()
+                    # ImpersonationBlockedPathsMiddleware refuses this request during impersonation, so this
+                    # session belongs to the user and is the one that confirmed the code.
+                    change.apply(keep_session_key=request.session.session_key)
             except IntegrityError:
                 # A row that appeared since the check above reaches this write.
                 user.refresh_from_db()
                 refuse_pending_email_promotion()
             send_email_change_emails.delay(datetime.now(UTC).isoformat(), user.first_name, old_email, user.email)
-            revoke_other_sessions_for_request(request, user)
 
         user.is_email_verified = True
         user.save()
@@ -1876,7 +1871,11 @@ class UserViewSet(
 
 def _user_can_access_toolbar(user: User, team: Team) -> bool:
     """Whether the user is allowed to launch the toolbar for this team."""
-    return UserAccessControl(user, team=team).check_access_level_for_resource("toolbar", "viewer")
+    return authorization.check(
+        resource=Resource(type=ResourceType.TOOLBAR, project_id=team.pk),
+        action=Action.VIEW,
+        subject=Subject(user_id=user.pk),
+    )
 
 
 @require_http_methods(["GET"])
@@ -2020,7 +2019,12 @@ def toolbar_oauth_callback(request):
     base_url = urllib.parse.urlunparse(parsed._replace(fragment=""))
     quoted_code = urllib.parse.quote(code, safe="")
     quoted_client_id = urllib.parse.quote(oauth_app.client_id, safe="")
-    toolbar_param = f"__posthog_toolbar=code:{quoted_code},client_id:{quoted_client_id}"
+    # The toolbar builds every API path from these ids. The grant above is scoped to this team, so they name the only
+    # project its token can reach. Older toolbar builds read up to client_id and ignore the rest.
+    toolbar_param = (
+        f"__posthog_toolbar=code:{quoted_code},client_id:{quoted_client_id},"
+        f"team_id:{team.id},project_id:{team.project_id}"
+    )
     if original_fragment:
         # SPA hash routes (e.g. `#/login`) treat the entire post-`#` substring
         # as the path, so `&` would make the auth params part of the route and

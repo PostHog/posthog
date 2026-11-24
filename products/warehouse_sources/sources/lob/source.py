@@ -80,6 +80,11 @@ Test and Live keys return different data, so connect the environment whose data 
             # path/query.
             "401 Client Error: Unauthorized for url: https://api.lob.com": "Your Lob API key is invalid or has been revoked. Create a new secret API key in your Lob dashboard, then reconnect.",
             "403 Client Error: Forbidden for url: https://api.lob.com": "Your Lob API key does not have access to this resource. Check that you are using a secret key with the required permissions, then reconnect.",
+            # The request we send (`limit=100`, no filters) matches Lob's documented list parameters, so
+            # a 422 here is not a malformed request. It most likely means Cards is not available on this
+            # account's plan. Scoped to this path, not all of api.lob.com, since a 422 elsewhere can be a
+            # genuinely bad request worth investigating.
+            "422 Client Error: Unprocessable Entity for url: https://api.lob.com/v1/cards?": "Lob rejected the request to list cards as unprocessable. This usually means the Cards feature isn't available on your Lob account or plan. Turn off syncing for the cards and card_orders tables, or contact Lob support if this persists.",
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

@@ -37,23 +37,28 @@ ISSUE_SUMMARY_WORKER_SLOTS = threading.BoundedSemaphore(
 def generate_summary_on_worker(
     team_id: int, issue_id: str, trigger: "IssueSummaryTrigger", generate: Callable[[], "IssueSummaryResult"]
 ) -> "IssueSummaryOutcome":
-    """Run a lifecycle summary generation when the on-write flag is on and a worker summary slot is free."""
+    """Run a lifecycle summary generation when the flag is on, a worker summary slot is free and the AI features gate
+    allows it."""
     # issue_summaries imports the lifecycle rendering module, whose package imports the activities that call this.
     from products.error_tracking.backend.logic.issue_summaries import (  # noqa: PLC0415
         IssueSummaryOutcome,
-        issue_summaries_on_write_enabled,
-        report_worker_busy,
+        gate_generation,
+        issue_summaries_enabled,
+        record_outcome,
     )
 
-    # Checked outside the generator, which reports every attempt as an event, so a team without the flag sends none.
-    if not issue_summaries_on_write_enabled(team_id):
+    # The flag reads no database, so a team outside it takes no slot and sends no event.
+    if not issue_summaries_enabled(team_id):
         return IssueSummaryOutcome.DISABLED
     # Skip instead of wait, because a waiting activity still holds its slot. The issue then gets no summary.
     if not ISSUE_SUMMARY_WORKER_SLOTS.acquire(blocking=False):
         logger.warning("error_tracking_issue_summary_worker_busy", team_id=team_id, issue_id=issue_id, trigger=trigger)
-        report_worker_busy(team_id, issue_id, trigger)
+        record_outcome(team_id, issue_id, trigger, IssueSummaryOutcome.RATE_LIMITED)
         return IssueSummaryOutcome.RATE_LIMITED
     try:
+        # The gate reads Postgres and Redis, so a stall holds only the summary share of the activity slots.
+        if (blocked := gate_generation(team_id, issue_id, trigger)) is not None:
+            return blocked
         return generate().outcome
     finally:
         ISSUE_SUMMARY_WORKER_SLOTS.release()

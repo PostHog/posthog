@@ -7,18 +7,20 @@ import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
+import { sceneAgentPanelLogic } from 'scenes/max/sceneAgentPanelLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { FeaturePreviewSceneGate } from '~/layout/scenes/components/FeaturePreviewSceneGate'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { TodayPeoplePinButton } from '~/layout/today/TodayPeoplePinButton'
+import { TodayScenePinButton } from '~/layout/today/TodayScenePinButton'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { AccountLogo } from '../../components/Accounts/AccountLogo'
 import { customerAnalyticsFeaturePreviewGate } from '../../featurePreviewGate'
 import type { AccountApi } from '../../generated/api.schemas'
+import { AccountAgentIntegration } from './AccountAgentIntegration'
 import { AccountDetailActions } from './AccountDetailActions'
 import { AccountDetailNavigation } from './AccountDetailNavigation'
 import { AccountExternalId } from './AccountExternalId'
@@ -74,6 +76,7 @@ function CustomerAnalyticsAccountSceneContent(): JSX.Element {
         customerAnalyticsAccountSceneLogic
     )
     const { loadAccount, setActiveTab } = useActions(customerAnalyticsAccountSceneLogic)
+    const { sceneIntegrationEnabled } = useValues(sceneAgentPanelLogic)
     const projectId = getCurrentTeamIdOrNone()
 
     if (isAccountMissing) {
@@ -106,8 +109,9 @@ function CustomerAnalyticsAccountSceneContent(): JSX.Element {
 
     return (
         <SceneContent className="h-full min-h-0" data-attr="customer-analytics-account-scene">
+            {sceneIntegrationEnabled ? <AccountAgentIntegration account={account} /> : null}
             <SceneTitleSection
-                nameAction={<TodayPeoplePinButton />}
+                nameAction={<TodayScenePinButton />}
                 name={account.name}
                 nameSuffix={<AccountStatusTags account={account} />}
                 resourceType={{

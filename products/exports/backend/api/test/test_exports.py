@@ -263,15 +263,16 @@ class TestExports(APIBaseTest):
         else:
             mock_exporter_task.assert_not_called()
 
+    @parameterized.expand([("automatic", None), ("custom", {"image_size": {"width": 1200, "height": 630}})])
     @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
-    def test_can_create_new_valid_export_dashboard(self, mock_exporter_task) -> None:
+    def test_can_create_new_valid_export_dashboard(self, _name, export_context, mock_exporter_task) -> None:
         # add filter to dashboard
         self.dashboard.filters = {"properties": [{"key": "$browser_version", "value": "1.0"}]}
         self.dashboard.save()
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports",
-            {"export_format": "image/png", "dashboard": self.dashboard.id},
+            {"export_format": "image/png", "dashboard": self.dashboard.id, "export_context": export_context},
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         data = response.json()
@@ -285,7 +286,7 @@ class TestExports(APIBaseTest):
             "filename": f"export-example-dashboard-{created_date}.png",
             "has_content": False,
             "insight": None,
-            "export_context": None,
+            "export_context": export_context,
             # PNG format gets 180 days (6 months) expiry
             "expires_after": (now() + timedelta(days=180) + timedelta(days=1))
             .replace(hour=0, minute=0, second=0, microsecond=0)
@@ -351,10 +352,10 @@ class TestExports(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         mock_exporter_task.assert_called_once()
 
-    @patch("products.exports.backend.tasks.image_exporter._export_to_png")
+    @patch("products.exports.backend.tasks.image_exporter._export_rendered_asset")
     @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
     @time_machine.travel("2021-08-25T22:09:14.252Z", tick=False)
-    def test_can_create_new_valid_export_insight(self, mock_exporter_task, mock_export_to_png) -> None:
+    def test_can_create_new_valid_export_insight(self, mock_exporter_task, mock_export_rendered_asset) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports",
             {"export_format": "image/png", "insight": self.insight.id},
@@ -428,7 +429,9 @@ class TestExports(APIBaseTest):
 
             # Should warm up the cache
             export_image(exported_asset)
-            mock_export_to_png.assert_called_once_with(exported_asset, max_height_pixels=None, insight_cache_keys=ANY)
+            mock_export_rendered_asset.assert_called_once_with(
+                exported_asset, max_height_pixels=None, insight_cache_keys=ANY
+            )
 
             mock_calculate.assert_called_once()
 
@@ -472,10 +475,10 @@ class TestExports(APIBaseTest):
         assert log.detail is not None
         self.assertEqual(log.detail["name"], self.dashboard.name)
 
-    @patch("products.exports.backend.tasks.image_exporter._export_to_png")
+    @patch("products.exports.backend.tasks.image_exporter._export_rendered_asset")
     @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_insight_export_does_not_create_duplicate_exported_asset_activity(
-        self, _mock_exporter_task, _mock_export_to_png
+        self, _mock_exporter_task, _mock_export_rendered_asset
     ) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports",
@@ -489,6 +492,23 @@ class TestExports(APIBaseTest):
         self.assertTrue(
             ActivityLog.objects.filter(scope="Insight", item_id=str(self.insight.id), activity="exported").exists()
         )
+
+    @parameterized.expand(
+        [
+            ("too_wide", {"width": 4001}),
+            ("too_tall", {"height": 5001}),
+            ("negative", {"width": -1}),
+            ("fraction", {"height": 200.5}),
+            ("not_a_size", "1200x630"),
+        ]
+    )
+    def test_rejects_invalid_image_size(self, _name, size) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {"export_format": "image/png", "dashboard": self.dashboard.id, "export_context": {"image_size": size}},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "image_size" in response.json()["attr"]
 
     def test_errors_if_missing_related_instance(self) -> None:
         response = self.client.post(f"/api/projects/{self.team.id}/exports", {"export_format": "image/png"})

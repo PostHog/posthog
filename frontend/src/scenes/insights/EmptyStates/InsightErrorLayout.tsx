@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 
 import { QuillInsightErrorLayout } from './QuillInsightErrorLayout'
 

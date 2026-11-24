@@ -7,6 +7,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { DataModelingSyncInterval, UserType } from '~/types'
 
+import { trimmedNote } from './dismissReasons'
 import {
     warehouseSuggestionsAcceptCreate,
     warehouseSuggestionsAssignCreate,
@@ -158,6 +159,7 @@ export interface warehouseSuggestionsSectionLogicValues {
     bulkActionRunning: BulkAction | null
     bulkDismissOpen: boolean
     deleteViewsBlockedReason: string | undefined
+    dismissNote: string
     dismissReason: WarehouseSuggestionDismissalReasonEnumApi
     filteredGroups: SuggestionGroup[]
     filters: SuggestionsSectionFilters
@@ -216,6 +218,9 @@ export interface warehouseSuggestionsSectionLogicActions {
     }
     setBulkActionRunning: (action: BulkAction | null) => {
         action: BulkAction | null
+    }
+    setDismissNote: (note: string) => {
+        note: string
     }
     setDismissReason: (reason: WarehouseSuggestionDismissalReasonEnumApi) => {
         reason: WarehouseSuggestionDismissalReasonEnumApi
@@ -308,6 +313,7 @@ export const warehouseSuggestionsSectionLogic = kea<warehouseSuggestionsSectionL
         openBulkDismiss: true,
         closeBulkDismiss: true,
         setDismissReason: (reason: WarehouseSuggestionDismissalReasonEnumApi) => ({ reason }),
+        setDismissNote: (note: string) => ({ note }),
         confirmBulkDismiss: true,
         assignSelectedToMe: true,
         setBulkActionRunning: (action: BulkAction | null) => ({ action }),
@@ -360,6 +366,13 @@ export const warehouseSuggestionsSectionLogic = kea<warehouseSuggestionsSectionL
             {
                 setDismissReason: (_, { reason }) => reason,
                 openBulkDismiss: () => 'not_now',
+            },
+        ],
+        dismissNote: [
+            '',
+            {
+                setDismissNote: (_, { note }) => note,
+                openBulkDismiss: () => '',
             },
         ],
         bulkActionRunning: [
@@ -472,7 +485,8 @@ export const warehouseSuggestionsSectionLogic = kea<warehouseSuggestionsSectionL
         const runBulk = async (
             action: BulkAction,
             request: (suggestion: WarehouseSuggestionApi) => Promise<WarehouseSuggestionApi | void>,
-            onDone: (suggestion: WarehouseSuggestionApi, result: WarehouseSuggestionApi | void) => void
+            onDone: (suggestion: WarehouseSuggestionApi, result: WarehouseSuggestionApi | void) => void,
+            eventProperties: Record<string, unknown> = {}
         ): Promise<void> => {
             const suggestions = values.selectedSuggestions.filter(({ id }) => !values.actionsInFlight[id])
             if (values.bulkActionRunning || suggestions.length === 0) {
@@ -509,6 +523,7 @@ export const warehouseSuggestionsSectionLogic = kea<warehouseSuggestionsSectionL
                 count: suggestions.length,
                 failed: failures.length,
                 placement: props.placement,
+                ...eventProperties,
             })
         }
 
@@ -526,7 +541,7 @@ export const warehouseSuggestionsSectionLogic = kea<warehouseSuggestionsSectionL
                             projectId(),
                             suggestion.id,
                             bulkAcceptOptions(suggestion, choices),
-                            { surface: props.surface }
+                            { surface: props.surface, bulk: true }
                         ),
                     (suggestion, accepted) => {
                         actions.hideSuggestion(suggestion.id)
@@ -539,17 +554,19 @@ export const warehouseSuggestionsSectionLogic = kea<warehouseSuggestionsSectionL
             },
             confirmBulkDismiss: async () => {
                 const reason = values.dismissReason
+                const note = trimmedNote(values.dismissNote)
                 await runBulk(
                     'dismiss',
                     async (suggestion) => {
                         await warehouseSuggestionsDismissCreate(
                             projectId(),
                             suggestion.id,
-                            { reason },
-                            { surface: props.surface }
+                            { reason, note },
+                            { surface: props.surface, bulk: true }
                         )
                     },
-                    (suggestion) => actions.hideSuggestion(suggestion.id)
+                    (suggestion) => actions.hideSuggestion(suggestion.id),
+                    { reason, has_note: !!note }
                 )
             },
             assignSelectedToMe: async () => {

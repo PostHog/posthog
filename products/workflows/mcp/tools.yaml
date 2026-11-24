@@ -116,15 +116,18 @@ tools:
             polymorphic. To target multiple property types, repeat that event in filters.events: nested properties in
             each event entry are ANDed, while event entries are ORed. For example, one entry can pair property_name=Plan
             with current_value=enterprise and another can pair property_name=Seats with current_value greater than 5; do
-            not put one shared current_value condition in top-level properties. In a project with no verified email
-            sender that can use the sandbox sender, a new function_email step without a sender starts on it (type
-            email_sandbox), which sends only to verified members of the organization; tell the user, and point them to
-            domain verification so they can reach everyone else. A 'batch' trigger broadcasts to an audience
-            (config.filters.properties: person-property conditions and/or cohort references), one run per matching
-            person, and does NOT fire on enable: dispatch with workflows-run-batch or attach a schedule with
-            workflows-schedule-create. A 'schedule' trigger has no audience: it runs once per occurrence, so attach its
-            cadence with workflows-schedule-create and skip the audience preview. Behavioral targeting ('did event X at
-            least N times over the last M days') is unsupported; reject it and explain why.
+            not put one shared current_value condition in top-level properties. A new function_email step without a
+            sender gets the project's default sender if it can still send, or else the only verified sender that can; a
+            stopped sender is never picked, and a step with its own from.email keeps it and stays without a sender. With
+            several such senders and no default, set from.integrationId yourself, and check the step's sender with
+            workflows-get. In a project with no verified email sender but with access to the PostHog test sender, the
+            step starts on it instead (type email_sandbox), which sends only to verified members of the organization;
+            tell the user, and point them to domain verification so they can reach everyone else. A 'batch' trigger
+            broadcasts to an audience (config.filters.properties: person-property conditions and/or cohort references),
+            one run per matching person, and does NOT fire on enable: dispatch with workflows-run-batch or attach a
+            schedule with workflows-schedule-create. A 'schedule' trigger has no audience: it runs once per occurrence,
+            so attach its cadence with workflows-schedule-create and skip the audience preview. Behavioral targeting
+            ('did event X at least N times over the last M days') is unsupported; reject it and explain why.
         ui_app: workflow
         hooks: workflows/broadcastLinkHooks
         response:
@@ -261,6 +264,37 @@ tools:
             approved AI data processing or uses privacy mode: point the user to create a workflow in the Workflows
             editor instead.
         feature_flag: workflows-destination-suggestion
+    workflows-enable:
+        operation: hog_flows_partial_update
+        enabled: true
+        scopes:
+            - hog_flow:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Enable workflow
+        description: >
+            Enable / activate a draft workflow and start processing events. From then on it runs on real people: test it
+            first with workflows-test-run and get the user's explicit approval before invoking - don't enable on your
+            own initiative. Once live, content edits stage as a draft you publish with workflows-publish.
+        agent_note: >
+            This workflow is live on the PostHog test sender: tell the user the test_sender_live warning's message. Move
+            those steps to a verified sender only when the user asks; workflows-patch-action-email describes how. A step
+            written in Hog can't switch: add a Liquid email step on that sender in its place.
+        exclude_params:
+            - status
+            - actions
+            - edges
+        include_params: []
+        inject_body:
+            status: active
+        ui_app: workflow
+        hooks: workflows/testSenderNoteHooks
+        response:
+            exclude:
+                - actions.*.config.inputs
+                - draft.actions.*.config.inputs
     workflows-get:
         operation: hog_flows_retrieve
         enabled: true
@@ -506,19 +540,19 @@ tools:
         title: Patch a workflow step's email
         description: >
             Surgically edit the email inside one function_email or email_sandbox step - the fastest path for copy tweaks
-            and design changes on a workflow email. A sandbox step (email_sandbox) sends from PostHog's sandbox sender
-            to verified members of the organization only, so its email_patch takes subject, preheader, text and to.
-            Switch a step's sender with sender: 'sandbox' (set up for the project on first use; settings the sandbox
-            sender can't keep are refused unless you clear them or confirm with the user and send
-            drop_own_sender_settings: true), or sender: 'own' with email_patch.from.integrationId to move a sandbox step
-            to a verified sender. Use operations (the same design ops as workflows-patch-email-template, addressing
-            blocks by id from the step's config.inputs.email.value.design) to edit the design, and email_patch to change
-            subject, preheader, text, or recipients. After design ops the HTML is re-rendered server-side, so the sent
-            email always matches the design. Edits apply atomically: an invalid batch changes nothing. On an active
-            workflow or one disabled while active, edits stage a draft (composing with any staged graph edits) and
-            nothing reaches real people until workflows-publish. The updated workflow is returned without step inputs;
-            read one back with workflows-get. Prefer this over workflows-patch-graph update_action for email content -
-            it's smaller to send and keeps design and HTML in sync. For library templates use
+            and design changes on a workflow email. A PostHog test sender step (email_sandbox) sends from the PostHog
+            test sender to verified members of the organization only, so its email_patch takes subject, preheader, text
+            and to. Switch a step's sender with sender: 'sandbox' (set up for the project on first use; settings the
+            PostHog test sender can't keep are refused unless you clear them or confirm with the user and send
+            drop_own_sender_settings: true), or sender: 'own' with email_patch.from.integrationId to move a PostHog test
+            sender step to a verified sender. Use operations (the same design ops as workflows-patch-email-template,
+            addressing blocks by id from the step's config.inputs.email.value.design) to edit the design, and
+            email_patch to change subject, preheader, text, or recipients. After design ops the HTML is re-rendered
+            server-side, so the sent email always matches the design. Edits apply atomically: an invalid batch changes
+            nothing. On an active workflow or one disabled while active, edits stage a draft (composing with any staged
+            graph edits) and nothing reaches real people until workflows-publish. The updated workflow is returned
+            without step inputs; read one back with workflows-get. Prefer this over workflows-patch-graph update_action
+            for email content - it's smaller to send and keeps design and HTML in sync. For library templates use
             workflows-patch-email-template instead.
         response:
             exclude:
@@ -568,13 +602,22 @@ tools:
             in_flight_runs, a confirm_token, and an impact summary (per deleted step: about how many people are parked
             there and whether they move to a surviving step or exit; variables that may render empty for runs that never
             executed their new producer; schedules overriding removed variables), changing nothing. Echo the impact to
-            the user and get their go-ahead, then call again with confirm=true and that confirm_token. A 409 means the
-            draft changed since the preview and a 400 means the token expired — preview again and re-confirm either way.
-            Publish revalidates the draft fully and recompiles it, so an invalid draft is rejected with the reason and
-            the live config stays untouched. Test the draft first with workflows-test-run (use_draft=true). Shortened
-            delays apply to parked runs via a spread sweep: runs already waking soon keep their original time, and wakes
-            moved earlier by the sweep trickle in from a few minutes after publish rather than all at once - so runs
-            still parked shortly after publishing are normal, not a sign of a failed publish.
+            the user and get their go-ahead, then call again with confirm=true and that confirm_token. When the preview
+            says moves_to_sandbox_sender, tell the user those email steps will send from the PostHog test sender. Send
+            sandbox_sender_warned on every confirm: true when you told them, false otherwise. A 409 means the draft
+            changed, was published or was discarded since the preview, or, with sandbox_sender_warned false, that a live
+            change now moves steps onto the test sender. A 400 means the token expired or the draft is invalid. After a
+            409 or an expired token, preview again and re-confirm. Publish revalidates the draft fully and recompiles
+            it, so an invalid draft is rejected with the reason and the live config stays untouched: fix the draft
+            before you preview again. Test the draft first with workflows-test-run (use_draft=true). Shortened delays
+            apply to parked runs via a spread sweep: runs already waking soon keep their original time, and wakes moved
+            earlier by the sweep trickle in from a few minutes after publish rather than all at once - so runs still
+            parked shortly after publishing are normal, not a sign of a failed publish.
+        agent_note: >
+            The published workflow is live on the PostHog test sender: tell the user the test_sender_live warning's
+            message. Move those steps to a verified sender only when the user asks; workflows-patch-action-email
+            describes how. A step written in Hog can't switch: add a Liquid email step on that sender in its place.
+        hooks: workflows/testSenderNoteHooks
         response:
             exclude:
                 - workflow.actions.*.config.inputs
@@ -660,7 +703,7 @@ tools:
             workflows or messaging, or asks to build an email, SMS or push workflow in a project that may not send yet.
             For each open step, tell the user what it needs and share its app_url, since channel and domain setup happen
             in the app. An email workflow can be drafted before ready_to_send_email is true. Until then, where the
-            project can use the sandbox sender, its email steps can send from it, only to verified members of the
+            project can use the PostHog test sender, its email steps can send from it, only to verified members of the
             organization, so the user can try the workflow on their team while the domain is verified. Automations that
             only post to Slack or call webhooks need none of these steps. Offer workflows-data-suggestions-list once
             setup is done.
@@ -733,10 +776,14 @@ tools:
             and returns status=skipped when the event name or filters do not match: fix a fabricated payload to match
             the trigger, but treat a skip on a real, copied payload as a broken trigger filter instead. Other trigger
             types are not filtered. Async actions (HTTP/email/SMS/push) are mocked by default; set
-            mock_async_functions=false to fire real side effects. Returns the step's execution trace. Set use_draft=true
-            to test a workflow's staged draft instead of its live config — always do this before workflows-publish.
-            use_draft requires a staged draft to exist (workflows-get shows it in 'draft'); on a workflow with nothing
-            staged, omit it.
+            mock_async_functions=false to fire real side effects. A real test of an email_sandbox step sets up the
+            PostHog test sender for the project first. If the step is skipped with reason sandbox_not_provisioned, the
+            test sender couldn't be set up for this caller or project: ask someone with edit access to all workflows to
+            save the workflow with its steps, then test again. If that save leaves it skipped, the organization may not
+            be able to use the test sender, so suggest verifying a domain. Returns the step's execution trace. Set
+            use_draft=true to test a workflow's staged draft instead of its live config — always do this before
+            workflows-publish. use_draft requires a staged draft to exist (workflows-get shows it in 'draft'); on a
+            workflow with nothing staged, omit it.
         exclude_params:
             - configuration
     workflows-update:

@@ -44,6 +44,7 @@ from products.batch_exports.backend.temporal.metrics import get_export_finished_
 from products.batch_exports.backend.temporal.pipeline.query_ranges import use_distributed_events_recent_table
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 from products.batch_exports.backend.temporal.sql.events import (
+    EXTRACTED_FIELD_EXPRESSIONS,
     SELECT_FROM_DISTRIBUTED_EVENTS_RECENT,
     SELECT_FROM_EVENTS_VIEW,
     SELECT_FROM_EVENTS_VIEW_BACKFILL,
@@ -147,6 +148,13 @@ def _dispatch_batch_export_failure_realtime(batch_export_run_id: str | UUIDT) ->
         )
 
 
+def with_inserted_at_field(fields: list[BatchExportField]) -> list[BatchExportField]:
+    """The fields, with an `_inserted_at` field added unless one already has that alias."""
+    if any(field["alias"] == "_inserted_at" for field in fields):
+        return fields
+    return [*fields, BatchExportField(expression="_inserted_at", alias="_inserted_at")]
+
+
 def default_fields() -> list[BatchExportField]:
     """Return list of default batch export Fields."""
     return [
@@ -231,6 +239,29 @@ def select_events_query_template(
     return SELECT_FROM_EVENTS_VIEW
 
 
+def reads_native_events_table(
+    *,
+    team_id: int,
+    interval_start: str | None,
+    interval_end: str,
+    use_new_events_schema: bool,
+    is_backfill: bool = False,
+    backfill_details: BackfillDetails | None = None,
+) -> bool:
+    """Whether `iter_records` reads the native events table, so its filters must be printed for the new schema."""
+    return (
+        use_new_events_schema
+        and select_events_query_template(
+            team_id=team_id,
+            interval_start=interval_start,
+            interval_end=interval_end,
+            is_backfill=is_backfill,
+            backfill_details=backfill_details,
+        )
+        is SELECT_FROM_EVENTS_VIEW_BACKFILL
+    )
+
+
 def iter_records(
     client: ClickHouseClient,
     team_id: int,
@@ -281,15 +312,7 @@ def iter_records(
     else:
         events_to_include_array = []
 
-    if fields is None:
-        query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in default_fields())
-    else:
-        if "_inserted_at" not in [field["alias"] for field in fields]:
-            control_fields = [BatchExportField(expression="_inserted_at", alias="_inserted_at")]
-        else:
-            control_fields = []
-
-        query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in fields + control_fields)
+    select_fields = default_fields() if fields is None else with_inserted_at_field(fields)
 
     base_query_parameters = {
         "team_id": team_id,
@@ -312,9 +335,13 @@ def iter_records(
             team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS
         )
 
-    if query is SELECT_FROM_EVENTS_VIEW_BACKFILL and use_new_events_schema:
-        query_str = native_events_export_query(query_fields, filters_str or "", order="ORDER BY _inserted_at, event")
+    if use_new_events_schema and query is SELECT_FROM_EVENTS_VIEW_BACKFILL:
+        query_str = native_events_export_query(select_fields, filters_str or "", order="ORDER BY _inserted_at, event")
     else:
+        query_fields = ",".join(
+            f"{EXTRACTED_FIELD_EXPRESSIONS.get(field['expression'], field['expression'])} AS {field['alias']}"
+            for field in select_fields
+        )
         if filters_str:
             filters_str = f"AND {filters_str}"
         query_str = query.safe_substitute(

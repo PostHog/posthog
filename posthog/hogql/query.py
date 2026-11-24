@@ -1,3 +1,4 @@
+import re
 import dataclasses
 from collections.abc import Callable, Sequence
 from contextvars import ContextVar
@@ -7,6 +8,10 @@ from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, Union, cast
 
 from django.utils import timezone
 
+from clickhouse_driver.errors import (
+    Error as ClickHouseDriverError,
+    SocketTimeoutError,
+)
 from opentelemetry import trace
 
 from posthog.schema import (
@@ -46,9 +51,11 @@ from posthog.hogql.database.warehouse_usage import (
 )
 from posthog.hogql.direct_connection import (
     INVALID_CONNECTION_ID_ERROR,
+    RAW_QUERY_COLUMN_RESTRICTED_ERROR,
     RAW_QUERY_TABLE_DENIED_ERROR,
     get_direct_connection_source,
     get_direct_connection_source_none_or_raise,
+    raw_query_denied_by_column_restriction,
     raw_query_denied_by_table_access,
 )
 from posthog.hogql.direct_sql import (
@@ -99,7 +106,16 @@ from posthog.errors import (
     CHQueryErrorS3Error,
     CHQueryErrorS3FileChangedDuringRead,
     CHQueryErrorUnknownIdentifier,
-    ExposedCHQueryError,
+    CHQueryErrorUnknownType,
+    clickhouse_error_message,
+    unknown_type_error,
+)
+from posthog.exceptions import (
+    ClickHouseAtCapacity,
+    ClickHouseEstimatedQueryExecutionTimeTooLong,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQuerySizeExceeded,
+    ClickHouseQueryTimeOut,
 )
 from posthog.exceptions_capture import capture_exception
 from posthog.models.event.new_events_schema import events_route_scope, use_new_events_schema
@@ -119,6 +135,8 @@ if TYPE_CHECKING:
 tracer = trace.get_tracer(__name__)
 
 TRANSIENT_S3_ERROR_RETRY_DELAY_SECONDS = 1.0
+DESCRIBE_UNREADABLE_COLUMNS_TIMEOUT_SECONDS = 5
+QUERY_AST_LIMIT_SETTINGS = {"max_ast_elements", "max_expanded_ast_elements"}
 MAIN_CLUSTER_WORKLOADS = (Workload.DEFAULT, Workload.ONLINE, Workload.OFFLINE)
 
 
@@ -134,6 +152,11 @@ def _contains_raw_bytes(value: object) -> bool:
     if isinstance(value, dict):
         return any(_contains_raw_bytes(key) or _contains_raw_bytes(item) for key, item in value.items())
     return False
+
+
+def columns_with_type(names: Sequence[str], column_types: Sequence[str], wanted_type: str) -> list[str]:
+    whole_type = re.compile(rf"(?<!\w){re.escape(wanted_type)}(?!\w)")
+    return [name for name, column_type in zip(names, column_types) if whole_type.search(column_type)]
 
 
 def _raise_for_raw_bytes_in_string_results(
@@ -700,7 +723,7 @@ class HogQLQueryExecutor:
             isinstance(self.clickhouse_settings, HogQLGlobalSettings)
             and self.clickhouse_settings.move_primary_key_columns_to_end_of_prewhere is False
         ):
-            # Temporary rollout marker, not a real modifier. Remove it with the `hogql-team-first-prewhere` flag.
+            # Not a real modifier. It marks the queries that ran with the setting, so the query log can tell them apart.
             # It goes here because `query_log_archive` keeps `modifiers` and drops unknown top-level tags.
             tag["teamFirstPrewhere"] = True
         return tag
@@ -778,6 +801,7 @@ class HogQLQueryExecutor:
             else None
         )
 
+        query_stats.notify_query_started()
         result = adapter.execute(
             DirectQueryRequest(
                 source=source,
@@ -885,10 +909,7 @@ class HogQLQueryExecutor:
         except Exception as e:
             if self.debug:
                 self.clickhouse_sql = ""
-                if isinstance(e, ExposedCHQueryError | ExposedHogQLError):
-                    self.error = str(e)
-                else:
-                    self.error = "Unknown error"
+                self.error = _debug_error_message(e)
             else:
                 raise
 
@@ -1044,6 +1065,8 @@ class HogQLQueryExecutor:
             bypass_warehouse_access_control=self.context.bypass_warehouse_access_control if self.context else False,
         ):
             raise ExposedHogQLError(RAW_QUERY_TABLE_DENIED_ERROR)
+        if raw_query_denied_by_column_restriction(source):
+            raise ExposedHogQLError(RAW_QUERY_COLUMN_RESTRICTED_ERROR)
         self.direct_dialect = adapter.dialect
         self.direct_sql = adapter.prepare_raw_sql(str(self.query))
         self._execute_direct_sql_query(adapter)
@@ -1059,6 +1082,7 @@ class HogQLQueryExecutor:
             return
         if self.clickhouse_sql is None:
             raise ValueError("Cannot execute ClickHouse query: SQL was not prepared")
+        clickhouse_sql = self.clickhouse_sql
         clickhouse_context = self.clickhouse_context
         if clickhouse_context is None:
             raise ValueError("Cannot execute ClickHouse query: ClickHouse context was not prepared")
@@ -1089,18 +1113,36 @@ class HogQLQueryExecutor:
             if table_workload is not None and table_workload != Workload.DEFAULT and workload in MAIN_CLUSTER_WORKLOADS:
                 workload = table_workload
 
-            def run_clickhouse_query() -> Any:
+            def run_on_clickhouse(sql: str, *, with_column_types: bool, **execution_budget: Any) -> Any:
                 with events_route_scope(printed_events_route):
                     return sync_execute(
-                        self.clickhouse_sql,
+                        sql,
                         clickhouse_context.values,
-                        with_column_types=True,
+                        with_column_types=with_column_types,
                         workload=workload,
                         team_id=self.team.pk,
                         readonly=True,
                         ch_user=self.ch_user,
                         external_tables=list(clickhouse_context.external_tables.values()) or None,
+                        **execution_budget,
                     )
+
+            def run_clickhouse_query() -> Any:
+                return run_on_clickhouse(clickhouse_sql, with_column_types=True)
+
+            def describe_column_types() -> list[str]:
+                ast_limits = (
+                    self.clickhouse_settings.model_dump(include=QUERY_AST_LIMIT_SETTINGS, exclude_none=True)
+                    if self.clickhouse_settings is not None
+                    else {}
+                )
+                rows = run_on_clickhouse(
+                    f"DESCRIBE TABLE ({clickhouse_sql})",
+                    with_column_types=False,
+                    settings={**ast_limits, "max_execution_time": DESCRIBE_UNREADABLE_COLUMNS_TIMEOUT_SECONDS},
+                    send_receive_timeout=DESCRIBE_UNREADABLE_COLUMNS_TIMEOUT_SECONDS,
+                )
+                return [column_type for _, column_type, *_ in rows]
 
             stats = query_stats.get_active()
             if stats is not None:
@@ -1118,16 +1160,18 @@ class HogQLQueryExecutor:
                     # Files backing a warehouse table can be replaced mid-read; one retry re-lists them
                     sleep(TRANSIENT_S3_ERROR_RETRY_DELAY_SECONDS)
                     self.results, self.types = run_clickhouse_query()
+                except CHQueryErrorUnknownType as error:
+                    named_error = self._name_unreadable_columns(error, describe_column_types)
+                    if named_error is None:
+                        raise
+                    raise named_error from error
                 _raise_for_raw_bytes_in_string_results(
                     self.results[: self.returned_row_limit], self.types, self.query_type
                 )
             except Exception as e:
                 if self.debug:
                     self.results = []
-                    if isinstance(e, ExposedCHQueryError | ExposedHogQLError):
-                        self.error = str(e)
-                    else:
-                        self.error = "Unknown error"
+                    self.error = _debug_error_message(e)
                 else:
                     raise
             finally:
@@ -1166,6 +1210,23 @@ class HogQLQueryExecutor:
                     prepared_ast=self.clickhouse_prepared_ast,
                     printed_sql=self.clickhouse_sql,
                 )
+
+    def _name_unreadable_columns(
+        self, error: CHQueryErrorUnknownType, describe_column_types: Callable[[], list[str]]
+    ) -> CHQueryErrorUnknownType | None:
+        try:
+            column_types = describe_column_types()
+        except (ClickHouseQueryTimeOut, SocketTimeoutError):
+            return None
+        except Exception as describe_error:
+            capture_exception(describe_error, {"team_id": self.team.pk})
+            return None
+        if not error.unreadable_type or len(column_types) != len(self.print_columns):
+            return None
+        unreadable_names = columns_with_type(self.print_columns, column_types, error.unreadable_type)
+        if not unreadable_names:
+            return None
+        return unknown_type_error(error.unreadable_type, unreadable_names, code=error.code)
 
     @tracer.start_as_current_span("HogQLQueryExecutor.prepare_for_sharing")
     def prepare_for_sharing(self, *, query_id: str, scope_key: str) -> SharingQuery:
@@ -1367,6 +1428,24 @@ def _restriction_key(restricted: set[RestrictedProperty] | None) -> tuple[str, .
 
 
 _MISSING_COLUMN_MESSAGES = (UNRESOLVED_FIELD_MESSAGE, FIELD_NOT_FOUND_MESSAGE)
+
+
+def _debug_error_message(error: Exception) -> str:
+    if isinstance(error, ClickHouseDriverError):
+        return clickhouse_error_message(error)
+    if isinstance(
+        error,
+        (
+            ExposedHogQLError,
+            ClickHouseAtCapacity,
+            ClickHouseEstimatedQueryExecutionTimeTooLong,
+            ClickHouseQueryMemoryLimitExceeded,
+            ClickHouseQuerySizeExceeded,
+            ClickHouseQueryTimeOut,
+        ),
+    ):
+        return str(error)
+    return "Unknown error"
 
 
 def _names_a_missing_column(error: Exception) -> bool:

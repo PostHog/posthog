@@ -452,18 +452,6 @@ database "posthog" {
       replica_name = "{replica}-{shard}"
     }
   }
-  table "sharded_session_replay_features" {
-    order_by     = ["team_id", "session_id"]
-    partition_by = "toYYYYMM(min_first_timestamp)"
-    settings = {
-      index_granularity = "512"
-    }
-    extend = "_session_replay_features_columns"
-    engine "replicated_aggregating_merge_tree" {
-      zoo_path     = "/clickhouse/tables/{shard}/posthog.session_replay_features"
-      replica_name = "{replica}"
-    }
-  }
   table "sharded_usage_report_events_preagg" {
     order_by     = ["date", "team_id", "person_mode", "lib", "event"]
     partition_by = "date"

@@ -14,8 +14,8 @@ import { ScanBlock } from '../utils/scanEligibility'
 export function useSummarizeBlockedReason(
     scanBlock: ScanBlock | null
 ): (scanner?: ReplayScannerApi | null) => string | null | undefined {
-    const { quota } = useValues(visionQuotaLogic)
-    const { disabledReason: quotaDisabledReason } = quotaUx(quota)
+    const { quota, onFreePlan } = useValues(visionQuotaLogic)
+    const { disabledReason: quotaDisabledReason } = quotaUx(quota, onFreePlan)
     return (scanner) =>
         getReplayVisionEditDisabledReason((scanner?.user_access_level as AccessControlLevel | null) ?? undefined) ??
         // A scanner past its credit limit answers 402 on observe, so it is refused here. The built-in prompt has no limit.

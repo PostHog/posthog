@@ -73,6 +73,7 @@ import {
 
 import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS, NEW_EXPERIMENT } from 'products/experiments/frontend/constants'
 import { hasEnded, isLaunched } from 'products/experiments/frontend/experimentStatus'
+import { featureFlagCalledMetricNames } from 'products/experiments/frontend/featureFlagCalledMetrics'
 import { experimentsHealthRetrieve, experimentsMigrateCreate } from 'products/experiments/frontend/generated/api'
 import type { ExperimentHealthApi } from 'products/experiments/frontend/generated/api.schemas'
 import {
@@ -387,6 +388,7 @@ export interface experimentLogicValues {
     exposures: any
     exposuresAsOf: string | null
     exposuresLoading: boolean
+    featureFlagCalledMetricNames: string[]
     formMode: FormModes
     freezeExposureLoading: boolean
     hasMetrics: boolean
@@ -758,12 +760,12 @@ export interface experimentLogicActions {
     ) => {
         context:
             | {
-                  auto_refresh_enabled?: boolean | undefined
-                  auto_refresh_interval?: number | undefined
-                  previous_refresh_age_ms?: number | null | undefined
-                  previous_refresh_id?: string | null | undefined
-                  previous_refresh_state?: string | null | undefined
-                  previous_refresh_triggered_by?: string | null | undefined
+                  auto_refresh_enabled?: boolean
+                  auto_refresh_interval?: number
+                  previous_refresh_age_ms?: number | null
+                  previous_refresh_id?: string | null
+                  previous_refresh_state?: string | null
+                  previous_refresh_triggered_by?: string | null
                   triggered_by: 'auto-refresh' | 'manual'
               }
             | undefined
@@ -1022,6 +1024,7 @@ export interface experimentLogicMeta {
         exposureCriteria: (experiment: Experiment) => ExperimentExposureCriteria | undefined
         hasMetrics: (experiment: Experiment) => boolean
         browserNoMetricsWarning: (hasMetrics: boolean, isExperimentLaunched: boolean) => boolean
+        featureFlagCalledMetricNames: (experiment: Experiment) => string[]
         statsMethod: (experiment: Experiment) => ExperimentStatsMethod
     }
 }
@@ -3038,6 +3041,10 @@ export const experimentLogic = kea<experimentLogicType>([
         browserNoMetricsWarning: [
             (s) => [s.hasMetrics, s.isExperimentLaunched],
             (hasMetrics: boolean, isExperimentLaunched: boolean): boolean => isExperimentLaunched && !hasMetrics,
+        ],
+        featureFlagCalledMetricNames: [
+            (s) => [s.experiment],
+            (experiment: Experiment): string[] => featureFlagCalledMetricNames(experiment),
         ],
         statsMethod: [
             (s) => [s.experiment],

@@ -25,6 +25,7 @@ export function createAuthenticatedClient(
   if (authState.currentProjectId) {
     client.setTeamId(authState.currentProjectId);
   }
+  client.setOrganizationId(authState.currentOrgId);
 
   return client;
 }
@@ -52,6 +53,7 @@ export function useOptionalAuthenticatedClient(): PostHogAPIClient | null {
     );
   }, [
     authState.cloudRegion,
+    authState.currentOrgId,
     authState.currentProjectId,
     authState.status,
     authState,

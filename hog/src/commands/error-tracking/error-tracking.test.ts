@@ -15,15 +15,14 @@ import { basename, join } from 'node:path'
 import { z } from 'zod'
 
 import { EXIT_FAILURE, EXIT_SUCCESS, EXIT_USAGE } from '@/core/errors'
-import { cleanUp, cssTargets } from '@/error-tracking/cleanup'
-import { contentHash, SymbolDataType, writeSymbolData } from '@/error-tracking/container'
-import { nativeCandidates } from '@/error-tracking/native/package'
-import { ZipWriter } from '@/error-tracking/native/zip'
+import { contentHash, SymbolDataType } from '@/error-tracking/container'
 import { deriveBaseName } from '@/error-tracking/symbols'
+import { Worker } from '@/error-tracking/worker'
 import { runHog, TEST_CREDENTIALS } from '@/testing'
 
 import { GIT_REPO, SMALL_MAPPING } from '../../../test/parity/fixtures'
 import { HERMES_BUILD } from '../../../test/parity/hermes-fixtures'
+import { writeSymbolData, writeZip } from '../../../test/parity/symbol-set-writer'
 
 function project(files: Record<string, string>): string {
     const folder = mkdtempSync(join(tmpdir(), 'hog-et-'))
@@ -147,6 +146,40 @@ describe('hog error-tracking upload', () => {
         })
     })
 
+    test.each(['upload', 'process'] as const)('%s - reads the paths from stdin, one per line', async (command) => {
+        const map = JSON.stringify({ version: 3, sources: ['a.ts'], names: [], mappings: 'AAAA' })
+        const folder = project({
+            'dist/a.js': 'a();\n//# debugId=11111111-2222-4333-8444-555555555555\n//# sourceMappingURL=a.js.map\n',
+            'dist/a.js.map': map,
+            'dist/b.js': 'b();\n//# debugId=66666666-7777-4888-8999-aaaaaaaaaaaa\n//# sourceMappingURL=b.js.map\n',
+            'dist/b.js.map': map,
+            'dist/c.js': 'c();\n//# sourceMappingURL=c.js.map\n',
+            'dist/c.js.map': map,
+        })
+
+        const result = await runHog(['et', command, '-', '--release-mode', 'symbol-set', '--dry-run'], {
+            env: { CLAUDECODE: '1' },
+            cwd: folder,
+            useDisk: true,
+            stdin: 'dist/a.js\n\n  dist/b.js  \r\n',
+        })
+
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
+        expect(result.json(UploadOutput).symbolSets.map((set) => set.path)).toEqual(['dist/a.js', 'dist/b.js'])
+    })
+
+    test('upload - fails when stdin has no paths', async () => {
+        const result = await runHog(['et', 'upload', '-', '--dry-run'], {
+            env: { CLAUDECODE: '1' },
+            cwd: project({}),
+            useDisk: true,
+            stdin: '\n  \n',
+        })
+
+        expect(result.exitCode).toBe(EXIT_FAILURE)
+        expect(result.error()).toMatchObject({ code: 'empty_paths' })
+    })
+
     test('--dry-run leaves bundles and maps untouched, ignore globs skip files, and unreadable folders are skipped', async () => {
         const bundle = 'a();\n//# sourceMappingURL=a.js.map\n'
         const map = JSON.stringify({ version: 3, sources: ['a.ts'], names: [], mappings: 'AAAA' })
@@ -261,8 +294,13 @@ describe('hog error-tracking upload', () => {
         })
     })
 
-    test('--delete-after leaves alone CSS maps outside the selected paths, ignored maps, and JSON that is not a map', () => {
+    test('--delete-after leaves alone CSS maps outside the selected paths, ignored maps, and JSON that is not a map', async () => {
         const folder = project({
+            'posthog.json': JSON.stringify({
+                errorTracking: { sources: [{ path: 'dist', ignore: ['ignored.css.map'] }] },
+            }),
+            'dist/app.js': 'a();\n//# sourceMappingURL=app.js.map\n//# chunkId=chunk-1\n',
+            'dist/app.js.map': JSON.stringify({ chunk_id: 'chunk-1', version: 3, sources: ['a.ts'], mappings: 'AAAA' }),
             'dist/broken.css': 'a{}\n/*# sourceMappingURL=%FF.css.map */\n',
             'dist/outside.css': 'a{}\n/*# sourceMappingURL=../maps/outside.css.map */\n',
             'maps/outside.css.map': MAP,
@@ -273,21 +311,25 @@ describe('hog error-tracking upload', () => {
             'dist/kept.css': 'a{}\n/*# sourceMappingURL=kept.css.map */\n',
             'dist/kept.css.map': MAP,
         })
-        const warnings: string[] = []
-        const css = cssTargets(
-            ['broken', 'outside', 'settings', 'ignored', 'kept'].map((name) => join(folder, `dist/${name}.css`)),
-            [join(folder, 'dist')],
-            undefined,
-            warnings,
-            (mapPath) => mapPath.endsWith('ignored.css.map')
-        )
-        const result = cleanUp(css)
 
-        expect(result.deletedMaps).toEqual([expect.stringMatching(/dist\/kept\.css\.map$/)])
-        expect(warnings).toEqual([
-            expect.stringContaining("broken.css: its sourcemap reference can't be read"),
-            expect.stringContaining('resolves outside the selected paths'),
-        ])
+        const result = await runHog(['et', 'upload', '--delete-after'], {
+            env: { ...TEST_CREDENTIALS, CLAUDECODE: '1' },
+            cwd: folder,
+            useDisk: true,
+            respond: (url) =>
+                url.endsWith('/bulk_check_upload')
+                    ? { status: 200, body: { chunk_ids_to_upload: [] } }
+                    : { status: 404, body: { detail: 'Not found.' } },
+        })
+
+        expect(result.json()).toMatchObject({
+            deletedMaps: ['dist/app.js.map', 'dist/kept.css.map'],
+            warnings: [
+                expect.stringContaining("broken.css: its sourcemap reference can't be read"),
+                expect.stringContaining('resolves outside the selected paths'),
+            ],
+        })
+        expect(readFileSync(join(folder, 'dist/kept.css'), 'utf8')).toBe('a{}\n')
         for (const path of ['maps/outside.css.map', 'dist/settings.json', 'dist/ignored.css.map']) {
             expect(existsSync(join(folder, path))).toBe(true)
         }
@@ -303,7 +345,7 @@ describe('hog error-tracking upload', () => {
         expect(readFileSync(join(folder, 'dist/a.js'), 'utf8')).toBe(bundle)
     })
 
-    test('a universal binary with a slice that does not parse keeps its other slices', () => {
+    test('a universal binary with a slice that does not parse keeps its other slices', async () => {
         const slice = readFileSync(join(import.meta.dir, '../../../test/parity/native/bin/apple/Shop.dwarf'))
         const header = Buffer.alloc(48)
         header.writeUInt32BE(0xcafebabe, 0)
@@ -321,11 +363,17 @@ describe('hog error-tracking upload', () => {
         const path = join(folder, 'Shop')
         writeFileSync(path, Buffer.concat([header, Buffer.alloc(4096 - 48), slice, Buffer.alloc(8)]))
 
-        const candidates = nativeCandidates(path)
+        const worker = new Worker()
 
-        expect(candidates).toEqual([
-            { file: expect.objectContaining({ format: 'macho', debugId: expect.any(String) }) },
-            { path, problem: 'unparseable_slice' },
+        const files = await worker.nativeCandidates([path]).finally(() => worker.close())
+
+        expect(files).toEqual([
+            {
+                candidates: [
+                    expect.objectContaining({ format: 'macho', debugId: expect.any(String) }),
+                    { problem: 'unparseable_slice' },
+                ],
+            },
         ])
     })
 
@@ -359,17 +407,7 @@ describe('hog error-tracking upload', () => {
     })
 
     const NATIVE = join(import.meta.dir, '../../../test/parity/native/bin')
-    // A 64-bit Mach-O whose LC_UUID command claims a size of 0, which never advances to the next one.
-    const header = Buffer.alloc(32)
-    header.writeUInt32LE(0xfeedfacf, 0)
-    header.writeUInt32LE(0x0100000c, 4)
-    header.writeUInt32LE(0x6, 12)
-    header.writeUInt32LE(2, 16)
-    header.writeUInt32LE(48, 20)
-    const uuidCommand = Buffer.alloc(24, 0xab)
-    uuidCommand.writeUInt32LE(0x1b, 0)
-    uuidCommand.writeUInt32LE(0, 4)
-    const ZERO_CMDSIZE = Buffer.concat([header, uuidCommand, Buffer.alloc(24)])
+    const TRUNCATED_ELF = Buffer.concat([Buffer.from([0x7f]), Buffer.from('ELF and nothing an ELF header holds')])
 
     test.each([
         [
@@ -387,11 +425,11 @@ describe('hog error-tracking upload', () => {
             'bin/native: ',
         ],
         [
-            'a Mach-O load command smaller than its header is skipped',
-            ZERO_CMDSIZE,
+            'a file that does not parse is skipped',
+            TRUNCATED_ELF,
             [],
             EXIT_FAILURE,
-            'smaller than its header',
+            "bin/native: hog couldn't parse it: ",
         ],
     ])('upload: %s', async (_name, binary, paths, exitCode, expected) => {
         const folder = project({ 'mapping.txt': SMALL_MAPPING })
@@ -586,9 +624,7 @@ describe('hog error-tracking upload', () => {
     })
 
     function dsymWithBadChecksum(): Buffer {
-        const zip = new ZipWriter()
-        zip.add('dwarf', Buffer.from('not really dwarf, but bytes all the same'))
-        const archive = zip.finish()
+        const archive = writeZip({ dwarf: 'not really dwarf, but bytes all the same' })
         const central = archive.indexOf(Buffer.from([0x50, 0x4b, 0x01, 0x02]))
         archive.writeUInt32LE((archive.readUInt32LE(central + 16) ^ 1) >>> 0, central + 16)
         return writeSymbolData(SymbolDataType.AppleDsym, archive)
@@ -614,10 +650,9 @@ describe('hog error-tracking upload', () => {
     })
 
     test('extract escapes control characters in the file names it prints', async () => {
-        const zip = new ZipWriter()
-        zip.add('evil\u001b]52;c;cGF5\u0007', Buffer.from('dwarf'))
+        const archive = writeZip({ 'evil\u001b]52;c;cGF5\u0007': 'dwarf' })
         const folder = project({})
-        writeFileSync(join(folder, 'Shop.dSYM'), writeSymbolData(SymbolDataType.AppleDsym, zip.finish()))
+        writeFileSync(join(folder, 'Shop.dSYM'), writeSymbolData(SymbolDataType.AppleDsym, archive))
 
         const result = await runHog(['et', 'extract', 'Shop.dSYM'], {
             env: { NO_COLOR: '1' },
@@ -631,21 +666,27 @@ describe('hog error-tracking upload', () => {
         expect(result.stdout).toContain('evil\\x1b]52;c;cGF5\\x07')
     })
 
-    test.each(['<!DOCTYPE plist', ' <?xml version="1.0"', '  <!-- a comment'])(
-        'an Info.plist starting with the unterminated markup %p fails to parse',
-        async (plist) => {
-            const folder = project({ 'Info.plist': plist })
+    test.each([
+        ['unterminated markup', '<!DOCTYPE plist'],
+        ['an unterminated declaration', ' <?xml version="1.0"'],
+        ['an unterminated comment', '  <!-- a comment'],
+        [
+            'an entity only Object.prototype has',
+            '<plist><dict><key>CFBundleName</key><string>&constructor;</string></dict></plist>',
+        ],
+        ['the toString entity', '<plist><dict><key>CFBundleName</key><string>&toString;</string></dict></plist>'],
+    ])('an Info.plist with %s fails to parse', async (_name, plist) => {
+        const folder = project({ 'Info.plist': plist })
 
-            const result = await runHog(['et', 'release', '--info-plist', 'Info.plist'], {
-                env: { ...TEST_CREDENTIALS, CLAUDECODE: '1' },
-                cwd: folder,
-                useDisk: true,
-            })
+        const result = await runHog(['et', 'release', '--info-plist', 'Info.plist'], {
+            env: { ...TEST_CREDENTIALS, CLAUDECODE: '1' },
+            cwd: folder,
+            useDisk: true,
+        })
 
-            expect(result.exitCode).toBe(EXIT_FAILURE)
-            expect(result.error()).toMatchObject({ code: 'invalid_info_plist' })
-        }
-    )
+        expect(result.exitCode).toBe(EXIT_FAILURE)
+        expect(result.error()).toMatchObject({ code: 'invalid_info_plist' })
+    })
 
     test.each([
         ['a key without access', ['0192f0a0-0000-7000-8000-000000000001'], 403, 'access_denied'],

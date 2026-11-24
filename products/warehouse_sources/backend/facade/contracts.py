@@ -83,6 +83,13 @@ class LegacyHistoryTableError(Exception):
     """
 
 
+class AddedTableLocationError(ValueError):
+    """The path of a table to add is outside the source's bucket or folder, holds no importable files, or can't be read.
+
+    The message tells the user what to change.
+    """
+
+
 class UnsupportedSyncTypeError(ValueError):
     """The stored sync type is not a mode PostHog can run."""
 
@@ -149,6 +156,26 @@ class ConfigValueError(ValueError):
     opaque, value-leaking builtin error such as ``invalid literal for int() with base 10: 'lakjsd'``.
     We name the field but never its value, so nothing a user typed reaches logs or error tracking.
     """
+
+
+@dataclass(frozen=True)
+class BackingTableSnapshot:
+    """What a materialization publishes to the backing table of its view."""
+
+    format: str
+    url_pattern: str
+    queryable_folder: str
+    columns: dict[str, Any]
+    row_count: int | None
+    size_in_s3_mib: float | None
+
+
+@dataclass(frozen=True)
+class BackingTablePublish:
+    """What a published snapshot replaced on the backing table."""
+
+    replaced_size_in_s3_mib: float | None
+    columns_changed: bool
 
 
 @dataclass(frozen=True)
@@ -651,6 +678,8 @@ class PlannedMigrationSchemas:
     planned: list[str]
     # Planned tables that skip columns PostHog would still read, so they stay off.
     kept_off: list[str]
+    # Planned tables that could sync incrementally but have no key to merge on, so they sync in full.
+    keyless: list[str]
 
 
 @dataclass(frozen=True)

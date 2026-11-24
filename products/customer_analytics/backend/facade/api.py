@@ -1378,6 +1378,10 @@ def get_account_view(
     )
 
 
+def authorize_account_view_content(content: dict[str, Any], *, team: Team, user: "User", can_query: bool) -> None:
+    _account_views_logic.authorize_account_view_content(content, team=team, user=user, can_query=can_query)
+
+
 def create_account_view(
     *, team_id: int, user_id: int, name: str, content: dict[str, Any], is_project_admin: bool
 ) -> contracts.AccountView:
@@ -1441,15 +1445,11 @@ InvalidPinnedAccountProperties = contracts.InvalidPinnedAccountProperties
 def _to_user_customer_analytics_config(
     config: UserCustomerAnalyticsConfigModel,
 ) -> contracts.UserCustomerAnalyticsConfig:
-    raw_references = _user_customer_analytics_config_logic.read_pinned_properties(config)
+    resolved_pins = _user_customer_analytics_config_logic.read_pinned_properties(config)
     return contracts.UserCustomerAnalyticsConfig(
-        pinned_properties=[
-            contracts.PinnedAccountProperty(
-                kind=cast(contracts.PinnedAccountPropertyKind, reference["kind"]),
-                id=str(reference["id"]),
-            )
-            for reference in raw_references
-        ],
+        pinned_properties=resolved_pins.pinned_properties,
+        pinned_properties_source=resolved_pins.source,
+        available_default_pinned_properties=resolved_pins.available_defaults,
         task_digest=_user_customer_analytics_config_logic.read_task_digest(config),
         account_detail_tabs=_user_customer_analytics_config_logic.read_account_detail_tabs(config),
     )
@@ -1467,6 +1467,19 @@ def update_user_customer_analytics_config(
         team_id=team_id,
         user_id=user_id,
         references=[(AccountPropertyPinKind(reference.kind), reference.id) for reference in pinned_properties],
+    )
+    return _to_user_customer_analytics_config(config)
+
+
+def follow_user_default_pinned_properties(
+    *,
+    team_id: int,
+    user_id: int,
+    kind: contracts.DefaultPinnedAccountPropertiesSourceKindValue,
+    role_id: UUID | None,
+) -> contracts.UserCustomerAnalyticsConfig:
+    config = _user_customer_analytics_config_logic.follow_default_pinned_properties(
+        team_id=team_id, user_id=user_id, kind=kind, role_id=role_id
     )
     return _to_user_customer_analytics_config(config)
 
@@ -5290,9 +5303,10 @@ def _enforce_object_access(obj, user_access_control: "UserAccessControl", requir
 
 # --- Custom property values ---
 
-# Re-exported from logic so the presentation layer can catch them — the import-linter forbids
+# Re-exported from logic so the presentation layer can catch them — hoglint forbids
 # presentation importing logic directly, so these errors are part of the facade's surface.
 CustomPropertyDefinitionNotFound = _custom_property_values_logic.CustomPropertyDefinitionNotFound
+CustomPropertyValueHistoryTooLong = _custom_property_values_logic.CustomPropertyValueHistoryTooLong
 CustomPropertyValueConflict = _custom_property_values_logic.CustomPropertyValueConflict
 InvalidCustomPropertyValue = _custom_property_values_logic.InvalidCustomPropertyValue
 
@@ -5389,6 +5403,29 @@ def list_active_custom_property_values(team_id: int, account_id: str | UUID) -> 
     """The account's current (non-deleted) custom property values as contracts, newest first."""
     rows = _custom_property_values_logic.list_active_custom_property_values(team_id=team_id, account_id=account_id)
     return [_to_custom_property_value(row) for row in rows]
+
+
+def list_custom_property_value_history(
+    team_id: int, account_id: str | UUID, definition_id: str | UUID, since: date | None = None
+) -> list[contracts.CustomPropertyValueHistoryEntry]:
+    """Every value the account has held for the property, oldest first, from the start of `since`
+    in UTC when given. Raises `CustomPropertyDefinitionNotFound` for a definition outside the team."""
+    history = _custom_property_values_logic.list_custom_property_value_history(
+        team_id=team_id,
+        account_id=account_id,
+        definition_id=definition_id,
+        since=datetime.combine(since, time.min, tzinfo=UTC) if since else None,
+    )
+    return [
+        contracts.CustomPropertyValueHistoryEntry(
+            value=_custom_property_values_logic.stored_value_of(entry.row),
+            set_at=entry.row.created_at,
+            set_by_id=entry.row.created_by_id,
+            replaced_at=entry.replaced_at,
+            is_current=entry.is_current,
+        )
+        for entry in history
+    ]
 
 
 # --- Account relationships ---
@@ -5679,6 +5716,7 @@ def _to_customer_task_view(task: CustomerTask, user_access_control: "UserAccessC
         updated_at=task.updated_at,
         can_edit=_customer_tasks_logic.can_edit_customer_task(task, user_access_control),
         can_restore=_customer_tasks_logic.can_restore_customer_task(task, user_access_control),
+        tags=_customer_tasks_logic.list_customer_task_tag_names(task),
     )
 
 

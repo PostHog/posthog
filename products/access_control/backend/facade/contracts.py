@@ -11,7 +11,7 @@ from enum import Enum
 from uuid import UUID
 
 from posthog.dataclasses import frozen
-from posthog.scopes import APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
 
 
 class PropertyAccessLevel(str, Enum):
@@ -197,6 +197,12 @@ class ObjectAccessRuleInput:
     def __post_init__(self) -> None:
         if self.organization_member_id is not None and self.role_id is not None:
             raise ValueError("Set at most one of organization_member_id or role_id.")
+
+
+@frozen
+class UserRole:
+    id: UUID
+    name: str
 
 
 @frozen

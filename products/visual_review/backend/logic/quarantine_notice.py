@@ -24,6 +24,7 @@ from posthog.slack.channels import clip_text, section_block
 from posthog.slack.formatting import escape_slack_mrkdwn
 
 from ..db import WRITER_DB
+from ..facade.contracts import AUTO_EXTEND_REASON_PREFIX
 from ..facade.enums import ActorType
 from ..models import QuarantinedIdentifier, Repo
 from . import owners, run_queries, story_index, team_channels
@@ -37,7 +38,12 @@ _MAX_IDENTIFIER_CHARS = 160
 
 
 def build_message(repo: Repo, entry: QuarantinedIdentifier, actor: str, source_path: str) -> SlackMessage:
-    if entry.source == ActorType.AUTO:
+    if entry.source == ActorType.AUTO and entry.reason.startswith(AUTO_EXTEND_REASON_PREFIX):
+        lead = (
+            "*Visual review* extended the quarantine of a story owned by you automatically, "
+            "because the story still renders differently on the default branch. Please check."
+        )
+    elif entry.source == ActorType.AUTO:
         lead = (
             "*Visual review* quarantined a story owned by you automatically, "
             "because the same code rendered it two ways. Please check."

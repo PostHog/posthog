@@ -32,6 +32,7 @@ import {
     assertImageFetchBatchTarget,
 } from '~/ingestion/pipelines/sessionreplay/ai-research/image-fetch-v4/image-fetch-batch-joiner'
 import { HttpImageFetcher } from '~/ingestion/pipelines/sessionreplay/ai-research/image-fetch-v4/image-fetcher'
+import { ImagePacker } from '~/ingestion/pipelines/sessionreplay/ai-research/image-fetch-v4/image-packer'
 import type { RefreshingImageSink } from '~/ingestion/pipelines/sessionreplay/ai-research/image-fetch-v4/image-sink'
 import { V4JobAdmission } from '~/ingestion/pipelines/sessionreplay/ai-research/image-fetch-v4/job-admission'
 import {
@@ -358,12 +359,6 @@ export class AiResearchV4ImageFetchServer extends AiResearchV4ConsumerServer {
             this.config.AI_RESEARCH_V4_KMS_REQUESTS_PER_SECOND
         )
         const admission = new V4JobAdmission(keys, this.config.AI_RESEARCH_V4_IMAGE_FETCH_KEY_BUDGET_MS)
-        const imageSink = new RawImageStore(
-            keys,
-            s3,
-            AI_RESEARCH_V4_IMAGES_BUCKET,
-            this.config.AI_RESEARCH_V4_IMAGE_FETCH_MAX_PENDING_PUBLISHES
-        )
 
         // Built even in dry run, so the wiring is exercised by every start rather than only by the
         // one that clears the flag.
@@ -379,6 +374,26 @@ export class AiResearchV4ImageFetchServer extends AiResearchV4ConsumerServer {
         this.topHog.start()
         const topHogMetrics = new ImageFetchTopHogMetrics(this.topHog)
         const producer = this.producerRegistry.getProducer(AI_RESEARCH_V4_IMAGE_FETCH_PRODUCER)
+        const packer = this.config.AI_RESEARCH_V4_IMAGE_FETCH_PACK_IMAGES
+            ? new ImagePacker(s3, AI_RESEARCH_V4_IMAGES_BUCKET, {
+                  index: producer,
+                  indexTopic: this.config.AI_RESEARCH_V4_IMAGE_FETCH_INDEX_TOPIC,
+                  lingerMs: this.config.AI_RESEARCH_V4_IMAGE_FETCH_PACK_LINGER_MS,
+                  maxPackBytes: this.config.AI_RESEARCH_V4_IMAGE_FETCH_PACK_MAX_BYTES,
+                  // A publish holds one of these slots while its pack waits, so a full pack never waits on a slot.
+                  maxPackImages: Math.max(
+                      1,
+                      Math.floor(this.config.AI_RESEARCH_V4_IMAGE_FETCH_MAX_PENDING_PUBLISHES / 2)
+                  ),
+              })
+            : undefined
+        const imageSink = new RawImageStore(
+            keys,
+            s3,
+            AI_RESEARCH_V4_IMAGES_BUCKET,
+            this.config.AI_RESEARCH_V4_IMAGE_FETCH_MAX_PENDING_PUBLISHES,
+            packer
+        )
         const publisher = buildFrontierPublisher(
             producer,
             this.config.AI_RESEARCH_V4_IMAGE_FETCH_MAX_PENDING_PUBLISHES,

@@ -19,8 +19,8 @@ class JenkinsEndpointConfig:
 
 # Jenkins exposes machine-readable data at any object's `/api/json`. There is no vendor-hosted
 # instance and no cursor/page-token pagination — field selection and windowing use the `tree` query
-# param (e.g. `tree=builds[number,result,timestamp]{0,100}`). The two streams a data team actually
-# wants for DORA metrics are the job catalog and per-job build history.
+# param (e.g. `tree=builds[number,result,timestamp]{0,100}`). The job catalog and per-job build
+# history are the core streams for DORA metrics; the other tables hang off them.
 #
 # Jenkins has NO server-side "updated since" / timestamp filter on any endpoint. Builds are still
 # synced incrementally because Jenkins returns a job's builds strictly newest-first and lets us
@@ -44,6 +44,55 @@ JENKINS_ENDPOINTS: dict[str, JenkinsEndpointConfig] = {
         partition_key="created_at",
         sort_mode="desc",
         fans_out_over_jobs=True,
+        incremental_fields=[
+            {
+                "label": "created_at",
+                "type": IncrementalFieldType.DateTime,
+                "field": "created_at",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+    ),
+    # Current snapshot of every agent (and the built-in node), resolving the `builtOn` name of a build.
+    # A node has no URL in the API; its display name is unique within an instance.
+    "nodes": JenkinsEndpointConfig(
+        name="nodes",
+        incremental_fields=[],
+        primary_keys=["displayName"],
+    ),
+    # Current snapshot of the build queue. Items leave the queue when their build starts, so each sync
+    # replaces the table with what is waiting at that moment.
+    "queue_items": JenkinsEndpointConfig(
+        name="queue_items",
+        incremental_fields=[],
+        primary_keys=["id"],
+    ),
+    # One row per SCM commit attached to a build. Rides the same newest-first build walk and
+    # `created_at` (build start) watermark as builds.
+    "build_changes": JenkinsEndpointConfig(
+        name="build_changes",
+        partition_key="created_at",
+        sort_mode="desc",
+        fans_out_over_jobs=True,
+        primary_keys=["build_url", "commitId"],
+        incremental_fields=[
+            {
+                "label": "created_at",
+                "type": IncrementalFieldType.DateTime,
+                "field": "created_at",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+    ),
+    # One row per finished build that published a JUnit test report (JUnit plugin). One request per
+    # build, so incremental sync matters more here. A build still running at sync time has no report
+    # yet, and once newer builds move the watermark past it only a full refresh picks its report up.
+    "test_reports": JenkinsEndpointConfig(
+        name="test_reports",
+        partition_key="created_at",
+        sort_mode="desc",
+        fans_out_over_jobs=True,
+        primary_keys=["build_url"],
         incremental_fields=[
             {
                 "label": "created_at",

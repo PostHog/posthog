@@ -7,16 +7,18 @@ import posthog from 'posthog-js'
 
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import api, { NetworkError, ResponseBodyReadError } from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { captureMarketingCrossSellSourceCreated, getMarketingCrossSellAttribution } from 'lib/marketingCrossSell'
+import { delay } from 'lib/utils/async'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import {
@@ -33,10 +35,12 @@ import type { SourceFieldConfig } from 'products/data_warehouse/frontend/types'
 import {
     externalDataSourcesBulkUpdateSchemasPartialUpdate,
     externalDataSourcesIncrementalFieldRecommendationsCreate,
+    externalDataSourcesList,
     externalDataSourcesRetrieve,
 } from 'products/warehouse_sources/frontend/generated/api'
 import {
     ExternalDataSourceBulkUpdateSchemaApi,
+    ExternalDataSourceSerializersApi,
     SourceConfigResponseApi,
     SourceFieldSwitchGroupConfigApi,
     SuggestedTableApi,
@@ -46,11 +50,11 @@ import {
     externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesMax,
 } from 'products/warehouse_sources/frontend/generated/api.zod'
 
-import type { AvailableSetupTaskIdsEnumApi } from '../../../../../frontend/src/generated/core/api.schemas'
 import type { PaginatedResponse } from '../../../../../frontend/src/lib/api'
 import type { FeatureFlagsSet } from '../../../../../frontend/src/lib/logic/featureFlagLogic'
 import type { ProductIntentProperties } from '../../../../../frontend/src/lib/utils/product-intents'
 import type { ExternalDataSource, PreflightStatus } from '../../../../../frontend/src/types'
+import type { UserType } from '../../../../../frontend/src/types'
 import {
     getDefaultExpandedSchemaKeys,
     groupTablesBySchema,
@@ -333,6 +337,64 @@ export function isPrefixRequired(sources: ExternalDataSource[] | undefined, sour
     return sources.some((source) => source.source_type === sourceType && !source.prefix)
 }
 
+// The create can commit the source and still lose its response, and a retry then hits the duplicate-source
+// error. A gateway 502 or 504 is left out: the worker may have stopped before it created the sync schedules.
+function createResponseWasLost(error: unknown): boolean {
+    return error instanceof NetworkError || error instanceof ResponseBodyReadError
+}
+
+interface LostCreateLookup {
+    teamId: string
+    sourceType: string
+    prefix: string
+    createdBy: string
+    expectedSchemaCount: number
+    knownSourceIds: ReadonlySet<string>
+}
+
+// The API allows one source per type and prefix, so this user's new match is the one the request created.
+async function findSourceCreatedBeforeResponseLost(lookup: LostCreateLookup): Promise<string | null> {
+    let page: { results: readonly ExternalDataSourceSerializersApi[]; next?: string | null } =
+        await externalDataSourcesList(lookup.teamId, { include_schemas: false })
+    for (;;) {
+        const created = page.results.find(
+            (source) =>
+                source.source_type === lookup.sourceType &&
+                (source.prefix?.trim() ?? '') === lookup.prefix &&
+                source.created_by === lookup.createdBy &&
+                !lookup.knownSourceIds.has(source.id)
+        )
+        if (created) {
+            return created.id
+        }
+        if (!page.next) {
+            return null
+        }
+        // nosemgrep: prefer-codegen-api -- Follows the pagination URL the server returns.
+        page = await api.get<PaginatedResponse<ExternalDataSourceSerializersApi>>(page.next)
+    }
+}
+
+// Without change data capture, the create runs every check that can delete the source before its last table.
+async function hasFinishedSetup(lookup: LostCreateLookup, sourceId: string): Promise<boolean> {
+    const source = await externalDataSourcesRetrieve(lookup.teamId, sourceId, { compact: true })
+    return source.schemas.length >= lookup.expectedSchemaCount
+}
+
+// The server can still be inside the create request when the connection drops.
+const LOST_CREATE_RESPONSE_LOOKUP_DELAYS_MS = [0, 2000, 4000]
+
+async function recoverSourceCreatedBeforeResponseLost(lookup: LostCreateLookup): Promise<string | null> {
+    for (const delayMs of LOST_CREATE_RESPONSE_LOOKUP_DELAYS_MS) {
+        await delay(delayMs)
+        const sourceId = await findSourceCreatedBeforeResponseLost(lookup).catch(() => null)
+        if (sourceId && (await hasFinishedSetup(lookup, sourceId).catch(() => false))) {
+            return sourceId
+        }
+    }
+    return null
+}
+
 export function resolveConnectErrorMessage(e: any): string {
     const detail = e?.detail === GENERIC_SERVER_ERROR_DETAIL ? undefined : e?.detail
     const apiMessage = e?.data?.message ?? detail
@@ -412,10 +474,11 @@ export const resolveUpdateTrackedIncrementalField = (fields: IncrementalField[])
 // table whose introspected columns have no key and no `id` column to fall back to. A table with
 // no introspected columns resolves its key at sync time, so it needs no key here.
 const hasIncrementalMergeKey = (schema: ExternalDataSourceSyncSchema): boolean =>
-    !schema.available_columns?.length ||
     !!schema.primary_key_columns?.length ||
     !!schema.detected_primary_keys?.length ||
-    schema.available_columns.some((column) => column.field.toLowerCase() === 'id')
+    (schema.available_columns?.length
+        ? schema.available_columns.some((column) => column.field.toLowerCase() === 'id')
+        : !schema.declares_primary_keys)
 
 // Shared rule for bulk enablement (select-all, onboarding auto-configure): permission_error
 // rows stay off so bulk toggle never queues guaranteed-403 syncs, and default-off tables
@@ -585,6 +648,7 @@ export interface sourceWizardLogicValues {
     preflight: PreflightStatus | null // preflightLogic
     dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null // sourceManagementLogic
     currentTeamId: number | null // teamLogic
+    user: UserType | null // userLogic
     availableSources: any
     breadcrumbs: Breadcrumb[]
     canGoBack: boolean
@@ -694,7 +758,7 @@ export interface sourceWizardLogicValues {
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface sourceWizardLogicActions {
     markTaskAsCompleted: (taskIdOrIds: SetupTaskId | SetupTaskId[]) => {
-        taskIdOrIds: AvailableSetupTaskIdsEnumApi | AvailableSetupTaskIdsEnumApi[]
+        taskIdOrIds: SetupTaskId | SetupTaskId[]
     } // globalSetupLogic
     loadSources: () => {
         value: true
@@ -1170,7 +1234,7 @@ export interface sourceWizardLogicMeta {
             | 'Set up webhook'
             | 'Tables ready to query'
         isWrapped: (arg: any) => boolean
-        incrementalFieldModelEnabled: (featureFlags: FeatureFlagsSet, isDirectQueryMode: boolean, arg: any) => boolean
+        incrementalFieldModelEnabled: (isDirectQueryMode: boolean, arg: any) => boolean
     }
 }
 
@@ -1294,6 +1358,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             ['featureFlags'],
             teamLogic,
             ['currentTeamId'],
+            userLogic,
+            ['user'],
         ],
         actions: [
             sourceManagementLogic,
@@ -2066,15 +2132,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         // One-click setup shows no table list, so a late pick would change tables nobody reviews.
         // A direct-query source syncs nothing, so a pick would only reorder unused candidates.
         incrementalFieldModelEnabled: [
-            (s) => [s.featureFlags, s.isDirectQueryMode, (_, props) => props.autoConfigureTables],
-            (
-                featureFlags: FeatureFlagsSet,
-                isDirectQueryMode: boolean,
-                autoConfigureTables: boolean | undefined
-            ): boolean =>
-                !!featureFlags[FEATURE_FLAGS.WAREHOUSE_INCREMENTAL_FIELD_MODEL] &&
-                !isDirectQueryMode &&
-                !autoConfigureTables,
+            (s) => [s.isDirectQueryMode, (_, props) => props.autoConfigureTables],
+            (isDirectQueryMode: boolean, autoConfigureTables: boolean | undefined): boolean =>
+                !isDirectQueryMode && !autoConfigureTables,
         ],
     }),
     listeners(({ actions, values, props, cache }) => ({
@@ -2496,17 +2556,52 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     ? getMarketingCrossSellAttribution(values.currentTeamId)
                     : null
 
+            const sourceType = values.selectedConnector.name
+            // An unloaded list can't tell an older source from the new one, and CDC can delete it after its last table.
+            const lostCreateLookup: LostCreateLookup | null =
+                values.dataWarehouseSources &&
+                values.user?.email &&
+                values.currentTeamId &&
+                !values.source.payload?.cdc_enabled
+                    ? {
+                          teamId: String(values.currentTeamId),
+                          sourceType,
+                          prefix: values.source.prefix?.trim() ?? '',
+                          createdBy: values.user.email,
+                          expectedSchemaCount: values.source.payload?.schemas?.length ?? 0,
+                          knownSourceIds: new Set(values.dataWarehouseSources.results.map((source) => source.id)),
+                      }
+                    : null
+
             try {
-                const { id } = await api.externalDataSources.create({
-                    ...values.source,
-                    source_type: values.selectedConnector.name,
-                    created_via: 'web',
-                    // Sent with creation, not after it. Creation schedules the first sync before
-                    // it returns, and extraction snapshots the destinations onto that run, so a
-                    // follow-up request lands too late and the opening run goes to the warehouse
-                    // alone.
-                    ...(values.wizardDestinationIds.length > 0 ? { destination_ids: values.wizardDestinationIds } : {}),
-                })
+                let id: string
+                let recoveredFromLostResponse = false
+                try {
+                    ;({ id } = await api.externalDataSources.create({
+                        ...values.source,
+                        source_type: sourceType,
+                        created_via: 'web',
+                        // Sent with creation, not after it. Creation schedules the first sync before
+                        // it returns, and extraction snapshots the destinations onto that run, so a
+                        // follow-up request lands too late and the opening run goes to the warehouse
+                        // alone.
+                        ...(values.wizardDestinationIds.length > 0
+                            ? { destination_ids: values.wizardDestinationIds }
+                            : {}),
+                    }))
+                } catch (createError) {
+                    const recoveredId =
+                        lostCreateLookup &&
+                        lostCreateLookup.expectedSchemaCount > 0 &&
+                        createResponseWasLost(createError)
+                            ? await recoverSourceCreatedBeforeResponseLost(lostCreateLookup)
+                            : null
+                    if (!recoveredId) {
+                        throw createError
+                    }
+                    id = recoveredId
+                    recoveredFromLostResponse = true
+                }
 
                 actions.setSourceId(id)
 
@@ -2523,6 +2618,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     entry_point: values.returnConfig?.entryPoint,
                     accessMethod: values.source.access_method,
                     hasWebhookSchemas: values.hasWebhookSchemas,
+                    recoveredFromLostResponse,
                 })
 
                 if (crossSellAttribution) {

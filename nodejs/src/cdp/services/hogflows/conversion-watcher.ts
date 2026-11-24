@@ -9,7 +9,7 @@ import { hasEventOrActionTarget } from './hogflow-utils'
 
 // A goal is configured if either detection path has something to evaluate. Gates the watcher: a
 // workflow with no goal has nothing to measure, so it writes no rows.
-function pinConversionGoal(hogFlow: HogFlow): PinnedConversionGoal | null {
+export function pinConversionGoal(hogFlow: HogFlow): PinnedConversionGoal | null {
     const properties = hogFlow.conversion?.filters?.length ? hogFlow.conversion.bytecode : undefined
     // Drop entries that target neither events nor actions: those compile to always-true bytecode and
     // would count a conversion on the first event of any kind. Same guard the wait_until and conversion

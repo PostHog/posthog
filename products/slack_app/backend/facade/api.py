@@ -23,6 +23,7 @@ body instead, the way the handlers under ``backend/`` already do.
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
+from uuid import UUID
 
 import structlog
 
@@ -55,12 +56,15 @@ from products.slack_app.backend.logic.progress_phases import (
 from products.slack_app.backend.logic.reply_suggestions import (
     report_implementation_button as slack_report_implementation_button,
 )
-from products.slack_app.backend.models import SlackChannel
+from products.slack_app.backend.models import SlackChannel, SlackThreadTaskMapping
 from products.slack_app.backend.services.followup_invite import build_followup_invite, build_followup_invite_text
 from products.slack_app.backend.services.public_channel_catalog import public_channel_options
 from products.slack_app.backend.services.slack_auth import invalidate_auth_state
 from products.slack_app.backend.services.slack_scopes import SLACK_CANVAS_SCOPE, SLACK_FILE_SCOPE, has_scopes
 from products.slack_app.backend.services.slack_user_info import invalidate_workspace_bot_user_id
+from products.slack_app.backend.services.task_notifications import (
+    task_slack_notifications_muted as slack_task_notifications_muted,
+)
 from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration, with_teams
 
 if TYPE_CHECKING:
@@ -91,6 +95,8 @@ __all__ = [
     "record_slack_feature_used",
     "slack_artifact_delivery_state_updates",
     "slack_channel_is_approved",
+    "slack_thread_is_mapped_to_task",
+    "slack_task_notifications_muted",
     "slack_followup_invite",
     "slack_followup_invite_text",
     "slack_report_implementation_button",
@@ -100,6 +106,22 @@ __all__ = [
 logger = structlog.get_logger(__name__)
 
 _SLACK_CANVAS_FILE_ADAPTER_SCOPES = frozenset({SLACK_CANVAS_SCOPE, SLACK_FILE_SCOPE})
+
+
+def slack_thread_is_mapped_to_task(
+    *, team_id: int, task_id: str, run_id: str, pr_url: str, slack_workspace_id: str, channel: str, thread_ts: str
+) -> bool:
+    return SlackThreadTaskMapping.objects.filter(
+        team_id=team_id,
+        task_id=task_id,
+        task__team_id=team_id,
+        task_run_id=UUID(run_id),
+        task_run__team_id=team_id,
+        task_run__output__pr_url=pr_url,
+        slack_workspace_id=slack_workspace_id,
+        channel=channel,
+        thread_ts=thread_ts,
+    ).exists()
 
 
 def _slack_workspace_id(team_id: int, integration_id: int) -> str | None:

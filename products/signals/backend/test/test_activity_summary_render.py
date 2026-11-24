@@ -6,7 +6,8 @@ from typing import Any
 
 import pytest
 
-from openai import APIConnectionError
+import httpx
+from openai import APIConnectionError, APIStatusError, BadRequestError, InternalServerError, Omit, RateLimitError
 from parameterized import parameterized
 
 from products.signals.backend.activity_summary.computed import MAX_OWNED, compute_fields
@@ -59,7 +60,18 @@ from products.signals.backend.activity_summary.render import (
     view_units,
     without_products,
 )
-from products.signals.backend.activity_summary.summaries import PIPELINE_DISTINCT_ID, SummaryPrices, cost_usd, summarize
+from products.signals.backend.activity_summary.summaries import (
+    DEFAULT_VARIANT,
+    FLEX_REQUEST_TIMEOUT_SECONDS,
+    MODEL_PRICES,
+    PIPELINE_DISTINCT_ID,
+    REQUEST_TIMEOUT_SECONDS,
+    ServiceTier,
+    SummaryPrices,
+    SummaryVariant,
+    cost_usd,
+    summarize,
+)
 
 AS_OF = datetime.datetime(2026, 10, 19, tzinfo=datetime.UTC)
 PATH_SECRET = "https://hooks.example.com/services/T000/B000/s3cr3tPathValue?sig=abc"
@@ -1478,14 +1490,21 @@ class FakeLLM:
         self.usage = usage
         self.requests: list[dict[str, Any]] = []
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self.create))
+        self.max_retries: int | None = None
+
+    def with_options(self, *, max_retries: int) -> "FakeLLM":
+        self.max_retries = max_retries
+        return self
 
     def create(self, **kwargs: Any) -> SimpleNamespace:
-        self.requests.append(kwargs)
+        self.requests.append({**kwargs, "max_retries": self.max_retries})
+        self.max_retries = None
         answer = self.answers.pop(0) if len(self.answers) > 1 else self.answers[0]
         if isinstance(answer, Exception):
             raise answer
         content, finish_reason = answer if isinstance(answer, tuple) else (answer, "stop")
         return SimpleNamespace(
+            service_tier="default" if isinstance(kwargs.get("service_tier"), Omit) else kwargs.get("service_tier"),
             usage=SimpleNamespace(prompt_tokens=100, completion_tokens=20) if self.usage else None,
             choices=[SimpleNamespace(message=SimpleNamespace(content=content), finish_reason=finish_reason)],
         )
@@ -1538,7 +1557,7 @@ def test_summarize_retries_a_malformed_or_truncated_answer_once(
         llm,  # type: ignore[arg-type]
         rendered_input="- a line",
         previous_summary=None,
-        model="gpt-6-luna",
+        variant=DEFAULT_VARIANT,
         as_of=datetime.date(2026, 10, 18),
     )
 
@@ -1550,16 +1569,116 @@ def test_summarize_retries_a_malformed_or_truncated_answer_once(
     assert (outcome.tokens_in, outcome.tokens_out) == tokens
 
 
+def _status_error(error: type[APIStatusError], status: int) -> APIStatusError:
+    response = httpx.Response(status, request=httpx.Request("POST", "https://gateway.example/v1/chat/completions"))
+    return error("refused", response=response, body=None)
+
+
+_TERRA = SummaryVariant(model="gpt-6.1-terra")
+_TERRA_FLEX = SummaryVariant(model="gpt-6.1-terra", service_tier=ServiceTier.FLEX)
+
+
+@parameterized.expand(
+    [
+        ("standard sends no tier", _TERRA, [_answer()], ["standard"], "default", False, None),
+        ("flex sends the flex tier", _TERRA_FLEX, [_answer()], ["flex"], "flex", False, None),
+        (
+            "a capacity refusal retries on standard",
+            _TERRA_FLEX,
+            [_status_error(RateLimitError, 429), _answer()],
+            ["flex", "standard"],
+            "default",
+            True,
+            None,
+        ),
+        (
+            "a flex timeout retries on standard",
+            _TERRA_FLEX,
+            [_CONNECTION_ERROR, _answer()],
+            ["flex", "standard"],
+            "default",
+            True,
+            None,
+        ),
+        (
+            "a malformed answer after a fallback stays on standard",
+            _TERRA_FLEX,
+            [_status_error(InternalServerError, 503), "not json", _answer()],
+            ["flex", "standard", "standard"],
+            "default",
+            True,
+            None,
+        ),
+        (
+            "a bad request on flex does not retry",
+            _TERRA_FLEX,
+            [_status_error(BadRequestError, 400)],
+            ["flex"],
+            None,
+            False,
+            "api_error: BadRequestError",
+        ),
+        (
+            "a refused standard request does not retry",
+            _TERRA,
+            [_status_error(RateLimitError, 429)],
+            ["standard"],
+            None,
+            False,
+            "api_error: RateLimitError",
+        ),
+    ]
+)
+def test_summarize_sends_the_tier_of_the_variant_and_falls_back_from_a_refused_flex_call(
+    _name: str,
+    variant: SummaryVariant,
+    answers: list[Any],
+    tiers: list[str],
+    served_tier: str | None,
+    fell_back: bool,
+    error: str | None,
+) -> None:
+    llm = FakeLLM(answers)
+    outcome = summarize(
+        llm,  # type: ignore[arg-type]
+        rendered_input="- a line",
+        previous_summary=None,
+        variant=variant,
+        as_of=datetime.date(2026, 10, 18),
+    )
+
+    sent = [
+        (
+            "standard" if isinstance(request["service_tier"], Omit) else request["service_tier"],
+            request["timeout"],
+            request["max_retries"],
+        )
+        for request in llm.requests
+    ]
+    assert sent == [
+        ("flex", FLEX_REQUEST_TIMEOUT_SECONDS, 0) if tier == "flex" else ("standard", REQUEST_TIMEOUT_SECONDS, None)
+        for tier in tiers
+    ]
+    assert {request["model"] for request in llm.requests} == {variant.model}
+    assert (outcome.served_tier, outcome.fell_back, outcome.error) == (served_tier, fell_back, error)
+    answered = [tier for tier, answer in zip(tiers, answers) if not isinstance(answer, Exception)]
+    expected_cost = sum(
+        cost_usd(100, 20, MODEL_PRICES[SummaryVariant(model=variant.model, service_tier=ServiceTier(tier))]) or 0.0
+        for tier in answered
+    )
+    assert outcome.cost_usd == (pytest.approx(expected_cost) if answered else None)
+
+
 def test_summarize_reports_null_tokens_when_the_response_has_no_usage() -> None:
     outcome = summarize(
         FakeLLM([_answer()], usage=False),  # type: ignore[arg-type]
         rendered_input="- a line",
         previous_summary=None,
-        model="gpt-6-luna",
+        variant=DEFAULT_VARIANT,
         as_of=datetime.date(2026, 10, 18),
     )
     assert outcome.summary is not None
-    assert (outcome.tokens_in, outcome.tokens_out) == (None, None)
+    assert (outcome.tokens_in, outcome.tokens_out, outcome.cost_usd) == (None, None, None)
 
 
 def test_summarize_cuts_a_previous_profile_to_a_lowered_limit() -> None:
@@ -1571,7 +1690,7 @@ def test_summarize_cuts_a_previous_profile_to_a_lowered_limit() -> None:
         llm,  # type: ignore[arg-type]
         rendered_input="- a line",
         previous_summary={**PREVIOUS, "profile": stored_profile},
-        model="gpt-6-luna",
+        variant=DEFAULT_VARIANT,
         as_of=datetime.date(2026, 10, 18),
         profile_max_chars=500,
     )

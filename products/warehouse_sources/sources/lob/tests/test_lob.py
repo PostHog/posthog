@@ -170,6 +170,121 @@ class TestGetRows:
         assert len(result.rows) == expected_rows
 
 
+LOB = "https://api.lob.com/v1"
+
+
+class TestFanOutRows:
+    @parameterized.expand(
+        [
+            (
+                "card_orders_walks_every_parent_page_and_skips_empty_children",
+                "card_orders",
+                [
+                    {"data": [{"id": "card_a"}, {"id": "card_b"}], "next_url": f"{LOB}/cards?after=p2"},
+                    {"data": [{"id": "co_1", "card_id": "card_a"}]},
+                    {"data": []},
+                    {"data": [{"id": "card_c"}]},
+                    {"data": [{"id": "co_2", "card_id": "card_c"}]},
+                ],
+                [
+                    f"{LOB}/cards?limit=100",
+                    f"{LOB}/cards/card_a/orders?limit=100",
+                    f"{LOB}/cards/card_b/orders?limit=100",
+                    f"{LOB}/cards?after=p2",
+                    f"{LOB}/cards/card_c/orders?limit=100",
+                ],
+                [("co_1", "card_a"), ("co_2", "card_c")],
+                LobResumeConfig(parent_url=f"{LOB}/cards?after=p2", parent_id="card_c"),
+            ),
+            (
+                "template_versions_follow_child_cursor_and_stamp_template_id",
+                "template_versions",
+                [
+                    {"data": [{"id": "tmpl_a"}]},
+                    {"data": [{"id": "vrsn_1"}], "next_url": f"{LOB}/templates/tmpl_a/versions?after=v2"},
+                    {"data": [{"id": "vrsn_2"}]},
+                ],
+                [
+                    f"{LOB}/templates?limit=100",
+                    f"{LOB}/templates/tmpl_a/versions?limit=100",
+                    f"{LOB}/templates/tmpl_a/versions?after=v2",
+                ],
+                [("vrsn_1", "tmpl_a"), ("vrsn_2", "tmpl_a")],
+                LobResumeConfig(parent_url=f"{LOB}/templates?limit=100", parent_id="tmpl_a"),
+            ),
+        ]
+    )
+    def test_walk(
+        self,
+        _name: str,
+        endpoint: str,
+        pages: list[Any],
+        expected_urls: list[str],
+        expected_rows: list[tuple[str, str]],
+        expected_final_state: LobResumeConfig,
+    ) -> None:
+        result = _driver().run(endpoint, [ScriptedResponse(json=page) for page in pages])
+
+        assert result.raised is None
+        assert result.urls == expected_urls
+        parent_field = "card_id" if endpoint == "card_orders" else "template_id"
+        assert [(row["id"], row[parent_field]) for row in result.rows] == expected_rows
+        assert result.final_state == expected_final_state
+
+    @parameterized.expand(
+        [
+            (
+                "mid_parent_resumes_at_child_cursor",
+                LobResumeConfig(
+                    next_url=f"{LOB}/templates/tmpl_b/versions?after=v9",
+                    parent_url=f"{LOB}/templates?after=p3",
+                    parent_id="tmpl_b",
+                ),
+                [f"{LOB}/templates/tmpl_b/versions?after=v9", f"{LOB}/templates/tmpl_c/versions?limit=100"],
+            ),
+            (
+                "finished_parent_continues_with_the_next_one",
+                LobResumeConfig(parent_url=f"{LOB}/templates?after=p3", parent_id="tmpl_b"),
+                [f"{LOB}/templates/tmpl_c/versions?limit=100"],
+            ),
+            (
+                "deleted_parent_restarts_the_page",
+                LobResumeConfig(
+                    next_url=f"{LOB}/templates/tmpl_gone/versions?after=v9",
+                    parent_url=f"{LOB}/templates?after=p3",
+                    parent_id="tmpl_gone",
+                ),
+                [
+                    f"{LOB}/templates/tmpl_a/versions?limit=100",
+                    f"{LOB}/templates/tmpl_b/versions?limit=100",
+                    f"{LOB}/templates/tmpl_c/versions?limit=100",
+                ],
+            ),
+        ]
+    )
+    def test_resume(self, _name: str, resume_state: LobResumeConfig, expected_child_urls: list[str]) -> None:
+        parent_page = {"data": [{"id": "tmpl_a"}, {"id": "tmpl_b"}, {"id": "tmpl_c"}]}
+        child_pages = [{"data": [{"id": f"vrsn_{i}"}]} for i in range(len(expected_child_urls))]
+        result = _driver().run(
+            "template_versions",
+            [ScriptedResponse(json=page) for page in [parent_page, *child_pages]],
+            resume_state=resume_state,
+        )
+
+        assert result.raised is None
+        assert result.urls == [f"{LOB}/templates?after=p3", *expected_child_urls]
+
+    def test_top_level_resume_state_restarts_the_parent_walk(self) -> None:
+        result = _driver().run(
+            "card_orders",
+            [ScriptedResponse(json={"data": []})],
+            resume_state=LobResumeConfig(next_url=f"{LOB}/letters?after=stale"),
+        )
+
+        assert result.raised is None
+        assert result.urls == [f"{LOB}/cards?limit=100"]
+
+
 class TestFetchPage:
     @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
     def test_retryable_statuses_raise_retryable_error(self, _name: str, status: int) -> None:

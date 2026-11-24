@@ -21,19 +21,25 @@ CHILD_WORKFLOW_ID_PREFIX = "mcpa-intent-clustering-team"
 # Sampling ------------------------------------------------------------------
 
 DEFAULT_LOOKBACK_DAYS = 7
-# Matches the pipeline default in products/mcp_analytics/backend/intent_clustering.py.
-# Raised to 1000 with stratified sampling: per-tool floors + the per-tool call cap
-# keep the extra intents spread across tools instead of long-tail exec/scout noise.
-DEFAULT_TOP_N_INTENTS = 1000
+# Matches the pipeline default in products/mcp_analytics/backend/intent_clustering.py
+# (kept literal so workflow code doesn't import numpy/sklearn); see that constant
+# for why 5000. Per-tool floors + the per-tool call cap keep the intents spread
+# across tools instead of long-tail exec/scout noise. Set both to 1000 to restore
+# the previous cap.
+DEFAULT_TOP_N_INTENTS = 5000
 MIN_INTENTS_FOR_CLUSTERING = 2
 
 # Workflow + activity envelopes --------------------------------------------
 
-WORKFLOW_EXECUTION_TIMEOUT = timedelta(minutes=20)
+# Must cover queue wait plus COMPUTE_SCHEDULE_TO_CLOSE_TIMEOUT.
+WORKFLOW_EXECUTION_TIMEOUT = timedelta(minutes=30)
 COORDINATOR_EXECUTION_TIMEOUT = timedelta(hours=12)  # < daily schedule interval
 
 # Per-activity, per single attempt.
-COMPUTE_ACTIVITY_TIMEOUT = timedelta(seconds=180)  # corpus fetch + embed + cluster
+# Corpus fetch + embed + cluster. Sized for DEFAULT_TOP_N_INTENTS: an uncached
+# first run embeds every intent (EMBED_CONCURRENCY requests in flight), and
+# clustering is O(n²). test_constants pins this against a measured clustering run.
+COMPUTE_ACTIVITY_TIMEOUT = timedelta(seconds=600)
 JOURNEYS_ACTIVITY_TIMEOUT = timedelta(seconds=60)  # HogQL journey aggregation
 SNAPSHOT_ACTIVITY_TIMEOUT = timedelta(seconds=30)  # pure-CPU snapshot assembly
 PERSIST_ACTIVITY_TIMEOUT = timedelta(seconds=30)  # Postgres write
@@ -47,7 +53,7 @@ PERSIST_HEARTBEAT_TIMEOUT = timedelta(seconds=30)
 
 # Schedule-to-close caps total time across retries + backoff + queue wait.
 # Each is sized as (max_attempts × start_to_close) + a backoff allowance.
-COMPUTE_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=400)
+COMPUTE_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=1300)  # 2 × 600s + backoff + queue allowance
 JOURNEYS_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=200)  # 3 × 60s + ~6s backoff allowance + buffer
 SNAPSHOT_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=90)
 PERSIST_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=90)

@@ -6599,3 +6599,168 @@ async fn it_reports_errors_when_the_postgres_fallback_omits_a_flag_python_publis
 
     Ok(())
 }
+
+async fn known_absent_server(
+    person_properties: Value,
+    flags: Value,
+    groups: &[(&str, &str, Value)],
+) -> Result<(ServerHandle, String)> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let redis = setup_redis_client(Some(config.redis_url.clone())).await;
+    let team = insert_new_team_in_redis(redis.clone()).await?;
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await?;
+    context
+        .insert_person(
+            team.id,
+            "user_distinct_id".to_string(),
+            Some(person_properties),
+        )
+        .await?;
+    for (group_type, group_key, properties) in groups {
+        context
+            .create_group(team.id, group_type, group_key, properties.clone())
+            .await?;
+    }
+    let mut flags = flags;
+    for flag in flags.as_array_mut().unwrap() {
+        flag["team_id"] = json!(team.id);
+    }
+    insert_flags_for_team_in_redis(redis, team.id, Some(flags.to_string())).await?;
+    Ok((ServerHandle::for_config(config).await, team.api_token))
+}
+
+fn known_absent_is_not_set_flag(key: &str, filters: Value) -> Value {
+    json!({
+        "id": 1, "key": key, "name": key, "active": true, "deleted": false, "team_id": 0,
+        "filters": filters,
+    })
+}
+
+/// The group type is one the team doesn't have, so the limit applies to every listed group
+/// type, not only the ones the team can resolve.
+#[tokio::test]
+async fn test_known_absent_over_limit_in_form_body_returns_400() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let redis = setup_redis_client(Some(config.redis_url.clone())).await;
+    let team = insert_new_team_in_redis(redis.clone()).await?;
+    insert_flags_for_team_in_redis(redis, team.id, Some("[]".to_string())).await?;
+    let server = ServerHandle::for_config(config).await;
+    let token = team.api_token;
+    let keys: Vec<String> = (0..1001).map(|i| format!("key{i}")).collect();
+    let payload = json!({
+        "token": token,
+        "distinct_id": "user_distinct_id",
+        "group_property_keys_known_absent": {"no_such_type": keys},
+    });
+    let body = format!(
+        "data={}",
+        general_purpose::STANDARD.encode(payload.to_string())
+    );
+
+    let res = reqwest::Client::new()
+        .post(format!("http://{}/flags?v=2", server.addr))
+        .header("Content-Type", "application/x-www-form-urlencoded")
+        .body(body)
+        .send()
+        .await?;
+
+    assert_eq!(StatusCode::BAD_REQUEST, res.status());
+    assert_eq!(
+        res.text().await?,
+        "group_property_keys_known_absent allows at most 1000 keys per group type"
+    );
+    Ok(())
+}
+
+#[rstest]
+#[case::listed(Some(json!(["plan"])), true)]
+#[case::field_not_sent(None, false)]
+#[case::field_null(Some(Value::Null), false)]
+#[tokio::test]
+async fn test_known_absent_person_property_is_not_set(
+    #[case] listed: Option<Value>,
+    #[case] expected: bool,
+) -> Result<()> {
+    let (server, token) = known_absent_server(
+        json!({"plan": "pro"}),
+        json!([known_absent_is_not_set_flag(
+            "plan-not-set",
+            json!({"groups": [{
+                "properties": [{"key": "plan", "type": "person", "operator": "is_not_set", "value": "is_not_set"}],
+                "rollout_percentage": 100,
+            }]})
+        )]),
+        &[],
+    )
+    .await?;
+    let mut payload = json!({"token": token, "distinct_id": "user_distinct_id"});
+    if let Some(listed) = listed {
+        payload["person_property_keys_known_absent"] = listed;
+    }
+
+    let res = server
+        .send_flags_request(payload.to_string(), Some("1"), None)
+        .await;
+
+    assert_eq!(StatusCode::OK, res.status());
+    assert_json_include!(
+        actual: res.json::<Value>().await?,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "featureFlags": {"plan-not-set": expected}
+        })
+    );
+    Ok(())
+}
+
+#[rstest]
+#[case::listed(Some(json!({"organization": ["tier"]})), true)]
+#[case::field_not_sent(None, false)]
+#[case::unknown_group_type(Some(json!({"no_such_type": ["tier"]})), false)]
+#[tokio::test]
+async fn test_known_absent_group_property_is_not_set(
+    #[case] listed: Option<Value>,
+    #[case] expected: bool,
+) -> Result<()> {
+    let (server, token) = known_absent_server(
+        json!({}),
+        json!([known_absent_is_not_set_flag(
+            "tier-not-set",
+            json!({
+                "aggregation_group_type_index": 1,
+                "groups": [{
+                    "properties": [{
+                        "key": "tier", "type": "group", "group_type_index": 1,
+                        "operator": "is_not_set", "value": "is_not_set",
+                    }],
+                    "rollout_percentage": 100,
+                }],
+            })
+        )]),
+        &[("organization", "acme", json!({"tier": "enterprise"}))],
+    )
+    .await?;
+    let mut payload = json!({
+        "token": token,
+        "distinct_id": "user_distinct_id",
+        "groups": {"organization": "acme"},
+    });
+    if let Some(listed) = listed {
+        payload["group_property_keys_known_absent"] = listed;
+    }
+
+    let res = server
+        .send_flags_request(payload.to_string(), Some("1"), None)
+        .await;
+
+    assert_eq!(StatusCode::OK, res.status());
+    assert_json_include!(
+        actual: res.json::<Value>().await?,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "featureFlags": {"tier-not-set": expected}
+        })
+    );
+    Ok(())
+}

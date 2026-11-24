@@ -1,3 +1,4 @@
+import re
 import asyncio
 import contextlib
 import dataclasses
@@ -89,6 +90,16 @@ from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.tool_errors import MaxToolRetryableError
 
 logger = structlog.get_logger(__name__)
+
+_PROMPT_DATE_BOUND_RE = re.compile(
+    r"\b(?:today|yesterday|now)\s*\(\s*\)|[-+]\s*INTERVAL\s+\d+\s+(?:SECOND|MINUTE|HOUR|DAY|WEEK|MONTH|QUARTER|YEAR)S?\b",
+    re.IGNORECASE,
+)
+
+
+def _prompt_sets_own_date_bounds(prompt: Optional[str]) -> bool:
+    return prompt is not None and _PROMPT_DATE_BOUND_RE.search(prompt) is not None
+
 
 # Wall-clock bounds for the in-band LLM + HogQL pipeline. The caller's outer deadline (Temporal
 # activity timeout for scheduled, request timeout for ad-hoc) is the ultimate cap; these prevent a
@@ -411,6 +422,7 @@ async def generate_ai_report(
             chart_failure_count=chart_spec_failures,
             no_rows_count=execution.no_rows_count,
             coverage_complete=spec.coverage_complete,
+            prompt_sets_own_date_bounds=_prompt_sets_own_date_bounds(prompt),
         )
         query_plan_status = resolve_ai_query_plan_status(
             initial_status=initial_query_plan_status,
@@ -455,6 +467,7 @@ def _plan_to_freeze(
     chart_failure_count: int = 0,
     no_rows_count: int = 0,
     coverage_complete: bool = True,
+    prompt_sets_own_date_bounds: bool = False,
 ) -> Optional[dict]:
     # Steps already carry their final HogQL by this point — see the write-back in `run_step`.
     # Never freeze a plan the next delivery is better off re-planning: a plan with any failed step would
@@ -482,6 +495,9 @@ def _plan_to_freeze(
             trace_correlation_id=trace_correlation_id,
             total_steps=total_steps,
         )
+        return None
+    if prompt_sets_own_date_bounds:
+        logger.warning("ai_report.prompt_sets_own_date_bounds_not_frozen", trace_correlation_id=trace_correlation_id)
         return None
     if not coverage_complete:
         logger.warning("ai_report.plan_coverage_incomplete_not_frozen", trace_correlation_id=trace_correlation_id)

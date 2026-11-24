@@ -10,15 +10,21 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     AiObservabilityInstrumentationChecklistRetrieveParams,
+    AiObservabilityOfflineExperimentsItemsDestroyParams,
     AiObservabilityOfflineExperimentsItemsListParams,
+    AiObservabilityOfflineExperimentsItemsPayloadDestroyParams,
     AiObservabilityOfflineExperimentsItemsResultsListParams,
     AiObservabilityOfflineExperimentsListParams,
     AiObservabilityOfflineExperimentsResultCellsRetrieveParams,
+    AiObservabilityOfflineExperimentsResultsDestroyParams,
+    AiObservabilityOfflineExperimentsResultsPayloadDestroyParams,
     AiObservabilityOfflineExperimentsScorerSummariesListParams,
     AiObservabilityOfflineScorersHistoryListParams,
     AiObservabilityTracesClustersRetrieveParams,
     AiObservabilityTracesExportsContentRetrieveParams,
     AiObservabilityTracesFeedbackRetrieveParams,
+    AiObservabilityTracesListParams,
+    AiObservabilityTracesMetricsListParams,
     AiObservabilityTracesNodesDatasetItemRetrieveParams,
     AiObservabilityTracesNodesParserTestCreateParams,
     AiObservabilityTracesNodesRawRetrieveParams,
@@ -30,6 +36,7 @@ import type {
     BatchCheckRequestApi,
     BatchCheckResponseApi,
     ClusteringConfigApi,
+    ClusteringConfigSetEnabledApi,
     ClusteringConfigSetEventFiltersApi,
     ClusteringJobApi,
     ClusteringRunRequestApi,
@@ -58,6 +65,7 @@ import type {
     EvalSuggestionDismissApi,
     EvalSuggestionEstimateApi,
     EvalSuggestionListApi,
+    EvalSuggestionSettingsApi,
     EvaluationApi,
     EvaluationBackfillApi,
     EvaluationBackfillEstimateApi,
@@ -119,6 +127,7 @@ import type {
     OfflineResultCellsApi,
     OfflineResultPageApi,
     OfflineResultPayloadReadApi,
+    OfflineRevisionApi,
     OfflineSummaryPageApi,
     PaginatedClusteringJobListApi,
     PaginatedDatasetItemReadListApi,
@@ -134,22 +143,25 @@ import type {
     PaginatedReviewQueueItemListApi,
     PaginatedReviewQueueListApi,
     PaginatedScoreDefinitionListApi,
-    PaginatedTaggerListApi,
     PaginatedTraceReviewListApi,
     ParserRecipeApi,
     PatchedClusteringJobApi,
     PatchedDatasetUpdateApi,
+    PatchedEvalSuggestionSettingsApi,
     PatchedEvaluationApi,
     PatchedEvaluationDirectoryApi,
     PatchedEvaluationReportUpdateApi,
     PatchedLLMPromptPublishApi,
     PatchedLLMProviderKeyApi,
     PatchedOfflineExperimentMetadataApi,
+    PatchedOfflineItemPayloadUpdateApi,
+    PatchedOfflineItemUpdateApi,
+    PatchedOfflineResultPayloadUpdateApi,
+    PatchedOfflineResultUpdateApi,
     PatchedParserRecipeApi,
     PatchedReviewQueueItemUpdateApi,
     PatchedReviewQueueUpdateApi,
     PatchedScoreDefinitionMetadataApi,
-    PatchedTaggerUpdateApi,
     PatchedTraceReviewUpdateApi,
     PersonalSpendAnalysisResponseApi,
     ProviderKeyDependentConfigsApi,
@@ -165,13 +177,8 @@ import type {
     ScoreHistogramApi,
     SummarizeRequestApi,
     SummarizeResponseApi,
-    TaggerApi,
-    TaggerUpdateApi,
-    TaggersListParams,
     TestHogRequestApi,
     TestHogResponseApi,
-    TestHogTaggerRequestApi,
-    TestHogTaggerResponseApi,
     TextReprRequestApi,
     TextReprResponseApi,
     TraceApi,
@@ -183,16 +190,23 @@ import type {
     TraceExportCreateApi,
     TraceExportFileApi,
     TraceFeedbackApi,
+    TraceListApi,
+    TraceMetricsApi,
     TraceNodeDatasetItemApi,
     TraceNodeDetailApi,
     TraceNodeParserTestApi,
     TraceNodeParserTestRequestApi,
     TraceNodeRawApi,
+    TracePageRequestApi,
+    TracePageWithBoundsRequestApi,
+    TracePeopleListApi,
+    TracePreviewListApi,
     TracePullRequestLookupApi,
     TraceReviewApi,
     TraceReviewCreateApi,
     TraceReviewStatusApi,
     TraceSearchResultsApi,
+    TraceSentimentListApi,
     TraceSummaryApi,
     TraceSummaryRequestApi,
     TranslateRequestApi,
@@ -486,6 +500,66 @@ export const aiObservabilityOfflineExperimentsItemsRetrieve = async (
     })
 }
 
+export const getAiObservabilityOfflineExperimentsItemsPartialUpdateUrl = (
+    projectId: string,
+    id: string,
+    itemId: string
+) => {
+    return `/api/projects/${projectId}/ai_observability/offline_experiments/${id}/items/${itemId}/`
+}
+
+export const aiObservabilityOfflineExperimentsItemsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    itemId: string,
+    patchedOfflineItemUpdateApi: PatchedOfflineItemUpdateApi,
+    options?: RequestInit
+): Promise<OfflineRevisionApi> => {
+    return apiMutator<OfflineRevisionApi>(
+        getAiObservabilityOfflineExperimentsItemsPartialUpdateUrl(projectId, id, itemId),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedOfflineItemUpdateApi),
+        }
+    )
+}
+
+export const getAiObservabilityOfflineExperimentsItemsDestroyUrl = (
+    projectId: string,
+    id: string,
+    itemId: string,
+    params: AiObservabilityOfflineExperimentsItemsDestroyParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/offline_experiments/${id}/items/${itemId}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/offline_experiments/${id}/items/${itemId}/`
+}
+
+export const aiObservabilityOfflineExperimentsItemsDestroy = async (
+    projectId: string,
+    id: string,
+    itemId: string,
+    params: AiObservabilityOfflineExperimentsItemsDestroyParams,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getAiObservabilityOfflineExperimentsItemsDestroyUrl(projectId, id, itemId, params), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
 export const getAiObservabilityOfflineExperimentsItemsPayloadRetrieveUrl = (
     projectId: string,
     id: string,
@@ -507,6 +581,66 @@ export const aiObservabilityOfflineExperimentsItemsPayloadRetrieve = async (
             method: 'GET',
         }
     )
+}
+
+export const getAiObservabilityOfflineExperimentsItemsPayloadPartialUpdateUrl = (
+    projectId: string,
+    id: string,
+    itemId: string
+) => {
+    return `/api/projects/${projectId}/ai_observability/offline_experiments/${id}/items/${itemId}/payload/`
+}
+
+export const aiObservabilityOfflineExperimentsItemsPayloadPartialUpdate = async (
+    projectId: string,
+    id: string,
+    itemId: string,
+    patchedOfflineItemPayloadUpdateApi: PatchedOfflineItemPayloadUpdateApi,
+    options?: RequestInit
+): Promise<OfflineRevisionApi> => {
+    return apiMutator<OfflineRevisionApi>(
+        getAiObservabilityOfflineExperimentsItemsPayloadPartialUpdateUrl(projectId, id, itemId),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedOfflineItemPayloadUpdateApi),
+        }
+    )
+}
+
+export const getAiObservabilityOfflineExperimentsItemsPayloadDestroyUrl = (
+    projectId: string,
+    id: string,
+    itemId: string,
+    params: AiObservabilityOfflineExperimentsItemsPayloadDestroyParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/offline_experiments/${id}/items/${itemId}/payload/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/offline_experiments/${id}/items/${itemId}/payload/`
+}
+
+export const aiObservabilityOfflineExperimentsItemsPayloadDestroy = async (
+    projectId: string,
+    id: string,
+    itemId: string,
+    params: AiObservabilityOfflineExperimentsItemsPayloadDestroyParams,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getAiObservabilityOfflineExperimentsItemsPayloadDestroyUrl(projectId, id, itemId, params), {
+        ...options,
+        method: 'DELETE',
+    })
 }
 
 export const getAiObservabilityOfflineExperimentsItemsResultsListUrl = (
@@ -581,6 +715,66 @@ export const aiObservabilityOfflineExperimentsResultCellsRetrieve = async (
     )
 }
 
+export const getAiObservabilityOfflineExperimentsResultsPartialUpdateUrl = (
+    projectId: string,
+    id: string,
+    resultId: string
+) => {
+    return `/api/projects/${projectId}/ai_observability/offline_experiments/${id}/results/${resultId}/`
+}
+
+export const aiObservabilityOfflineExperimentsResultsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    resultId: string,
+    patchedOfflineResultUpdateApi: PatchedOfflineResultUpdateApi,
+    options?: RequestInit
+): Promise<OfflineRevisionApi> => {
+    return apiMutator<OfflineRevisionApi>(
+        getAiObservabilityOfflineExperimentsResultsPartialUpdateUrl(projectId, id, resultId),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedOfflineResultUpdateApi),
+        }
+    )
+}
+
+export const getAiObservabilityOfflineExperimentsResultsDestroyUrl = (
+    projectId: string,
+    id: string,
+    resultId: string,
+    params: AiObservabilityOfflineExperimentsResultsDestroyParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/offline_experiments/${id}/results/${resultId}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/offline_experiments/${id}/results/${resultId}/`
+}
+
+export const aiObservabilityOfflineExperimentsResultsDestroy = async (
+    projectId: string,
+    id: string,
+    resultId: string,
+    params: AiObservabilityOfflineExperimentsResultsDestroyParams,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getAiObservabilityOfflineExperimentsResultsDestroyUrl(projectId, id, resultId, params), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
 export const getAiObservabilityOfflineExperimentsResultsPayloadRetrieveUrl = (
     projectId: string,
     id: string,
@@ -600,6 +794,69 @@ export const aiObservabilityOfflineExperimentsResultsPayloadRetrieve = async (
         {
             ...options,
             method: 'GET',
+        }
+    )
+}
+
+export const getAiObservabilityOfflineExperimentsResultsPayloadPartialUpdateUrl = (
+    projectId: string,
+    id: string,
+    resultId: string
+) => {
+    return `/api/projects/${projectId}/ai_observability/offline_experiments/${id}/results/${resultId}/payload/`
+}
+
+export const aiObservabilityOfflineExperimentsResultsPayloadPartialUpdate = async (
+    projectId: string,
+    id: string,
+    resultId: string,
+    patchedOfflineResultPayloadUpdateApi: PatchedOfflineResultPayloadUpdateApi,
+    options?: RequestInit
+): Promise<OfflineRevisionApi> => {
+    return apiMutator<OfflineRevisionApi>(
+        getAiObservabilityOfflineExperimentsResultsPayloadPartialUpdateUrl(projectId, id, resultId),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedOfflineResultPayloadUpdateApi),
+        }
+    )
+}
+
+export const getAiObservabilityOfflineExperimentsResultsPayloadDestroyUrl = (
+    projectId: string,
+    id: string,
+    resultId: string,
+    params: AiObservabilityOfflineExperimentsResultsPayloadDestroyParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/offline_experiments/${id}/results/${resultId}/payload/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/offline_experiments/${id}/results/${resultId}/payload/`
+}
+
+export const aiObservabilityOfflineExperimentsResultsPayloadDestroy = async (
+    projectId: string,
+    id: string,
+    resultId: string,
+    params: AiObservabilityOfflineExperimentsResultsPayloadDestroyParams,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(
+        getAiObservabilityOfflineExperimentsResultsPayloadDestroyUrl(projectId, id, resultId, params),
+        {
+            ...options,
+            method: 'DELETE',
         }
     )
 }
@@ -684,6 +941,37 @@ export const aiObservabilityOfflineScorersHistoryList = async (
     options?: RequestInit
 ): Promise<OfflineHistoryPageApi> => {
     return apiMutator<OfflineHistoryPageApi>(getAiObservabilityOfflineScorersHistoryListUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAiObservabilityTracesListUrl = (projectId: string, params?: AiObservabilityTracesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/traces/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/traces/`
+}
+
+/**
+ * The project's traces in a date range, newest first, a page at a time. The first page also carries how many
+ * traces the selection holds.
+ */
+export const aiObservabilityTracesList = async (
+    projectId: string,
+    params?: AiObservabilityTracesListParams,
+    options?: RequestInit
+): Promise<TraceListApi> => {
+    return apiMutator<TraceListApi>(getAiObservabilityTracesListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -1211,6 +1499,100 @@ export const aiObservabilityTracesAvailabilityCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(traceAvailabilityRequestApi),
+    })
+}
+
+export const getAiObservabilityTracesMetricsListUrl = (
+    projectId: string,
+    params?: AiObservabilityTracesMetricsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/traces/metrics/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/traces/metrics/`
+}
+
+/**
+ * Six metrics for the project's traces in a date range, each compared with the period right before it, and
+ * the same metrics for each hour or day of the range.
+ */
+export const aiObservabilityTracesMetricsList = async (
+    projectId: string,
+    params?: AiObservabilityTracesMetricsListParams,
+    options?: RequestInit
+): Promise<TraceMetricsApi> => {
+    return apiMutator<TraceMetricsApi>(getAiObservabilityTracesMetricsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAiObservabilityTracesPeopleCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/ai_observability/traces/people/`
+}
+
+/**
+ * The person each trace on a page ran for, labeled by the project's display name properties.
+ */
+export const aiObservabilityTracesPeopleCreate = async (
+    projectId: string,
+    tracePageWithBoundsRequestApi: TracePageWithBoundsRequestApi,
+    options?: RequestInit
+): Promise<TracePeopleListApi> => {
+    return apiMutator<TracePeopleListApi>(getAiObservabilityTracesPeopleCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(tracePageWithBoundsRequestApi),
+    })
+}
+
+export const getAiObservabilityTracesPreviewsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/ai_observability/traces/previews/`
+}
+
+/**
+ * The input and output previews of a page of traces: the user's message each trace answered and its answer.
+ */
+export const aiObservabilityTracesPreviewsCreate = async (
+    projectId: string,
+    tracePageRequestApi: TracePageRequestApi,
+    options?: RequestInit
+): Promise<TracePreviewListApi> => {
+    return apiMutator<TracePreviewListApi>(getAiObservabilityTracesPreviewsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(tracePageRequestApi),
+    })
+}
+
+export const getAiObservabilityTracesSentimentCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/ai_observability/traces/sentiment/`
+}
+
+/**
+ * The sentiment of each trace on a page, from its sentiment evaluation results.
+ */
+export const aiObservabilityTracesSentimentCreate = async (
+    projectId: string,
+    tracePageWithBoundsRequestApi: TracePageWithBoundsRequestApi,
+    options?: RequestInit
+): Promise<TraceSentimentListApi> => {
+    return apiMutator<TraceSentimentListApi>(getAiObservabilityTracesSentimentCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(tracePageWithBoundsRequestApi),
     })
 }
 
@@ -1878,6 +2260,43 @@ export const evaluationSuggestionsDismissCreate = async (
     })
 }
 
+export const getEvaluationSuggestionsSettingsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/evaluation_suggestions/settings/`
+}
+
+/**
+ * Whether the project gets suggestions.
+ */
+export const evaluationSuggestionsSettingsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<EvalSuggestionSettingsApi> => {
+    return apiMutator<EvalSuggestionSettingsApi>(getEvaluationSuggestionsSettingsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEvaluationSuggestionsSettingsPartialUpdateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/evaluation_suggestions/settings/`
+}
+
+/**
+ * Turn suggestions off or back on for the project. A body without `enabled` changes nothing.
+ */
+export const evaluationSuggestionsSettingsPartialUpdate = async (
+    projectId: string,
+    patchedEvalSuggestionSettingsApi?: PatchedEvalSuggestionSettingsApi,
+    options?: RequestInit
+): Promise<EvalSuggestionSettingsApi> => {
+    return apiMutator<EvalSuggestionSettingsApi>(getEvaluationSuggestionsSettingsPartialUpdateUrl(projectId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedEvalSuggestionSettingsApi),
+    })
+}
+
 export const getEvaluationsListUrl = (projectId: string, params?: EvaluationsListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -2282,6 +2701,26 @@ export const llmAnalyticsClusteringConfigList = async (
     return apiMutator<ClusteringConfigApi>(getLlmAnalyticsClusteringConfigListUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getLlmAnalyticsClusteringConfigSetEnabledCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/llm_analytics/clustering_config/set_enabled/`
+}
+
+/**
+ * Team-level clustering configuration (event filters for automated pipelines).
+ */
+export const llmAnalyticsClusteringConfigSetEnabledCreate = async (
+    projectId: string,
+    clusteringConfigSetEnabledApi: ClusteringConfigSetEnabledApi,
+    options?: RequestInit
+): Promise<ClusteringConfigApi> => {
+    return apiMutator<ClusteringConfigApi>(getLlmAnalyticsClusteringConfigSetEnabledCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(clusteringConfigSetEnabledApi),
     })
 }
 
@@ -3805,113 +4244,5 @@ export const llmPromptsResolveNameRetrieve = async (
     return apiMutator<LLMPromptResolveResponseApi>(getLlmPromptsResolveNameRetrieveUrl(projectId, promptName, params), {
         ...options,
         method: 'GET',
-    })
-}
-
-export const getTaggersListUrl = (projectId: string, params?: TaggersListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/taggers/?${stringifiedParams}`
-        : `/api/projects/${projectId}/taggers/`
-}
-
-export const taggersList = async (
-    projectId: string,
-    params?: TaggersListParams,
-    options?: RequestInit
-): Promise<PaginatedTaggerListApi> => {
-    return apiMutator<PaginatedTaggerListApi>(getTaggersListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getTaggersRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/taggers/${id}/`
-}
-
-export const taggersRetrieve = async (projectId: string, id: string, options?: RequestInit): Promise<TaggerApi> => {
-    return apiMutator<TaggerApi>(getTaggersRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getTaggersUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/taggers/${id}/`
-}
-
-export const taggersUpdate = async (
-    projectId: string,
-    id: string,
-    taggerUpdateApi: TaggerUpdateApi,
-    options?: RequestInit
-): Promise<TaggerApi> => {
-    return apiMutator<TaggerApi>(getTaggersUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(taggerUpdateApi),
-    })
-}
-
-export const getTaggersPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/taggers/${id}/`
-}
-
-export const taggersPartialUpdate = async (
-    projectId: string,
-    id: string,
-    patchedTaggerUpdateApi?: PatchedTaggerUpdateApi,
-    options?: RequestInit
-): Promise<TaggerApi> => {
-    return apiMutator<TaggerApi>(getTaggersPartialUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedTaggerUpdateApi),
-    })
-}
-
-export const getTaggersDestroyUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/taggers/${id}/`
-}
-
-/**
- * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
- */
-export const taggersDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<unknown> => {
-    return apiMutator<unknown>(getTaggersDestroyUrl(projectId, id), {
-        ...options,
-        method: 'DELETE',
-    })
-}
-
-export const getTaggersTestHogCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/taggers/test_hog/`
-}
-
-/**
- * Test Hog tagger code against sample events without saving.
- */
-export const taggersTestHogCreate = async (
-    projectId: string,
-    testHogTaggerRequestApi: TestHogTaggerRequestApi,
-    options?: RequestInit
-): Promise<TestHogTaggerResponseApi> => {
-    return apiMutator<TestHogTaggerResponseApi>(getTaggersTestHogCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(testHogTaggerRequestApi),
     })
 }

@@ -456,6 +456,11 @@ class TestSandboxGithubIdentityGate:
     their token when they have access, otherwise a logout so no previous actor's
     identity survives."""
 
+    @pytest.fixture(autouse=True)
+    def _stub_stale_credential_scrub(self):
+        with patch(f"{_GH_MODULE}.clear_github_env_from_gitlab_sandbox", return_value=True):
+            yield
+
     def test_same_actor_is_re_established_not_skipped(
         self, mock_authorship, mock_resolve, mock_get_token, mock_apply, mock_clear, mock_upgrade
     ):
@@ -942,13 +947,50 @@ class TestSendFollowupActivityRefreshOrdering:
         )
         assert order == ["store_skills", "mcp"]
 
-    def test_non_slack_delivery_does_not_stamp(self, _patches):
+    def test_failed_slack_actor_stamp_prevents_delivery(self, _patches):
+        _patches["user_msg"].return_value = CommandResult(success=True, status_code=200)
+        _patches["task_run"].state = {"interaction_origin": "slack", "slack_actor_user_id": 42}
+
+        def update_state(_run_id, *, updates):
+            if "slack_actor_user_id" in updates:
+                raise RuntimeError("database unavailable")
+
+        _patches["task_run_cls"].update_state_atomic.side_effect = update_state
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_task_run_credential_user",
+            return_value=MagicMock(id=99),
+        ):
+            with pytest.raises(RuntimeError, match="database unavailable"):
+                _run_activity(
+                    SendFollowupToSandboxInput(
+                        run_id="run-1", message="hi", actor_user_id=99, context={"actor_slack_user_id": "U_BOB"}
+                    )
+                )
+
+        _patches["user_msg"].assert_not_called()
+        _patches["refresh_github"].assert_not_called()
+
+    @pytest.mark.parametrize("actor_user_id, locks", [(99, True), (42, False)])
+    def test_non_slack_delivery_stamps_only_the_memory_lock(self, _patches, actor_user_id, locks):
         _patches["user_msg"].return_value = CommandResult(success=True, status_code=200)
 
-        _run_activity(SendFollowupToSandboxInput(run_id="run-1", message="hi", actor_user_id=99))
+        _run_activity(SendFollowupToSandboxInput(run_id="run-1", message="hi", actor_user_id=actor_user_id))
 
-        _patches["task_run_cls"].update_state_atomic.assert_not_called()
+        if locks:
+            _patches["task_run_cls"].update_state_atomic.assert_called_once_with(
+                "run-1", updates={"agent_memory_locked": True}
+            )
+        else:
+            _patches["task_run_cls"].update_state_atomic.assert_not_called()
         _patches["refresh_store_skills"].assert_not_called()
+
+    def test_a_failed_lock_write_fails_the_delivery_before_the_message_is_sent(self, _patches):
+        _patches["task_run_cls"].update_state_atomic.side_effect = RuntimeError("database unavailable")
+
+        with pytest.raises(RuntimeError, match="database unavailable"):
+            _run_activity(SendFollowupToSandboxInput(run_id="run-1", message="hi", actor_user_id=99))
+
+        _patches["user_msg"].assert_not_called()
 
     def test_default_scope_is_read_only(self, _patches):
         _patches["user_msg"].return_value = CommandResult(success=True, status_code=200)

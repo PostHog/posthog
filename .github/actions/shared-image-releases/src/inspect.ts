@@ -17,7 +17,7 @@ async function publish(config: Configuration): Promise<void> {
   if (process.env.GITHUB_REF !== `refs/heads/${event.repository?.default_branch}`) throw new Error('Shared-image publication requires the default branch')
   const force = JSON.parse(core.getInput('shared-image-force') || '[]') as string[]
   const bootstrapText = core.getInput('shared-image-bootstrap')
-  const bootstrap = bootstrapText ? JSON.parse(bootstrapText) as Bootstrap : undefined
+  const bootstrap = bootstrapText ? JSON.parse(bootstrapText) as Bootstrap | Bootstrap[] : undefined
   if ((force.length || bootstrap) && process.env.GITHUB_EVENT_NAME !== 'workflow_dispatch') {
     throw new Error('Force and bootstrap require an authorized manual default-branch invocation')
   }

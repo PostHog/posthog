@@ -13,43 +13,19 @@ use capture_logs::endpoints::prometheus::{
     decode_write_request, estimate_expanded_bytes, write_timeseries_to_kafka_rows_with_options,
     RemoteWriteEncoding, RemoteWriteOptions,
 };
+use capture_logs::metric_record::sum_kafka_metric_row_bytes;
 use metrics::counter;
 use serde::Deserialize;
 use serde_json::json;
 use tracing::{debug, error, instrument};
 
 use crate::histogram_assembly::fold_classic_histograms;
+use crate::label_cardinality::Source;
 use crate::service::MetricsService;
 
 #[derive(Deserialize)]
 pub struct RemoteWriteQueryParams {
     token: Option<String>,
-}
-
-/// Resolve the project token from (in order) the URL path, the Authorization
-/// header (Bearer or bare), or the `token` query param — matching the
-/// flexibility remote-write senders actually have.
-fn extract_token(
-    path_token: Option<String>,
-    headers: &HeaderMap,
-    query_token: Option<&str>,
-) -> Option<String> {
-    if let Some(token) = path_token {
-        if !token.is_empty() {
-            return Some(token);
-        }
-    }
-    if let Some(auth) = headers.get("authorization").and_then(|v| v.to_str().ok()) {
-        let token = auth
-            .strip_prefix("Bearer ")
-            .or_else(|| auth.strip_prefix("bearer "))
-            .unwrap_or(auth)
-            .trim();
-        if !token.is_empty() {
-            return Some(token.to_string());
-        }
-    }
-    query_token.filter(|t| !t.is_empty()).map(str::to_string)
 }
 
 /// Prometheus remote-write v1 ingestion endpoint. Also accepts the
@@ -80,26 +56,14 @@ pub async fn export_prometheus_remote_write_http(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<StatusCode, (StatusCode, Json<serde_json::Value>)> {
-    let token = match extract_token(
-        path_token.map(|Path(t)| t),
+    let token = service.authorizer.authorize_from_path_header_or_query(
+        path_token.as_ref().map(|Path(token)| token.as_str()),
         &headers,
         query_params.token.as_deref(),
-    ) {
-        Some(token) => token,
-        None => {
-            error!("No token provided");
-            return Err((
-                StatusCode::UNAUTHORIZED,
-                Json(json!({"error": "No token provided"})),
-            ));
-        }
-    };
+        Signal::Metrics,
+    )?;
 
-    service
-        .authorizer
-        .authorize_token(&token, Signal::Metrics)?;
-
-    tracing::Span::current().record("token", &token);
+    tracing::Span::current().record("token", token);
 
     let encoding = RemoteWriteEncoding::from_headers(&headers);
     counter!(
@@ -129,7 +93,7 @@ pub async fn export_prometheus_remote_write_http(
     // The k8s resource attribute copy clones labels into every row after this
     // check, so its bytes count toward the same limit.
     let k8s_resource_attributes = &service.k8s_resource_attributes;
-    let added = k8s_resource_attributes.estimate_added_bytes(&token, &write_request);
+    let added = k8s_resource_attributes.estimate_added_bytes(token, &write_request);
     let expanded = estimate_expanded_bytes(&write_request).saturating_add(added);
     let max_expanded = service.remote_write_max_expanded_bytes;
     if expanded > max_expanded {
@@ -153,15 +117,28 @@ pub async fn export_prometheus_remote_write_http(
     );
     // Before the histogram fold, so folded histograms carry the attributes and
     // fingerprint them.
-    service.k8s_resource_attributes.apply(&token, &mut rows);
+    service.k8s_resource_attributes.apply(token, &mut rows);
     let mut rows = fold_classic_histograms(rows, &write_request.metadata);
-    let (labelled, records_bytes) = service.series_label_gate.decide_metered(&token, &mut rows);
+    let source = Source::remote_write(&write_request.metadata);
+    let detector = &service.label_cardinality;
+    let records_bytes = sum_kafka_metric_row_bytes(&rows);
+    let gate = &service.series_label_gate;
+    let labelled = gate.classify(token, &rows);
+    // A full cache reports uncached series as new on every row, so they count as repeats.
+    let new_rows = if gate.cache_full(token) {
+        &[]
+    } else {
+        labelled.new_series_rows()
+    };
+    detector.observe(token, &rows, new_rows, &source);
+    detector.note_new_series(token, &rows, new_rows, &source);
+    gate.strip_repeats(&mut rows, &labelled);
     let row_count = rows.len();
 
     if let Err(e) = service
         .sink
         .write_metrics(
-            &token,
+            token,
             rows,
             uncompressed_bytes,
             Some(records_bytes),
@@ -175,7 +152,7 @@ pub async fn export_prometheus_remote_write_http(
             Json(json!({"error": "Internal server error"})),
         ));
     }
-    service.series_label_gate.commit(&token, labelled);
+    service.series_label_gate.commit(token, labelled);
 
     debug!("Sent {row_count} remote-write data points to Kafka");
     Ok(StatusCode::NO_CONTENT)

@@ -11,6 +11,7 @@ from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponenti
 from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SourceResponse,
+    flatten_jsonapi,
     make_tracked_session,
     retry_with_deadline,
 )
@@ -110,19 +111,24 @@ def _flatten_item(item: dict[str, Any], drop_fields: tuple[str, ...] = ()) -> di
     `drop_fields` removes attributes that must never be persisted — state versions carry signed
     state-file download/upload URLs that would grant raw state access to anyone who can query
     the warehouse table."""
-    row: dict[str, Any] = {"id": item["id"], "type": item.get("type")}
-    attributes = item.get("attributes") or {}
-    if isinstance(attributes, dict):
-        row.update(_normalize_keys(attributes))
+    attributes = item.get("attributes")
+    normalized = _normalize_keys(attributes) if isinstance(attributes, dict) else {}
     for field in drop_fields:
-        row.pop(field, None)
-    relationships = item.get("relationships") or {}
-    if isinstance(relationships, dict):
-        for rel_name, rel in relationships.items():
-            data = rel.get("data") if isinstance(rel, dict) else None
-            if isinstance(data, dict) and data.get("id"):
-                row[f"{_normalize_key(rel_name)}_id"] = data["id"]
-    return row
+        normalized.pop(field, None)
+    relationships = item.get("relationships")
+    return flatten_jsonapi(
+        {
+            "id": item["id"],
+            "type": item.get("type"),
+            "attributes": normalized,
+            "relationships": (
+                {_normalize_key(name): rel for name, rel in relationships.items()}
+                if isinstance(relationships, dict)
+                else {}
+            ),
+        },
+        on_clash="nested",
+    )
 
 
 def _data_items(data: dict[str, Any]) -> list[dict[str, Any]]:

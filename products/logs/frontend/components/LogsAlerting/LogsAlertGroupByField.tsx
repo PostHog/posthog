@@ -4,26 +4,14 @@ import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
-import { LogsAlertConfigurationThresholdOperatorEnumApi } from 'products/logs/frontend/generated/api.schemas'
-
 import { logsAlertFormLogic } from './logsAlertFormLogic'
 import {
+    GROUP_BY_HELP,
     GROUP_BY_LABELS,
-    GROUP_BY_NOT_AVAILABLE,
-    GROUPING_NEEDS_ABOVE,
+    groupByOptionDisabledReason,
     LogsAlertGroupBy,
     MAX_INSTANCES_LIMIT,
 } from './logsAlertGrouping'
-
-const GROUP_BY_HELP: Record<LogsAlertGroupBy, string> = {
-    none: 'Split the count by service or severity to alert on each one separately.',
-    service:
-        'Each service fires and notifies on its own, so several services over the threshold send several notifications.',
-    severity:
-        'Each severity fires and notifies on its own, so several severities over the threshold send several notifications.',
-    service_and_severity:
-        'Each service and severity pair fires and notifies on its own, so several pairs over the threshold send several notifications.',
-}
 
 export function LogsAlertGroupByField(): JSX.Element | null {
     const { alertForm, alertFormValidationErrors, canGroup, lockedGroupBy } = useValues(logsAlertFormLogic)
@@ -33,20 +21,9 @@ export function LogsAlertGroupByField(): JSX.Element | null {
         return null
     }
 
-    const groupingDisabledReason =
-        alertForm.thresholdOperator === LogsAlertConfigurationThresholdOperatorEnumApi.Above
-            ? undefined
-            : GROUPING_NEEDS_ABOVE
     const isGrouped = alertForm.groupBy !== 'none'
-    const disabledReasonFor = (groupBy: LogsAlertGroupBy): string | undefined => {
-        if (groupBy === 'none') {
-            return undefined
-        }
-        if (lockedGroupBy !== null && groupBy !== lockedGroupBy) {
-            return GROUP_BY_NOT_AVAILABLE
-        }
-        return groupingDisabledReason
-    }
+    const disabledReasonFor = (groupBy: LogsAlertGroupBy): string | undefined =>
+        groupByOptionDisabledReason(groupBy, alertForm.thresholdOperator, lockedGroupBy)
 
     return (
         <LemonField.Pure

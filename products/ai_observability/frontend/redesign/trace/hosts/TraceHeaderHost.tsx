@@ -1,8 +1,12 @@
 import { useActions, useValues } from 'kea'
+import type { MouseEvent } from 'react'
+
+import { useOpenTraceDialog } from 'products/tracing/frontend/components/TraceDialog/useOpenTraceDialog'
 
 import { ReviewQueuePickerModal } from '../../../reviewQueues/ReviewQueuePickerModal'
 import { TraceReviewButton } from '../../../traceReviews/TraceReviewButton'
 import { TraceHeader } from '../components/TraceHeader'
+import { traceDistributedTraceLogic } from '../traceDistributedTraceLogic'
 import { traceExportLogic } from '../traceExportLogic'
 import { traceReviewLogic } from '../traceReviewLogic'
 import { traceViewLogic } from '../traceViewLogic'
@@ -19,7 +23,7 @@ export function TraceHeaderHost({
     timestampHint,
     backLink,
 }: TraceHeaderHostProps): JSX.Element | null {
-    const { trace } = useValues(traceViewLogic({ traceId, timestampHint }))
+    const { trace, overview } = useValues(traceViewLogic({ traceId, timestampHint }))
     const viewModel = traceViewModelLogic({ hostId, traceId, timestampHint })
     const { searchBox } = useValues(viewModel)
     const { setQuery, stepMatch } = useActions(viewModel)
@@ -29,10 +33,13 @@ export function TraceHeaderHost({
     const reviewLogic = traceReviewLogic({ traceId })
     const { reviewStatus, reviewStatusFailed } = useValues(reviewLogic)
     const { loadReviewStatus } = useActions(reviewLogic)
+    const { distributedTraceId } = useValues(traceDistributedTraceLogic({ traceId, timestampHint }))
+    const openTraceDialog = useOpenTraceDialog()
 
-    if (!trace) {
+    if (!overview) {
         return null
     }
+    const disabledReason = trace ? undefined : 'Loading trace'
     const queue = reviewStatus?.queue ?? null
     // No queue id goes to the review button: saving a review then clears whichever queue holds the trace, so a stale
     // status can never point the save at the wrong queue.
@@ -58,14 +65,24 @@ export function TraceHeaderHost({
                 ) : null}
             </>
         ) : null
+    const distributedTraceAction = distributedTraceId
+        ? {
+              traceId: distributedTraceId,
+              // No time hint: an AI event carries its end time and a span its start, so a window around
+              // one can miss the other. The trace id alone finds the spans.
+              onOpen: (event: MouseEvent) =>
+                  openTraceDialog(event, { traceId: distributedTraceId }, { entryPoint: 'ai_trace' }),
+          }
+        : undefined
     return (
         <TraceHeader
-            name={trace.name}
-            hasError={trace.hasError}
+            name={overview.name}
+            hasError={overview.hasError}
             backLink={backLink}
             search={{ ...searchBox, onQueryChange: setQuery, onStep: stepMatch }}
-            copyAction={{ loading: traceCopying, onCopy: copyTrace }}
-            exportAction={{ loading: traceExportLoading, onExport: exportTrace }}
+            copyAction={{ loading: traceCopying, onCopy: copyTrace, disabledReason }}
+            exportAction={{ loading: traceExportLoading, onExport: exportTrace, disabledReason }}
+            distributedTraceAction={distributedTraceAction}
             actions={reviewActions}
         />
     )

@@ -4,7 +4,14 @@ const service = (service_name: string, status: 'good' | 'serious'): any => ({
     service_name,
     environment: 'prod',
     status,
-    health: { request_rate: 1, error_rate: status === 'good' ? 0 : 0.1, p95_ms: 10, span_count: 10, error_count: 0 },
+    health: {
+        request_rate: 1,
+        error_rate: status === 'good' ? 0 : 0.1,
+        p95_ms: 10,
+        span_count: 10,
+        error_count: 0,
+        apdex: 1,
+    },
     sparkline: [],
 })
 

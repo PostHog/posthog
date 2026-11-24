@@ -27,28 +27,37 @@ const OLD_CONFIG = JSON.stringify({
 })
 
 describe('hog schema', () => {
-    test('pull regenerates the languages a posthog-cli posthog.json lists and keeps the rest of the file', async () => {
-        const result = await runHog(['schema', 'pull'], {
-            env: AGENT,
-            cwd: '/work/app',
-            files: { '/work/posthog.json': OLD_CONFIG, '/work/src/lib/posthog-typed.ts': 'old' },
-            respond: definitions('new'),
-        })
-        expect(result.exitCode).toBe(EXIT_SUCCESS)
-        expect(result.files['/work/src/lib/posthog-typed.ts']).toBe('new')
-        expect(readJson(result.files['/work/posthog.json']!)).toEqual({
-            errorTracking: { release: { name: 'web' } },
-            languages: {
-                typescript: {
-                    output_path: 'src/lib/posthog-typed.ts',
-                    sdk: 'posthog-js',
-                    schema_hash: 'hash-new',
-                    updated_at: '2026-01-01T00:00:00.000Z',
-                    event_count: 3,
+    test.each([
+        ['as posthog-cli wrote it', OLD_CONFIG, 2, ''],
+        ['indented with 4 spaces', `${JSON.stringify(readJson(OLD_CONFIG), null, 4)}\n`, 4, '\n'],
+        ['indented with tabs', JSON.stringify(readJson(OLD_CONFIG), null, '\t'), '\t', ''],
+    ])(
+        'pull regenerates the languages a posthog-cli posthog.json lists and keeps the rest of the file, %s',
+        async (_name, config, indent, newline) => {
+            const result = await runHog(['schema', 'pull'], {
+                env: AGENT,
+                cwd: '/work/app',
+                files: { '/work/posthog.json': config, '/work/src/lib/posthog-typed.ts': 'old' },
+                respond: definitions('new'),
+            })
+
+            expect(result.exitCode).toBe(EXIT_SUCCESS)
+            expect(result.files['/work/src/lib/posthog-typed.ts']).toBe('new')
+            const expected = {
+                errorTracking: { release: { name: 'web' } },
+                languages: {
+                    typescript: {
+                        output_path: 'src/lib/posthog-typed.ts',
+                        sdk: 'posthog-js',
+                        schema_hash: 'hash-new',
+                        updated_at: '2026-01-01T00:00:00.000Z',
+                        event_count: 3,
+                    },
                 },
-            },
-        })
-    })
+            }
+            expect(result.files['/work/posthog.json']).toBe(`${JSON.stringify(expected, null, indent)}${newline}`)
+        }
+    )
 
     test('pull leaves an up-to-date module and posthog.json alone', async () => {
         const config = JSON.stringify({

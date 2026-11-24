@@ -23,12 +23,29 @@
             ],
             "description": "Only list prompts whose current text names the brand (true) or does not (false). Omit to list both. A prompt is branded when its text names the brand: the registrable name of a target domain as a word, case ignored, so 'example' and 'example.com' both name example.com. Branded prompts almost always get answers that mention the brand."
         },
-        "days": {
-            "default": 30,
-            "description": "The window needs_improvement reads, in days ending now. Default 30, at most 90. Ignored unless needs_improvement is true.",
-            "maximum": 90,
-            "minimum": 1,
-            "type": "number"
+        "date_from": {
+            "anyOf": [
+                {
+                    "maxLength": 32,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "First day of the window. Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day of this month) or 'yStart'. Days are whole days in the project's timezone. Default '-30d'. The window from date_from to date_to can cover at most 91 days."
+        },
+        "date_to": {
+            "anyOf": [
+                {
+                    "maxLength": 32,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Last day of the window, included. Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day of this month) or 'yStart'. Days are whole days in the project's timezone. Default today. A later day is read as today."
         },
         "engine": {
             "anyOf": [
@@ -54,7 +71,7 @@
         },
         "needs_improvement": {
             "default": false,
-            "description": "Only list prompts that the engines answered in the last 'days' days without citing a target domain. Prompts with no answered check in that window are left out.",
+            "description": "Only list prompts that the engines answered from date_from to date_to without citing a target domain. Prompts with no answered check in that window are left out.",
             "type": "boolean"
         },
         "offset": {

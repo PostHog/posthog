@@ -36,6 +36,13 @@ class DesktopAccessReason(LabeledStrEnum):
     PREPAID_CREDITS = "prepaid_credits", "prepaid_credits"
 
 
+class PersonalGitHubRepoAccess(StrEnum):
+    OK = "ok"
+    NOT_CONNECTED = "not_connected"
+    NEEDS_RECONNECT = "needs_reconnect"
+    NO_REPO_ACCESS = "no_repo_access"
+
+
 @dataclass(frozen=True)
 class TaskDTO:
     """A code task."""
@@ -1099,14 +1106,6 @@ class SandboxSnapshotDTO:
 
 
 @dataclass(frozen=True)
-class SignalReportPrUrlDTO:
-    """The PR URL produced by the latest task run for a signal report."""
-
-    report_id: str
-    pr_url: str
-
-
-@dataclass(frozen=True)
 class WarmTaskDTO:
     """The draft Task + warm Run birthed by a Code-app warm request."""
 
@@ -1118,6 +1117,33 @@ class WarmTaskDTO:
 class TaskStatusMismatchRow:
     stored_status: str
     derived_status: str
+    count: int
+
+
+@dataclass(frozen=True)
+class StaleLiveRunRow:
+    profile: str
+    run_environment: str
+    rule: str
+    count: int
+
+
+@dataclass(frozen=True)
+class SweptRunRow:
+    profile: str
+    count: int
+
+
+@dataclass(frozen=True)
+class FencedRunTokensRow:
+    profile: str
+    outcome: str
+    count: int
+
+
+@dataclass(frozen=True)
+class ReopenedSweptRunsRow:
+    outcome: str
     count: int
 
 
@@ -1152,6 +1178,7 @@ class ComputeQuotaDenialReason(StrEnum):
 class TaskPullRequest:
     url: str
     state: str
+    run_id: str | None = None
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -1218,3 +1245,13 @@ class AgentEgressRegistrationDTO:
     region: str
     lease_expires_at: datetime
     revoked: bool
+
+
+@dataclass(frozen=True, kw_only=True)
+class RunModelSelection:
+    """The model fields a new run starts with. ``None`` leaves a field to the stored defaults."""
+
+    runtime_adapter: str | None = None
+    model: str | None = None
+    reasoning_effort: str | None = None
+    initial_permission_mode: str | None = None

@@ -125,20 +125,30 @@ class TestTickets:
 
 
 class TestFanout:
-    def test_contact_notes_inject_parent_id(self) -> None:
+    @parameterized.expand(
+        [
+            ("contact_notes", ["/dev/api/contacts/1/notes", "/dev/api/contacts/2/notes"]),
+            (
+                "contact_documents",
+                ["/dev/api/documents/contact/1/docs", "/dev/api/documents/contact/2/docs"],
+            ),
+        ]
+    )
+    def test_contact_children_inject_parent_id(self, endpoint: str, child_paths: list[str]) -> None:
         contacts_page = [{"id": 1}, {"id": 2}]  # short page -> terminal
-        notes_1 = [{"id": 10, "subject": "a"}]
-        notes_2 = [{"id": 11, "subject": "b", "cursor": "X"}]
-        result = _driver().run("contact_notes", [_page(contacts_page), _page(notes_1), _page(notes_2)])
+        children_1 = [{"id": 10, "subject": "a"}]
+        children_2 = [{"id": 11, "subject": "b", "cursor": "X"}]
+        result = _driver().run(endpoint, [_page(contacts_page), _page(children_1), _page(children_2)])
 
-        # Each note carries the id of the contact it was fetched for (part of the composite key), and
-        # the navigation cursor never leaks into a row.
+        # Each child row carries the id of the contact it was fetched for (part of the composite key),
+        # and the navigation cursor never leaks into a row.
         assert result.raised is None
         assert result.rows == [
             {"id": 10, "subject": "a", "contact_id": 1},
             {"id": 11, "subject": "b", "contact_id": 2},
         ]
-        assert result.paths[1:] == ["/dev/api/contacts/1/notes", "/dev/api/contacts/2/notes"]
+        assert result.paths[0] == "/dev/api/contacts"
+        assert result.paths[1:] == child_paths
 
     def test_ticket_notes_fan_out_over_tickets(self) -> None:
         # Parent enumeration for ticket messages goes through the ticket filter, then per-ticket notes.

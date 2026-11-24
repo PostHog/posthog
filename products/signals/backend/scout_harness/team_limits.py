@@ -143,14 +143,18 @@ def _fallback_team_ids() -> list[int]:
     return list(DEFAULT_ENROLLED_TEAM_IDS) if (is_cloud() or settings.DEBUG) else []
 
 
-def read_flag_payload(flag_key: str, distinct_id: str = SIGNALS_SCOUT_DISCOVERY_DISTINCT_ID) -> dict | None:
+def read_flag_payload(
+    flag_key: str, distinct_id: str = SIGNALS_SCOUT_DISCOVERY_DISTINCT_ID, *, only_evaluate_locally: bool = False
+) -> dict | None:
     """Read + parse one flag's JSON payload for the synthetic discovery distinct id.
 
     Returns the parsed dict, or `None` when the payload is absent / not an object / unreadable; a
     read error never breaks the caller, which applies its own fallback to `None`.
     """
     try:
-        payload = posthoganalytics.get_feature_flag_payload(flag_key, distinct_id, match_value=True)
+        payload = posthoganalytics.get_feature_flag_payload(
+            flag_key, distinct_id, match_value=True, only_evaluate_locally=only_evaluate_locally
+        )
         if isinstance(payload, str):
             payload = json.loads(payload)
         return payload if isinstance(payload, dict) else None

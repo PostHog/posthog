@@ -1,6 +1,5 @@
 import json
-from collections.abc import Mapping, Sequence
-from datetime import datetime
+from collections.abc import Mapping
 from uuid import UUID
 
 from django.db import transaction
@@ -9,7 +8,6 @@ from posthog.dataclasses import frozen
 
 from products.signals.backend.artefact_schemas import RankingScore, priority_from_judgment
 from products.signals.backend.models import AutonomyPriority, SignalReport, SignalReportArtefact
-from products.signals.backend.ranking.staleness import EDIT_ARTEFACT_TYPES, is_stale_score
 
 PUBLIC_SCORE_FIELDS: Mapping[str, str] = {
     "open": "ranking_open_score",
@@ -30,15 +28,6 @@ class _RankingValues:
     lifts: Mapping[str, float]
 
 
-def _parse_datetime(value: object) -> datetime | None:
-    if not isinstance(value, str):
-        return None
-    try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-
-
 def _numbers(value: object) -> dict[str, float]:
     if not isinstance(value, dict):
         return {}
@@ -49,19 +38,12 @@ def _numbers(value: object) -> dict[str, float]:
     }
 
 
-def ranking_values_from_content(content: str | None, latest_edit_at: datetime | None) -> _RankingValues:
+def ranking_values_from_content(content: str | None) -> _RankingValues:
     try:
         parsed = json.loads(content or "")
     except (json.JSONDecodeError, TypeError, ValueError):
         return _RankingValues(scores={}, lifts={})
     if not isinstance(parsed, dict):
-        return _RankingValues(scores={}, lifts={})
-
-    read_at_value = parsed.get("embedding_inserted_at")
-    if read_at_value is None:
-        read_at_value = parsed.get("scored_at")
-    read_at = _parse_datetime(read_at_value)
-    if read_at is not None and read_at.tzinfo is not None and latest_edit_at is not None and latest_edit_at > read_at:
         return _RankingValues(scores={}, lifts={})
 
     served_key = parsed.get("served_key")
@@ -72,20 +54,10 @@ def ranking_values_from_content(content: str | None, latest_edit_at: datetime | 
     return _RankingValues(scores=_numbers(served.get("scores")), lifts=_numbers(served.get("lifts")))
 
 
-def latest_edit_ats(report_ids: Sequence[str]) -> dict[str, datetime]:
-    rows = (
-        SignalReportArtefact.objects.filter(report_id__in=report_ids, type__in=EDIT_ARTEFACT_TYPES)
-        .order_by("report_id", "-created_at", "-id")
-        .distinct("report_id")
-        .values_list("report_id", "created_at")
-    )
-    return {str(report_id): created_at for report_id, created_at in rows}
-
-
-def apply_ranking_cache(report: SignalReport, score: RankingScore | None, latest_edit_at: datetime | None) -> None:
+def apply_ranking_cache(report: SignalReport, score: RankingScore | None) -> None:
     scores: Mapping[str, float] = {}
     lifts: Mapping[str, float] = {}
-    if score is not None and not is_stale_score(score, latest_edit_at):
+    if score is not None:
         served = score.results.get(score.served_key)
         if served is not None:
             scores = served.scores
@@ -120,9 +92,8 @@ def refresh_report_ranking_cache(*, team_id: int, report_id: UUID | str) -> bool
             .only("content")
             .first()
         )
-        latest_edit_at = latest_edit_ats([str(report_id)]).get(str(report_id))
         previous = tuple(getattr(report, field) for field in RANKING_CACHE_FIELDS)
-        values = ranking_values_from_content(artefact.content if artefact is not None else None, latest_edit_at)
+        values = ranking_values_from_content(artefact.content if artefact is not None else None)
         _apply_ranking_values(report, values.scores, values.lifts)
         if previous == tuple(getattr(report, field) for field in RANKING_CACHE_FIELDS):
             return False
@@ -164,7 +135,6 @@ def backfill_report_sort_cache(*, team_id: int, batch_size: int = 500) -> int:
                 .distinct("report_id")
                 .values_list("report_id", "content")
             )
-            edit_ats = latest_edit_ats(report_ids)
             for report in reports:
                 priority = priority_from_judgment(priorities.get(report.id))
                 report.priority_sort_rank = (
@@ -172,7 +142,7 @@ def backfill_report_sort_cache(*, team_id: int, batch_size: int = 500) -> int:
                     if priority in AutonomyPriority.values
                     else len(AutonomyPriority.values)
                 )
-                values = ranking_values_from_content(scores.get(report.id), edit_ats.get(str(report.id)))
+                values = ranking_values_from_content(scores.get(report.id))
                 _apply_ranking_values(report, values.scores, values.lifts)
             SignalReport.objects.filter(team_id=team_id).bulk_update(
                 reports, ["priority_sort_rank", *RANKING_CACHE_FIELDS], batch_size=batch_size

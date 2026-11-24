@@ -107,6 +107,8 @@ def get_hogql_metadata(
     hogql_ast: Optional[Union[ast.SelectQuery, ast.SelectSetQuery]] = None,
     prepared_ast: Optional[ast.AST] = None,  # precached
     printed_sql: Optional[str] = None,  # precached
+    *,
+    database: Optional[Database] = None,
 ) -> HogQLMetadataResponse:
     response = HogQLMetadataResponse(
         isValid=True,
@@ -125,7 +127,6 @@ def get_hogql_metadata(
         response.errors = [HogQLNotice(message=INVALID_CONNECTION_ID_ERROR)]
         return response
 
-    database = None
     if source:
         database = Database.create_for(
             team=team,
@@ -532,6 +533,7 @@ def enrich_hogql_validation_error(
                 kind="HogQLMetadata",
                 language=HogLanguage.HOG_QL,
                 query=query.query,
+                globals=query.values,
                 modifiers=query.modifiers,
                 filters=query.filters,
                 connectionId=query.connectionId,

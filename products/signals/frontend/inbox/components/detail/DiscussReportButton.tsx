@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 
-import { IconCheckCircle, IconGitBranch, IconSparkles } from '@posthog/icons'
+import { IconCheckCircle, IconGitBranch, IconPullRequest, IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonMenuItems, LemonMenuOverlay, lemonToast } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -14,6 +14,7 @@ import {
     isActionCapableReport,
     MERGE_PR_REQUEST,
     REPORT_DISCUSSION_QUESTION_MAX_LENGTH,
+    RESOLVE_CONFLICTS_REQUEST,
     ReportDiscussionIntent,
 } from '../../inboxTaskKickoffLogic'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
@@ -36,21 +37,17 @@ function isEditOf(draft: string, suggestion: string): boolean {
     )
 }
 
-export function DiscussReportButton({
-    report,
-    reportUrl,
-}: {
-    report: SignalReport
-    reportUrl: string
-}): JSX.Element | null {
-    const hasPostHogAiAccess = useFeatureFlag('PHAI_SANDBOX_MODE')
+export function DiscussReportButton({ report, reportUrl }: { report: SignalReport; reportUrl: string }): JSX.Element {
     const { isDiscussing, isCreatingPr, aiConsentDisabledReason, freeTrialDisabledReason, lastQuickAskFailure } =
         useValues(inboxTaskKickoffLogic)
     const { openReportDiscussion, discussReport } = useActions(inboxTaskKickoffLogic)
-    const { prChecksFailing, selectedPullRequest } = useValues(inboxReportDetailLogic({ reportId: report.id, report }))
+    const { prChecksFailing, prHasConflict, selectedPullRequest } = useValues(
+        inboxReportDetailLogic({ reportId: report.id, report })
+    )
     const prActionsEnabled = useFeatureFlag('INBOX_GET_IT_MERGED')
     const canMerge = prActionsEnabled && hasApprovedOpenReportPullRequest(report)
-    const canMakeGreen = prActionsEnabled && prChecksFailing
+    const canMakeGreen = prActionsEnabled && (prChecksFailing || prHasConflict)
+    const canResolveConflicts = prActionsEnabled && prHasConflict
     const textAreaRef = useRef<HTMLTextAreaElement>(null)
     const [isQuickAskOpen, setIsQuickAskOpen] = useState(false)
     const [question, setQuestion] = useState('')
@@ -146,16 +143,20 @@ export function DiscussReportButton({
         canMakeGreen && {
             label: 'Make it green',
             icon: <IconCheckCircle />,
-            tooltip: 'Fix failing CI on the PR and stop, so you can review and merge it',
+            tooltip: 'Fix failing CI and merge conflicts on the PR and stop, so you can review and merge it',
             onClick: () => startPrAction(FIX_CI_REQUEST, 'fix_ci', selectedPullRequest.url),
             disabledReason: freeTrialDisabledReason,
             'data-attr': 'inbox-report-ask-ai-fix-ci',
         },
+        canResolveConflicts && {
+            label: 'Resolve conflicts',
+            icon: <IconPullRequest />,
+            tooltip: 'Update the PR from its base branch, resolve the conflicts, and stop',
+            onClick: () => startPrAction(RESOLVE_CONFLICTS_REQUEST, 'resolve_conflicts', selectedPullRequest.url),
+            disabledReason: freeTrialDisabledReason,
+            'data-attr': 'inbox-report-ask-ai-resolve-conflicts',
+        },
     ]
-
-    if (!hasPostHogAiAccess) {
-        return null
-    }
 
     return (
         <LemonButton

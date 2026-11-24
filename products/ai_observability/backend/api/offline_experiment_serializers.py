@@ -12,12 +12,16 @@ from posthog.models.integer_field_bounds import BIG_INTEGER_FIELD_MAX
 
 from products.ai_observability.backend.models.offline_evaluations import OfflineEvaluationResult, OfflineExperiment
 from products.ai_observability.backend.offline_evaluation_types import (
+    MAX_ITEM_PAYLOAD_BYTES,
+    MAX_RESULT_PAYLOAD_BYTES,
     ExperimentSubmission,
     ItemSubmission,
     JSONValue,
     ResultSubmission,
     ResultValue,
     UploadSubmission,
+    reported_score_errors,
+    result_payload_error,
 )
 
 if TYPE_CHECKING:
@@ -25,8 +29,6 @@ if TYPE_CHECKING:
 
 MAX_UPLOAD_ITEMS = 1000
 MAX_UPLOAD_RESULTS = 1000
-MAX_ITEM_PAYLOAD_BYTES = 1024 * 1024
-MAX_RESULT_PAYLOAD_BYTES = 256 * 1024
 MAX_JSON_DEPTH = 32
 
 
@@ -302,7 +304,6 @@ class ResultSubmissionSerializer(_StrictDataclassSerializer[ResultSubmission]):
         dataclass = ResultSubmission
 
     def validate(self, attrs: ResultSubmission) -> ResultSubmission:
-        errors: dict[str, list[str] | dict[str, list[str]]] = {}
         if attrs.calculate:
             if (
                 attrs.value is not None
@@ -316,14 +317,12 @@ class ResultSubmissionSerializer(_StrictDataclassSerializer[ResultSubmission]):
                     {"calculate": "A composite request accepts only item_id, scorer_version_id, and calculate: true."}
                 )
             return attrs
-        if attrs.status == "ok" and attrs.value is None:
-            errors["value"] = ["A score is required for an ok result."]
-        if attrs.status != "ok" and attrs.value is not None:
-            errors["value"] = ["Only an ok result may contain a score."]
-        if attrs.status != "error" and attrs.error_code is not None:
-            errors["error_code"] = ["Only an error result may contain an error code."]
-        if attrs.status != "error" and attrs.payload and attrs.payload.get("error_message") is not None:
-            errors["payload"] = {"error_message": ["Only an error result may contain an error message."]}
+        errors: dict[str, list[str] | dict[str, list[str]]] = {
+            field: [message]
+            for field, message in reported_score_errors(attrs.status, attrs.value, attrs.error_code).items()
+        }
+        if message := result_payload_error(attrs.status, attrs.payload):
+            errors["payload"] = {"error_message": [message]}
         if errors:
             raise serializers.ValidationError(errors)
         return attrs

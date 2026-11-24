@@ -16,7 +16,7 @@ async fn fetch_group_by_key(
 ) -> StorageResult<Option<Group>> {
     let row = sqlx::query_as!(
         Group,
-        r#"
+        r#"/* service='personhog-replica', operation='fetch_group_by_key' */
         SELECT id::bigint as "id!", team_id::bigint as "team_id!",
                group_type_index, group_key, group_properties::text as "group_properties?",
                created_at,
@@ -92,7 +92,7 @@ impl GroupStorage for PostgresStorage {
 
         let rows = sqlx::query_as!(
             Group,
-            r#"
+            r#"/* service='personhog-replica', operation='get_groups' */
             SELECT g.id::bigint as "id!", g.team_id::bigint as "team_id!",
                    g.group_type_index, g.group_key,
                    CASE WHEN $4::boolean THEN g.group_properties::text ELSE NULL END as "group_properties?",
@@ -156,7 +156,7 @@ impl GroupStorage for PostgresStorage {
 
         let groups = sqlx::query_as!(
             Group,
-            r#"
+            r#"/* service='personhog-replica', operation='get_groups_batch' */
             SELECT g.id::bigint as "id!", g.team_id::bigint as "team_id!",
                    g.group_type_index, g.group_key,
                    CASE WHEN $4::boolean THEN g.group_properties::text ELSE NULL END as "group_properties?",
@@ -223,7 +223,7 @@ impl GroupStorage for PostgresStorage {
 
         let rows = sqlx::query_as!(
             GroupTypeMapping,
-            r#"
+            r#"/* service='personhog-replica', operation='get_group_type_mappings_by_team_id' */
             SELECT id::bigint as "id!", team_id::bigint as "team_id!",
                    project_id as "project_id!",
                    group_type, group_type_index,
@@ -283,7 +283,7 @@ impl GroupStorage for PostgresStorage {
 
         let rows = sqlx::query_as!(
             GroupTypeMapping,
-            r#"
+            r#"/* service='personhog-replica', operation='get_group_type_mappings_by_team_ids' */
             SELECT id::bigint as "id!", team_id::bigint as "team_id!",
                    project_id as "project_id!",
                    group_type, group_type_index,
@@ -337,7 +337,7 @@ impl GroupStorage for PostgresStorage {
 
         let rows = sqlx::query_as!(
             GroupTypeMapping,
-            r#"
+            r#"/* service='personhog-replica', operation='get_group_type_mappings_by_project_id' */
             SELECT id::bigint as "id!", team_id::bigint as "team_id!",
                    project_id as "project_id!",
                    group_type, group_type_index,
@@ -395,7 +395,7 @@ impl GroupStorage for PostgresStorage {
 
         let rows = sqlx::query_as!(
             GroupTypeMapping,
-            r#"
+            r#"/* service='personhog-replica', operation='get_group_type_mappings_by_project_ids' */
             SELECT id::bigint as "id!", team_id::bigint as "team_id!",
                    project_id as "project_id!",
                    group_type, group_type_index,
@@ -447,7 +447,7 @@ impl GroupStorage for PostgresStorage {
         let mut conn = PostgresStorage::acquire_timed(pool, pool_label).await?;
 
         let rows = sqlx::query!(
-            r#"
+            r#"/* service='personhog-replica', operation='count_group_type_mappings' */
             SELECT team_id::bigint as "team_id!", COUNT(*)::bigint as "count!"
             FROM posthog_grouptypemapping
             GROUP BY team_id
@@ -498,7 +498,7 @@ impl GroupStorage for PostgresStorage {
 
         let row = sqlx::query_as!(
             GroupTypeMapping,
-            r#"
+            r#"/* service='personhog-replica', operation='get_group_type_mapping_by_dashboard_id' */
             SELECT id::bigint as "id!", team_id::bigint as "team_id!",
                    project_id as "project_id!",
                    group_type, group_type_index,
@@ -561,7 +561,7 @@ impl GroupStorage for PostgresStorage {
 
         let rows = sqlx::query_as!(
             Group,
-            r#"
+            r#"/* service='personhog-replica', operation='list_groups' */
             SELECT id::bigint as "id!", team_id::bigint as "team_id!",
                    group_type_index, group_key,
                    CASE WHEN $12::boolean THEN group_properties::text ELSE NULL END as "group_properties?",
@@ -640,7 +640,7 @@ impl GroupStorage for PostgresStorage {
 
         let inserted = sqlx::query_as!(
             Group,
-            r#"
+            r#"/* service='personhog-replica', operation='create_group' */
             INSERT INTO posthog_group (team_id, group_type_index, group_key, group_properties, created_at, properties_last_updated_at, properties_last_operation, version)
             VALUES ($1, $2, $3, $4, $5, '{}'::jsonb, '{}'::jsonb, 0)
             ON CONFLICT (team_id, group_key, group_type_index) DO NOTHING
@@ -704,7 +704,7 @@ impl GroupStorage for PostgresStorage {
 
         let row = sqlx::query_as!(
             Group,
-            r#"
+            r#"/* service='personhog-replica', operation='update_group' */
             UPDATE posthog_group
             SET group_properties = CASE WHEN $4 THEN $5 ELSE group_properties END,
                 properties_last_updated_at = CASE WHEN $6 THEN $7 ELSE properties_last_updated_at END,
@@ -763,7 +763,7 @@ impl GroupStorage for PostgresStorage {
             PostgresStorage::acquire_timed(&self.bulk_primary_pool, "bulk_primary").await?;
 
         let result = sqlx::query!(
-            r#"
+            r#"/* service='personhog-replica', operation='delete_groups_batch_for_team' */
             DELETE FROM posthog_group
             WHERE id IN (
                 SELECT id FROM posthog_group
@@ -828,7 +828,7 @@ impl GroupStorage for PostgresStorage {
         if update_mask.is_empty() {
             return sqlx::query_as!(
                 GroupTypeMapping,
-                r#"
+                r#"/* service='personhog-replica', operation='update_group_type_mapping_read' */
                 SELECT id::bigint as "id!", team_id::bigint as "team_id!",
                        project_id as "project_id!",
                        group_type, group_type_index,
@@ -850,7 +850,7 @@ impl GroupStorage for PostgresStorage {
 
         let row = sqlx::query_as!(
             GroupTypeMapping,
-            r#"
+            r#"/* service='personhog-replica', operation='update_group_type_mapping' */
             UPDATE posthog_grouptypemapping
             SET name_singular = CASE WHEN $3 THEN $4 ELSE name_singular END,
                 name_plural = CASE WHEN $5 THEN $6 ELSE name_plural END,
@@ -904,7 +904,7 @@ impl GroupStorage for PostgresStorage {
         let mut conn = PostgresStorage::acquire_timed(&self.primary_pool, "primary").await?;
 
         let result = sqlx::query!(
-            r#"
+            r#"/* service='personhog-replica', operation='delete_group_type_mapping' */
             DELETE FROM posthog_grouptypemapping
             WHERE project_id = $1 AND group_type_index = $2
             "#,
@@ -943,7 +943,7 @@ impl GroupStorage for PostgresStorage {
             PostgresStorage::acquire_timed(&self.bulk_primary_pool, "bulk_primary").await?;
 
         let result = sqlx::query!(
-            r#"
+            r#"/* service='personhog-replica', operation='delete_group_type_mappings_batch_for_team' */
             DELETE FROM posthog_grouptypemapping
             WHERE id IN (
                 SELECT id FROM posthog_grouptypemapping

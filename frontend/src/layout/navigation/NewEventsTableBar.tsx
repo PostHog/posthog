@@ -23,7 +23,7 @@ export function NewEventsTableBar(): JSX.Element | null {
                 }}
                 onClose={dismissNewEventsTableBar}
             >
-                This browser is reading the new events table.
+                This page is reading the new events table.
             </LemonBanner>
         </div>
     )

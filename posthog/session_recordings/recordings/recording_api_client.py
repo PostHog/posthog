@@ -1,4 +1,3 @@
-import base64
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -9,6 +8,7 @@ import structlog
 
 from posthog.session_recordings.recordings.errors import (
     BlockFetchError,
+    BlockNotFoundError,
     RecordingApiConfigurationError,
     RecordingDeletedError,
 )
@@ -58,7 +58,7 @@ class RecordingApiClient:
                 url, params=params, headers=recording_api_auth_headers(team_id, "read")
             ) as response:
                 if response.status == 404:
-                    raise BlockFetchError("Block not found")
+                    raise BlockNotFoundError("Block not found")
                 if response.status == 410:
                     error = await _recording_deleted_error(response)
                     logger.info(
@@ -107,25 +107,6 @@ class RecordingApiClient:
             )
             raise
 
-    async def encrypt_blocks(
-        self, session_id: str, team_id: int, blocks: list[bytes], retention_days: int
-    ) -> list[bytes]:
-        """Encrypt compressed blocks with the session's key, minting it on first call.
-
-        Raises RecordingDeletedError if the session's key was shredded.
-        """
-        url = f"{self.base_url}/api/projects/{team_id}/recordings/{session_id}/encrypt"
-        body = {
-            "blocks": [base64.b64encode(block).decode("ascii") for block in blocks],
-            "retention_days": retention_days,
-        }
-        async with self.session.post(url, json=body, headers=recording_api_auth_headers(team_id, "write")) as response:
-            if response.status == 410:
-                raise await _recording_deleted_error(response)
-            response.raise_for_status()
-            data = await response.json()
-        return [base64.b64decode(block) for block in data["blocks"]]
-
     async def delete_recordings(self, session_ids: list[str], team_id: int, deleted_by: str) -> list[str]:
         """
         Delete recordings via the Recording API.
@@ -156,7 +137,7 @@ class RecordingApiClient:
 
 
 @asynccontextmanager
-async def recording_api_client() -> AsyncIterator[RecordingApiClient]:
+async def recording_api_client(connection_limit: int = 100) -> AsyncIterator[RecordingApiClient]:
     """
     Async context manager for creating a RecordingApiClient instance.
 
@@ -175,6 +156,7 @@ async def recording_api_client() -> AsyncIterator[RecordingApiClient]:
 
     timeout = aiohttp.ClientTimeout(total=30, connect=5)
     # Authorization is per-request (a team + operation scoped JWT), so no session-level auth header.
+    connector = aiohttp.TCPConnector(limit=connection_limit)
     # nosemgrep: aiohttp-missing-trust-env -- internal service call to recording API
-    async with aiohttp.ClientSession(timeout=timeout, trust_env=False) as session:
+    async with aiohttp.ClientSession(timeout=timeout, trust_env=False, connector=connector) as session:
         yield RecordingApiClient(session, settings.RECORDING_API_URL)

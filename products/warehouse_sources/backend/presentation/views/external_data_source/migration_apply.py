@@ -174,4 +174,9 @@ class ExternalDataSourceMigrationApplyMixin(ExternalDataSourceSetupMixin, Extern
                 f"Fivetran skips columns of `{name}` that PostHog would still read, so it stays off."
                 for name in planned.kept_off
             ),
+            *(
+                f"`{name}` has no primary key, so PostHog syncs the whole table each time. "
+                "To sync only changed rows, choose a primary key in the table's sync settings and switch it to incremental."
+                for name in planned.keyless
+            ),
         ]

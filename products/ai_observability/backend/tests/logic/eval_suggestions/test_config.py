@@ -11,8 +11,8 @@ from products.ai_observability.backend.logic.eval_suggestions.config import Sugg
         ("missing", None, SuggestionSettings()),
         (
             "json_string",
-            '{"stages": {"jeeves": false}, "max_concurrent_teams": 8}',
-            SuggestionSettings(jeeves=False, max_concurrent_teams=8),
+            '{"stages": {"jeeves": false}, "max_concurrent_teams": 8, "review_calls": 80}',
+            SuggestionSettings(jeeves=False, max_concurrent_teams=8, review_calls=80),
         ),
         (
             "wrong_types_fall_back_one_by_one",
@@ -20,6 +20,8 @@ from products.ai_observability.backend.logic.eval_suggestions.config import Sugg
             SuggestionSettings(max_teams_per_run=10),
         ),
         ("fractional_counts_fall_back", {"max_concurrent_teams": 0.5, "max_teams_per_run": 0.9}, SuggestionSettings()),
+        ("review_calls_capped", {"review_calls": 5000}, SuggestionSettings(review_calls=config.MAX_REVIEW_CALLS)),
+        ("review_calls_floored", {"review_calls": 20}, SuggestionSettings(review_calls=config.MIN_REVIEW_CALLS)),
     ]
 )
 def test_flag_payload_settings(_name: str, payload: object, expected: SuggestionSettings) -> None:

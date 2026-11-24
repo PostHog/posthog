@@ -1,0 +1,19 @@
+# Test fixture for the no-at-current-in-mcp-definitions rule.
+tools:
+    project-settings-update:
+        param_overrides:
+            id:
+                # ruleid: no-at-current-in-mcp-definitions
+                description: Project ID, or `@current` to target the caller's active project.
+    email-send:
+        description: >
+            # ruleid: no-at-current-in-mcp-definitions
+            Send with POST /api/projects/@current/messaging/send/email/.
+    email-send-explicit:
+        description: >
+            # ok: no-at-current-in-mcp-definitions
+            Send with POST /api/projects/{project_id}/messaging/send/email/.
+    key-lookup:
+        description: >
+            # ok: no-at-current-in-mcp-definitions
+            Read the key with GET /api/personal_api_keys/@current/.

@@ -18,7 +18,7 @@ flag for every team, and builds the agent skills bundle.
 ## Test egress identity
 
 Run `go -C products/tasks/services/egress-proxy test -race ./...` from the repository root.
-See the [egress README](../../products/tasks/services/egress-proxy/README.md) for behavior and limits.
+See the [egress README](../../products/tasks/services/egress-proxy/README.md) for container builds, recoverable cloud probes and bounded enrollment of selected normal runs, including certificate renewal, sandbox replacement and revocation checks.
 
 ## GitHub App
 
@@ -78,15 +78,6 @@ fine — they get converted to newlines.
 Temporal and the temporal-django-worker start automatically via phrocs when you
 run `hogli start`.
 
-The separate `task-management` implementation is not registered with the worker.
-It stops polling closed or merged PRs and caps background runs at two idle checks; pending CI and merge-queue checks do not consume that budget.
-Pending CI and merge queues have a separate limit of 96 waiting checks (24 hours at the normal cadence).
-Follow-ups and sandbox-session boundaries reset both budgets, and the counters persist in server-owned `TaskRun.state` across orchestrator restarts.
-With the `tasks-task-management-durable-ci-checkpoints` Temporal patch, queue and budget changes are staged in a generation-protected checkpoint before application.
-Startup applies any unfinished checkpoint before restoring the queue and counters. Follow-ups wait for their reset and queued message to persist before delivery.
-Exhausted persistence retries stop the orchestrator instead of continuing with an unsaved budget; a new execution can recover a staged checkpoint. A failure before staging does not create a recoverable database checkpoint.
-With `tasks-task-management-checkpoint-recovery-status`, checkpoint read or write failures leave the task run non-terminal so recovery can reattach to its sandbox. `tasks-execute-sandbox-reopen-parent-delivery` resumes sandbox acknowledgements when the restarted orchestrator attaches.
-
 The `process-task` workflow defined in
 `products/tasks/backend/temporal/process_task/workflow.py` provisions a sandbox,
 starts an agent inside it, and waits for the agent to finish. The workflow
@@ -138,6 +129,8 @@ ends bypasses heartbeat throttling so a quick follow-up cannot look idle.
 Activity during snapshot capture or replacement startup abandons the handoff and
 keeps the live sandbox. The event relay stays active until startup finishes, and
 an abandoned handoff with new activity requests a fresh snapshot.
+For workflow histories with the `tasks-end-run-at-sandbox-limit` patch, a run that stays on its sandbox ends when the sandbox reaches its time limit.
+If the session was saved, the run ends as soon as the agent is idle and no message is queued, so the task can start a new run.
 Directory resume snapshots cover `/tmp/workspace`, including nested Git worktrees
 and agent state. Paths outside that directory are not included.
 Cloud launches set `POSTHOG_AGENT_STATE_DIR=/tmp/workspace/.posthog/agent-state`.
@@ -281,6 +274,8 @@ reported to error tracking and ignored, so the product keeps its built-in cap.
 
 ### Which gateway a sandbox run uses
 
+The sandbox connects to the Go AI gateway at `SANDBOX_AI_GATEWAY_URL`. If the Tasks worker reaches that gateway at a different address, set `SANDBOX_AI_GATEWAY_WORKER_URL` for token minting, revocation, and usage lookups. Modal evals use localhost for the worker and Tailscale Funnel for the remote agent.
+
 A run reaches the Go gateway only when its `ai_product` is listed in
 `SANDBOX_AI_GATEWAY_PRODUCTS` and the worker minted a scoped token for it. When the
 worker mints, it also injects `AI_GATEWAY_PRODUCT` and `AI_GATEWAY_AI_STAGE`, naming
@@ -290,7 +285,10 @@ what it derives itself. Both are reserved keys: a sandbox environment cannot set
 Account audit runs use the reserved `account_audit` origin and AI product, and must
 carry the server-set `internal` flag before they can mint a token. Add
 `account_audit` to `SANDBOX_AI_GATEWAY_PRODUCTS` to route them to the Go gateway.
-Their Python gateway fallback uses `background_agents`. Signup onboarding stays
+Their Python gateway fallback uses `background_agents`. Autoresearch training runs
+follow the same rules with the reserved `autoresearch` origin and AI product, so
+`SANDBOX_AI_GATEWAY_PRODUCTS` must list `autoresearch` or training runs fail to
+start. Signup onboarding stays
 on `onboarding` and cannot mint these cost-tracking tokens. A periodic completion task
 waits three minutes for cost accounting before reporting the audit result. Audits use an
 internal `CUSTOM` sandbox environment with no extra allowed domains. Each new
@@ -310,6 +308,8 @@ since frontend and backend group keys differ.
 The property identifies the active environment: explicitly include every environment that should have
 access. A parent project's flag does not enable its child environments, even though ReviewHog stores
 their settings and reviews under the shared parent project.
+Requests through an environment URL also require membership of the parent project.
+Project-restricted API keys and OAuth tokens must include both the environment and its parent.
 
 Newly enabled projects get every ReviewHog part: manual Full and Flash reviews, automatic Flash reviews,
 the Stamphog handoff, resolution, Inbox reviews, the tiered review models, and the Stamphog
@@ -344,9 +344,9 @@ An explicit Full request also runs after an active Flash review when that head s
 Turning the setting off stops future and pending automatic starts; a running review finishes.
 Automatic Flash uses your existing severity threshold and never resolves comments or changes the PR branch.
 
-The switch sets your `default_review_mode` preference to `flash` or `follow` through `PATCH /api/projects/<project_id>/review_hog/settings/`.
-Project admins choose which repositories the project reviews, and who gets automatic Flash there, through the `review_hog/project_settings`, `review_hog/installation_claims`, and `review_hog/repositories` endpoints.
-Any project member can turn a repository on through `review_hog/repositories`: include it into the project's selection, raise its exception, or turn its draft reviews on.
+The switch sets your `default_review_mode` preference to `flash` or `follow` through `PATCH /api/projects/<project_id>/code_review/settings/`.
+Project admins choose which repositories the project reviews, and who gets automatic Flash there, through the `code_review/project_settings`, `code_review/installation_claims`, and `code_review/repositories` endpoints.
+Any project member can turn a repository on through `code_review/repositories`: include it into the project's selection, raise its exception, or turn its draft reviews on.
 Turning a repository down or removing it stays with admins.
 
 The Code review settings page calls automatic reviews **Standard** and requested reviews **Deep**.

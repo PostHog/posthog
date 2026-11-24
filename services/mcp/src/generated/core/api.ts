@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 18 enabled ops
+ * PostHog API - MCP 19 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -290,6 +290,23 @@ export const IdentityProviderConfigsScimTokenCreateParams = () => zod.object({
 })
 
 /**
+ * OAuth applications linked to the organization, with each app's provisioning partner status and
+ * review. Read-only, and only for organization admins, who are the people who run the apps.
+ */
+export const OauthApplicationsListParams = () => zod.object({
+    organization_id: zod
+        .string()
+        .describe(
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to \/api\/organizations\/."
+        ),
+})
+
+export const OauthApplicationsListQueryParams = () => zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+})
+
+/**
  * Projects for the current organization.
  */
 export const OrganizationsProjectsCreateParams = () => zod.object({
@@ -350,6 +367,8 @@ export const organizationsProjectsCreateBodyMarketingAnalyticsConfigConversionGo
 export const organizationsProjectsCreateBodyMarketingAnalyticsConfigAttributionWindowDaysMax = 90
 
 export const organizationsProjectsCreateBodyCustomerAnalyticsConfigDefaultPinnedPropertiesItemIdMax = 64
+
+export const organizationsProjectsCreateBodyCustomerAnalyticsConfigRoleDefaultPinnedPropertiesItemPinnedPropertiesItemIdMax = 64
 
 export const organizationsProjectsCreateBodyWorkflowsConfigEmailUtmParamsOneUtmSourceMax = 500
 
@@ -2815,6 +2834,38 @@ export const OrganizationsProjectsCreateBody = () => zod
                     .describe(
                         'Ordered account properties shown until a user saves a personal pinned-property selection. Pass an empty list to show no properties by default.'
                     ),
+                role_default_pinned_properties: zod
+                    .array(
+                        zod.object({
+                            role_id: zod.string().describe('Organization role whose members inherit these properties.'),
+                            pinned_properties: zod
+                                .array(
+                                    zod.object({
+                                        kind: zod
+                                            .enum(['custom_property', 'relationship', 'account_field'])
+                                            .describe(
+                                                '\* `custom_property` - Custom property\n\* `relationship` - Relationship\n\* `account_field` - Account field'
+                                            )
+                                            .describe(
+                                                'Type of this default pinned account property: a custom property, a relationship, or a built-in account field.\n\n\* `custom_property` - Custom property\n\* `relationship` - Relationship\n\* `account_field` - Account field'
+                                            ),
+                                        id: zod
+                                            .string()
+                                            .max(
+                                                organizationsProjectsCreateBodyCustomerAnalyticsConfigRoleDefaultPinnedPropertiesItemPinnedPropertiesItemIdMax
+                                            )
+                                            .describe(
+                                                'Project-scoped custom property or relationship definition UUID. For an account_field pin, the account field name, such as stripe_customer_id.'
+                                            ),
+                                    })
+                                )
+                                .describe('Ordered account properties shown to members of this role.'),
+                        })
+                    )
+                    .optional()
+                    .describe(
+                        "Default pinned account properties per organization role. A user who has not saved a personal selection sees the merged defaults of every role they belong to, ordered by role name, instead of default_pinned_properties. Replaces every role's defaults on write."
+                    ),
             })
             .optional(),
         workflows_config: zod
@@ -2868,6 +2919,12 @@ export const OrganizationsProjectsCreateBody = () => zod
                     .optional()
                     .describe(
                         'Default UTM values that new email steps and broadcasts copy. An empty value keeps the built-in default for that tag.'
+                    ),
+                email_workflow_run_link_tag_enabled: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        "Whether tracked links in emails this project sends get a ph_workflow_run parameter with the send's run ID. When the landing page runs posthog-js, the parameter links each click to the session it starts. Links with click tracking turned off never get it. On by default."
                     ),
                 workflow_task_rate_limit_per_day: zod
                     .number()
@@ -3203,8 +3260,6 @@ export const organizationsProjectsPartialUpdateBodySessionRecordingMinimumDurati
 
 export const organizationsProjectsPartialUpdateBodySessionRecordingTriggerMatchTypeConfigMax = 24
 
-export const organizationsProjectsPartialUpdateBodyRecordingDomainsItemMax = 200
-
 export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemOnePropertiesOneItemOneOperatorDefault = `exact`
 export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemOnePropertiesOneItemOneTypeDefault = `event`
 export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConversionGoalsOneItemOnePropertiesOneItemTwoTypeDefault = `person`
@@ -3235,6 +3290,8 @@ export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigConve
 export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigAttributionWindowDaysMax = 90
 
 export const organizationsProjectsPartialUpdateBodyCustomerAnalyticsConfigDefaultPinnedPropertiesItemIdMax = 64
+
+export const organizationsProjectsPartialUpdateBodyCustomerAnalyticsConfigRoleDefaultPinnedPropertiesItemPinnedPropertiesItemIdMax = 64
 
 export const organizationsProjectsPartialUpdateBodyWorkflowsConfigEmailUtmParamsOneUtmSourceMax = 500
 
@@ -3421,10 +3478,6 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                 'ID of the dashboard shown on the product analytics Home tab. Null shows the built-in generic view.'
             ),
         live_events_columns: zod.array(zod.string()).nullish(),
-        recording_domains: zod
-            .array(zod.string().max(organizationsProjectsPartialUpdateBodyRecordingDomainsItemMax).nullable())
-            .nullish()
-            .describe('Origins permitted to record session replays and heatmaps. Empty list allows all origins.'),
         inject_web_apps: zod.boolean().nullish(),
         extra_settings: zod.unknown().optional(),
         modifiers: zod.unknown().optional(),
@@ -5714,6 +5767,38 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                     .describe(
                         'Ordered account properties shown until a user saves a personal pinned-property selection. Pass an empty list to show no properties by default.'
                     ),
+                role_default_pinned_properties: zod
+                    .array(
+                        zod.object({
+                            role_id: zod.string().describe('Organization role whose members inherit these properties.'),
+                            pinned_properties: zod
+                                .array(
+                                    zod.object({
+                                        kind: zod
+                                            .enum(['custom_property', 'relationship', 'account_field'])
+                                            .describe(
+                                                '\* `custom_property` - Custom property\n\* `relationship` - Relationship\n\* `account_field` - Account field'
+                                            )
+                                            .describe(
+                                                'Type of this default pinned account property: a custom property, a relationship, or a built-in account field.\n\n\* `custom_property` - Custom property\n\* `relationship` - Relationship\n\* `account_field` - Account field'
+                                            ),
+                                        id: zod
+                                            .string()
+                                            .max(
+                                                organizationsProjectsPartialUpdateBodyCustomerAnalyticsConfigRoleDefaultPinnedPropertiesItemPinnedPropertiesItemIdMax
+                                            )
+                                            .describe(
+                                                'Project-scoped custom property or relationship definition UUID. For an account_field pin, the account field name, such as stripe_customer_id.'
+                                            ),
+                                    })
+                                )
+                                .describe('Ordered account properties shown to members of this role.'),
+                        })
+                    )
+                    .optional()
+                    .describe(
+                        "Default pinned account properties per organization role. A user who has not saved a personal selection sees the merged defaults of every role they belong to, ordered by role name, instead of default_pinned_properties. Replaces every role's defaults on write."
+                    ),
             })
             .optional(),
         workflows_config: zod
@@ -5767,6 +5852,12 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                     .optional()
                     .describe(
                         'Default UTM values that new email steps and broadcasts copy. An empty value keeps the built-in default for that tag.'
+                    ),
+                email_workflow_run_link_tag_enabled: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        "Whether tracked links in emails this project sends get a ph_workflow_run parameter with the send's run ID. When the landing page runs posthog-js, the parameter links each click to the session it starts. Links with click tracking turned off never get it. On by default."
                     ),
                 workflow_task_rate_limit_per_day: zod
                     .number()
@@ -6087,6 +6178,13 @@ export const FileSystemListQueryParams = () => zod.object({
             "Only entries pointing at this item: the insight or notebook short_id, or the dashboard id. Combine with type to find an item's entry in the project tree."
         ),
     search: zod.string().optional().describe('A search term.'),
+    tags: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'A JSON array of tag names, such as [\"growth\", \"weekly\"]. Keeps only the dashboards and insights that carry at least one of them.'
+        ),
     type: zod
         .string()
         .optional()
@@ -6150,7 +6248,7 @@ export const UploadedMediaListQueryParams = () => zod.object({
 })
 
 /**
- * Step 2 of the presigned upload flow: verifies the object POSTed to the upload_url, sniffs its real content type, and activates it — after this it appears in the library and is publicly servable.
+ * Step 2 of the presigned upload flow: verifies the object POSTed to the upload_url, sniffs its real content type, and activates it — after this it is publicly servable, and it appears in its library unless its purpose is upload-only (`conversations`).
  */
 export const UploadedMediaCompleteUploadCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this uploaded media.'),
@@ -6184,7 +6282,9 @@ export const UploadedMediaStartUploadCreateBody = () => zod.object({
     purpose: zod
         .string()
         .max(uploadedMediaStartUploadCreateBodyPurposeMax)
-        .describe("Library to add this image to once uploaded, e.g. 'email'."),
+        .describe(
+            "Library to add this image to once uploaded, e.g. 'email'. Use 'conversations' for a support ticket reply image. No library lists those."
+        ),
 })
 
 /**
