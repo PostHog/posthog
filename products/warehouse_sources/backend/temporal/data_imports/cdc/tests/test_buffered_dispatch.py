@@ -131,6 +131,21 @@ class TestBufferedDispatch:
 
         snapshot.assert_called_once()
 
+    @pytest.mark.parametrize("source_class", [PostgresSource, MySQLSource])
+    @pytest.mark.parametrize("revive_pending", [True, False])
+    def test_a_delta_revive_drops_the_resume_checkpoint_before_the_snapshot(self, source_class, revive_pending):
+        schema = _schema(cdc_mode="snapshot", initial_sync_complete=False)
+        schema.delta_revive_required = dt.datetime.now(tz=dt.UTC) if revive_pending else None
+        resumable = MagicMock()
+        with (
+            patch.object(MySQLImplementation, "build_pipeline"),
+            patch(f"{_SOURCE}.source_requires_ssl", return_value=False),
+            patch(f"{_SOURCE}.postgres_source"),
+        ):
+            _dispatch(schema, _inputs(), resumable=resumable, source_class=source_class)
+
+        assert resumable.clear_state.called is revive_pending
+
     def test_an_unrecognized_table_mode_fails_the_run(self):
         with pytest.raises(ValueError, match="cdc_table_mode"):
             _dispatch(_schema(cdc_table_mode="something_new"), _inputs())

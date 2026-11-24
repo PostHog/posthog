@@ -4163,12 +4163,22 @@ async def test_mysql_incremental_integer_cursor(
     assert [row[0] for row in res.results] == [1, 2, 3]
 
 
-def _keyset_source_inputs(team_id: int, schema_name: str, job_id: str) -> SourceInputs:
+def _keyset_source_inputs(team: Team, schema_name: str, job_inputs: dict[str, Any], job_id: str) -> SourceInputs:
+    source = ExternalDataSource.objects.create(
+        source_id=uuid.uuid4(),
+        connection_id=uuid.uuid4(),
+        destination_id=uuid.uuid4(),
+        team=team,
+        status="running",
+        source_type="MySQL",
+        job_inputs=job_inputs,
+    )
+    schema = ExternalDataSchema.objects.create(name=schema_name, team_id=team.pk, source_id=source.pk)
     return SourceInputs(
         schema_name=schema_name,
-        schema_id=str(uuid.uuid4()),
-        source_id=str(uuid.uuid4()),
-        team_id=team_id,
+        schema_id=str(schema.id),
+        source_id=str(source.id),
+        team_id=team.pk,
         should_use_incremental_field=False,
         db_incremental_field_last_value=None,
         db_incremental_field_earliest_value=None,
@@ -4230,8 +4240,11 @@ async def test_mysql_keyset_resume_seeks_past_checkpoint(team, mysql_config, mys
 
     with override_settings(DATA_WAREHOUSE_REDIS_HOST="localhost", DATA_WAREHOUSE_REDIS_PORT="6379"):
         source = MySQLSource()
-        config = source.parse_config(_mysql_job_inputs(mysql_config))
-        inputs = _keyset_source_inputs(team_id=team.pk, schema_name="keyset_resume", job_id=str(uuid.uuid4()))
+        job_inputs = _mysql_job_inputs(mysql_config)
+        config = source.parse_config(job_inputs)
+        inputs = await sync_to_async(_keyset_source_inputs)(
+            team=team, schema_name="keyset_resume", job_inputs=job_inputs, job_id=str(uuid.uuid4())
+        )
         manager = source.get_resumable_source_manager(inputs)
 
         # Simulate the checkpoint a previous pod committed just before it drained. The commit is what
