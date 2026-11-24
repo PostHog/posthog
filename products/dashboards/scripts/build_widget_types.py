@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Preflight dashboard widget OpenAPI codegen from the backend registry.
 
-A ``bin/*`` codegen step inside ``hogli build:openapi``, reading backend SSOT and
+A codegen step inside ``hogli build:openapi``, reading backend SSOT and
 writing frontend JSON next to the generated OpenAPI types.
 
 Checks every ``WIDGET_SPECS`` type has an ``ENUM_NAME_OVERRIDES`` entry (Orval /
@@ -20,8 +20,9 @@ import os
 import sys
 import json
 from pathlib import Path
+from typing import cast
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = Path(__file__).resolve().parents[3]
 GENERATED_DIR = REPO_ROOT / "products" / "dashboards" / "frontend" / "generated"
 DATE_FROM_OPTIONS_JSON = GENERATED_DIR / "widget-date-from-options.json"
 FORM_FIELDS_JSON = GENERATED_DIR / "widget-form-fields.json"
@@ -57,7 +58,7 @@ def main() -> int:
     )
     from products.dashboards.backend.widget_specs.registry import WIDGET_SPECS  # noqa: PLC0415
 
-    enum_overrides = settings.SPECTACULAR_SETTINGS.get("ENUM_NAME_OVERRIDES", {})
+    enum_overrides = cast(dict[str, object], settings.SPECTACULAR_SETTINGS.get("ENUM_NAME_OVERRIDES", {}))
     override_values = [value for value in enum_overrides.values() if isinstance(value, list)]
     missing_overrides = [
         widget_type for widget_type, _spec in sorted(WIDGET_SPECS.items()) if [widget_type] not in override_values

@@ -567,7 +567,7 @@ build:
         description: Generate MCP tool-inputs.json schema from Zod definitions
     build:widget-types:
         steps:
-            - cmd: python bin/build-dashboard-widget-types.py
+            - cmd: python products/dashboards/scripts/build_widget_types.py
             - cmd: pnpm --filter=@posthog/frontend exec node
                   ../products/dashboards/frontend/bin/generate-widget-config-zod.mjs
         description: Generate dashboard widget config codegen artifacts (enum preflight, Zod)
@@ -1307,10 +1307,6 @@ environment:
     dev:sandbox:selftest:
         bin_script: dev-sandbox-selftest
         description: 'Verify the dev sandbox profile: blocks credentials/escapes, allows the toolchain'
-        hidden: true
-    build:dashboard:widget:types:
-        bin_script: build-dashboard-widget-types.py
-        description: Widget enum preflight, date options, and form-field manifest codegen
         hidden: true
     start:ai:gateway:
         bin_script: start-ai-gateway
