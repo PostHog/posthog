@@ -191,19 +191,30 @@ export const HighBounceRate: StoryFn = () => {
 }
 HighBounceRate.parameters = { testOptions: { snapshotBrowsers: [] } }
 
+const withInfrastructure: TeamEmailReputationResponseApi = {
+    ...baseResponse,
+    infrastructure: {
+        emails_sent_at_least: 4_000_000,
+        delivery_rate: 0.991,
+        bounce_rate: 0.0028,
+        complaint_rate: 0.0003,
+    },
+}
+
 export const WithInfrastructureHealth: StoryFn = () => {
-    useStorybookMocks(
-        mockReputation({
-            ...baseResponse,
-            infrastructure: {
-                emails_sent_at_least: 4_000_000,
-                delivery_rate: 0.991,
-                bounce_rate: 0.0028,
-                complaint_rate: 0.0003,
-            },
-        })
-    )
+    useStorybookMocks(mockReputation(withInfrastructure))
     return <WorkflowsReputation />
+}
+
+export const WithInfrastructureHealthInNarrowScene: StoryFn = () => {
+    // A 1280px window with the nav and the side panel open leaves about 520px of scene. The cards and the
+    // allowance columns must stack by the scene's width, which a wide story viewport alone never shows.
+    useStorybookMocks(mockReputation(withInfrastructure))
+    return (
+        <div className="w-130">
+            <WorkflowsReputation />
+        </div>
+    )
 }
 
 export const AllowanceWaitingAfterChange: StoryFn = () => {
