@@ -826,23 +826,20 @@ def _members_list(client: MailgunClient, rows: tuple[dict[str, str], ...], membe
 
 def _account_domain(client: MailgunClient) -> str:
     """The account's oldest sandbox domain, which Mailgun creates with the account and never lets anyone delete, or its
-    oldest domain without one. Mailgun gives an API key no account ID, and a domain belongs to one account. An account
-    with only subaccounts' domains says so, because a subaccount's own key reads the same domain."""
+    oldest domain without one. Mailgun gives an API key no account ID, and a domain belongs to one account. When every
+    domain belongs to subaccounts, the name says whose key read them, because a subaccount's own key reads them too."""
     domains = [domain for domain in client.domains(complete=True) if domain.get("name")]
-    has_own = any(not domain.get("subaccount_id") for domain in domains)
-    own = [domain for domain in domains if not (has_own and domain.get("subaccount_id"))]
+    own = [domain for domain in domains if not domain.get("subaccount_id")]
+    sandboxes = [domain for domain in own or domains if domain.get("type") == "sandbox"]
 
-    def age(domain: Mapping[str, Any]) -> tuple[bool, float, str]:
+    def age(domain: Mapping[str, Any]) -> tuple[float, str]:
         created = _timestamp(domain.get("created_at"))
-        return (
-            domain.get("type") != "sandbox",
-            created.timestamp() if created else float("inf"),
-            str(domain["name"]),
-        )
+        return (created.timestamp() if created else float("inf"), str(domain["name"]))
 
-    if not own:
+    if not domains:
         return "no domain"
-    return f"{min(own, key=age)['name']}{'' if has_own else ', subaccounts'}"
+    reader = "" if own else ", subaccounts" if client.subaccount_ids(complete=True) else ", subaccount"
+    return f"{min(sandboxes or own or domains, key=age)['name']}{reader}"
 
 
 def _member_pages(client: MailgunClient, target: _Target) -> Iterator[list[dict[str, Any]]]:

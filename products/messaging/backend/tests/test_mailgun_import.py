@@ -838,6 +838,20 @@ class TestMailgunContacts(ClickhouseTestMixin, _MailgunTestCase):
 
         assert bool(self.people.stored) is not stops
 
+    @parameterized.expand([("its_own_key", 403, "subaccount"), ("its_accounts_key", 200, "subaccounts")])
+    def test_a_region_of_one_subaccount_has_a_cohort_per_kind_of_key(self, _name: str, status: int, kind: str) -> None:
+        us = self.mailgun.data["us"]
+        us["domains"] = [domain for domain in us["domains"] if domain.get("subaccount_id")]
+        run = self._start(CONTACT_RUN, "us")
+        for step in CONTACT_RUN[:4]:
+            runs.run_step(self.team.id, run.id, step, attempt=1)
+        if status != 200:
+            self.mailgun.failures = [Failure(r"/subaccounts$", status, 20)]
+        runs.run_step(self.team.id, run.id, "contacts", attempt=1)
+        run.refresh_from_db()
+
+        assert f"Mailgun list members (US, {us['domains'][0]['name']}, {kind})" in self._lists(run)
+
     def test_a_subaccount_list_that_ends_before_its_total_stops_contacts(self) -> None:
         run = self._start(CONTACT_RUN, "us")
         for step in CONTACT_RUN[:4]:
