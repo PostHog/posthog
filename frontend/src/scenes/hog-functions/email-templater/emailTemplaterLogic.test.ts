@@ -852,6 +852,33 @@ describe('emailTemplaterLogic', () => {
             }
         )
 
+        it('does not hand an edit over again when a slower read of it ends after another email opened', async () => {
+            jest.useFakeTimers()
+            const heldExports: (() => void)[] = []
+            logic.actions.setEmailEditorRef({
+                editor: {
+                    ...fakeEditorRef().editor,
+                    exportHtml: (callback: (data: any) => void) => {
+                        heldExports.push(() => callback({ html: '<p>edited</p>', design: DESIGN_EDITED }))
+                    },
+                },
+            } as unknown as EditorRef)
+            editorListeners['design:updated']()
+            await jest.advanceTimersByTimeAsync(500)
+            logic.actions.flushPendingDesignEdit()
+            const [slowRead, flushRead] = heldExports
+            flushRead()
+            await jest.advanceTimersByTimeAsync(0)
+            expect(onChange).toHaveBeenCalledTimes(1)
+
+            emailTemplaterLogic({ ...logic.props, emailKey: 'next', onChange: jest.fn() })
+            slowRead()
+            await jest.advanceTimersByTimeAsync(0)
+            jest.useRealTimers()
+
+            expect(onChange).toHaveBeenCalledTimes(1)
+        })
+
         it('propagates an edit made immediately after a design load', async () => {
             // The load rebaselines via design:loaded...
             expect(editorListeners['design:loaded']).toBeTruthy()
@@ -1125,6 +1152,13 @@ describe('emailTemplaterLogic', () => {
                 how: 'another email opens',
                 leave: (): void => {
                     emailTemplaterLogic({ ...logic.props, emailKey: 'next' })
+                },
+            },
+            {
+                how: 'two more emails open',
+                leave: (): void => {
+                    emailTemplaterLogic({ ...logic.props, emailKey: 'next' })
+                    emailTemplaterLogic({ ...logic.props, emailKey: 'third' })
                 },
             },
             { how: 'the editor closes', leave: (): void => logic.unmount() },

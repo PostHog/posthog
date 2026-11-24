@@ -410,6 +410,11 @@ function isUntouchedNewTemplate(value: EmailTemplate | null | undefined): boolea
     return !!value?.html && value.html === NEW_TEMPLATE.content.email.html
 }
 
+/** One open email, kept by its reads in flight. `editWaiting` is whether it was left with an edit nobody had read. */
+interface EditSession {
+    editWaiting: boolean
+}
+
 const EMAIL_SAVE_FAILED_MESSAGE = "Couldn't save this email. Your changes are still in the editor, so try again."
 const EMAIL_EDIT_LOST_MESSAGE = "Couldn't save this email. Its last edit was lost when you left the editor."
 
@@ -1153,6 +1158,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             }
 
             const openEmail = { ...props }
+            const session: EditSession = cache.editSession
             const template = values.emailTemplate
             const designBeforeExport = cache.lastEditorDesign
             let htmlData: { html: string; design: JSONTemplate }
@@ -1186,7 +1192,8 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             }
             breakpoint()
             if (props.emailKey !== openEmail.emailKey) {
-                if (!objectsEqual(htmlData.design, designBeforeExport)) {
+                // A flush may have handed this edit over before the switch, and the old host must not be called again.
+                if (session.editWaiting && !objectsEqual(htmlData.design, designBeforeExport)) {
                     openEmail.onChange(emailWithEdit(openEmail, template, htmlData, textData))
                 }
                 return
@@ -1340,6 +1347,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 const templateBeforeExport = values.emailTemplate
                 const designBeforeExport = cache.lastEditorDesign
                 const openEmail = { ...props }
+                const session: EditSession = cache.editSession
                 const isClosed = (): boolean => !!cache.unmounted || props.emailKey !== openEmail.emailKey
                 let htmlData: { html: string; design: JSONTemplate }
                 let textData: { text: string }
@@ -1352,7 +1360,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 } catch (error) {
                     if (isClosed()) {
                         // Its save is still waiting for this read, and would store the email without the edit.
-                        cache.editLost = cache.unmounted ? cache.pendingDesignEdit : cache.switchedWithEditWaiting
+                        cache.editLost = session === cache.editSession ? cache.pendingDesignEdit : session.editWaiting
                         return
                     }
                     posthog.captureException(error)
@@ -1505,7 +1513,8 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         }
         const switched = props.emailKey !== oldProps.emailKey
         if (switched) {
-            cache.switchedWithEditWaiting = cache.pendingDesignEdit || values.latestEditUnsaved
+            cache.editSession.editWaiting = cache.pendingDesignEdit || values.latestEditUnsaved
+            cache.editSession = { editWaiting: false } satisfies EditSession
             cache.pendingDesignEdit = false
             cache.flushFailed = false
             cache.lastEditorDesign = undefined
@@ -1564,6 +1573,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
 
     afterMount(({ actions, props, cache }) => {
         cache.unmounted = false
+        cache.editSession = { editWaiting: false } satisfies EditSession
         if (props.value) {
             actions.resetEmailTemplate(props.value)
             autoRevealAdvancedFields(actions, props)
