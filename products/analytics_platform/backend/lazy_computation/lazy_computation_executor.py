@@ -1710,10 +1710,9 @@ class LazyComputationExecutor:
                 except Exception:
                     pass
 
-        # All ranges covered — collect READY job IDs
-        final_jobs = find_existing_jobs(team, query_hash, start, end)
-        final_fresh = self._filter_by_freshness(final_jobs)
-        final_ready = filter_overlapping_jobs([j for j in final_fresh if j.status == PreaggregationJob.Status.READY])
+        # All ranges are covered. Return the jobs that the last pass checked, because a second read
+        # can lose a job that expired after the check and would then report its window as ready.
+        final_ready = filter_overlapping_jobs(fresh_jobs)
         result = LazyComputationResult(
             ready=True,
             job_ids=[j.id for j in final_ready],

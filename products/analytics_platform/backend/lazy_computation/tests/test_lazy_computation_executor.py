@@ -1,5 +1,6 @@
 import time as time_mod
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import pytest
 import time_machine
@@ -54,6 +55,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     create_lazy_computation_job,
     ensure_precomputed,
     filter_overlapping_jobs,
+    find_existing_jobs,
     find_missing_contiguous_windows,
     is_non_retryable_error,
     parse_ttl_schedule,
@@ -2497,6 +2499,40 @@ class TestComputationExecutorExecute(BaseTest):
             end=end,
             run_insert=lambda t, j: None,
         )
+
+        assert result.ready is True
+        returned_jobs = list(PreaggregationJob.objects.filter(id__in=result.job_ids))
+        assert find_missing_contiguous_windows(returned_jobs, start, end) == []
+
+    def test_returned_jobs_cover_range_when_a_job_expires_after_the_coverage_check(self) -> None:
+        query_info, query_hash = self._make_query_info()
+        now = django_timezone.now()
+        start = datetime(2024, 1, 1, tzinfo=UTC)
+        end = datetime(2024, 1, 3, tzinfo=UTC)
+        jobs = [
+            PreaggregationJob.objects.create(
+                team=self.team,
+                query_hash=query_hash,
+                time_range_start=start + timedelta(days=day),
+                time_range_end=start + timedelta(days=day + 1),
+                status=PreaggregationJob.Status.READY,
+                expires_at=now + timedelta(days=7),
+            )
+            for day in range(2)
+        ]
+
+        def find_then_expire_one(*args: Any, **kwargs: Any) -> list[PreaggregationJob]:
+            found = find_existing_jobs(*args, **kwargs)
+            PreaggregationJob.objects.filter(id=jobs[1].id).update(expires_at=now - timedelta(seconds=1))
+            return found
+
+        with patch(
+            "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.find_existing_jobs",
+            side_effect=find_then_expire_one,
+        ):
+            result = LazyComputationExecutor().execute(
+                team=self.team, query_info=query_info, start=start, end=end, run_insert=lambda t, j: None
+            )
 
         assert result.ready is True
         returned_jobs = list(PreaggregationJob.objects.filter(id__in=result.job_ids))
