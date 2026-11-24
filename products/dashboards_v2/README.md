@@ -129,7 +129,7 @@ A widget type can also:
 
 A host can also pass `tileActions(actions, { id, widget })` on the controller. It runs last, for content tiles and sections, so a page can hide `remove` everywhere or `chart-type` on one dashboard. The order is built-in actions, widget `menuActions`, widget `tileActions`, host `tileActions`. The built-in keys are listed on `TileAction.key`.
 
-A host can pass `tabVisible(tab)` on the controller to hide tabs from one person, such as a tab behind a feature flag. It only hides the tab on screen: its tiles are still in the dashboard the host passed in, so it is not access control.
+To hide a tab from someone, such as a tab behind a feature flag, the host leaves it out of the dashboard it passes in. Whatever the host passes reaches the browser, so tabs a person may not see are removed where the dashboard is loaded, not in the view.
 
 To add a widget type, write its spec and component in `frontend/widgets/<type>/`, then pass `defineWidget({ ...spec, Component })` in the host's list.
 

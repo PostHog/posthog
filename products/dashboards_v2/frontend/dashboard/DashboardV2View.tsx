@@ -11,7 +11,7 @@ import { TileMountContext, createTileMountScheduler } from '../grid/tileMounting
 import { DashboardTileGrid } from '../tiles/DashboardTileGrid'
 import { sizeOfWidgets } from '../widgets/widgetSpec'
 import { withFolds } from './dashboardEdits'
-import { type Dashboard, GRID, activeGridTab, withVisibleTabs } from './dashboardTypes'
+import { type Dashboard, GRID, activeGridTab } from './dashboardTypes'
 import { type DashboardV2Controller, type DashboardV2State, DashboardV2StateContext } from './dashboardV2Context'
 import { DashboardV2Tabs } from './DashboardV2Tabs'
 
@@ -48,7 +48,7 @@ export function DashboardV2View({ controller, header }: DashboardV2ViewProps): J
         const disabledReasonFor = (action: DashboardV2Action): string | null =>
             hostReason(action) ?? (stacked ? STACKED_REASON : null)
         const view = (dashboard: Dashboard): Dashboard => withFolds(dashboard, folds, sizeOf)
-        const dashboard = withVisibleTabs(view(rest.dashboard), rest.tabVisible)
+        const dashboard = view(rest.dashboard)
         return {
             ...rest,
             dashboard,

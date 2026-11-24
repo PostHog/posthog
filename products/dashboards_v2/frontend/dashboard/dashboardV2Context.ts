@@ -4,7 +4,7 @@ import type { DashboardV2Action } from '../access/dashboardV2Access'
 import type { TileAction } from '../tiles/tileAction'
 import type { WidgetDefinition } from '../widgets/widgetDefinition'
 import type { DashboardEdit, View } from './dashboardEdits'
-import type { Dashboard, DashboardTab, GridTab, SizeOf, Widget } from './dashboardTypes'
+import type { Dashboard, GridTab, SizeOf, Widget } from './dashboardTypes'
 
 /**
  * What a host passes to `DashboardV2View`. The host owns the state and the rules behind it (history, access, saving,
@@ -29,14 +29,6 @@ export interface DashboardV2Controller {
      * returns the list to show. Lets a page hide, disable or add actions by `TileAction.key`, such as `remove`.
      */
     tileActions?: (actions: TileAction[], tile: { id: string; widget: Widget }) => TileAction[]
-    /**
-     * Hides a tab from this person, such as one behind a feature flag. The first tab with tiles always shows, so the
-     * dashboard has a grid. Hiding is display only: the tab and its tiles are still in `dashboard`, so do not use it to
-     * keep data from someone.
-     */
-    // TODO(2026-11-23): move per-tab access to the backend, with tabs as access-controlled objects the API strips.
-    // A customer building dashboards needs a hidden tab to keep its data hidden, which a display filter cannot do.
-    tabVisible?: (tab: DashboardTab) => boolean
     /** Left out, the dashboard shows no undo or redo. */
     history?: { canUndo: boolean; canRedo: boolean; onUndo: () => void; onRedo: () => void }
 }
