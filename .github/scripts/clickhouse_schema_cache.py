@@ -253,7 +253,7 @@ def _backup(directory: Path, checkout: Path, before: Path) -> str:
     )
     (directory / "functions.sql").write_text(functions)
     loaded = _query(
-        "SELECT backQuote(database) || '.' || backQuote(name) FROM system.dictionaries "
+        "SELECT database || '.' || name FROM system.dictionaries "
         f"WHERE database = '{DATABASE}' AND status = 'LOADED' ORDER BY ALL FORMAT TSVRaw"
     )
     (directory / "dictionaries.txt").write_text(loaded)
