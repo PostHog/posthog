@@ -14,6 +14,7 @@ import os
 import copy
 import json
 import time
+import uuid
 import tempfile
 import threading
 import subprocess
@@ -401,7 +402,11 @@ class OpenAIReviewer(Reviewer):
         return OpenAI(
             base_url=f"{base_url}/v1",
             api_key=api_key,
-            default_headers=openai_gateway_headers(self._attribution(pr, classification, gate_context)),
+            default_headers={
+                **openai_gateway_headers(self._attribution(pr, classification, gate_context)),
+                # The gateway keeps a session on one provider. Only it can read encrypted reasoning resent each turn.
+                "X-PostHog-Session-Id": str(uuid.uuid4()),
+            },
             timeout=REQUEST_TIMEOUT_SECONDS,
             max_retries=SDK_MAX_RETRIES,
         )
