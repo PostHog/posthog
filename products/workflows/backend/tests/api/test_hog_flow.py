@@ -9238,14 +9238,6 @@ class TestCreateTaskActionValidation(APIBaseTest):
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
 
-    def test_does_not_block_saving_while_the_model_catalogue_is_unreachable(self):
-        # An empty catalogue means the gateway couldn't be reached, not that no model is
-        # valid - a gateway outage must not block every workflow save.
-        with patch("products.workflows.backend.presentation.views.hog_flow.available_model_choices", return_value=()):
-            response = self._post_flow({"model": {"value": {"model": "whatever-model"}}})
-
-        assert response.status_code == status.HTTP_201_CREATED, response.json()
-
     def test_rejects_a_reasoning_effort_the_selected_model_does_not_support(self):
         # The runtime accepts model/effort pairs uncritically (WorkflowTaskCreateSerializer's
         # reasoning_effort is a plain CharField with no cross-check), so a mismatch saved here

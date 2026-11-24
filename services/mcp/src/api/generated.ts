@@ -76379,7 +76379,7 @@ export namespace Schemas {
     }
 
     export interface ModelCatalogueResponse {
-      /** Every model a run may use, newest catalogue from the LLM gateway. Empty when the gateway is unreachable. */
+      /** Every model a run may use, from the task model catalog. */
       models: ModelChoice[];
     }
 

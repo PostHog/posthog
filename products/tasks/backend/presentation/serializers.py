@@ -69,7 +69,7 @@ from products.tasks.backend.facade.contracts import (
     WizardCloudRunDTO,
 )
 from products.tasks.backend.facade.enums import TaskChannelWriteType
-from products.tasks.backend.facade.model_catalogue import TASK_RUN_GATEWAY_PRODUCT, ModelChoice, available_model_choices
+from products.tasks.backend.facade.model_catalogue import ModelChoice
 from products.tasks.backend.facade.profiles import (
     RunOptionsCaller,
     SourceKind,
@@ -3686,7 +3686,7 @@ class ModelChoiceSerializer(DataclassSerializer):
 class ModelCatalogueResponseSerializer(serializers.Serializer):
     models = ModelChoiceSerializer(
         many=True,
-        help_text="Every model a run may use, newest catalogue from the LLM gateway. Empty when the gateway is unreachable.",
+        help_text="Every model a run may use, from the task model catalog.",
     )
 
 
@@ -4156,14 +4156,7 @@ class TaskRunCreateRequestSerializer(
             if attrs.get("claude_model_access") == "own-subscription":
                 errors["claude_model_access"] = "Scheduled runs must use the PostHog gateway."
         if attrs.get("model") and attrs.get("runtime_adapter") is None:
-            model_runtime_adapter = get_runtime_adapter_for_model(attrs["model"]) or next(
-                (
-                    RuntimeAdapter(choice.runtime_adapter)
-                    for choice in available_model_choices(TASK_RUN_GATEWAY_PRODUCT)
-                    if choice.model == attrs["model"]
-                ),
-                None,
-            )
+            model_runtime_adapter = get_runtime_adapter_for_model(attrs["model"])
             if model_runtime_adapter is None:
                 errors["model"] = "Unknown model. Use tasks-models-retrieve to list available models."
             elif not is_pi_task:
