@@ -12,6 +12,7 @@ from posthog.schema import (
     MarketingAnalyticsRecommendation,
     MarketingAnalyticsRecommendationCpa,
     MarketingAnalyticsRecommendationCpaBenchmarkSource as BenchmarkSource,
+    MarketingAnalyticsRecommendationDetectedChange as DetectedChange,
     MarketingAnalyticsRecommendationIdentity,
     MarketingAnalyticsRecommendationResolution,
     MarketingAnalyticsRecommendationRule,
@@ -117,7 +118,6 @@ MAX_BRAND_MISSPELLINGS = 5
 DOMAIN_PARTS = tldextract.TLDExtract(suffix_list_urls=(), include_psl_private_domains=True)
 
 Direction = Literal["save", "gain", "invest", "keep"]
-DetectedChange = Literal["negative_keyword"]
 # Google Ads KeywordMatchType values, for tables that stored the enum number.
 MATCH_TYPES = {"2": "EXACT", "3": "PHRASE", "4": "BROAD"}
 # Google Ads pages for the whole account. A link cannot open one campaign, because that needs an
@@ -220,6 +220,15 @@ class TermKeywordStats:
 
 
 @frozen
+class Keyword:
+    text: str
+    campaign_id: str
+    # Read from the campaign table, so a campaign without spend in the selected dates still counts.
+    channel_type: str | None
+    campaign_status: str | None
+
+
+@frozen
 class KeywordTracking:
     account_name: str
     sessions: int
@@ -271,6 +280,7 @@ class RecommendationInputs:
     customer_id: str | None = None
     keyword_tracking: KeywordTracking | None = None
     ads: tuple[Ad, ...] = ()
+    keywords: tuple[Keyword, ...] = ()
     excluded_searches: frozenset[ExcludedSearch] = frozenset()
     policy_ads: tuple[PolicyAds, ...] = ()
     flagged_ads: tuple[FlaggedAd, ...] = ()
@@ -567,6 +577,9 @@ class _Recommender:
         self.best_campaign_cpa = min(search_cpas, default=None)
         self.worst_campaign_cpa = max(search_cpas, default=None)
         self.account_cpa = self._account_nonbrand_cpa()
+        self.search_keywords = {
+            keyword.text for keyword in inputs.keywords if _serves_search(keyword.channel_type, keyword.campaign_status)
+        }
 
     def run(self) -> list[MarketingAnalyticsRecommendation]:
         campaign_rules = sorted(self._campaign_rules(), key=lambda rec: -(rec.impact or 0))
@@ -588,7 +601,7 @@ class _Recommender:
         serving = [
             campaign
             for campaign in self.campaigns.values()
-            if campaign.channel_type == "SEARCH" and campaign.primary_status not in INACTIVE_STATUSES
+            if _serves_search(campaign.channel_type, campaign.primary_status)
         ]
         # The settings are read as they are now, so an account that just added the parameter drops out at once,
         # while the sessions in the selected dates still lack it.
@@ -741,6 +754,7 @@ class _Recommender:
             url=ADS_SEARCH_TERMS_URL,
             linkText="search terms",
         )
+        detected_change: DetectedChange | None = None
         # Performance Max takes no negative keywords; brand exclusions are its equivalent.
         if campaign.channel_type == "PERFORMANCE_MAX":
             action = f'Add a brand exclusion for "{brand}"'
@@ -762,6 +776,8 @@ class _Recommender:
                 self._paste_brand_negatives(brand, {campaign.id}),
                 check,
             )
+            if self._brand_negated(brand, {campaign.id}):
+                detected_change = DetectedChange.BRAND_NEGATIVE
         return self._campaign_recommendation(
             MarketingAnalyticsRecommendationRule.BRAND_LEAK,
             campaign,
@@ -772,6 +788,7 @@ class _Recommender:
             "save",
             "measured",
             steps=steps,
+            detected_change=detected_change,
         )
 
     def _search_brand_leaks(
@@ -827,7 +844,20 @@ class _Recommender:
                 MarketingAnalyticsRecommendationRule.BRAND_LEAK, self.inputs.customer_id, subject=brand
             ),
             steps=steps,
+            detected_change=DetectedChange.BRAND_NEGATIVE
+            if self._brand_negated(brand, {campaign.id for campaign, _ in group})
+            else None,
         )
+
+    def _brand_negated(self, brand: str, campaign_ids: set[str]) -> bool:
+        # Misspellings are a follow-up step, so the brand's own spelling decides whether the action is done.
+        compact_brand = brand.replace(" ", "")
+        searches = {
+            ExcludedSearch(term=row.term, campaign_id=row.campaign_id)
+            for row in self.inputs.search_terms
+            if row.campaign_id in campaign_ids and compact_brand in row.term.replace(" ", "")
+        }
+        return bool(searches) and searches <= self.inputs.excluded_searches
 
     def _paste_brand_negatives(self, brand: str, campaign_ids: set[str]) -> Step:
         negatives = [brand, *self._brand_misspellings(campaign_ids, brand)]
@@ -1053,7 +1083,7 @@ class _Recommender:
                 "save",
                 "measured",
                 steps=advice.steps,
-                detected_change="negative_keyword" if term.excluded_everywhere else None,
+                detected_change=DetectedChange.NEGATIVE_KEYWORD if term.excluded_everywhere else None,
             )
             for term in terms
             if (benchmark := benchmarks.get(term.term))
@@ -1260,8 +1290,7 @@ class _Recommender:
         competitors: set[str],
     ) -> list[MarketingAnalyticsRecommendation]:
         has_search = any(
-            campaign.channel_type == "SEARCH" and campaign.primary_status not in INACTIVE_STATUSES
-            for campaign in self.campaigns.values()
+            _serves_search(campaign.channel_type, campaign.primary_status) for campaign in self.campaigns.values()
         )
         channel = "SEARCH" if has_search else "PERFORMANCE_MAX"
         landing_campaigns = self._landing_campaigns()
@@ -1337,6 +1366,10 @@ class _Recommender:
                     ),
                     campaign.name if campaign else None,
                     steps=steps,
+                    # Performance Max search themes are not synced, so only a Search keyword shows the change.
+                    detected_change=DetectedChange.KEYWORD_ADDED
+                    if has_search and query.query in self.search_keywords
+                    else None,
                 )
             )
         return recommendations
@@ -1773,6 +1806,7 @@ class _Recommender:
         steps: tuple[Step, ...] = (),
         budget_id: str | None = None,
         cpa: MarketingAnalyticsRecommendationCpa | None = None,
+        detected_change: DetectedChange | None = None,
     ) -> MarketingAnalyticsRecommendation:
         return self._recommendation(
             rule,
@@ -1786,6 +1820,7 @@ class _Recommender:
             recommendation_identity(rule, self.inputs.customer_id, campaign_id=campaign.id, subject=budget_id),
             steps=steps,
             cpa=cpa,
+            detected_change=detected_change,
         )
 
     def _recommendation(
@@ -1877,6 +1912,10 @@ class _Recommender:
     def _money(self, amount: float) -> str:
         currency = self.inputs.currency or ""
         return f"${amount:,.0f}" if currency in ("USD", "") else f"{amount:,.0f} {currency}"
+
+
+def _serves_search(channel_type: str | None, primary_status: str | None) -> bool:
+    return channel_type == "SEARCH" and primary_status not in INACTIVE_STATUSES
 
 
 def _passes_keyword(url_option: str | None) -> bool:

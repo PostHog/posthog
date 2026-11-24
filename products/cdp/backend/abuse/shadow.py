@@ -270,7 +270,7 @@ def _queue_if_enabled(hog_function: HogFunction) -> None:
         if not shadow_enabled(hog_function.team, only_evaluate_locally=True):
             return
         # Checked after the flag, so the query runs only for enrolled teams.
-        candidate = scorable_hog_functions().filter(pk=hog_function.pk).first()
+        candidate = scorable_hog_functions(enabled_only=False).filter(pk=hog_function.pk).first()
         if candidate is None or not runs_customer_code(candidate):
             return
 
@@ -282,12 +282,13 @@ def _queue_if_enabled(hog_function: HogFunction) -> None:
 
 
 def is_scorable(hog_function: HogFunction) -> bool:
-    """Only functions that run are scored. A disabled one is scored when it is enabled."""
-    return hog_function.enabled and not hog_function.deleted and hog_function.type in CLASSIFIED_TYPES
+    """A disabled function is scored too: the editor's test invocation still runs it, and saving a probe disabled
+    is itself a signal."""
+    return not hog_function.deleted and hog_function.type in CLASSIFIED_TYPES
 
 
 def scorable_hog_functions(*, enabled_only: bool = True) -> QuerySet[HogFunction]:
-    """Enabled destinations, and enabled transformations that may run code a customer wrote.
+    """Destinations, and transformations that may run code a customer wrote. `enabled_only` keeps the running ones.
 
     A transformation runs without network access, so one that runs a template's code unchanged is PostHog's code.
     A destination from a template is still scored: its inputs, such as a webhook URL, can make it abusive.
@@ -335,8 +336,15 @@ def classify_if_due(hog_function: HogFunction) -> None:
     outbound_call = rules.has_outbound_call(runtime_content)
     set_aside = rules.set_aside_scores(runtime_content, rule_hits)
     scoring = _scoring_for(hog_function.team)
-    entry = _cache_entry(content_hash(content), rule_hits, outbound_call, scoring.account_tier, set_aside)
-    if cache.get(_hash_key(str(hog_function.id))) == entry:
+    public_content_hash = content_hash(content)
+    reported = cache.get(_hash_key(str(hog_function.id)))
+    # A verdict reported while enabled covers the same content saved disabled, so disabling a function reports nothing.
+    covering_states = (True,) if hog_function.enabled else (True, False)
+    if any(
+        reported
+        == _cache_entry(public_content_hash, rule_hits, outbound_call, scoring.account_tier, set_aside, enabled=state)
+        for state in covering_states
+    ):
         metrics.CLASSIFICATIONS.labels(hog_function.type, "none", "skipped_unchanged").inc()
         return
     report(
@@ -429,15 +437,19 @@ def _cache_entry(
     outbound_call: bool,
     account_tier: AccountTier,
     set_aside: dict[str, SetAsideReason],
+    *,
+    enabled: bool,
 ) -> str:
     """The model sees only the public content, and secret inputs change only the rule hits, the outbound call and
     the scores set aside. Keeping all of them means a secret change that matches a rule or adds a call scores the
     function again, while the cache holds nothing more about a secret value than the event does. Only the established
     tier changes whether a moderate score alerts, so an account that enters or leaves it scores again on its next
-    save."""
+    save. Enabling a function that was scored while disabled reports it again, so a probe that starts running alerts
+    as enabled."""
     established = account_tier is AccountTier.ESTABLISHED
     reasons = ",".join(f"{question}={reason}" for question, reason in sorted(set_aside.items()))
-    return f"{public_content_hash}:{','.join(rule_hits)}:{int(outbound_call)}:{int(established)}:{reasons}"
+    entry = f"{public_content_hash}:{','.join(rule_hits)}:{int(outbound_call)}:{int(established)}:{reasons}"
+    return entry if enabled else f"{entry}:disabled"
 
 
 def report(
@@ -484,7 +496,12 @@ def report(
     cache.set(
         _hash_key(str(hog_function.id)),
         _cache_entry(
-            scored.content_hash, scored.rule_hits, scored.outbound_call, scored.account_tier, scored.set_aside
+            scored.content_hash,
+            scored.rule_hits,
+            scored.outbound_call,
+            scored.account_tier,
+            scored.set_aside,
+            enabled=hog_function.enabled,
         ),
         _HASH_TTL_SECONDS,
     )

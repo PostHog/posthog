@@ -20,7 +20,6 @@ from products.alerts.backend.models.alert import AlertConfiguration, Threshold
 from products.alerts.backend.platform_alert_backfill import (
     backfill_platform_insight_alert_configurations,
     disable_platform_insight_alert_configurations,
-    follow_insight_alert,
 )
 from products.alerts.backend.platform_insight_alert import INSIGHT_ROW_SETTINGS
 from products.alerts_platform.backend.facade.api import list_configurations
@@ -42,7 +41,7 @@ class TestPlatformInsightAlertBackfill(APIBaseTest):
                 trendsFilter=TrendsFilter(display=ChartDisplayType.BOLD_NUMBER),
             ).model_dump(),
         )
-        threshold = Threshold.objects.create(team=team, insight=insight, configuration=THRESHOLD)
+        threshold = Threshold.objects.create(team=team, insight=insight, name="Revenue bound", configuration=THRESHOLD)
         fields: dict[str, Any] = {
             "team": team,
             "insight": insight,
@@ -105,6 +104,7 @@ class TestPlatformInsightAlertBackfill(APIBaseTest):
             "threshold": THRESHOLD,
             "comparison": {"type": "absolute_value"},
             "detector": None,
+            "threshold_name": "Revenue bound",
         }
         assert {key: copies[daily.id].source_config[key] for key in INSIGHT_ROW_SETTINGS} == {
             "config": {"type": "TrendsAlertConfig", "series_index": 0},
@@ -145,53 +145,6 @@ class TestPlatformInsightAlertBackfill(APIBaseTest):
 
         backfill_platform_insight_alert_configurations(team_id=self.team.id)
         assert {view.enabled for view in self._copies().values()} == {True}
-
-    @parameterized.expand(
-        [
-            ("a_team_on_the_platform", "running", False, None, "renamed"),
-            ("insight_off_the_platform", "nowhere", False, None, None),
-            ("a_team_new_to_the_platform", "elsewhere", False, None, "renamed"),
-            ("a_team_with_only_disabled_copies", "disabled_copies", False, None, "renamed"),
-            ("a_team_an_operator_switched_off", "switched_off", False, None, None),
-            ("a_team_switched_off_with_only_disabled_copies", "switched_off_disabled_copies", False, None, None),
-            ("an_ai_alert", "running", False, {"type": "llm"}, None),
-            ("an_alert_switched_to_ai_after_its_copy", "running", True, {"type": "llm"}, "alert"),
-            ("a_forecast_alert", "running", False, {"type": "forecast"}, None),
-        ]
-    )
-    def test_a_created_or_reenabled_alert_follows_its_team_onto_the_platform(
-        self,
-        _name: str,
-        team_state: str,
-        copied_before: bool,
-        detector: dict[str, str] | None,
-        copy_name: str | None,
-    ) -> None:
-        if team_state != "nowhere":
-            other_team = Team.objects.create(organization=self.organization, name="other")
-            self._alert(team=other_team)
-            backfill_platform_insight_alert_configurations(team_id=other_team.id)
-        if team_state in ("running", "switched_off"):
-            self._alert()
-            backfill_platform_insight_alert_configurations(team_id=self.team.id)
-        if team_state == "switched_off":
-            disable_platform_insight_alert_configurations(team_id=self.team.id)
-        if team_state in ("disabled_copies", "switched_off_disabled_copies"):
-            self._alert(enabled=False)
-            backfill_platform_insight_alert_configurations(team_id=self.team.id)
-        if team_state == "switched_off_disabled_copies":
-            disable_platform_insight_alert_configurations(team_id=self.team.id)
-        created = self._alert()
-        if copied_before:
-            backfill_platform_insight_alert_configurations(alert_ids=[created.id])
-        created.name = "renamed"
-        created.detector_config = detector
-        created.save()
-
-        follow_insight_alert(created)
-
-        copy = self._copies().get(created.id)
-        assert (copy.name if copy else None) == copy_name
 
     @parameterized.expand([("with_the_alert",), ("with_its_insight",)])
     def test_deleting_an_alert_deletes_its_copy_and_no_other(self, route: str) -> None:

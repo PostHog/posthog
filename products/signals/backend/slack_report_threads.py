@@ -204,6 +204,8 @@ def _deliver_implementation_pr_to_thread(
 def dispatch_implementation_pr_notifications(
     *, team_id: int, task_id: str, pr_url: str, run_id: str | None = None
 ) -> int:
+    if Team.objects.filter(id=team_id, organization__is_active=False).exists():
+        return 0
     if not eligible_implementation_pr_urls(team_id=team_id, task_id=task_id, pr_urls=[pr_url]):
         return 0
     if run_id is None:

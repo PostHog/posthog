@@ -20,7 +20,16 @@ const GLOBAL_PROPERTY = {
     operator: PropertyOperator.Exact,
     type: PropertyFilterType.Event,
 } as CyclotronJobFilterPropertyFilter
-const FLAG_EVALUATIONS_ONLY_TEAM = { ...MOCK_DEFAULT_TEAM, flag_evaluations_mode: FlagEvaluationsModeEnumApi.Number2 }
+const FLAG_EVALUATIONS_ONLY_TEAM = {
+    ...MOCK_DEFAULT_TEAM,
+    flag_evaluations_mode: FlagEvaluationsModeEnumApi.Number2,
+    flag_calls_only_in_flag_evaluations: true,
+}
+
+const FLAG_EVALUATIONS_ONLY_TEAM_THAT_KEEPS_EVENTS_WRITES = {
+    ...FLAG_EVALUATIONS_ONLY_TEAM,
+    flag_calls_only_in_flag_evaluations: false,
+}
 
 describe('flagCallsMatching', () => {
     it.each<[string, MatchingFiltersInput, MatchingFiltersInput | null]>([
@@ -49,6 +58,15 @@ describe('flagCallsMatching', () => {
         ['no event matcher', { events: [], actions: [] }, false],
     ])('matches only flag calls: %s', (_name, input, expected) => {
         expect(matchesOnlyFlagCallsOutsideEvents(FLAG_EVALUATIONS_ONLY_TEAM, input)).toBe(expected)
+    })
+
+    it('leaves flag calls to the events filters when the team keeps writing them to events', () => {
+        const input = { events: [FLAG_CALLED] }
+
+        expect(flagCallsOutsideEventsFilters(FLAG_EVALUATIONS_ONLY_TEAM_THAT_KEEPS_EVENTS_WRITES, input)).toBeNull()
+        expect(matchesOnlyFlagCallsOutsideEvents(FLAG_EVALUATIONS_ONLY_TEAM_THAT_KEEPS_EVENTS_WRITES, input)).toBe(
+            false
+        )
     })
 
     it('adds flag call counts to the trends days they fall on', () => {

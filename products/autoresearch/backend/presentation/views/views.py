@@ -36,7 +36,7 @@ from posthog.oauth_provenance import get_oauth_access_token, is_sandbox_origin_r
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 
 from products.autoresearch.backend.facade import api
-from products.autoresearch.backend.facade.access import has_autoresearch_access
+from products.autoresearch.backend.facade.access import access_refusal, has_autoresearch_access
 from products.autoresearch.backend.facade.contracts import (
     ArtifactNotFound,
     ArtifactStorageUnavailable,
@@ -49,7 +49,6 @@ from products.autoresearch.backend.facade.contracts import (
     TrainingRunNotFound,
 )
 from products.tasks.backend.facade import api as tasks_facade
-from products.tasks.backend.facade.access import code_access_required_response, usage_limit_response
 
 from .serializers import (
     AgentModelOptionsSerializer,
@@ -456,19 +455,15 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
             ),
             403: OpenApiResponse(
                 description=(
-                    "The caller has no PostHog Desktop access, which cloud runs need, "
-                    "or the request comes from inside a sandbox."
+                    "The organization is deactivated or pending deletion (code 'organization_deactivated'), "
+                    "autoresearch is not enabled for the caller, or the request comes from inside a sandbox."
                 )
             ),
             404: OpenApiResponse(description="The pipeline does not exist or is archived."),
             429: OpenApiResponse(
                 response=TrainingRunCapReachedSerializer,
-                description=(
-                    "The project used its daily limit of training runs (this body), "
-                    "or the team is over its PostHog Desktop usage limit."
-                ),
+                description="The project used its daily limit of training runs.",
             ),
-            503: OpenApiResponse(description="PostHog Desktop access could not be checked. Try again."),
         },
         summary="Start a training run",
         description=(
@@ -487,11 +482,9 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
         required_scopes=["autoresearch:write", "query:read", "insight:read"],
     )
     def start_training(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        # The run is a paid Tasks sandbox, so it takes the same entitlement and usage gates as a Task launch.
-        if access_response := code_access_required_response(request, self.organization):
-            return access_response
-        if limit_response := usage_limit_response(request.user, self.team_id):
-            return limit_response
+        # Session auth passes ActiveOrganizationPermission, so a deactivated organization is refused here.
+        if refusal := access_refusal(request.user, self.organization, team_id=self.team_id):
+            raise PermissionDenied(refusal.detail, code=refusal.code)
         try:
             training_run = api.start_training(
                 self.team_id,
