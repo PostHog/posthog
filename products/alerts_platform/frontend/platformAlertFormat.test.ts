@@ -17,6 +17,7 @@ import {
     describeOverflow,
     canChangeFromList,
     canSnoozeGroups,
+    groupSnoozeLockedByAlert,
     describeSchedule,
     listRowMute,
     groupLabels,
@@ -186,6 +187,16 @@ describe('platformAlertFormat', () => {
             on_overflow: 'degrade_visible',
         }
         expect(canSnoozeGroups(makeConfiguration({ grouping, ...overrides }))).toEqual(expected)
+    })
+
+    test.each<[string, string | null, boolean]>([
+        ['an alert snoozed until later', '2026-10-06T12:00:00Z', true],
+        ['an alert whose snooze ended', '2026-10-04T12:00:00Z', false],
+        ['an alert with no snooze', null, false],
+    ])('groupSnoozeLockedByAlert: %s', (_, snooze_until, expected) => {
+        expect(groupSnoozeLockedByAlert(makeConfiguration({ snooze_until }), new Date('2026-10-05T12:00:00Z'))).toEqual(
+            expected
+        )
     })
 
     test.each<[string, Partial<PlatformAlertConfigurationApi>, boolean]>([

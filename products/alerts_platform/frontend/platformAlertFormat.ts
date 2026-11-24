@@ -6,6 +6,7 @@ import { FileSystemIconType } from '~/queries/schema/schema-general'
 import {
     BillingAlertConfigurationStateEnumApi as PlatformAlertStateApi,
     CalendarUnitEnumApi,
+    GroupingModeEnumApi,
     PlatformAlertApi,
     PlatformAlertConfigurationApi,
     PlatformAlertConfigurationSourceKindEnumApi,
@@ -238,7 +239,14 @@ export function canChangeFromList(configuration: PlatformAlertConfigurationApi):
 
 // The API refuses a group snooze on a source-owned alert (409) and on an ungrouped one (400).
 export function canSnoozeGroups(configuration: PlatformAlertConfigurationApi): boolean {
-    return configuration.owner === 'platform' && configuration.grouping.mode === 'by_result_labels'
+    return (
+        configuration.owner === PlatformAlertOwnerEnumApi.Platform &&
+        configuration.grouping.mode === GroupingModeEnumApi.ByResultLabels
+    )
+}
+
+export function groupSnoozeLockedByAlert(configuration: PlatformAlertConfigurationApi, now: Date): boolean {
+    return activeSnooze(configuration.snooze_until, now) !== null
 }
 
 export function describeOverflow(configuration: PlatformAlertConfigurationApi): string | null {

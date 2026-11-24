@@ -178,6 +178,20 @@ describe('platformAlertsLogic', () => {
         expect(logic.values.configurationsPage?.results).toEqual([reloaded])
     })
 
+    it.each<[number, PlatformAlertConfigurationApi[]]>([
+        [404, []],
+        [500, [ALERT, SNOOZED]],
+    ])('after a group snooze fails with %s, the list is %p', async (status, expected) => {
+        useMocks({
+            post: { [`/api/projects/:team_id/platform_alerts/${ALERT.id}/snooze_group/`]: [status, {}] },
+        })
+        mockList.mockResolvedValue({ results: [], count: 0 } as Awaited<ReturnType<typeof platformAlertsList>>)
+        logic.actions.snoozeGroup(ALERT, GROUP, '1h', 1)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.configurationsPage?.results).toEqual(expected)
+    })
+
     it('unsnoozes the alert and shows it in the reloaded list', async () => {
         expect(listed(SNOOZED.id)?.snooze_until).toEqual(SNOOZED.snooze_until)
 

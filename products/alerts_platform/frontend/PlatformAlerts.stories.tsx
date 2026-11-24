@@ -401,7 +401,7 @@ export const ListRowMenuSnoozedAlertOpen: Story = {
 }
 
 async function openGroupRowMenu(canvasElement: HTMLElement, group: string): Promise<void> {
-    await within(canvasElement).findByText('Errors per service above 50')
+    await within(canvasElement).findByText(GROUPED_CONFIGURATION.name)
     canvasElement.querySelector<HTMLElement>('[data-attr="platform-alerts-row-toggle-groups"]')?.click()
     await within(canvasElement).findByText(group)
     canvasElement.querySelector<HTMLElement>(`[aria-label="More options for ${group}"]`)?.click()

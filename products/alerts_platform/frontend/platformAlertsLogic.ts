@@ -264,6 +264,11 @@ export const platformAlertsLogic = kea<platformAlertsLogicType>([
         ],
     }),
     listeners(({ actions, values, cache }) => {
+        const reloadIfRowGone = (error: any): void => {
+            if (error?.status === 404) {
+                actions.loadConfigurations()
+            }
+        }
         const change = async (
             configuration: PlatformAlertConfigurationApi,
             request: (projectId: string) => Promise<unknown>,
@@ -284,9 +289,7 @@ export const platformAlertsLogic = kea<platformAlertsLogicType>([
                 actions.loadConfigurations()
             } catch (error: any) {
                 lemonToast.error(error?.detail ?? "Couldn't update the alert. Try again.")
-                if (error?.status === 404) {
-                    actions.loadConfigurations()
-                }
+                reloadIfRowGone(error)
             } finally {
                 actions.setUpdatingAlertId(updatingId, false)
             }
