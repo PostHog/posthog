@@ -545,7 +545,9 @@ class BillingManager:
         previous_retention_months = billed_events_retention_months(organization)
         previous_standard_retention = has_standard_retention(organization)
         organization.available_product_features = available_product_features
-        organization.save()
+        # The caller's instance can be older than the billing request, so a full save would write
+        # back organization fields that changed while the request was pending, such as is_active.
+        organization.save(update_fields=["available_product_features", "updated_at"])
 
         if (
             available_product_features
