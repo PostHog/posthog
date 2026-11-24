@@ -97,7 +97,7 @@ export function DetailFieldSelect({
         if (fieldOptions.length === 0) {
             fieldOptions.push(searchTerm.trim() ? NO_MATCH_OPTION : NO_FIELDS_LEFT_OPTION)
         }
-        if (selected && !visible.includes(selected)) {
+        if (selected && !visible.some((choice) => choice.isSelected)) {
             fieldOptions.push({ ...choiceToOption(selected), hidden: true })
         }
 

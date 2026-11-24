@@ -75,14 +75,13 @@ function matchRank(choice: DetailFieldChoice, words: string[]): number | null {
     return words.every((word) => searchText.includes(word)) ? 3 : null
 }
 
-export function getVisibleDetailFieldChoices(
-    choices: DetailFieldChoice[],
-    { searchTerm, excludedFieldPaths, selectedFieldPath, limit = MAX_VISIBLE_DETAIL_FIELDS }: DetailFieldSearch
-): VisibleDetailFieldChoices {
+type ToVisible = (choice: DetailFieldChoice) => VisibleDetailFieldChoice | null
+
+function makeToVisible(excludedFieldPaths: string[], selectedFieldPath: string | undefined): ToVisible {
     const excludedFieldNames = new Set(excludedFieldPaths.map((fieldPath) => splitFieldPath(fieldPath)[1]))
     const [selectedScope, selectedFieldName] = selectedFieldPath ? splitFieldPath(selectedFieldPath) : [null, null]
 
-    const toVisible = (choice: DetailFieldChoice): VisibleDetailFieldChoice | null => {
+    return (choice) => {
         if (choice.fieldName === selectedFieldName && selectedScope && choice.scopes.includes(selectedScope)) {
             return { ...choice, value: `${selectedScope}::${choice.fieldName}`, isSelected: true }
         }
@@ -90,36 +89,51 @@ export function getVisibleDetailFieldChoices(
             ? null
             : { ...choice, value: `${choice.scopes[0]}::${choice.fieldName}`, isSelected: false }
     }
+}
 
-    const words = searchTerm.toLowerCase().split(/\s+/).filter(Boolean)
-    let selected: VisibleDetailFieldChoice | null = null
-    let matchCount = 0
-
-    if (words.length === 0) {
-        const others: VisibleDetailFieldChoice[] = []
-        for (const choice of choices) {
-            const candidate = toVisible(choice)
-            if (!candidate) {
-                continue
-            }
-            matchCount += 1
-            if (candidate.isSelected) {
-                selected = candidate
-            } else if (others.length < limit) {
-                others.push(candidate)
-            }
+function findSelected(choices: DetailFieldChoice[], toVisible: ToVisible): VisibleDetailFieldChoice | null {
+    for (const choice of choices) {
+        const candidate = toVisible(choice)
+        if (candidate?.isSelected) {
+            return candidate
         }
-        const visible = selected ? [selected, ...others.slice(0, limit - 1)] : others
-        return { visible, selected, matchCount }
     }
+    return null
+}
 
+function listAll(
+    choices: DetailFieldChoice[],
+    toVisible: ToVisible,
+    limit: number
+): Pick<VisibleDetailFieldChoices, 'visible' | 'matchCount'> {
+    const visible: VisibleDetailFieldChoice[] = []
+    let matchCount = 0
+    for (const choice of choices) {
+        const candidate = toVisible(choice)
+        if (!candidate) {
+            continue
+        }
+        matchCount += 1
+        if (candidate.isSelected) {
+            visible.unshift(candidate)
+        } else if (visible.length < limit) {
+            visible.push(candidate)
+        }
+    }
+    return { visible: visible.slice(0, limit), matchCount }
+}
+
+function listMatches(
+    choices: DetailFieldChoice[],
+    toVisible: ToVisible,
+    words: string[],
+    limit: number
+): Pick<VisibleDetailFieldChoices, 'visible' | 'matchCount'> {
     const ranked: VisibleDetailFieldChoice[][] = [[], [], [], []]
+    let matchCount = 0
     for (const choice of choices) {
         const rank = matchRank(choice, words)
-        const candidate = rank !== null || choice.fieldName === selectedFieldName ? toVisible(choice) : null
-        if (candidate?.isSelected) {
-            selected = candidate
-        }
+        const candidate = rank === null ? null : toVisible(choice)
         if (candidate && rank !== null) {
             matchCount += 1
             if (ranked[rank].length < limit) {
@@ -127,5 +141,16 @@ export function getVisibleDetailFieldChoices(
             }
         }
     }
-    return { visible: ranked.flat().slice(0, limit), selected, matchCount }
+    return { visible: ranked.flat().slice(0, limit), matchCount }
+}
+
+export function getVisibleDetailFieldChoices(
+    choices: DetailFieldChoice[],
+    { searchTerm, excludedFieldPaths, selectedFieldPath, limit = MAX_VISIBLE_DETAIL_FIELDS }: DetailFieldSearch
+): VisibleDetailFieldChoices {
+    const toVisible = makeToVisible(excludedFieldPaths, selectedFieldPath)
+    const words = searchTerm.toLowerCase().split(/\s+/).filter(Boolean)
+    const list = words.length === 0 ? listAll(choices, toVisible, limit) : listMatches(choices, toVisible, words, limit)
+
+    return { ...list, selected: selectedFieldPath ? findSelected(choices, toVisible) : null }
 }
