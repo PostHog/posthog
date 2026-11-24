@@ -1013,6 +1013,19 @@ class TestResolver(BaseTest):
                 dialect="clickhouse",
             )
 
+    def test_pending_alias_classification_uses_owner_namespace(self):
+        with self.assertRaisesRegex(QueryError, "references another SELECT's tables"):
+            resolve_types(
+                self._select(
+                    "WITH t.properties AS x, x AS y "
+                    "SELECT (SELECT groupArray(y) FROM raw_persons AS t) "
+                    "FROM (SELECT '' AS properties) AS t "
+                    "JOIN (WITH '' AS x SELECT y) AS u ON 1 = 1"
+                ),
+                self.context,
+                dialect="clickhouse",
+            )
+
     def test_forward_local_alias_shadows_outer_constant_before_from(self):
         with self.assertRaisesRegex(QueryError, "references another SELECT's tables"):
             resolve_types(

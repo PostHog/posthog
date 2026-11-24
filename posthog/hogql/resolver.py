@@ -1181,7 +1181,7 @@ class Resolver(CloningVisitor):
             owner.tables.update(saved_tables)
             owner.anonymous_tables[:] = saved_anonymous
         current_level_ctes[name] = resolved
-        self._mark_if_table_bound(resolved, owner)
+        self._mark_if_table_bound(resolved, owner, owner_ctes)
         return resolved
 
     def _hide_later_join_tables(self, owner: ast.SelectQueryType) -> bool:
@@ -1227,14 +1227,16 @@ class Resolver(CloningVisitor):
             "Define it inside this SELECT, or rename any column that has the same name."
         )
 
-    def _mark_if_table_bound(self, cte: ast.CTE, owner: ast.SelectQueryType) -> None:
+    def _mark_if_table_bound(
+        self, cte: ast.CTE, owner: ast.SelectQueryType, ctes: dict[str, ast.CTE] | None = None
+    ) -> None:
         if cte.cte_type != "column":
             return
 
         def bound_names(name: str) -> bool | None:
             if name in self._table_bound_expr_aliases:
                 return True
-            alias = self.ctes.get(name)
+            alias = (self.ctes if ctes is None else ctes).get(name)
             return None if alias is None else id(alias) in self._table_bound_aliases
 
         finder = _TableColumnFinder(bound_names)
@@ -1305,7 +1307,7 @@ class Resolver(CloningVisitor):
                 # inherited alias of the same name could be captured with the wrong table type.
                 dependents: dict[str, set[str]] = {}
                 for cte in node.ctes.values():
-                    if cte.cte_type == "column":
+                    if cte.cte_type == "column" and cte.name not in from_scalar_aliases:
                         for dependency in _field_roots(cte.expr, deep=True) & local_names:
                             dependents.setdefault(dependency, set()).add(cte.name)
                 queue = list(from_scalar_aliases)
