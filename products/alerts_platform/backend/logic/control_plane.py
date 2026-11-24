@@ -32,6 +32,8 @@ from products.alerts_platform.backend.models import PlatformAlertConfiguration
 # The settings whose change makes a firing meaningless, as a threshold or filter change does on the
 # logs stack. A rename or a quiet-hours change leaves it running.
 _DECIDING_SETTINGS = ("source_config", "evaluation_periods", "datapoints_to_alarm")
+# Recorded as a config change, but a firing keeps running: data that is present decides it the same way.
+_RECORDED_SETTINGS = (*_DECIDING_SETTINGS, "on_missing_data")
 
 
 def ending_reason(
@@ -68,7 +70,7 @@ def change_kind(
         return ControlChangeKind.DISABLE
     if snooze_changed:
         return ControlChangeKind.UNSNOOZE if snooze_until is None else ControlChangeKind.SNOOZE
-    if regrouped or any(getattr(current, field) != getattr(edit, field) for field in _DECIDING_SETTINGS):
+    if regrouped or any(getattr(current, field) != getattr(edit, field) for field in _RECORDED_SETTINGS):
         return ControlChangeKind.CONFIG_CHANGE
     return None
 

@@ -33,7 +33,7 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceKind,
     source_condition,
 )
-from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
+from products.alerts_platform.backend.facade.enums import OnMissingData, PlatformAlertOwner, PlatformAlertState
 from products.alerts_platform.backend.facade.lifecycle import NotificationAction
 from products.alerts_platform.backend.facade.platform_metrics import (
     increment_groups_over_cap,
@@ -313,6 +313,7 @@ def _check(
         snooze_until=c.snooze_until,
         instances=tuple(_composed(c, alert) for alert in alerts),
         grouping=Grouping.from_stored(c.grouping),
+        on_missing_data=OnMissingData(c.on_missing_data),
         owned_by_platform=c.owner == PlatformAlertConfiguration.Owner.PLATFORM,
         owner_changed_at=c.owner_changed_at,
         recurrence_unit=c.recurrence_unit,
@@ -667,7 +668,8 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
                     continue
                 group = _held_by_mute(configuration, alert, reported, now)
                 touched.append(alert)
-                alert.last_seen_at = now
+                if reported.seen:
+                    alert.last_seen_at = now
                 # A hashed key's group that a check did not return arrives without labels, and its
                 # labels have not changed, so the stored ones stay.
                 if group.labels:
@@ -919,6 +921,7 @@ def write_edit(
         "enabled",
         "source_config",
         "grouping",
+        "on_missing_data",
         "schedule_restriction",
         "evaluation_periods",
         "datapoints_to_alarm",
@@ -978,6 +981,7 @@ def _assign_edit(configuration: PlatformAlertConfiguration, edit: PlatformAlertC
     configuration.enabled = edit.enabled
     configuration.source_config = edit.source_config
     configuration.grouping = edit.grouping.to_stored()
+    configuration.on_missing_data = edit.on_missing_data.value
     configuration.schedule_restriction = edit.schedule_restriction
     configuration.evaluation_periods = edit.evaluation_periods
     configuration.datapoints_to_alarm = edit.datapoints_to_alarm

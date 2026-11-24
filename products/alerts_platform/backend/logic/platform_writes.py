@@ -37,7 +37,7 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceKind,
     UnknownPlatformAlertGroup,
 )
-from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
+from products.alerts_platform.backend.facade.enums import OnMissingData, PlatformAlertOwner, PlatformAlertState
 from products.alerts_platform.backend.facade.scheduling import validate_and_normalize_schedule_restriction
 from products.alerts_platform.backend.logic import (
     alert_destinations,
@@ -67,6 +67,7 @@ def edit_of(configuration: PlatformAlertConfiguration) -> PlatformAlertConfigura
         cooldown_minutes=configuration.cooldown_minutes,
         labels=configuration.labels,
         annotations=configuration.annotations,
+        on_missing_data=OnMissingData(configuration.on_missing_data),
     )
 
 
@@ -88,6 +89,13 @@ def _validated(
             raise InvalidPlatformAlertEdit(name, f"Must be between 1 and {spec.max_evaluation_periods}.")
     if edit.datapoints_to_alarm > edit.evaluation_periods:
         raise InvalidPlatformAlertEdit("datapoints_to_alarm", "Cannot exceed evaluation_periods.")
+    if edit.on_missing_data not in spec.on_missing_data_options:
+        allowed = ", ".join(sorted(option.value for option in spec.on_missing_data_options))
+        raise InvalidPlatformAlertEdit("on_missing_data", f"{source_kind} alerts accept only: {allowed}.")
+    # A grouped alert cannot fire for a group it has never seen, and resting groups are reaped and
+    # evicted, so Breaching would miss exactly the groups that stopped reporting.
+    if edit.on_missing_data == OnMissingData.BREACHING and edit.grouping.mode != GroupingMode.SINGLE:
+        raise InvalidPlatformAlertEdit("on_missing_data", "Breaching is available only on ungrouped alerts.")
     if not 0 <= edit.cooldown_minutes <= MAX_STORED_INTEGER:
         raise InvalidPlatformAlertEdit("cooldown_minutes", f"Must be between 0 and {MAX_STORED_INTEGER}.")
     try:

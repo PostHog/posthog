@@ -48,6 +48,18 @@ class PlatformAlertState(LabeledStrEnum):
     BROKEN = "broken", "Broken"
 
 
+class OnMissingData(LabeledStrEnum):
+    """What a group means once its source is certain the check did not return it.
+
+    The source decides when absence is certain, and its `absent` holds the group until then. This
+    decides what certain absence means for the alert.
+    """
+
+    RESOLVE = "resolve", "Resolve"
+    KEEP_LAST_STATE = "keep_last_state", "Keep last state"
+    BREACHING = "breaching", "Breaching"
+
+
 class PlatformAlertCheckStatus(LabeledStrEnum):
     """Whether a configuration's checks succeed. It holds for every instance of the configuration,
     because a failed check returns no group to attribute the failure to."""
