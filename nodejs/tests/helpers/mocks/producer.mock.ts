@@ -50,3 +50,12 @@ export const MockKafkaProducerWrapper = require('~/common/kafka/producer')
     .KafkaProducerWrapper as typeof KafkaProducerWrapper
 export const mockProducerObserver = new KafkaProducerObserver(mockProducer)
 export const mockKafkaClient = require('~/common/kafka/producer')._kafkaClient as jest.Mocked<HighLevelProducer>
+
+export const kafkaRecordsOn = (topic: string): (() => Buffer[]) => {
+    const from = mockKafkaClient.produce.mock.calls.length
+    return () =>
+        mockKafkaClient.produce.mock.calls
+            .slice(from)
+            .filter(([calledTopic]) => calledTopic === topic)
+            .map(([, , value]) => value as Buffer)
+}

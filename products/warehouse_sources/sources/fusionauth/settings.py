@@ -292,6 +292,36 @@ FUSIONAUTH_ENDPOINTS: dict[str, FusionAuthEndpointConfig] = {
             child_response_actions=[{"status_code": 404, "action": "ignore"}],
         ),
     ),
+    "IdentityProviders": FusionAuthEndpointConfig(
+        name="IdentityProviders",
+        path="/api/identity-provider",
+        data_selector="identityProviders",
+        primary_keys=["id"],
+        incremental_fields=[],
+        partition_key="insertInstant",
+        method="GET",
+        # Client secrets and API keys of the provider, also as per-application overrides keyed by
+        # application id.
+        exclude_fields=(
+            "client_secret",
+            "consumerSecret",
+            "webAPIKey",
+            "oauth2.client_secret",
+            "applicationConfiguration.*.client_secret",
+            "applicationConfiguration.*.consumerSecret",
+            "applicationConfiguration.*.webAPIKey",
+            "applicationConfiguration.*.oauth2.client_secret",
+        ),
+    ),
+    "EntityTypes": FusionAuthEndpointConfig(
+        name="EntityTypes",
+        path="/api/entity/type",
+        data_selector="entityTypes",
+        primary_keys=["id"],
+        incremental_fields=[],
+        partition_key="insertInstant",
+        method="GET",
+    ),
     # Global reports across all applications. `interval` is the number of days (or months) since
     # the epoch in the report timezone, so it is unique within a report.
     "DailyActiveUsers": FusionAuthEndpointConfig(
@@ -307,6 +337,25 @@ FUSIONAUTH_ENDPOINTS: dict[str, FusionAuthEndpointConfig] = {
         name="MonthlyActiveUsers",
         path="/api/report/monthly-active-user",
         data_selector="monthlyActiveUsers",
+        primary_keys=["interval"],
+        incremental_fields=[],
+        method="GET",
+        report_range=True,
+    ),
+    # `interval` here is the number of hours since the epoch in the report timezone.
+    "RegistrationReport": FusionAuthEndpointConfig(
+        name="RegistrationReport",
+        path="/api/report/registration",
+        data_selector="hourlyCounts",
+        primary_keys=["interval"],
+        incremental_fields=[],
+        method="GET",
+        report_range=True,
+    ),
+    "LoginReport": FusionAuthEndpointConfig(
+        name="LoginReport",
+        path="/api/report/login",
+        data_selector="hourlyCounts",
         primary_keys=["interval"],
         incremental_fields=[],
         method="GET",

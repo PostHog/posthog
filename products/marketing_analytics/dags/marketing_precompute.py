@@ -923,7 +923,7 @@ def summarize_marketing_precompute_op(context: dagster.OpExecutionContext, resul
         f"recompute expired windows."
     ),
     tags={
-        "owner": JobOwners.TEAM_WEB_ANALYTICS.value,
+        "owner": JobOwners.TEAM_ANALYTICS.value,
         "dagster/max_runtime": str(2 * 60 * 60),
         # One subprocess per shard, each printing HogQL on its own core, so the run pod needs CPU for the
         # shards and memory for that many Django interpreters. Matches the web cache warming job.
@@ -951,7 +951,7 @@ def marketing_precompute_job():
     cron_schedule="35 * * * *",
     job=marketing_precompute_job,
     execution_timezone="UTC",
-    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+    tags={"owner": JobOwners.TEAM_ANALYTICS.value},
 )
 def marketing_precompute_schedule(
     context: dagster.ScheduleEvaluationContext,

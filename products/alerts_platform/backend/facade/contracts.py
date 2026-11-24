@@ -41,6 +41,7 @@ class SourceKind(StrEnum):
     WAREHOUSE_DESTINATION = "warehouse_destination"
     METRICS = "metrics"
     TRACES = "traces"
+    ERROR_TRACKING = "error_tracking"
 
 
 @frozen
@@ -412,31 +413,6 @@ class PlatformOwnershipHandover:
     at: datetime
 
 
-class HandbackRefusal(StrEnum):
-    """Why the platform keeps an alert its source asked for back."""
-
-    # The platform keys its incidents by episode, which the source's own stack cannot address, so a
-    # firing alert stays until it resolves.
-    FIRING = "firing"
-    # A platform check may be running and could record or notify after the handback.
-    CHECK_DUE = "check_due"
-    # A handback carries one alert. Grouped alerts stay, and so does a calendar schedule its source
-    # does not run.
-    NOT_PORTABLE = "not_portable"
-
-
-@frozen
-class PlatformHandback:
-    """The runtime state the source carries on from when the platform hands an alert back."""
-
-    state: PlatformAlertState
-    last_notified_at: datetime | None
-    consecutive_failures: int
-    next_check_at: datetime | None
-    # False when the platform switched the copy off, such as for a configuration it cannot run.
-    enabled: bool = True
-
-
 @frozen
 class PlatformAlertRuntime:
     """Where an alert the platform owns stands, and the settings only its copy stores, for a source
@@ -677,6 +653,35 @@ class LegacyHistoryCopyRun:
         )
         alerts = self.unfinished if unfinished_only else self.alerts
         return (*(alert.summary for alert in alerts), totals)
+
+
+@frozen
+class LegacyRowSwitchOff:
+    """One team's run: how many alerts the platform owns, and how many of their source rows were on."""
+
+    team_id: int
+    owned_alerts: int
+    switched_off: int
+
+
+@frozen
+class LegacyRowSwitchOffRun:
+    teams: tuple[LegacyRowSwitchOff, ...]
+    failed_team_ids: tuple[int, ...]
+
+    def report(self, source: SourceKind, *, applied: bool) -> tuple[str, ...]:
+        verb = "switched off" if applied else "to switch off"
+        lines = tuple(
+            f"Team {team.team_id}: {team.owned_alerts} platform-owned alerts, {team.switched_off} rows {verb}"
+            for team in self.teams
+            if team.switched_off
+        )
+        totals = (
+            f"{source.value}: {len(self.teams)} teams, {sum(team.owned_alerts for team in self.teams)} "
+            f"platform-owned alerts, {sum(team.switched_off for team in self.teams)} rows {verb}"
+            + ("" if applied else " (dry run)")
+        )
+        return (*lines, totals)
 
 
 @frozen

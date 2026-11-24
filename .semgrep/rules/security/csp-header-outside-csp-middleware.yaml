@@ -2,8 +2,8 @@ rules:
     - id: csp-header-outside-csp-middleware
       message: >-
           Do not set a `Content-Security-Policy` header here. The policy the app serves lives in
-          `posthog/csp_middleware.py`, which team-security owns in `.github/CODEOWNERS`, so a
-          policy change gets a security review. A header set on a view escapes that review, and
+          `posthog/csp_middleware.py`, and the `master` branch ruleset requires a team-security
+          review for every change to that file. A header set on a view escapes that review, and
           `CSPMiddleware` returns a response that already carries one unchanged, so it also drops
           the app policy for that document. Widen the matching list in `posthog/csp_middleware.py`
           instead. A document that must carry its own sandbox, such as untrusted HTML, needs

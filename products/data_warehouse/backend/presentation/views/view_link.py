@@ -20,7 +20,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-from posthog.errors import look_up_clickhouse_error_code_meta
+from posthog.errors import clickhouse_error_message
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -408,16 +408,13 @@ class ViewLinkViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewset
             response_data = {
                 "attr": None,
                 "code": e.__class__.__name__,
-                "detail": "An internal error occurred while validating.",
+                "detail": clickhouse_error_message(e),
                 "type": "query_error",
                 "hogql": validation_query.to_hogql(),
             }
             status_code = status.HTTP_500_INTERNAL_SERVER_ERROR  # type: ignore[assignment]
             response_data["is_valid"] = False
 
-            is_safe = look_up_clickhouse_error_code_meta(e).user_safe
-            if is_safe:
-                response_data["detail"] = str(e)
         except QueryError as e:
             capture_exception(e)
             response_data = {
