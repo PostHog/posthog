@@ -440,8 +440,19 @@ fi
 if [[ "${POSTHOG_WATCH:-1}" != "0" ]] && [[ -z "${CI:-}" ]] && [[ -x "$UV_PROJECT_ENVIRONMENT/bin/python" ]] \
   && [[ "$_WATCH_ALIVE" == "0" ]]; then
   mkdir -p "$HOME/.cache/posthog"
-  "$UV_PROJECT_ENVIRONMENT/bin/python" -P -m hogli watch >>"$HOME/.cache/posthog/watch.log" 2>&1 &
-  disown
+  # direnv waits for EOF on its export pipe, so the watcher must close inherited descriptors.
+  (
+    cd "$FLOX_ENV_PROJECT" && "$UV_PROJECT_ENVIRONMENT/bin/python" -P - <<'PY'
+from hogli.lazy_commands import add_commands_dir_to_path
+from hogli.manifest import get_manifest
+
+add_commands_dir_to_path(get_manifest().commands_dir)
+
+from hogli_commands.watch import spawn_watcher
+
+spawn_watcher()
+PY
+  ) >>"$HOME/.cache/posthog/watch.log" 2>&1 || true
 fi
 unset _WATCH_PID _WATCH_ALIVE
 

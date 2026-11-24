@@ -263,6 +263,7 @@ def spawn_watcher() -> None:
             stdin=subprocess.DEVNULL,
             stdout=log,
             stderr=subprocess.STDOUT,
+            close_fds=True,
             start_new_session=True,
         )
 

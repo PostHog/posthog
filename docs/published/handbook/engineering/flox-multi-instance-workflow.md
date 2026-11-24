@@ -421,7 +421,8 @@ The output goes to `~/.cache/posthog/watch.log`.
 
 ### Background housekeeping (`hogli watch`)
 
-Flox activation starts `hogli watch`, and one copy runs per machine.
+Flox activation starts `hogli watch` in the background, and one copy runs per machine.
+The shell prompt returns after activation while the watcher continues to run.
 It runs the daily worktree cleanup above, and it stops the local ClickHouse container after 30 minutes with no queries, no connected clients, and no `hogli start` stack.
 A test that needs ClickHouse starts the container again, which takes a few seconds, so ClickHouse runs only while something uses it.
 The watcher exits when it has nothing left to watch.
