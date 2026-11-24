@@ -878,6 +878,11 @@ def _accepted_send(team: Team, email: CodeEmail) -> tuple[dict[str, Any], SendWa
         accepted["bcc"] = list(email.bcc)
     if email.attachments:
         accepted["attachments"] = [_accepted_attachment(attachment) for attachment in email.attachments]
+    if email.reply_headers:
+        accepted["thread"] = {
+            "inReplyTo": email.reply_headers.in_reply_to,
+            "references": list(email.reply_headers.references),
+        }
     return accepted, sandbox_warning
 
 

@@ -4073,6 +4073,25 @@ describe('EmailService', () => {
             }
         )
 
+        it('threads a reply under a long thread, keeping its root and newest IDs within the SES header limit', async () => {
+            const ids = Array.from({ length: 30 }, (_, i) => `<message-${String(i).padStart(2, '0')}@mail.example.com>`)
+            invocation.queueParameters = createEmailParams({
+                from: { integrationId: 1 },
+                thread: { inReplyTo: ids[29], references: ids },
+            })
+
+            const result = await service.executeSendEmail(invocation)
+
+            expect(result.error).toBeUndefined()
+            const [sent] = ses.sent
+            expect(sent.headers['In-Reply-To']).toEqual(ids[29])
+            const references = sent.headers['References'].split(' ')
+            expect(sent.headers['References'].length).toBeLessThanOrEqual(870)
+            expect(references[0]).toEqual(ids[0])
+            expect(references.slice(1)).toEqual(ids.slice(30 - references.length + 1))
+            expect(references.length).toBeLessThan(ids.length)
+        })
+
         it('attaches the X-PostHog-Tracking-Code header carrying the full signed code', async () => {
             // The header is the authoritative tracking-code carrier (the EmailTag is the
             // bounded backwards-compat fallback). It rides on every outbound message,
