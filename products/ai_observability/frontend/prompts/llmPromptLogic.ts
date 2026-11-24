@@ -50,7 +50,7 @@ import type {
     LLMPromptReferencedByApi,
     LLMPromptResolveResponseApi,
 } from '../generated/api.schemas'
-import { buildAiObservabilityStorageConfig } from '../preferenceStorage'
+import { buildAiObservabilityStorageConfig } from '../redesign/shared/preferenceStorage'
 import { changedOnlyTraceDrawerParams } from '../redesign/trace/traceDrawerRows'
 import { llmPromptsLogic } from './llmPromptsLogic'
 import { LLM_PROMPTS_FORCE_RELOAD_PARAM } from './llmPromptsLogic'

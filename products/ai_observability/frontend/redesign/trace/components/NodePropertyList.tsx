@@ -3,7 +3,8 @@ import { ReactNode } from 'react'
 import { TZLabel } from 'lib/components/TZLabel'
 
 import type { TraceApi, TraceNodeApi, TraceNodeDetailApi } from '../../../generated/api.schemas'
-import { formatCacheTokens, formatCostUsd, formatLatencyMs, formatTokenCounts } from './formatStats'
+import { formatCostUsd } from '../../shared/formatCost'
+import { formatCacheTokens, formatLatencyMs, formatTokenCounts } from './formatStats'
 
 const UNKNOWN_VALUE = <span className="text-secondary">Unknown</span>
 
