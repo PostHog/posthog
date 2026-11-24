@@ -400,7 +400,9 @@ export const noLoss: InvariantDefinition = {
             return unjudgedOf('the run reached no recovery horizon: convergence was interrupted')
         }
         if ('unread' in horizon) {
-            return unjudgedOf(`the run reached no recovery horizon: the last truth read failed: ${horizon.unread}`)
+            return unjudgedOf(
+                `the run reached no recovery horizon: the last convergence read failed: ${horizon.unread}`
+            )
         }
         const unjudged = unjudgedNoLoss(evidence)
         if (unjudged !== undefined) {

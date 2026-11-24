@@ -121,6 +121,11 @@ export function createJudge({
             .map(({ unitId }) => unitId)
     }
 
+    const runRecords = (): number => {
+        const units = new Set(journal.map(({ unitId }) => unitId))
+        return truth.filter(({ unitId }) => unitId !== undefined && units.has(unitId)).length
+    }
+
     return {
         async open(seed) {
             journal = []
@@ -142,10 +147,10 @@ export function createJudge({
                 let jobs: number | undefined
                 const quiet = await read(async () => {
                     await pullTruth()
-                    const settled = cursor
+                    const settled = runRecords()
                     jobs = await probe.unfinishedJobs({ teams, queues: ['hogflow', 'email'] })
                     await pullTruth()
-                    return cursor === settled
+                    return runRecords() === settled
                 })
                 const unrecorded = unrecordedUnits()
                 const tookMs = now() - startedAt

@@ -705,6 +705,12 @@ describe('judge', () => {
             ],
             { passed: true, observed: 0 },
         ],
+        [
+            'nothing of this run, while another run keeps sending',
+            () => deliver(UNIT),
+            Array.from({ length: 20 }, (_, i) => () => deliver(`run-b-${i + 1}`)),
+            { passed: true, observed: 0 },
+        ],
     ])(
         'counts what the edge accepted while convergence read a zero job count: %s',
         async (_story, before, duringCounts, expected) => {
@@ -746,7 +752,7 @@ describe('judge', () => {
                 truthFails = undefined
             },
             NO_RESETS,
-            'the run reached no recovery horizon: the last truth read failed: The operation was aborted due to timeout',
+            'the run reached no recovery horizon: the last convergence read failed: The operation was aborted due to timeout',
         ],
         [
             'a valve was never observed',
