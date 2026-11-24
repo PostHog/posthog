@@ -24,7 +24,8 @@ export interface SessionContext {
 
 /**
  * Receives every parsed non-chunk notification the writer persists, in
- * arrival order. Streamed agent message/thought chunks are not delivered
+ * arrival order, plus a `_posthog/session_log_gap` report for each drop of
+ * entries the API log could not keep. Streamed agent message/thought chunks are not delivered
  * (neither raw nor coalesced) - sinks carry run metadata, not transcript
  * content. Sink failures are swallowed so they can never break session log
  * persistence.
@@ -97,7 +98,7 @@ interface SendOutcome {
 interface SessionState {
   context: SessionContext;
   gap?: SessionLogGap;
-  overflowUnreportedCount?: number;
+  overflowUnreported?: SessionLogGap;
   transcriptBoundaries: TranscriptBoundaries;
   chunkBuffer?: ChunkBuffer;
   leadingEmptyChunkEventId?: string;
@@ -523,7 +524,7 @@ export class SessionLogWriter {
     session.gap = undefined;
     const unsent = outcome.failure?.unsent ?? [];
     if (marker && unsent[0] === marker) {
-      this.mergeGap(session, gap);
+      session.gap = gap;
     }
     // A rejected marker is not re-marked: it would be retried forever.
     const rejected = outcome.rejected.filter((entry) => entry !== marker);
@@ -536,21 +537,23 @@ export class SessionLogWriter {
       });
     }
     if (rejected.length > 0) {
+      const rejectedGap = this.gapOf(rejected);
       this.reportDrop(
         sessionId,
         session,
         "rejected",
-        rejected.length,
+        rejectedGap,
         outcome.rejectedStatus,
       );
-      this.mergeGap(session, this.gapOf(rejected));
+      session.gap = this.mergeGap(session.gap, rejectedGap);
     }
-    this.mergeGap(session, gapSinceSend);
 
     const requeued = unsent.filter((entry) => entry !== marker);
     if (requeued.length > 0) {
       this.requeueFront(sessionId, requeued);
+      this.enforcePendingCap(sessionId, session);
     }
+    session.gap = this.mergeGap(session.gap, gapSinceSend);
 
     if (!outcome.failure) {
       this.retryCounts.set(sessionId, 0);
@@ -562,7 +565,6 @@ export class SessionLogWriter {
 
     const retryCount = (this.retryCounts.get(sessionId) ?? 0) + 1;
     this.retryCounts.set(sessionId, retryCount);
-    this.enforcePendingCap(sessionId, session);
 
     const { error } = outcome.failure;
     if (retryCount === 1) {
@@ -611,7 +613,6 @@ export class SessionLogWriter {
             failure: { error, unsent },
           };
         }
-        rejectedStatus = error.status;
         if (
           chunk.length > 1 &&
           SessionLogWriter.SPLIT_STATUSES.has(error.status) &&
@@ -622,6 +623,7 @@ export class SessionLogWriter {
           splitRequests += 2;
         } else {
           rejected.push(...chunk);
+          rejectedStatus = error.status;
         }
       }
     }
@@ -672,17 +674,16 @@ export class SessionLogWriter {
   }
 
   private mergeGap(
-    session: SessionState,
+    earlier: SessionLogGap | undefined,
     later: SessionLogGap | undefined,
-  ): void {
-    if (!later) return;
-    if (!session.gap) {
-      session.gap = { ...later };
-      return;
-    }
-    session.gap.droppedCount += later.droppedCount;
-    session.gap.firstEventId ??= later.firstEventId;
-    session.gap.lastEventId = later.lastEventId ?? session.gap.lastEventId;
+  ): SessionLogGap | undefined {
+    if (!earlier) return later;
+    if (!later) return earlier;
+    return {
+      droppedCount: earlier.droppedCount + later.droppedCount,
+      firstEventId: earlier.firstEventId ?? later.firstEventId,
+      lastEventId: later.lastEventId ?? earlier.lastEventId,
+    };
   }
 
   private buildGapMarker(gap: SessionLogGap): StoredNotification {
@@ -705,7 +706,7 @@ export class SessionLogWriter {
     sessionId: string,
     session: SessionState,
     reason: "rejected" | "overflow",
-    droppedCount: number,
+    gap: SessionLogGap,
     status?: number,
   ): void {
     this.logger.error("Session log entries dropped", {
@@ -713,7 +714,7 @@ export class SessionLogWriter {
       runId: session.context.runId,
       reason,
       status,
-      droppedCount,
+      ...gap,
     });
     this.emitToSinks(sessionId, {
       type: "notification",
@@ -723,7 +724,7 @@ export class SessionLogWriter {
         method: POSTHOG_NOTIFICATIONS.SESSION_LOG_GAP,
         params: {
           reason,
-          droppedCount,
+          droppedCount: gap.droppedCount,
           ...(status !== undefined ? { status } : {}),
         },
       },
@@ -731,10 +732,10 @@ export class SessionLogWriter {
   }
 
   private reportOverflow(sessionId: string, session: SessionState): void {
-    const droppedCount = session.overflowUnreportedCount ?? 0;
-    if (droppedCount === 0) return;
-    session.overflowUnreportedCount = 0;
-    this.reportDrop(sessionId, session, "overflow", droppedCount);
+    const gap = session.overflowUnreported;
+    if (!gap) return;
+    session.overflowUnreported = undefined;
+    this.reportDrop(sessionId, session, "overflow", gap);
   }
 
   private requeueFront(sessionId: string, entries: PendingEntry[]): void {
@@ -765,9 +766,12 @@ export class SessionLogWriter {
     if (evictCount === 0) return;
     const evicted = queue.entries.splice(0, evictCount);
     queue.bytes = bytes;
-    this.mergeGap(session, this.gapOf(evicted));
-    session.overflowUnreportedCount =
-      (session.overflowUnreportedCount ?? 0) + evictCount;
+    const evictedGap = this.gapOf(evicted);
+    session.gap = this.mergeGap(session.gap, evictedGap);
+    session.overflowUnreported = this.mergeGap(
+      session.overflowUnreported,
+      evictedGap,
+    );
   }
 
   private flushMaxIntervalMs(sessionId: string): number {
