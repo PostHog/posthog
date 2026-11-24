@@ -3,6 +3,8 @@ from __future__ import annotations
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
@@ -17,6 +19,7 @@ from ee.billing.quota_limiting import (
     QuotaResource,
     add_limited_team_tokens,
     replace_limited_team_tokens,
+    team_quota_snapshot,
 )
 
 
@@ -59,30 +62,14 @@ class TestQuotaLimitsAPI(APIBaseTest):
         # Org holds no billing-granted Desktop usage feature -> reads as not paying
         self.assertIs(data["code_usage_billing_active"], False)
 
-    def test_any_deactivated_org_limits_only_credit_buckets_and_reads_unbilled(self) -> None:
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.POSTHOG_CODE_USAGE, "name": "PostHog Desktop usage billing"}
-        ]
+    def test_deactivated_organization_cannot_read_quota_limits(self) -> None:
         self.organization.is_active = False
-        self.organization.is_not_active_reason = "Past due invoice"
-        self.organization.save()
+        self.organization.save(update_fields=["is_active"])
 
-        # The deactivated-org answer must not depend on Redis being reachable.
-        with patch(
-            "ee.billing.quota_limiting.get_fresh_team_limited_resources",
-            side_effect=Exception("redis unavailable"),
-        ):
-            response = self.client.get(self._url())
+        response = self.client.get(self._url())
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        data = response.json()
-        credit_buckets = {QuotaResource.AI_CREDITS.value, QuotaResource.POSTHOG_CODE_CREDITS.value}
-        for resource in QuotaResource:
-            expected = resource.value in credit_buckets
-            self.assertIs(data["limited"][resource.value]["limited"], expected)
-        for field in INFORMATIONAL_USAGE_RESOURCES:
-            self.assertIs(data["limited"][field]["limited"], False)
-        self.assertIs(data["code_usage_billing_active"], False)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["code"], "organization_deactivated")
 
     def test_null_active_org_is_not_treated_as_deactivated(self) -> None:
         self.organization.is_active = None
@@ -281,3 +268,24 @@ class TestQuotaLimitsAPI(APIBaseTest):
 
         self.assertEqual(resp_self.json()["limited"]["ai_credits"], {"limited": True, "usage": None, "limit": None})
         self.assertEqual(resp_other.json()["limited"]["ai_credits"], {"limited": False, "usage": None, "limit": None})
+
+
+class TestDeactivatedOrganizationQuotaSnapshot(SimpleTestCase):
+    def test_deactivated_org_limits_only_credit_buckets_and_reads_unbilled(self) -> None:
+        organization = Organization(
+            is_active=False,
+            available_product_features=[
+                {"key": AvailableFeature.POSTHOG_CODE_USAGE, "name": "PostHog Desktop usage billing"}
+            ],
+        )
+        team = Team(organization=organization)
+
+        with patch("ee.billing.quota_limiting.get_client", side_effect=Exception("redis unavailable")):
+            data = team_quota_snapshot(team)
+
+        credit_buckets = {QuotaResource.AI_CREDITS.value, QuotaResource.POSTHOG_CODE_CREDITS.value}
+        for resource in QuotaResource:
+            self.assertIs(data["limited"][resource.value]["limited"], resource.value in credit_buckets)
+        for field in INFORMATIONAL_USAGE_RESOURCES:
+            self.assertIs(data["limited"][field]["limited"], False)
+        self.assertIs(data["code_usage_billing_active"], False)
