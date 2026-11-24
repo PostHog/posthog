@@ -1,3 +1,4 @@
+import { waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
@@ -123,7 +124,7 @@ describe('messageTemplateLogic', () => {
             logic.mount()
 
             await expectLogic(logic, () => {
-                logic.actions.saveTemplate({ id: 'existing-id', name: 'Existing' })
+                logic.actions.saveTemplate({ ...logic.values.template, id: 'existing-id', name: 'Existing' })
             }).toDispatchActions(['saveTemplateFailure'])
 
             if (withButton) {
@@ -437,6 +438,120 @@ describe('messageTemplateLogic', () => {
             expect(bodies[0].content).toEqual(draft)
             expect(bodies[0]).not.toHaveProperty('draft_content')
             expect(bodies[0]).not.toHaveProperty('sensitive')
+        })
+    })
+
+    describe('typing while a save runs', () => {
+        const email = { subject: 'Hi', html: '<p>Sent</p>', text: 'Sent', design: { body: { id: 'sent' } } }
+        const typedEmail = { ...email, html: '<p>Typed</p>', text: 'Typed', design: { body: { id: 'typed' } } }
+        let bodies: Record<string, any>[]
+        let releaseSave: () => void
+        let stored: Record<string, any>
+        let confirmLeave: jest.SpyInstance
+
+        afterEach(() => {
+            confirmLeave.mockRestore()
+            jest.useRealTimers()
+        })
+
+        beforeEach(() => {
+            confirmLeave = jest.spyOn(window, 'confirm').mockReturnValue(true)
+            bodies = []
+            const patch = async ({ request }: { request: Request }): Promise<[number, Record<string, unknown>]> => {
+                const body = (await request.json()) as Record<string, any>
+                bodies.push(body)
+                if (bodies.length === 1) {
+                    await new Promise<void>((resolve) => (releaseSave = resolve))
+                }
+                stored = { ...stored, ...body, ...('content' in body ? { draft_content: null } : {}) }
+                return [200, stored]
+            }
+            useMocks({
+                get: { '/api/environments/:team_id/messaging_templates/:id/': () => [200, stored] },
+                patch: {
+                    '/api/environments/:team_id/messaging_templates/:id/': patch,
+                    '/api/projects/:team_id/messaging_templates/:id/': patch,
+                },
+            })
+        })
+
+        const start = async (extra: Record<string, unknown> = {}): Promise<void> => {
+            stored = {
+                id: 'existing-id',
+                name: 'Existing',
+                description: '',
+                content: { templating: 'liquid', email },
+                ...extra,
+            }
+            logic = messageTemplateLogic({ id: 'existing-id' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadTemplateSuccess'])
+            logic.actions.setTemplateValue('name', 'Sent name')
+            logic.actions.submitTemplate()
+            await waitFor(() => expect(bodies).toHaveLength(1))
+        }
+        const land = async (): Promise<void> => {
+            releaseSave()
+            await expectLogic(logic).toDispatchActions(['saveTemplateSuccess'])
+        }
+
+        it.each([
+            { field: 'the email', path: 'content.email', value: typedEmail, read: (body: any) => body.content.email },
+            { field: 'the name', path: 'name', value: 'Typed name', read: (body: any) => body.name },
+            { field: 'the description', path: 'description', value: 'Typed', read: (body: any) => body.description },
+        ])('keeps $field, leaves it unsaved, and the next save stores it', async ({ path, value, read }) => {
+            await start()
+
+            logic.actions.setTemplateValue(path, value)
+            await land()
+
+            expect(read(bodies[0])).not.toEqual(value)
+            expect(read(logic.values.template)).toEqual(value)
+            expect(logic.values.templateChanged).toBe(true)
+            expect(confirmLeave).not.toHaveBeenCalled()
+
+            logic.actions.submitTemplate()
+            await waitFor(() => expect(bodies).toHaveLength(2))
+            expect(read(bodies[1])).toEqual(value)
+        })
+
+        it('has nothing unsaved when nothing was typed', async () => {
+            await start()
+            await land()
+
+            expect(logic.values.templateChanged).toBe(false)
+            expect(logic.values.template).toMatchObject({ name: 'Sent name', content: { email } })
+        })
+
+        it('saves an edit typed during a publish as the next draft', async () => {
+            await start({ transactional_hog_flow_id: 'flow-id' })
+
+            logic.actions.setTemplateValue('content.email', typedEmail)
+            jest.useFakeTimers()
+            releaseSave()
+            await jest.advanceTimersByTimeAsync(2000)
+
+            expect(bodies[0].content.email).toEqual(email)
+            expect(bodies[1]).toEqual({ draft_content: { templating: 'liquid', email: typedEmail } })
+        })
+
+        it('discards the draft only after a publish lands, and keeps the published email', async () => {
+            await start({
+                transactional_hog_flow_id: 'flow-id',
+                draft_content: { templating: 'liquid', email: typedEmail },
+            })
+
+            logic.actions.confirmDiscardDraft()
+            await new Promise(process.nextTick)
+            expect(bodies).toHaveLength(1)
+            releaseSave()
+            await expectLogic(logic)
+                .toDispatchActions(['saveTemplateSuccess', 'discardDraftDone'])
+                .toFinishAllListeners()
+
+            expect(logic.values.template.content.email).toEqual(typedEmail)
+            expect(logic.values.draftOutOfDate).toBe(false)
+            expect(logic.values.hasDraft).toBe(false)
         })
     })
 

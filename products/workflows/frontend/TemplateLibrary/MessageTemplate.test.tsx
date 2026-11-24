@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { Provider } from 'kea'
 import { router } from 'kea-router'
 
@@ -13,6 +13,7 @@ import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
 
 import { MessageTemplate } from './MessageTemplate'
+import { messageTemplateLogic } from './messageTemplateLogic'
 
 const TEMPLATE_ID = 'tmpl-1'
 
@@ -211,5 +212,30 @@ describe('MessageTemplate', () => {
 
         expect(await screen.findByText('ada@example.com')).toBeInTheDocument()
         expect(router.values.searchParams).toEqual({ tab: 'sends' })
+    })
+
+    it('keeps the open editor while it saves', async () => {
+        let releaseSave = (): void => {}
+        useMocks({
+            get: { '/api/environments/:team_id/messaging_templates/:id/': ORDER_RECEIPT },
+            patch: {
+                '/api/environments/:team_id/messaging_templates/:id/': async () => {
+                    await new Promise<void>((resolve) => (releaseSave = resolve))
+                    return [200, { ...ORDER_RECEIPT, name: 'Renamed' }]
+                },
+            },
+        })
+        await renderAs(AccessControlLevel.Editor, ORDER_RECEIPT.name)
+        const logic = messageTemplateLogic({ id: TEMPLATE_ID })
+        const subject = await screen.findByText('Subject')
+        act(() => logic.actions.setTemplateValue('name', 'Renamed'))
+
+        fireEvent.click(screen.getByText('Save'))
+        await waitFor(() => expect(logic.values.savedTemplateLoading).toBe(true))
+        expect(subject).toBeInTheDocument()
+
+        await act(async () => releaseSave())
+        await waitFor(() => expect(logic.values.templateChanged).toBe(false))
+        expect(subject).toBeInTheDocument()
     })
 })
