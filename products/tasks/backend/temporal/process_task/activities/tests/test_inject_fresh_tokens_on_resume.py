@@ -1,3 +1,5 @@
+from collections.abc import Iterator
+
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -5,7 +7,9 @@ from asgiref.sync import async_to_sync
 
 from posthog.models import OrganizationMembership, User
 
+from products.tasks.backend.exceptions import ResumeSnapshotCredentialScrubError
 from products.tasks.backend.logic.services.agentsh import GITHUB_ENV_FILE, OAUTH_ENV_FILE
+from products.tasks.backend.logic.services.connection_token import reset_sandbox_jwt_key_cache
 from products.tasks.backend.logic.services.sandbox import ExecutionResult
 from products.tasks.backend.models import SandboxEnvironment
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
@@ -16,10 +20,18 @@ from products.tasks.backend.temporal.process_task.activities.provision_sandbox i
     inject_fresh_tokens_on_resume,
     prepare_sandbox_for_repository,
 )
+from products.tasks.backend.tests.test_api import TEST_RSA_PRIVATE_KEY
 
 
 @pytest.mark.django_db(transaction=True)
 class TestInjectFreshTokensOnResumeActivity:
+    @pytest.fixture
+    def sandbox_jwt_key(self, settings) -> Iterator[None]:
+        settings.SANDBOX_JWT_PRIVATE_KEY = TEST_RSA_PRIVATE_KEY
+        reset_sandbox_jwt_key_cache()
+        yield
+        reset_sandbox_jwt_key_cache()
+
     @pytest.fixture
     def sandbox(self):
         fake = MagicMock()
@@ -204,8 +216,28 @@ class TestInjectFreshTokensOnResumeActivity:
         assert sandbox.execute.call_count == 5
         assert sandbox.write_file.call_count == 3
 
+    def test_failed_credential_scrub_marks_the_snapshot_unusable(self, activity_environment, task_context, sandbox):
+        sandbox.execute.return_value = ExecutionResult(stdout="", stderr="invalid git config", exit_code=1)
+
+        with (
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_sandbox_class_for_sandbox_id",
+                **{"return_value.get_by_id.return_value": sandbox},
+            ),
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_sandbox_github_token"
+            ) as resolve_github,
+        ):
+            with pytest.raises(ResumeSnapshotCredentialScrubError):
+                async_to_sync(activity_environment.run)(
+                    inject_fresh_tokens_on_resume,
+                    InjectFreshTokensOnResumeInput(context=task_context, sandbox_id="sandbox-abc", repository=None),
+                )
+
+        resolve_github.assert_not_called()
+
     def test_prepare_sandbox_injects_user_github_token_without_repository(
-        self, activity_environment, team, user, settings, sandbox_ai_gateway
+        self, activity_environment, team, user, settings, sandbox_ai_gateway, sandbox_jwt_key
     ):
         from products.tasks.backend.models import Task
 
@@ -263,7 +295,7 @@ class TestInjectFreshTokensOnResumeActivity:
         assert prepared.environment_variables["POSTHOG_PERSONAL_API_KEY"] == "oauth_new"
 
     def test_prepare_sandbox_injects_team_github_token_without_repository(
-        self, activity_environment, team, user, github_integration, settings, sandbox_ai_gateway
+        self, activity_environment, team, user, github_integration, settings, sandbox_ai_gateway, sandbox_jwt_key
     ):
         from products.tasks.backend.models import Task
 

@@ -355,6 +355,7 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> str | None:
                 TaskRun.update_state_atomic(task_run.id, updates=updates)
             except Exception:
                 logger.warning("send_followup_actor_stamp_failed", run_id=input.run_id, exc_info=True)
+                raise
             # The store skills in run state are the previous actor's; the MCP refresh below makes
             # the sandbox re-read the run, so the new actor's list must be there first.
             if actor_user is not None and current.get("slack_actor_user_id") != actor_user.id:

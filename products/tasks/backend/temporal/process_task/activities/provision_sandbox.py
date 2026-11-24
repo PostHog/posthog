@@ -36,6 +36,7 @@ from products.tasks.backend.exceptions import (
     ProcessTaskTransientError,
     RepositoryAccessError,
     RepositoryCloneError,
+    ResumeSnapshotCredentialScrubError,
     SandboxNetworkPolicyError,
     TaskInvalidStateError,
     TaskNotFoundError,
@@ -1610,7 +1611,7 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
         task = _load_task(ctx)
         sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
         if not clear_github_env_from_gitlab_sandbox(sandbox):
-            raise RuntimeError("Failed to clear stale GitHub credentials from restored snapshot")
+            raise ResumeSnapshotCredentialScrubError(ctx.run_id, input.sandbox_id)
 
         actor_user = get_task_run_credential_user(task, ctx.state)
         github_token = ""

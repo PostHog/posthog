@@ -947,6 +947,29 @@ class TestSendFollowupActivityRefreshOrdering:
         )
         assert order == ["store_skills", "mcp"]
 
+    def test_failed_slack_actor_stamp_prevents_delivery(self, _patches):
+        _patches["user_msg"].return_value = CommandResult(success=True, status_code=200)
+        _patches["task_run"].state = {"interaction_origin": "slack", "slack_actor_user_id": 42}
+
+        def update_state(_run_id, *, updates):
+            if "slack_actor_user_id" in updates:
+                raise RuntimeError("database unavailable")
+
+        _patches["task_run_cls"].update_state_atomic.side_effect = update_state
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_task_run_credential_user",
+            return_value=MagicMock(id=99),
+        ):
+            with pytest.raises(RuntimeError, match="database unavailable"):
+                _run_activity(
+                    SendFollowupToSandboxInput(
+                        run_id="run-1", message="hi", actor_user_id=99, context={"actor_slack_user_id": "U_BOB"}
+                    )
+                )
+
+        _patches["user_msg"].assert_not_called()
+        _patches["refresh_github"].assert_not_called()
+
     @pytest.mark.parametrize("actor_user_id, locks", [(99, True), (42, False)])
     def test_non_slack_delivery_stamps_only_the_memory_lock(self, _patches, actor_user_id, locks):
         _patches["user_msg"].return_value = CommandResult(success=True, status_code=200)
