@@ -4,7 +4,13 @@ from redis.lock import Lock
 
 from posthog.cloud_utils import is_cloud
 from posthog.models import ProxyRecord
-from posthog.models.proxy_record import is_reserved_proxy_domain, org_may_register_reserved_domain
+from posthog.models.proxy_record import (
+    CLOUDFLARE_DEPROVISIONED_STATES,
+    CLOUDFLARE_RECOVERY_STATES,
+    CloudflareActivationState,
+    is_reserved_proxy_domain,
+    org_may_register_reserved_domain,
+)
 from posthog.redis import get_client
 from posthog.security.oob_domains import matched_oob_domain
 from posthog.temporal.proxy_service.cloudflare import (
@@ -31,8 +37,14 @@ def proxy_domain_can_be_provisioned(record: ProxyRecord) -> bool:
 
 
 def _restore_cloudflare_proxy(record: ProxyRecord) -> None:
-    if record.cloudflare_deprovisioned:
-        ProxyRecord.objects.filter(pk=record.pk).update(cloudflare_deprovisioned=False)
+    if record.cloudflare_activation_state in CLOUDFLARE_DEPROVISIONED_STATES:
+        next_state = (
+            CloudflareActivationState.RECOVERY_PENDING
+            if record.cloudflare_activation_state == CloudflareActivationState.SUSPENDED
+            else CloudflareActivationState.IDLE
+        )
+        # A later suspension must clean up even if only part of restoration succeeds.
+        ProxyRecord.objects.filter(pk=record.pk).update(cloudflare_activation_state=next_state)
     hostname = get_custom_hostname_by_domain(record.domain)
     if hostname is None:
         try:
@@ -46,21 +58,25 @@ def _restore_cloudflare_proxy(record: ProxyRecord) -> None:
 
 def deprovision_cloudflare_proxy(record: ProxyRecord) -> None:
     """Clean up a suspended proxy while the caller holds its reconciliation lock."""
-    if record.cloudflare_deprovisioned:
+    if record.cloudflare_activation_state in CLOUDFLARE_DEPROVISIONED_STATES:
         return
     hostname = get_custom_hostname_by_domain(record.domain)
-    needs_recovery = record.status in (
-        ProxyRecord.Status.ISSUING,
-        ProxyRecord.Status.VALID,
-        ProxyRecord.Status.WARNING,
-    ) or (record.status == ProxyRecord.Status.ERRORING and hostname is not None)
+    recovery_pending = record.cloudflare_activation_state == CloudflareActivationState.RECOVERY_PENDING
+    needs_recovery = (
+        recovery_pending
+        or record.status in (ProxyRecord.Status.ISSUING, ProxyRecord.Status.VALID, ProxyRecord.Status.WARNING)
+        or (record.status == ProxyRecord.Status.ERRORING and hostname is not None)
+    )
     # Record the intent first so a partial Cloudflare cleanup can still be recovered.
-    if needs_recovery and not record.needs_activation_recovery:
-        ProxyRecord.objects.filter(pk=record.pk).update(needs_activation_recovery=True)
+    if needs_recovery and not recovery_pending:
+        ProxyRecord.objects.filter(pk=record.pk).update(
+            cloudflare_activation_state=CloudflareActivationState.RECOVERY_PENDING
+        )
     if hostname:
         delete_custom_hostname(hostname.id)
     update_cloudflare_proxy_root_redirect(record.domain, None)
-    ProxyRecord.objects.filter(pk=record.pk).update(cloudflare_deprovisioned=True)
+    final_state = CloudflareActivationState.SUSPENDED if needs_recovery else CloudflareActivationState.DEPROVISIONED
+    ProxyRecord.objects.filter(pk=record.pk).update(cloudflare_activation_state=final_state)
 
 
 def recover_cloudflare_certificate_hostname(organization_id: UUID, proxy_record_id: UUID) -> bool:
@@ -70,7 +86,7 @@ def recover_cloudflare_certificate_hostname(organization_id: UUID, proxy_record_
                 organization_id=organization_id,
                 pk=proxy_record_id,
                 status__in=(ProxyRecord.Status.ISSUING, ProxyRecord.Status.ERRORING),
-                needs_activation_recovery=True,
+                cloudflare_activation_state__in=CLOUDFLARE_RECOVERY_STATES,
             )
             .exclude(organization__is_active=False)
             .first()
@@ -95,7 +111,7 @@ def reconcile_cloudflare_proxy(
             .exists()
         )
         if active:
-            if from_sweep and not record.needs_activation_recovery:
+            if from_sweep and record.cloudflare_activation_state not in CLOUDFLARE_RECOVERY_STATES:
                 return False
             if not proxy_domain_can_be_provisioned(record):
                 return False
@@ -109,6 +125,9 @@ def reconcile_cloudflare_proxy(
             return False
 
         _restore_cloudflare_proxy(record)
-        if record.needs_activation_recovery and record.status != ProxyRecord.Status.ISSUING:
-            ProxyRecord.objects.filter(pk=record.pk).update(needs_activation_recovery=False)
+        if (
+            record.cloudflare_activation_state in CLOUDFLARE_RECOVERY_STATES
+            and record.status != ProxyRecord.Status.ISSUING
+        ):
+            ProxyRecord.objects.filter(pk=record.pk).update(cloudflare_activation_state=CloudflareActivationState.IDLE)
         return True
