@@ -26,6 +26,14 @@ const REFUSED_LOAD: Admission = { name: 'load', passed: false, reason: 'email cl
 
 const BROKEN = { name: 'at_least_once', passed: false, observed: 2, violation: 'run-1 email: lost', unitIds: ['run-1'] }
 
+const UNJUDGED: InvariantResult = {
+    name: 'no_loss',
+    passed: false,
+    observed: 0,
+    unitIds: [],
+    unjudged: 'the truth could not be read: socket hang up',
+}
+
 const EMAIL_WORKER = 'cdp-cyclotron-worker-email'
 const HOGFLOW_WORKER = 'cdp-cyclotron-worker-hogflow'
 
@@ -140,6 +148,18 @@ describe('statusOf', () => {
             { timeline: [{ valve: 'role.kill', target: EMAIL_WORKER, requestedAt: at(0), error: 'never applied' }] },
             'invalid',
             `role.kill on ${EMAIL_WORKER} was not observed: never applied`,
+        ],
+        [
+            'an invariant could not be judged',
+            { invariants: [UNJUDGED] },
+            'invalid',
+            'no_loss was not judged: the truth could not be read: socket hang up',
+        ],
+        [
+            'an invariant failed while another could not be judged',
+            { invariants: [BROKEN, UNJUDGED] },
+            'failed',
+            'no_loss was not judged: the truth could not be read: socket hang up; at_least_once failed: run-1 email: lost',
         ],
         [
             'a valve applied only after the drive ended',

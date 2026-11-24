@@ -192,6 +192,15 @@ const unreadReasonOf = (unread: string): string => `the judge could not read the
 export const unobservedReasonOf = ({ valve, target, error }: ValveTimelineEntry): string =>
     `${valve} on ${target} was not observed: ${error ?? 'no record'}`
 
+export const unobservedValvesOf = (timeline: readonly ValveTimelineEntry[], drive: DriveWindow): string[] =>
+    timeline.flatMap((entry) =>
+        entry.observedAt === undefined
+            ? [unobservedReasonOf(entry)]
+            : entry.intentAt !== undefined && Date.parse(entry.intentAt) >= drive.endedAt
+              ? [unobservedReasonOf({ ...entry, error: 'applied after the drive ended' })]
+              : []
+    )
+
 const CHECKS_OF_SETTLED_DELIVERIES = new Set([atLeastOnce.name, bouncedSuppressed.name])
 
 export const judgedInvariantsOf = (
@@ -312,12 +321,9 @@ function unrampedStatusOf({
     }
     const crashes = exits.filter((exit) => !exitedByValve(exit, timeline)).map((exit) => unexpectedExit(exit, timeline))
     const unobserved = [
-        ...timeline.flatMap((entry) =>
-            entry.observedAt === undefined
-                ? [unobservedReasonOf(entry)]
-                : entry.intentAt !== undefined && Date.parse(entry.intentAt) >= drive.endedAt
-                  ? [unobservedReasonOf({ ...entry, error: 'applied after the drive ended' })]
-                  : []
+        ...unobservedValvesOf(timeline, drive),
+        ...invariants.flatMap(({ name, unjudged }) =>
+            unjudged === undefined ? [] : [`${name} was not judged: ${unjudged}`]
         ),
         ...bars.flatMap(({ name, unjudged }) =>
             unjudged === undefined ? [] : [`${name} was not judged: ${unjudged}`]
@@ -327,7 +333,7 @@ function unrampedStatusOf({
     const failures = [
         ...notConvergedOf(convergence),
         ...invariants
-            .filter(({ passed }) => !passed)
+            .filter(({ passed, unjudged }) => !passed && unjudged === undefined)
             .map(({ name, violation }) => `${name} failed${violation ? `: ${violation}` : ''}`),
         ...bars.flatMap(({ name, unit, breakingPoint: broke }) =>
             broke === undefined

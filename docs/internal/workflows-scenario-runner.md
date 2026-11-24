@@ -101,7 +101,7 @@ pnpm --dir nodejs exec tsx tests/scenarios/cloud/main.ts cleanup <cloud profile>
 | **Delivery**      | One message a unit should cause, keyed by unit and action: one email or one webhook call.                                                                                                                                                           |
 | **Valve**         | One named, dosed failure, such as `role.kill` or `ses.throttle`.                                                                                                                                                                                    |
 | **Provider edge** | One HTTP server that stands in for every external provider: the SES API, a forward proxy, the SNS certificate host and a webhook receiver. It records what it received as the **truth**.                                                            |
-| **Journal**       | The Judge's record of every unit: the intake's answer and the deliveries or refusal it expects.                                                                                                                                                     |
+| **Journal**       | The Judge's record of every unit: the intake's answer and the deliveries, skips or refusal it expects.                                                                                                                                              |
 | **Converged**     | No job for the card's teams is unfinished in the hogflow and email queues, retries scheduled for later included, and every expected delivery has at least one record in the truth. Whether each delivery ended the right way is for the invariants. |
 | **Invariant**     | A check that fails the run.                                                                                                                                                                                                                         |
 | **Measurement**   | A recorded number. It never fails a run.                                                                                                                                                                                                            |
@@ -402,7 +402,7 @@ sequenceDiagram
     else a bar failed at a ramp step
         J-->>R: breaking point: step, offered rate, value
         Note over R: failed
-    else only a valve was never observed, or a bar could not be read or its step was over the host CPU ceiling
+    else only a valve was never observed, an invariant could not be judged, or a bar could not be read or its step was over the host CPU ceiling
         V-->>R: requested, not observed
         Note over R: invalid
     end
@@ -686,6 +686,7 @@ export type TruthRecord = {
 - **In-process holds.** `ProviderEdge.hold(rule)` adds a fault without HTTP, for the Environment's `edge.fault` action, and returns `observed` and `release`.
   - The fault list records `firstAppliedAt`, when the fault first answered a request.
   - `observed` polls until that time falls inside a 10-second window from its call (`answeredInWindow`), the window passes, or the hold's signal aborts, and then answers whether it did.
+- **Recipients.** A record's recipients are what the edge received: the addresses in an SES send's `to`, `cc` and `bcc`, kept in `detail.message`, or a webhook's host. `no_loss` counts accepted effects per unit, action and recipient from them.
 - **Proxy and certificates.** With `caDir`, the edge creates its certificate authority and leaf certificates with the `openssl` CLI. Its CONNECT proxy terminates TLS for `hooks.example.com` and `sns.<region>.amazonaws.com`, where it serves its SNS signing certificate, and tunnels every other host unchanged. cdp-api only accepts a certificate URL on that host, so the edge serves it under the real name rather than the runner changing production code.
 
 ### Valves
@@ -767,7 +768,11 @@ export interface Judge {
   open(seed: Pick<SeedState, 'teamIds'>): Promise<void>
   record(unit: JournalEntry): void // synchronous; never blocks the generator
   converge(withinMs: number, signal: AbortSignal): Promise<Convergence>
-  check(invariants: Named[], gates: Record<string, number>, run: { janitorResets: number }): Promise<InvariantResult[]>
+  check(
+    invariants: Named[],
+    gates: Record<string, number>,
+    run: { janitorResets: number; unobserved: string[] } // unobserved: why each valve was not observed
+  ): Promise<InvariantResult[]>
   evidence(): { journal: JournalEntry[]; truth: TruthRecord[]; fetchRetries: number } // journal.json and truth.json
 }
 
@@ -778,11 +783,24 @@ export type InvariantResult = {
   gate?: number
   violation?: string // the first violation
   unitIds: string[] // up to 5
+  unjudged?: string // why the invariant could not judge this run
+  missing?: string[] // up to 5 unit ids with too few effects, for no_loss
+  extra?: string[] // up to 5 unit ids with too many effects, for no_loss
+}
+
+export type JournalEntry = {
+  // ...
+  expect: {
+    deliveries: string[] // action ids
+    skipped?: string[] // action ids the unit is expected not to cause, such as a send to a suppressed recipient
+    dueAt?: number // epoch ms the unit's deliveries fall due, for work scheduled later
+  }
 }
 ```
 
 - **Open** starts reading the truth at the edge's `/_truth/head`, so records from earlier cards never enter this card's evidence.
-- **Converge** polls the truth and the probe until every expected delivery of every accepted unit has a record and no job for the card's teams is unfinished, or the bound passes. A check that finds both only after the bound still counts as not converged. Past the bound the Judge still runs the invariants. The job count covers every retry that has not happened yet: webhook steps reschedule their own hogflow row, and a throttled email reschedules until it is sent.
+- **Converge** polls the truth and the probe until every expected delivery of every accepted unit has a record and no job for the card's teams is unfinished, or the bound passes. A check that finds both only after the bound still counts as not converged. Past the bound the Judge still runs the invariants.
+  The time `converge` returns is the run's recovery horizon. An interrupted `converge` sets none. The job count covers every retry that has not happened yet: webhook steps reschedule their own hogflow row, and a throttled email reschedules until it is sent.
 - **Invariants.**
   - `at_least_once`: every expected delivery has a 2xx in the truth, with two exceptions.
     - A fault answered its last attempt with a code the caller never retries: for webhooks, a 4xx or 5xx outside `RETRIABLE_STATUS_CODES` in `cdp-fetch.ts`, which the check imports so the two never drift; for SES, a 4xx whose error type is neither `TooManyRequestsException` nor `ThrottlingException`, which the edge records in the truth.
@@ -796,6 +814,11 @@ export type InvariantResult = {
   - `bounced_suppressed`: every unit whose send the `ses.reject` fault bounced has a follow-up that cdp-api refused with 422 `recipient_suppressed`. A follow-up that was not sent, was accepted, could not reach cdp-api or got another answer fails it, and so does a bounced unit with no follow-up.
     It also fails a unit whose follow-up was not sent though its send did not bounce. Two cases are let off: the fault refused the send outright, or the edge took the send without a fault after the run's last bounce, which needs a bounce earlier in the run.
   - `refused_at_intake`: refusals and transport errors the unit did not expect, at or under `gates.refused_at_intake`.
+  - `no_loss`: exactly one accepted effect for each due, eligible unit, action and recipient at the recovery horizon. An accepted effect is a 2xx record in the truth. It lists missing and extra effects apart, with up to 5 unit ids each, and `observed` counts both.
+    - Each journal entry declares what it expects, and the check infers nothing from status codes. A unit the intake accepted expects one effect for each expected delivery, two when its follow-up was accepted too. A unit the intake refused with a status expects none. A unit whose intake could not be reached may have one or none, because the intake may have taken it before the reply was lost.
+    - A delivery in `expect.skipped`, or whose `expect.dueAt` falls after the horizon, expects none. So does a delivery a fault answered when the card names that fault in `params.skippedBy`, such as `skippedBy: [dest.status]` for a status the caller never retries.
+    - An effect beyond what a unit expects is extra. Unlike `duplicate_sends`, nothing is allowed for jobs the janitor reset, and the check takes no gate.
+    - The check is unjudged, and the run `invalid` when nothing else failed, when the last truth read failed, the truth skips a `seq`, `converge` was interrupted, a valve was not observed, or the edge accepted a unit of this run that the journal never recorded.
 
 - **Measurements.** Each has a unit in its definition. Every measurement below but `step_claims_per_second` is better when lower; the definitions do not record that. The runner's sampler scrapes every role's `/_metrics` every 5 seconds from the drive's start to convergence, and `measure(measurements, evidence)` in `judge/measurements.ts` turns the samples and the Judge's evidence into values.
   - `role_cpu_seconds`, per role, seconds, lower is better: the sum of `process_cpu_seconds_total` increases, per process lifetime, so a killed role's restart does not reset it.
@@ -924,13 +947,16 @@ Cloud scorecards from before `reader_monitoring_interval_seconds` omit it, and t
 **Invariants**, one group per judged invariant, with `<name>` the invariant's name.
 A run that stops before judging has no groups, so a missing group means not judged, never passed:
 
-| Property               | Type           | Meaning                                                                                                                        |
-| ---------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `inv_<name>_passed`    | boolean        | Whether the invariant held                                                                                                     |
-| `inv_<name>_observed`  | number         | The count it checked, such as missed deliveries                                                                                |
-| `inv_<name>_gate`      | number or null | The card's gate for it, `null` when the card sets none                                                                         |
-| `inv_<name>_violation` | string or null | The first violation seen, even when the count stays within the gate; `null` when none was seen. Read `_passed` for the verdict |
-| `inv_<name>_ids`       | string[]       | Up to 5 unit ids that violated it                                                                                              |
+| Property                 | Type           | Meaning                                                                                                                        |
+| ------------------------ | -------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `inv_<name>_passed`      | boolean        | Whether the invariant held                                                                                                     |
+| `inv_<name>_observed`    | number         | The count it checked, such as missed deliveries                                                                                |
+| `inv_<name>_gate`        | number or null | The card's gate for it, `null` when the card sets none                                                                         |
+| `inv_<name>_violation`   | string or null | The first violation seen, even when the count stays within the gate; `null` when none was seen. Read `_passed` for the verdict |
+| `inv_<name>_ids`         | string[]       | Up to 5 unit ids that violated it                                                                                              |
+| `inv_<name>_unjudged`    | string         | Why the invariant could not judge the run; absent when it judged. An unjudged invariant stays out of `invariants_failed`       |
+| `inv_<name>_missing_ids` | string[]       | For `no_loss`, up to 5 unit ids with fewer accepted effects than expected                                                      |
+| `inv_<name>_extra_ids`   | string[]       | For `no_loss`, up to 5 unit ids with more accepted effects than expected                                                       |
 
 **Measurements** use the prefix `m_`: `m_<name>` for a single value, `m_<name>_<role>` per role, `m_<name>_<stat>` per statistic, such as `m_delivery_latency_ms_p95`, and `m_<name>_<queue>_<scale>x` per queue and ramp step, such as `m_step_claims_per_second_hogflow_10x`.
 Hyphens in names and roles become underscores, so the CPU time of `cdp-api` is `m_role_cpu_seconds_cdp_api`.

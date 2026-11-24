@@ -6,7 +6,7 @@ import type { SeedState } from '../generator/generator'
 import type { CyclotronProbe } from '../probe/cyclotron-probe'
 import type { TruthRecord } from '../provider-edge'
 import { INVARIANTS, deliveryKey, residentBacklogIntact } from './invariants'
-import type { JudgeEvidence } from './invariants'
+import type { JudgeEvidence, RunBoundary } from './invariants'
 import type { TruthSource } from './truth'
 
 export type IntakeAnswer = (
@@ -24,7 +24,7 @@ export type JournalEntry = {
     offeredAt: number
     step?: number
     answer: IntakeAnswer
-    expect: { deliveries: string[] }
+    expect: { deliveries: string[]; skipped?: string[]; dueAt?: number }
     followUp?: FollowUpAnswer
 }
 
@@ -44,9 +44,12 @@ export type InvariantResult = {
     violation?: string
     unitIds: string[]
     crossedBy?: string
+    unjudged?: string
+    missing?: string[]
+    extra?: string[]
 }
 
-export type RunEvidence = Pick<JudgeEvidence, 'janitorResets'>
+export type RunEvidence = Pick<JudgeEvidence, 'janitorResets'> & Pick<RunBoundary, 'unobserved'>
 
 export interface Judge {
     open(seed: Pick<SeedState, 'teamIds'>): Promise<void>
@@ -76,6 +79,8 @@ export function createJudge({
     let journal: JournalEntry[] = []
     let truth: TruthRecord[] = []
     let cursor = 0
+    let truthFrom = 0
+    let horizonAt: number | undefined
     let teams: number[] = []
     let unread: string | undefined
 
@@ -120,6 +125,8 @@ export function createJudge({
         async open(seed) {
             journal = []
             cursor = await source.head()
+            truthFrom = cursor
+            horizonAt = undefined
             truth = []
             unread = undefined
             teams = [...seed.teamIds]
@@ -140,6 +147,7 @@ export function createJudge({
                 const tookMs = now() - startedAt
                 const converged = polled === 0 && unrecorded.length === 0 && tookMs <= withinMs
                 if (converged || tookMs >= withinMs || signal.aborted) {
+                    horizonAt = signal.aborted ? undefined : now()
                     return {
                         converged,
                         unfinishedJobs: polled ?? null,
@@ -157,13 +165,19 @@ export function createJudge({
             const resident = invariants.some(({ name }) => name === residentBacklogIntact.name)
                 ? await residentBacklog?.()
                 : undefined
-            return invariants.map(({ name }) => {
+            const boundary = {
+                truthFrom,
+                horizonAt,
+                unobserved: run.unobserved,
+                ...(unread !== undefined && { unread }),
+            }
+            const evidence = { journal, truth, fetchRetries, resident, janitorResets: run.janitorResets, boundary }
+            return invariants.map(({ name, params }) => {
                 const definition = INVARIANTS.find((invariant) => invariant.name === name)
                 if (!definition) {
                     throw new Error(`No invariant ${name}`)
                 }
-                const evidence = { journal, truth, fetchRetries, resident, ...run }
-                return { name, gate: gates[name], ...definition.check(evidence, gates[name]) }
+                return { name, gate: gates[name], ...definition.check(evidence, gates[name], params) }
             })
         },
 

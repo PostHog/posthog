@@ -46,7 +46,7 @@ type Measured = { key?: string; incomplete?: true } & Value
 
 export type Measurement = { name: string; unit: string } & Measured
 
-export type MeasureEvidence = Omit<JudgeEvidence, 'janitorResets'> &
+export type MeasureEvidence = Omit<JudgeEvidence, 'janitorResets' | 'boundary'> &
     Readonly<Sampled> &
     Readonly<Probed> & {
         sampledFrom: number

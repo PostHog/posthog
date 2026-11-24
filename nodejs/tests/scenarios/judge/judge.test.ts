@@ -9,13 +9,13 @@ import { internalFetch } from '~/common/utils/request'
 import type { ResidentBacklog } from '../backlog/backlog'
 import type { Backlog } from '../cards'
 import { ProviderEdge, TruthRecord, UNIT_EMAIL_DOMAIN, startProviderEdge } from '../provider-edge'
-import { atLeastOnce } from './invariants'
-import { FollowUpAnswer, JournalEntry, Judge, createJudge } from './judge'
+import { atLeastOnce, noLoss } from './invariants'
+import { FollowUpAnswer, JournalEntry, Judge, RunEvidence, createJudge } from './judge'
 import { edgeTruth } from './truth'
 
 const TRACKING_KEYS = 'scenario-tracking-key'
 const UNIT = 'run-a-1'
-const NO_RESETS = { janitorResets: 0 }
+const NO_RESETS: RunEvidence = { janitorResets: 0, unobserved: [] }
 const SEED = { teamIds: [7] }
 const NEVER_ABORTED = new AbortController().signal
 const NOBODY_LISTENING = 'http://127.0.0.1:1/public/m/ses_webhook'
@@ -287,9 +287,11 @@ describe('judge', () => {
                 journal: [{ ...offered(), expect: { deliveries: ['webhook'] } }],
                 truth: attempts,
                 fetchRetries: 3,
-                ...NO_RESETS,
+                janitorResets: 0,
+                boundary: { truthFrom: 0, horizonAt: 0, unobserved: [] },
             },
-            undefined
+            undefined,
+            {}
         )
 
         expect(result.passed).toBe(passed)
@@ -386,7 +388,7 @@ describe('judge', () => {
         const [result] = await judge.check(
             [{ name: 'duplicate_sends', params: {} }],
             gate === undefined ? {} : { duplicate_sends: gate },
-            { janitorResets }
+            { ...NO_RESETS, janitorResets }
         )
 
         expect(result).toMatchObject({ name: 'duplicate_sends', ...expected })
@@ -461,6 +463,205 @@ describe('judge', () => {
         )
 
         expect(result).toMatchObject({ name: 'refused_at_intake', ...expected })
+    })
+
+    const ADDRESS = `${UNIT}@${UNIT_EMAIL_DOMAIN}`
+    const SCHEDULED_PAST_THE_HORIZON = 1_000_000
+
+    it.each<[string, JournalEntry, () => Promise<unknown>, Record<string, unknown>, object]>([
+        ['delivered once', offered(), () => deliver(UNIT), {}, { passed: true, observed: 0, missing: [], extra: [] }],
+        [
+            'resent: accepted twice with no valve applied',
+            offered(),
+            () => deliverTwice(UNIT),
+            {},
+            {
+                passed: false,
+                observed: 1,
+                violation: `${UNIT} email to ${ADDRESS}: accepted 2 times, expected 1`,
+                missing: [],
+                extra: [UNIT],
+            },
+        ],
+        [
+            'dropped, while a unit of another run was accepted',
+            offered(),
+            () => deliver('run-b-1'),
+            {},
+            {
+                passed: false,
+                observed: 1,
+                violation: `${UNIT} email: accepted 0 times by the recovery horizon, expected 1`,
+                missing: [UNIT],
+                extra: [],
+            },
+        ],
+        [
+            'accepted once after a retried status',
+            offered(),
+            async () => {
+                answerNextSendWith(503, 'ServiceUnavailable')
+                await deliverTwice(UNIT)
+            },
+            {},
+            { passed: true, observed: 0 },
+        ],
+        [
+            'with a follow-up the intake accepted, accepted twice',
+            { ...offered(), followUp: { accepted: true } },
+            () => deliverTwice(UNIT),
+            {},
+            { passed: true, observed: 0 },
+        ],
+        [
+            'whose intake reply was lost, accepted once',
+            offered({ accepted: false, transportError: 'socket hang up' }),
+            () => deliver(UNIT),
+            {},
+            { passed: true, observed: 0 },
+        ],
+        [
+            'whose intake reply was lost, accepted twice',
+            offered({ accepted: false, transportError: 'socket hang up' }),
+            () => deliverTwice(UNIT),
+            {},
+            { passed: false, observed: 1, extra: [UNIT] },
+        ],
+        [
+            'refused with a status, yet accepted',
+            offered({ accepted: false, status: 503 }),
+            () => deliver(UNIT),
+            {},
+            {
+                passed: false,
+                observed: 1,
+                violation: `${UNIT} email to ${ADDRESS}: accepted 1 time, expected 0`,
+                extra: [UNIT],
+            },
+        ],
+        [
+            'declared skipped and not sent',
+            { ...offered(), expect: { deliveries: ['email'], skipped: ['email'] } },
+            () => Promise.resolve(),
+            {},
+            { passed: true, observed: 0 },
+        ],
+        [
+            'declared skipped, yet accepted',
+            { ...offered(), expect: { deliveries: ['email'], skipped: ['email'] } },
+            () => deliver(UNIT),
+            {},
+            { passed: false, observed: 1, extra: [UNIT] },
+        ],
+        [
+            'scheduled past the horizon and not sent yet',
+            { ...offered(), expect: { deliveries: ['email'], dueAt: SCHEDULED_PAST_THE_HORIZON } },
+            () => Promise.resolve(),
+            {},
+            { passed: true, observed: 0 },
+        ],
+        [
+            'scheduled past the horizon, yet accepted early',
+            { ...offered(), expect: { deliveries: ['email'], dueAt: SCHEDULED_PAST_THE_HORIZON } },
+            () => deliver(UNIT),
+            {},
+            { passed: false, observed: 1, extra: [UNIT] },
+        ],
+        [
+            'ended by a fault the card declares the caller never retries',
+            offered(),
+            async () => {
+                await rejectNextSend()
+                await deliver(UNIT)
+            },
+            { skippedBy: ['ses.reject'] },
+            { passed: true, observed: 0 },
+        ],
+        [
+            'ended by a fault the card does not declare',
+            offered(),
+            async () => {
+                await rejectNextSend()
+                await deliver(UNIT)
+            },
+            {},
+            { passed: false, observed: 1, missing: [UNIT] },
+        ],
+    ])('no_loss for a unit %s', async (_story, entry, act, params, expected) => {
+        judge.record(entry)
+        await act()
+        await judge.converge(20, NEVER_ABORTED)
+
+        const [result] = await judge.check([{ name: 'no_loss', params }], {}, NO_RESETS)
+
+        expect(result).toMatchObject({ name: 'no_loss', ...expected })
+    })
+
+    it.each<[string, () => Promise<unknown>, RunEvidence, string]>([
+        [
+            'convergence was interrupted',
+            () => judge.converge(20, AbortSignal.abort()),
+            NO_RESETS,
+            'the run reached no recovery horizon: convergence was interrupted',
+        ],
+        [
+            'the last truth read failed',
+            async () => {
+                await judge.converge(20, NEVER_ABORTED)
+                truthFails = 'The operation was aborted due to timeout'
+            },
+            NO_RESETS,
+            'the truth could not be read: The operation was aborted due to timeout',
+        ],
+        [
+            'a valve was never observed',
+            () => judge.converge(20, NEVER_ABORTED),
+            { ...NO_RESETS, unobserved: ['role.kill on cdp-cyclotron-worker-email was not observed: never applied'] },
+            'role.kill on cdp-cyclotron-worker-email was not observed: never applied',
+        ],
+        [
+            'the edge accepted a unit of this run that the journal never recorded',
+            async () => {
+                await deliver('run-a-2')
+                await judge.converge(20, NEVER_ABORTED)
+            },
+            NO_RESETS,
+            'the journal is incomplete: the edge accepted run-a-2 email, which the journal never recorded',
+        ],
+    ])('leaves no_loss unjudged when %s', async (_story, act, run, unjudged) => {
+        judge.record(offered())
+        await deliver(UNIT)
+        await act()
+
+        const [result] = await judge.check([{ name: 'no_loss', params: {} }], {}, run)
+
+        expect(result).toMatchObject({ name: 'no_loss', passed: false, unjudged })
+    })
+
+    it('leaves no_loss unjudged when the truth it read skips a seq', () => {
+        const accepted = (seq: number): TruthRecord => ({
+            seq,
+            at: new Date().toISOString(),
+            kind: 'webhook',
+            status: 200,
+            unitId: UNIT,
+            actionId: 'webhook',
+            detail: { request: { method: 'POST', host: 'hooks.example.com', path: `/u/${UNIT}/webhook` } },
+        })
+
+        const result = noLoss.check(
+            {
+                journal: [{ ...offered(), expect: { deliveries: ['webhook'] } }],
+                truth: [accepted(1), accepted(3)],
+                fetchRetries: 3,
+                janitorResets: 0,
+                boundary: { truthFrom: 0, horizonAt: 0, unobserved: [] },
+            },
+            undefined,
+            {}
+        )
+
+        expect(result).toMatchObject({ passed: false, unjudged: 'the truth skips from seq 1 to 3' })
     })
 
     const TEAM = 2_100_000_000
