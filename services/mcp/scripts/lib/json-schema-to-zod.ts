@@ -49,6 +49,17 @@ interface ConvertContext {
     excludeProperties: Set<string>
     /** Whether we're at the top-level schema (for exclude_properties) */
     isTopLevel: boolean
+    /** Emit objects that keep undeclared keys instead of stripping them */
+    keepUnknownKeys: boolean
+}
+
+export interface SchemaRefOptions {
+    /**
+     * Keep keys the schema does not declare, for a param whose value the API stores. A tool returns
+     * the stored value to agents, so an object that strips undeclared keys deletes them on the next
+     * update. The API still validates the value against its full type.
+     */
+    keepUnknownKeys?: boolean
 }
 
 /**
@@ -60,14 +71,22 @@ interface ConvertContext {
 export function generateZodFromSchemaRef(
     root: JsonSchemaRoot,
     entryDefName: string,
-    excludeProperties: string[] = []
+    excludeProperties: string[] = [],
+    options: SchemaRefOptions = {}
 ): string {
+    const keepUnknownKeys = options.keepUnknownKeys ?? false
+    if (keepUnknownKeys && excludeProperties.length > 0) {
+        throw new Error(
+            `schema_ref "${entryDefName}": exclude_properties cannot be combined with keepUnknownKeys, because the excluded properties would reach the API`
+        )
+    }
     const ctx: ConvertContext = {
         root,
         emittedDefs: new Set(),
         pendingDefs: new Set(),
         excludeProperties: new Set(excludeProperties),
         isTopLevel: false,
+        keepUnknownKeys,
     }
 
     // Collect all transitive refs first so we can emit them in dependency order
@@ -85,7 +104,7 @@ export function generateZodFromSchemaRef(
         }
         const isTop = defName === entryDefName
         ctx.isTopLevel = isTop
-        const varName = sanitizeVarName(defName)
+        const varName = defVarName(defName, ctx)
         const zodExpr = schemaToZod(schema, ctx)
         lines.push(`const ${varName} = ${zodExpr}`)
         ctx.isTopLevel = false
@@ -97,8 +116,16 @@ export function generateZodFromSchemaRef(
 /**
  * Get the variable name for the entry definition.
  */
-export function getEntryVarName(entryDefName: string): string {
-    return sanitizeVarName(entryDefName)
+export function getEntryVarName(entryDefName: string, options: SchemaRefOptions = {}): string {
+    return defVarName(entryDefName, { keepUnknownKeys: options.keepUnknownKeys ?? false })
+}
+
+// Generated files deduplicate declarations by name, so the variant that keeps unknown keys needs
+// its own name. Otherwise it would replace, or be replaced by, the stripping variant of the same
+// definition when both land in one file.
+function defVarName(defName: string, ctx: Pick<ConvertContext, 'keepUnknownKeys'>): string {
+    const name = sanitizeVarName(defName)
+    return ctx.keepUnknownKeys ? `${name}Open` : name
 }
 
 // ------------------------------------------------------------------
@@ -112,7 +139,7 @@ function schemaToZod(schema: JsonSchema, ctx: ConvertContext, opts?: { strictPri
         // Field-level numeric constraints (e.g. `@maximum 200` on a property
         // typed as `positive_integer`) sit on the referencing schema, not the
         // ref target. Apply them on top of the named ref.
-        return applyNumericConstraints(sanitizeVarName(refName), schema)
+        return applyNumericConstraints(defVarName(refName, ctx), schema)
     }
 
     // const
@@ -301,7 +328,10 @@ function objectToZod(schema: JsonSchema, ctx: ConvertContext): string {
         fields.push(`    ${sanitizePropName(name)}: ${zodType},`)
     }
 
-    const obj = `z.object({\n${fields.join('\n')}\n})`
+    // This ignores `additionalProperties: false`: schema.json sets it on every interface that has no
+    // index signature, so it does not mean the API rejects other keys. The API validates against its own types.
+    const objectFactory = ctx.keepUnknownKeys ? 'z.looseObject' : 'z.object'
+    const obj = `${objectFactory}({\n${fields.join('\n')}\n})`
 
     // Mixed: named properties + open-ended extra keys. Use .catchall() so the
     // fixed fields are typed and extras are validated against the schema.
