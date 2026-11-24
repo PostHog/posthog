@@ -65,9 +65,7 @@ struct Bucket {
     misses: u64,
 }
 
-// Lookup counts over the last `window`, kept in a ring of fixed time buckets. A bucket
-// older than the window is reset the next time its slot comes round, so the window
-// slides one bucket at a time.
+// A ring of time buckets. A slot older than the window is reset when it is next used.
 struct MissWindow {
     origin: Instant,
     bucket_len: Duration,
@@ -101,8 +99,7 @@ impl MissWindow {
         bucket.misses += u64::from(miss);
     }
 
-    // Callers read the clock before they take the team's lock, so `now` can be a little
-    // older than a bucket that another caller already started.
+    // Callers read the clock before the lock, so `now` can predate a bucket another caller began.
     fn totals(&self, now: Instant) -> (u64, u64) {
         let current = self.bucket_index(now);
         self.buckets
@@ -129,16 +126,10 @@ struct TeamBreaker {
     state: BreakerState,
 }
 
-// A per-team breaker on the share of frame lookups that find no fresh frame in Postgres,
-// held in each pod's memory. Each such lookup costs a resolve and an INSERT. A team
-// whose lookups nearly all miss (a flood with a new frame on every event) opens its
-// breaker, and in enforce mode its cache misses then resolve in memory without a
-// Postgres read or write. After the cooldown, the next `probe_lookups` lookups use
-// Postgres again: the breaker closes when their miss ratio is below the threshold,
-// and opens again when it is not.
-//
-// A miss of the in-memory frame cache alone does not count, because every pod starts
-// with an empty cache and would otherwise trip for busy teams after each deploy.
+// Per-team breaker on the share of lookups that find no fresh frame in Postgres, each of
+// which costs a resolve and an INSERT. While open in `enforce`, cache misses skip Postgres.
+// After the cooldown, `probe_lookups` lookups decide whether it closes or opens again.
+// An in-memory cache miss alone does not count, because every pod starts cold after a deploy.
 #[derive(Clone)]
 pub struct FrameMissBreaker {
     config: FrameMissBreakerConfig,
@@ -179,8 +170,7 @@ impl FrameMissBreaker {
         !(open && self.config.mode == FrameMissBreakerMode::Enforce)
     }
 
-    // Records one frame lookup. `miss` is true when Postgres held no fresh frame, so the
-    // lookup resolved and saved one. Lookups while the breaker is open do not count.
+    // `miss` means Postgres held no fresh frame. Lookups while open do not count.
     pub fn record(&self, team_id: TeamId, miss: bool, now: Instant) {
         if self.config.mode == FrameMissBreakerMode::Off {
             return;
@@ -296,12 +286,7 @@ mod test {
     #[test]
     fn opens_at_the_threshold_once_the_window_holds_min_lookups() {
         let start = Instant::now();
-        for (misses, hits, expect_open) in [
-            // 9 lookups are below min_lookups, even at a 100% miss ratio.
-            (9, 0, false),
-            (9, 1, true),
-            (8, 2, false),
-        ] {
+        for (misses, hits, expect_open) in [(9, 0, false), (9, 1, true), (8, 2, false)] {
             let breaker = breaker(FrameMissBreakerMode::Enforce);
             record(&breaker, FLOOD_TEAM, misses, hits, start);
             assert_eq!(
@@ -351,8 +336,7 @@ mod test {
 
     #[test]
     fn a_closed_breaker_needs_a_full_window_again_to_reopen() {
-        // A cooldown shorter than the window keeps the misses that opened the breaker
-        // inside the window when it closes.
+        // A cooldown shorter than the window keeps the opening misses in the window.
         let cooldown = Duration::from_secs(30);
         let breaker = FrameMissBreaker::new(FrameMissBreakerConfig {
             cooldown,

@@ -81,18 +81,13 @@ pub struct ResolverConfig {
     #[envconfig(default = "true")]
     pub frame_save_async_commit: bool,
 
-    // Per-team breaker on the frame cache miss ratio, held in each pod's memory. A team
-    // whose frame lookups nearly all miss (a flood with a new frame on every event)
-    // opens its breaker for the cooldown. `enforce` then resolves that team's misses in
-    // memory, with no Postgres read or write. `log` only reports what `enforce` would skip.
+    // `off`, `log` or `enforce`. `FrameMissBreaker` documents what opens it and what it skips.
     #[envconfig(default = "log")]
     pub frame_miss_breaker_mode: FrameMissBreakerMode,
 
     #[envconfig(default = "60")]
     pub frame_miss_breaker_window_seconds: u64,
 
-    // The window must hold at least this many lookups before the breaker can open, so a
-    // team with a few misses after a deploy never trips it.
     #[envconfig(default = "1000")]
     pub frame_miss_breaker_min_lookups: u64,
 
@@ -102,7 +97,6 @@ pub struct ResolverConfig {
     #[envconfig(default = "300")]
     pub frame_miss_breaker_cooldown_seconds: u64,
 
-    // Lookups let through to Postgres after the cooldown to decide whether to close.
     #[envconfig(default = "100")]
     pub frame_miss_breaker_probe_lookups: u64,
 

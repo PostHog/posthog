@@ -281,10 +281,8 @@ impl LocalSymbolResolver {
         Ok(records)
     }
 
-    // Resolves a miss for a team whose frame miss breaker is open. It skips the stored
-    // frame read, the symbol set lookup and last-used write, and the save. The catalog
-    // can still read symbol sets from Postgres behind its own caches. The UI's stored
-    // frame lookup finds no row for these frames, so it shows them without source context.
+    // Skips the stored frame read, the symbol set lookup and the save. The UI then shows
+    // these frames without source context.
     async fn resolve_unsaved(
         &self,
         frame: &RawFrame,
@@ -1006,8 +1004,7 @@ mod test {
         config.frame_miss_breaker_mode = FrameMissBreakerMode::Enforce;
         config.frame_miss_breaker_min_lookups = 3;
         let resolver = LocalSymbolResolver::new(&config, Arc::new(catalog), pool.clone());
-        // A Hermes frame without a chunk id resolves without a symbol set, so each column
-        // is a new frame that needs no S3 or HTTP mock.
+        // A Hermes frame without a chunk id needs no S3 or HTTP mock.
         let frame = |column| {
             RawFrame::Hermes(RawHermesFrame {
                 column: Some(column),
@@ -1031,8 +1028,7 @@ mod test {
             .await
             .unwrap();
 
-        // The third new frame opens the flood team's breaker after it was saved, so the
-        // other seven resolve without a row.
+        // The third frame opens the breaker after its own save.
         let saved: Vec<(i32, i64)> = sqlx::query_as(
             "SELECT team_id, COUNT(*) FROM posthog_errortrackingstackframe GROUP BY team_id ORDER BY team_id",
         )
