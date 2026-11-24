@@ -409,6 +409,52 @@ class TestQueryAiEventsTypedProperties(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
+            (
+                f"{table}_{property_type}_{projection}_{order}",
+                table,
+                property_type,
+                value,
+                parser,
+                expected,
+                projection,
+                order,
+            )
+            for table in ("events", "posthog.ai_events")
+            for property_type, value, parser, expected in (
+                ("Numeric", 123, "toFloatOrZero(value)", 123.0),
+                ("DateTime", "2024-04-05T06:07:08Z", "toYear(toDateTime(value))", 2024),
+            )
+            for projection in ("cte", "subquery")
+            for order in ("property_first", "null_first")
+        ]
+    )
+    def test_typed_property_in_union_projection(
+        self,
+        _name: str,
+        table: str,
+        property_type: str,
+        value: str | int,
+        parser: str,
+        expected: float | int,
+        projection: str,
+        order: str,
+    ) -> None:
+        PropertyDefinition.objects.create(team=self.team, name="example_value", property_type=property_type)
+        self._create_generations(table, {"example_value": value})
+
+        property_select = f"SELECT properties.example_value AS value FROM {table}"
+        branches = (property_select, "SELECT NULL AS value")
+        union = " UNION ALL ".join(branches if order == "property_first" else reversed(branches))
+        source = "combined" if projection == "cte" else f"({union})"
+        query = f"SELECT {parser} FROM {source} WHERE value IS NOT NULL"
+        if projection == "cte":
+            query = f"WITH combined AS ({union}) {query}"
+        result = execute_hogql_query(query, team=self.team, workload=Workload.ONLINE)
+
+        assert result.results == [(expected,)]
+
+    @parameterized.expand(
+        [
             ("boolean", "example_flag", "Boolean", False, True),
             ("numeric", "example_number", "Numeric", 3, 4),
         ]

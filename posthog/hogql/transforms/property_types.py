@@ -27,6 +27,8 @@ from posthog.hogql.functions.clickhouse.json import JSON_FUNCTIONS, JSON_KEY_PAT
 from posthog.hogql.helpers.timestamp_visitor import parse_zoned_datetime_string
 from posthog.hogql.property_metadata import load_property_metadata
 from posthog.hogql.property_planner import PropertySourceKind, plan_property_access
+from posthog.hogql.resolver import unify_select_set_columns
+from posthog.hogql.resolver_utils import extract_select_queries
 from posthog.hogql.restricted_properties import restricted_property_keys_for_table_type
 from posthog.hogql.type_system import normalized_runtime_type, parse_sql_runtime_type
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
@@ -277,6 +279,27 @@ class PropertySwapper(CloningVisitor):
             settings=node.settings.model_copy() if node.settings is not None else None,
             view_name=node.view_name,
         )
+
+    def visit_select_set_query(self, node: ast.SelectSetQuery) -> ast.SelectSetQuery:
+        def has_projected_property_type(column: ast.Type) -> bool:
+            while isinstance(column, ast.FieldAliasType):
+                if column.constant_type is not None:
+                    return True
+                column = column.type
+            return False
+
+        result = super().visit_select_set_query(node)
+        if isinstance(result.type, ast.SelectSetQueryType) and any(
+            isinstance(branch.type, ast.SelectQueryType)
+            and any(has_projected_property_type(column) for column in branch.type.columns.values())
+            for branch in extract_select_queries(result)
+        ):
+            # Set operations infer their common type before aliases can adopt the converted property types.
+            columns = unify_select_set_columns(result.type.types, "clickhouse", self.context)
+            if columns != result.type.columns:
+                result.type.columns = columns
+                self.context.cte_database_table_cache.clear()
+        return result
 
     def visit_alias(self, node: ast.Alias) -> ast.Alias:
         result = super().visit_alias(node)
