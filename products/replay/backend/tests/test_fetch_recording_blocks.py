@@ -24,12 +24,19 @@ BLOCK_LINES = b'["window-1", {"type": 2}]\n["window-1", {"type": 3}]\n'
 class FakeRecordingApi(BaseHTTPRequestHandler):
     listing: dict = {}
     list_status = 200
+    busy_replies = 0
     seen_tokens: list[str] = []
 
     def do_GET(self) -> None:
         self.seen_tokens.append(self.headers["Authorization"].removeprefix("Bearer "))
         prefix = f"/api/projects/{self.server.team_id}/recordings/{SESSION_ID}/blocks"  # type: ignore[attr-defined]
-        if self.path == prefix:
+        if FakeRecordingApi.busy_replies:
+            FakeRecordingApi.busy_replies -= 1
+            self.send_response(503)
+            self.send_header("Retry-After", "0")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+        elif self.path == prefix:
             self._reply(self.list_status, json.dumps(self.listing).encode())
         elif self.path == f"{prefix}/ref-0":
             self._reply(200, snappy.compress(BLOCK_LINES))
@@ -72,6 +79,7 @@ class TestFetchRecordingBlocksCommand(BaseTest):
             ]
         }
         FakeRecordingApi.list_status = 200
+        FakeRecordingApi.busy_replies = 0
         FakeRecordingApi.seen_tokens = []
         server = ThreadingHTTPServer(("127.0.0.1", 0), FakeRecordingApi)
         server.team_id = self.team.pk  # type: ignore[attr-defined]
@@ -98,10 +106,13 @@ class TestFetchRecordingBlocksCommand(BaseTest):
         return json.loads(out.getvalue())
 
     def test_saves_each_listed_block_decompressed_without_the_egress_proxy(self) -> None:
+        FakeRecordingApi.busy_replies = 2
+
         summary = self._fetch()
 
         assert summary == {"out": str(self.out), "blocks": 2, "without_ref": 1}
         assert (self.out / "0000.jsonl").read_bytes() == BLOCK_LINES
+        assert self.out.stat().st_mode & 0o777 == 0o700
         assert json.loads((self.out / "index.json").read_text()) == [
             {"file": "0000.jsonl", "start_timestamp": 1, "end_timestamp": 2},
             {"file": None, "start_timestamp": 3, "end_timestamp": 4},

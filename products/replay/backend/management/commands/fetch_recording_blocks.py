@@ -1,4 +1,5 @@
 import json
+import tempfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -9,6 +10,8 @@ from django.core.management.base import BaseCommand, CommandError, CommandParser
 
 import snappy
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 from products.replay.backend.management.commands.recording_api_token import mint_for_this_pod
 
@@ -26,7 +29,7 @@ class Command(BaseCommand):
         parser.add_argument("--session-id", required=True)
         parser.add_argument("--reason", required=True, help="For example the support ticket. recording-api logs it.")
         parser.add_argument(
-            "--out", help="Empty directory to write to. Defaults to /tmp/recording-<team_id>-<session_id>."
+            "--out", help="Empty directory to write to. Defaults to a new private directory under /tmp."
         )
 
     def handle(self, *args: Any, **options: Any) -> None:
@@ -35,8 +38,8 @@ class Command(BaseCommand):
         reason: str = options["reason"]
         if "/" in session_id or "\\" in session_id or session_id.startswith("."):
             raise CommandError("--session-id must not contain a slash or start with a dot.")
-        out = Path(options["out"] or f"/tmp/recording-{team_id}-{session_id}")
-        if out.exists() and any(out.iterdir()):
+        out = Path(options["out"]) if options["out"] else None
+        if out and out.exists() and any(out.iterdir()):
             raise CommandError(f"{out} is not empty, so its files could mix with this recording. Pick another --out.")
 
         base = (
@@ -45,6 +48,17 @@ class Command(BaseCommand):
         with requests.Session() as session:
             # The egress proxy in HTTP_PROXY refuses in-cluster hosts, so this session ignores it.
             session.trust_env = False
+            # recording-api answers 503 with Retry-After when its read budget is spent, so busy replies are retried.
+            retry = Retry(
+                total=5,
+                backoff_factor=1,
+                status_forcelist=(429, 502, 503, 504),
+                allowed_methods=("GET",),
+                respect_retry_after_header=True,
+                raise_on_status=False,
+            )
+            session.mount("http://", HTTPAdapter(max_retries=retry))
+            session.mount("https://", HTTPAdapter(max_retries=retry))
             expires_at = datetime.min.replace(tzinfo=UTC)
 
             def get(url: str) -> requests.Response:
@@ -72,7 +86,13 @@ class Command(BaseCommand):
             if not any(block.get("ref") for block in blocks):
                 raise CommandError(f"None of the {len(blocks)} blocks has a ref: {MISSING_REF_CAUSES}.")
 
-            out.mkdir(parents=True, exist_ok=True)
+            # The blocks are decrypted customer recordings, so other users on the pod must not read them.
+            if out is None:
+                # mkdtemp picks an unguessable name, so no other user can create the directory first.
+                out = Path(tempfile.mkdtemp(prefix=f"recording-{team_id}-{session_id}-"))
+            else:
+                out.mkdir(parents=True, exist_ok=True)
+                out.chmod(0o700)
             index = []
             for number, block in enumerate(blocks):
                 entry = {
