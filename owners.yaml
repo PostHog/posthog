@@ -318,6 +318,8 @@ rules:
       owners: team-self-driving
     - match:
           - '/frontend/src/lib/integrations/AdsAccountIdPickers.test.tsx'
+          - '/frontend/src/lib/utils/pushSendRedaction.ts'
+          - '/frontend/src/lib/utils/pushSendRedaction.test.ts'
       owners: team-workflows
     - match:
           - '/services/credentials-service/tests/integration/*.test.*'
