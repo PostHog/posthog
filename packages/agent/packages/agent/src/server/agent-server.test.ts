@@ -66,6 +66,7 @@ import {
 } from "./agent-server";
 import { ContextSelection, type HumanMessage } from "./context-selection";
 import { CredentialRelayError } from "./credential-relay";
+import { AiGatewayNotConfiguredError } from "./gateway-env";
 import { type JwtPayload, SANDBOX_CONNECTION_AUDIENCE } from "./jwt";
 import type { ExistingPrCheckoutResult } from "./pr-checkout";
 
@@ -1245,6 +1246,69 @@ describe("AgentServer HTTP Mode", () => {
         }).toEqual(expected);
       },
       30000,
+    );
+
+    // The worker mints no gateway env for a subscription run, so only the
+    // subscription exemption keeps such a run from the gateway refusal.
+    it.each([
+      {
+        run: "a Claude subscription run",
+        overrides: { claudeModelAccess: "own-subscription" },
+        refused: false,
+      },
+      {
+        run: "a Codex subscription run",
+        overrides: {
+          runtimeAdapter: "codex",
+          codexModelAccess: "own-subscription",
+        },
+        refused: false,
+      },
+      { run: "a gateway-billed Claude run", overrides: {}, refused: true },
+      {
+        run: "a gateway-billed Codex run",
+        overrides: { runtimeAdapter: "codex" },
+        refused: true,
+      },
+    ] as const)(
+      "with no AI_GATEWAY_* env, refuses $run: $refused",
+      async ({ overrides, refused }) => {
+        for (const key of [
+          "AI_GATEWAY_URL",
+          "AI_GATEWAY_PRODUCTS",
+          "AI_GATEWAY_TOKEN",
+          "AI_GATEWAY_PRODUCT",
+        ]) {
+          vi.stubEnv(key, undefined);
+        }
+        const testServer = createServer(overrides) as unknown as {
+          _doInitializeSession(payload: JwtPayload): Promise<void>;
+          openProductSession(): Promise<void>;
+        };
+        // Session setup reads the gateway env, then opens the product session;
+        // stopping there keeps the Codex case from spawning the CLI.
+        const pastGatewayEnv = new Error("reached the product session");
+        vi.spyOn(testServer, "openProductSession").mockRejectedValue(
+          pastGatewayEnv,
+        );
+
+        const initialization = testServer._doInitializeSession({
+          task_id: "test-task-id",
+          run_id: "test-run-id",
+          team_id: 1,
+          user_id: 1,
+          distinct_id: "test-distinct-id",
+          mode: "interactive",
+        });
+
+        if (refused) {
+          await expect(initialization).rejects.toBeInstanceOf(
+            AiGatewayNotConfiguredError,
+          );
+        } else {
+          await expect(initialization).rejects.toBe(pastGatewayEnv);
+        }
+      },
     );
 
     it("routes the session to the gateway product the server names", async () => {
