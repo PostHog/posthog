@@ -1477,6 +1477,11 @@ export interface MakeTransactionalApi {
      * * `email` - email
      * * `push` - push */
     expected_type?: ExpectedTypeEnumApi
+    /**
+     * Digest of the push template that a person confirmed. The template is refused with the code `template_changed` when it has changed since, and nothing happens. Only for push templates.
+     * @maxLength 64
+     */
+    confirmed_digest?: string
 }
 
 export interface MessageTemplatePlacementApi {

@@ -72,6 +72,7 @@ from products.messaging.backend.facade.contracts import (
     SendWarning,
     SendWarningCode,
     SensitiveTemplate,
+    TemplateChanged,
     TemplateNotSendable,
     TemplateNotTransactional,
     TemplateTypeChanged,
@@ -85,6 +86,7 @@ from products.messaging.backend.models.message_category import MessageCategoryTy
 from products.messaging.backend.models.transactional_email_key import lock_team_keys as _lock_team_keys
 from products.messaging.backend.services.code_email_source import source_detection_enabled
 from products.messaging.backend.services.html_text import text_from_html
+from products.messaging.backend.services.push_digest import push_digest
 from products.messaging.backend.services.transactional_email_status import keyed_message_id
 from products.messaging.backend.tasks import detect_code_email_source_task
 from products.workflows.backend.facade.api import WorkflowNotFound, get_workflow_summary
@@ -455,14 +457,20 @@ def make_transactional(
     user_id: int | None,
     from_integration_id: int | None,
     template_type: str | None = None,
+    confirmed_digest: str | None = None,
 ) -> UUID:
     """Create the template's workflow and link it, and return the workflow's id. A template that is already
-    transactional keeps the workflow it has. `template_type` is the type the caller was allowed to convert."""
+    transactional keeps the workflow it has. `template_type` is the type the caller was allowed to convert.
+    `confirmed_digest` is the `push_digest` of what a person confirmed."""
     with transaction.atomic():
         # The row lock keeps two concurrent calls from creating two workflows.
         template = MessageTemplate.objects.select_for_update().get(team_id=team_id, id=template_id, deleted=False)
         if template_type is not None and template.type != template_type:
             raise TemplateTypeChanged("The template's type changed while it was being made transactional. Try again.")
+        if confirmed_digest is not None and confirmed_digest != push_digest(template):
+            raise TemplateChanged(
+                "The template changed after it was confirmed, so it was not made transactional. Check it again."
+            )
         if template.transactional_hog_flow_id and _workflow_exists(team_id, template.transactional_hog_flow_id):
             return template.transactional_hog_flow_id
         check_sendable(

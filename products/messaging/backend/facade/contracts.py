@@ -64,6 +64,10 @@ class TemplateTypeChanged(TransactionalEmailError):
     code = "template_type_mismatch"
 
 
+class TemplateChanged(TransactionalEmailError):
+    code = "template_changed"
+
+
 class TemplateNotTransactional(TransactionalEmailError):
     code = "template_not_transactional"
 

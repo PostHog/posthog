@@ -1,5 +1,6 @@
 import json
 import hashlib
+from datetime import timedelta
 from typing import Any
 from uuid import uuid4
 
@@ -8,15 +9,18 @@ from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 from django.test import override_settings
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog import rate_limit
+from posthog.auth import WorkloadAccessTokenAuthentication
 from posthog.models import Organization, ProjectSecretAPIKey, Team
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.integration import Integration
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal, generate_random_token_secret
 from posthog.plugins.plugin_server_api import WORKFLOWS_TRANSACTIONAL_PUSH_JWT_PURPOSE
@@ -26,8 +30,13 @@ from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.presentation.views.message_templates import (
     TRANSACTIONAL_PUSH_API_FLAG,
     MessageTemplatesViewSet,
-    TransactionalEmailTeamBurstThrottle,
+    TransactionalEmailBurstThrottle,
 )
+from products.messaging.backend.presentation.views.push_throttles import (
+    TransactionalPushBurstThrottle,
+    TransactionalPushTeamBurstThrottle,
+)
+from products.messaging.backend.services.push_digest import push_digest
 from products.messaging.backend.services.transactional_email import make_transactional
 from products.messaging.backend.services.transactional_email_status import keyed_run_id
 from products.workflows.backend.facade.api import set_default_email_sender_if_unset
@@ -280,6 +289,71 @@ class TestTransactionalPushTemplates(APIBaseTest):
 
         assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
 
+    @parameterized.expand(
+        [
+            ("unchanged", {}, True),
+            ("title", {"content__push__title": "Other"}, False),
+            ("link", {"content__push__link": "https://example.net"}, False),
+            ("data", {"content__push__data": {"a": "b"}}, False),
+            ("channels", {"content__push__channels": []}, False),
+            ("name", {"name": "Other"}, False),
+            ("sensitive", {"sensitive": True}, False),
+        ]
+    )
+    def test_a_push_that_changed_after_it_was_confirmed_is_not_made_sendable(self, _flag, _name, changes, converts):
+        template = self._template()
+        digest = push_digest(template)
+        for path, value in changes.items():
+            if path.startswith("content__"):
+                template.content["push"][path.rsplit("__", 1)[1]] = value
+            else:
+                setattr(template, path, value)
+        template.save()
+
+        response = self.client.post(
+            f"{self.templates_url}{template.id}/make_transactional/", {"confirmed_digest": digest}, format="json"
+        )
+
+        assert response.status_code == (status.HTTP_200_OK if converts else status.HTTP_409_CONFLICT), response.json()
+        assert converts or response.json()["code"] == "template_changed"
+        template.refresh_from_db()
+        assert (template.transactional_hog_flow_id is not None) is converts
+
+    def test_the_digest_is_the_one_the_mcp_server_computes(self, _flag):
+        # The same template and hash are in services/mcp/tests/unit/push-template-preview.test.ts.
+        template = MessageTemplate(
+            id="0190f1d2-3c4b-7a5e-9f00-112233445566",
+            name='Zoë "q" \\ \u2028 😀',
+            type="push",
+            sensitive=True,
+            content={
+                "push": {
+                    "title": "a\n\t\u0001\u007f",
+                    "body": "b",
+                    "data": {"\uff5e": "x", "😀": "y", "a": "", "B": "1"},
+                    "channels": [13, 2],
+                }
+            },
+        )
+
+        assert push_digest(template) == "6c63aea3fe3b7ee9216ca71246fa54610aa7b7b110242ecb8d9d96271528cd26"
+
+    def test_a_workload_token_without_the_templates_scope_gets_its_policy_link(self, _flag):
+        def authenticate(authenticator: Any, request: Any) -> Any:
+            authenticator.scopes = ["transactional_email:write"]
+            authenticator.organization_id = str(self.organization.id)
+            authenticator.team_id = self.team.id
+            authenticator.policy_id = str(uuid4())
+            return (self.user, None)
+
+        with patch.object(WorkloadAccessTokenAuthentication, "authenticate", authenticate):
+            response = APIClient().post(
+                f"{self.templates_url}{self._template().id}/make_transactional/", {}, format="json"
+            )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert response.json()["extra"]["missing_scopes"] == ["transactional_push:write"], response.json()
+
     def test_a_transactional_template_cannot_change_between_email_and_push(self, _flag):
         template = self._template()
         self._make_transactional(template)
@@ -511,17 +585,20 @@ class TestTransactionalPushBatchSend(APIBaseTest):
         self.hog_flow_id = make_transactional(
             self.team.id, self.template.id, user_id=self.user.id, from_integration_id=None
         )
+        self._key(["transactional_push:write"])
+        self.url = f"/api/projects/{self.team.id}/messaging/send/push_batch/"
+
+    def _key(self, scopes: list[str], team: Team | None = None) -> None:
         raw_token = generate_random_token_secret()
         ProjectSecretAPIKey.objects.create(
-            team=self.team,
-            label="push",
+            team=team or self.team,
+            label=raw_token[-20:],
             secure_value=hash_key_value(raw_token),
-            scopes=["transactional_push:write"],
+            scopes=scopes,
             mask_value=f"{raw_token[:4]}...{raw_token[-4:]}",
         )
         self.psak = APIClient()
         self.psak.credentials(HTTP_AUTHORIZATION=f"Bearer {raw_token}")
-        self.url = f"/api/projects/{self.team.id}/messaging/send/push_batch/"
 
     def _id(self, key: str) -> str:
         return str(keyed_run_id(self.team.id, "transactional-push", key))
@@ -740,7 +817,7 @@ class TestTransactionalPushBatchSend(APIBaseTest):
 
         with (
             override_instance_config("RATE_LIMIT_ENABLED", True),
-            patch.object(TransactionalEmailTeamBurstThrottle, "rate", "5/minute"),
+            patch.object(TransactionalPushTeamBurstThrottle, "rate", "5/minute"),
         ):
             spent = self._batch(self._recipients(3))
             refused = self._batch(self._recipients(3))
@@ -748,3 +825,108 @@ class TestTransactionalPushBatchSend(APIBaseTest):
         assert spent.status_code == status.HTTP_200_OK, spent.json()
         assert refused.status_code == status.HTTP_429_TOO_MANY_REQUESTS
         assert mock_post.call_count == 3
+
+    @parameterized.expand(
+        [("project_path", "/api/projects/{team_id}/messaging/send/"), ("key_scoped_path", "/api/messaging/send/")]
+    )
+    def test_push_and_email_sends_do_not_spend_each_others_limit(self, mock_post, _flag, _capture, _name, base):
+        mock_post.side_effect = self._answer_by_key({})
+        rate_limit.is_rate_limit_enabled.cache_clear()
+        rate_limit.get_team_allow_list.cache_clear()
+        self.addCleanup(rate_limit.is_rate_limit_enabled.cache_clear)
+        self.addCleanup(rate_limit.get_team_allow_list.cache_clear)
+        self._key(["transactional_push:write", "transactional_email:write"])
+        base = base.format(team_id=self.team.id)
+
+        def answer(route: str) -> int:
+            body = {"template_id": str(self.template.id), "distinct_id": "u", "to": "a@example.com"}
+            if route == "push_batch":
+                body = {"template_id": str(self.template.id), "recipients": self._recipients(2)}
+            return self.psak.post(f"{base}{route}/", body, format="json").status_code
+
+        with (
+            override_instance_config("RATE_LIMIT_ENABLED", True),
+            patch.object(TransactionalPushBurstThrottle, "rate", "2/minute"),
+            patch.object(TransactionalEmailBurstThrottle, "rate", "2/minute"),
+        ):
+            pushes = [answer(route) for route in ("push_batch", "push", "push_batch")]
+            emails = [answer("email") for _ in range(3)]
+
+        assert pushes == [status.HTTP_200_OK, status.HTTP_429_TOO_MANY_REQUESTS, status.HTTP_429_TOO_MANY_REQUESTS]
+        # A push template is refused by the email route, but the request counts.
+        assert emails == [
+            status.HTTP_400_BAD_REQUEST,
+            status.HTTP_400_BAD_REQUEST,
+            status.HTTP_429_TOO_MANY_REQUESTS,
+        ]
+
+    @parameterized.expand([("session",), ("oauth",)])
+    def test_a_caller_without_a_key_is_limited_too(self, mock_post, _flag, _capture, caller):
+        mock_post.side_effect = self._answer_by_key({})
+        rate_limit.is_rate_limit_enabled.cache_clear()
+        self.addCleanup(rate_limit.is_rate_limit_enabled.cache_clear)
+        client = self.client
+        if caller == "oauth":
+            application = OAuthApplication.objects.create(
+                name="app",
+                client_type=OAuthApplication.CLIENT_PUBLIC,
+                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                redirect_uris="https://example.com/callback",
+                algorithm="RS256",
+                organization=self.organization,
+                user=self.user,
+            )
+            token = OAuthAccessToken.objects.create(
+                user=self.user,
+                application=application,
+                token="pha_test",
+                expires=timezone.now() + timedelta(hours=1),
+                scope="transactional_push:write hog_flow:write",
+            )
+            client = APIClient()
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token.token}")
+
+        with (
+            override_instance_config("RATE_LIMIT_ENABLED", True),
+            patch.object(TransactionalPushBurstThrottle, "rate", "3/minute"),
+        ):
+            answers = [
+                client.post(
+                    self.url,
+                    {"template_id": str(self.template.id), "recipients": self._recipients(3)},
+                    format="json",
+                ).status_code
+                for _ in range(2)
+            ]
+
+        assert answers == [status.HTTP_200_OK, status.HTTP_429_TOO_MANY_REQUESTS]
+
+    @parameterized.expand(
+        [
+            ("push_key", ["transactional_push:write"], None, status.HTTP_200_OK),
+            ("email_key", ["transactional_email:write"], None, status.HTTP_403_FORBIDDEN),
+            ("other_project", ["transactional_push:write"], "other", status.HTTP_404_NOT_FOUND),
+        ]
+    )
+    def test_a_project_key_sends_on_the_path_without_a_project(
+        self, mock_post, _flag, _capture, _name, scopes, team, expected
+    ):
+        mock_post.side_effect = self._answer_by_key({})
+        self._key(scopes, Team.objects.create(organization=self.organization, name="other") if team else self.team)
+
+        answers = [
+            self.psak.post(
+                "/api/messaging/send/push_batch/",
+                {"template_id": str(self.template.id), "recipients": self._recipients(2)},
+                format="json",
+            ),
+            self.psak.post(
+                "/api/messaging/send/push/",
+                {"template_id": str(self.template.id), "distinct_id": "a"},
+                format="json",
+                headers={"Idempotency-Key": "single"},
+            ),
+        ]
+
+        single = status.HTTP_202_ACCEPTED if expected == status.HTTP_200_OK else expected
+        assert [answer.status_code for answer in answers] == [expected, single], [a.json() for a in answers]

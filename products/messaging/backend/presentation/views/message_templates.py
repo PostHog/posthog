@@ -145,6 +145,7 @@ from products.messaging.backend.presentation.views.push_batch import (
     push_batch_too_large,
     unconfirmed_push_batch,
 )
+from products.messaging.backend.presentation.views.push_throttles import transactional_push_throttles
 from products.messaging.backend.presentation.views.refusals import (
     ExplainedRefusal,
     RequestBodyCapMixin,
@@ -984,6 +985,12 @@ class MakeTransactionalSerializer(serializers.Serializer):
         help_text="The template type the caller means to make transactional. A template of another type is refused, "
         "so a push tool can't make an email template transactional, and the other way round.",
     )
+    confirmed_digest = serializers.CharField(
+        required=False,
+        max_length=64,
+        help_text="Digest of the push template that a person confirmed. The template is refused with the code "
+        "`template_changed` when it has changed since, and nothing happens. Only for push templates.",
+    )
 
 
 class SendWarningSerializer(serializers.Serializer):
@@ -1104,6 +1111,7 @@ class TransactionalEmailRejected(exceptions.ValidationError):
         "sandbox_recipient_not_member": 422,
         "sandbox_sender_unavailable": 403,
         "batch_unavailable": 409,
+        "template_changed": 409,
     }
     # The caller has to change the request. Without this the error handler types it `validation_error`.
     default_type = "invalid_request"
@@ -1581,8 +1589,15 @@ class MessageTemplatesViewSet(
         held_scopes = get_authenticator_scopes(self.request.successful_authenticator)
         if held_scopes is None or "*" in held_scopes:
             return
-        if scopes_missing_after_legacy_fallback(self.request, self, held_scopes, [scope]):
-            raise InsufficientScope([scope])
+        missing_scopes = scopes_missing_after_legacy_fallback(self.request, self, held_scopes, [scope])
+        if not missing_scopes:
+            return
+        # A token type can answer with its own error, such as the policy link a workload token gets.
+        authenticator = self.request.successful_authenticator
+        insufficient_scope_error = getattr(type(authenticator), "insufficient_scope_error", None)
+        if insufficient_scope_error is not None:
+            raise insufficient_scope_error(authenticator, self, [scope], missing_scopes)
+        raise InsufficientScope([scope])
 
     def get_throttles(self):
         if self.action == "send":
@@ -1896,6 +1911,7 @@ class MessageTemplatesViewSet(
                 user_id=self._actor_id(),
                 from_integration_id=request.validated_data.get("from_integration_id"),
                 template_type=template.type,
+                confirmed_digest=request.validated_data.get("confirmed_digest"),
             )
         except TransactionalEmailError as e:
             raise TransactionalEmailRejected(e) from None
@@ -1932,6 +1948,8 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
     records_have_object_access_rules = False
 
     def get_throttles(self):
+        if self.action in ("push", "push_batch"):
+            return transactional_push_throttles()
         return transactional_email_throttles(self.team_id)
 
     def initial(self, request: Any, *args: Any, **kwargs: Any) -> None:
@@ -2047,7 +2065,7 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
         except BatchTooLarge:
             raise push_batch_too_large() from None
         recipients = push_batch_recipients(request.validated_data)
-        reserve_units(transactional_email_throttles(self.team_id), request, self, len(recipients) - 1)
+        reserve_units(transactional_push_throttles(), request, self, len(recipients) - 1)
         template = self.get_object()
         if template.transactional_hog_flow_id:
             self._require_workflow_editor(template.transactional_hog_flow_id)
