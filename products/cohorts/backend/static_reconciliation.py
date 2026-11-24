@@ -368,20 +368,24 @@ def run_reconciliation_pass(*, now: datetime, dispatch: Callable[[StaticCohortTo
         cache.set(RECONCILE_CURSOR_CACHE_KEY, next_cursor, timeout=int(RECONCILE_CURSOR_TTL.total_seconds()))
 
 
+def _untouched_by_replace(row: Cohort) -> QuerySet[Cohort]:
+    return Cohort.objects.filter(pk=row.pk, last_replace_marker=row.last_replace_marker).exclude(
+        pending_population_mode=CohortPopulationMode.REPLACE
+    )
+
+
 def _write_count(row: Cohort, count: int) -> None:
     # A population or CSV import that has set `is_calculating`, or that finished or failed since `row` was read,
     # writes its own count. A pending or finished replace also owns the count from that point.
-    Cohort.objects.filter(
+    _untouched_by_replace(row).filter(
         team_id=row.team_id,
-        id=row.pk,
         is_static=True,
         deleted=False,
         is_calculating=False,
         errors_calculating=0,
         last_calculation=row.last_calculation,
         last_error_at=row.last_error_at,
-        last_replace_marker=row.last_replace_marker,
-    ).exclude(pending_population_mode=CohortPopulationMode.REPLACE).update(count=count)
+    ).update(count=count)
 
 
 def reconcile_static_cohort(cohort: StaticCohortToReconcile) -> None:
@@ -414,11 +418,7 @@ def reconcile_static_cohort(cohort: StaticCohortToReconcile) -> None:
         return
 
     def _still_current() -> bool:
-        return (
-            Cohort.objects.filter(pk=row.pk, last_replace_marker=row.last_replace_marker)
-            .exclude(pending_population_mode=CohortPopulationMode.REPLACE)
-            .exists()
-        )
+        return _untouched_by_replace(row).exists()
 
     # min_rows makes the copy wait for a replica that holds every row instead of storing a partial copy.
     try:
