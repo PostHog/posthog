@@ -77,11 +77,10 @@ tools:
     workflows-send-push:
         operation: messaging_send_push_create
         enabled: false
-        disabled_reason:
-            A send takes the push's content when a worker first picks it up, so an edit between the user's confirmation and
-            that moment changes what is sent. The content stays the same from then on, also while the send waits for a
-            device. A confirmation can't show what will go out until a send is tied to the content the user saw. Code
-            sends through the API.
+        disabled_reason: A send takes the push's content when a worker first picks it up, so an edit between the user's
+            confirmation and that moment changes what is sent. The content stays the same from then on, also while the
+            send waits for a device. A confirmation can't show what will go out until a send is tied to the content the
+            user saw. Code sends through the API.
     workflows-send-push-batch:
         operation: messaging_send_push_batch_create
         enabled: false
