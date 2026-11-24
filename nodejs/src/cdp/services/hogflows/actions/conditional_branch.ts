@@ -289,8 +289,7 @@ function conditionReferencesCohorts(condition: { filters?: unknown }): boolean {
     )
 }
 
-// Identifies the condition the author saved. Django writes these fields itself and can rewrite them
-// without an edit, for example when the filter runtime changes, so they stay out.
+// Django can rewrite these without an edit, so they stay out of the condition hash.
 const DERIVED_FILTER_KEYS = new Set(['bytecode', 'bytecode_contract', 'bytecode_error', 'source'])
 
 function hashCondition(condition: { filters?: object | null } | undefined): string {

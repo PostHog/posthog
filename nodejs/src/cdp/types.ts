@@ -598,8 +598,7 @@ export type HogFlowInvocationContext = {
         // shortened ceiling is otherwise indistinguishable from the deadline arriving. Comparing the
         // parked ceiling with the action's current one tells the two apart.
         parkedMaxWaitDuration?: string
-        // Hash of the condition this wait parked against, compared for the same reason: a run that
-        // reaches its deadline before the sweep wakes it would otherwise look like a missed wake.
+        // Compared for the same reason: an edited condition can match at the deadline, before the sweep.
         parkedConditionHash?: string
         // Set by hog-function action handler when it returns `finished: false` without an
         // explicit `queueScheduledAt` — i.e. the reschedule is purely to move the job onto a
