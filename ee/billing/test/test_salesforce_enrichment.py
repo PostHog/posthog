@@ -1077,6 +1077,12 @@ class TestSpecificDomainEnrichment(SimpleTestCase):
         self, accounts: list[dict[str, Any]], current_values: list[dict[str, Any]]
     ) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
         harmonic_response = {**load_harmonic_fixture(), "description": "Builds analytics tools."}
+        sent: dict[str, dict[str, Any]] = {}
+
+        def record_update(_path: str, *, method: str, json: dict[str, Any]) -> list[dict[str, bool]]:
+            sent.update((record["Id"], record) for record in json["records"])
+            return [{"success": True} for _ in json["records"]]
+
         with (
             mock_harmonic_client() as mock_client,
             patch(
@@ -1084,14 +1090,13 @@ class TestSpecificDomainEnrichment(SimpleTestCase):
                 return_value=accounts,
             ),
             patch("ee.billing.salesforce_enrichment.enrichment.get_salesforce_client") as mock_get_sf,
-            patch("ee.billing.salesforce_enrichment.enrichment.bulk_update_salesforce_accounts") as mock_bulk_update,
         ):
             mock_client.enrich_companies_batch = AsyncMock(return_value=[harmonic_response])
             mock_get_sf.return_value.query_all.return_value = {"records": current_values}
+            mock_get_sf.return_value.restful = record_update
 
             result = await enrich_accounts_async(specific_domain="example.com")
 
-        sent = {record["Id"]: record for record in mock_bulk_update.call_args[0][1]}
         return result, sent
 
     @pytest.mark.asyncio
