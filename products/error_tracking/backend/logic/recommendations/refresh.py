@@ -127,7 +127,7 @@ def refresh_team_recommendations(team_id: int) -> int:
     Returns the number of recommendations kicked.
     """
     now = timezone.now()
-    return sum(_refresh_one(rec, team_id, now) for rec in RECOMMENDATIONS)
+    return sum(_refresh_one(rec, team_id, now) for rec in RECOMMENDATIONS if rec.is_available(team_id))
 
 
 def refresh_teams_recommendations_batched(
@@ -159,6 +159,7 @@ def refresh_teams_recommendations_batched(
     team_ids = existing_team_ids
     if not team_ids:
         return 0, 0
+    team_ids_by_type = {rec.type: rec.available_team_ids(team_ids) for rec in RECOMMENDATIONS}
 
     def fetch_rows() -> dict[tuple[int, str], ErrorTrackingRecommendation]:
         return {
@@ -170,7 +171,7 @@ def refresh_teams_recommendations_batched(
     missing = [
         ErrorTrackingRecommendation(team_id=team_id, type=rec.type, status=ErrorTrackingRecommendation.Status.READY)
         for rec in RECOMMENDATIONS
-        for team_id in team_ids
+        for team_id in team_ids_by_type[rec.type]
         if (team_id, rec.type) not in rows
     ]
     if missing:
@@ -181,7 +182,7 @@ def refresh_teams_recommendations_batched(
 
     computed = 0
     for rec in RECOMMENDATIONS:
-        computed += _refresh_rec_for_teams(rec, team_ids, rows, now)
+        computed += _refresh_rec_for_teams(rec, team_ids_by_type[rec.type], rows, now)
         if on_progress is not None:
             on_progress(rec.type)
     return len(team_ids), computed

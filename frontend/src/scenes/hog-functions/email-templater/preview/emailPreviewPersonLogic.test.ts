@@ -68,4 +68,25 @@ describe('emailPreviewPersonLogic', () => {
 
         expect(logic.values.previewPerson).toEqual(GRACE)
     })
+
+    it('tells a failed search apart from one nobody matches, until the next search', async () => {
+        jest.spyOn(api, 'query').mockRejectedValueOnce(new Error('offline'))
+        logic.actions.setSearch('ada')
+        await waitFor(() => expect(logic.values.searchFailed).toBe(true))
+
+        logic.actions.setSearch('nobody')
+        expect(logic.values.searchFailed).toBe(false)
+    })
+
+    it('keeps the results of a newer search when an older one fails late', async () => {
+        let failOlder: (error: Error) => void = () => {}
+        const query = jest.spyOn(api, 'query').mockReturnValueOnce(new Promise((_, reject) => (failOlder = reject)))
+        logic.actions.setSearch('ad')
+        await waitFor(() => expect(query).toHaveBeenLastCalledWith(expect.objectContaining({ search: 'ad' })))
+
+        logic.actions.setSearch('ada')
+        failOlder(new Error('offline'))
+        await waitFor(() => expect(logic.values.searchResults).toHaveLength(1))
+        expect(logic.values.searchFailed).toBe(false)
+    })
 })

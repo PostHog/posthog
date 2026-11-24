@@ -385,6 +385,53 @@ class TestEvaluationReportApi(APIBaseTest):
         self.assertEqual(report.timezone_name, "UTC")
         self.assertIsNotNone(report.starts_at)
 
+    @parameterized.expand([("enabled_by_default", {}), ("enabled_explicitly", {"enabled": True})])
+    def test_create_rejects_enabled_report_without_ai_data_processing_approval(self, _name: str, overrides: dict):
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+
+        response = self.client.post(self.base_url, self._scheduled_payload(**overrides), format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        self.assertEqual(EvaluationReport.objects.count(), 0)
+
+    def test_disabled_report_saves_without_ai_data_processing_approval(self):
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+        report = self._create_report()
+
+        create_response = self.client.post(
+            self.base_url,
+            self._scheduled_payload(enabled=False, evaluation=str(self._create_boolean_evaluation().id)),
+            format="json",
+        )
+        patch_response = self.client.patch(f"{self.base_url}{report.id}/", {"enabled": False}, format="json")
+        upsert_response = self.client.post(
+            self.base_url,
+            self._scheduled_payload(evaluation=str(report.evaluation_id), rrule="FREQ=WEEKLY;BYDAY=MO"),
+            format="json",
+        )
+        enable_response = self.client.patch(f"{self.base_url}{report.id}/", {"enabled": True}, format="json")
+
+        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED, create_response.json())
+        self.assertEqual(patch_response.status_code, status.HTTP_200_OK, patch_response.json())
+        self.assertEqual(upsert_response.status_code, status.HTTP_200_OK, upsert_response.json())
+        self.assertEqual(enable_response.status_code, status.HTTP_400_BAD_REQUEST, enable_response.json())
+        report.refresh_from_db()
+        self.assertFalse(report.enabled)
+        self.assertEqual(report.rrule, "FREQ=WEEKLY;BYDAY=MO")
+
+    @patch("posthog.temporal.common.client.sync_connect")
+    def test_generate_rejects_without_ai_data_processing_approval(self, mock_sync_connect: MagicMock) -> None:
+        report = self._create_report()
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+
+        response = self.client.post(f"{self.base_url}{report.id}/generate/")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        mock_sync_connect.assert_not_called()
+
     def test_create_count_triggered_report_is_default(self):
         response = self.client.post(
             self.base_url,

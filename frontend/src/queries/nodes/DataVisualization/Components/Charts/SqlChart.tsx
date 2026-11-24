@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import type { XAxisConfig, ChartMargins, ValueDomain, RadialSlicePayload } from '@posthog/quill-charts'
 
 import { ChartSettings, GoalLine } from '~/queries/schema/schema-general'
+import type { QueryContext } from '~/queries/types'
 import { ChartDisplayType } from '~/types'
 
 import { AxisSeries } from '../../dataVisualizationLogic'
@@ -40,6 +41,7 @@ export type SqlChartProps = {
     onPointClick?: (seriesKey: string, dataIndex: number, label: string) => void
     onSliceClick?: (payload: RadialSlicePayload) => void
     pointClickHint?: string
+    chartInputFilters?: QueryContext['chartInputFilters']
     directPointClick?: boolean
     labelFormatter?: (label: string) => string
     xAxis?: XAxisConfig
@@ -68,5 +70,17 @@ export function sqlChartComponentFor(props: SqlChartProps): (props: SqlChartProp
  *  stacked-bar, and combo series to the matching @posthog/quill-charts renderer. */
 export const SqlChart = (props: SqlChartProps): JSX.Element => {
     const Component = sqlChartComponentFor(props)
+    const { xData, chartInputFilters } = props
+    if (xData && chartInputFilters && Object.hasOwn(chartInputFilters, xData.column.name)) {
+        const selectInput = chartInputFilters[xData.column.name]
+        return (
+            <Component
+                {...props}
+                directPointClick
+                pointClickHint="Filter the app by this value"
+                onPointClick={(_, index) => selectInput((xData.rawData ?? xData.data)[index])}
+            />
+        )
+    }
     return <Component {...props} />
 }
