@@ -1,4 +1,26 @@
 # serializer version: 1
+# name: TestFunnelDataWarehouse.test_funnels_data_warehouse_1_all_time_rows_before_first_event[new_events_schema]
+  '''
+  SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
+  ORDER BY toDate(events.timestamp) ASC, toTimeZone(events.timestamp, 'UTC') ASC
+  LIMIT 1 SETTINGS readonly=2,
+                   max_execution_time=60,
+                   allow_experimental_object_type=1,
+                   max_ast_elements=4000000,
+                   max_expanded_ast_elements=4000000,
+                   max_bytes_before_external_group_by=0,
+                   transform_null_in=1,
+                   optimize_min_equality_disjunction_chain_length=4294967295,
+                   optimize_rewrite_aggregate_function_with_if=0,
+                   optimize_min_inequality_conjunction_chain_length=4294967295,
+                   allow_experimental_join_condition=1,
+                   use_hive_partitioning=0,
+                   json_type_escape_dots_in_keys=1,
+                   output_format_json_escape_forward_slashes=0
+  '''
+# ---
 # name: TestFunnelDataWarehouse.test_funnels_data_warehouse_and_regular_nodes[new_events_schema]
   '''
   SELECT sum(step_1) AS step_1,
