@@ -860,17 +860,18 @@ class TestTransactionalEmail(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("lowest_tier", 0, False, False, status.HTTP_429_TOO_MANY_REQUESTS),
-            ("top_tier", 7, False, False, status.HTTP_202_ACCEPTED),
-            ("lowest_tier_on_the_bypass_list", 0, True, False, status.HTTP_202_ACCEPTED),
-            ("top_tier_while_the_cache_is_down", 7, False, True, status.HTTP_202_ACCEPTED),
+            ("lowest_tier", 0, False, False, "secret_key", status.HTTP_429_TOO_MANY_REQUESTS),
+            ("top_tier", 7, False, False, "secret_key", status.HTTP_202_ACCEPTED),
+            ("lowest_tier_on_the_bypass_list", 0, True, False, "secret_key", status.HTTP_202_ACCEPTED),
+            ("top_tier_while_the_cache_is_down", 7, False, True, "secret_key", status.HTTP_202_ACCEPTED),
+            ("lowest_tier_signed_in_to_the_app", 0, False, False, "session", status.HTTP_202_ACCEPTED),
         ]
     )
     def test_a_send_past_the_floor_is_refused_unless_the_tier_allows_more(
-        self, mock_post, _flag, _capture, _name, tier, bypass, cache_down, third_status
+        self, mock_post, _flag, _capture, _name, tier, bypass, cache_down, credential, third_status
     ):
         self._cdp_accepts(mock_post)
-        client = self._sender_client("secret_key")
+        client = self.client if credential == "session" else self._sender_client(credential)
         TeamWorkflowsConfig.objects.update_or_create(team_id=self.team.id, defaults={"email_sending_tier": tier})
         route = get_route_from_path(self.url)
         refusals = {"team_id": str(self.team.id), "scope": "transactional_email_send", "path": route, "route": route}

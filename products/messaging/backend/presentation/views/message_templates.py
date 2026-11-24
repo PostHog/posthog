@@ -44,7 +44,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ResponseDeclaration, ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.auth import PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication, ProjectSecretAPIKeyUser
+from posthog.auth import ProjectSecretAPIKeyAuthentication, ProjectSecretAPIKeyUser, SessionAuthentication
 from posthog.event_usage import get_event_source, get_mcp_properties, groups, report_user_action, sanitize_header_value
 from posthog.exceptions_capture import capture_exception
 from posthog.integrations import IntegrationManager, IntegrationNotFound
@@ -1102,10 +1102,8 @@ class TransactionalEmailSendThrottle(BaseThrottle):
         self.retry_after: int | None = None
 
     def allow_request(self, request: Request, view: Any) -> bool:
-        # The limit covers API keys only, so sends a signed-in person makes in the app are never refused.
-        if not isinstance(
-            request.successful_authenticator, (ProjectSecretAPIKeyAuthentication, PersonalAPIKeyAuthentication)
-        ):
+        # Only a person signed in to the app is exempt, so a new credential type is limited by default.
+        if isinstance(request.successful_authenticator, SessionAuthentication):
             return True
         return self.allow_units(request, 1)
 
