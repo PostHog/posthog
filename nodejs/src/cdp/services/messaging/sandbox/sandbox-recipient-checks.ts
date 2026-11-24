@@ -101,6 +101,7 @@ export type SandboxRecipientCheckRequest = {
     categoryId?: string
     categoryType?: 'marketing' | 'transactional'
     freshPreferences?: boolean
+    preferencesOnly?: boolean
     optOuts: MessageOptOutRecord[]
     isTest: boolean
     frequencyCap: () => Promise<FrequencyCapCheck>
@@ -130,19 +131,22 @@ export async function checkSandboxRecipient(
         categoryId,
         categoryType,
         freshPreferences,
+        preferencesOnly,
         optOuts,
         isTest,
         frequencyCap,
     }: SandboxRecipientCheckRequest
 ): Promise<SandboxRecipientCheck> {
     const transactional = categoryType === 'transactional'
-    try {
-        if (await suppression.isSuppressed(teamId, address, { transactional })) {
-            return { ok: false, reason: 'suppressed' }
+    if (!preferencesOnly) {
+        try {
+            if (await suppression.isSuppressed(teamId, address, { transactional })) {
+                return { ok: false, reason: 'suppressed' }
+            }
+        } catch (error) {
+            logger.warn('Could not read sandbox recipient suppression', { teamId, error: String(error) })
+            return { ok: false, reason: 'authorization_unavailable' }
         }
-    } catch (error) {
-        logger.warn('Could not read sandbox recipient suppression', { teamId, error: String(error) })
-        return { ok: false, reason: 'authorization_unavailable' }
     }
     if (transactional) {
         return { ok: true }
@@ -163,7 +167,7 @@ export async function checkSandboxRecipient(
         logger.warn('Could not read sandbox recipient preferences', { teamId, error: String(error) })
         return { ok: false, reason: freshPreferences ? 'preferences_unavailable' : 'authorization_unavailable' }
     }
-    if (!isTest && (await frequencyCapBeforeDeadline(frequencyCap)).capped) {
+    if (!preferencesOnly && !isTest && (await frequencyCapBeforeDeadline(frequencyCap)).capped) {
         return { ok: false, reason: 'frequency_capped' }
     }
     return { ok: true }

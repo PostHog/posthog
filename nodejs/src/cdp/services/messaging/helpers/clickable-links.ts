@@ -91,6 +91,89 @@ const HTML_VOID_ELEMENTS = new Set([
 ])
 const HTML_NON_STACK_ELEMENTS = new Set(['html', 'head', 'body', 'colgroup'])
 const HTML_IN_SCOPE_BARRIERS = new Set(['applet', 'caption', 'marquee', 'object', 'table', 'td', 'th'])
+const HTML_SPECIAL_ELEMENTS = new Set([
+    'address',
+    'applet',
+    'area',
+    'article',
+    'aside',
+    'base',
+    'basefont',
+    'bgsound',
+    'blockquote',
+    'body',
+    'br',
+    'button',
+    'caption',
+    'center',
+    'col',
+    'colgroup',
+    'dd',
+    'details',
+    'dir',
+    'div',
+    'dl',
+    'dt',
+    'embed',
+    'fieldset',
+    'figcaption',
+    'figure',
+    'footer',
+    'form',
+    'frame',
+    'frameset',
+    'h1',
+    'h2',
+    'h3',
+    'h4',
+    'h5',
+    'h6',
+    'head',
+    'header',
+    'hgroup',
+    'hr',
+    'html',
+    'iframe',
+    'img',
+    'input',
+    'li',
+    'link',
+    'listing',
+    'main',
+    'marquee',
+    'menu',
+    'meta',
+    'nav',
+    'noembed',
+    'noframes',
+    'noscript',
+    'object',
+    'ol',
+    'p',
+    'param',
+    'plaintext',
+    'pre',
+    'script',
+    'section',
+    'select',
+    'source',
+    'style',
+    'summary',
+    'table',
+    'tbody',
+    'td',
+    'template',
+    'textarea',
+    'tfoot',
+    'th',
+    'thead',
+    'title',
+    'tr',
+    'track',
+    'ul',
+    'wbr',
+    'xmp',
+])
 const HTML_IMPLIED_END_TAGS = new Set(['dd', 'dt', 'li', 'optgroup', 'option', 'p', 'rb', 'rp', 'rt', 'rtc'])
 const HTML_P_CLOSERS = new Set([
     'address',
@@ -157,23 +240,28 @@ type StackEntry = {
     ns: Namespace
     integration: 'none' | 'html' | 'math-text'
     inScopeBarrier: boolean
+    special: boolean
     tableTag: boolean
     inStack?: boolean
 }
 
 type TemplateFrame = {
     stack: StackEntry[]
+    specials: StackEntry[]
     foreignRuns: Array<Map<string, number>>
     htmlScopes: Array<Map<string, number>>
     inSelect: boolean
+    inTextModeTag: string | null
     tables: Array<Set<string>>
 }
 
 const createTemplateFrame = (): TemplateFrame => ({
     stack: [],
+    specials: [],
     foreignRuns: [],
     htmlScopes: [new Map()],
     inSelect: false,
+    inTextModeTag: null,
     tables: [],
 })
 
@@ -308,6 +396,9 @@ export const clickableHrefs = (body: string): string[] => {
         } else {
             incCount(frame.htmlScopes[frame.htmlScopes.length - 1], entry.tag)
         }
+        if (entry.special) {
+            frame.specials.push(entry)
+        }
         entry.inStack = true
         frame.stack.push(entry)
     }
@@ -318,6 +409,9 @@ export const clickableHrefs = (body: string): string[] => {
             return undefined
         }
         popped.inStack = false
+        if (popped.special) {
+            frame.specials.pop()
+        }
         if (popped.ns !== 'html') {
             decCount(frame.foreignRuns[frame.foreignRuns.length - 1], popped.tag)
             const next = topEntry(frame)
@@ -369,6 +463,10 @@ export const clickableHrefs = (body: string): string[] => {
             }
             target.inStack = false
             decCount(frame.htmlScopes[frame.htmlScopes.length - 1], 'form')
+            const specialIdx = frame.specials.lastIndexOf(target)
+            if (specialIdx !== -1) {
+                frame.specials.splice(specialIdx, 1)
+            }
             const prev = frame.stack[idx - 1]
             const next = frame.stack[idx + 1]
             frame.stack.splice(idx, 1)
@@ -400,7 +498,14 @@ export const clickableHrefs = (body: string): string[] => {
                 popToHtmlTag(frame, 'table')
             }
             frame.tables.push(new Set(['table']))
-            pushEntry(frame, { tag: 'table', ns: 'html', integration: 'none', inScopeBarrier: true, tableTag: true })
+            pushEntry(frame, {
+                tag: 'table',
+                ns: 'html',
+                integration: 'none',
+                inScopeBarrier: true,
+                special: true,
+                tableTag: true,
+            })
             return
         }
         const table = frame.tables[frame.tables.length - 1]
@@ -410,11 +515,25 @@ export const clickableHrefs = (body: string): string[] => {
         if (tagName === 'caption') {
             popUntilTable(frame)
             table.add('caption')
-            pushEntry(frame, { tag: 'caption', ns: 'html', integration: 'none', inScopeBarrier: true, tableTag: true })
+            pushEntry(frame, {
+                tag: 'caption',
+                ns: 'html',
+                integration: 'none',
+                inScopeBarrier: true,
+                special: true,
+                tableTag: true,
+            })
         } else if (TABLE_SECTIONS.has(tagName)) {
             popUntilTable(frame)
             table.add(tagName)
-            pushEntry(frame, { tag: tagName, ns: 'html', integration: 'none', inScopeBarrier: false, tableTag: true })
+            pushEntry(frame, {
+                tag: tagName,
+                ns: 'html',
+                integration: 'none',
+                inScopeBarrier: false,
+                special: true,
+                tableTag: true,
+            })
         } else if (tagName === 'tr') {
             if (table.has('caption')) {
                 popToHtmlTag(frame, 'caption')
@@ -429,11 +548,19 @@ export const clickableHrefs = (body: string): string[] => {
                     ns: 'html',
                     integration: 'none',
                     inScopeBarrier: false,
+                    special: true,
                     tableTag: true,
                 })
             }
             table.add('tr')
-            pushEntry(frame, { tag: 'tr', ns: 'html', integration: 'none', inScopeBarrier: false, tableTag: true })
+            pushEntry(frame, {
+                tag: 'tr',
+                ns: 'html',
+                integration: 'none',
+                inScopeBarrier: false,
+                special: true,
+                tableTag: true,
+            })
         } else if (tagName === 'td' || tagName === 'th') {
             if (table.has('caption')) {
                 popToHtmlTag(frame, 'caption')
@@ -450,15 +577,30 @@ export const clickableHrefs = (body: string): string[] => {
                     ns: 'html',
                     integration: 'none',
                     inScopeBarrier: false,
+                    special: true,
                     tableTag: true,
                 })
             }
             if (!table.has('tr')) {
                 table.add('tr')
-                pushEntry(frame, { tag: 'tr', ns: 'html', integration: 'none', inScopeBarrier: false, tableTag: true })
+                pushEntry(frame, {
+                    tag: 'tr',
+                    ns: 'html',
+                    integration: 'none',
+                    inScopeBarrier: false,
+                    special: true,
+                    tableTag: true,
+                })
             }
             table.add(tagName)
-            pushEntry(frame, { tag: tagName, ns: 'html', integration: 'none', inScopeBarrier: true, tableTag: true })
+            pushEntry(frame, {
+                tag: tagName,
+                ns: 'html',
+                integration: 'none',
+                inScopeBarrier: true,
+                special: true,
+                tableTag: true,
+            })
         }
     }
 
@@ -499,6 +641,7 @@ export const clickableHrefs = (body: string): string[] => {
                             frames.push(createTemplateFrame())
                         } else if (tag.tagName === 'script') {
                             tokenizer.state = TokenizerMode.SCRIPT_DATA
+                            frame.inTextModeTag = tag.tagName
                         }
                         updateForeignTokenizerFlag()
                         return
@@ -532,6 +675,7 @@ export const clickableHrefs = (body: string): string[] => {
                                     ns: 'html',
                                     integration: 'none',
                                     inScopeBarrier: false,
+                                    special: true,
                                     tableTag: false,
                                     inStack: false,
                                 }
@@ -543,6 +687,7 @@ export const clickableHrefs = (body: string): string[] => {
                                 ns: 'html',
                                 integration: 'none',
                                 inScopeBarrier: false,
+                                special: true,
                                 tableTag: false,
                             }
                             pushEntry(frame, entry)
@@ -561,6 +706,7 @@ export const clickableHrefs = (body: string): string[] => {
                                     ns: 'svg',
                                     integration: 'none',
                                     inScopeBarrier: false,
+                                    special: false,
                                     tableTag: false,
                                 })
                             }
@@ -571,6 +717,7 @@ export const clickableHrefs = (body: string): string[] => {
                                     ns: 'math',
                                     integration: 'none',
                                     inScopeBarrier: false,
+                                    special: false,
                                     tableTag: false,
                                 })
                             }
@@ -582,6 +729,7 @@ export const clickableHrefs = (body: string): string[] => {
                             pushHtmlTableTag(frame, tag.tagName)
                         } else if (TEXT_MODES.has(tag.tagName)) {
                             tokenizer.state = TEXT_MODES.get(tag.tagName)!
+                            frame.inTextModeTag = tag.tagName
                         } else if (
                             !HTML_VOID_ELEMENTS.has(tag.tagName) &&
                             !HTML_NON_STACK_ELEMENTS.has(tag.tagName) &&
@@ -592,6 +740,7 @@ export const clickableHrefs = (body: string): string[] => {
                                 ns: 'html',
                                 integration: 'none',
                                 inScopeBarrier: HTML_IN_SCOPE_BARRIERS.has(tag.tagName),
+                                special: HTML_SPECIAL_ELEMENTS.has(tag.tagName),
                                 tableTag: false,
                             })
                         }
@@ -616,6 +765,7 @@ export const clickableHrefs = (body: string): string[] => {
                             ns: elementNs,
                             integration,
                             inScopeBarrier,
+                            special: inScopeBarrier,
                             tableTag: false,
                         })
                     }
@@ -634,6 +784,13 @@ export const clickableHrefs = (body: string): string[] => {
             },
             onEndTag: (tag: Token.TagToken) => {
                 const frame = currentFrame()
+                if (frame.inTextModeTag !== null) {
+                    if (frame.inTextModeTag === tag.tagName) {
+                        frame.inTextModeTag = null
+                    }
+                    updateForeignTokenizerFlag()
+                    return
+                }
                 if (tag.tagName === 'template' && frames.length > 1) {
                     frames.pop()
                     updateForeignTokenizerFlag()
@@ -705,6 +862,20 @@ export const clickableHrefs = (body: string): string[] => {
                     }
                 } else if ((frame.htmlScopes[frame.htmlScopes.length - 1].get(tag.tagName) ?? 0) > 0) {
                     popToHtmlTag(frame, tag.tagName)
+                } else {
+                    const topSpecial = frame.specials[frame.specials.length - 1]
+                    if (
+                        topSpecial &&
+                        topSpecial.ns !== 'html' &&
+                        topSpecial.tag === tag.tagName &&
+                        tag.tagName !== 'foreignobject'
+                    ) {
+                        while (frame.stack.length > 0) {
+                            if (popEntry(frame) === topSpecial) {
+                                break
+                            }
+                        }
+                    }
                 }
 
                 updateForeignTokenizerFlag()

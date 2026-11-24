@@ -145,12 +145,8 @@ export class SandboxEmailService {
         if (!tenantBeforeRecipient.ok) {
             return refusal(tenantBeforeRecipient.reason)
         }
-        const recipientCheck = await this.checkRecipient(request, [
-            email.data.to.email,
-            address,
-            authorization.storedAddress,
-            canonicalRecipient(address),
-        ])
+        const spellings = [email.data.to.email, address, authorization.storedAddress, canonicalRecipient(address)]
+        const recipientCheck = await this.checkRecipient(request, spellings)
         if (!recipientCheck.ok) {
             return refusal(recipientCheck.reason)
         }
@@ -173,6 +169,13 @@ export class SandboxEmailService {
         if (!(await request.claimSesSlot())) {
             await caps.refundUnsent()
             return { status: 'retry', reason: SEND_RATE_LIMITED }
+        }
+        if (request.freshPreferences) {
+            const freshPreferences = await this.checkRecipient(request, spellings, { preferencesOnly: true })
+            if (!freshPreferences.ok) {
+                await caps.refundUnsent()
+                return refusal(freshPreferences.reason)
+            }
         }
         const message = buildSandboxMessage({
             email: email.data,
@@ -198,13 +201,18 @@ export class SandboxEmailService {
         return sent
     }
 
-    private async checkRecipient(request: SandboxSendRequest, spellings: string[]): Promise<SandboxRecipientCheck> {
+    private async checkRecipient(
+        request: SandboxSendRequest,
+        spellings: string[],
+        options?: { preferencesOnly?: boolean }
+    ): Promise<SandboxRecipientCheck> {
         const addresses = [...new Set(spellings)]
         for (const [index, address] of addresses.entries()) {
             const last = index === addresses.length - 1
             const check = await this.deps.checkRecipient({
                 ...this.recipientCheckBase(request),
                 address,
+                preferencesOnly: options?.preferencesOnly,
                 frequencyCap: last ? (request.frequencyCap ?? NO_FREQUENCY_CAP) : NO_FREQUENCY_CAP,
             })
             if (!check.ok || last) {

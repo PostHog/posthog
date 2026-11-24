@@ -754,6 +754,7 @@ describe('CDP hog invocation rerun e2e', () => {
                     invocation_ids: [failedRunId],
                 },
                 replay_code_sends: true,
+                replay_code_send_categories: true,
             })
             rerunWorker = new CdpRerunWorkerConsumer(
                 { ...hub, CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'postgres' },

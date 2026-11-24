@@ -43,10 +43,13 @@ describe('RerunPaginatorService replay fidelity (hog_flow)', () => {
         monitoring = {
             queueLogs: jest.fn(),
             flush: jest.fn().mockResolvedValue(undefined),
-        } as unknown as jest.Mocked<HogFunctionMonitoringService>
+        } as unknown as jest.Mocked<HogFunctionMonitoringService>,
+        hogFlowOverrides: Record<string, unknown> = {}
     ): RerunPaginatorService {
         const hogFlowManager = {
-            getHogFlow: jest.fn().mockResolvedValue({ id: functionId, team_id: teamId, variables: [] }),
+            getHogFlow: jest
+                .fn()
+                .mockResolvedValue({ id: functionId, team_id: teamId, variables: [], ...hogFlowOverrides }),
         } as unknown as jest.Mocked<HogFlowManagerService>
         const hogFunctionManager = {
             getHogFunction: jest.fn().mockResolvedValue(null),
@@ -153,13 +156,81 @@ describe('RerunPaginatorService replay fidelity (hog_flow)', () => {
         tracking: { captureEngagement: false },
     }
 
+    const marketingCategory = { id: '0195d6b4-6c3e-0000-1a2b-3c4d5e6f7a8b', type: 'marketing' as const }
+    const transactionalCategory = { id: '0195d6b4-6c3e-0002-9a8b-7c6d5e4f3a2b', type: 'transactional' as const }
+    const categoryDisabledLog = [
+        expect.objectContaining({
+            instance_id: 'inv-3',
+            level: 'warn',
+            message: expect.stringContaining('message category'),
+        }),
+    ]
+
     it.each([
-        ['an email sent from code while replay_code_sends is undefined', { send: codeSend }, undefined, []],
-        ['an email sent from code while replay_code_sends is false', { send: codeSend }, false, []],
+        ['an email sent from code while replay_code_sends is undefined', { send: codeSend }, {}, {}, []],
+        [
+            'an email sent from code while replay_code_sends is false',
+            { send: codeSend },
+            { replay_code_sends: false },
+            {},
+            [],
+        ],
+        [
+            'a marketing categorized code send while replay_code_send_categories is undefined',
+            { send: codeSend, messageCategory: marketingCategory },
+            { replay_code_sends: true },
+            {},
+            categoryDisabledLog,
+        ],
+        [
+            'a marketing categorized code send while replay_code_send_categories is false',
+            { send: codeSend, messageCategory: marketingCategory },
+            { replay_code_sends: true, replay_code_send_categories: false },
+            {},
+            categoryDisabledLog,
+        ],
+        [
+            'a transactional categorized code send while replay_code_send_categories is false',
+            { send: codeSend, messageCategory: transactionalCategory },
+            { replay_code_sends: true, replay_code_send_categories: false },
+            {},
+            categoryDisabledLog,
+        ],
+        [
+            'a code send on a workflow email step with a message_category_id while replay_code_send_categories is false',
+            { send: codeSend },
+            { replay_code_sends: true, replay_code_send_categories: false },
+            {
+                actions: [
+                    {
+                        id: 'email_1',
+                        type: 'function_email',
+                        config: { message_category_id: marketingCategory.id, message_category_type: 'transactional' },
+                    },
+                ],
+            },
+            categoryDisabledLog,
+        ],
+        [
+            'a code send on a workflow marketing email step while replay_code_send_categories is false',
+            { send: codeSend },
+            { replay_code_sends: true, replay_code_send_categories: false },
+            {
+                actions: [
+                    {
+                        id: 'email_1',
+                        type: 'function_email',
+                        config: { message_category_type: 'marketing' },
+                    },
+                ],
+            },
+            categoryDisabledLog,
+        ],
         [
             'a sensitive message whose content was not stored',
             { sensitive_variables_omitted: true },
-            true,
+            { replay_code_sends: true },
+            {},
             [
                 expect.objectContaining({
                     instance_id: 'inv-3',
@@ -169,7 +240,7 @@ describe('RerunPaginatorService replay fidelity (hog_flow)', () => {
                 }),
             ],
         ],
-    ] as const)('skips a run with %s', async (_name, stored, allowed, expectedLogs) => {
+    ] as const)('skips a run with %s', async (_name, stored, requestFlags, hogFlowOverrides, expectedLogs) => {
         const persistedState = {
             event: { uuid: 'evt-3', distinct_id: 'd-3', properties: {}, timestamp: '2026-06-01T09:00:00Z' },
             actionStepCount: 1,
@@ -195,10 +266,10 @@ describe('RerunPaginatorService replay fidelity (hog_flow)', () => {
             queueLogs: jest.fn(),
             flush: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<HogFunctionMonitoringService>
-        const paginator = buildPaginator(fakeClickhouse(rows), hogFlowQueue, monitoring)
+        const paginator = buildPaginator(fakeClickhouse(rows), hogFlowQueue, monitoring, hogFlowOverrides)
         await paginator.processPage(
             teamId,
-            { ...state, request: { ...state.request, replay_code_sends: allowed } },
+            { ...state, request: { ...state.request, ...requestFlags } },
             { jobId: 'rerun-3', createdAt: DateTime.now() }
         )
 
@@ -207,6 +278,87 @@ describe('RerunPaginatorService replay fidelity (hog_flow)', () => {
             .flatMap(([entries]) => entries)
             .filter((entry) => entry.instance_id === 'inv-3')
         expect(runLogs).toEqual(expectedLogs)
+    })
+
+    it.each([
+        [
+            'a categorized code send when replay_code_sends and replay_code_send_categories are both true',
+            { send: codeSend, messageCategory: marketingCategory },
+            { replay_code_sends: true, replay_code_send_categories: true },
+            {
+                actions: [
+                    {
+                        id: 'email_1',
+                        type: 'function_email',
+                        config: { message_category_type: 'transactional' },
+                    },
+                ],
+            },
+            marketingCategory,
+        ],
+        [
+            'an uncategorized code send on a plain transactional step when replay_code_send_categories is false',
+            { send: codeSend },
+            { replay_code_sends: true, replay_code_send_categories: false },
+            {
+                actions: [
+                    {
+                        id: 'email_1',
+                        type: 'function_email',
+                        config: { message_category_id: null, message_category_type: 'transactional' },
+                    },
+                ],
+            },
+            undefined,
+        ],
+        [
+            'a regular workflow marketing email when replay_code_send_categories is undefined',
+            {},
+            {},
+            {
+                actions: [
+                    {
+                        id: 'email_1',
+                        type: 'function_email',
+                        config: { message_category_id: marketingCategory.id, message_category_type: 'marketing' },
+                    },
+                ],
+            },
+            undefined,
+        ],
+    ] as const)('re-enqueues %s', async (_name, stored, requestFlags, hogFlowOverrides, expectedCategory) => {
+        const persistedState = {
+            event: { uuid: 'evt-4', distinct_id: 'd-4', properties: {}, timestamp: '2026-06-01T09:00:00Z' },
+            actionStepCount: 1,
+            variables: {},
+            ...stored,
+        }
+        const rows = [
+            {
+                invocation_id: 'inv-4',
+                parent_run_id: '',
+                attempts: 0,
+                last_scheduled_at: '2026-06-01 09:00:00.000000',
+                run_first_scheduled_at: '2026-06-01 09:00:00.000000',
+                invocation_globals: JSON.stringify(persistedState),
+            },
+        ]
+
+        const hogFlowQueue = {
+            queueInvocations: jest.fn().mockResolvedValue(undefined),
+        } as unknown as jest.Mocked<CyclotronJobQueuePostgresV2>
+        const paginator = buildPaginator(fakeClickhouse(rows), hogFlowQueue, undefined, hogFlowOverrides)
+        await paginator.processPage(
+            teamId,
+            { ...state, request: { ...state.request, ...requestFlags } },
+            { jobId: 'rerun-4', createdAt: DateTime.now() }
+        )
+
+        const enqueued = hogFlowQueue.queueInvocations.mock.calls.flatMap(
+            ([invocations]) => invocations
+        ) as CyclotronJobInvocationHogFlow[]
+        expect(enqueued).toHaveLength(1)
+        expect(enqueued[0].state?.messageCategory).toEqual(expectedCategory)
     })
 
     it('leaves currentAction undefined for a flow that never progressed (fresh start is correct there)', async () => {

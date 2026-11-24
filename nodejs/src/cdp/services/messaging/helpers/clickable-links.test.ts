@@ -93,6 +93,31 @@ describe('clickableHrefs', () => {
             ['https://example.com/bye'],
         ],
         [
+            'an SVG xlink:href anchor after closing an SVG title with an unclosed HTML formatting element above it',
+            '<svg><title><b>Title</title><a xlink:href="https://example.com/bye"><text>Unsubscribe</text></a></svg>',
+            ['https://example.com/bye'],
+        ],
+        [
+            'an SVG xlink:href anchor after closing an SVG desc with an unclosed HTML formatting element above it',
+            '<svg><desc><b>Desc</desc><a xlink:href="https://example.com/bye"><text>Unsubscribe</text></a></svg>',
+            ['https://example.com/bye'],
+        ],
+        [
+            'an xlink:href anchor after an HTML div stops closing an SVG title',
+            '<svg><title><div><b>Title</title><a xlink:href="https://example.com/bye"><text>Unsubscribe</text></a></svg>',
+            [],
+        ],
+        [
+            'an xlink:href anchor after an inner HTML title closes inside an SVG title',
+            '<svg><title><b><title>Inner</title><a xlink:href="https://example.com/bye"><text>Unsubscribe</text></a></svg>',
+            [],
+        ],
+        [
+            'an xlink:href anchor after closing an SVG foreignObject with an unclosed HTML formatting element above it',
+            '<svg><foreignObject><b>Text</foreignObject><a xlink:href="https://example.com/bye"><text>Unsubscribe</text></a></svg>',
+            [],
+        ],
+        [
             'an anchor inside a script in an SVG title',
             '<svg><title><script><a href="https://example.com/bye">Unsubscribe</a></script></title></svg>',
             [],
@@ -541,6 +566,10 @@ describe('clickableHrefs', () => {
             '</div>',
             '<span>',
             '</span>',
+            '<b>',
+            '</b>',
+            '<svg><desc>',
+            '</desc>',
             '<table>',
             '<table><tr><td>',
             '<table><caption>',
@@ -611,6 +640,21 @@ describe('clickableHrefs', () => {
             return seed % max
         }
         const mismatches: Array<{ html: string; actual: string[]; expected: string[] }> = []
+        const fixedInputs = [
+            '<svg><title><b>Title</title><a xlink:href="https://example.com/bye"><text>Unsubscribe</text></a></svg>',
+            '<svg><desc><b>Desc</desc><a xlink:href="https://example.com/bye"><text>Unsubscribe</text></a></svg>',
+            '<svg><title><div><b>Title</title><a xlink:href="https://example.com/bye"><text>Unsubscribe</text></a></svg>',
+            '<svg><title><b><title>Inner</title><a xlink:href="https://example.com/bye"><text>Unsubscribe</text></a></svg>',
+            '<svg><title><form><b></form>Title</title><a xlink:href="https://example.com/bye"><text>Unsubscribe</text></a></svg>',
+            '<svg><foreignObject><b>Text</foreignObject><a xlink:href="https://example.com/bye"><text>Unsubscribe</text></a></svg>',
+        ]
+        for (const html of fixedInputs) {
+            const actual = [...clickableHrefs(html)].sort()
+            const expected = [...parse5Hrefs(html)].sort()
+            if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+                mismatches.push({ html, actual, expected })
+            }
+        }
         for (let i = 0; i < 1_000; i++) {
             const length = 2 + nextInt(7)
             let html = ''

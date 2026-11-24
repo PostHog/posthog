@@ -90,7 +90,11 @@ export class RerunJobManager {
             function_kind: functionKind,
             function_id: functionId,
             paging: this.pagesByRunStart(teamId) ? 'run_start' : 'last_row',
-            request: { filter, replay_code_sends: request.replay_code_sends === true },
+            request: {
+                filter,
+                replay_code_sends: request.replay_code_sends === true,
+                replay_code_send_categories: request.replay_code_send_categories === true,
+            },
             progress: {
                 queued: 0,
                 skipped: 0,

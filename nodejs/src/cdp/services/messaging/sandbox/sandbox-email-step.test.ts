@@ -28,6 +28,7 @@ import { CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult } from '../
 import { HogInputsService } from '../../hog-inputs.service'
 import { HogFlowExecutorService } from '../../hogflows/hogflow-executor.service'
 import { TeamWorkflowsConfigService } from '../../managers/team-workflows-config.service'
+import { RateLimiterService } from '../../rate-limiter/rate-limiter.service'
 import { RecipientPreferencesService } from '../recipient-preferences.service'
 import { RecipientTokensService } from '../recipient-tokens.service'
 import { capturedAnalytics, capturedFor, sandboxEventsCapturedInMemory } from './_tests/captured-analytics'
@@ -973,6 +974,47 @@ describe('SandboxEmailSendStep', () => {
                     'test:drop-broken-preferences-schema'
                 )
             }
+        })
+        it('skips without delivery and refunds daily allowance when the recipient opts out during the daily cap claim', async () => {
+            const flow = buildCodeSendFlow()
+            const category = { id: '00000000-0000-0000-0000-000000000099', type: 'marketing' as const }
+            let optedOutDuringClaim = false
+            const capsLimiter = new RateLimiterService(
+                {
+                    ...world.valkey,
+                    useClient: async (options, callback) => {
+                        const result = await world.valkey.useClient(options, callback)
+                        if (!optedOutDuringClaim && options.name.includes('claimAllOrNothingAcross')) {
+                            optedOutDuringClaim = true
+                            await world.postgres.query(
+                                PostgresUse.COMMON_WRITE,
+                                `INSERT INTO posthog_messagerecipientpreference
+                                    (id, team_id, identifier, preferences, created_at, updated_at, deleted)
+                                 VALUES (gen_random_uuid(), $1, $2, $3, NOW(), NOW(), false)`,
+                                [world.team.id, member(), JSON.stringify({ [category.id]: 'OPTED_OUT' })],
+                                'test:sandbox-opt-out-during-cap-claim'
+                            )
+                        }
+                        return result
+                    },
+                },
+                { name: 'sandbox-opt-out-during-claim' }
+            )
+            const strictCaps = { team: 1, recipient: 1 }
+            const executor = buildExecutor(strictCaps, deliveredAddressReader(world.postgres), { capsLimiter })
+            const routed = await executor.execute(
+                codeSendInvocation({ flow, email: member(), category, content: marketingContent })
+            )
+            const segments = await runSandboxQueue(executor, routed.invocation)
+            const finished = await executor.execute(nextDequeue(segments.at(-1)!.invocation))
+
+            expect(optedOutDuringClaim).toBe(true)
+            expect(world.ses.delivered).toEqual([])
+            expect(finished.invocation.state.variables?.email_result).toEqual({
+                status: 'skipped',
+                reason: 'opted_out',
+            })
+            expect(await world.allowanceLeft(strictCaps, member())).toBe(true)
         })
     })
 })

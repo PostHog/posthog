@@ -706,7 +706,8 @@ export class RerunPaginatorService {
                         state.function_kind,
                         state.function_id,
                         row,
-                        state.request.replay_code_sends === true
+                        state.request.replay_code_sends === true,
+                        state.request.replay_code_send_categories === true
                     )
                     if (!invocation) {
                         counterRerunInvocationsSkipped.labels(state.function_kind, 'rehydrate_failed').inc()
@@ -748,7 +749,8 @@ export class RerunPaginatorService {
         functionKind: RerunFunctionKind,
         functionId: string,
         row: InvocationRow,
-        replayCodeSends: boolean
+        replayCodeSends: boolean,
+        replayCodeSendCategories: boolean
     ): Promise<CyclotronJobInvocation | null> {
         let parsedGlobals: unknown
         try {
@@ -863,6 +865,40 @@ export class RerunPaginatorService {
                     teamId,
                     invocation_id: row.invocation_id,
                 })
+                return null
+            }
+            const stepHasCategory =
+                Array.isArray(hogFlow.actions) &&
+                hogFlow.actions.some(
+                    (action) =>
+                        (action.type === 'function_email' || action.type === 'email_sandbox') &&
+                        (Boolean(action.config?.message_category_id) ||
+                            action.config?.message_category_type === 'marketing')
+                )
+            if (
+                !replayCodeSendCategories &&
+                (persistedState.messageCategory || (persistedState.send && stepHasCategory))
+            ) {
+                logger.warn('⚠️', 'Skipping rerun of a categorized email send while code send categories are off', {
+                    functionId,
+                    teamId,
+                    invocation_id: row.invocation_id,
+                })
+                this.monitoringService.queueLogs(
+                    [
+                        {
+                            team_id: teamId,
+                            log_source: 'hog_flow',
+                            log_source_id: functionId,
+                            instance_id: row.invocation_id,
+                            timestamp: DateTime.now(),
+                            level: 'warn',
+                            message:
+                                "Not re-run: this run's email uses a message category, which is currently disabled.",
+                        },
+                    ],
+                    'hog_flow'
+                )
                 return null
             }
             const eventForFilter = persistedState.event ?? {}
