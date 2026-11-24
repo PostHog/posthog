@@ -11,23 +11,14 @@ const HOUR_LABELS = ['12am', '6am', '12pm', '6pm']
 export function RushHourCard({ card }: { card: MCPWrappedRushHourCardApi }): JSX.Element {
     const multiple = peakMultiple(card.heat)
     return (
-        <WrappedCard
-            cardKey="rush_hour"
-            kicker={`Rush hour (${formatTimezone(card.timezone)})`}
-            hoggie={card.night_shift ? NIGHT_SHIFT_HOGGIE : undefined}
-        >
+        <WrappedCard cardKey="rush_hour" kicker="Rush hour" hoggie={card.night_shift ? NIGHT_SHIFT_HOGGIE : undefined}>
             <h2 className="MCPWrapped__rise m-0 text-4xl font-bold leading-tight">
                 {formatHour(card.weekday, card.hour)}
             </h2>
-            <p className="MCPWrapped__rise m-0 text-base font-bold">
-                {rushHourLine(card.weekday, card.hour, card.night_shift)}
+            <p className="MCPWrapped__rise m-0 text-base">
+                <strong className="block">{rushHourLine(card.weekday, card.hour, card.night_shift)}</strong>
+                {multiple && `That hour saw ${multiple} more calls than your average hour.`}
             </p>
-            {multiple && (
-                <div className="MCPWrapped__pop flex flex-wrap items-baseline gap-x-2">
-                    <span className="text-4xl font-bold leading-none tabular-nums">{multiple}</span>
-                    <span className="text-base">more calls than your average hour</span>
-                </div>
-            )}
             <div
                 className="MCPWrapped__rise grid mt-2 grid-cols-[1.5rem_repeat(24,minmax(0,1fr))] gap-0.5 text-xs"
                 aria-label="Calls by weekday and hour"
@@ -56,6 +47,7 @@ export function RushHourCard({ card }: { card: MCPWrappedRushHourCardApi }): JSX
                     </span>
                 ))}
             </div>
+            <p className="MCPWrapped__rise m-0 text-xs opacity-75">Times in {formatTimezone(card.timezone)}</p>
         </WrappedCard>
     )
 }

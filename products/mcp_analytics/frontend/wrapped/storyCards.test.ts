@@ -88,7 +88,7 @@ describe('storyCards', () => {
     it.each([
         ['an even week', Array(168).fill(100), null],
         ['a peak three times the average', [100, 0, 0], '3.0×'],
-        ['a peak far above the average', [100, ...Array(167).fill(1)], 'Over 10×'],
+        ['a peak far above the average', [100, ...Array(167).fill(1)], 'over 10×'],
         ['no calls', Array(168).fill(0), null],
     ])('gives the peak multiple for %s', (_, heat, expected) => {
         expect(peakMultiple(heat)).toBe(expected)

@@ -146,7 +146,7 @@ export function peakMultiple(heat: readonly number[]): string | null {
     if (multiple < 1.5) {
         return null
     }
-    return multiple >= 10 ? 'Over 10×' : `${multiple.toFixed(1)}×`
+    return multiple >= 10 ? 'over 10×' : `${multiple.toFixed(1)}×`
 }
 
 /** The tiles on the share card: only values from cards the project actually has, six at most. */
