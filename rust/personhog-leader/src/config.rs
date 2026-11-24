@@ -168,6 +168,10 @@ pub struct Config {
     #[envconfig(default = "5000")]
     pub cache_fill_chunk_offsets: i64,
 
+    /// Changelog offsets all of a pod's fills read per second, together.
+    #[envconfig(default = "10000")]
+    pub cache_fill_offsets_per_sec: u32,
+
     /// Per-message receive timeout while consuming the warming range. If
     /// hit, warming aborts with the offsets seen so far so the partition
     /// can be retried fresh.
@@ -344,6 +348,9 @@ pub struct Config {
     #[envconfig(default = "1")]
     pub fallback_pg_min_connections: u32,
 
+    #[envconfig(default = "0")]
+    pub fallback_pg_ping_idle_after_ms: u64,
+
     // ── etcd coordination ────────────────────────────────────────
     #[envconfig(default = "http://localhost:2379")]
     pub etcd_endpoints: String,
@@ -445,9 +452,41 @@ impl Config {
     pub fn cache_fill(&self) -> Option<crate::warming::FillConfig> {
         (self.cache_fill_lookback_secs > 0).then(|| crate::warming::FillConfig {
             lookback: Duration::from_secs(self.cache_fill_lookback_secs),
-            chunk_offsets: self.cache_fill_chunk_offsets.max(1),
+            chunk_offsets: self.cache_fill_chunk_offsets,
             room_fraction: crate::warming::FILL_ROOM_FRACTION,
         })
+    }
+
+    pub fn cache_fill_schedule(&self) -> crate::warming::FillSchedule {
+        crate::warming::FillSchedule {
+            offsets_per_sec: self.cache_fill_offsets_per_sec,
+            concurrency: self.warm_concurrency,
+        }
+    }
+
+    /// A fill paced to zero would never finish, and the pace counts in whole nanoseconds
+    /// per offset, so above a billion a second it would not pace at all. A chunk is one
+    /// turn on the pace, so keeping it to a second's worth bounds how long a turn holds
+    /// up the pod's other fills.
+    pub fn validate_cache_fill(&self) -> Result<(), String> {
+        if self.cache_fill_lookback_secs == 0 {
+            return Ok(());
+        }
+        let max = crate::warming::MAX_FILL_OFFSETS_PER_SEC;
+        if !(1..=max).contains(&self.cache_fill_offsets_per_sec) {
+            return Err(format!(
+                "CACHE_FILL_OFFSETS_PER_SEC must be from 1 to {max} while CACHE_FILL_LOOKBACK_SECS is above zero"
+            ));
+        }
+        if !(1..=i64::from(self.cache_fill_offsets_per_sec))
+            .contains(&self.cache_fill_chunk_offsets)
+        {
+            return Err(
+                "CACHE_FILL_CHUNK_OFFSETS must be from 1 to CACHE_FILL_OFFSETS_PER_SEC while CACHE_FILL_LOOKBACK_SECS is above zero"
+                    .to_string(),
+            );
+        }
+        Ok(())
     }
 
     /// The runway the keepalive reserves for the local fence: it
@@ -662,6 +701,11 @@ impl Config {
 
     pub fn global_shutdown_timeout(&self) -> Duration {
         Duration::from_secs(self.global_shutdown_timeout_secs)
+    }
+
+    pub fn fallback_pg_ping_idle_after(&self) -> Option<Duration> {
+        (self.fallback_pg_ping_idle_after_ms != 0)
+            .then(|| Duration::from_millis(self.fallback_pg_ping_idle_after_ms))
     }
 
     /// The coordination-relevant half of the pod's configuration, shared
@@ -1336,5 +1380,37 @@ mod fencing_timescale_tests {
             .validate_fencing_timescales()
             .expect_err("must reject");
         assert!(err.contains("librdkafka"), "got: {err}");
+    }
+}
+
+#[cfg(test)]
+mod cache_fill_tests {
+    use super::*;
+
+    #[test]
+    fn a_pace_or_chunk_outside_its_range_is_refused_only_while_fills_are_on() {
+        let max = crate::warming::MAX_FILL_OFFSETS_PER_SEC;
+        for (lookback_secs, offsets_per_sec, chunk_offsets, valid) in [
+            (3600, 0, 1, false),
+            (3600, 1, 1, true),
+            (3600, max, 5000, true),
+            (3600, max + 1, 5000, false),
+            (3600, 10_000, 10_000, true),
+            (3600, 10_000, 10_001, false),
+            (3600, 10_000, 0, false),
+            (0, 0, 0, true),
+        ] {
+            let mut config =
+                Config::init_from_hashmap(&std::collections::HashMap::new()).expect("defaults");
+            config.cache_fill_lookback_secs = lookback_secs;
+            config.cache_fill_offsets_per_sec = offsets_per_sec;
+            config.cache_fill_chunk_offsets = chunk_offsets;
+
+            assert_eq!(
+                config.validate_cache_fill().is_ok(),
+                valid,
+                "lookback {lookback_secs}, pace {offsets_per_sec}, chunk {chunk_offsets}"
+            );
+        }
     }
 }

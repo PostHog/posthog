@@ -39,7 +39,7 @@ const WIDE_ONLY_CELL = 'hidden @min-[40rem]/main-content:table-cell'
 const NARROW_ONLY = '@min-[40rem]/main-content:hidden'
 const EXTRA_WIDE_ONLY_CELL = 'hidden @min-[72rem]/main-content:table-cell'
 const BELOW_EXTRA_WIDE = '@min-[72rem]/main-content:hidden'
-const COLUMN_COUNT = 8
+const COLUMN_COUNT = 7
 
 const STATUS_BADGES: Record<
     RelationshipRow['rowStatus'],
@@ -73,10 +73,6 @@ function StatusBadges({ row }: { row: RelationshipRow }): JSX.Element {
     )
 }
 
-function confidenceLabel(confidence: number | null): string {
-    return confidence != null ? `${Math.round(confidence * 100)}%` : ''
-}
-
 function SourceCell({ row }: { row: RelationshipRow }): JSX.Element {
     return (
         <div className="flex min-w-0 flex-col gap-1">
@@ -92,11 +88,6 @@ function SourceCell({ row }: { row: RelationshipRow }): JSX.Element {
                 <StatusBadges row={row} />
             </div>
             <div className={cn(BELOW_EXTRA_WIDE, 'flex flex-col gap-0.5 empty:hidden')}>
-                {row.confidence != null && (
-                    <Text size="xs" variant="muted">
-                        {`${confidenceLabel(row.confidence)} confidence`}
-                    </Text>
-                )}
                 {row.reviewedBy && (
                     <Text size="xs" variant="muted">
                         {`Reviewed by ${row.reviewedBy}`}
@@ -191,9 +182,6 @@ function RelationshipRows({
                 <TableCell valign="top" className={WIDE_ONLY_CELL}>
                     <Text size="xs">{row.fieldName}</Text>
                 </TableCell>
-                <TableCell valign="top" className={cn(EXTRA_WIDE_ONLY_CELL, 'tabular-nums')}>
-                    <Text size="xs">{confidenceLabel(row.confidence)}</Text>
-                </TableCell>
                 <TableCell valign="top" className={WIDE_ONLY_CELL}>
                     <StatusBadges row={row} />
                 </TableCell>
@@ -268,11 +256,6 @@ export function CatalogRelationshipsTable(): JSX.Element {
                             tooltip="The field added to the source table to reach the joined rows, for example events.person"
                             className={WIDE_ONLY_CELL}
                             {...sortProps('accessor')}
-                        />
-                        <SortableTableHead
-                            label="Confidence"
-                            className={EXTRA_WIDE_ONLY_CELL}
-                            {...sortProps('confidence')}
                         />
                         <SortableTableHead label="Status" className={WIDE_ONLY_CELL} {...sortProps('status')} />
                         <SortableTableHead

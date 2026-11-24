@@ -1,93 +1,68 @@
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { Tooltip } from '@posthog/lemon-ui'
 
-import { captureInboxReportTagClicked, InboxReportTagSurface } from '../../inboxAnalytics'
-import { INBOX_TAG_FILTER_MAX, inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
+
+import { captureInboxReportTagClicked } from '../../inboxAnalytics'
+import { inboxFiltersLogic, inboxReportsUrlForTag } from '../../logics/inboxFiltersLogic'
 import { SignalReport } from '../../types'
+import { reportTagChipClassName } from './reportTagChipClassName'
 
 const VISIBLE_TAG_LIMIT = 3
 
 /**
- * A report's tags as chips. Each chip adds its tag to the Tags filter or removes it. Tags in the
- * filter are highlighted and lead the row, so the tag a report matched on is never in the overflow.
- * The `+n` chip shows the rest on hover and expands the row on a tap.
+ * A report's tags on the report page, styled like the tags on an inbox card. Each chip opens the
+ * Reports list filtered to its tag alone. Tags in the Tags filter are highlighted and lead the row.
+ * The `+n` chip shows the rest on hover and expands the row on a tap. List cards use the one-line
+ * `ReportCardTagChips` instead, where a chip toggles its tag in the filter.
  */
-export function ReportTagChips({
-    report,
-    surface,
-}: {
-    report: SignalReport
-    surface: InboxReportTagSurface
-}): JSX.Element | null {
-    const { tagFilter } = useValues(inboxFiltersLogic)
-    const { toggleTag } = useActions(inboxFiltersLogic)
+export function ReportTagChips({ report }: { report: SignalReport }): JSX.Element | null {
+    const { filterState } = useValues(inboxFiltersLogic)
+    const { setTagFilter } = useActions(inboxFiltersLogic)
     const [expanded, setExpanded] = useState(false)
     const tags = report.tags ?? []
     if (tags.length === 0) {
         return null
     }
 
-    const ordered = [
-        ...tags.filter((tag) => tagFilter.includes(tag)),
-        ...tags.filter((tag) => !tagFilter.includes(tag)),
-    ]
-    const visible = expanded ? ordered : ordered.slice(0, VISIBLE_TAG_LIMIT)
-    const hidden = ordered.slice(visible.length)
-    const filterFull = tagFilter.length >= INBOX_TAG_FILTER_MAX
-
-    const onToggle = (tag: string): void => {
-        const added = !tagFilter.includes(tag)
-        toggleTag(tag)
-        captureInboxReportTagClicked({
-            report,
-            surface,
-            added,
-            tagFilterCount: tagFilter.length + (added ? 1 : -1),
-        })
-    }
+    const isSelected = (tag: string): boolean => filterState.tagFilter.includes(tag)
+    const orderedTags = [...tags.filter(isSelected), ...tags.filter((tag) => !isSelected(tag))]
+    const visible = expanded ? orderedTags : orderedTags.slice(0, VISIBLE_TAG_LIMIT)
+    const hidden = orderedTags.slice(visible.length)
 
     return (
-        <div className="flex min-w-0 flex-wrap items-center gap-1" role="group" aria-label="Report tags">
-            {visible.map((tag) => {
-                const selected = tagFilter.includes(tag)
-                const disabled = !selected && filterFull
-                return (
-                    <button
-                        key={tag}
-                        type="button"
-                        aria-pressed={selected}
-                        disabled={disabled}
-                        title={
-                            disabled
-                                ? `You can filter by up to ${INBOX_TAG_FILTER_MAX} tags`
-                                : selected
-                                  ? `Stop filtering by ${tag}`
-                                  : `Show only reports tagged ${tag}`
-                        }
-                        onClick={() => onToggle(tag)}
-                        className="min-w-0 max-w-full rounded disabled:cursor-not-allowed enabled:cursor-pointer"
-                        data-attr="inbox-report-tag"
-                    >
-                        <LemonTag size="small" type={selected ? 'highlight' : 'muted'} className="max-w-full">
-                            <span className="truncate">{tag}</span>
-                        </LemonTag>
-                    </button>
-                )
-            })}
+        // The negative margin lines the first tag's text up with the title above it.
+        <div className="-mx-1 flex min-w-0 flex-wrap items-center gap-1" role="group" aria-label="Report tags">
+            {visible.map((tag) => (
+                <LinkPrimitive
+                    key={tag}
+                    to={inboxReportsUrlForTag(filterState, tag)}
+                    title={`Show reports tagged ${tag}`}
+                    onClick={() => {
+                        // Set the filter before the link navigates. The Reports URL then matches the stored
+                        // filters, so hydrating from it does not mark the scope and sort as chosen by the user.
+                        setTagFilter([tag])
+                        captureInboxReportTagClicked({ report, surface: 'detail', added: true, tagFilterCount: 1 })
+                    }}
+                    className={reportTagChipClassName(isSelected(tag))}
+                    data-attr="inbox-report-tag"
+                >
+                    <span className="truncate">{`#${tag}`}</span>
+                </LinkPrimitive>
+            ))}
             {hidden.length > 0 && (
                 <Tooltip title={hidden.join(', ')}>
                     <button
                         type="button"
                         aria-label={`Show ${hidden.length} more tags`}
                         onClick={() => setExpanded(true)}
-                        className="rounded cursor-pointer"
+                        className={clsx(reportTagChipClassName(false), 'shrink-0 cursor-pointer')}
                         data-attr="inbox-report-tag-overflow"
                     >
-                        <LemonTag size="small" type="muted">
-                            +{hidden.length}
-                        </LemonTag>
+                        {`+${hidden.length}`}
                     </button>
                 </Tooltip>
             )}

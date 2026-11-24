@@ -125,11 +125,13 @@ describe('recommendations', () => {
                 recommendation({ key: '111' }),
                 recommendation({ key: '222', resolution: DISMISSED }),
                 recommendation({ key: '333', resolution: DISMISSED }),
+                recommendation({ key: '444', resolution: DISMISSED, detectedChange: 'negative_keyword' }),
             ]
 
             const shown = withResolutionOverrides(rows, {
                 '111': { ...DISMISSED, resolution: 'applied' },
                 '222': null,
+                '444': null,
             })
 
             expect(unresolved(shown).map((row) => row.key)).toEqual(['222'])

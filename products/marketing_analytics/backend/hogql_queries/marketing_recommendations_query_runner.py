@@ -19,6 +19,8 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.database.models import DatabaseField
+from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import create_default_modifiers_for_team, execute_hogql_query
 
@@ -28,13 +30,16 @@ from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMo
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import User
 
+from products.marketing_analytics.backend.hogql_queries.access_control import MarketingAnalyticsAccessMixin
 from products.marketing_analytics.backend.hogql_queries.marketing_recommendations import (
     DISAPPROVED,
     LIMITED_APPROVALS,
     RECOMMENDATION_SOURCE_TYPES,
     Ad,
     CampaignStats,
+    ExcludedSearch,
     FlaggedAd,
+    Keyword,
     KeywordTracking,
     OrganicQueryStats,
     PolicyAds,
@@ -86,7 +91,7 @@ PERFORMANCE_MAX_GAP = (
 
 
 class MarketingAnalyticsRecommendationsQueryRunner(
-    AnalyticsQueryRunner[MarketingAnalyticsRecommendationsQueryResponse]
+    MarketingAnalyticsAccessMixin, AnalyticsQueryRunner[MarketingAnalyticsRecommendationsQueryResponse]
 ):
     query: MarketingAnalyticsRecommendationsQuery
     response: MarketingAnalyticsRecommendationsQueryResponse
@@ -113,8 +118,54 @@ class MarketingAnalyticsRecommendationsQueryRunner(
             database=self.hogql_database,
         )
 
-    def to_query(self) -> ast.SelectQuery:
-        return ast.SelectQuery(select=[ast.Constant(value=1)])
+    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        # The runner never executes this query. Save-time access checks, such as publishing a shared link, compile
+        # it as the saving user, so it has to name every table a run reads.
+        tables = {
+            table
+            for source in self.sources
+            for field, table in source
+            if field.endswith("Table")
+            and isinstance(table, str)
+            and (self.hogql_database.has_table(table) or self.hogql_database.is_table_access_denied(table))
+        }
+        if not tables:
+            return ast.SelectQuery(select=[ast.Constant(value=1)])
+        return ast.SelectSetQuery.create_from_queries(
+            [self._access_probe(table) for table in sorted(tables)], "UNION ALL"
+        )
+
+    def _access_probe(self, table: str) -> ast.SelectQuery:
+        chain = list[str | int](table.split("."))
+        # A saved expression can add a warehouse field that reads another table, and only a selected field gets
+        # expanded, so the probe selects every scalar field of a warehouse table: the fields a run reads are among
+        # them. Other tables and table-valued fields stay out, because one that fails to compile would skip the check.
+        hogql_table = (
+            None if self.hogql_database.is_table_access_denied(table) else self.hogql_database.get_table(table)
+        )
+        fields = (
+            [name for name, field in hogql_table.fields.items() if isinstance(field, DatabaseField)]
+            if isinstance(hogql_table, S3Table)
+            else []
+        )
+        # Every query in a UNION returns the same columns, so each table's fields go into one array.
+        select: ast.Expr = (
+            ast.Call(
+                name="array",
+                args=[ast.Call(name="toString", args=[ast.Field(chain=[*chain, name])]) for name in fields],
+            )
+            if fields
+            else ast.Constant(value=1)
+        )
+        return ast.SelectQuery(
+            select=[select], select_from=ast.JoinExpr(table=ast.Field(chain=chain)), limit=ast.Constant(value=0)
+        )
+
+    @cached_property
+    def sources(self) -> list[MarketingAnalyticsRecommendationsSource]:
+        if self.query.sources is None:
+            return self._project_sources()
+        return list({source.model_dump_json(): source for source in self.query.sources}.values())
 
     def get_cache_payload(self) -> dict:
         payload = super().get_cache_payload()
@@ -160,7 +211,7 @@ class MarketingAnalyticsRecommendationsQueryRunner(
         )
 
     def _calculate(self) -> MarketingAnalyticsRecommendationsQueryResponse:
-        sources = self.query.sources if self.query.sources is not None else self._project_sources()
+        sources = self.sources
         if not sources:
             return MarketingAnalyticsRecommendationsQueryResponse(results=[], disclaimer=DISCLAIMER, dataGaps=[])
         ads = [source for source in sources if source.sourceType == "GoogleAds"]
@@ -196,6 +247,8 @@ class MarketingAnalyticsRecommendationsQueryRunner(
                         ranking_pages=ranking_pages,
                         keyword_tracking=self._keyword_tracking(source),
                         ads=tuple(self._ads(source)),
+                        keywords=tuple(self._keywords(source, organic_queries)),
+                        excluded_searches=self._excluded_searches(source),
                         policy_ads=tuple(self._policy_ads(source)),
                         flagged_ads=tuple(self._flagged_ads(source)),
                         customer_id=self._customer_id(source),
@@ -341,14 +394,21 @@ class MarketingAnalyticsRecommendationsQueryRunner(
     def _google_ads_sessions(self) -> GoogleAdsSessions:
         # gclid is the one parameter every auto-tagged Google Ads click carries, so it finds paid sessions without
         # relying on the UTMs this rule checks. It cannot tell ad accounts apart, so every account shares the count.
+        #
+        # Counted from events because the sessions table aggregates every session in the range before it can
+        # filter on gclid, so its memory grows with all traffic instead of with paid traffic. Every event type
+        # counts: a session often carries its gclid on events other than the pageview.
         rows = self._select(
             """
-            SELECT count(), countIf(notEmpty(coalesce($entry_utm_term, '')))
+            SELECT
+                uniqExact($session_id),
+                uniqExactIf($session_id, notEmpty(coalesce(toString(properties.utm_term), '')))
             FROM {table}
-            WHERE $start_timestamp >= {date_from} AND $start_timestamp <= {date_to}
-                AND notEmpty(coalesce($entry_gclid, ''))
+            WHERE timestamp >= {date_from} AND timestamp <= {date_to}
+                AND notEmpty(coalesce(toString(properties.gclid), ''))
+                AND notEmpty($session_id)
             """,
-            "sessions",
+            "events",
         )
         if not rows:
             return GoogleAdsSessions(total=0, with_keyword=0)
@@ -533,10 +593,12 @@ class MarketingAnalyticsRecommendationsQueryRunner(
             )
             # Performance Max search terms have no ad groups.
             ad_groups = "groupUniqArray(toString(ad_group_id))" if self._has_field(table, "ad_group_id") else "NULL"
+            # Days synced before a search became a negative or a keyword keep their old status, so the latest day decides.
+            # On that day an ad group that still serves the search outranks one that excludes it.
             rows = self._select(
                 f"""
                 SELECT lower(trim({{term}})) AS term, toString(campaign_id), sum(metrics_clicks), sum(metrics_impressions),
-                    sum(toFloat(metrics_cost_micros)) / 1000000, {conversions}, any(toString({{status}})),
+                    sum(toFloat(metrics_cost_micros)) / 1000000, {conversions}, argMax(toString({{status}}), tuple(segments_date, toString({{status}}) NOT LIKE '%EXCLUDED%')),
                     sumIf(toFloat({{absolute_top}}) * metrics_impressions, {{absolute_top}} IS NOT NULL)
                         / nullIf(sumIf(metrics_impressions, {{absolute_top}} IS NOT NULL), 0),
                     {ad_groups}
@@ -582,22 +644,85 @@ class MarketingAnalyticsRecommendationsQueryRunner(
             return []
         rows = self._select(
             f"""
-            SELECT lower(trim(search_term_view_search_term)) AS term, segments_keyword_info_text,
+            SELECT lower(trim(search_term_view_search_term)) AS term, toString(campaign_id), segments_keyword_info_text,
                 toString(segments_keyword_info_match_type), sum(toFloat(metrics_cost_micros)) / 1000000 AS cost
             FROM {{table}}
             WHERE toDate(segments_date) >= toDate({{date_from}}) AND toDate(segments_date) <= toDate({{date_to}})
                 AND notEmpty(term)
-            GROUP BY term, segments_keyword_info_text, segments_keyword_info_match_type
+            GROUP BY term, campaign_id, segments_keyword_info_text, segments_keyword_info_match_type
             ORDER BY cost DESC
             LIMIT {ROW_LIMIT}
             """,
             source.searchTermKeywordTable,
         )
         return [
-            TermKeywordStats(term=row[0], keyword=row[1] or "", match_type=row[2] or "", cost=float(row[3] or 0))
+            TermKeywordStats(
+                term=row[0], campaign_id=row[1], keyword=row[2] or "", match_type=row[3] or "", cost=float(row[4] or 0)
+            )
             for row in rows
-            if row[1]
+            if row[2]
         ]
+
+    def _keywords(
+        self, source: MarketingAnalyticsRecommendationsSource, organic_queries: tuple[OrganicQueryStats, ...]
+    ) -> list[Keyword]:
+        # Only organic queries can become a keyword gap, so the account's other keywords are not read.
+        if (
+            not organic_queries
+            or not source.keywordTable
+            or not self._readable(source.keywordTable)
+            or not source.campaignTable
+            or not self._readable(source.campaignTable)
+        ):
+            return []
+        rows = self._select(
+            """
+            SELECT DISTINCT lower(trim(keyword.ad_group_criterion_keyword_text)) AS text, toString(keyword.campaign_id),
+                campaign.channel_type, campaign.status
+            FROM {table} AS keyword
+            INNER JOIN (
+                SELECT toString(campaign_id) AS id, any(campaign_advertising_channel_type) AS channel_type,
+                    any(coalesce(nullIf(toString({primary_status}), ''), toString({serving_status}))) AS status
+                FROM {campaigns}
+                GROUP BY campaign_id
+            ) AS campaign ON campaign.id = toString(keyword.campaign_id)
+            WHERE toString(keyword.ad_group_criterion_status) = 'ENABLED' AND text IN {queries}
+            """,
+            source.keywordTable,
+            campaigns=ast.Field(chain=list[str | int](source.campaignTable.split("."))),
+            primary_status=self._field(source.campaignTable, "campaign_primary_status"),
+            serving_status=self._field(source.campaignTable, "campaign_status"),
+            queries=ast.Tuple(
+                exprs=[ast.Constant(value=query) for query in sorted({q.query for q in organic_queries})]
+            ),
+        )
+        return [
+            Keyword(text=row[0], campaign_id=row[1], channel_type=row[2] or None, campaign_status=row[3] or None)
+            for row in rows
+        ]
+
+    def _excluded_searches(self, source: MarketingAnalyticsRecommendationsSource) -> frozenset[ExcludedSearch]:
+        table = source.searchTermTable
+        if not table or not self._readable(table) or not self._has_field(table, "search_term_view_status"):
+            return frozenset()
+        # Read up to today, so a negative added after the selected dates still counts. An excluded search stops getting
+        # rows, so the latest day decides, and on that day an ad group that still serves the search outranks one that
+        # excludes it.
+        rows = self._select(
+            f"""
+            SELECT lower(trim(search_term_view_search_term)) AS term, toString(campaign_id) AS campaign
+            FROM {{table}}
+            WHERE toDate(segments_date) >= toDate({{date_from}}) AND notEmpty(term)
+            GROUP BY term, campaign
+            HAVING argMax(
+                toString(search_term_view_status),
+                tuple(segments_date, toString(search_term_view_status) NOT LIKE '%EXCLUDED%')
+            ) LIKE '%EXCLUDED%'
+            LIMIT {ROW_LIMIT}
+            """,
+            table,
+        )
+        return frozenset(ExcludedSearch(term=row[0], campaign_id=row[1]) for row in rows)
 
     def _ads(self, source: MarketingAnalyticsRecommendationsSource) -> list[Ad]:
         if not source.adTable or not self._readable(source.adTable):
@@ -768,6 +893,7 @@ def _recommendation_source(source_type: str, tables: dict[str, str]) -> Marketin
             searchTermTable=tables.get("search_term_stats"),
             searchTermKeywordTable=tables.get("search_term_keyword_stats"),
             adTable=tables.get("ad"),
+            keywordTable=tables.get("keyword"),
             performanceMaxSearchTermTable=tables.get("performance_max_search_term_stats"),
             campaignConversionActionTable=tables.get("campaign_conversion_action_stats"),
             searchTermConversionActionTable=tables.get("search_term_conversion_action_stats"),
@@ -794,24 +920,28 @@ def _json_messages(value: str | None) -> list[dict[str, Any]]:
 
 
 def _asset_texts(value: str | None) -> tuple[str, ...]:
-    return tuple(text for asset in _json_messages(value) if (text := asset.get("text")))
+    return tuple(text for asset in _json_messages(value) if isinstance(text := asset.get("text"), str) and text)
+
+
+def _items(value: object) -> list[object]:
+    return value if isinstance(value, list) else []
 
 
 def _policy_topics(value: str | None) -> tuple[PolicyTopic, ...]:
     return tuple(
         PolicyTopic(
             topic=entry["topic"],
-            type=entry.get("type") or "",
+            type=str(entry.get("type") or ""),
             texts=tuple(
                 text
-                for evidence in entry.get("evidences") or []
-                if isinstance(evidence, dict)
-                for text in (evidence.get("textList") or {}).get("texts") or []
-                if text
+                for evidence in _items(entry.get("evidences"))
+                if isinstance(evidence, dict) and isinstance(text_list := evidence.get("textList"), dict)
+                for text in _items(text_list.get("texts"))
+                if isinstance(text, str) and text
             ),
         )
         for entry in _json_messages(value)
-        if entry.get("topic")
+        if isinstance(entry.get("topic"), str) and entry["topic"]
     )
 
 

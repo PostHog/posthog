@@ -16,7 +16,13 @@ from products.warehouse_sources.sources.hubspot.scopes import (
     missing_scope_message,
     scope_gated_object_for_url,
 )
-from products.warehouse_sources.sources.hubspot.settings import CONVERSATIONS_SCOPE, LEADS_SCOPE
+from products.warehouse_sources.sources.hubspot.settings import (
+    CONVERSATIONS_SCOPE,
+    LEADS_SCOPE,
+    MARKETING_CAMPAIGNS_SCOPE,
+    TEAMS_SCOPE,
+    USERS_SCOPE,
+)
 from products.warehouse_sources.sources.hubspot.source import HubspotSource
 from products.warehouse_sources.sources.hubspot.test.test_source_routing import _make_inputs
 from products.warehouse_sources.sources.sdk import NonReportableError
@@ -60,6 +66,8 @@ class TestMissingScopeForEndpoint:
 
 
 _GATED_LEADS = ScopeGatedObject(endpoint="leads", scope=LEADS_SCOPE)
+_GATED_USERS = ScopeGatedObject(endpoint="users", scope=USERS_SCOPE)
+_GATED_TEAMS = ScopeGatedObject(endpoint="teams", scope=TEAMS_SCOPE)
 
 
 class TestScopeGatedObjectForUrl:
@@ -72,6 +80,11 @@ class TestScopeGatedObjectForUrl:
             ("other_object", "https://api.hubapi.com/crm/v3/properties/deals", None),
             # "leads" only counts as a whole path segment, not as part of another object's name.
             ("substring_only", "https://api.hubapi.com/crm/v3/objects/leadsources", None),
+            ("users_object", "https://api.hubapi.com/crm/objects/2026-09/users", _GATED_USERS),
+            ("users_properties", "https://api.hubapi.com/crm/properties/2026-09/users", _GATED_USERS),
+            # The teams route sits under /settings/users/, so the deepest segment must win.
+            ("teams_under_users", "https://api.hubapi.com/settings/users/2026-03/teams", _GATED_TEAMS),
+            ("teams_under_users_v3", "https://api.hubapi.com/settings/v3/users/teams", _GATED_TEAMS),
         ]
     )
     def test_url_attribution(self, _name: str, url: str, expected: ScopeGatedObject | None) -> None:
@@ -137,6 +150,9 @@ class TestScopeGatingInSource:
         [
             ("crm_object", "leads", LEADS_SCOPE),
             ("non_crm_table", "conversation_threads", CONVERSATIONS_SCOPE),
+            ("users", "users", USERS_SCOPE),
+            ("teams", "teams", TEAMS_SCOPE),
+            ("marketing_campaigns", "marketing_campaigns", MARKETING_CAMPAIGNS_SCOPE),
         ]
     )
     def test_sync_fails_with_an_actionable_error_when_the_scope_is_missing(

@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Any, Optional
 from django.contrib.auth.base_user import AbstractBaseUser
 from django.contrib.postgres.aggregates import ArrayAgg
 from django.core.exceptions import ValidationError
-from django.db import DatabaseError, models
+from django.db import DatabaseError, models, router
 from django.db.models import Func, IntegerField, Q, QuerySet
 from django.db.models.fields.json import KeyTransform
 from django.http import HttpRequest
@@ -24,6 +24,7 @@ from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
 from products.experiments.backend.facade.feature_flags import flag_ids_with_live_experiment
 from products.feature_flags.backend.facade.config import ConfigFormatError, ConfigV1, decode_config, require_v1_config
 from products.feature_flags.backend.facade.references import InvalidIds, references
+from products.feature_flags.backend.reserved_variant_keys import non_string_variants, unheld_non_string_variant
 from products.feature_flags.backend.variant_rollout import format_variant_rollout_sum, variant_rollout_sum_is_100
 
 if TYPE_CHECKING:
@@ -267,6 +268,17 @@ class FeatureFlag(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMix
     def __str__(self):
         return f"{self.key} ({self.pk})"
 
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        # Management commands, seeders and project copies write through the ORM and skip FeatureFlagSerializer.
+        # bulk_create, QuerySet.update and migrations do not call save(), so they skip this check.
+        update_fields = kwargs.get("update_fields")
+        if update_fields is not None:
+            # A caller may pass an iterator, which the membership test below would exhaust before Django reads it.
+            update_fields = kwargs["update_fields"] = list(update_fields)
+        if update_fields is None or "filters" in update_fields:
+            self._require_string_variant_keys()
+        super().save(*args, **kwargs)
+
     def _tombstone_suffix(self) -> str:
         # Soft-deleting a flag that's still referenced (e.g. by a stopped experiment)
         # renames its key to free the original for reuse. This is the single source of
@@ -289,15 +301,35 @@ class FeatureFlag(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMix
         return self.key
 
     def clean(self) -> None:
-        """Reject encrypted payloads on non-remote-config flags.
+        """Reject encrypted payloads on non-remote-config flags, and variants without a string key.
 
         Django does not invoke clean() from save(), so this fires only from
         admin and explicit full_clean() callers. The HTTP path is gated by
         FeatureFlagSerializer._validate_encrypted_payloads_require_remote_config.
+        save() also refuses a variant without a string key that the stored row does not hold. The check here lets
+        the admin show it as a form error.
         """
         super().clean()
         if self.has_encrypted_payloads and not self.is_remote_configuration:
             raise ValidationError("Encrypted payloads require the flag to be a remote configuration.")
+        self._require_string_variant_keys()
+
+    def _require_string_variant_keys(self) -> None:
+        if not non_string_variants(self.filters):
+            return
+        stored = None
+        if self.pk is not None:
+            # A variant that the stored row already holds passes. A row that holds one therefore stays editable and
+            # deletable.
+            stored = (
+                FeatureFlag.objects_including_soft_deleted.using(router.db_for_write(FeatureFlag, instance=self))
+                .filter(pk=self.pk)
+                .values_list("filters", flat=True)
+                .first()
+            )
+        path = unheld_non_string_variant(self.filters, held=stored)
+        if path is not None:
+            raise ValidationError({"filters": f"{path} must be a string."})
 
     @classmethod
     def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet["FeatureFlag"]:

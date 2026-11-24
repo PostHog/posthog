@@ -575,6 +575,34 @@ class TestExternalDataDestinationAPI(DestinationAPITestBase):
 
     @parameterized.expand(
         [
+            ("date_folders", "exports/{year}/{month}/{day}/{table}/", status.HTTP_201_CREATED),
+            ("unknown_variable", "{year}/{foo}/", status.HTTP_400_BAD_REQUEST),
+            ("format_spec", "{year:>2000000000}", status.HTTP_400_BAD_REQUEST),
+            ("empty_braces", "a{}b", status.HTTP_400_BAD_REQUEST),
+            ("attribute", "{table.foo}", status.HTTP_400_BAD_REQUEST),
+            ("escaped_brace", "{{table}}", status.HTTP_400_BAD_REQUEST),
+            ("too_long", "{table}" * 147, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_a_prefix_may_only_use_the_documented_variables(self, _name: str, prefix: str, expected: int) -> None:
+        response = self.client.post(
+            self.base,
+            {
+                "type": ExternalDataDestination.Type.S3,
+                "name": "dated s3",
+                "integration": self._integration(Integration.IntegrationKind.AWS_S3).pk,
+                "config": {"bucket": "my-bucket", "region": "us-east-1", "prefix": prefix},
+            },
+            format="json",
+        )
+
+        assert response.status_code == expected, response.json()
+        if expected == status.HTTP_400_BAD_REQUEST:
+            assert response.json()["attr"] == "config"
+            assert "prefix" in response.json()["detail"]
+
+    @parameterized.expand(
+        [
             ("list_on_create", "create", ["invalid"]),
             ("text_on_create", "create", "invalid"),
             ("number_on_create", "create", 5439),

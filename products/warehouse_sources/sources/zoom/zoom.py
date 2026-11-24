@@ -1,4 +1,5 @@
 import dataclasses
+from collections import defaultdict
 from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional, cast
@@ -41,28 +42,31 @@ _REPORT_FULL_MONTHS = 5
 _REPORT_TYPES = ("active", "inactive")
 # Lower bound for a user whose row carries no `created_at`: Zoom opened to the public in January 2013.
 _EARLIEST_RECORDING_DATE = date(2013, 1, 1)
+# AI Companion meeting summaries launched in 2023, so no summary predates this.
+_EARLIEST_SUMMARY_DATE = date(2023, 1, 1)
 
 # A parent this endpoint can't serve (a user without the relevant license or plan, a meeting that
 # never took place) returns 400/404; skip that parent without aborting the whole sync (an empty page
-# that stops this parent's pagination). Any other non-2xx still raises. Code 300 is an invalid or
-# expired `next_page_token`: ignoring it would silently drop the rest of that parent's pages, so fail
-# the request instead and let the run retry.
-_PER_PARENT_RESPONSE_ACTIONS: list[ResponseAction] = [
-    {
-        "status_code": 400,
-        "json_field": "code",
-        "json_values": [300],
-        "action": "retry",
-        "message": "Zoom next_page_token is invalid or expired",
-    },
+# that stops this parent's pagination). Any other non-2xx still raises.
+_SKIP_UNREADABLE_PARENT_ACTIONS: list[ResponseAction] = [
     {"status_code": 400, "action": "ignore"},
     {"status_code": 404, "action": "ignore"},
 ]
+# On a paginated request, code 300 is an invalid or expired `next_page_token`: ignoring it would
+# silently drop the rest of that parent's pages, so fail the request instead and let the run retry.
+# A single-page request sends no token, and there code 300 means an invalid parent ID.
+_EXPIRED_PAGE_TOKEN_ACTION: ResponseAction = {
+    "status_code": 400,
+    "json_field": "code",
+    "json_values": [300],
+    "action": "retry",
+    "message": "Zoom next_page_token is invalid or expired",
+}
 
 # Zoom documents only 404 for a user without recordings (codes 1001 and 3301). Any 400, such as a
 # missing scope, must fail the sync instead of returning an empty table.
 _RECORDING_RESPONSE_ACTIONS: list[ResponseAction] = [
-    _PER_PARENT_RESPONSE_ACTIONS[0],
+    _EXPIRED_PAGE_TOKEN_ACTION,
     {"status_code": 404, "action": "ignore"},
 ]
 # The users list defaults to active users, but deactivated users keep their cloud recordings.
@@ -167,14 +171,20 @@ def _row_map(config: ZoomEndpointConfig) -> Optional[Callable[[dict[str, Any]], 
         if parent is not None
         else {}
     )
-    if not renames and not config.adds_uuid_path:
+    if not renames and not config.adds_uuid_path and config.row_index_column is None:
         return None
+
+    rows_per_parent: defaultdict[tuple[Any, ...], int] = defaultdict(int)
 
     def row_map(row: dict[str, Any]) -> dict[str, Any]:
         for parent_key, column in renames.items():
             row[column] = row.pop(parent_key, None)
         if config.adds_uuid_path and row.get("uuid"):
             row["_uuid_path"] = _encode_uuid(row["uuid"])
+        if config.row_index_column is not None:
+            parent_values = tuple(row.get(column) for column in config.parent_columns.values())
+            row[config.row_index_column] = rows_per_parent[parent_values]
+            rows_per_parent[parent_values] += 1
         return row
 
     return row_map
@@ -199,7 +209,8 @@ def _resource_config(config: ZoomEndpointConfig) -> EndpointResource:
     if config.parent is not None:
         params[config.parent_param] = {"type": "resolve", "resource": config.parent, "field": config.parent_field}
         resource["include_from_parent"] = list(config.parent_columns)
-        endpoint["response_actions"] = list(_PER_PARENT_RESPONSE_ACTIONS)
+        token_actions = [_EXPIRED_PAGE_TOKEN_ACTION] if config.paginated else []
+        endpoint["response_actions"] = [*token_actions, *_SKIP_UNREADABLE_PARENT_ACTIONS]
     row_map = _row_map(config)
     if row_map is not None:
         resource["data_map"] = row_map
@@ -315,17 +326,19 @@ def _pages(
         reach_safe_point()
 
 
-def _report_users_rows(
-    client: RESTClient, config: ZoomEndpointConfig, today: date, last_value: Any
-) -> Iterator[list[dict[str, Any]]]:
+def _report_start(today: date, last_value: Any) -> date:
     earliest = _month_start(today)
     for _ in range(_REPORT_FULL_MONTHS):
         earliest = _month_start(earliest - timedelta(days=1))
-    # The cursor is the start of the newest month read, which may have been partial; read it again.
+    # The cursor's month may have been partial when it was read, so read it again.
     cursor = _as_date(last_value)
-    start = max(earliest, _month_start(cursor)) if cursor else earliest
+    return max(earliest, _month_start(cursor)) if cursor else earliest
 
-    for window in month_windows(start, today):
+
+def _report_users_rows(
+    client: RESTClient, config: ZoomEndpointConfig, today: date, last_value: Any
+) -> Iterator[list[dict[str, Any]]]:
+    for window in month_windows(_report_start(today, last_value), today):
         for report_type in _REPORT_TYPES:
             params = {
                 "type": report_type,
@@ -343,6 +356,30 @@ def _report_users_rows(
                     }
                     for row in page
                 ]
+
+
+def _report_daily_rows(
+    client: RESTClient, config: ZoomEndpointConfig, today: date, last_value: Any
+) -> Iterator[list[dict[str, Any]]]:
+    for window in month_windows(_report_start(today, last_value), today):
+        params = {"year": window.start.year, "month": window.start.month}
+        yield from _pages(client, config.path, params, config.data_key)
+
+
+def _meeting_summaries_rows(
+    client: RESTClient, config: ZoomEndpointConfig, today: date, last_value: Any
+) -> Iterator[list[dict[str, Any]]]:
+    # Zoom documents no default or maximum range for this list, so it is read in explicit month windows.
+    cursor = _as_date(last_value)
+    start = max(_EARLIEST_SUMMARY_DATE, cursor) if cursor else _EARLIEST_SUMMARY_DATE
+    for window in month_windows(start, today):
+        params = {
+            "from": f"{window.start.isoformat()}T00:00:00Z",
+            "to": f"{window.end.isoformat()}T23:59:59Z",
+            "time_filter_field": "summary_created_time",
+            "page_size": config.page_size,
+        }
+        yield from _pages(client, config.path, params, config.data_key)
 
 
 def _recordings_rows(
@@ -385,6 +422,8 @@ _WINDOWED_ITERATORS: dict[
 ] = {
     "report_users": _report_users_rows,
     "recordings": _recordings_rows,
+    "report_daily": _report_daily_rows,
+    "meeting_summaries": _meeting_summaries_rows,
 }
 
 

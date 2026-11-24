@@ -2008,7 +2008,7 @@ export const GroupsTypesMetricsPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Replace the requesting user's ordered account sidebar properties when pinned_properties is provided, and change the task digest email preferences when task_digest is provided. Anything omitted keeps its current value. At most 50 account custom properties, relationships, and account fields can be pinned.
+ * Replace the requesting user's ordered account sidebar properties when pinned_properties is provided, or follow a project or role default when followed_default is provided, and change the task digest email preferences when task_digest is provided. Anything omitted keeps its current value. At most 50 account custom properties, relationships, and account fields can be pinned.
  * @summary Update account sidebar configuration
  */
 export const userCustomerAnalyticsConfigPartialUpdateBodyPinnedPropertiesItemIdMax = 64
@@ -2036,6 +2036,20 @@ export const UserCustomerAnalyticsConfigPartialUpdateBody = /* @__PURE__ */ zod.
         .optional()
         .describe(
             'Complete ordered list of account properties to pin. Omit to keep the current pins; pass an empty list to clear them.'
+        ),
+    followed_default: zod
+        .object({
+            kind: zod
+                .enum(['project', 'role'])
+                .describe('\* `project` - Project\n\* `role` - Role')
+                .describe(
+                    "Follow the project default or the default of one of the requesting user's roles.\n\n\* `project` - Project\n\* `role` - Role"
+                ),
+            role_id: zod.uuid().nullish().describe('Role whose default to follow. Required when kind is role.'),
+        })
+        .optional()
+        .describe(
+            'Show a default set of pinned properties and keep it in sync with later changes to that default. Replaces any personal pins. Cannot be combined with pinned_properties.'
         ),
     task_digest: zod
         .object({

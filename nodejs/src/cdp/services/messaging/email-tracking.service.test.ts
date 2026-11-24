@@ -30,6 +30,8 @@ import {
     KAFKA_EMAIL_STATUS,
     KAFKA_LOG_ENTRIES,
 } from '~/common/config/kafka-topics'
+import { StallingValkeyProxy } from '~/common/redis/_tests/stalling-valkey-proxy'
+import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import * as envUtils from '~/common/utils/env-utils'
@@ -165,12 +167,9 @@ describe('EmailTrackingService', () => {
             expect(out).not.toContain('target=')
         })
 
-        const sensitiveInvocation = { ...invocation, hogFunction: { metadata: { sensitive: true } } }
-
         it.each([
             ['clicktracking="off"', '<body><a href="https://example.com" clicktracking="off">x</a></body>', invocation],
             ['data-ph-no-track', '<body><a href="https://example.com" data-ph-no-track>x</a></body>', invocation],
-            ['a sensitive template', '<body><a href="https://example.com">x</a></body>', sensitiveInvocation],
             [
                 'clicktracking="off" after a quoted >',
                 '<body><a href="https://example.com" title="1 > 0" clicktracking="off">x</a></body>',
@@ -293,8 +292,7 @@ describe('EmailTrackingService', () => {
                     '<abbr href="https://example.com/a">a</abbr><a href="https://example.com/b" ses:tags="phl:0">b</a>',
                 ],
             ])('tags the anchors in %s', (_name, body, tagged) => {
-                const out = sesTrack(`<body>${body}</body>`)
-                expect(out.slice(0, out.indexOf('<img src="'))).toBe(`<body>${tagged}`)
+                expect(sesTrack(`<body>${body}</body>`)).toBe(`<body>${tagged}</body>`)
             })
 
             it.each([
@@ -309,12 +307,6 @@ describe('EmailTrackingService', () => {
                     '<a href="https://example.com" data-ph-no-track>x</a>',
                     invocation,
                     '<a href="https://example.com" data-ph-no-track ses:no-track>x</a>',
-                ],
-                [
-                    'a sensitive template',
-                    '<a href="https://example.com">x</a>',
-                    sensitiveInvocation,
-                    '<a href="https://example.com" ses:no-track>x</a>',
                 ],
                 [
                     'clicktracking="off" after a quoted >',
@@ -332,9 +324,7 @@ describe('EmailTrackingService', () => {
                 // SES honors only its own attribute, so without this the anchor is still rewritten
                 // to awstrack.me and app deeplinks stop resolving.
                 const out = addTrackingToEmail(`<body>${anchor}</body>`, inv, signer, false, 'ses')
-                expect(out.slice(0, out.indexOf('<img src="'))).toBe(`<body>${translated}`)
-                // Opting links out of click tracking keeps the open pixel.
-                expect(out).toMatch(/<img src="[^"]*\/public\/m\/pixel\?[^"]+"[^>]*><\/body>$/)
+                expect(out).toBe(`<body>${translated}</body>`)
             })
 
             it('merges into an author-supplied ses:tags value instead of emitting a second attribute', () => {
@@ -1284,6 +1274,121 @@ describe('EmailTrackingService', () => {
                 expect(rows.rows).toEqual([{ identifier: 'soft@example.com', transient_bounce_count: 1 }])
             })
 
+            it.each<[string, (snsMessageId: string) => Promise<void>]>([
+                [
+                    'Kafka redelivers its batch',
+                    async (snsMessageId) => {
+                        await postBounce({ functionId: hogFunction.id, snsMessageId })
+                        const batch = queuedSesNotifications()
+                        await consumer.processBatch(batch)
+                        await consumer.processBatch(batch)
+                    },
+                ],
+                [
+                    'SNS delivers it again in a later batch',
+                    async (snsMessageId) => {
+                        await recordBounce({ functionId: hogFunction.id, snsMessageId })
+                        await postBounce({ functionId: hogFunction.id, snsMessageId })
+                        await consumer.processBatch(queuedSesNotifications().slice(1))
+                    },
+                ],
+                [
+                    'SNS delivers it twice into one batch',
+                    async (snsMessageId) => {
+                        await postBounce({ functionId: hogFunction.id, snsMessageId })
+                        await recordBounce({ functionId: hogFunction.id, snsMessageId })
+                    },
+                ],
+            ])('records a notification once when %s', async (_, deliver) => {
+                const redeliveredBefore = await queuedAtStage('redelivered')
+
+                await deliver(new UUIDT().toString())
+
+                expect(recordedMetrics()).toEqual(bounceMetrics)
+                expect(await queuedAtStage('redelivered')).toBe(redeliveredBefore + 1)
+            })
+
+            it('resets the mark of a notification a redelivered batch skips, even when that batch fails its flush', async () => {
+                const snsMessageId = new UUIDT().toString()
+                const mark = `@posthog/ses-notification-recorded/${snsMessageId}`
+                await postBounce({ functionId: hogFunction.id, snsMessageId })
+                const batch = queuedSesNotifications()
+                await consumer.processBatch(batch)
+                await consumer.redis.useClient({ name: 'test-shorten-mark' }, (client) => client.expire(mark, 5))
+                jest.spyOn(
+                    consumer['emailTrackingService']['hogFunctionMonitoringService'],
+                    'flush'
+                ).mockRejectedValueOnce(new Error('broker unavailable'))
+
+                await expect(consumer.processBatch(batch)).rejects.toThrow('broker unavailable')
+
+                const ttl = await consumer.redis.useClient({ name: 'test-read-mark' }, (client) => client.ttl(mark))
+                expect(ttl).toBeGreaterThan(60 * 60 - 60)
+                expect(recordedMetrics()).toEqual(bounceMetrics)
+            })
+
+            const marksUnavailable = async (): Promise<number> =>
+                (
+                    await register.getSingleMetric('email_tracking_ses_recorded_marks_unavailable_total')!.get()
+                ).values.reduce((sum, { value }) => sum + value, 0)
+
+            it.each<[string, () => Promise<[Error | null, unknown][] | null>]>([
+                ['fails', () => Promise.reject(new Error('pool exhausted'))],
+                ['answers nothing', () => Promise.resolve(null)],
+                ['refuses the commands', () => Promise.resolve([[new Error('OOM command not allowed'), null]])],
+            ])(
+                'records a redelivered notification again, and counts Redis unavailable, when Redis %s',
+                async (_, answer) => {
+                    jest.spyOn(consumer.redis, 'usePipeline').mockImplementation(answer)
+                    const unavailableBefore = await marksUnavailable()
+                    await postBounce({ functionId: hogFunction.id })
+                    const batch = queuedSesNotifications()
+
+                    await consumer.processBatch(batch)
+                    await consumer.processBatch(batch)
+
+                    expect(recordedMetrics()).toEqual([...bounceMetrics, ...bounceMetrics])
+                    expect(await marksUnavailable()).toBe(unavailableBefore + 4)
+                }
+            )
+
+            it('records a redelivered notification again, without stalling the batch, when Redis stops answering', async () => {
+                const valkey = new StallingValkeyProxy({
+                    host: defaultConfig.CDP_REDIS_HOST,
+                    port: defaultConfig.CDP_REDIS_PORT,
+                })
+                const silentRedis = createRedisV2PoolFromConfig({
+                    connection: {
+                        url: '127.0.0.1',
+                        options: {
+                            port: await valkey.start(),
+                            password: defaultConfig.CDP_REDIS_PASSWORD,
+                            retryStrategy: () => null,
+                        },
+                        name: 'ses-recorded-marks-stall',
+                        exitOnRepeatedErrors: false,
+                    },
+                    poolMinSize: 0,
+                    poolMaxSize: 1,
+                    acquireTimeoutMillis: 30_000,
+                })
+                valkey.stopAnswering()
+                jest.spyOn(consumer.redis, 'usePipeline').mockImplementation(silentRedis.usePipeline)
+                const unavailableBefore = await marksUnavailable()
+                await postBounce({ functionId: hogFunction.id })
+                const batch = queuedSesNotifications()
+
+                try {
+                    await consumer.processBatch(batch)
+                    await consumer.processBatch(batch)
+                } finally {
+                    valkey.stop()
+                }
+
+                expect(recordedMetrics()).toEqual([...bounceMetrics, ...bounceMetrics])
+                expect(await marksUnavailable()).toBe(unavailableBefore + 4)
+            })
+
             it('answers 200 and queues the envelope by its MessageId without recording it', async () => {
                 const snsMessageId = new UUIDT().toString()
 
@@ -1364,21 +1469,27 @@ describe('EmailTrackingService', () => {
                 expect(mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_LOG_ENTRIES)).toHaveLength(3)
             })
 
-            it('fails the batch so Kafka redelivers it when the flush fails', async () => {
+            it('fails the batch so Kafka redelivers it when the flush fails, and records it again on redelivery', async () => {
                 await postBounce({ functionId: hogFunction.id })
                 jest.spyOn(
                     consumer['emailTrackingService']['hogFunctionMonitoringService'],
                     'flush'
                 ).mockRejectedValueOnce(new Error('broker unavailable'))
+                const batch = queuedSesNotifications()
+                const redeliveredBefore = await queuedAtStage('redelivered')
 
-                await expect(consumer.processBatch(queuedSesNotifications())).rejects.toThrow('broker unavailable')
+                await expect(consumer.processBatch(batch)).rejects.toThrow('broker unavailable')
+                await consumer.processBatch(batch)
+
+                expect(await queuedAtStage('redelivered')).toBe(redeliveredBefore)
             })
 
-            it('flushes the notifications that recorded before it fails the batch', async () => {
+            it('flushes the notifications that recorded before it fails the batch, and counts them once when Kafka redelivers it', async () => {
                 const parentRunId = new UUIDT().toString()
+                const failingId = new UUIDT().toString()
                 await postEnvelope({
                     Type: 'Notification',
-                    MessageId: new UUIDT().toString(),
+                    MessageId: failingId,
                     TopicArn: sesTopicArn,
                     Message: JSON.stringify({
                         eventType: 'Open',
@@ -1402,17 +1513,25 @@ describe('EmailTrackingService', () => {
                         open: { timestamp: '2024-01-01T00:00:00.000Z' },
                     }),
                 })
-                const failingId = new UUIDT().toString()
-                await postBounce({ functionId: hogFunction.id, snsMessageId: failingId })
+                await postBounce({ functionId: hogFunction.id })
                 const service = consumer['emailTrackingService']
                 const record = service.recordQueuedSesNotification.bind(service)
-                jest.spyOn(service, 'recordQueuedSesNotification').mockImplementation((envelope) =>
-                    envelope.MessageId === failingId ? Promise.reject(new Error('datastore down')) : record(envelope)
-                )
+                let failed = false
+                jest.spyOn(service, 'recordQueuedSesNotification').mockImplementation((envelope) => {
+                    if (envelope.MessageId === failingId && !failed) {
+                        failed = true
+                        return Promise.reject(new Error('datastore down'))
+                    }
+                    return record(envelope)
+                })
+                const batch = queuedSesNotifications()
 
-                await expect(consumer.processBatch(queuedSesNotifications())).rejects.toThrow('datastore down')
+                await expect(consumer.processBatch(batch)).rejects.toThrow('datastore down')
+                expect(recordedMetrics()).toEqual(bounceMetrics)
+                await consumer.processBatch(batch)
 
                 expect(recordedMetrics()).toEqual([
+                    ...bounceMetrics,
                     ['email_opened', 1],
                     ['email_opened_by_person', 1],
                 ])
@@ -1811,7 +1930,7 @@ describe('EmailTrackingService', () => {
             }
             const envelope = {
                 Type: 'Notification',
-                MessageId: 'sns-message-id',
+                MessageId: new UUIDT().toString(),
                 TopicArn: 'arn:aws:sns:us-east-1:123456789012:ses-events',
                 Message: JSON.stringify(sesRecord),
                 Timestamp: '2024-01-01T00:00:00.000Z',
@@ -1841,7 +1960,7 @@ describe('EmailTrackingService', () => {
             }
             const envelope = {
                 Type: 'Notification',
-                MessageId: 'sns-message-id',
+                MessageId: new UUIDT().toString(),
                 TopicArn: 'arn:aws:sns:us-east-1:123456789012:ses-events',
                 Message: JSON.stringify(sesRecord),
                 Timestamp: '2024-01-01T00:00:00.000Z',
@@ -1871,7 +1990,7 @@ describe('EmailTrackingService', () => {
             }
             const envelope = {
                 Type: 'Notification',
-                MessageId: 'sns-message-id',
+                MessageId: new UUIDT().toString(),
                 TopicArn: 'arn:aws:sns:us-east-1:123456789012:ses-events',
                 Message: JSON.stringify(sesRecord),
                 Timestamp: '2024-01-01T00:00:00.000Z',

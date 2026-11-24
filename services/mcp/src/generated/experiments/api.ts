@@ -656,6 +656,8 @@ export const ExperimentSavedMetricsListParams = () => zod.object({
         ),
 })
 
+export const experimentSavedMetricsListQueryLimitMax = 1000
+
 export const ExperimentSavedMetricsListQueryParams = () => zod.object({
     event: zod
         .string()
@@ -663,7 +665,11 @@ export const ExperimentSavedMetricsListQueryParams = () => zod.object({
         .describe(
             "Filter to shared metrics whose query references this event name. Matches events used directly in metric queries as well as events behind any actions those metrics reference. Use this for reuse discovery (find a metric by what it measures); distinct from 'search', which matches the metric's own name\/description\/tags."
         ),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(experimentSavedMetricsListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     search: zod.string().optional().describe('A search term.'),
 })

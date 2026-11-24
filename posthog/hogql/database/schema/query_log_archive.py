@@ -10,6 +10,7 @@ from posthog.hogql.database.models import (
     IntegerDatabaseField,
     LazyTable,
     LazyTableToAdd,
+    StringArrayDatabaseField,
     StringDatabaseField,
     Table,
 )
@@ -127,6 +128,11 @@ QUERY_LOG_ARCHIVE_FIELDS: dict[str, FieldOrTable] = {
         nullable=False,
         description="Bytes the cost planner estimated the query would read before it ran. 0 when no estimate was recorded.",
     ),
+    "warehouse_table_ids": StringArrayDatabaseField(
+        name="warehouse_table_ids",
+        nullable=False,
+        description="Ids of the warehouse tables a HogQL query read. Empty for other queries, when it read none, and after about one month.",
+    ),
     # "cost_usd": FloatDatabaseField(name="cost_usd", nullable=False),
 }
 
@@ -158,6 +164,38 @@ class QueryLogArchiveTable(LazyTable):
                 return ast.Alias(alias=name, expr=ast.Field(chain=[table_name, "lc_user_id"]))
             elif name == "status":
                 return ast.Alias(alias=name, expr=ast.Field(chain=[table_name, "type"]))
+            elif name == "warehouse_table_ids":
+                # The archive keeps log_comment for one month only, so older rows read as an empty array.
+                table_ids: ast.Expr = ast.Call(
+                    name="JSONExtract",
+                    args=[
+                        ast.Field(chain=[table_name, "log_comment"]),
+                        ast.Constant(value="warehouse_table_ids"),
+                        ast.Constant(value="Array(String)"),
+                    ],
+                )
+                # Hide the ids of tables this user cannot access, as the rest of HogQL hides the tables.
+                denied_ids = context.database._denied_warehouse_table_ids if context.database is not None else set()
+                if denied_ids:
+                    table_ids = ast.Call(
+                        name="arrayFilter",
+                        args=[
+                            ast.Lambda(
+                                args=["table_id"],
+                                expr=ast.Not(
+                                    expr=ast.Call(
+                                        name="has",
+                                        args=[
+                                            ast.Array(exprs=[ast.Constant(value=i) for i in sorted(denied_ids)]),
+                                            ast.Field(chain=["table_id"]),
+                                        ],
+                                    )
+                                ),
+                            ),
+                            table_ids,
+                        ],
+                    )
+                return ast.Alias(alias=name, expr=table_ids)
             elif name == "is_personal_api_key_request":
                 cmp_expr = ast.CompareOperation(
                     op=ast.CompareOperationOp.Eq,
@@ -194,7 +232,7 @@ class QueryLogArchiveTable(LazyTable):
 
         return ast.SelectQuery(
             select=fields,
-            select_from=ast.JoinExpr(table=ast.Field(chain=[table_name])),
+            select_from=ast.JoinExpr(table=ast.Field(chain=[table_name]), table_schema=QueryLogArchiveSourceTable()),
             where=where_clause,
         )
 
@@ -297,3 +335,12 @@ class RawQueryLogArchiveTable(Table):
 
     def to_printed_hogql(self) -> str:
         return "raw_query_log"
+
+
+class QueryLogArchiveSourceTable(RawQueryLogArchiveTable):
+    # raw_query_log plus log_comment, for the query_log lazy select only. log_comment keeps tags such as
+    # http_referer, which can hold a share token, so the Database does not register this table.
+    fields: dict[str, FieldOrTable] = {
+        **RawQueryLogArchiveTable.model_fields["fields"].default,
+        "log_comment": StringDatabaseField(name="log_comment", nullable=False),
+    }

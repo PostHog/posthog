@@ -1,3 +1,4 @@
+import { dayjs } from 'lib/dayjs'
 import { escapeRegex } from 'lib/utils/actions'
 
 import { DataTableNode, DataVisualizationNode, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
@@ -19,6 +20,8 @@ export interface PromptReportWindow {
 export interface PromptSetWindow {
     /** First day of the window, YYYY-MM-DD in the project's timezone. */
     from: string
+    /** Last day of the window, YYYY-MM-DD in the project's timezone. */
+    to: string
     /** The words a prompt must contain to count as branded. */
     brandNames: string[]
     /** Which checks to keep, by whether the prompt as it ran names the brand. */
@@ -43,6 +46,8 @@ export const PROMPT_SEARCH_COLUMNS = ['query', 'searches', 'engines'] as const
 // values, so the HogQL text never embeds user data.
 const SET_WHERE = "created_at >= toDateTime({window_start}) AND NOT check_failed AND mode = 'web_search'"
 const WHERE = `prompt_id = {prompt_id} AND ${SET_WHERE}`
+// The set's window can end before today, so its queries stop at the end of its last day.
+const SET_WINDOW_WHERE = `${SET_WHERE} AND created_at < toDateTime({window_end})`
 
 const answered = (where: string): string => `(SELECT count() FROM system.aeo_citation_checks WHERE ${where})`
 
@@ -57,6 +62,7 @@ const setHogql = (query: string, window: PromptSetWindow): HogQLQuery => ({
     query,
     values: {
         window_start: `${window.from} 00:00:00`,
+        window_end: `${dayjs(window.to).add(1, 'day').format('YYYY-MM-DD')} 00:00:00`,
         ...(window.brandNames.length ? { brand_pattern: brandMentionPattern(window.brandNames) } : {}),
         ...(window.engine !== null ? { engine: window.engine } : {}),
         ...(window.topic !== null ? { topic: window.topic } : {}),
@@ -140,13 +146,13 @@ ORDER BY day`,
  * prompt is branded. */
 const segmentWhere = ({ branded, brandNames }: PromptSetWindow): string => {
     if (branded === 'all') {
-        return SET_WHERE
+        return SET_WINDOW_WHERE
     }
     if (!brandNames.length) {
-        return branded === 'branded' ? `${SET_WHERE} AND false` : SET_WHERE
+        return branded === 'branded' ? `${SET_WINDOW_WHERE} AND false` : SET_WINDOW_WHERE
     }
     const namesBrand = 'match(lower(prompt_text), {brand_pattern})'
-    return `${SET_WHERE} AND ${branded === 'branded' ? namesBrand : `NOT ${namesBrand}`}`
+    return `${SET_WINDOW_WHERE} AND ${branded === 'branded' ? namesBrand : `NOT ${namesBrand}`}`
 }
 
 /** The set's checks narrowed the way the API's `branded`, `engine` and `topic` filters narrow them. */
@@ -154,7 +160,7 @@ const setWhere = (window: PromptSetWindow): string =>
     [
         segmentWhere(window),
         ...(window.engine !== null ? ['engine = {engine}'] : []),
-        ...(window.topic !== null ? ['prompt_topic = {topic}'] : []),
+        ...(window.topic !== null ? ['lowerUTF8(prompt_topic) = lowerUTF8({topic})'] : []),
     ].join(' AND ')
 
 /** The same daily metric per engine across every prompt in the set. */

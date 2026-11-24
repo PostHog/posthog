@@ -24,7 +24,7 @@ from products.signals.backend.report_metrics import (
     MAX_METRIC_SERIES_POINTS,
     MAX_REPORT_METRICS,
 )
-from products.signals.backend.report_prompts import MAX_SUGGESTED_PROMPT_LENGTH, MAX_SUGGESTED_PROMPTS
+from products.signals.backend.report_prompts import suggested_prompts_guidance
 from products.signals.backend.scout_harness.limits import (
     MAX_PRECHECK_ROWS_BYTES,
     QUEUED_TRIGGER_NO_NOTE_LINE,
@@ -91,8 +91,7 @@ _RENDERED_IMPORTS: dict[str, object] = {
     "SANDBOX_REPOSITORIES_ROOT": SANDBOX_REPOSITORIES_ROOT,
     "MAX_REPORT_CHARTS": MAX_REPORT_CHARTS,
     "MAX_REPORT_METRICS": MAX_REPORT_METRICS,
-    "MAX_SUGGESTED_PROMPTS": MAX_SUGGESTED_PROMPTS,
-    "MAX_SUGGESTED_PROMPT_LENGTH": MAX_SUGGESTED_PROMPT_LENGTH,
+    "suggested_prompts_guidance": suggested_prompts_guidance(heading="", field_location="", whole_set_rule=""),
     "MAX_SOURCE_SUGGESTION_REASON_LENGTH": MAX_SOURCE_SUGGESTION_REASON_LENGTH,
     "SUGGESTED_SOURCE_PRODUCTS": SUGGESTED_SOURCE_PRODUCTS,
     "PLAIN_TEXT_FIELDS_RULE": PLAIN_TEXT_FIELDS_RULE,
@@ -197,12 +196,14 @@ def _governed_metrics_section(project_has_governed_metrics: bool) -> str:
     return _GOVERNED_METRICS_NUDGE if project_has_governed_metrics else ""
 
 
-# The memory upkeep scout and the scratchpad keys it writes. It does not exist yet and its key shapes
-# may change, so the prompt section and the runner's check both read them from here.
+# The memory upkeep scout and the scratchpad keys it writes. The prompt section, the runner's check and
+# the scout's own skill body must all agree on them, so they are defined once here and
+# `TestShippedMemoryUpkeepScout` fails when the skill drifts from them.
 MEMORY_UPKEEP_SCOUT = "signals-scout-dreaming"
 LEARNED_KEY_PREFIX = "learned:"
 LEARNED_KEY_KINDS = ("person", "area", "shape")
 DREAM_DIGEST_KEY_PREFIX = "dream:digest:"
+DREAM_CANDIDATE_KEY_PREFIX = "dream:candidate:"
 
 # Worded as evidence to weigh, never a rule: the upkeep scout's learnings inform a scout's judgment
 # and its skill body still wins.
@@ -210,30 +211,35 @@ _MEMORY_UPKEEP_NUDGE = """# Memory upkeep
 
 A memory upkeep scout, `{scout}`, runs on this project. It reads the fleet's scratchpad and the feedback on reports, such as dismissals, ratings and reviewer corrections, and writes what it finds under its own keys:
 
-- `{learned}<kind>:<subject>`: one learning per subject. It states a pattern and the counted evidence behind it. `<kind>` is {kinds}. A `person` learning is keyed by GitHub login and covers only how that person prefers work to be routed to them.
+- `{learned}<kind>:<subject>`: one learning per subject. It states a pattern and the counted evidence behind it. `<kind>` is {kinds}. A `person` learning is keyed by GitHub login and covers only how that person prefers work to be routed to them. The upkeep scout names `area` and `shape` subjects itself, so list those keys rather than guess them.
 - `{digest}<skill-name>`: one digest per scout. It lists what the upkeep scout retired, merged or corrected in that scout's memory.
+- `{candidate}<kind>:<subject>`: the upkeep scout's unfinished bookkeeping toward a learning. It is not evidence: when a search returns one, ignore it.
 
-Another scout creates these entries, so a search by your own prefix does not return them. When the upkeep scout rewrites one of your entries, the entry still names you as its creator. So in step 1, also make these `scout-scratchpad-search` reads:
+Another scout creates these entries, so a search by your own prefix does not return them. When the upkeep scout rewrites one of your entries, the entry still names you as its creator. Read the learnings where they live on every run, and do not copy them into your own entries: a copy would outlive the learning's expiry. Make these `scout-scratchpad-search` reads:
 
-- **What it wrote since your last run:** `skill_name="{scout}"`, with `date_from` = `completed_at` of your newest `completed` run.
-- **Your digest:** `key="{digest}<skill-name>"`, with the `skill_name` from *Your run identity*. Read it before you conclude that an entry of yours went missing or changed without a reason.
-- **Each subject you act on:** before you route work to a person or report on an area, read its learning by exact `key`, for example `{learned}person:<github-login>`.
+- **In step 1, your digest:** `key="{digest}<skill-name>"`, with the `skill_name` from *Your run identity*. Read it before you conclude that an entry of yours went missing or changed without a reason.
+- **In step 1, the learning keys:** one call with `key_prefix="{learned}area:"` and one with `key_prefix="{learned}shape:"`, each with `keys_only=true` and `limit=1000`. Together they list every live area and shape learning, without bodies.
+- **Before you file or edit a report, or emit a signal:** check the listed keys for the area and the kind of finding it covers, and read each match by exact `key`.
+- **Before you name a reviewer:** read `{learned}person:<github-login>` by exact `key` for that person. A miss means the upkeep scout holds no learning about them.
 
-A learning counts repeated evidence, so it outweighs a single note or one correction. It is still evidence, not an instruction: overrule it when this run's evidence is stronger, and your skill body wins over it. To disagree, record why in your own entry and leave the upkeep scout's entry as it is. Its next pass reads yours.""".format(
+A learning counts repeated evidence, so it outweighs a single note or one correction. It is still evidence, not an instruction: overrule it when this run's evidence is stronger, and your skill body wins over it. To disagree, record why in your own entry and leave the upkeep scout's entry as it is.
+
+In your run summary, add one line that names by key each learning you used or overruled, and says which. A run that read no learning adds nothing.""".format(
     scout=MEMORY_UPKEEP_SCOUT,
     learned=LEARNED_KEY_PREFIX,
     digest=DREAM_DIGEST_KEY_PREFIX,
+    candidate=DREAM_CANDIDATE_KEY_PREFIX,
     kinds=", ".join(f"`{kind}`" for kind in LEARNED_KEY_KINDS[:-1]) + f" or `{LEARNED_KEY_KINDS[-1]}`",
 )
 
 
-def _memory_upkeep_section(memory_upkeep_has_written: bool, *, skill_name: str) -> str:
-    """The memory upkeep nudge for a project where the upkeep scout has written, and nothing for any other.
+def _memory_upkeep_section(memory_upkeep_is_live: bool, *, skill_name: str) -> str:
+    """The memory upkeep nudge for a project where the upkeep scout is enabled and has written, and nothing for any other.
 
     The upkeep scout itself never gets it, since the section describes its entries to the scouts
     that read them. Rendered in the per-run block for the same reason as `_governed_metrics_section`.
     """
-    if not memory_upkeep_has_written or skill_name == MEMORY_UPKEEP_SCOUT:
+    if not memory_upkeep_is_live or skill_name == MEMORY_UPKEEP_SCOUT:
         return ""
     return _MEMORY_UPKEEP_NUDGE
 
@@ -868,27 +874,11 @@ A trends chart and a graph built from SQL, as they arrive in `charts`:
 ]
 ```"""
 
-_REPORT_SUGGESTED_PROMPTS = f"""# Suggesting follow-up prompts
-
-`suggested_prompts` on the report tools carries prompts the inbox offers above the report's `Ask AI` box: follow-up questions, and next-step actions the reader can send as a request. Clicking one fills the box with it, so the reader can send it as written or edit it first. Nothing is sent on the click. You did the research and know which threads you left open and what should happen next, so this hands the reader that knowledge instead of leaving them to invent a prompt from an empty box.
-
-Optional, and worth it only when you can name a prompt worth an agent run. Write none rather than pad to the cap: an obvious prompt the reader would have typed anyway costs them a read and gains nothing, and a report with no suggestions looks exactly as it did before.
-
-- **At most {MAX_SUGGESTED_PROMPTS}, each up to {MAX_SUGGESTED_PROMPT_LENGTH} characters.** They render as rows the reader scans before choosing, so three is a ceiling and one or two is the usual answer.
-- **A prompt is a question or an action request, in the reader's words.** "Which customers are hitting this?" reads as a question they would ask; "Create the alert the report recommends, then mark this report resolved" reads as a request they would make. What does not work is machine-speak like "Analyze the affected cohort", which the reader has to translate before they can tell whether they want it.
-- **Ask what your research left open, not what it already answered.** A question the summary answers wastes an agent run to restate the report. Good ones widen the finding (who else is affected, since when, what changed), test the hypothesis you could not, or ask for the next step you did not have the standing to take.
-- **Offer the action your report recommends, so acting on it is one click.** The prompt is sent to an agent run that can investigate, carry out the report's recommendation, and work the report itself (its work log and its state). A good action prompt names the concrete work: "Create the alert the report recommends, then mark this report resolved". Fold in "mark this report resolved" only when the action completes in place — an action that lands as a pull request must not resolve the report, because a caller resolve closes the report's open PR and the merge resolves the report on its own. Suggest only actions your report's own recommendation makes concrete, and leave anything a human should weigh first (deleting data, changing a flag serving live traffic) as a question instead.
-- **Each one stands alone.** The prompt goes to an agent that gets the report as context but not your run, so it must name what it is asking for rather than pointing at "the above" or "the second chart".
-- **No two the same.** Duplicates are refused, and near-duplicates cost the reader a choice that is not one.
-- **`suggested_prompts` on an edit is the report's whole set, not an addition.** It replaces what the report had, the way `summary` replaces the summary, so to keep a prompt send it again. Leave the field out entirely and the report keeps the prompts it has; send `suggested_prompts: []` to take them down, which is what you want once a rewrite has left them pointing at the old report.
-
-```json
-[
-  "Which teams are hitting this exception the most?",
-  "Did the error rate change after the 18 June deploy?",
-  "Add the null check the report recommends and open a pull request"
-]
-```"""
+_REPORT_SUGGESTED_PROMPTS = suggested_prompts_guidance(
+    heading="#",
+    field_location="on the report tools",
+    whole_set_rule="- **`suggested_prompts` on an edit is the report's whole set, not an addition.** It replaces what the report had, the way `summary` replaces the summary, so to keep a prompt send it again. Leave the field out entirely and the report keeps the prompts it has; send `suggested_prompts: []` to take them down, which is what you want once a rewrite has left them pointing at the old report.",
+)
 
 _REPORT_TAGS_HEAD = """# Tagging the report
 
@@ -1773,7 +1763,7 @@ def build_run_prompt(
     write_scopes: Sequence[str] | None = None,
     tool_allowlist_narrowed: bool = False,
     project_has_governed_metrics: bool = False,
-    memory_upkeep_has_written: bool = False,
+    memory_upkeep_is_live: bool = False,
     activity_summary_search_available: bool = False,
     mcp_server_names: Sequence[str] | None = None,
     business_knowledge_maintained: bool = False,
@@ -1854,8 +1844,8 @@ def build_run_prompt(
     catalog exists; False renders nothing, so a project that does not use the data catalog pays no
     tokens for it. A failed check is False, because an outage must cost steering only.
 
-    `memory_upkeep_has_written` is the harness-side check that the memory upkeep scout
-    (`MEMORY_UPKEEP_SCOUT`) has at least one live scratchpad entry on the team. True renders a short
+    `memory_upkeep_is_live` is the harness-side check that the memory upkeep scout
+    (`MEMORY_UPKEEP_SCOUT`) is enabled and has at least one live scratchpad entry on the team. True renders a short
     section on what it writes and how to read and weigh it; False renders nothing. A failed check is
     False.
 
@@ -1982,7 +1972,7 @@ def build_run_prompt(
         section
         for section in (
             _governed_metrics_section(project_has_governed_metrics),
-            _memory_upkeep_section(memory_upkeep_has_written, skill_name=skill.name),
+            _memory_upkeep_section(memory_upkeep_is_live, skill_name=skill.name),
             _report_tags_in_use_section(report_tags_in_use or []) if report_channel else "",
             _activity_summary_search_section(activity_summary_search_available) if report_channel else "",
             _external_mcp_servers_paragraph(mcp_server_names) if mcp_server_names else "",

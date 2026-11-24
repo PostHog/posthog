@@ -90,6 +90,16 @@ function normalizeItemId(itemId: string | undefined): number | null {
     return Number(itemId) || null
 }
 
+// Editing discards a dashboard's overrides, as the Edit button warns, so a save cannot write them into the insight
+function withoutDashboardOverrides(search: string): string {
+    const params = new URLSearchParams(search)
+    for (const key of ['filters_override', 'variables_override', 'tile_filters_override']) {
+        params.delete(key)
+    }
+    const remaining = params.toString()
+    return remaining ? `?${remaining}` : ''
+}
+
 // Hand-built links skip `urls.insightNew()`, and this scene cannot edit a new SQL query
 function newInsightUrlOutsideScene(q: unknown, dashboard: unknown, tileGroup: unknown): string | null {
     const query = typeof q === 'string' ? parseDraftQueryFromURL(q) : (q as Node | undefined)
@@ -336,6 +346,11 @@ export type insightSceneLogicType = MakeLogicType<
     Record<string, any>,
     insightSceneLogicMeta
 >
+
+// A dashboard tile mounts insightLogic for the same insight and dashboard. Sharing its instance would hand the
+// editor the tile's query, which has the dashboard's filters merged in, and saving it would write them into the insight.
+export const insightSceneTabId = (dashboardId: DashboardType['id'] | null | undefined): string | undefined =>
+    dashboardId != null ? 'insight-scene' : undefined
 
 export const insightSceneLogic = kea<insightSceneLogicType>([
     path(['scenes', 'insights', 'insightSceneLogic']),
@@ -758,6 +773,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                         filtersOverride: values.filtersOverride,
                         variablesOverride: values.variablesOverride,
                         tileFiltersOverride: values.tileFiltersOverride,
+                        tabId: insightSceneTabId(values.dashboardId),
                     }
 
                     const logic = insightLogic.build(insightProps)
@@ -1045,8 +1061,14 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 return [urls.insightNew(), window.location.search, window.location.hash]
             }
 
-            const baseUrl = insightMode === ItemMode.View ? urls.insightView(insightId) : urls.insightEdit(insightId)
-            return [baseUrl, window.location.search, window.location.hash]
+            if (insightMode === ItemMode.View) {
+                return [urls.insightView(insightId), window.location.search, window.location.hash]
+            }
+            return [
+                urls.insightEdit(insightId),
+                withoutDashboardOverrides(window.location.search),
+                window.location.hash,
+            ]
         }
 
         return {

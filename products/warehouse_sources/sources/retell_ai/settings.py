@@ -9,11 +9,16 @@ INCREMENTAL_LOOKBACK_SECONDS = 3600
 
 @frozen
 class RetellAIParent:
-    path: str
     id_field: str
+    path: str | None = None
+    # Reads the parents from another fan-out table instead of a listing path.
+    table: str | None = None
     method: Literal["GET", "POST"] = "GET"
-    # Query params naming the parent on the child request. A `{id}` value is replaced by the parent id.
+    # Query params naming the parent on the child request. A `{id}` value is replaced by the parent id and a
+    # `{version}` value by the parent version. A param whose version is missing on the parent row is left out.
     child_params: tuple[tuple[str, str], ...] = ()
+    # Walks the children of each version of the parent, not only of the latest version.
+    version_field: str | None = None
 
 
 @frozen
@@ -25,6 +30,7 @@ class RetellAIEndpoint:
     paginated: bool = True
     partition_key: str | None = None
     sortable: bool = True
+    sort_order: str = "ascending"
     parents: tuple[RetellAIParent, ...] = ()
     # Copies the parent id onto each child row under the parent's id field.
     include_parent_id: bool = False
@@ -55,7 +61,7 @@ ENDPOINTS: dict[str, RetellAIEndpoint] = {
     "agent_versions": RetellAIEndpoint(
         path="/list-agent-versions/{id}",
         primary_key=("agent_id", "version"),
-        parents=(RetellAIParent(path="/v2/list-agents", id_field="agent_id", method="POST"),),
+        parents=(RetellAIParent(id_field="agent_id", path="/v2/list-agents", method="POST"),),
         include_parent_id=True,
     ),
     # Retell lists test case definitions per response engine, so the source walks every Retell LLM and conversation flow.
@@ -65,16 +71,54 @@ ENDPOINTS: dict[str, RetellAIEndpoint] = {
         sortable=False,
         parents=(
             RetellAIParent(
-                path="/v2/list-retell-llms",
                 id_field="llm_id",
+                path="/v2/list-retell-llms",
                 child_params=(("type", "retell-llm"), ("llm_id", "{id}")),
             ),
             RetellAIParent(
-                path="/v2/list-conversation-flows",
                 id_field="conversation_flow_id",
+                path="/v2/list-conversation-flows",
                 child_params=(("type", "conversation-flow"), ("conversation_flow_id", "{id}")),
             ),
         ),
+    ),
+    "contacts": RetellAIEndpoint(
+        path="/list-contacts",
+        primary_key="contact_id",
+        method="POST",
+        pagination_location="json",
+        sort_order="asc",
+    ),
+    # Retell lists batch tests per response engine version and defaults to the latest version.
+    "batch_tests": RetellAIEndpoint(
+        path="/v2/list-batch-tests",
+        primary_key="test_case_batch_job_id",
+        sortable=False,
+        parents=(
+            RetellAIParent(
+                id_field="llm_id",
+                path="/v2/list-retell-llms",
+                version_field="version",
+                child_params=(("type", "retell-llm"), ("llm_id", "{id}"), ("version", "{version}")),
+            ),
+            RetellAIParent(
+                id_field="conversation_flow_id",
+                path="/v2/list-conversation-flows",
+                version_field="version",
+                child_params=(
+                    ("type", "conversation-flow"),
+                    ("conversation_flow_id", "{id}"),
+                    ("version", "{version}"),
+                ),
+            ),
+        ),
+    ),
+    "test_runs": RetellAIEndpoint(
+        path="/v2/list-test-runs/{id}",
+        primary_key=("test_case_batch_job_id", "test_case_job_id"),
+        sortable=False,
+        parents=(RetellAIParent(table="batch_tests", id_field="test_case_batch_job_id"),),
+        include_parent_id=True,
     ),
 }
 

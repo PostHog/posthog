@@ -1,4 +1,7 @@
+from datetime import UTC, datetime, timedelta
+
 import pytest
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -19,6 +22,21 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.workflows.backend.models import HogFlow, HogFlowBatchJob
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 from products.workflows.backend.providers.ses import IspSendingMetrics
+from products.workflows.backend.services.email_sending_tier_audit import log_email_sending_tier_change
+from products.workflows.backend.tests.fakes.ses_endpoint import METRICS_BATCH_PATH, FakeSesEndpoint
+
+
+def _locally_evaluated_flag(released: bool):
+    def feature_enabled(*_args, only_evaluate_locally: bool = False, **_kwargs) -> bool:
+        if not only_evaluate_locally:
+            raise TimeoutError("remote flag evaluation")
+        return released
+
+    return feature_enabled
+
+
+CHANGED_AT = datetime(2026, 9, 1, 10, 0, tzinfo=UTC)
+DAILY_METRICS_FETCH = "products.workflows.backend.services.email_sending_tier.fetch_app_metric_daily_totals_by_team"
 
 
 class TestEmailReputationAPI(APIBaseTest):
@@ -55,6 +73,7 @@ class TestEmailReputationAPI(APIBaseTest):
             provider.get_identity_isp_metrics.side_effect = isp_metrics
         else:
             provider.get_identity_isp_metrics.return_value = isp_metrics or []
+        provider.get_account_sending_metrics.return_value = None
         with (
             patch(
                 "products.workflows.backend.services.email_health.fetch_app_metric_totals_by_source",
@@ -85,7 +104,84 @@ class TestEmailReputationAPI(APIBaseTest):
             "email_sending_suspended": False,
             "email_sending_suspended_at": None,
             "email_sending_suspension_reason": "",
+            "infrastructure": None,
         }
+
+    def _get_reputation_from_ses(self, *, released: bool = True) -> dict:
+        with (
+            patch(
+                "products.workflows.backend.services.email_health.fetch_app_metric_totals_by_source",
+                return_value={},
+            ),
+            patch(
+                "products.workflows.backend.services.email_health.posthoganalytics.feature_enabled",
+                side_effect=_locally_evaluated_flag(released),
+            ),
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/reputation")
+        assert response.status_code == status.HTTP_200_OK
+        return response.json()
+
+    def test_reputation_shows_the_sending_infrastructure_health_without_its_exact_volume(self):
+        with FakeSesEndpoint().installed() as ses:
+            ses.account_metrics.update(
+                {
+                    "SEND": 4_276_310,
+                    "DELIVERY": 4_253_700,
+                    "PERMANENT_BOUNCE": 12_870,
+                    "TRANSIENT_BOUNCE": 40_115,
+                    "COMPLAINT": 655,
+                    "DELIVERY_COMPLAINT": 3_120_000,
+                }
+            )
+            first = self._get_reputation_from_ses()["infrastructure"]
+            second = self._get_reputation_from_ses()["infrastructure"]
+
+        assert first == {
+            "emails_sent_at_least": 4_000_000,
+            "delivery_rate": 0.994,
+            "bounce_rate": 0.0031,
+            "complaint_rate": 0.0003,
+        }
+        assert second == first
+        assert len([request for request in ses.requests if request.path == METRICS_BATCH_PATH]) == 1
+
+    def test_reputation_retries_the_infrastructure_health_soon_after_a_metric_query_fails(self):
+        with FakeSesEndpoint().installed() as ses, time_machine.travel("2026-03-10T12:00:00Z", tick=False) as clock:
+            ses.account_metrics.update({"SEND": 1_000, "DELIVERY": 990, "DELIVERY_COMPLAINT": 900})
+            ses.failing_metrics.add("DELIVERY")
+            during_the_failure = self._get_reputation_from_ses()["infrastructure"]
+
+            ses.failing_metrics.clear()
+            clock.shift(timedelta(minutes=2))
+            after_it_clears = self._get_reputation_from_ses()["infrastructure"]
+
+        assert during_the_failure is None
+        assert after_it_clears is not None
+
+    def test_reputation_asks_ses_once_when_it_rejects_the_account_query(self):
+        with FakeSesEndpoint().installed() as ses:
+            ses.rejects_metric_batches = True
+            data = self._get_reputation_from_ses()
+
+        assert data["infrastructure"] is None
+        assert len([request for request in ses.requests if request.path == METRICS_BATCH_PATH]) == 1
+
+    def test_reputation_loads_without_the_infrastructure_health_when_ses_is_unreachable(self):
+        with FakeSesEndpoint().installed() as ses:
+            ses.account_metrics.update({"SEND": 1_000, "DELIVERY": 990, "DELIVERY_COMPLAINT": 900})
+            ses.denied = True
+            data = self._get_reputation_from_ses()
+
+        assert data["infrastructure"] is None
+
+    def test_reputation_asks_ses_nothing_for_a_project_without_the_flag(self):
+        with FakeSesEndpoint().installed() as ses:
+            ses.account_metrics.update({"SEND": 1_000, "DELIVERY": 990, "DELIVERY_COMPLAINT": 900})
+            data = self._get_reputation_from_ses(released=False)
+
+        assert data["infrastructure"] is None
+        assert not [request for request in ses.requests if request.path == METRICS_BATCH_PATH]
 
     @override_settings(
         WORKFLOWS_EMAIL_TIER_MODE="enforce",
@@ -100,6 +196,169 @@ class TestEmailReputationAPI(APIBaseTest):
         allowance = self._get_reputation({})["sending_allowance"]
         assert allowance["max_batch_audience"] == 3000
         assert allowance["rate_limited_max_batch_audience"] == 62 * 24 * 7
+
+    @parameterized.expand(
+        [
+            # The anchor day mixes sends from before the change, and a day under the target is not a qualifying day.
+            (
+                "counts_only_full_days_after_the_change",
+                1,
+                False,
+                CHANGED_AT,
+                {"2026-09-01": 900, "2026-09-02": 499, "2026-09-03": 500},
+                1,
+            ),
+            (
+                "caps_progress_at_the_days_required",
+                1,
+                False,
+                CHANGED_AT,
+                {"2026-09-02": 600, "2026-09-03": 700, "2026-09-04": 800},
+                2,
+            ),
+            # Like the daily check, a project that never changed tier is anchored on its creation.
+            (
+                "never_changed_tier_counts_from_project_creation",
+                1,
+                False,
+                None,
+                {"2026-09-01": 900, "2026-09-02": 600},
+                1,
+            ),
+            ("top_tier_has_no_next_step", 2, False, CHANGED_AT, {}, None),
+            ("pinned_tier_has_no_next_step", 1, True, CHANGED_AT, {}, None),
+        ]
+    )
+    @override_settings(
+        WORKFLOWS_EMAIL_TIER_MODE="enforce",
+        WORKFLOWS_EMAIL_TIER_DAILY_CAPS=[100, 1000, 3000],
+        WORKFLOWS_EMAIL_TIER_BATCH_AUDIENCE_CAPS=[100, 1000, 3000],
+        WORKFLOWS_EMAIL_TIER_MIN_DAYS_AT_TIER=[3, 5, 7],
+        WORKFLOWS_EMAIL_TIER_MIN_ACTIVE_DAYS=2,
+        WORKFLOWS_EMAIL_TIER_MIN_DAILY_USE_RATIO=0.5,
+        HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS=set(),
+    )
+    def test_reputation_endpoint_reports_the_next_tier_step(
+        self,
+        _name: str,
+        tier: int,
+        pinned: bool,
+        changed_at: datetime | None,
+        daily_sends: dict[str, int],
+        expected_days: int | None,
+    ):
+        Team.objects.filter(id=self.team.id).update(created_at=CHANGED_AT)
+        TeamWorkflowsConfig.objects.update_or_create(
+            team=self.team,
+            defaults={
+                "email_sending_tier": tier,
+                "email_sending_tier_pinned": pinned,
+                "email_sending_tier_updated_at": changed_at,
+            },
+        )
+        daily = {self.team.id: {day: {"email_sent": sent} for day, sent in daily_sends.items()}}
+        with (
+            time_machine.travel(datetime(2026, 9, 5, 12, 0, tzinfo=UTC), tick=False),
+            patch(DAILY_METRICS_FETCH, return_value=daily),
+        ):
+            allowance = self._get_reputation({})["sending_allowance"]
+        next_tier = allowance["next_tier"]
+        if expected_days is None:
+            assert next_tier is None
+            if pinned:
+                assert allowance["recent_rates"] is None
+            return
+        assert next_tier == {
+            "emails_per_day": 3000,
+            "daily_target": 500,
+            "days_required": 2,
+            "days_reached": expected_days,
+            "not_before": "2026-09-06T10:00:00Z",
+        }
+
+    @parameterized.expand(
+        [
+            ("clean", 1000, 5, 0, True, True),
+            ("bounces_over_the_limit", 1000, 30, 0, False, True),
+            # One complaint in 500 is over the rate, but under both the minimum sends and the complaint backstop.
+            ("only_bounces_are_judged", 500, 15, 1, False, True),
+            ("late_complaints_with_no_sends", 0, 0, 3, True, False),
+            # Over the rate, but under the minimum sends the daily check needs to judge bounces.
+            ("too_few_sends_to_judge", 100, 10, 0, True, True),
+        ]
+    )
+    @override_settings(
+        WORKFLOWS_EMAIL_TIER_MODE="enforce",
+        WORKFLOWS_EMAIL_TIER_DEMOTION_WINDOW_DAYS=7,
+        WORKFLOWS_EMAIL_TIER_MAX_BOUNCE_RATE=0.02,
+        WORKFLOWS_EMAIL_TIER_BOUNCE_RATE_MIN_SENDS=200,
+        WORKFLOWS_EMAIL_TIER_MAX_COMPLAINT_RATE=0.001,
+        WORKFLOWS_EMAIL_TIER_COMPLAINT_RATE_MIN_SENDS=1000,
+        WORKFLOWS_EMAIL_TIER_COMPLAINT_COUNT_BACKSTOP=3,
+        HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS=set(),
+    )
+    def test_reputation_endpoint_reports_the_rates_the_daily_check_demotes_on(
+        self,
+        _name: str,
+        sent: int,
+        bounced: int,
+        complained: int,
+        bounces_within_limits: bool,
+        complaints_within_limits: bool,
+    ):
+        daily = {
+            self.team.id: {
+                # The check counts whole days from the window start, so the first day is in and the day before is out.
+                "2026-08-31": {"email_sent": 1000, "email_bounced_hard": 1000},
+                "2026-09-01": {"email_sent": sent, "email_bounced_hard": bounced, "email_blocked": complained},
+            }
+        }
+        with (
+            time_machine.travel(datetime(2026, 9, 8, 12, 0, tzinfo=UTC), tick=False),
+            patch(DAILY_METRICS_FETCH, return_value=daily),
+        ):
+            recent = self._get_reputation({})["sending_allowance"]["recent_rates"]
+        assert recent["window_days"] == 7
+        assert recent["emails_sent"] == sent
+        assert recent["bounce_rate"] == (bounced / sent if sent else 0)
+        assert recent["complaints"] == complained
+        assert recent["bounces_within_limits"] is bounces_within_limits
+        assert recent["complaints_within_limits"] is complaints_within_limits
+
+    @override_settings(
+        WORKFLOWS_EMAIL_TIER_DAILY_CAPS=[100, 1000, 3000, 10000],
+        WORKFLOWS_EMAIL_TIER_BATCH_AUDIENCE_CAPS=[100, 1000, 3000, 10000],
+    )
+    def test_reputation_endpoint_lists_recent_allowance_changes_newest_first(self):
+        with time_machine.travel(datetime(2026, 9, 1, 7, 15, tzinfo=UTC), tick=False):
+            log_email_sending_tier_change(
+                self.team, previous_tier=0, new_tier=3, reason="trusted_account", pin_change=(False, False)
+            )
+        with time_machine.travel(datetime(2026, 9, 3, 7, 15, tzinfo=UTC), tick=False):
+            log_email_sending_tier_change(
+                self.team, previous_tier=3, new_tier=2, reason="rates_above_threshold", pin_change=(False, False)
+            )
+        with time_machine.travel(datetime(2026, 9, 4, 9, 0, tzinfo=UTC), tick=False):
+            # A pin-only change moves no allowance, so it is not listed.
+            log_email_sending_tier_change(
+                self.team, previous_tier=2, new_tier=2, reason="staff_set", pin_change=(False, True)
+            )
+        with time_machine.travel(datetime(2026, 9, 5, 12, 0, tzinfo=UTC), tick=False):
+            changes = self._get_reputation({})["sending_allowance"]["recent_changes"]
+        assert changes == [
+            {
+                "changed_at": "2026-09-03T07:15:00Z",
+                "previous_emails_per_day": 10000,
+                "emails_per_day": 3000,
+                "reason": "rates_above_threshold",
+            },
+            {
+                "changed_at": "2026-09-01T07:15:00Z",
+                "previous_emails_per_day": 100,
+                "emails_per_day": 10000,
+                "reason": "trusted_account",
+            },
+        ]
 
     @parameterized.expand(
         [
@@ -153,6 +412,7 @@ class TestEmailReputationAPI(APIBaseTest):
     def test_reputation_endpoint_does_not_redial_aws_after_a_failure(self):
         provider = MagicMock()
         provider.get_tenant_reputation.side_effect = Exception("SES timeout")
+        provider.get_account_sending_metrics.return_value = None
         with (
             patch(
                 "products.workflows.backend.services.email_health.fetch_app_metric_totals_by_source",
@@ -534,6 +794,7 @@ class TestEmailReputationAccessControl(APIBaseTest):
                 complaint_base=0,
             )
         ]
+        provider.get_account_sending_metrics.return_value = None
         with (
             patch(
                 "products.workflows.backend.services.email_health.fetch_app_metric_totals_by_source",

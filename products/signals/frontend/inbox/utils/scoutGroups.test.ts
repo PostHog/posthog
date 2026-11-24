@@ -8,6 +8,7 @@ import {
     scoutGroup,
     ScoutGroupKey,
     scoutSubtitle,
+    scoutTurnedOnByLine,
 } from './scoutGroups'
 import { computeScoutRollups, ScoutRollup } from './scoutRunsWindow'
 
@@ -162,6 +163,36 @@ describe('scoutGroups', () => {
             ],
         ])('%s', (_name, overrides, expected) => {
             expect(scoutSubtitle(makeConfig(overrides), undefined, NOW)?.text).toEqual(expected)
+        })
+
+        it.each<[string, Partial<SignalScoutConfig>, string | null]>([
+            [
+                'a person who turned the scout on is named',
+                {
+                    status_changed_at: '2026-06-24T00:00:00Z',
+                    status_changed_by: {
+                        id: 7,
+                        uuid: 'user-7',
+                        first_name: 'Ada',
+                        last_name: 'Byron',
+                        email: 'ada@example.com',
+                    } as SignalScoutConfig['status_changed_by'],
+                },
+                'Turned on by Ada Byron · Jun 24, 2026',
+            ],
+            [
+                'a resume with no actor credits nobody',
+                { status_changed_at: '2026-06-24T00:00:00Z' },
+                'Turned on Jun 24, 2026',
+            ],
+            ['a scout never switched has no line', { status_changed_at: null }, null],
+            [
+                'a scout that is off has no turned-on line',
+                { enabled: false, status: 'paused_by_user', status_changed_at: '2026-06-24T00:00:00Z' },
+                null,
+            ],
+        ])('turned-on line: %s', (_name, overrides, expected) => {
+            expect(scoutTurnedOnByLine(makeConfig(overrides))).toEqual(expected)
         })
 
         it('prefers what the last run checked over the scout description', () => {

@@ -5,6 +5,7 @@ from posthog.models.team import Team
 
 from products.aeo.backend.brand import names_brand
 from products.aeo.backend.catalog import own_domains
+from products.aeo.backend.check_brands import BrandMatcher, catalog_identities, write_check_brands
 from products.aeo.backend.facade.contracts import BrandKind, BrandSource, BrandStatus
 from products.aeo.backend.facts import write_facts
 from products.aeo.backend.models import AEOBrand, AEOCitationCheck, AEOPrompt
@@ -53,4 +54,5 @@ def store_what_the_runner_stores(check_id: uuid.UUID) -> None:
     check.prompt_branded = names_brand(check.prompt_text, own_domains(check.team_id))
     check.save(update_fields=["prompt_branded"])
     write_facts([check])
+    write_check_brands([check], BrandMatcher(catalog_identities(check.team_id)))
     bump_data_version_on_commit(check.team_id)
