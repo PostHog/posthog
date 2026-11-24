@@ -28,13 +28,11 @@ describe('judge', () => {
     let ses: SESv2Client
     let unfinishedJobs: number
     let clockMs: number
-    let wallMs: number | undefined
     let probeTakesMs: number
     let resident: ResidentBacklog | undefined
     let truthFails: string | undefined
     let polls: number
     let probeAnswers: number
-    let duringProbe: ((poll: number) => Promise<void>) | undefined
     let judge: Judge
     let caDir: string
 
@@ -59,14 +57,12 @@ describe('judge', () => {
                 },
             },
             probe: {
-                unfinishedJobs: async () => {
+                unfinishedJobs: () => {
                     clockMs += probeTakesMs
                     polls += 1
-                    await duringProbe?.(polls)
-                    if (polls > probeAnswers) {
-                        throw new Error('The operation was aborted due to timeout')
-                    }
-                    return unfinishedJobs
+                    return polls > probeAnswers
+                        ? Promise.reject(new Error('The operation was aborted due to timeout'))
+                        : Promise.resolve(unfinishedJobs)
                 },
             },
             fetchRetries: 3,
@@ -74,7 +70,6 @@ describe('judge', () => {
             finalRead: { attempts: 2, backoffMs: 0 },
             pollMs: 10,
             now: () => clockMs,
-            wallNow: () => wallMs ?? Date.now(),
         })
 
     beforeEach(async () => {
@@ -92,13 +87,11 @@ describe('judge', () => {
         })
         unfinishedJobs = 0
         clockMs = 0
-        wallMs = undefined
         probeTakesMs = 10
         resident = undefined
         truthFails = undefined
         polls = 0
         probeAnswers = Infinity
-        duringProbe = undefined
         judge = judgeOf()
         await judge.open(SEED)
     })
@@ -780,108 +773,6 @@ describe('judge', () => {
             unread: 'the truth read hit a harness limit at record 1 of 2: 2 of 2 attempts failed, the last with The operation was aborted due to timeout',
         })
     })
-
-    type SettleCase = {
-        jobs: number
-        delivered: 'before the polls' | 'during the last poll in time' | 'after the polls'
-        pollsReadTruth?: boolean
-        probe?: { answers: number; takesMs: number }
-        finalReadFails?: string
-        expected: object
-    }
-
-    it.each<[string, SettleCase]>([
-        [
-            'converged once the final read recovers the truth no poll could read',
-            {
-                jobs: 0,
-                delivered: 'before the polls',
-                expected: { converged: true, unfinishedJobs: 0, unrecorded: [], tookMs: 40 },
-            },
-        ],
-        [
-            'converged when the edge recorded the delivery while the last poll in time counted the jobs',
-            {
-                jobs: 0,
-                delivered: 'during the last poll in time',
-                expected: { converged: true, unfinishedJobs: 0, unrecorded: [], tookMs: 40 },
-            },
-        ],
-        [
-            'not converged while jobs stayed unfinished, whatever the final read finds',
-            {
-                jobs: 3,
-                delivered: 'before the polls',
-                expected: { converged: false, unfinishedJobs: 3, unrecorded: [], tookMs: expect.any(Number) },
-            },
-        ],
-        [
-            'not converged when the edge recorded the delivery after the polls',
-            {
-                jobs: 0,
-                delivered: 'after the polls',
-                expected: { converged: false, unfinishedJobs: 0, unrecorded: [UNIT], tookMs: expect.any(Number) },
-            },
-        ],
-        [
-            'unread when the last poll could not count the jobs, though the truth reads succeeded',
-            {
-                jobs: 3,
-                delivered: 'before the polls',
-                pollsReadTruth: true,
-                probe: { answers: 1, takesMs: 30 },
-                expected: {
-                    converged: false,
-                    unfinishedJobs: null,
-                    unrecorded: [],
-                    tookMs: 60,
-                    unread: 'The operation was aborted due to timeout',
-                },
-            },
-        ],
-        [
-            'unread when the final read fails too',
-            {
-                jobs: 0,
-                delivered: 'before the polls',
-                finalReadFails: 'The operation was aborted due to timeout',
-                expected: {
-                    converged: false,
-                    unfinishedJobs: null,
-                    unrecorded: [UNIT],
-                    tookMs: expect.any(Number),
-                    unread: 'the truth read hit a harness limit at record 0 of 1: 2 of 2 attempts failed, the last with The operation was aborted due to timeout',
-                },
-            },
-        ],
-    ])(
-        'settles a convergence on the final read: %s',
-        async (_story, { jobs, delivered, pollsReadTruth, probe, finalReadFails, expected }) => {
-            unfinishedJobs = jobs
-            probeAnswers = probe?.answers ?? Infinity
-            probeTakesMs = probe?.takesMs ?? probeTakesMs
-            judge.record(offered())
-            if (delivered === 'before the polls') {
-                await deliver(UNIT)
-            }
-            if (delivered === 'during the last poll in time') {
-                duringProbe = (poll) => (poll === 2 ? deliver(UNIT) : Promise.resolve())
-            }
-            if (delivered === 'after the polls') {
-                wallMs = Date.now() - 1
-            }
-            truthFails = pollsReadTruth ? undefined : 'The operation was aborted due to timeout'
-            const converged = await judge.converge(50, NEVER_ABORTED)
-            if (delivered === 'after the polls') {
-                await deliver(UNIT)
-            }
-            truthFails = finalReadFails
-
-            await judge.check([{ name: 'at_least_once', params: {} }], {}, NO_RESETS)
-
-            expect(judge.settle(converged)).toEqual(expected)
-        }
-    )
 
     describe('reading a large truth', () => {
         const LARGE_TRUTH_RECORDS = 1_500_000

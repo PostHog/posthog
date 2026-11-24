@@ -2246,11 +2246,8 @@ describe('runner through seed, drive and judge', () => {
         })
         await new Promise<void>((resolve) => intake.listen(0, '127.0.0.1', resolve))
         const actual = jest.requireActual<{ internalFetch: typeof internalFetch }>('~/common/utils/request')
-        const judgeRead = (url: string, options?: { timeoutMs?: number }): boolean =>
-            (url.includes('/_truth?') && !url.includes('limit=')) ||
-            (url.endsWith('/_truth/head') && (options?.timeoutMs ?? 0) > 1000)
         jest.mocked(internalFetch).mockImplementation((url, options) =>
-            judgeRead(url, options)
+            url.includes('/_truth?') && !url.includes('limit=')
                 ? Promise.reject(
                       Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' })
                   )
@@ -2280,9 +2277,8 @@ describe('runner through seed, drive and judge', () => {
             expect({ scorecard, refusedAtTheBreak: broke?.refused > 0 }).toEqual({
                 scorecard: expect.objectContaining({
                     status: 'failed',
-                    status_reason: expect.stringMatching(
-                        /^the ramp broke: refused_at_intake broke at the 10x step; the judge could not read the final state: the truth read hit a harness limit at record \d+: 3 of 3 attempts failed, the last with The operation was aborted due to timeout$/
-                    ),
+                    status_reason:
+                        'the ramp broke: refused_at_intake broke at the 10x step; the judge could not read the final state: The operation was aborted due to timeout',
                     ramp_end: 'broke',
                     ramp_sustained_scale: 5,
                     ramp_broke_scale: 10,

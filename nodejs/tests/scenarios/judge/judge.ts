@@ -52,7 +52,6 @@ export interface Judge {
     open(seed: Pick<SeedState, 'teamIds'>): Promise<void>
     record(unit: JournalEntry): void
     converge(withinMs: number, signal: AbortSignal): Promise<Convergence>
-    settle(converged: Convergence): Convergence
     check(
         invariants: Named[],
         gates: Record<string, number>,
@@ -70,7 +69,6 @@ export type JudgeOptions = {
     finalRead?: FinalRead
     pollMs?: number
     now?: () => number
-    wallNow?: () => number
 }
 
 export type FinalRead = { attempts: number; backoffMs: number }
@@ -108,15 +106,12 @@ export function createJudge({
     finalRead = FINAL_READ,
     pollMs = 1000,
     now = Date.now,
-    wallNow = Date.now,
 }: JudgeOptions): Judge {
     let journal: JournalEntry[] = []
     let truth: TruthRecord[] = []
     let cursor = 0
     let teams: number[] = []
     let unread: string | undefined
-    let lastCount: { jobs: number | null; tookMs: number; wallAt: number } | undefined
-    let onlyTruthUnread = false
 
     const pullTruth = async (): Promise<void> => {
         for (;;) {
@@ -166,12 +161,10 @@ export function createJudge({
         }
     }
 
-    const unrecordedUnits = (until = Infinity): string[] => {
+    const unrecordedUnits = (): string[] => {
         const recorded = new Set(
-            truth.flatMap(({ unitId, actionId, at }) =>
-                unitId !== undefined && actionId !== undefined && Date.parse(at) <= until
-                    ? [deliveryKey(unitId, actionId)]
-                    : []
+            truth.flatMap(({ unitId, actionId }) =>
+                unitId !== undefined && actionId !== undefined ? [deliveryKey(unitId, actionId)] : []
             )
         )
         return journal
@@ -189,8 +182,6 @@ export function createJudge({
             cursor = await source.head()
             truth = []
             unread = undefined
-            lastCount = undefined
-            onlyTruthUnread = false
             teams = [...seed.teamIds]
         },
 
@@ -200,50 +191,24 @@ export function createJudge({
 
         async converge(withinMs, signal) {
             const startedAt = now()
-            lastCount = undefined
             for (;;) {
-                await read(pullTruth)
-                const counted = await probe.unfinishedJobs({ teams, queues: ['hogflow', 'email'] }).then(
-                    (jobs) => ({ jobs, unread: undefined }),
-                    (error: unknown) => ({ jobs: null, unread: messageOf(error) })
-                )
-                const wallAt = wallNow()
-                onlyTruthUnread = unread !== undefined && counted.unread === undefined
+                const polled = await read(async () => {
+                    await pullTruth()
+                    return probe.unfinishedJobs({ teams, queues: ['hogflow', 'email'] })
+                })
                 const unrecorded = unrecordedUnits()
                 const tookMs = now() - startedAt
-                if (tookMs <= withinMs) {
-                    lastCount = { jobs: counted.jobs, tookMs, wallAt }
-                }
-                const failed = counted.unread ?? unread
-                const converged =
-                    counted.jobs === 0 && unrecorded.length === 0 && failed === undefined && tookMs <= withinMs
+                const converged = polled === 0 && unrecorded.length === 0 && tookMs <= withinMs
                 if (converged || tookMs >= withinMs || signal.aborted) {
                     return {
                         converged,
-                        unfinishedJobs: failed === undefined ? counted.jobs : null,
+                        unfinishedJobs: polled ?? null,
                         unrecorded,
                         tookMs,
-                        ...(failed !== undefined && { unread: failed }),
+                        ...(unread !== undefined && { unread }),
                     }
                 }
                 await sleep(Math.min(pollMs, withinMs - tookMs), undefined, { signal }).catch(() => undefined)
-            }
-        },
-
-        settle(converged) {
-            if (unread !== undefined) {
-                return { ...converged, unread }
-            }
-            if (!onlyTruthUnread || lastCount === undefined || lastCount.jobs === null) {
-                return converged
-            }
-            const unrecorded = unrecordedUnits(lastCount.wallAt)
-            const done = lastCount.jobs === 0 && unrecorded.length === 0
-            return {
-                converged: done,
-                unfinishedJobs: lastCount.jobs,
-                unrecorded,
-                tookMs: done ? lastCount.tookMs : converged.tookMs,
             }
         },
 
