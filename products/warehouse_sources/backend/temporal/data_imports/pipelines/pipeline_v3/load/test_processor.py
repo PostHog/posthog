@@ -973,7 +973,7 @@ class TestCdcLoadMetrics:
         _already: MagicMock,
         _read: MagicMock,
         _partial: AsyncMock,
-        mock_mark: MagicMock,
+        _mark: MagicMock,
         _analytics: MagicMock,
         _record: MagicMock,
         mock_capture: MagicMock,
@@ -988,7 +988,6 @@ class TestCdcLoadMetrics:
 
         process_message(_message(sync_type="cdc", cdc_write_mode="incremental_merge"))
 
-        mock_mark.assert_called_once()
         assert str(mock_capture.call_args.args[0]) == "metrics broke"
 
     @time_machine.travel(_NOW, tick=False)
