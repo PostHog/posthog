@@ -535,7 +535,9 @@ class BillingManager:
             timeout=timeout,
         )
 
-        handle_billing_service_error(res)
+        # A 401 or 404 body has no feature list, and saving one as empty would remove every
+        # entitlement the organization has, including access control.
+        handle_billing_service_error(res, valid_codes=(200,))
 
         available_product_features_json = res.json()
         available_product_features = available_product_features_json.get("available_product_features", [])

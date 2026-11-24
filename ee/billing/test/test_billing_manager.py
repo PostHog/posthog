@@ -680,6 +680,28 @@ class TestBillingManager(BaseTest):
         assert organization.is_active is False
         assert organization.members_can_create_projects is False
 
+    @parameterized.expand([("unauthorized", 401), ("not_found", 404)])
+    @patch("ee.billing.billing_manager.http_session.get")
+    def test_update_available_product_features_keeps_stored_features_on_an_error_response(
+        self, _name: str, status_code: int, mock_get: MagicMock
+    ):
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+        stored_features = [{"key": "access_control", "name": "Access control"}]
+        Organization.objects.filter(pk=self.organization.pk).update(available_product_features=stored_features)
+        organization = Organization.objects.get(pk=self.organization.pk)
+        mock_get.return_value.status_code = status_code
+        mock_get.return_value.json.return_value = {"detail": "Unauthorized"}
+
+        with self.assertRaises(BillingServiceResponseError):
+            BillingManager(license).update_available_product_features(organization)
+
+        organization.refresh_from_db()
+        assert organization.available_product_features == stored_features
+
     @parameterized.expand(
         [
             ("downgrade_from_the_features_sync", True, _SURVEYS, _FREE_RETENTION, 84, 12, None, True),
