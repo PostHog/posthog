@@ -24,11 +24,11 @@ from products.alerts_platform.backend.facade.contracts import (
     DestinationSend,
     DestinationType,
     EnabledNativeConfiguration,
-    HandbackRefusal,
     HeldAlertSearchMatch,
     HeldDeliveryAddress,
     LegacyAlertHistory,
     LegacyHistoryCopyRun,
+    LegacyRowSwitchOffRun,
     NativeConfigurationMatch,
     NewAlertDestination,
     OwnedCopyKey,
@@ -48,7 +48,6 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformCheckPage,
     PlatformControlChangePage,
     PlatformControlHistory,
-    PlatformHandback,
     PlatformLastCheck,
     PlatformOwnershipHandover,
     SourceDestination,
@@ -73,6 +72,7 @@ from products.alerts_platform.backend.logic import (
     destination_handoff,
     destination_sends,
     legacy_history_copy,
+    legacy_row_switch_off,
     platform_lifecycle,
     platform_reads,
     platform_writes,
@@ -171,14 +171,12 @@ def upsert_configuration(upsert: PlatformAlertUpsert, *, revive: bool = False) -
     return platform_lifecycle.upsert_configuration(upsert, revive=revive)
 
 
-def upsert_if_running(upsert: PlatformAlertUpsert, *, revive: bool = False, admit_new_teams: bool = False) -> None:
+def upsert_if_running(upsert: PlatformAlertUpsert, *, revive: bool = False) -> None:
     """Copy one configuration in only when its team already runs that source here.
 
     `revive` says the source alert was just created or turned back on, so the copy starts clean.
-    `admit_new_teams` also admits a team with no enabled copy while the source runs elsewhere and
-    no operator switched that team off.
     """
-    platform_lifecycle.upsert_if_running(upsert, revive=revive, admit_new_teams=admit_new_teams)
+    platform_lifecycle.upsert_if_running(upsert, revive=revive)
 
 
 def refresh_settings(team_id: int, configuration_id: UUID, upsert: PlatformAlertUpsert) -> None:
@@ -189,18 +187,6 @@ def refresh_settings(team_id: int, configuration_id: UUID, upsert: PlatformAlert
 def take_ownership(handover: PlatformOwnershipHandover) -> bool:
     """Makes the platform the owner of a copied alert, carrying on from the source's state."""
     return platform_lifecycle.take_ownership(handover)
-
-
-def give_back_ownership(
-    *, team_id: int, legacy_configuration_id: UUID, at: datetime, source_runs_calendar_schedules: bool = False
-) -> PlatformHandback | HandbackRefusal:
-    """Hands a copied alert back to its source, or says why the platform keeps it."""
-    return platform_lifecycle.give_back_ownership(
-        team_id=team_id,
-        legacy_configuration_id=legacy_configuration_id,
-        at=at,
-        source_runs_calendar_schedules=source_runs_calendar_schedules,
-    )
 
 
 def reset_broken(*, team_id: int, public_id: UUID, at: datetime) -> int | None:
@@ -578,6 +564,26 @@ def copy_legacy_histories(
         team_ids=team_ids if team_ids is not None else team_ids_with_copies(source_kind),
         alert_ids=alert_ids,
         legacy_history=legacy_history,
+        apply=apply,
+    )
+
+
+def switch_off_legacy_rows(
+    *,
+    source_kind: SourceKind,
+    team_ids: Collection[int] | None,
+    switch_off: Callable[[int, Sequence[UUID], bool], int],
+    batch_size: int,
+    apply: bool,
+) -> LegacyRowSwitchOffRun:
+    """Hands `switch_off` each team's platform-owned alerts of the source, `batch_size` source row ids at
+    a time, for it to switch off the rows that are on. Writes nothing unless `apply`. Every team with a
+    copy of the source's alerts when `team_ids` is None."""
+    return legacy_row_switch_off.switch_off_team_rows(
+        source_kind=source_kind.value,
+        team_ids=team_ids if team_ids is not None else team_ids_with_copies(source_kind),
+        switch_off=switch_off,
+        batch_size=batch_size,
         apply=apply,
     )
 

@@ -4,7 +4,7 @@ import { getKMPSteps } from '../product-analytics/kmp'
 import { StepDefinition } from '../steps'
 
 export const getKMPErrorTrackingSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
-    const { CodeBlock, Markdown, CalloutBox, Tab, dedent } = ctx
+    const { CodeBlock, Markdown, Tab, dedent } = ctx
 
     const installSteps = getKMPSteps(ctx)
 
@@ -26,9 +26,6 @@ export const getKMPErrorTrackingSteps = (ctx: OnboardingComponentsContext): Step
         badge: 'required',
         content: (
             <>
-                <CalloutBox type="fyi" title="Version requirement">
-                    <Markdown>The error tracking configuration requires PostHog KMP version 0.8.0 or higher.</Markdown>
-                </CalloutBox>
                 <Markdown>
                     Both the project setting from the previous step and `errorTracking.autoCapture` must be enabled.
                     Replace the `PostHog.setup()` call from the configuration step with the appropriate example below.
@@ -48,20 +45,18 @@ export const getKMPErrorTrackingSteps = (ctx: OnboardingComponentsContext): Step
                                         language: 'kotlin',
                                         file: 'MyApplication.kt',
                                         code: dedent`
-                                            import com.posthog.kmp.ErrorTrackingConfig
                                             import com.posthog.kmp.PostHog
                                             import com.posthog.kmp.PostHogConfig
                                             import com.posthog.kmp.PostHogContext
 
                                             PostHog.setup(
-                                                config = PostHogConfig(
-                                                    projectToken = "<ph_project_token>",
-                                                    host = "<ph_client_api_host>",
-                                                    errorTracking = ErrorTrackingConfig(
-                                                        autoCapture = true,
-                                                        inAppIncludes = listOf("com.example"),
-                                                    ),
-                                                ),
+                                                config = PostHogConfig("<ph_project_token>") {
+                                                    host = "<ph_client_api_host>"
+                                                    errorTracking {
+                                                        autoCapture = true
+                                                        inAppIncludes = listOf("com.example")
+                                                    }
+                                                },
                                                 context = PostHogContext(this),
                                             )
                                         `,
@@ -80,20 +75,18 @@ export const getKMPErrorTrackingSteps = (ctx: OnboardingComponentsContext): Step
                                         language: 'kotlin',
                                         file: 'Kotlin',
                                         code: dedent`
-                                            import com.posthog.kmp.ErrorTrackingConfig
                                             import com.posthog.kmp.PostHog
                                             import com.posthog.kmp.PostHogConfig
                                             import com.posthog.kmp.PostHogContext
 
                                             PostHog.setup(
-                                                config = PostHogConfig(
-                                                    projectToken = "<ph_project_token>",
-                                                    host = "<ph_client_api_host>",
-                                                    errorTracking = ErrorTrackingConfig(
-                                                        autoCapture = true,
-                                                        inAppIncludes = listOf("com.example"),
-                                                    ),
-                                                ),
+                                                config = PostHogConfig("<ph_project_token>") {
+                                                    host = "<ph_client_api_host>"
+                                                    errorTracking {
+                                                        autoCapture = true
+                                                        inAppIncludes = listOf("com.example")
+                                                    }
+                                                },
                                                 context = PostHogContext(),
                                             )
                                         `,
@@ -132,7 +125,7 @@ export const getKMPErrorTrackingSteps = (ctx: OnboardingComponentsContext): Step
                                 } catch (error: Exception) {
                                     PostHog.captureException(
                                         throwable = error,
-                                        additionalProperties = mapOf("context" to "checkout_flow"),
+                                        properties = mapOf("context" to "checkout_flow"),
                                     )
                                 }
                             `,

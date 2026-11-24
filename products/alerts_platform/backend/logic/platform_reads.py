@@ -495,13 +495,13 @@ def count_configurations(
 ) -> int:
     """How many alerts of a kind a team has on the platform, whoever owns them. With `native_only`, only
     the ones with no source row, and with `held_only` also the copies the platform owns. With
-    `exclude_id`, the alert an edit is checked for is left out. With `source_config_contains`, only the
-    ones whose `source_config` holds that object."""
+    `exclude_id`, the alert an edit is checked for is left out, by its platform id or a copy's source
+    row id. With `source_config_contains`, only the ones whose `source_config` holds that object."""
     configurations = PlatformAlertConfiguration.objects.for_team(team_id, canonical=True).filter(
         source_kind=source_kind
     )
     if exclude_id is not None:
-        configurations = configurations.exclude(id=exclude_id)
+        configurations = configurations.exclude(Q(id=exclude_id) | Q(legacy_configuration_id=exclude_id))
     if source_config_contains:
         configurations = configurations.filter(source_config__contains=source_config_contains)
     if native_only:

@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+#
+# Applies ClickHouse migrations for local dev and CI. Migrations after LAST_MIGRATION_AS_DEFAULT run
+# as the `migrations` user, which has the prod migrations user's roles (docker/clickhouse/users-dev.xml),
+# so a statement prod refuses fails here first. Earlier ones run as the default user: prod applied
+# them before its current revokes existed (0364 drops sharded_raw_sessions_v3, which prod now protects).
+#
+# A new revoke in posthog-cloud-infra that breaks an applied migration fails the multinode smoke on
+# its sync PR. Raise LAST_MIGRATION_AS_DEFAULT to that migration then.
+
+set -euo pipefail
+
+LAST_MIGRATION_AS_DEFAULT=364
+
+echo "Applying ClickHouse migrations up to $LAST_MIGRATION_AS_DEFAULT as the default user…"
+python manage.py migrate_clickhouse --upto "$LAST_MIGRATION_AS_DEFAULT"
+
+echo "Applying later ClickHouse migrations as the migrations user…"
+if ! CLICKHOUSE_MIGRATIONS_USER=migrations CLICKHOUSE_MIGRATIONS_PASSWORD=migrationspass python manage.py migrate_clickhouse; then
+    echo "A migration after $LAST_MIGRATION_AS_DEFAULT failed as the migrations user, which has the prod grants." >&2
+    echo "On 'Code: 497 Not enough privileges', prod refuses it too (e.g. DROP TABLE on a protected table)." >&2
+    echo "On 'Code: 516', ClickHouse is running an older users-dev.xml without the migrations user. Restart the ClickHouse container." >&2
+    echo "For a new migration, get the privilege granted in posthog-cloud-infra first. Its sync then updates docker/clickhouse/users-dev.xml." >&2
+    echo "For one prod already applied, raise LAST_MIGRATION_AS_DEFAULT in $0." >&2
+    exit 1
+fi
