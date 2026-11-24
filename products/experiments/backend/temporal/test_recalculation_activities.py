@@ -1363,7 +1363,7 @@ class TestCalculateActivity(BaseTest):
         ]
         row = ExperimentMetricResult.objects.get(experiment=exp, metric_uuid="m1", query_to=query_to)
         assert row.fingerprint == keys[expected_key]
-        payload = build_job_payload(recalc, results=results)
+        payload = build_job_payload(recalc)
         assert (payload["completed_metrics"], payload["failed_metrics"]) == expected_counters
 
     def test_excluded_variants_change_recomputes(self):

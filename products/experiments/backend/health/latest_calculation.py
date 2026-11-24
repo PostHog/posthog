@@ -65,9 +65,7 @@ def _load_latest_calculation(experiment: Experiment, team_config: TeamExperiment
             completed_count=0,
             completed_exposures_paths=frozenset(),
         )
-    metric_errors = entries_of_current_configs(
-        run.metric_errors if isinstance(run.metric_errors, dict) else {}, calculation_configs
-    )
+    metric_errors = entries_of_current_configs(run.metric_errors, calculation_configs)
     results = MetricResultStore(experiment_id=experiment.id)
     rows = {row.metric_uuid: row for row in results.for_run(run, with_result=False)}
     failures = tuple(

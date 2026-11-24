@@ -139,11 +139,9 @@ _recalculation_stale_cleanup_counter = Counter(
 )
 
 
-def entries_of_current_configs(
-    entries: Mapping[str, Any], configs: Iterable[MetricCalculationConfig]
-) -> dict[str, Any]:
+def entries_of_current_configs(entries: object, configs: Iterable[MetricCalculationConfig]) -> dict[str, Any]:
     """The entries of a run's `metric_errors` or `metric_retries` that a current config of their metric wrote, without
-    their display key.
+    their display key. A stored value that isn't a dict has no entries.
 
     The entries are keyed by metric uuid, which stays the same when the metric or the exposure criteria change. The
     display key hashes both, and with them the warehouse connection that the calculation read. A reader's connection
@@ -151,6 +149,8 @@ def entries_of_current_configs(
     of that config do in `get_run_results`. An entry without a display key holds text that PostHog wrote, or was stored
     before entries had the key, and stays in.
     """
+    if not isinstance(entries, dict):
+        return {}
     display_keys: dict[str, set[str]] = {}
     for calculation_config in configs:
         display_keys.setdefault(calculation_config.metric_id, set()).add(calculation_config.legacy_key())
@@ -164,40 +164,12 @@ def entries_of_current_configs(
 
 
 @frozen
-class _CurrentRunEntries:
-    metric_errors: dict[str, Any]
-    metric_retries: dict[str, Any]
-
-
-def _current_run_entries(recalc: ExperimentMetricsRecalculation) -> _CurrentRunEntries:
-    """The run's `metric_errors` and `metric_retries` as `entries_of_current_configs` filters them. It builds the configs
-    only when an entry holds a display key, so a run without such entries costs no extra queries."""
-    metric_errors = recalc.metric_errors if isinstance(recalc.metric_errors, dict) else {}
-    metric_retries = recalc.metric_retries if isinstance(recalc.metric_retries, dict) else {}
-    if not any(
-        isinstance(entry, dict) and RUN_ENTRY_DISPLAY_KEY in entry
-        for entry in (*metric_errors.values(), *metric_retries.values())
-    ):
-        return _CurrentRunEntries(metric_errors=metric_errors, metric_retries=metric_retries)
-    configs = build_calculation_configs(recalc.experiment)
-    return _CurrentRunEntries(
-        metric_errors=entries_of_current_configs(metric_errors, configs),
-        metric_retries=entries_of_current_configs(metric_retries, configs),
-    )
-
-
-@frozen
 class RunMetricCounts:
     completed_metrics: int
     failed_metrics: int
 
 
-def _derive_counters(
-    recalc: ExperimentMetricsRecalculation,
-    results: list[dict] | None = None,
-    *,
-    metric_errors: Mapping[str, Any] | None = None,
-) -> RunMetricCounts:
+def _derive_counters(results: list[dict], metric_errors: Mapping[str, Any]) -> RunMetricCounts:
     """Counters are not stored on the row (PR1 contract): they're derived on read from result rows + errors.
 
     `failed_metrics`    = metrics with an ExperimentMetricResult row with status=FAILED or a `metric_errors` entry.
@@ -206,20 +178,17 @@ def _derive_counters(
                           for a metric without a row.
     `completed_metrics` = metrics with an ExperimentMetricResult row with status=COMPLETED that did not fail.
 
-    Accepts an optional pre-computed `results` list to avoid recomputing fingerprints on the GET path where
-    the same list is also surfaced to the client. `metric_errors` replaces the run's own, so a caller that serves
-    filtered entries counts the same entries.
+    `results` are rows in the shape of `get_run_results`. `metric_errors` are the entries that the caller serves, so
+    `failed_metrics` counts the same entries.
 
     Inherits the fingerprint-divergence hazard from `get_run_results`: `completed_metrics` can silently drop
     if settings that feed the calculation key change between the workflow's writes and this read.
     `failed_metrics` is partly immune because discovery-step failures come from `metric_errors` (stored on the
     row), not from result rows.
     """
-    rows = results if results is not None else get_run_results(recalc)
-    status_by_uuid = {r["metric_uuid"]: r["status"] for r in rows}
+    status_by_uuid = {r["metric_uuid"]: r["status"] for r in results}
     failed = {uuid for uuid, status in status_by_uuid.items() if status == ExperimentMetricResult.Status.FAILED}
-    errors = metric_errors if metric_errors is not None else (recalc.metric_errors or {})
-    for uuid, error in errors.items():
+    for uuid, error in metric_errors.items():
         rejected = isinstance(error, dict) and error.get("error_type") == RECALCULATION_WINDOW_TOO_LONG_ERROR_TYPE
         if not (rejected and uuid in status_by_uuid):
             failed.add(uuid)
@@ -315,24 +284,27 @@ def build_job_payload(
     recalc: ExperimentMetricsRecalculation,
     *,
     is_existing: bool | None = None,
-    results: list[dict] | None = None,
+    include_results: bool = False,
     include_live_progress: bool = False,
 ) -> dict:
     """Shape a recalc row + derived counters as a dict the serializer can re-serialize.
 
     Returns model-native values (datetimes, ints, dicts) — DRF handles the wire format. The POST path passes
-    `is_existing` to signal whether the workflow needs starting; the GET paths pass `results` so the same row
-    list backs both the derived counters and the response's `results` field (no duplicate fingerprint work).
+    `is_existing` to signal whether the workflow needs starting; the GET paths set `include_results` to add the
+    result rows that the derived counters read.
 
     `include_live_progress` opts the caller into one system.processes read per call (see get_live_query_progress);
     the poll (GET) path sets it so an in-flight run carries live ClickHouse progress, while the POST path does not
     (nothing is running yet).
 
     `metric_errors` and `metric_retries` hold only the entries of the current metric configs, as
-    `entries_of_current_configs` defines them, and `failed_metrics` counts those entries.
+    `entries_of_current_configs` defines them, and `failed_metrics` counts those entries. One set of configs selects
+    both the result rows and the entries.
     """
-    entries = _current_run_entries(recalc)
-    counts = _derive_counters(recalc, results=results, metric_errors=entries.metric_errors)
+    configs = build_calculation_configs(recalc.experiment)
+    results = get_run_results(recalc, configs=configs)
+    metric_errors = entries_of_current_configs(recalc.metric_errors, configs)
+    counts = _derive_counters(results, metric_errors)
     payload: dict = {
         "id": str(recalc.id),
         "experiment_id": recalc.experiment_id,
@@ -340,8 +312,8 @@ def build_job_payload(
         "total_metrics": recalc.total_metrics,
         "completed_metrics": counts.completed_metrics,
         "failed_metrics": counts.failed_metrics,
-        "metric_errors": entries.metric_errors,
-        "metric_retries": entries.metric_retries,
+        "metric_errors": metric_errors,
+        "metric_retries": entries_of_current_configs(recalc.metric_retries, configs),
         "trigger": recalc.trigger,
         "created_at": recalc.created_at,
         "started_at": recalc.started_at,
@@ -350,6 +322,8 @@ def build_job_payload(
     }
     if is_existing is not None:
         payload["is_existing"] = is_existing
+    if include_results:
+        payload["results"] = results
     if include_live_progress:
         live_progress = get_live_query_progress(recalc)
         if live_progress is not None:
@@ -812,7 +786,9 @@ def get_recalculation_by_id(experiment: Experiment, recalculation_id: str) -> Ex
         ).first()
 
 
-def get_run_results(recalc: ExperimentMetricsRecalculation) -> list[dict]:
+def get_run_results(
+    recalc: ExperimentMetricsRecalculation, *, configs: list[MetricCalculationConfig] | None = None
+) -> list[dict]:
     """Return the ExperimentMetricResult rows that belong to THIS run.
 
     Never returns rows from a previous run or from the timeseries workflow (which uses config fingerprints).
@@ -820,7 +796,8 @@ def get_run_results(recalc: ExperimentMetricsRecalculation) -> list[dict]:
     Ended experiments retain completed rows with a compatible display key after project settings change, without
     making those rows reusable.
     """
-    configs = build_calculation_configs(recalc.experiment)
+    if configs is None:
+        configs = build_calculation_configs(recalc.experiment)
     by_uuid = {config.metric_id: config for config in configs}
     rows = MetricResultStore(experiment_id=recalc.experiment_id).for_run(recalc, configs=configs)
     return [

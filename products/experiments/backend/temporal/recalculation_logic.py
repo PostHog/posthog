@@ -492,15 +492,15 @@ def _record_failure(
     error_type: str,
     retriable: bool,
     exposures_path: ExposuresPath | None = None,
-    display_key: str | None = None,
+    display_key: str | None,
 ) -> None:
     """Merge the error entry into metric_errors under a row lock (no lost updates between concurrent failures).
 
     Idempotent on Temporal retries: the dict is keyed by metric_uuid, so re-running this for the same metric
     just overwrites the existing entry with a fresh timestamp. retriable is True only when a transient error
     exhausted its attempts, so the frontend heals that metric on page load and leaves the rest to a user retry.
-    `display_key` is the display key of the config that failed, which reads of the run compare with the current
-    config (`entries_of_current_configs`). A failure without a config passes None.
+    `display_key` is the `legacy_key` of the config that failed. Reads of the run serve the entry only while that
+    config is current (`entries_of_current_configs`). A failure without a config passes None.
     """
     capped = message[:_MAX_ERROR_MESSAGE_LENGTH]
     with transaction.atomic():
