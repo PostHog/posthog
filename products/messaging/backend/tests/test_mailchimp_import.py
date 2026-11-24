@@ -1,3 +1,4 @@
+import re
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -667,21 +668,27 @@ class TestMailchimpContacts(ClickhouseTestMixin, TestMailchimpImportBase):
         assert (item["label"], item["status"]) == ("Old (tag in Weekly newsletter, from Mailchimp)", "failed")
         assert "its cohort stays as it is" in item["notes"][0]
 
-    @parameterized.expand([("segments", 1, 250_000), ("memberships", 300, 1)])
+    @parameterized.expand([("segments", 2, 250_000), ("memberships", 300, 1)])
     def test_an_account_past_a_segment_limit_still_imports_its_contacts(
         self, _name: str, max_segments: int, max_memberships: int
     ) -> None:
         module = "products.messaging.backend.provider_imports.mailchimp"
         self._patch(f"{module}.MAX_SEGMENTS", max_segments)
         self._patch(f"{module}.MAX_SEGMENT_MEMBERSHIPS", max_memberships)
-        self._add_segments(0, (7, "Newer", "static", ["ada@example.com"]), (2, "Older", "static", ["ada@example.com"]))
+        too_many = ["ada@example.com", "linus@example.com"] if max_memberships == 1 else []
+        self._add_segments(
+            0,
+            (1, "Too many people", "static", too_many),
+            (2, "Older", "static", ["ada@example.com"]),
+            (7, "Newer", "static", ["ada@example.com"]),
+        )
 
         run = self._import_contacts("new_people")
 
         assert [name for name in self._staged(run) if " in " in name] == [
             "Older (tag in Weekly newsletter, from Mailchimp)"
         ]
-        assert run.progress["contacts"]["items"][1]["notes"][0].startswith("1 more")
+        assert re.match(r"[12] more", run.progress["contacts"]["items"][1]["notes"][0])
 
     def test_reads_of_tags_stop_after_several_fail(self) -> None:
         self._add_segments(0, *((number, f"Tag {number}", "static", ["ada@example.com"]) for number in range(1, 10)))

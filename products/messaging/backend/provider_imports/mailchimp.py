@@ -11,6 +11,7 @@ by offset. The checkpoint names the target and the offset, so a retried step con
 import html
 import json
 import hashlib
+import logging
 from collections import Counter
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
@@ -77,6 +78,8 @@ from products.messaging.backend.services.mailchimp_client import (
 )
 from products.messaging.backend.services.message_templates import create_template, with_editor_design
 from products.workflows.backend.facade.people_import import MAX_SOURCE_NAME_LENGTH
+
+logger = logging.getLogger(__name__)
 
 # The key check runs on the request path, so it gets a short timeout and doesn't wait out a rate limit.
 CREDENTIAL_CHECK_TIMEOUT_SECONDS = 10
@@ -277,7 +280,7 @@ class MailchimpImportProvider(ImportProvider):
                 "Groups, Cleaned contacts and Abuse reports selected too, so no one who left in Mailchimp gets "
                 "marketing email."
             ),
-            count_labels=CONTACT_COUNT_LABELS,
+            count_labels=(*CONTACT_COUNT_LABELS, ("segments_failed", "Tags and segments Mailchimp couldn't share")),
             requires=OPT_OUT_STEPS,
             needs=OPT_OUT_STEPS,
             counts_as_events=True,
@@ -884,7 +887,13 @@ def _fetch_contacts(client: MailchimpClient, context: ImportContext) -> Iterator
 
     def save() -> SavedPage:
         saved = save_contact_lists(context, everyone, [*lists, *segments.lists], contacts.other_spellings)
-        return saved if saved.error else replace(saved, items=(*saved.items[:1], *segments.skipped, *saved.items[1:]))
+        if saved.error:
+            return saved
+        return replace(
+            saved,
+            items=(*saved.items[:1], *segments.skipped, *saved.items[1:]),
+            counts={**saved.counts, "segments_failed": segments.failed},
+        )
 
     yield ImportPage(processed=read, save=save)
 
@@ -894,6 +903,7 @@ class _Segments:
     lists: tuple[ContactList, ...]
     # Says why a tag or segment has no list. Its cohort stays as it is.
     skipped: tuple[ImportItem, ...]
+    failed: int = 0
 
 
 def _read_segments(
@@ -928,9 +938,12 @@ def _read_segments(
             for segment in segments
             if isinstance(segment.get("id"), int) and segment.get("type") in _SEGMENT_KINDS
         ]
+        found.sort(key=lambda entry: entry[0])
+        left_out += len(found[MAX_SEGMENTS + MAX_FAILED_SEGMENTS :])
+        del found[MAX_SEGMENTS + MAX_FAILED_SEGMENTS :]
     # Oldest first, so a later import of an account past the limit fills the same cohorts.
-    for segment_id, segment, position in sorted(found, key=lambda entry: entry[0]):
-        if len(lists) >= MAX_SEGMENTS or memberships >= MAX_SEGMENT_MEMBERSHIPS or failed >= MAX_FAILED_SEGMENTS:
+    for segment_id, segment, position in found:
+        if len(lists) >= MAX_SEGMENTS or failed >= MAX_FAILED_SEGMENTS:
             left_out += 1
             continue
         audience, rows_by_email = subscribed[position]
@@ -945,6 +958,9 @@ def _read_segments(
         if problem := _read_segment(client, audience, segment_id, rows_by_email, rows):
             failed += 1
             skipped.append(ImportItem(label=cohort_name, status="failed", notes=(problem,)))
+            continue
+        if memberships + len(rows) > MAX_SEGMENT_MEMBERSHIPS:
+            left_out += 1
             continue
         memberships += len(rows)
         lists.append(
@@ -979,7 +995,9 @@ def _read_segments(
                 ),
             )
         )
-    return _Segments(lists=tuple(lists), skipped=tuple(skipped))
+    if failed:
+        logger.warning("Mailchimp tags couldn't be read", extra={"failed": failed, "left_out": left_out})
+    return _Segments(lists=tuple(lists), skipped=tuple(skipped), failed=failed)
 
 
 def _read_segment(
