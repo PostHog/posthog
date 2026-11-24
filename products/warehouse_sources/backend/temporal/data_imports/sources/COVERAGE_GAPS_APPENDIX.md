@@ -1221,7 +1221,7 @@ Note: This is a webhook-ingestion source (the directory contains webhook_templat
 
 Re-audited 2026-11-19 against: <https://docs.attentive.com/reference/listsegments.md>
 
-- [ ] `Segments (GET /v2/segments)` — segment definitions with name, external ID and update time; beta, needs segments:read scope (low)
+- [x] `Segments (GET /v2/segments)` — segment definitions with name, external ID and update time; beta, needs segments:read scope (low)
 
 Note (2026-11-19): The source is webhook based and its 8 tables match the 8 webhook event types. A new List segments endpoint appeared in the V2 reference and lists segment metadata only, not members. All other GETs are single-user lookups, webhook config or upload status. The source uses a bearer key, so check that the key has the segments scope before enabling.
 
@@ -4167,7 +4167,7 @@ Note: Cortex publishes an llms.txt index and every API page has a .md variant em
 
 ## Coupa — **thin**
 
-Today (10): `approvals`, `contracts`, `expense_lines`, `expense_reports`, `invoices`, `purchase_order_lines`, `purchase_orders`, `requisitions`, `suppliers`, `users`
+Today (15): `account_types`, `accounts`, `approvals`, `commodities`, `contracts`, `departments`, `expense_lines`, `expense_reports`, `invoices`, `purchase_order_lines`, `purchase_orders`, `receiving_transactions`, `requisitions`, `suppliers`, `users`
 
 Diffed against: <https://compass.coupa.com/en-us/products/product-documentation/integration-technical-documentation/the-coupa-core-api/resources>
 
@@ -4175,10 +4175,10 @@ Diffed against: <https://compass.coupa.com/en-us/products/product-documentation/
 - [x] `/purchase_orders/{id}/order_lines (Purchase Order Lines API)` — line items for POs already synced - the unit almost every spend analysis aggregates (high) — added as `purchase_order_lines`. There is no nested path; the endpoint is the top-level `/api/purchase_order_lines`.
 - [ ] `/requisitions/{id}/requisition_lines (Requisition Line API)` — line items behind requisitions already synced, needed for req-to-PO conversion analysis (high). Not buildable: `requisition-lines` is an element of the requisition response, and the Requisitions API exposes no line endpoint.
 - [x] `/expense_reports/{id}/expense_lines (Expense Lines API)` — per-line expense detail with category and allocation; expense_reports alone is only a header (high) — added as `expense_lines` on the top-level `/api/expense_lines`, which covers every report in one paginated stream instead of fanning out per report.
-- [ ] `/accounts (plus /account_types)` — chart-of-accounts lookup that resolves the account IDs carried on every PO, invoice, and expense allocation (high)
-- [ ] `/commodities` — spend category lookup referenced by requisitions, POs, and invoices; the standard breakdown dimension (high)
-- [ ] `/departments` — lookup resolving the department IDs on users, requisitions, and approvals (high)
-- [ ] `/receiving_transactions (Receipts API)` — goods-receipt transactions needed for three-way match and PO fulfillment analysis (high)
+- [x] `/accounts (plus /account_types)` — chart-of-accounts lookup that resolves the account IDs carried on every PO, invoice, and expense allocation (high) — added as `accounts` and `account_types`.
+- [x] `/commodities` — spend category lookup referenced by requisitions, POs, and invoices; the standard breakdown dimension (high) — added as `commodities`.
+- [x] `/departments` — lookup resolving the department IDs on users, requisitions, and approvals (high) — added as `departments`.
+- [x] `/receiving_transactions (Receipts API)` — goods-receipt transactions needed for three-way match and PO fulfillment analysis (high) — added as `receiving_transactions`.
 - [ ] `/items and /supplier_items` — catalog item lookup resolving item IDs on PO and requisition lines (medium)
 - [ ] `/coupa_pay/payments and /coupa_pay/statements` — actual payment transactions closing the invoice-to-cash loop (medium)
 - [ ] `Order Line Allocations and Req Line Allocation APIs` — cost-center/account splits per line - the breakdown dimension for allocated spend (medium)

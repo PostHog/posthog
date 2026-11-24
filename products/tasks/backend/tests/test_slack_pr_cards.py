@@ -14,6 +14,7 @@ from posthog.models.user import User
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.slack_app.backend.services.slack_messages import RunFooter
 from products.slack_app.backend.slack_thread import SlackThreadHandler
+from products.tasks.backend.facade.api import _post_slack_update_for_pr
 from products.tasks.backend.logic.services.slack_pr_cards import post_pr_closed_slack_update
 from products.tasks.backend.models import SLACK_NOTIFIED_PR_URL_STATE_KEY, Task, TaskRun
 
@@ -88,6 +89,36 @@ class TestPostPrClosedSlackUpdate(TestCase):
             posts.append(mock_post.call_count)
 
         assert posts == expected_posts
+
+    @patch.object(SlackThreadHandler, "post_pr_closed", return_value=True)
+    def test_deactivated_organization_gets_no_card_until_reactivated(self, _mock_post):
+        SlackThreadTaskMapping.objects.create(**self.mapping_kwargs)
+        organization = self.team.organization
+        organization.is_active = False
+        organization.save()
+
+        assert post_pr_closed_slack_update(str(self.task_run.id), PR_URL) is False
+
+        organization.is_active = True
+        organization.save()
+        assert post_pr_closed_slack_update(str(self.task_run.id), PR_URL) is True
+
+    @parameterized.expand([("deactivated", False, 0), ("unset", None, 1)])
+    def test_report_thread_pr_announcement_skips_only_deactivated_organizations(
+        self, _name, is_active, expected_announcements
+    ):
+        organization = self.team.organization
+        organization.is_active = is_active
+        organization.save()
+        announced: list[tuple] = []
+
+        with patch(
+            "products.signals.backend.facade.api.notify_implementation_prs_opened",
+            side_effect=lambda *args, **kwargs: announced.append(args),
+        ):
+            _post_slack_update_for_pr(self.task_run, pr_url=PR_URL, report_threads_only=True)
+
+        assert len(announced) == expected_announcements
 
     @patch.object(SlackThreadHandler, "post_pr_closed", return_value=True)
     def test_merge_after_reopen_still_posts(self, mock_post):

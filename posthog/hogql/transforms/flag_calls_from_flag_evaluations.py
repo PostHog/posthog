@@ -18,7 +18,7 @@ from datetime import UTC, date, datetime, time, timedelta, tzinfo
 from fractions import Fraction
 from functools import partial
 from math import isfinite
-from typing import TYPE_CHECKING, Generic, Protocol, cast
+from typing import TYPE_CHECKING, Generic, Protocol
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import structlog
@@ -64,17 +64,7 @@ _Predicate = Callable[[ast.Expr], bool]
 
 
 class Resolve(Protocol[_T_AST]):
-    """Resolves `node`. With `scopes`, it resolves `node` as the lazy-table pass resolves the subquery of a lazy table:
-    inside those scopes, with no other CTE in scope."""
-
-    def __call__(
-        self,
-        node: _T_AST,
-        /,
-        *,
-        join_sources: JoinSources | None = None,
-        scopes: list[ast.SelectQueryType] | None = None,
-    ) -> _T_AST: ...
+    def __call__(self, node: _T_AST, /, *, join_sources: JoinSources | None = None) -> _T_AST: ...
 
 
 @frozen
@@ -343,15 +333,11 @@ def _resolve_with_swaps(
         unreadable = union_unreadable_reason(swapped, context) if union.renamed or only_in_flag_evaluations else None
         if unreadable is not None:
             reason = unreadable
-        elif not _swap_keeps_bindings(
-            original, swapped, swapper.flag_key_predicates, cast(Resolve[ast.Expr], resolve), database
-        ):
+        elif not _swap_keeps_bindings(original, swapped, swapper.flag_key_predicates):
             reason = "a name in it would read a different column there"
-        elif not _posthog_events_qualifiers_read_scans(swapped, cast(Resolve[ast.Expr], resolve), database):
+        elif not _posthog_events_qualifiers_read_scans(swapped):
             reason = "a name in it that starts with posthog.events reads another table"
-        elif not only_in_flag_evaluations and not _swap_reads_properties_alike(
-            original, swapped, context, cast(Resolve[ast.Expr], resolve), database
-        ):
+        elif not only_in_flag_evaluations and not _swap_reads_properties_alike(original, swapped, context):
             reason = "it reads a property from a different kind of column there"
         else:
             # A view body's offsets come from the view's own text, not from the query the editor shows.
@@ -1325,9 +1311,7 @@ def _reads_event_of(table_type: ast.Type | None, expr: ast.Expr) -> bool:
     return field_type is not None and field_type.table_type is table_type
 
 
-def _swap_keeps_bindings(
-    original: ast.AST, swapped: ast.AST, flag_key_predicates: int, resolve: Resolve[ast.Expr], database: "Database"
-) -> bool:
+def _swap_keeps_bindings(original: ast.AST, swapped: ast.AST, flag_key_predicates: int) -> bool:
     """Whether every field and table in the resolved swapped query binds as it does in the resolved original.
 
     The swap may change only the table each swapped scan reads. A name that binds elsewhere changes the result
@@ -1336,21 +1320,12 @@ def _swap_keeps_bindings(
     decides how `events` reads person fields, and Database.create_for makes `flag_evaluations` follow it. The comparison ignores order,
     because the swap moves `PREWHERE` into `WHERE`. The swapped query also reads flag_key once for each of the
     `flag_key_predicates` that the swap adds.
-
-    `PersonsTable` moves a join's `persons.id IN (...)` predicate out of the tree into a table attribute while the
-    resolver runs. The collector resolves that moved copy with `resolve`, so its names count too. A moved copy that
-    it cannot resolve or recognize makes the check fail.
     """
-    original_bindings = _bindings(original, resolve, database)
-    swapped_bindings = _bindings(swapped, resolve, database)
-    if original_bindings is None or swapped_bindings is None:
-        return False
-    return Counter(swapped_bindings) == Counter(original_bindings) + Counter(
-        {_ADDED_FLAG_KEY_READ: flag_key_predicates}
-    )
+    expected = Counter(_bindings(original)) + Counter({_ADDED_FLAG_KEY_READ: flag_key_predicates})
+    return Counter(_bindings(swapped)) == expected
 
 
-def _posthog_events_qualifiers_read_scans(node: ast.AST, resolve: Resolve[ast.Expr], database: "Database") -> bool:
+def _posthog_events_qualifiers_read_scans(node: ast.AST) -> bool:
     """Whether each field that starts with `posthog.events` in the SELECT of a swapped `posthog.events` scan reads an
     events or flag_evaluations scan.
 
@@ -1358,13 +1333,8 @@ def _posthog_events_qualifiers_read_scans(node: ast.AST, resolve: Resolve[ast.Ex
     column named `posthog`. The field then reads that table in both queries, so `_swap_keeps_bindings` does not see it.
     A field in another SELECT reads whatever it names there, and the swap does not count it.
     """
-    moved = _MovedFilterCollector(resolve, database)
-    moved.visit(node)
-    if moved.unchecked_filter:
-        return False
     finder = _SwappedPosthogEventsScopeFinder()
-    for tree in (node, *moved.resolved_filters):
-        finder.visit(tree)
+    finder.visit(node)
     return all(_reads_scan(field.type) for field in finder.fields)
 
 
@@ -1429,77 +1399,15 @@ _Binding = tuple[str, str | int, tuple[str, ...]]
 _ADDED_FLAG_KEY_READ: _Binding = ("field", "flag_key", ("scan",))
 
 
-def _bindings(node: ast.AST, resolve: Resolve[ast.Expr], database: "Database") -> list[_Binding] | None:
-    """The bindings of `node`, or None when a moved persons filter in it cannot be checked."""
-    collector = _BindingCollector(resolve, database)
+def _bindings(node: ast.AST) -> list[_Binding]:
+    collector = _BindingCollector()
     collector.visit(node)
-    return None if collector.unchecked_filter else collector.bindings
+    return collector.bindings
 
 
-class _MovedFilterVisitor(SyntaxVisitor):
-    """Visits the persons filter that `PersonsTable` moves out of a join constraint while the resolver runs.
-
-    The moved predicate is `id IN (<values>)`, so the right-hand side is what binds names. It holds no types until the
-    printer's lazy-table pass, which resolves it in the WHERE of the persons subquery, a SELECT from raw_persons.
-    There it reads the columns of raw_persons and the CTEs that the SELECT of the join declares, and no other name of
-    the enclosing queries. This resolves a clone of it in that scope. A right-hand side that does not resolve there
-    makes `unchecked_filter` true, because the check cannot show that the filter binds alike.
-    """
-
-    def __init__(
-        self, resolve: Resolve[ast.Expr], database: "Database", ctes: dict[str, ast.CTE] | None = None
-    ) -> None:
+class _BindingCollector(SyntaxVisitor):
+    def __init__(self) -> None:
         super().__init__()
-        self.resolve = resolve
-        self.database = database
-        # The CTEs that the SELECT being visited declares.
-        self.ctes = ctes or {}
-        self.unchecked_filter = False
-        self.resolved_filters: list[ast.Expr] = []
-
-    def visit_select_query(self, node: ast.SelectQuery) -> None:
-        outer = self.ctes
-        self.ctes = node.ctes or {}
-        super().visit_select_query(node)
-        self.ctes = outer
-
-    def _visit_moved_filter_of(self, node: ast.JoinExpr) -> None:
-        table_type = node.type
-        while isinstance(table_type, ast.TableAliasType | ast.ColumnAliasedTableType):
-            table_type = table_type.table_type
-        if isinstance(table_type, ast.LazyTableType):
-            self._visit_moved_filter(getattr(table_type.table, "filter", None))
-
-    def _visit_moved_filter(self, moved: ast.Expr | None) -> None:
-        if moved is None:
-            return
-        for predicate in moved.exprs if isinstance(moved, ast.And) else [moved]:
-            if not (isinstance(predicate, ast.CompareOperation) and predicate.op == ast.CompareOperationOp.In):
-                self.unchecked_filter = True
-                continue
-            persons_scope = ast.SelectQueryType(
-                tables={"raw_persons": ast.TableType(table=self.database.get_table("raw_persons"))}, ctes=self.ctes
-            )
-            try:
-                resolved = self.resolve(clone_expr(predicate.right), scopes=[persons_scope])
-            except BaseHogQLError:
-                self.unchecked_filter = True
-                continue
-            self.resolved_filters.append(resolved)
-            self.visit(resolved)
-
-
-class _MovedFilterCollector(_MovedFilterVisitor):
-    def visit_join_expr(self, node: ast.JoinExpr) -> None:
-        self._visit_moved_filter_of(node)
-        super().visit_join_expr(node)
-
-
-class _BindingCollector(_MovedFilterVisitor):
-    def __init__(
-        self, resolve: Resolve[ast.Expr], database: "Database", ctes: dict[str, ast.CTE] | None = None
-    ) -> None:
-        super().__init__(resolve, database, ctes)
         self.bindings: list[_Binding] = []
 
     def visit_field(self, node: ast.Field) -> None:
@@ -1513,10 +1421,7 @@ class _BindingCollector(_MovedFilterVisitor):
         # after the field. The same field can be a plain column on events, so only the alias name and what the
         # expansion reads count. An element stand-in reads no column. It returns what the events column holds for a
         # flag call, so it counts as a read of the scan.
-        inner = _BindingCollector(self.resolve, self.database, self.ctes)
-        inner.visit(node.expr)
-        self.unchecked_filter = self.unchecked_filter or inner.unchecked_filter
-        targets = sorted({target for _, _, target in inner.bindings})
+        targets = sorted({target for _, _, target in _bindings(node.expr)})
         if targets == [("scan",)] or (not targets and node.alias in ELEMENT_STAND_INS):
             target: tuple[str, ...] = ("scan",)
         else:
@@ -1525,7 +1430,6 @@ class _BindingCollector(_MovedFilterVisitor):
 
     def visit_join_expr(self, node: ast.JoinExpr) -> None:
         self.bindings.append(("table", "", _target(node.type)))
-        self._visit_moved_filter_of(node)
         if not isinstance(node.table, ast.Field):
             self.visit(node.table)
         for arg in node.table_args or []:
@@ -1582,9 +1486,7 @@ def _target(current: ast.Type | None) -> tuple[str, ...]:
             return (current.__class__.__name__,)
 
 
-def _swap_reads_properties_alike(
-    original: ast.AST, swapped: ast.AST, context: HogQLContext, resolve: Resolve[ast.Expr], database: "Database"
-) -> bool:
+def _swap_reads_properties_alike(original: ast.AST, swapped: ast.AST, context: HogQLContext) -> bool:
     """Whether each property that the swapped query reads comes from the same kind of column as in the original.
 
     A materialized or dmat column on `events` reads the strings "" and "null" as NULL. `flag_evaluations` reads a
@@ -1594,10 +1496,8 @@ def _swap_reads_properties_alike(
     definition on both tables, so reads from it agree. The swap pins `$feature_flag` to keys that are never "" or
     "null", so a read of it agrees whatever column backs it.
     """
-    original_reads = _property_reads(original, context, resolve, database)
-    swapped_reads = _property_reads(swapped, context, resolve, database)
-    if original_reads is None or swapped_reads is None:
-        return False
+    original_reads = _property_reads(original, context)
+    swapped_reads = _property_reads(swapped, context)
     if not original_reads and not swapped_reads:
         return True
     if context.team_id is None:
@@ -1617,13 +1517,10 @@ def _swap_reads_properties_alike(
 _PropertyRead = tuple[str, str, ast.FieldType]
 
 
-def _property_reads(
-    node: ast.AST, context: HogQLContext, resolve: Resolve[ast.Expr], database: "Database"
-) -> list[_PropertyRead] | None:
-    """The property reads in `node`, or None when a moved persons filter in it cannot be checked."""
-    collector = _PropertyReadCollector(context, resolve, database)
+def _property_reads(node: ast.AST, context: HogQLContext) -> list[_PropertyRead]:
+    collector = _PropertyReadCollector(context)
     collector.visit(node)
-    return None if collector.unchecked_filter else collector.reads
+    return collector.reads
 
 
 @frozen
@@ -1649,15 +1546,11 @@ def _property_sources(reads: list[_PropertyRead], context: HogQLContext) -> list
     return sources
 
 
-class _PropertyReadCollector(_MovedFilterVisitor):
-    def __init__(self, context: HogQLContext, resolve: Resolve[ast.Expr], database: "Database") -> None:
-        super().__init__(resolve, database)
+class _PropertyReadCollector(SyntaxVisitor):
+    def __init__(self, context: HogQLContext) -> None:
+        super().__init__()
         self.context = context
         self.reads: list[_PropertyRead] = []
-
-    def visit_join_expr(self, node: ast.JoinExpr) -> None:
-        self._visit_moved_filter_of(node)
-        super().visit_join_expr(node)
 
     def visit_field(self, node: ast.Field) -> None:
         if not isinstance(node.type, ast.PropertyType) or not node.type.chain:
