@@ -290,11 +290,8 @@ def runs_to_sweep() -> list[RunToSweep]:
     return to_sweep[:MAX_SWEEPS_PER_PASS]
 
 
-def reopen_swept_run(run_id: UUID, team_id: int, *, dry_run: bool = False) -> bool:
+def reopen_swept_run(run_id: UUID, task_id: UUID, team_id: int, *, dry_run: bool = False) -> bool:
     with transaction.atomic():
-        task_id = TaskRun.objects.filter(id=run_id, team_id=team_id).values_list("task_id", flat=True).first()
-        if task_id is None:
-            return False
         Task.objects.select_for_update().get(pk=task_id, team_id=team_id)
         run = (
             TaskRun.objects.select_for_update()
@@ -347,7 +344,7 @@ def reopen_swept_runs(
             yield ReopenOutcome.STILL_ENFORCED
         elif check_workflows and not workflows.is_running(workflow_id):
             yield ReopenOutcome.WORKFLOW_GONE
-        elif reopen_swept_run(run_id, run_team_id, dry_run=dry_run):
+        elif reopen_swept_run(run_id, task_id, run_team_id, dry_run=dry_run):
             yield ReopenOutcome.REOPENED
         else:
             yield ReopenOutcome.MOVED_ON

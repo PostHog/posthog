@@ -107,6 +107,20 @@ class TestReopenSweptTaskRuns(TestCase):
         self.assertEqual(rows, [ReopenedSweptRunsRow(outcome=outcome, count=1)] if outcome else [])
         self.assertEqual(run.status, TaskRun.Status.FAILED)
 
+    def test_leaves_a_run_that_was_resumed_after_it_was_listed(self) -> None:
+        run = self._failed_run()
+
+        def mode_while_the_run_is_resumed(*args: Any, **kwargs: Any) -> dict[str, str]:
+            TaskRun.objects.filter(id=run.id).update(status=TaskRun.Status.QUEUED, state={})
+            return {}
+
+        with patch(FLAG_PAYLOAD, side_effect=mode_while_the_run_is_resumed):
+            rows = tasks_facade.reopen_swept_task_runs(profile=USER.key)
+
+        run.refresh_from_db()
+        self.assertEqual(rows, [ReopenedSweptRunsRow(outcome="moved_on", count=1)])
+        self.assertEqual(run.status, TaskRun.Status.QUEUED)
+
     def test_reopens_a_run_whose_workflow_is_gone_when_the_check_is_skipped(self) -> None:
         run = self._failed_run()
         self.describe_workflow.side_effect = WORKFLOW_NOT_FOUND
