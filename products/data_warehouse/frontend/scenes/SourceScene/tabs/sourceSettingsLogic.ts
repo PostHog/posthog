@@ -36,7 +36,10 @@ import {
 } from '~/types'
 
 import { groupTablesBySchema } from 'products/data_warehouse/frontend/shared/components/forms/schemaGroupingUtils'
-import { confirmPendingSelfManagedSync } from 'products/data_warehouse/frontend/shared/confirmPendingSelfManagedSync'
+import {
+    confirmPendingSelfManagedReload,
+    confirmPendingSelfManagedSync,
+} from 'products/data_warehouse/frontend/shared/confirmPendingSelfManagedSync'
 import { sourceTypeLabel } from 'products/data_warehouse/frontend/shared/fileUploadSources'
 import {
     clonePayloadPreservingFiles,
@@ -1378,7 +1381,9 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 const current = values.source?.schemas.find((s) => s.id === schema.id)
                 const turnsSyncingOn = schema.should_sync && !current?.should_sync
                 if (turnsSyncingOn && schema.pending_self_managed_table) {
-                    confirmPendingSelfManagedSync(() => queueSchemaUpdates([schema]))
+                    confirmPendingSelfManagedSync(schema.sync_type, (syncFrequency) =>
+                        queueSchemaUpdates([{ ...schema, sync_frequency: syncFrequency }])
+                    )
                     return
                 }
                 queueSchemaUpdates([schema])
@@ -1559,7 +1564,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     }
                 }
                 if (schema.pending_self_managed_table) {
-                    confirmPendingSelfManagedSync(() => void runReload())
+                    confirmPendingSelfManagedReload(schema.sync_type, () => void runReload())
                     return
                 }
                 await runReload()

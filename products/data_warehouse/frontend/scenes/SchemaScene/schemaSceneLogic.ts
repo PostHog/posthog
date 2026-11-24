@@ -21,7 +21,10 @@ import {
     SchemaIncrementalFieldsResponse,
 } from '~/types'
 
-import { confirmPendingSelfManagedSync } from 'products/data_warehouse/frontend/shared/confirmPendingSelfManagedSync'
+import {
+    confirmPendingSelfManagedReload,
+    confirmPendingSelfManagedSync,
+} from 'products/data_warehouse/frontend/shared/confirmPendingSelfManagedSync'
 import { cleanSourceId } from 'products/data_warehouse/frontend/utils'
 import {
     externalDataSchemasHistoryTableDestroy,
@@ -404,13 +407,13 @@ export const schemaSceneLogic = kea<schemaSceneLogicType>([
     }),
     listeners(({ actions, values, props }) => ({
         updateSchema: async ({ schema }) => {
-            const runUpdate = async (): Promise<void> => {
+            const runUpdate = async (nextSchema: ExternalDataSourceSchema): Promise<void> => {
                 const current = values.schemaData
                 if (current) {
-                    actions.loadSchemaSuccess({ ...current, ...schema })
+                    actions.loadSchemaSuccess({ ...current, ...nextSchema })
                 }
                 try {
-                    await api.externalDataSchemas.update(schema.id, buildSchemaUpdatePayload(schema))
+                    await api.externalDataSchemas.update(nextSchema.id, buildSchemaUpdatePayload(nextSchema))
                 } catch (e: any) {
                     lemonToast.error(e?.message || "Can't update schema at this time")
                 } finally {
@@ -419,10 +422,13 @@ export const schemaSceneLogic = kea<schemaSceneLogicType>([
             }
             const turnsSyncingOn = schema.should_sync && !values.schemaData?.should_sync
             if (turnsSyncingOn && schema.pending_self_managed_table) {
-                confirmPendingSelfManagedSync(() => void runUpdate())
+                confirmPendingSelfManagedSync(
+                    schema.sync_type,
+                    (syncFrequency) => void runUpdate({ ...schema, sync_frequency: syncFrequency })
+                )
                 return
             }
-            await runUpdate()
+            await runUpdate(schema)
         },
         // Sends only this field: updateSchema re-sends a fixed field list that leaves it out.
         setLiveQueryEnabled: async ({ enabled }) => {
@@ -459,7 +465,7 @@ export const schemaSceneLogic = kea<schemaSceneLogicType>([
                 }
             }
             if (schema.pending_self_managed_table) {
-                confirmPendingSelfManagedSync(() => void runReload())
+                confirmPendingSelfManagedReload(schema.sync_type, () => void runReload())
                 return
             }
             await runReload()
