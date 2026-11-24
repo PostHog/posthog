@@ -409,9 +409,10 @@ class TestTransactionalPushBatchSend(APIBaseTest):
                 "key-1": _cdp_answer(422, {"error": "idempotency_key_reused"}),
                 "key-2": _cdp_answer(500, {"error": "internal_error"}),
                 "key-3": _cdp_answer(202, {"invocation_id": self._id("key-3"), "replayed": True}),
+                "key-4": _cdp_answer(202, {}),
             }
         )
-        recipients = self._recipients(4)
+        recipients = self._recipients(5)
         recipients[0]["message_data"] = {"order": "own"}
 
         response = self._batch(recipients, message_data={"order": "shared", "eta": "today"})
@@ -439,6 +440,10 @@ class TestTransactionalPushBatchSend(APIBaseTest):
                     },
                 },
                 {"message_id": self._id("key-3"), "status": "queued", "replayed": True},
+                {
+                    "message_id": self._id("key-4"),
+                    "error": response.json()["results"][2]["error"],
+                },
             ]
         }
         payloads = sorted((call.kwargs["json"] for call in mock_post.call_args_list), key=lambda p: p["distinct_id"])
@@ -463,7 +468,7 @@ class TestTransactionalPushBatchSend(APIBaseTest):
             for call in mock_post.call_args_list
         )
         outcomes = sorted(call.kwargs["properties"]["outcome"] for call in capture.call_args_list)
-        assert outcomes == ["queued", "rejected", "replayed", "unavailable"]
+        assert outcomes == ["queued", "rejected", "replayed", "unavailable", "unavailable"]
 
     @parameterized.expand(
         [
@@ -482,6 +487,32 @@ class TestTransactionalPushBatchSend(APIBaseTest):
         assert "results" not in response.json()
         if code:
             assert response.json()["code"] == code
+
+    def test_a_batch_stops_sending_at_its_deadline(self, mock_post, _flag, _capture):
+        clock = [0.0]
+
+        def stall(url: str, json: dict[str, Any], **kwargs: Any) -> MagicMock:
+            clock[0] += 31
+            return _cdp_answer(202, {"invocation_id": self._id(json["idempotency_key"])})
+
+        mock_post.side_effect = stall
+        module = "products.messaging.backend.services.transactional_push"
+
+        with (
+            patch(f"{module}.PUSH_BATCH_PARALLEL_REQUESTS", 1),
+            patch(f"{module}.time.monotonic", side_effect=lambda: clock[0]),
+        ):
+            response = self._batch(self._recipients(3))
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        results = response.json()["results"]
+        assert [result.get("status") or result["error"]["code"] for result in results] == [
+            "queued",
+            "delivery_unavailable",
+            "delivery_unavailable",
+        ]
+        assert results[1]["error"]["retryable"] is True
+        assert mock_post.call_count == 1
 
     def test_a_turned_off_workflow_refuses_the_batch_without_sending(self, mock_post, _flag, _capture):
         HogFlow.objects.filter(id=self.hog_flow_id).update(status="draft")
