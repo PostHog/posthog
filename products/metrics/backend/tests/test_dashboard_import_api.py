@@ -249,10 +249,10 @@ class TestDashboardImportAPI(APIBaseTest):
         assert [(panel["key"], panel["outcome"]) for panel in first["panels"]] == [
             ("p1", "imported"),
             ("p2", "imported"),
-            ("p3", "approximated"),
             ("p4", "failed"),
+            ("p3", "approximated"),
         ]
-        assert "refunds_total" in first["panels"][3]["reason"]
+        assert "refunds_total" in first["panels"][2]["reason"]
         assert second["dashboard_id"] == first["dashboard_id"]
         assert Dashboard.objects.filter(team=self.team).count() == 1
         assert Dashboard.objects.get(id=first["dashboard_id"]).description == ""
