@@ -558,6 +558,28 @@ class _TableColumnFinder(TraversingVisitor):
             self.found = True
 
 
+class _JoinDependencyFinder(TraversingVisitor):
+    def __init__(self, later: list[ast.Type]) -> None:
+        super().__init__()
+        self.later = later
+        self.found = False
+        self.aliases: set[str] = set()
+
+    def visit_select_query(self, node: ast.SelectQuery):
+        if node.select_from is None:
+            super().visit_select_query(node)
+
+    def visit_field(self, node: ast.Field):
+        field_type = node.type
+        while isinstance(field_type, ast.FieldAliasType):
+            self.aliases.add(field_type.alias)
+            field_type = field_type.type
+        if isinstance(field_type, ast.PropertyType):
+            field_type = field_type.field_type
+        if isinstance(field_type, ast.FieldType) and any(field_type.table_type is table for table in self.later):
+            self.found = True
+
+
 def _field_roots(node: ast.AST, deep: bool = False) -> set[str]:
     collector = _FieldRootCollector(deep=deep)
     collector.visit(node)
@@ -1154,6 +1176,31 @@ class Resolver(CloningVisitor):
 
     def _resolve_pending_alias(self, owner: ast.SelectQueryType, name: str) -> ast.CTE:
         """Resolve a scalar alias against its own SELECT's scope, as if written where it is first read."""
+        pending, _, _ = self._pending_from_aliases[id(owner)]
+        # Straight alias chains do not need a Python call frame per link. Leave other
+        # expressions to normal resolution, where table and lambda precedence is known.
+        chain: list[str] = []
+        seen: set[str] = set()
+        current = name
+        while current in pending and current not in seen:
+            seen.add(current)
+            chain.append(current)
+            expr = pending[current].expr
+            if not isinstance(expr, ast.Field) or len(expr.chain) != 1:
+                break
+            dependency = str(expr.chain[0])
+            if dependency not in pending:
+                break
+            # A FROM column takes precedence, so do not pre-resolve a same-named alias.
+            if lookup_field_by_name(owner, dependency, self.context):
+                break
+            current = dependency
+        for dependency in reversed(chain):
+            if dependency in pending:
+                self._resolve_one_pending_alias(owner, dependency)
+        return self._pending_from_aliases[id(owner)][2][name]
+
+    def _resolve_one_pending_alias(self, owner: ast.SelectQueryType, name: str) -> ast.CTE:
         pending, current_level_ctes, owner_ctes = self._pending_from_aliases[id(owner)]
         cte = pending.pop(name)
         owner_index = next(i for i, scope in enumerate(self.scopes) if scope is owner)
@@ -1211,7 +1258,29 @@ class Resolver(CloningVisitor):
             if is_owner_pending or (bound is not None and bound[1] is scope):
                 if crossed_from:
                     raise self._cross_scope_alias_error(name)
-                return self._resolve_pending_alias(scope, name) if is_owner_pending else cte
+                if is_owner_pending:
+                    return self._resolve_pending_alias(scope, name)
+                assert cte is not None
+                if self._join_constraints and self._join_constraints[-1][0] is scope:
+                    later = self._join_constraints[-1][1]
+                    if later:
+                        aliases = pending[2] if pending is not None else self.ctes
+                        queue = [cte]
+                        seen: set[int] = set()
+                        while queue:
+                            current = queue.pop()
+                            if id(current) in seen:
+                                continue
+                            seen.add(id(current))
+                            finder = _JoinDependencyFinder(later)
+                            finder.visit(current.expr)
+                            if finder.found:
+                                raise QueryError(
+                                    f"{UNRESOLVED_FIELD_MESSAGE}: {name}. "
+                                    "A JOIN constraint can't read an alias that needs a later JOIN."
+                                )
+                            queue.extend(aliases[dep] for dep in finder.aliases if dep in aliases)
+                return cte
             if scope.tables or scope.anonymous_tables or id(scope) in self._unresolved_from_scopes:
                 crossed_from = True
         if bound is not None and crossed_from:

@@ -1082,6 +1082,23 @@ class TestResolver(BaseTest):
             )
         self.assertIn("Unable to resolve field: pdate", str(e.exception))
 
+    def test_long_pending_alias_chain_in_join(self):
+        aliases = ["n.number AS a0", *(f"a{i - 1} AS a{i}" for i in range(1, 1100))]
+        query = f"WITH {', '.join(aliases)} SELECT a1099 FROM numbers(1) n JOIN numbers(1) m ON a1099 = m.number"
+        resolved = resolve_types(self._select(query), self.context, dialect="clickhouse")
+        self.assertIsInstance(resolved.type, ast.SelectQueryType)
+
+    def test_cached_alias_cannot_read_later_join_from_earlier_constraint(self):
+        with self.assertRaisesRegex(QueryError, "later JOIN"):
+            resolve_types(
+                self._select(
+                    "WITH n2.number AS x, x + 1 AS y SELECT y FROM numbers(1) n0 "
+                    "JOIN numbers(1) n1 ON y = 1 JOIN numbers(1) n2 ON y = 1"
+                ),
+                self.context,
+                dialect="clickhouse",
+            )
+
     def test_invalid_scalar_alias_in_join_constraint_reports_the_missing_name(self):
         with self.assertRaises(QueryError) as e:
             resolve_types(
