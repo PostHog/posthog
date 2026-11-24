@@ -463,7 +463,9 @@ def get_cached_evaluations_7d_by_team(
     if not team_ids:
         return {}
 
-    from_flag_evaluations = get_flag_evaluations_read_mode(organization_id) != FlagEvaluationsMode.EVENTS
+    from_flag_evaluations = (
+        get_flag_evaluations_read_mode(organization_id, team_id=team_ids[0]) != FlagEvaluationsMode.EVENTS
+    )
     # The key names the source table, so a mode change cannot serve a count read from the other table.
     source = FLAG_EVALUATIONS_TABLE if from_flag_evaluations else "events"
     cache_key = f"flag_analytics:evals_7d:{source}:{flag_key}:" + ",".join(str(t) for t in sorted(team_ids))

@@ -20,7 +20,11 @@ from posthog.permissions import IsStaffUser
 
 from products.feature_flags.backend.api.staff_cache import _team_ids_field
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
-from products.feature_flags.backend.facade.flags import FlagEvaluationsConfig, get_organization_flag_evaluations_config
+from products.feature_flags.backend.facade.flags import (
+    FlagEvaluationsConfig,
+    get_organization_flag_evaluations_config,
+    get_organization_flag_evaluations_configs,
+)
 from products.feature_flags.backend.flag_evaluations_mode import (
     FLAG_EVALUATIONS_MODES_HELP,
     OrganizationModeChange,
@@ -33,7 +37,6 @@ from products.feature_flags.backend.flag_limits import (
     resolve_max_feature_flags,
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 from products.feature_flags.backend.models.team_feature_flags_config import (
     MAX_FEATURE_FLAGS_OVERRIDE_CEILING,
     PropertyMatchingVersion,
@@ -309,9 +312,7 @@ class FeatureFlagsStaffTeamConfigViewSet(viewsets.ViewSet):
                 "team_id", "max_feature_flags_override"
             )
         )
-        organization_config_by_id = OrganizationFeatureFlagsConfig.objects.in_bulk(
-            set(organization_id_by_team_id.values())
-        )
+        organization_config_by_id = get_organization_flag_evaluations_configs(set(organization_id_by_team_id.values()))
         # FeatureFlag.objects excludes soft-deleted rows, so counting the root team gives the
         # number check_flag_limits_for_team compares against the limit. Staff reading this number
         # next to the limit have to see the number the validator sees.
@@ -330,19 +331,13 @@ class FeatureFlagsStaffTeamConfigViewSet(viewsets.ViewSet):
             # An unsaved instance stands in for a legacy team whose row predates this extension,
             # so the model's own field defaults answer for it rather than a second copy here.
             config = config_by_team_id.get(team_id) or TeamFeatureFlagsConfig()
-            organization_config = (
-                organization_config_by_id.get(organization_id_by_team_id[team_id]) or OrganizationFeatureFlagsConfig()
-            )
             results.append(
                 _config_row(
                     team_id=team_id,
                     minimal_flag_called_events=config.minimal_flag_called_events,
                     property_matching_version=config.property_matching_version,
                     max_feature_flags_override=override_by_root_team_id.get(root_team_id),
-                    flag_evaluations_config=FlagEvaluationsConfig(
-                        mode=organization_config.flag_evaluations_mode,
-                        keeps_events_writes=organization_config.keep_writing_flag_calls_to_events,
-                    ),
+                    flag_evaluations_config=organization_config_by_id[organization_id_by_team_id[team_id]],
                     feature_flag_count=flag_count_by_root_team_id.get(root_team_id, 0),
                 )
             )
