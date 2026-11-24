@@ -3,7 +3,7 @@ from urllib.parse import urlparse
 
 import pytest
 import time_machine
-from unittest.mock import MagicMock, Mock, call, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
 
 from django.test import SimpleTestCase, TestCase
 
@@ -23,8 +23,10 @@ from posthog.temporal.proxy_service.monitor import (
     CAPTURE_V1_PROBE_TIMEOUT_S,
     PROXY_LIVE_CHECK_TIMEOUT_S,
     CheckActivityInput,
+    CleanupMonitorJobInputs,
     _check_cloudflare_certificate_status,
     check_proxy_is_live,
+    cleanup_monitor_job,
 )
 
 
@@ -69,6 +71,26 @@ class TestCheckProxyIsLive(TestCase):
             organization=self.organization, domain="us.i.posthog.com", status="active"
         )
         self.input = CheckActivityInput(proxy_record_id=self.proxy_record.id)
+
+    async def test_monitor_schedule_survives_until_the_proxy_is_deleted(self) -> None:
+        inputs = CleanupMonitorJobInputs(organization_id=self.organization.id, proxy_record_id=self.proxy_record.id)
+        record = ProxyRecord.objects.filter(pk=inputs.proxy_record_id)
+        await record.aupdate(status=ProxyRecord.Status.DELETING)
+        schedules = {f"monitor-proxy-{inputs.proxy_record_id}"}
+
+        with (
+            patch("posthog.temporal.proxy_service.monitor.async_connect", new=AsyncMock()),
+            patch("posthog.temporal.common.schedule.a_schedule_exists", new=AsyncMock(return_value=True)),
+            patch(
+                "posthog.temporal.common.schedule.a_delete_schedule", side_effect=lambda _, key: schedules.remove(key)
+            ),
+        ):
+            await cleanup_monitor_job(inputs)
+            self.assertTrue(schedules)
+            await record.adelete()
+            await cleanup_monitor_job(inputs)
+
+        self.assertFalse(schedules)
 
     @pytest.mark.asyncio
     @patch("posthog.temporal.proxy_service.monitor.get_record")
