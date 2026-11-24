@@ -9,7 +9,6 @@ from django.db.models import Model
 from django.db.models.functions import Trim
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from django.utils.dateparse import parse_datetime
 
 import structlog
 from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_view
@@ -55,7 +54,6 @@ from posthog.api.team.settings_validation import (
 )
 from posthog.api.team.team_config import (
     TEAM_CONFIG_FIELD_ACCESS_CONTROLLED_FIELDS,
-    TEAM_CONFIG_FIELDS,
     TEAM_CONFIG_MEMBER_FIELDS_SET,
     TeamCustomerAnalyticsConfigSerializer,
     TeamFeatureFlagPolicyConfigSerializer,
@@ -75,7 +73,11 @@ from posthog.api.team.team_serializer import (
     hide_team_secrets_from_workload_tokens,
     realtime_cohorts_for_request,
 )
-from posthog.api.team.viewsets import EventIngestionRestrictionSerializer, team_event_ingestion_restrictions_view
+from posthog.api.team.viewsets import (
+    EventIngestionRestrictionSerializer,
+    team_event_ingestion_restrictions_view,
+    team_settings_as_of_view,
+)
 from posthog.api.utils import validate_authorized_url_wildcards
 from posthog.auth import SessionAuthentication
 from posthog.caching.organization_serializer_cache import _bump_org_serializer_cache_version
@@ -90,7 +92,6 @@ from posthog.helpers.impersonation import is_impersonated
 from posthog.ip_restrictions import enforce_ip_restrictions, get_ip_blocked_organization_ids
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import (
-    ActivityLog,
     Change,
     Detail,
     dict_changes_between,
@@ -394,68 +395,6 @@ def team_default_release_conditions_view(team: Team, request: request.Request) -
     )
 
     return response.Response({"enabled": config.enabled, "default_groups": config.default_groups})
-
-
-def team_settings_as_of_view(team: Team, request: request.Request) -> response.Response:
-    """
-    Return the project settings as of the provided timestamp.
-    Query params:
-    - at: ISO8601 datetime (required)
-    - scope: optional, one or multiple keys to filter the returned settings
-    """
-    at_param = request.query_params.get("at")
-    if not at_param:
-        raise exceptions.ValidationError({"at": "Query parameter 'at' is required (ISO8601)."})
-
-    as_of = parse_datetime(at_param)
-    if as_of is None:
-        raise exceptions.ValidationError({"at": "Invalid datetime format. Use ISO8601 (e.g., 2025-11-24T12:34:56Z)."})
-    if timezone.is_naive(as_of):
-        as_of = timezone.make_aware(as_of)
-
-    settings_fields = set(TEAM_CONFIG_FIELDS)
-    snapshot: dict[str, Any] = {}
-    for field_name in settings_fields:
-        if hasattr(team, field_name):
-            snapshot[field_name] = getattr(team, field_name)
-        elif hasattr(team, f"{field_name}_id"):
-            snapshot[field_name] = getattr(team, f"{field_name}_id")
-        else:
-            snapshot[field_name] = None
-    # Stored on a dashboards extension, not on Team, so the loop above reads None for it.
-    snapshot["home_tab_dashboard"] = dashboards_api.home_tab_dashboard_id(team_id=team.id)
-
-    logs = (
-        ActivityLog.objects.filter(team_id=team.id, scope="Team", item_id=str(team.id), created_at__gt=as_of)
-        .order_by("-created_at")
-        .only("detail", "created_at", "activity")
-    )
-
-    for log in logs.iterator():
-        detail = log.detail or {}
-        changes = detail.get("changes") or []
-        for change in changes:
-            field = change.get("field")
-            action = change.get("action")
-            before = change.get("before")
-
-            target = field[:-3] if isinstance(field, str) and field.endswith("_id") else field
-            if target not in settings_fields:
-                continue
-
-            if action == "changed":
-                snapshot[target] = before
-            elif action == "created":
-                snapshot[target] = None
-            elif action == "deleted":
-                snapshot[target] = before
-
-    scope_values = request.query_params.getlist("scope")
-    if scope_values:
-        filtered = {k: snapshot.get(k, None) for k in scope_values}
-        return response.Response(filtered)
-
-    return response.Response(snapshot)
 
 
 def team_default_evaluation_contexts_view(
