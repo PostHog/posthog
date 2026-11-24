@@ -667,6 +667,15 @@ WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRETS = get_list(
     )
 )
 
+# Scoped JWT keys for the transactional push route. Never the email key, so a holder of that key can't send a push.
+# Same rotation and fail-closed semantics; the dev/test value must match nodejs/src/cdp/config.ts.
+WORKFLOWS_TRANSACTIONAL_PUSH_JWT_SECRETS = get_list(
+    get_from_env(
+        "WORKFLOWS_TRANSACTIONAL_PUSH_JWT_SECRET",
+        "local-dev-workflows-transactional-push-jwt" if DEBUG or TEST else "",
+    )
+)
+
 # Signs the tokens a workflow's "Create AI task" action calls back with. The dev/test value
 # must match the plugin server's minting default so local workflows work with no setup.
 TASKS_CREATE_JWT_SECRETS = get_list(
