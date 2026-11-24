@@ -234,7 +234,12 @@ def set_aside_scores(content: HogFunctionContent, rule_hits: Iterable[Rule]) -> 
         and not rules & _INTERNAL_HOST_RULES
     ):
         set_aside["internal_network"] = SetAsideReason.LITERAL_PUBLIC_URLS
-    if requests.calls_out and requests.only_literal_fetches and all(map(_is_chat_message_api, requests.literal_urls)):
+    if (
+        requests.calls_out
+        and requests.only_literal_fetches
+        and not requests.raw_body
+        and all(map(_is_chat_message_api, requests.literal_urls))
+    ):
         set_aside["malformed_payload"] = SetAsideReason.CHAT_MESSAGES_ONLY
     return set_aside
 
@@ -245,6 +250,8 @@ class _Requests:
     # Every call that can send a request is a `fetch` of a literal URL.
     only_literal_fetches: bool
     literal_urls: tuple[str, ...]
+    # A literal `fetch` may send a body that is not JSON: `fetch` sends a string body as it is.
+    raw_body: bool
 
 
 def _requests_of(content: HogFunctionContent) -> _Requests | None:
@@ -264,6 +271,7 @@ def _requests_of(content: HogFunctionContent) -> _Requests | None:
         calls_out=any(shape.calls_out for shape in shapes),
         only_literal_fetches=all(shape.only_literal_fetches for shape in shapes),
         literal_urls=tuple(url for shape in shapes for url in shape.literal_urls),
+        raw_body=any(shape.raw_body for shape in shapes),
     )
 
 
@@ -426,7 +434,7 @@ class _CallGraph:
     # which points it at another closure's variables, so after one no local call is known.
     container_writes: list[_Binding | None] = field(default_factory=list)
 
-    def requests(self, literal_urls: list[str], other_call: bool) -> _Requests:
+    def requests(self, literal_urls: list[str], other_call: bool, raw_body: bool) -> _Requests:
         """A call to a static function runs its body, which this walk checked. A call to any other local can run
         anything, because the local can hold a closure from an input or have its upvalues swapped."""
         rewires = not all(map(_is_dict, self.container_writes))
@@ -435,6 +443,7 @@ class _CallGraph:
             calls_out=other_call or bool(literal_urls),
             only_literal_fetches=not other_call,
             literal_urls=tuple(literal_urls),
+            raw_body=raw_body,
         )
 
 
@@ -452,11 +461,12 @@ class _HogCodeVisitor(TraversingVisitor):
         self.calls_out = False
         self._scopes: list[dict[str, _Binding]] = [{}]
         self._literal_urls: list[str] = []
+        self._raw_body = False
         self._other_call = False
         self._graph = _CallGraph()
 
     def requests(self) -> _Requests:
-        return self._graph.requests(self._literal_urls, self._other_call)
+        return self._graph.requests(self._literal_urls, self._other_call, self._raw_body)
 
     def _sends(self, literal_url: str | None = None) -> None:
         """A call here can send a request: a `fetch` of `literal_url`, or any call when it is None."""
@@ -471,9 +481,6 @@ class _HogCodeVisitor(TraversingVisitor):
             if name in scope:
                 return scope[name]
         return None
-
-    def _is_local(self, name: str) -> bool:
-        return self._local(name) is not None
 
     def _declare(self, name: str, *, declares_function: bool = False) -> _Binding:
         binding = _Binding(name=name, declares_function=declares_function)
@@ -588,6 +595,7 @@ class _HogCodeVisitor(TraversingVisitor):
             return
         if node.name == "fetch" and node.params is None and (url := _literal_string(node.args[:1])) is not None:
             self._sends(url)
+            self._raw_body |= len(node.args) > 1 and not _has_json_body(node.args[1])
         elif node.params is not None or node.name not in _BUILTIN_FUNCTIONS or node.name in OUTBOUND_FUNCTIONS:
             self._sends()
         if node.name in _CALLBACK_FUNCTIONS and node.args and not isinstance(node.args[0], ast.Lambda):
@@ -619,6 +627,17 @@ def _literal_string(args: list[ast.Expr]) -> str | None:
         case [ast.Constant(value=str(value))]:
             return value
     return None
+
+
+def _has_json_body(options: ast.Expr) -> bool:
+    """Whether `fetch` options are a dict literal whose body, if any, is a dict literal, which `fetch` sends as JSON."""
+    if not isinstance(options, ast.Dict):
+        return False
+    for key, value in options.items:
+        name = _literal_string([key])
+        if name is None or (name == "body" and not isinstance(value, ast.Dict)):
+            return False
+    return True
 
 
 def _hog_range_size(args: list[ast.Expr]) -> float:

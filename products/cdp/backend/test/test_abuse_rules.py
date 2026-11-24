@@ -768,14 +768,30 @@ class TestAbuseRules(SimpleTestCase):
             ("url_built_from_the_event", content(hog="fetch(f'https://hooks.slack.com/{event.event}')"), None),
             (
                 "closure_called_beside_a_post",
-                content(hog="inputs.sender(1)\n" + post_to("https://slack.com/api/x").hog),
+                content(hog="inputs.sender(1)\n" + post_to("https://slack.com/api/chat.postMessage").hog),
                 None,
             ),
             ("other_slack_path", post_to("https://slack.com/oauth/x"), None),
+            (
+                "string_body",
+                content(hog="fetch('https://slack.com/api/chat.postMessage', {'body': event.properties.payload})"),
+                None,
+            ),
+            (
+                "options_from_a_variable",
+                content(
+                    hog="let options := {'body': {'text': 'hi'}}\nfetch('https://slack.com/api/chat.postMessage', options)"
+                ),
+                None,
+            ),
             ("slack_file_upload", post_to("https://slack.com/api/files.getUploadURLExternal"), None),
             ("telegram_set_webhook", post_to("https://api.telegram.org/bot0:x/setWebhook"), None),
-            ("dot_segment_out_of_the_api_path", post_to("https://slack.com/api/../oauth/v2/authorize"), None),
-            ("dot_segment_in_a_teams_path", post_to("https://example.webhook.office.com/x/./y"), None),
+            ("dot_segment_in_a_webhook_path", post_to("https://hooks.slack.com/services/T0/../x"), None),
+            (
+                "dot_segment_in_a_teams_path",
+                post_to("https://example.webhook.office.com/webhookb2/a/IncomingWebhook/b/c/.."),
+                None,
+            ),
             ("other_teams_path", post_to("https://example.webhook.office.com/x/y"), None),
             (
                 "encoded_slash_before_two_dots",
