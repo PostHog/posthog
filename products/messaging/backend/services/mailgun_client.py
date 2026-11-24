@@ -31,6 +31,10 @@ MAX_WAIT_SECONDS = 60
 DEFAULT_TIMEOUT_SECONDS = 30
 USER_AGENT = "posthog-messaging-import/1.0"
 INCOMPLETE_MESSAGE = "Mailgun didn't return everything. Import again in a few minutes."
+INCOMPLETE_SUBACCOUNTS_MESSAGE = (
+    "Mailgun didn't list this account's subaccounts, so their contacts would be missing. Use a key that can read "
+    "subaccounts, or import again in a few minutes."
+)
 ON_BEHALF_OF_HEADER = "X-Mailgun-On-Behalf-Of"
 # Below this, X-RateLimit-Reset can't be an epoch timestamp, so it counts milliseconds from now.
 _EPOCH_MILLISECONDS_FLOOR = 10**11
@@ -121,22 +125,27 @@ class MailgunClient:
                 body = self.get(
                     "/v5/accounts/subaccounts", {"limit": SUBACCOUNT_PAGE_SIZE, "skip": skip, "closed": "false"}
                 )
-            except (MailgunKeyRejected, MailgunNotFound) as e:
-                if complete and (skip or (isinstance(e, MailgunNotFound) and self._has_subaccount_domains())):
-                    raise
-                return ids
             except MailgunAPIError as e:
-                if e.status_code == 400 and not (complete and skip):
-                    return ids
-                raise
+                refused = isinstance(e, MailgunKeyRejected) or e.status_code == 400
+                if not refused and not isinstance(e, MailgunNotFound):
+                    raise
+                if complete and (skip or self._has_subaccounts(own_key=refused)):
+                    raise MailgunAPIError(INCOMPLETE_SUBACCOUNTS_MESSAGE) from e
+                return ids
             rows = [row for row in body.get("subaccounts") or [] if isinstance(row, dict)]
             ids.extend(str(row["id"]) for row in rows if row.get("id") and row.get("status") in (None, "open"))
             skip += len(rows)
-            if not rows or skip >= int(body.get("total") or 0):
+            total = int(body.get("total") or 0)
+            if not rows or skip >= total:
+                if complete and skip < total:
+                    raise MailgunAPIError(INCOMPLETE_MESSAGE)
                 return ids
 
-    def _has_subaccount_domains(self) -> bool:
-        return any(domain.get("subaccount_id") for domain in self.domains(complete=True))
+    def _has_subaccounts(self, *, own_key: bool) -> bool:
+        """Whether a domain says this account has subaccounts. A subaccount's own key can't list subaccounts and reads
+        only its own domains, so with `own_key` one subaccount's domains alone don't count."""
+        owners = {domain.get("subaccount_id") or None for domain in self.domains(complete=True)}
+        return len(owners) > 1 if own_key else bool(owners - {None})
 
     def page(
         self,

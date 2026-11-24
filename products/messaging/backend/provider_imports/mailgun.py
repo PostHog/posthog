@@ -825,16 +825,20 @@ def _members_list(client: MailgunClient, rows: tuple[dict[str, str], ...], membe
 
 
 def _account_domain(client: MailgunClient) -> str:
-    """The account's oldest domain, usually the sandbox from its signup. Mailgun gives an API key no account ID, and a
-    domain belongs to one account. An account with only subaccounts' domains says so, because a subaccount's own key
-    reads the same domain."""
+    """The account's oldest sandbox domain, which Mailgun creates with the account and never lets anyone delete, or its
+    oldest domain without one. Mailgun gives an API key no account ID, and a domain belongs to one account. An account
+    with only subaccounts' domains says so, because a subaccount's own key reads the same domain."""
     domains = [domain for domain in client.domains(complete=True) if domain.get("name")]
     has_own = any(not domain.get("subaccount_id") for domain in domains)
     own = [domain for domain in domains if not (has_own and domain.get("subaccount_id"))]
 
-    def age(domain: Mapping[str, Any]) -> tuple[float, str]:
+    def age(domain: Mapping[str, Any]) -> tuple[bool, float, str]:
         created = _timestamp(domain.get("created_at"))
-        return (created.timestamp() if created else float("inf"), str(domain["name"]))
+        return (
+            domain.get("type") != "sandbox",
+            created.timestamp() if created else float("inf"),
+            str(domain["name"]),
+        )
 
     if not own:
         return "no domain"

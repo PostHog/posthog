@@ -621,7 +621,10 @@ class TestMailgunContacts(ClickhouseTestMixin, _MailgunTestCase):
         run = self._run_contacts()
 
         lists = self._lists(run)
-        everyone, developers = lists["Mailgun list members (US, mg.example.com)"], lists["Developers (from Mailgun)"]
+        everyone, developers = (
+            lists["Mailgun list members (US, sandbox123.mailgun.example.com)"],
+            lists["Developers (from Mailgun)"],
+        )
         assert len(everyone) == 155 and len(developers) == 152
         assert {person for person, member in everyone.items() if not member} == {
             "Left@example.com",
@@ -630,7 +633,7 @@ class TestMailgunContacts(ClickhouseTestMixin, _MailgunTestCase):
         }
         assert {"user-stays", "jose@example.com", "page-149@example.com"} <= set(developers)
         # No one is subscribed to either of the other lists, and neither has a cohort from an earlier import.
-        assert set(lists) == {"Mailgun list members (US, mg.example.com)", "Developers (from Mailgun)"}
+        assert set(lists) == {"Mailgun list members (US, sandbox123.mailgun.example.com)", "Developers (from Mailgun)"}
         properties = self._properties(run)
         assert properties["jose@example.com"] == {
             "email": "jose@example.com",
@@ -662,7 +665,7 @@ class TestMailgunContacts(ClickhouseTestMixin, _MailgunTestCase):
         assert {plan["cohort_id"] for plan in run.progress["contacts"]["people_imports"]} == cohorts
         lists = self._lists(run)
         assert lists["Developers (from Mailgun)"] == {}
-        assert lists["Mailgun list members (US, mg.example.com)"] == {
+        assert lists["Mailgun list members (US, sandbox123.mailgun.example.com)"] == {
             "Stays@example.com": False,
             "sub-left@example.com": False,
         }
@@ -683,7 +686,7 @@ class TestMailgunContacts(ClickhouseTestMixin, _MailgunTestCase):
         assert cohorts["us"].isdisjoint(cohorts["eu"])
         assert cohorts["both"] == cohorts["us"] | cohorts["eu"]
 
-    def test_new_domains_keep_the_accounts_cohort(self) -> None:
+    def test_new_and_deleted_domains_keep_the_accounts_cohort(self) -> None:
         domains = self.mailgun.data["us"]["domains"]
         domains[0]["created_at"] = "Mon, 01 Jan 2001 15:04:05 UTC"
         first = self._run_contacts()
@@ -693,6 +696,7 @@ class TestMailgunContacts(ClickhouseTestMixin, _MailgunTestCase):
             {"name": "a-newer.example.com", "created_at": "Tue, 02 Jan 2001 15:04:05 UTC"},
             {"name": "a-sub.example.com", "created_at": "Fri, 01 Jan 1999 15:04:05 UTC", "subaccount_id": "sub-acme"},
         ]
+        del domains[0]
 
         assert self._lists(self._run_contacts()).keys() == cohorts
 
@@ -740,7 +744,7 @@ class TestMailgunContacts(ClickhouseTestMixin, _MailgunTestCase):
         run = self._run_contacts("both")
 
         joined = {name: {p for p, member in people.items() if member} for name, people in self._lists(run).items()}
-        assert joined["Mailgun list members (US, mg.example.com)"] == {"stays@example.com"}
+        assert joined["Mailgun list members (US, sandbox123.mailgun.example.com)"] == {"stays@example.com"}
         assert (
             joined["Mailgun list members (EU, eu.example.com)"]
             == joined["EU news (from Mailgun)"]
@@ -804,25 +808,52 @@ class TestMailgunContacts(ClickhouseTestMixin, _MailgunTestCase):
 
         assert self.people.stored == {}
 
-    @parameterized.expand([("has_subaccounts", True), ("has_none", False)])
-    def test_subaccounts_mailgun_cannot_find_stop_contacts_only_when_there_are_some(
-        self, _name: str, has_subaccounts: bool
+    @parameterized.expand(
+        [
+            ("not_found", 404, ("", "sub-acme"), True),
+            ("not_found_in_a_subaccounts_account", 404, ("sub-acme",), True),
+            ("not_found_without_subaccounts", 404, ("",), False),
+            ("refused", 403, ("", "sub-acme"), True),
+            ("refused_to_a_subaccounts_own_key", 403, ("sub-acme",), False),
+            ("refused_without_subaccounts", 403, ("",), False),
+            ("a_plan_without_subaccounts", 400, ("",), False),
+            ("bad_request", 400, ("", "sub-acme"), True),
+        ]
+    )
+    def test_subaccounts_mailgun_does_not_list_stop_contacts_only_when_there_are_some(
+        self, _name: str, status: int, owners: tuple[str, ...], stops: bool
     ) -> None:
-        if not has_subaccounts:
-            for domain in self.mailgun.data["us"]["domains"]:
-                domain.pop("subaccount_id", None)
+        us = self.mailgun.data["us"]
+        us["domains"] = [domain for domain in us["domains"] if (domain.get("subaccount_id") or "") in owners]
         run = self._start(CONTACT_RUN, "us")
         for step in CONTACT_RUN[:4]:
             runs.run_step(self.team.id, run.id, step, attempt=1)
-        self.mailgun.failures = [Failure(r"/subaccounts$", 404, 20)]
+        self.mailgun.failures = [Failure(r"/subaccounts$", status, 20)]
 
-        if has_subaccounts:
+        if stops:
             with self.assertRaises(ImportProviderUnavailable):
                 runs.run_step(self.team.id, run.id, "contacts", attempt=1)
         else:
             runs.run_step(self.team.id, run.id, "contacts", attempt=1)
 
-        assert bool(self.people.stored) is not has_subaccounts
+        assert bool(self.people.stored) is not stops
+
+    def test_a_subaccount_list_that_ends_before_its_total_stops_contacts(self) -> None:
+        run = self._start(CONTACT_RUN, "us")
+        for step in CONTACT_RUN[:4]:
+            runs.run_step(self.team.id, run.id, step, attempt=1)
+        handle = self.mailgun.handle
+
+        def cut(base_url: str, path: str, *args: Any) -> Any:
+            status, body, headers = handle(base_url, path, *args)
+            if path.endswith("/subaccounts"):
+                body = {**body, "subaccounts": [], "total": 1}
+            return status, body, headers
+
+        with patch.object(self.mailgun, "handle", cut), self.assertRaises(ImportProviderUnavailable):
+            runs.run_step(self.team.id, run.id, "contacts", attempt=1)
+
+        assert self.people.stored == {}
 
     def test_contacts_never_continue_the_opt_outs_of_a_failed_run(self) -> None:
         self.mailgun.failures = [Failure(r"news\.example\.com/unsubscribes$", 500, 20)]
