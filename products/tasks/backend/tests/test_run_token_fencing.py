@@ -8,6 +8,7 @@ from django.db import OperationalError
 from django.test import TestCase, override_settings
 from django.utils import timezone as django_timezone
 
+import requests
 from parameterized import parameterized
 
 from posthog.models import Organization, Team
@@ -190,12 +191,18 @@ class TestRunTokenFencing(TestCase):
         sent = [token_hash for call in post.call_args_list for token_hash in call.kwargs["json"]["token_hashes"]]
         assert sorted(sent) == sorted([*sent_for_that_run, TOKEN_HASH])
 
-    def test_a_failed_revoke_keeps_the_hashes_for_the_next_pass(self) -> None:
+    @parameterized.expand(
+        [
+            ("that_the_gateway_refused", {"return_value": _answer(503)}),
+            ("that_never_reached_the_gateway", {"side_effect": requests.ConnectionError("connection refused")}),
+        ]
+    )
+    def test_a_failed_revoke_keeps_the_hashes_for_the_next_pass(self, _name: str, gateway: dict[str, Any]) -> None:
         run = self._run()
 
         with (
             patch(FLAG_PAYLOAD, return_value={USER.key: "enforce"}),
-            patch(GATEWAY_POST, return_value=_answer(503)),
+            patch(GATEWAY_POST, **gateway),
         ):
             rows = tasks_facade.fence_ended_task_runs()
 
