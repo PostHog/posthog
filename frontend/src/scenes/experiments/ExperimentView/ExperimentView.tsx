@@ -10,7 +10,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { ActivityScope } from '~/types'
 
 import { ExperimentMetaBar } from 'products/experiments/frontend/components/ExperimentMetaBar'
-import { ExperimentHealthDebug } from 'products/experiments/frontend/health/debug/ExperimentHealthDebug'
+import { FeatureFlagCalledMetricsBanner } from 'products/experiments/frontend/components/FeatureFlagCalledMetricsBanner'
 import { ExperimentHealthTab } from 'products/experiments/frontend/health/ExperimentHealthTab'
 import { healthIssues } from 'products/experiments/frontend/health/healthPanelFindings'
 import { useHealthFindingReporting } from 'products/experiments/frontend/health/useHealthFindingReporting'
@@ -159,8 +159,7 @@ export function ExperimentView(): JSX.Element {
     const healthIssueCount = healthIssues(healthFindings).length
 
     // Ordered as: results (Metrics, then the Health checks that say whether to trust them), configuration
-    // (Settings, Code, Variants), feature tabs (Recordings, User feedback), audit trail (History), and the
-    // staff-only Health debug.
+    // (Settings, Code, Variants), feature tabs (Recordings, User feedback) and audit trail (History).
     // Which of these actually render is resolved by experimentSceneLogic's availableTabs, so the tab set,
     // the URL, and the tracked tab stay in agreement.
     const tabs: LemonTab<ExperimentTab>[] = (
@@ -196,7 +195,6 @@ export function ExperimentView(): JSX.Element {
                 label: 'History',
                 content: <ActivityLog scope={ActivityScope.EXPERIMENT} id={experimentId} />,
             },
-            { key: 'health-debug', label: 'Health debug', content: <ExperimentHealthDebug /> },
         ] satisfies LemonTab<ExperimentTab>[]
     ).filter((tab) => availableTabs.includes(tab.key))
 
@@ -208,6 +206,7 @@ export function ExperimentView(): JSX.Element {
             ) : (
                 <>
                     <DeletedFlagBanner />
+                    <FeatureFlagCalledMetricsBanner />
                     {healthFindings === null && <ExperimentWarningBanner />}
                     {showDebugPanel && (
                         <div className="mb-4">

@@ -131,6 +131,11 @@ from .activities.start_dev_stack_preview import (
     start_dev_stack_preview,
     wait_dev_stack_preview,
 )
+from .activities.switch_model_from_message import (
+    CLASSIFY_BUDGET_SECONDS,
+    SwitchModelFromMessageInput,
+    switch_model_from_message,
+)
 from .activities.track_workflow_event import SANDBOX_DEADLINE_EVENT, TrackWorkflowEventInput, track_workflow_event
 from .activities.update_task_run_status import (
     SANDBOX_GONE_STATE_KEY,
@@ -355,6 +360,20 @@ def _check_rotation_activity_before_boot() -> bool:
 
 
 _PATCH_ID_PERSIST_AGENT_MEMORY = "persist-agent-memory-2026-11"
+_PATCH_ID_SWITCH_MODEL_FROM_MESSAGE = "tasks-switch-model-from-message-2026-11"
+# A synchronous activity keeps running after Temporal times it out, so the follow-up could reach the agent
+# while the switch still changes its model. The timeout covers the classification budget, the model and
+# effort commands (each bounded by agent_command.COMMAND_TIMEOUT_SECONDS, 15s), and the database work.
+_SWITCH_MODEL_FROM_MESSAGE_TIMEOUT = timedelta(seconds=CLASSIFY_BUDGET_SECONDS + 2 * 15 + 15)
+
+
+def _check_switch_model_from_message_patch() -> bool:
+    # Outside a workflow no activity can run, so the switch is skipped rather than assumed.
+    if not workflow.in_workflow():
+        return False
+    return workflow.patched(_PATCH_ID_SWITCH_MODEL_FROM_MESSAGE)
+
+
 # Time left before sandbox expiry for the deadline snapshot, which a slow memory persist must not eat.
 _ROTATION_SNAPSHOT_RESERVE = timedelta(minutes=5)
 _PERSIST_AGENT_MEMORY_ATTEMPT_TIMEOUT = timedelta(minutes=3)
@@ -588,6 +607,19 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             # read files from that turn.
             self._agent_memory_persist_enabled = False
             await self._drain_agent_memory_persist_task()
+        if (
+            _check_switch_model_from_message_patch()
+            and followup.message
+            and not followup.steer
+            and self.context.origin_product == "posthog_ai"
+        ):
+            await self._switch_model_from_message(
+                SwitchModelFromMessageInput(
+                    run_id=self.context.run_id,
+                    message=followup.message,
+                    actor_user_id=followup.actor_user_id,
+                )
+            )
         outcome = await self._send_followup_to_sandbox(
             message=followup.message,
             artifact_ids=followup.artifact_ids,
@@ -616,6 +648,18 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     sequence=followup.sequence,
                 ),
             )
+
+    async def _switch_model_from_message(self, input: SwitchModelFromMessageInput) -> None:
+        # Best effort: the message goes out on the current model when the switch fails.
+        try:
+            await workflow.execute_activity(
+                switch_model_from_message,
+                input,
+                start_to_close_timeout=_SWITCH_MODEL_FROM_MESSAGE_TIMEOUT,
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+        except temporalio.exceptions.ActivityError:
+            workflow.logger.warning("switch_model_from_message_failed", extra={"run_id": input.run_id})
 
     async def _finish_active_followup(self) -> None:
         self._shutting_down = True
@@ -2846,6 +2890,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         error_type: Optional[str] = None,
         timeout_marker: Optional[str] = None,
     ) -> None:
+        if (
+            status in ("completed", "cancelled", "failed")
+            and self._agent_egress_observation_task is not None
+            and workflow.patched("agent-egress-stop-before-terminal-status")
+        ):
+            await self._stop_egress_observation()
         seconds_since_last_agent_heartbeat = (
             (workflow.now() - self._last_agent_heartbeat_at).total_seconds() if self._last_agent_heartbeat_at else None
         )
@@ -2990,6 +3040,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         await self._stop_egress_observation()
         self._resume_snapshot_invalidated = False
         self.context.agent_egress_observation_config = None
+        self.context.agent_egress_enrollment_enabled = False
         activity_count = self._sandbox_activity_count
         # A replacement built from a snapshot without a baseline (its restore failed) restores from
         # storage, so storage must hold the snapshot's memory first. Taken after the activity count,
@@ -3323,6 +3374,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     team_id=self.context.team_id,
                     run_id=self.context.run_id,
                     sandbox_id=sandbox_id,
+                    enrollment=self.context.agent_egress_enrollment_enabled,
                 ),
                 id=f"agent-egress-observation-{self.context.run_id}-{workflow.uuid4()}",
                 task_queue=workflow.info().task_queue,

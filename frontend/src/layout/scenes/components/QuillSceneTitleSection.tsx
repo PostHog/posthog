@@ -31,6 +31,7 @@ export function QuillSceneTitleSection({
     markdown = false,
     isLoading = false,
     onNameChange,
+    nameError,
     onDescriptionChange,
     canEdit = false,
     forceEdit = false,
@@ -133,6 +134,7 @@ export function QuillSceneTitleSection({
                                 name={name}
                                 isLoading={isLoading}
                                 onChange={onNameChange}
+                                error={nameError}
                                 canEdit={canEdit}
                                 forceEdit={forceEdit}
                                 renameDebounceMs={renameDebounceMs}

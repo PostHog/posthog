@@ -110,6 +110,7 @@ import type {
     DataWarehouseSavedQueryApiSuspended,
     SyncFrequencyBoundsApi,
 } from 'products/data_warehouse/frontend/generated/api.schemas'
+import type { EndpointPlanClampApi } from 'products/endpoints/frontend/generated/api.schemas'
 import type { ExperimentFeatureFlagInputApi } from 'products/experiments/frontend/generated/api.schemas'
 import type { IntegrationConfigApi } from 'products/integrations/frontend/generated/api.schemas'
 import type { CommentSlackThreadRefApi } from 'products/platform_features/frontend/generated/api.schemas'
@@ -674,7 +675,6 @@ export interface OrganizationType extends OrganizationBasicType {
     member_count: number
     default_anonymize_ips?: boolean
     default_role_id?: string | null
-    uses_most_specific_access_resolution?: boolean | null
     external_project_links?: OrganizationExternalProjectLinkApi[]
 }
 
@@ -2737,6 +2737,7 @@ export interface EndpointType extends WithAccessControl {
     created_by: UserBasicType | null
     data_freshness_seconds: number
     plan_refresh_floor_seconds: number | null
+    plan_clamp: EndpointPlanClampApi | null
     is_materialized: boolean
     current_version: number
     current_version_id: string
@@ -3557,6 +3558,10 @@ export interface TrendResult {
     /** Slope graph only: whether the last bucket is the current, still-accumulating period. Set by
      * SlopeGraphTrendsQueryRunner so the insight and MCP dash the provisional end identically. */
     incomplete_end?: boolean
+    /** Formula breakdowns only: the events all series counted for this value, which decide the shown rows. */
+    breakdown_event_count?: number
+    /** Formula breakdowns only, on the "Other" row: how many breakdown values it groups. */
+    breakdown_other_values_count?: number
 }
 
 interface Person {
@@ -6342,6 +6347,8 @@ export interface DataWarehouseSavedQuery {
     sync_frequency?: string
     /** Which cadences this view's lineage allows, and what withholds the rest. Single fetches only */
     sync_frequency_bounds?: SyncFrequencyBoundsApi
+    /** Set while a plan floor rewrite of the cadence stands. Single fetches only */
+    plan_clamp?: DataWarehouseSavedQueryApi['plan_clamp']
     status?: string
     managed_viewset_kind: DataWarehouseManagedViewsetKind | null
     folder_id?: string | null

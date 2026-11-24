@@ -119,7 +119,7 @@ export function EvaluationLivePreview({
                     unit={unit}
                     runs={runs}
                     loading={samplesLoading && rows.length === 0}
-                    loadFailed={samplesError}
+                    loadError={samplesError}
                     // The count comes from all matching traffic, the rows only from the sampled part of it.
                     noneInSample={sampledBelowAll && (volume?.matchingUnits ?? 0) > 0}
                     live={kind === 'hog'}

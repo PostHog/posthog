@@ -1,7 +1,6 @@
-import re
 from collections.abc import Callable, Collection
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any, Self
 
 from django.conf import settings
@@ -152,45 +151,6 @@ def compile_hogql_predicate(obj, use_new_events_schema: bool = False, hogql_tabl
     return sql, dict(context.values)
 
 
-def _property_group_columns_read(events_sql: str) -> list[str]:
-    """The property-group map columns that an events-compiled fragment reads."""
-    from posthog.clickhouse.property_groups import event_property_group_definitions
-
-    columns = [
-        definition.get_column_name(source_column, group_name)
-        for source_column, groups in event_property_group_definitions.items()
-        for group_name, definition in groups.items()
-    ]
-    return sorted(column for column in columns if re.search(rf"\b{re.escape(column)}\b", events_sql))
-
-
-# A team's READY dynamic slot makes events read a property from dmat_string_<n>. The slot columns carry no
-# column_materializer comment, so the registry lookup below does not list them.
-_DYNAMIC_MATERIALIZED_COLUMN = re.compile(r"(?<![\w$])dmat_string_\d+(?![\w$])")
-
-
-def _materialized_columns_read(events_sql: str) -> list[str]:
-    """The events materialized columns that an events-compiled fragment reads.
-
-    The registry holds the ``mat_`` columns and the built-in ``$session_id``, ``$window_id`` and
-    ``$group_0`` to ``$group_4`` columns. The dynamic ``dmat_string_`` slots are matched by name. A persons
-    subquery reads ``pmat_`` columns the same way on both tables, so those are left out.
-    """
-    from posthog.clickhouse.materialized_columns import get_enabled_materialized_columns_by_table
-
-    names = {column.name for column in get_enabled_materialized_columns_by_table().get("events", {}).values()}
-    registered = {name for name in names if re.search(rf"(?<![\w$]){re.escape(name)}(?![\w$])", events_sql)}
-    return sorted(registered | set(_DYNAMIC_MATERIALIZED_COLUMN.findall(events_sql)))
-
-
-_ELEMENTS_COLUMN = re.compile(r"(?<![\w$])elements_chain\w*")
-
-
-def _elements_columns_read(events_sql: str) -> list[str]:
-    """The element columns that an events-compiled fragment reads."""
-    return sorted(set(_ELEMENTS_COLUMN.findall(events_sql)))
-
-
 # Compiling a predicate builds the full HogQL schema graph, which is slow. The Django admin
 # recompiles it on every stats/preview render, so cache the result in the shared Django cache
 # (Redis). Keyed by request id and guarded by the predicate text it was compiled from, so a
@@ -272,78 +232,6 @@ def portable_event_removal_where(obj) -> tuple[str, dict]:
     return " ".join(p for p in parts if p), event_match_params(obj)
 
 
-def reaches_target_through_event_uuids(obj, target: "DeletionTarget") -> bool:
-    """Whether ``obj`` deletes ``target``'s rows through the uuids of their events copies.
-
-    A deferred request queues the uuids of the events its HogQL predicate matches, and the drain
-    deletes those uuids from every target. That is how the predicate reaches the rows of a target
-    that have an events copy.
-    """
-    return (
-        target.copied_from is not None
-        and bool(_hogql_predicate_text(obj))
-        and obj.execution_mode == ExecutionMode.DEFERRED
-    )
-
-
-# With ttl_only_drop_parts and monthly partitions, a part drops only once its newest row expires, so
-# a row can outlive the TTL by up to a month.
-_TTL_HORIZON_SLACK_DAYS = 33
-
-# The copy subquery holds the uuid of every events copy in its window in memory on each shard.
-_COPY_CHECK_WINDOW = timedelta(days=7)
-
-
-def _ttl_horizon(target: "DeletionTarget") -> datetime | None:
-    """The oldest timestamp at which ``target`` can still hold a row, or None when it has no TTL."""
-    if target.ttl_days is None:
-        return None
-    return timezone.now() - timedelta(days=target.ttl_days + _TTL_HORIZON_SLACK_DAYS)
-
-
-def rows_without_events_copy_criteria(obj, target: "DeletionTarget") -> list[tuple[str, dict]]:
-    """``portable_event_removal_where`` narrowed to the rows of ``target`` with no copy in ``target.copied_from``.
-
-    A deferred removal deletes every other row through the uuid of its events copy, so these are the
-    only rows of ``target`` that a HogQL predicate cannot reach.
-
-    Returns one ``(predicate, params)`` pair per window of ``obj``'s range. A row and its events copy
-    carry the same timestamp, so a window holds the copies of its own rows. The range before the TTL
-    horizon stays one window, because the copy subquery reads no events there. The range after now
-    stays one window too, because few events carry a future timestamp.
-    """
-    assert target.copied_from is not None
-    predicate, params = portable_event_removal_where(obj)
-    # A copy that a lightweight delete hid counts as missing, as in surviving_rows_sql.
-    copies = f"{_EVENT_REMOVAL_TIME_PREDICATE} AND _row_exists = 1"
-    horizon = _ttl_horizon(target)
-    if horizon is not None:
-        # The target holds no row older than its TTL horizon. A row older than the bound reads as
-        # having no copy, which refuses or holds the request.
-        copies += " AND timestamp >= %(ttl_horizon)s"
-        params["ttl_horizon"] = horizon
-    if target.stored_events is not None:
-        copies += " AND event IN %(copied_events)s"
-        params["copied_events"] = sorted(target.stored_events)
-    # The subquery names the storage table rather than its Distributed proxy, so each shard compares
-    # its rows against its own events. That finds every copy only because a copy shares its row's shard.
-    predicate += (
-        f" AND uuid NOT IN (SELECT uuid FROM {settings.CLICKHOUSE_DATABASE}.{target.copied_from} WHERE {copies})"
-    )
-
-    start, end = obj.start_time, obj.end_time
-    windows = []
-    if horizon is not None and start < horizon:
-        windows.append((start, min(horizon, end)))
-        start = horizon
-    while start < min(end, timezone.now()):
-        windows.append((start, min(start + _COPY_CHECK_WINDOW, end)))
-        start += _COPY_CHECK_WINDOW
-    if start < end:
-        windows.append((start, end))
-    return [(predicate, {**params, "start_time": s, "end_time": e}) for s, e in windows]
-
-
 def _and_fragment(criteria: tuple[str, dict], fragment: tuple[str, dict]) -> tuple[str, dict]:
     """``criteria`` with a compiled HogQL fragment ANDed on, or unchanged when the fragment is empty."""
     predicate, params = criteria
@@ -353,83 +241,29 @@ def _and_fragment(criteria: tuple[str, dict], fragment: tuple[str, dict]) -> tup
     return f"{predicate} AND ({sql})", {**params, **values}
 
 
-@frozen
-class UncopiedRowsPredicate:
-    """A request's HogQL predicate compiled for the rows of a target that have no events copy."""
-
-    # The compiled fragment and its params. None when the predicate cannot run on those rows.
-    compiled: tuple[str, dict] | None
-    # Why the predicate cannot run there. Empty when it can.
-    error: str = ""
-
-    def narrow(self, criteria: tuple[str, dict]) -> tuple[str, dict]:
-        """``criteria`` with the compiled fragment ANDed on, or unchanged when there is none."""
-        return criteria if self.compiled is None else _and_fragment(criteria, self.compiled)
-
-    def windows(self, obj, target: "DeletionTarget") -> list[tuple[str, dict]]:
-        """``rows_without_events_copy_criteria`` narrowed by the compiled fragment.
-
-        The gate, the queue fill and verification all read these criteria, so verification counts
-        the rows that the queue fill read.
-        """
-        return [self.narrow(window) for window in rows_without_events_copy_criteria(obj, target)]
-
-
-def uncopied_rows_predicate(obj, target: "DeletionTarget") -> UncopiedRowsPredicate:
-    """``obj``'s HogQL predicate compiled for the rows of ``target`` that have no copy in ``target.copied_from``.
-
-    The predicate cannot run there when events reads any part of it from a property-group map or a
-    materialized column, which only the events tables have. The map decodes JSON escapes, so a stored
-    ``"a\\"b"`` reads as ``a"b`` from the map and as ``a\\"b`` from raw JSON. With
-    ``propertyGroupsMode`` set to ``optimized``, events also compares a map value as a string for
-    ``=``, ``!=`` and ``IN``, where a raw JSON read casts a typed property to its defined type. A
-    materialized column reads an empty string and the string ``"null"`` as NULL, and a nullable one
-    decodes JSON escapes. So the two tables could match different rows.
-    """
-    if target.uncopied_rows_hogql_table is None:
-        return UncopiedRowsPredicate(compiled=None, error="This table has no HogQL table to compile it against.")
-    try:
-        events_sql, _ = compile_hogql_predicate(obj)
-        if element_columns := _elements_columns_read(events_sql):
-            return UncopiedRowsPredicate(
-                compiled=None,
-                error=f"Events reads it from {', '.join(element_columns)}. {target.uncopied_rows_hogql_table} stores "
-                "no elements and reads them as empty, so the two can match different rows.",
-            )
-        if map_columns := _property_group_columns_read(events_sql):
-            return UncopiedRowsPredicate(
-                compiled=None,
-                error=f"Events reads it from the property-group map {', '.join(map_columns)}, which decodes JSON "
-                f"escapes and compares typed values as strings. {target.uncopied_rows_hogql_table} reads the raw "
-                "JSON, so the two can match different rows.",
-            )
-        if materialized_columns := _materialized_columns_read(events_sql):
-            return UncopiedRowsPredicate(
-                compiled=None,
-                error=f"Events reads it from the materialized column {', '.join(materialized_columns)}, which "
-                f"reads an empty string and the string 'null' as NULL. {target.uncopied_rows_hogql_table} reads "
-                "the raw JSON, so the two can match different rows.",
-            )
-        return UncopiedRowsPredicate(
-            compiled=compile_hogql_predicate(obj, hogql_table=target.uncopied_rows_hogql_table)
-        )
-    except ValidationError as exc:
-        return UncopiedRowsPredicate(compiled=None, error=" ".join(exc.messages))
-
-
-def event_removal_where(obj, use_new_events_schema: bool = False) -> tuple[str, dict]:
-    """Full WHERE predicate + params for event-removal queries.
+def event_removal_where(obj, target: "DeletionTarget") -> tuple[str, dict]:
+    """Full WHERE predicate + params for an event-removal query on ``target``.
 
     Combines the mandatory team/timestamp bounds, the events filter (skipped
-    when ``delete_all_events`` is set), and any compiled HogQL predicate. The
-    compiled HogQL fragment uses unqualified column references, so the result
-    is safe to splice into queries against either the Distributed ``events``
-    proxy or the local ``sharded_events`` MergeTree. Pass ``use_new_events_schema``
-    when the query targets the native-JSON events tables.
+    when ``delete_all_events`` is set), and the request's HogQL predicate compiled
+    for ``target``. The compiled HogQL fragment uses unqualified column references,
+    so the result is safe to splice into queries against either the Distributed
+    proxy or the local storage table.
+
+    Each table compiles the predicate for its own columns. Two tables can read one
+    property differently on edge values, such as an empty string in a materialized
+    column, so they can match different rows of the same event. Raises
+    ValidationError when the predicate does not compile for ``target``.
     """
-    return _and_fragment(
-        portable_event_removal_where(obj), compile_hogql_predicate(obj, use_new_events_schema=use_new_events_schema)
+    criteria = portable_event_removal_where(obj)
+    if not _hogql_predicate_text(obj):
+        return criteria
+    if target.hogql_table is None:
+        raise ValidationError({"hogql_predicate": f"No HogQL table reads {target.read_table}."})
+    fragment = compile_hogql_predicate(
+        obj, use_new_events_schema=target.uses_new_events_schema, hogql_table=target.hogql_table
     )
+    return _and_fragment(criteria, fragment)
 
 
 class RequestType(models.TextChoices):
@@ -1216,14 +1050,8 @@ def count_remaining_matching_events(request: "DataDeletionRequest") -> int:
     Counts across every default deletion target that could hold the named events. A request is only
     complete once its rows are gone from every table that the scheduled deletion job sweeps.
 
-    On a deferred request with a HogQL predicate, a target that cannot take the compiled fragment but
-    holds copies of events gets two counts. The first is the request's queue rows that the drain has
-    not marked deleted, because the drain deletes the target's rows through those uuids. The second
-    is the target's rows with no events copy that the predicate compiled for the target matches. When
-    the predicate cannot run on the target, it is every such row, which the drain cannot reach. That
-    count uses the fragment the queue fill read with, so it cannot see the two tables compiling the
-    predicate differently. Any other target that
-    cannot take the fragment is counted with the portable predicate instead, which matches a
+    Each target is counted with the request's HogQL predicate compiled for it. A target that the
+    predicate does not compile for is counted with the portable predicate instead, which matches a
     superset. That can only hold a request in QUEUED, never promote one early. It also means a
     non-zero count is not proof that rows were missed: for a HogQL request the superset can match
     rows the predicate itself never would.
@@ -1240,7 +1068,8 @@ def count_remaining_matching_events(request: "DataDeletionRequest") -> int:
         return _count_via_sync_execute(request.team_id, surviving_rows_sql(read_table, predicate), params)
 
     events = [] if request.delete_all_events else request.events
-    total = 0
+    # A queued uuid holds the request until the drain deletes it, also when its row no longer matches.
+    total = count_pending_hogql_event_removals(request)
     with tags_context(
         product=Product.INTERNAL,
         feature=Feature.DATA_DELETION,
@@ -1251,26 +1080,11 @@ def count_remaining_matching_events(request: "DataDeletionRequest") -> int:
         for target in resolve_read_targets_via_sync_execute(DEFAULT_DELETION_TARGETS):
             if not target.may_hold_any_of(events):
                 continue
-            if target.accepts_hogql_predicate:
-                criteria = [event_removal_where(request, use_new_events_schema=target.uses_new_events_schema)]
-            elif reaches_target_through_event_uuids(request, target):
+            try:
+                predicate, params = event_removal_where(request, target)
+            except ValidationError:
                 predicate, params = portable_event_removal_where(request)
-                # The copy check reads the uuid of every matching event, so it runs only when the target holds
-                # rows in the request's window.
-                if not count_rows(target.read_table, predicate, params):
-                    continue
-                # docs/internal/clickhouse-deletion-coverage.md says which count holds the request at each stage.
-                total += count_pending_hogql_event_removals(request)
-                uncopied = uncopied_rows_predicate(request, target)
-                # Each window's copy check reads the uuid of every events copy in it, so it runs only when a
-                # row in the range can match the compiled fragment.
-                matchable = uncopied.compiled is None or count_rows(
-                    target.read_table, *uncopied.narrow((predicate, params))
-                )
-                criteria = uncopied.windows(request, target) if matchable else []
-            else:
-                criteria = [portable_event_removal_where(request)]
-            total += sum(count_rows(target.read_table, predicate, params) for predicate, params in criteria)
+            total += count_rows(target.read_table, predicate, params)
     return total
 
 
@@ -1461,30 +1275,9 @@ def verify_queued_request(request: "DataDeletionRequest") -> VerifyOutcome:
 
 
 def queued_requests_to_verify(lookback: timedelta) -> list["DataDeletionRequest"]:
-    """The QUEUED requests that the verify sweep checks.
-
-    The sweep checks a request for ``lookback`` after it is created. It also checks a request that
-    reaches a target through event uuids for ``lookback`` after the request's window falls behind
-    that target's TTL horizon. The target's rows with no events copy hold such a request until the
-    TTL drops them. docs/internal/clickhouse-deletion-coverage.md explains why a re-filed deferred
-    request does not delete them sooner.
-    """
-    from posthog.models.deletion_targets import DEFAULT_DELETION_TARGETS
-
+    """The QUEUED requests that the verify sweep checks: those created within ``lookback``."""
     created_after = timezone.now() - lookback
-    queued = DataDeletionRequest.objects.filter(status=RequestStatus.QUEUED)
-    selected = {request.pk: request for request in queued.filter(created_at__gte=created_after)}
-    for target in DEFAULT_DELETION_TARGETS:
-        horizon = _ttl_horizon(target) if target.copied_from is not None else None
-        if horizon is None:
-            continue
-        candidates = queued.filter(
-            created_at__lt=created_after, request_type=RequestType.EVENT_REMOVAL, end_time__gte=horizon - lookback
-        )
-        for request in candidates:
-            if reaches_target_through_event_uuids(request, target):
-                selected.setdefault(request.pk, request)
-    return list(selected.values())
+    return list(DataDeletionRequest.objects.filter(status=RequestStatus.QUEUED, created_at__gte=created_after))
 
 
 def unfinished_property_removals() -> QuerySet[DataDeletionRequest]:

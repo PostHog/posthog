@@ -64,7 +64,6 @@ function buildProposal(overrides: Partial<DataCatalogRelationshipProposalApi>): 
         joining_table_key: 'id',
         field_name: 'person',
         status: 'proposed',
-        confidence: 0.9,
         reasoning: 'high match rate',
         rejection_reason: '',
         created_join: null,
@@ -162,7 +161,7 @@ describe('relationshipsLogic', () => {
             router.actions.push('/data-catalog', {
                 tab: 'relationships',
                 table: 'events',
-                'data-catalog-relationships_order': '-confidence',
+                'data-catalog-relationships_order': '-accessor',
             })
         ).toFinishAllListeners()
         expect(dataCatalogRelationshipProposalsList).toHaveBeenCalledTimes(listCalls)

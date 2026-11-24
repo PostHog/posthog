@@ -22,6 +22,7 @@ import { EmailEditorFeedback } from './components/EmailEditorFeedback'
 import { EmailEditorSwitch } from './components/EmailEditorSwitch'
 import { EmailImagePickerModal, PickedEmailImage } from './components/EmailImagePickerModal'
 import { EmailInsertToolbar } from './components/EmailInsertToolbar'
+import { EmailOwnPlainTextNotice } from './components/EmailOwnPlainTextNotice'
 import { EmailSelectionToolbar } from './components/EmailSelectionToolbar'
 import { EmailStylePanel } from './components/EmailStylePanel'
 import { EMAIL_BLOCK_OPTIONS } from './emailBlockCatalog'
@@ -66,6 +67,7 @@ export function EmailDocumentEditor(): JSX.Element {
         logicProps,
         documentEditorInitialDoc,
         convertedEmailDocument,
+        templatingEngine,
     } = useValues(emailTemplaterLogic)
     const { setEmailEditorRef, onEmailEditorReady, flushPendingDesignEdit } = useActions(emailTemplaterLogic)
     const { currentProjectId } = useValues(teamLogic)
@@ -406,6 +408,9 @@ export function EmailDocumentEditor(): JSX.Element {
                         </>
                     ) : null}
                     <div className="flex-1" />
+                    {doc.attrs?.ownPlainText && logicProps.value?.text ? (
+                        <EmailOwnPlainTextNotice editor={editor} />
+                    ) : null}
                     <EmailEditorSwitch.ConvertedNotice />
                     <EmailEditorFeedback />
                     <EmailEditorSwitch.UseOldButton />
@@ -421,7 +426,14 @@ export function EmailDocumentEditor(): JSX.Element {
                     ) : null}
                 </div>
                 {mode === 'preview' ? (
-                    <EmailDocumentPreview html={html} unsubscribeMissing={!!html && !hasUnsubscribeLink(html)} />
+                    <EmailDocumentPreview
+                        html={html}
+                        liquid={
+                            (typeof logicProps.templating === 'string' ? logicProps.templating : templatingEngine) ===
+                            'liquid'
+                        }
+                        unsubscribeMissing={!!html && !hasUnsubscribeLink(html)}
+                    />
                 ) : (
                     <div className="flex flex-1 min-h-0 relative">
                         <div

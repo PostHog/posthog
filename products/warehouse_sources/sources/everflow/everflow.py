@@ -1,4 +1,5 @@
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
+from dataclasses import field
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 
@@ -11,16 +12,22 @@ from products.warehouse_sources.sources.everflow.settings import (
     EVERFLOW_ENDPOINTS,
     HISTORY_DAYS,
     REREAD_DAYS,
+    TABLE_PAGE_SIZE,
     UTC_TIMEZONE_ID,
+    WINDOWED_ENDPOINTS,
+    EverflowEndpointConfig,
 )
 from products.warehouse_sources.sources.sdk import (
     APIKeyAuth,
+    ClientConfig,
+    Endpoint,
     PageNumberPaginator,
     RESTAPIConfig,
     RESTClient,
     ResumableSourceManager,
     SinglePagePaginator,
     SourceResponse,
+    build_dependent_resource,
     frozen,
     make_tracked_session,
     rest_api_resource,
@@ -43,6 +50,19 @@ class EverflowResumeConfig:
     window_end: str | None = None
     # The next day of the daily performance report to request.
     next_day: str | None = None
+    # The parent page and position of an interrupted fan-out.
+    fanout_state: dict[str, Any] | None = None
+
+
+@frozen
+class _FanoutEndpoint:
+    """The view of an endpoint that `build_dependent_resource` reads."""
+
+    name: str
+    path: str
+    page_size: int
+    incremental_fields: list[Any] = field(default_factory=list)
+    default_incremental_field: str | None = None
 
 
 class EverflowReportTruncatedError(Exception):
@@ -181,6 +201,55 @@ def _daily_performance(
         day = next_day
 
 
+def _fanout_items(
+    api_key: str,
+    base_url: str,
+    endpoint: str,
+    config: EverflowEndpointConfig,
+    team_id: int,
+    job_id: str,
+    resume: EverflowResumeConfig | None,
+    manager: ResumableSourceManager[EverflowResumeConfig],
+) -> Iterable[Any]:
+    assert config.fanout is not None
+    parent = EVERFLOW_ENDPOINTS[config.fanout.parent_name]
+    client_config: ClientConfig = {
+        "base_url": base_url,
+        "auth": _api_key_auth(api_key),
+        "request_timeout": REQUEST_TIMEOUT,
+    }
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        if state:
+            manager.save_state(EverflowResumeConfig(fanout_state=state))
+
+    return build_dependent_resource(
+        endpoint_configs={
+            parent.name: _FanoutEndpoint(name=parent.name, path=parent.path, page_size=TABLE_PAGE_SIZE),
+            endpoint: _FanoutEndpoint(name=endpoint, path=config.path, page_size=TABLE_PAGE_SIZE),
+        },
+        child_endpoint=endpoint,
+        fanout=config.fanout,
+        client_config=client_config,
+        path_format_values={},
+        team_id=team_id,
+        job_id=job_id,
+        db_incremental_field_last_value=None,
+        parent_endpoint_extra={
+            "method": "POST",
+            "json": {},
+            "data_selector": parent.data_selector,
+            "paginator": EverflowPaginator(TABLE_PAGE_SIZE),
+        },
+        child_endpoint_extra={"data_selector": config.data_selector, "paginator": SinglePagePaginator()},
+        # The parent page size rides in `fanout.parent_params`; the child endpoint takes no paging params.
+        page_size_param=None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=resume.fanout_state if resume is not None and resume.fanout_state else None,
+        resume_parent_pagination=True,
+    )
+
+
 def everflow_source(
     api_key: str,
     region: str,
@@ -224,31 +293,40 @@ def everflow_source(
             **response_kwargs,
         )
 
+    if config.fanout is not None:
+        resource = _fanout_items(api_key, base_url, endpoint, config, team_id, job_id, resume, resumable_source_manager)
+        return SourceResponse(items=lambda: resource, sort_mode=None, **response_kwargs)
+
     body: dict[str, Any] = {}
     start_value: str | None = None
     end_value: str | None = None
-    if endpoint == "conversions":
+    if endpoint in WINDOWED_ENDPOINTS:
         if resume is not None and resume.window_start:
             start_value = resume.window_start
             end_value = resume.window_end
         else:
-            start_value = window_start(is_incremental, db_incremental_field_last_value, today, REREAD_DAYS).isoformat()
-        # Everflow reads `to` as midnight, so tomorrow's date includes today's conversions.
+            reread_days = REREAD_DAYS if endpoint == "conversions" else 0
+            start_value = window_start(is_incremental, db_incremental_field_last_value, today, reread_days).isoformat()
+        # Everflow reads `to` as midnight, so tomorrow's date includes today's rows.
         end_value = end_value or (today + timedelta(days=1)).isoformat()
-        body = {
-            "from": start_value,
-            "to": end_value,
-            "timezone_id": UTC_TIMEZONE_ID,
-            "show_conversions": True,
-            "show_events": True,
-        }
+        body = {"from": start_value, "to": end_value, "timezone_id": UTC_TIMEZONE_ID}
+        if endpoint == "conversions":
+            body |= {"show_conversions": True, "show_events": True}
 
-    assert config.page_size is not None
+    paginator = EverflowPaginator(config.page_size) if config.page_size is not None else SinglePagePaginator()
+    endpoint_config: Endpoint = {
+        "path": config.path,
+        "method": config.method,
+        "params": {"page_size": config.page_size} if config.page_size is not None else {},
+        "data_selector": config.data_selector,
+    }
+    if config.method == "POST":
+        endpoint_config["json"] = body
     rest_config: RESTAPIConfig = {
         "client": {
             "base_url": base_url,
             "auth": _api_key_auth(api_key),
-            "paginator": EverflowPaginator(config.page_size),
+            "paginator": paginator,
             "request_timeout": REQUEST_TIMEOUT,
         },
         "resource_defaults": {},
@@ -258,13 +336,7 @@ def everflow_source(
                 "table_name": endpoint,
                 "primary_key": list(config.primary_keys),
                 "write_disposition": {"disposition": "merge", "strategy": "upsert"} if is_incremental else "replace",
-                "endpoint": {
-                    "path": config.path,
-                    "method": "POST",
-                    "params": {"page_size": config.page_size},
-                    "json": body,
-                    "data_selector": config.data_selector,
-                },
+                "endpoint": endpoint_config,
                 "table_format": "delta",
                 **({"data_map": row_map} if config.drop_columns or config.float_columns else {}),
             }

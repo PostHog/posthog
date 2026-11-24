@@ -42,16 +42,13 @@ function toRow(item: TraceListItemApi, people: TracesTableCells['people']): Trac
 }
 
 export function TracesListHost(): JSX.Element {
-    const { items, counts, state, refreshing, canShowPrevious, canShowNext, filterTestAccounts, searchEnabled } =
-        useValues(tracesListLogic)
-    const { showPreviousPage, showNextPage, reload } = useActions(tracesListLogic)
+    const { items, counts, state, refreshing, canShowPrevious, canShowNext, searchEnabled } = useValues(tracesListLogic)
+    const { showPreviousPage, showNextPage, reload, clearFilters } = useActions(tracesListLogic)
     const { filters, searchDraft } = useValues(listFiltersLogic(TRACES_LIST_FILTERS))
-    const { setPropertyFilters, setFilterTestAccounts, setSearchDraft, toggleQuickFilter, resetFilters } = useActions(
-        listFiltersLogic(TRACES_LIST_FILTERS)
-    )
+    const { setPropertyFilters, setSearchDraft, toggleQuickFilter } = useActions(listFiltersLogic(TRACES_LIST_FILTERS))
     const { previews, people, sentiments } = useValues(traceCellsLogic)
-    const { dateFrom, dateTo } = useValues(shellScopeLogic)
-    const { setDateRange } = useActions(shellScopeLogic)
+    const { dateFrom, dateTo, filterTestAccounts } = useValues(shellScopeLogic)
+    const { setDateRange, setFilterTestAccounts } = useActions(shellScopeLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     const fullPageHref = useTraceFullPageHref(LIST_ID)
@@ -135,7 +132,7 @@ export function TracesListHost(): JSX.Element {
                         description="Change or clear the filters to see more traces."
                         action={{
                             label: 'Clear filters',
-                            onClick: resetFilters,
+                            onClick: clearFilters,
                             'data-attr': `${DATA_ATTR}-clear-filters`,
                         }}
                     />

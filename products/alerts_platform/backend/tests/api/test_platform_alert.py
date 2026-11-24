@@ -71,6 +71,8 @@ class TestPlatformAlertAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
         assert response.json()["code"] == "feature_flag_required"
+        # Warehouse kinds open on their own flag, so naming "platform-alerts" would point at the wrong one.
+        assert response.json()["detail"] == "Alerts are not available for this project yet."
 
     @parameterized.expand(
         [

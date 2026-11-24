@@ -10,15 +10,18 @@ sends on both paths are found by the same ids. Not the destination group's ids: 
 loses ids as event kinds are switched on and off, and its history would go with them.
 """
 
+import logging
 import datetime as dt
 from typing import Final
 from uuid import uuid4
 
 import structlog
+import temporalio.activity
 
 from posthog.kafka_client.routing import get_producer
 from posthog.kafka_client.topics import KAFKA_APP_METRICS2, KAFKA_LOG_ENTRIES
 from posthog.models.event.util import format_clickhouse_timestamp
+from posthog.temporal.common.logger import get_produce_only_logger
 
 ALERT_APP_SOURCE: Final = "alert"
 # `log_source_id` is the destination HogFunction id. `instance_id` is unique per send, because `log_entries`
@@ -28,6 +31,7 @@ NATIVE_SEND_SUCCEEDED_MESSAGE: Final = "Sent"
 _MAX_ERROR_LENGTH: Final = 500
 
 logger = structlog.get_logger(__name__)
+_send_logger = get_produce_only_logger(__name__)
 
 
 def record_delivery(
@@ -60,19 +64,29 @@ def record_delivery(
         producer = get_producer(topic=KAFKA_APP_METRICS2)
         producer.produce(topic=KAFKA_APP_METRICS2, data=payload)
         if destination_id is not None:
-            producer = get_producer(topic=KAFKA_LOG_ENTRIES)
-            producer.produce(
-                topic=KAFKA_LOG_ENTRIES,
-                data={
-                    "team_id": team_id,
-                    "log_source": NATIVE_SEND_LOG_SOURCE,
-                    "log_source_id": destination_id,
-                    "instance_id": str(uuid4()),
-                    "timestamp": format_clickhouse_timestamp(timestamp),
-                    "level": "INFO" if succeeded else "ERROR",
-                    "message": NATIVE_SEND_SUCCEEDED_MESSAGE if succeeded else (error or "Failed")[:_MAX_ERROR_LENGTH],
-                },
-            )
+            message = NATIVE_SEND_SUCCEEDED_MESSAGE if succeeded else (error or "Failed")[:_MAX_ERROR_LENGTH]
+            level = logging.INFO if succeeded else logging.ERROR
+            row = {
+                "team_id": team_id,
+                "log_source": NATIVE_SEND_LOG_SOURCE,
+                "log_source_id": destination_id,
+                "instance_id": str(uuid4()),
+            }
+            if temporalio.activity.in_activity():
+                _send_logger.log(level, message, **row)
+            else:
+                # Outside an activity the produce-only logger has no workflow run and drops the row, so an
+                # inline send writes `log_entries` directly.
+                producer = get_producer(topic=KAFKA_LOG_ENTRIES)
+                producer.produce(
+                    topic=KAFKA_LOG_ENTRIES,
+                    data={
+                        **row,
+                        "timestamp": format_clickhouse_timestamp(timestamp),
+                        "level": logging.getLevelName(level),
+                        "message": message,
+                    },
+                )
     except Exception:
         # A counter is not worth failing a send that already reached the provider.
         logger.exception("Failed to emit alert delivery metrics", team_id=team_id, alert_id=configuration_id)

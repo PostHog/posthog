@@ -19,12 +19,13 @@ from products.warehouse_sources.sources.sdk import SourceInputs
 
 
 @pytest.mark.parametrize(
-    "name,path,method,location,key",
+    "name,path,method,location,key,sort_order",
     [
-        ("calls", "/v3/list-calls", "POST", "json", "call_id"),
-        ("chats", "/v3/list-chats", "POST", "json", "chat_id"),
-        ("agents", "/v2/list-agents", "POST", "query", "agent_id"),
-        ("phone_numbers", "/v2/list-phone-numbers", "GET", "query", "phone_number"),
+        ("calls", "/v3/list-calls", "POST", "json", "call_id", "ascending"),
+        ("chats", "/v3/list-chats", "POST", "json", "chat_id", "ascending"),
+        ("agents", "/v2/list-agents", "POST", "query", "agent_id", "ascending"),
+        ("phone_numbers", "/v2/list-phone-numbers", "GET", "query", "phone_number", "ascending"),
+        ("contacts", "/list-contacts", "POST", "json", "contact_id", "asc"),
     ],
 )
 def test_cursor_pages_and_terminal_page(
@@ -33,6 +34,7 @@ def test_cursor_pages_and_terminal_page(
     method: str,
     location: str,
     key: str,
+    sort_order: str,
     inputs: SourceInputs,
     http: MagicMock,
     redis_client: MagicMock,
@@ -71,6 +73,7 @@ def test_cursor_pages_and_terminal_page(
     ]
     assert "pagination_key" not in params[0]
     assert params[1]["pagination_key"] == ("next-page" if location == "json" else ["next-page"])
+    assert all(param["sort_order"] == (sort_order if location == "json" else [sort_order]) for param in params)
     if location == "json":
         assert all("pagination_key" not in parse_qs(urlsplit(request.url).query) for request in requests)
     else:
@@ -213,26 +216,40 @@ def test_invalid_watermark_is_not_silently_ignored(
     http.assert_not_called()
 
 
-FAN_OUT_RESPONSES: dict[tuple[str, str | None], list[dict[str, Any]]] = {
-    ("/v2/list-agents", None): [
+FAN_OUT_RESPONSES: dict[tuple[str, str | None, str | None], list[dict[str, Any]]] = {
+    ("/v2/list-agents", None, None): [
         {"items": [{"agent_id": "agent-a"}, {"agent_id": "agent-b"}], "has_more": True, "pagination_key": "agents-2"},
         {"items": [{"agent_id": "agent-a"}, {"agent_id": "agent-gone"}], "has_more": False},
     ],
-    ("/list-agent-versions/agent-a", None): [
+    ("/list-agent-versions/agent-a", None, None): [
         {"items": [{"version": 0}], "has_more": True, "pagination_key": "versions-2"},
         {"items": [{"version": 1}], "has_more": False},
     ],
-    ("/list-agent-versions/agent-b", None): [{"items": [{"version": 0}], "has_more": False}],
-    ("/v2/list-retell-llms", None): [
+    ("/list-agent-versions/agent-b", None, None): [{"items": [{"version": 0}], "has_more": False}],
+    ("/v2/list-retell-llms", None, None): [
         {"items": [{"llm_id": "llm-a", "version": 0}, {"llm_id": "llm-a", "version": 1}], "has_more": False}
     ],
-    ("/v2/list-conversation-flows", None): [{"items": [{"conversation_flow_id": "flow-a"}], "has_more": False}],
-    ("/v2/list-test-case-definitions", "llm-a"): [
+    ("/v2/list-conversation-flows", None, None): [{"items": [{"conversation_flow_id": "flow-a"}], "has_more": False}],
+    ("/v2/list-test-case-definitions", "llm-a", None): [
         {"items": [{"test_case_definition_id": "test-llm"}], "has_more": False}
     ],
-    ("/v2/list-test-case-definitions", "flow-a"): [
+    ("/v2/list-test-case-definitions", "flow-a", None): [
         {"items": [{"test_case_definition_id": "test-flow"}], "has_more": False}
     ],
+    ("/v2/list-batch-tests", "llm-a", "0"): [{"items": [{"test_case_batch_job_id": "batch-old"}], "has_more": False}],
+    ("/v2/list-batch-tests", "llm-a", "1"): [
+        {"items": [{"test_case_batch_job_id": "batch-new"}], "has_more": True, "pagination_key": "batches-2"},
+        {"items": [{"test_case_batch_job_id": "batch-gone"}], "has_more": False},
+    ],
+    ("/v2/list-batch-tests", "flow-a", None): [
+        {"items": [{"test_case_batch_job_id": "batch-flow"}], "has_more": False}
+    ],
+    ("/v2/list-test-runs/batch-old", None, None): [
+        {"items": [{"test_case_job_id": "run-1"}], "has_more": True, "pagination_key": "runs-2"},
+        {"items": [{"test_case_job_id": "run-2"}], "has_more": False},
+    ],
+    ("/v2/list-test-runs/batch-new", None, None): [{"items": [], "has_more": False}],
+    ("/v2/list-test-runs/batch-flow", None, None): [{"items": [{"test_case_job_id": "run-1"}], "has_more": False}],
 }
 
 
@@ -253,6 +270,25 @@ FAN_OUT_RESPONSES: dict[tuple[str, str | None], list[dict[str, Any]]] = {
             [{"test_case_definition_id": "test-llm"}, {"test_case_definition_id": "test-flow"}],
             ["test_case_definition_id"],
         ),
+        (
+            "batch_tests",
+            [
+                {"test_case_batch_job_id": "batch-old"},
+                {"test_case_batch_job_id": "batch-new"},
+                {"test_case_batch_job_id": "batch-gone"},
+                {"test_case_batch_job_id": "batch-flow"},
+            ],
+            ["test_case_batch_job_id"],
+        ),
+        (
+            "test_runs",
+            [
+                {"test_case_job_id": "run-1", "test_case_batch_job_id": "batch-old"},
+                {"test_case_job_id": "run-2", "test_case_batch_job_id": "batch-old"},
+                {"test_case_job_id": "run-1", "test_case_batch_job_id": "batch-flow"},
+            ],
+            ["test_case_batch_job_id", "test_case_job_id"],
+        ),
     ],
 )
 def test_fan_out_walks_each_parent_once(
@@ -263,13 +299,13 @@ def test_fan_out_walks_each_parent_once(
     http: MagicMock,
     redis_client: MagicMock,
 ) -> None:
-    served: dict[tuple[str, str | None], int] = {}
+    served: dict[tuple[str, str | None, str | None], int] = {}
 
     def send(_session: object, request: PreparedRequest, **_kwargs: Any) -> Response:
         url = urlsplit(request.url or "")
         query = parse_qs(url.query)
         engines = query.get("llm_id") or query.get("conversation_flow_id")
-        key = (url.path, engines[0] if engines else None)
+        key = (url.path, engines[0] if engines else None, query["version"][0] if "version" in query else None)
         if key not in FAN_OUT_RESPONSES:
             return response({"status": "error"}, 404)
         page = served.get(key, 0)
@@ -291,12 +327,28 @@ def test_fan_out_walks_each_parent_once(
         if not urlsplit(call.args[1].url).path.startswith(("/v2/list-agents", "/v2/list-retell", "/v2/list-conv"))
     ]
     if name == "test_case_definitions":
-        assert [(query["type"], "sort_order" in query) for query in child_queries] == [
-            (["retell-llm"], False),
-            (["conversation-flow"], False),
+        assert [(query["type"], "sort_order" in query, "version" in query) for query in child_queries] == [
+            (["retell-llm"], False, False),
+            (["conversation-flow"], False, False),
+        ]
+    elif name == "batch_tests":
+        assert [(query["type"], query.get("version"), "sort_order" in query) for query in child_queries] == [
+            (["retell-llm"], ["0"], False),
+            (["retell-llm"], ["1"], False),
+            (["retell-llm"], ["1"], False),
+            (["conversation-flow"], None, False),
+        ]
+    elif name == "test_runs":
+        run_paths = [urlsplit(call.args[1].url).path for call in http.call_args_list]
+        assert [path for path in run_paths if path.startswith("/v2/list-test-runs/")] == [
+            "/v2/list-test-runs/batch-old",
+            "/v2/list-test-runs/batch-old",
+            "/v2/list-test-runs/batch-new",
+            "/v2/list-test-runs/batch-gone",
+            "/v2/list-test-runs/batch-flow",
         ]
     else:
-        assert [path for path, _ in served] == [
+        assert [path for path, _, _ in served] == [
             "/v2/list-agents",
             "/list-agent-versions/agent-a",
             "/list-agent-versions/agent-b",
