@@ -1323,7 +1323,7 @@ describe('EmailTrackingService', () => {
                 await expect(consumer.processBatch(batch)).rejects.toThrow('broker unavailable')
 
                 const ttl = await consumer.redis.useClient({ name: 'test-read-mark' }, (client) => client.ttl(mark))
-                expect(ttl).toBeGreaterThan(24 * 60 * 60 - 60)
+                expect(ttl).toBeGreaterThan(25 * 60 * 60 - 60)
                 expect(recordedMetrics()).toEqual(bounceMetrics)
             })
 
