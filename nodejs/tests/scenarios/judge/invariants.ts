@@ -403,9 +403,8 @@ export const noLoss: InvariantDefinition = {
         if (unjudged !== undefined) {
             return unjudgedOf(unjudged)
         }
-        const byHorizon = evidence.truth.filter(({ seq }) => seq <= horizon.seq)
-        const byDelivery = recordsByDelivery(byHorizon)
-        const actionsByUnit = Map.groupBy(byHorizon.filter(isDeliveryRecord), ({ unitId }) => unitId)
+        const byDelivery = recordsByDelivery(evidence.truth)
+        const actionsByUnit = Map.groupBy(evidence.truth.filter(isDeliveryRecord), ({ unitId }) => unitId)
         const missing: Shortfall[] = []
         const extra: Excess[] = []
         for (const entry of evidence.journal) {
@@ -414,10 +413,20 @@ export const noLoss: InvariantDefinition = {
             for (const actionId of new Set([...entry.expect.deliveries, ...seen])) {
                 const records = byDelivery.get(deliveryKey(unitId, actionId)) ?? []
                 const { min, max } = boundsOf(entry, actionId, horizon.at)
-                const effects = records.filter(({ status }) => isAccepted(status)).flatMap(effectsOf)
-                const byRecipient = Map.groupBy(effects, ({ recipient }) => recipient)
-                if (byRecipient.size === 0 && min > 0) {
+                const accepted = records.filter(({ status }) => isAccepted(status))
+                const byRecipient = Map.groupBy(accepted.flatMap(effectsOf), ({ recipient }) => recipient)
+                const dueByRecipient = Map.groupBy(
+                    accepted.filter(({ seq }) => seq <= horizon.seq).flatMap(effectsOf),
+                    ({ recipient }) => recipient
+                )
+                if (dueByRecipient.size === 0 && min > 0) {
                     missing.push({ unitId, actionId, flows: 0, expected: min })
+                }
+                for (const [recipient, sends] of dueByRecipient) {
+                    const flows = new Set(sends.map(({ flowId }, i) => flowId ?? i)).size
+                    if (flows < min) {
+                        missing.push({ unitId, actionId, recipient, flows, expected: min })
+                    }
                 }
                 for (const [recipient, sends] of byRecipient) {
                     const byFlow = [...Map.groupBy(sends, ({ flowId }, i) => flowId ?? i)]
@@ -434,9 +443,6 @@ export const noLoss: InvariantDefinition = {
                                 ? { flowId: String(resent[0]), accepted: resent[1].length, expected: 1 }
                                 : { accepted: sends.length, expected: max }),
                         })
-                    }
-                    if (byFlow.length < min) {
-                        missing.push({ unitId, actionId, recipient, flows: byFlow.length, expected: min })
                     }
                 }
             }

@@ -666,17 +666,30 @@ describe('judge', () => {
                 missing: [UNIT],
             },
         ],
-        ['a resend', () => deliver(UNIT), { passed: true, observed: 0 }],
-    ])('counts nothing the edge accepted after the recovery horizon: %s', async (_story, before, expected) => {
-        judge.record(offered())
-        await before()
-        await judge.converge(20, NEVER_ABORTED)
-        await deliver(UNIT)
+        [
+            'a resend',
+            () => deliver(UNIT),
+            {
+                passed: false,
+                observed: 1,
+                violation: `${UNIT} email to ${ADDRESS} from flow-1: accepted 2 times, expected 1`,
+                missing: [],
+                extra: [UNIT],
+            },
+        ],
+    ])(
+        'counts a send after the recovery horizon as extra, never as delivered: %s',
+        async (_story, before, expected) => {
+            judge.record(offered())
+            await before()
+            await judge.converge(20, NEVER_ABORTED)
+            await deliver(UNIT)
 
-        const [result] = await judge.check([{ name: 'no_loss', params: {} }], {}, NO_RESETS)
+            const [result] = await judge.check([{ name: 'no_loss', params: {} }], {}, NO_RESETS)
 
-        expect(result).toMatchObject(expected)
-    })
+            expect(result).toMatchObject(expected)
+        }
+    )
 
     it.each<[string, () => Promise<unknown>, Array<() => Promise<unknown>>, object]>([
         ['a resend', () => deliver(UNIT), [() => deliver(UNIT)], { passed: false, observed: 1, extra: [UNIT] }],
