@@ -1,4 +1,5 @@
-import '../dashboard/DashboardV2.scss'
+import './WidgetCard.css'
+import './TileHoverReveal.css'
 
 import clsx from 'clsx'
 
@@ -72,13 +73,13 @@ export function WidgetCard({
                 size="sm"
                 // A tile without a header has no title bar, so the whole tile is what it is dragged by.
                 className={clsx(
-                    'DashboardV2__card',
-                    !showBackground && 'DashboardV2__card--no-background',
-                    editable && !showHeader && 'DashboardV2__handle'
+                    'dash-WidgetCard',
+                    !showBackground && 'dash-WidgetCard--no-background',
+                    editable && !showHeader && 'TileGrid__handle'
                 )}
             >
                 {showHeader && (
-                    <CardHeader className={clsx(editable && 'DashboardV2__handle')}>
+                    <CardHeader className={clsx(editable && 'TileGrid__handle')}>
                         <CardTitle className="flex items-center gap-1 min-w-0">
                             <span className="truncate">{widget.title}</span>
                             {showDescription && (
@@ -101,20 +102,20 @@ export function WidgetCard({
                         {(HeaderActions || hasMenu) && (
                             <CardAction className="flex items-center gap-1">
                                 {HeaderActions && <HeaderActions widget={widget} />}
-                                {hasMenu && <TileMenuButton className="DashboardV2__chrome" />}
+                                {hasMenu && <TileMenuButton className="TileHoverReveal" />}
                             </CardAction>
                         )}
                     </CardHeader>
                 )}
                 {!showHeader && hasMenu && (
-                    <TileMenuButton className="DashboardV2__chrome DashboardV2__float-toolbar" />
+                    <TileMenuButton className="TileHoverReveal dash-WidgetCard__float-toolbar" />
                 )}
                 <CardContent className="flex flex-col flex-1 min-h-0 overflow-hidden">
                     <WidgetView widget={widget} definition={definition} />
                 </CardContent>
                 {showFooter && (
                     // The grid's drag cancel selector lists this class, so a tile dragged by its body never starts a drag here.
-                    <CardFooter className="DashboardV2__footer flex shrink-0 items-center gap-2 min-w-0 text-xs text-secondary">
+                    <CardFooter className="dash-WidgetCard__footer flex shrink-0 items-center gap-2 min-w-0 text-xs text-secondary">
                         {Footer ? <Footer widget={widget} /> : <UpdatedAt refreshedAt={widget.refreshedAt} />}
                     </CardFooter>
                 )}

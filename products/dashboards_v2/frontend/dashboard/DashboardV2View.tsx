@@ -1,4 +1,4 @@
-import './DashboardV2.scss'
+import './DashboardV2View.css'
 
 import { type ReactNode, type RefObject, useCallback, useEffect, useMemo, useState } from 'react'
 import { useContainerWidth } from 'react-grid-layout'
@@ -16,7 +16,8 @@ import { type Dashboard, GRID, activeGridTab } from './dashboardTypes'
 import { type DashboardV2Controller, type DashboardV2State, DashboardV2StateContext } from './dashboardV2Context'
 import { DashboardV2Tabs } from './DashboardV2Tabs'
 
-const STACKED_REASON = 'Open this dashboard on a wider screen to edit it'
+// A stacked column is not the saved layout, so only dragging and resizing tiles in it is blocked.
+const STACKED_REASON = 'Open this dashboard on a wider screen to arrange tiles'
 
 export interface DashboardV2ViewProps {
     controller: DashboardV2Controller
@@ -47,7 +48,7 @@ export function DashboardV2View({ controller, header }: DashboardV2ViewProps): J
     const state = useMemo<DashboardV2State>(() => {
         const { activeTabId, disabledReasonFor: hostReason, onEdit: hostOnEdit, ...rest } = controller
         const disabledReasonFor = (action: DashboardV2Action): string | null =>
-            hostReason(action) ?? (stacked ? STACKED_REASON : null)
+            hostReason(action) ?? (stacked && action === 'placeTiles' ? STACKED_REASON : null)
         const view = (dashboard: Dashboard): Dashboard => withFolds(dashboard, folds, sizeOf)
         const dashboard = view(rest.dashboard)
         return {
@@ -105,7 +106,7 @@ export function DashboardV2View({ controller, header }: DashboardV2ViewProps): J
                         >
                             {header}
                             <DashboardV2Tabs />
-                            <div ref={containerRef as RefObject<HTMLDivElement>} className="DashboardV2__canvas">
+                            <div ref={containerRef as RefObject<HTMLDivElement>} className="DashboardV2View__canvas">
                                 {mounted && width > 0 && (
                                     <DashboardTileGrid
                                         key={`${activeTab.id}-${stacked ? 'stacked' : 'grid'}`}

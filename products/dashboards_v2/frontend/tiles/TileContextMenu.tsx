@@ -119,13 +119,26 @@ export function useSectionActions(id: string, widget: SectionWidget, onStartRena
     return applyTileActionFilters(actions, { id, widget }, undefined, tileActions)
 }
 
+/** A disabled entry says why under its label, since a tooltip never shows on a touch screen. */
+function EntryLabel({ action }: { action: TileAction }): JSX.Element {
+    if (!action.disabledReason) {
+        return <>{action.label}</>
+    }
+    return (
+        <span className="flex flex-col items-start text-left">
+            <span>{action.label}</span>
+            <span className="text-xs text-muted-foreground">{action.disabledReason}</span>
+        </span>
+    )
+}
+
 function TileMenuEntry({ action }: { action: TileAction }): JSX.Element {
     if (action.submenu && action.choice) {
         const selected = action.submenu.find((child) => child.checked)?.key ?? null
         return (
             <ContextMenuSub>
                 <ContextMenuSubTrigger data-attr={action.dataAttr} disabled={!!action.disabledReason}>
-                    {action.label}
+                    <EntryLabel action={action} />
                 </ContextMenuSubTrigger>
                 <ContextMenuSubContent>
                     <ContextMenuRadioGroup
@@ -139,7 +152,7 @@ function TileMenuEntry({ action }: { action: TileAction }): JSX.Element {
                                 data-attr={child.dataAttr}
                                 disabled={!!child.disabledReason}
                             >
-                                {child.label}
+                                <EntryLabel action={child} />
                             </ContextMenuRadioItem>
                         ))}
                     </ContextMenuRadioGroup>
@@ -151,7 +164,7 @@ function TileMenuEntry({ action }: { action: TileAction }): JSX.Element {
         return (
             <ContextMenuSub>
                 <ContextMenuSubTrigger data-attr={action.dataAttr} disabled={!!action.disabledReason}>
-                    {action.label}
+                    <EntryLabel action={action} />
                 </ContextMenuSubTrigger>
                 <ContextMenuSubContent>
                     {action.submenu.map((child) => (
@@ -167,10 +180,9 @@ function TileMenuEntry({ action }: { action: TileAction }): JSX.Element {
                 data-attr={action.dataAttr}
                 checked={action.checked}
                 disabled={!!action.disabledReason}
-                title={action.disabledReason ?? undefined}
                 onCheckedChange={() => action.onSelect?.()}
             >
-                {action.label}
+                <EntryLabel action={action} />
             </ContextMenuCheckboxItem>
         )
     }
@@ -181,7 +193,7 @@ function TileMenuEntry({ action }: { action: TileAction }): JSX.Element {
             disabled={!!action.disabledReason}
             onClick={action.onSelect}
         >
-            {action.label}
+            <EntryLabel action={action} />
         </ContextMenuItem>
     )
 }
@@ -210,7 +222,7 @@ export function TileContextMenu({ actions, children }: { actions: TileAction[]; 
                 render={
                     // A tile inside a section has its own menu, so its right-click must not also open the section's.
                     <div
-                        className="DashboardV2__menu-trigger contents"
+                        className="TileContextMenu__trigger contents"
                         onContextMenu={(event) => event.stopPropagation()}
                     />
                 }
