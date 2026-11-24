@@ -329,6 +329,11 @@ def insight_ids_modified_since(*, team_ids: Collection[int], since: datetime) ->
     return logic.insight_ids_modified_since(team_ids=team_ids, since=since)
 
 
+def insight_ids_by_short_ids(*, team_id: int, short_ids: Collection[str]) -> set[int]:
+    """Ids of the live insights of this team with these short ids, in one query. Unknown short ids are left out."""
+    return logic.insight_ids_by_short_ids(team_id=team_id, short_ids=short_ids)
+
+
 def insight_ids_named_like(*, team_id: int, search: str) -> set[int]:
     """Live insights of this team whose name contains ``search``, ignoring case, in one query.
 

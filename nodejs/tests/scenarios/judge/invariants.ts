@@ -74,24 +74,38 @@ const isDeliveryRecord = (record: TruthRecord): record is DeliveryRecord =>
 const recordsByDelivery = (truth: readonly TruthRecord[]): Map<string, DeliveryRecord[]> =>
     Map.groupBy(truth.filter(isDeliveryRecord), ({ unitId, actionId }) => deliveryKey(unitId, actionId))
 
+export type DeliveryEvidence = Pick<JudgeEvidence, 'journal' | 'truth' | 'fetchRetries'>
+
+export const missedDeliveriesOf = ({
+    journal,
+    truth,
+    fetchRetries,
+}: DeliveryEvidence): { unitId: string; actionId: string; records: DeliveryRecord[] }[] => {
+    const byDelivery = recordsByDelivery(truth)
+    return journal
+        .filter(({ answer }) => answer.accepted)
+        .flatMap(({ unitId, expect }) =>
+            expect.deliveries.map((actionId) => ({
+                unitId,
+                actionId,
+                records: byDelivery.get(deliveryKey(unitId, actionId)) ?? [],
+            }))
+        )
+        .filter(
+            ({ records }) => !records.some(({ status }) => isAccepted(status)) && !endedByFault(records, fetchRetries)
+        )
+}
+
+export const acceptedDeliveriesOf = (truth: readonly TruthRecord[]): { record: DeliveryRecord; accepted: number }[] =>
+    [...recordsByDelivery(truth).values()]
+        .map((records) => ({ record: records[0], accepted: records.filter(({ status }) => isAccepted(status)).length }))
+        .filter(({ accepted }) => accepted > 0)
+
 export const atLeastOnce: InvariantDefinition = {
     name: 'at_least_once',
     params: z.object({}).strict(),
-    check: ({ journal, truth, fetchRetries }) => {
-        const byDelivery = recordsByDelivery(truth)
-        const missed = journal
-            .filter(({ answer }) => answer.accepted)
-            .flatMap(({ unitId, expect }) =>
-                expect.deliveries.map((actionId) => ({
-                    unitId,
-                    actionId,
-                    records: byDelivery.get(deliveryKey(unitId, actionId)) ?? [],
-                }))
-            )
-            .filter(
-                ({ records }) =>
-                    !records.some(({ status }) => isAccepted(status)) && !endedByFault(records, fetchRetries)
-            )
+    check: (evidence) => {
+        const missed = missedDeliveriesOf(evidence)
         const [first] = missed
         return {
             passed: missed.length === 0,
@@ -104,7 +118,7 @@ export const atLeastOnce: InvariantDefinition = {
                         : `the last of ${first.records.length} attempts was answered ${first.records.at(-1)!.status}`
                 }`,
             unitIds: [...new Set(missed.map(({ unitId }) => unitId))].slice(0, EVIDENCE_UNIT_IDS),
-            ...crossing(crossedByOf(journal, missed, 0)),
+            ...crossing(crossedByOf(evidence.journal, missed, 0)),
         }
     },
 }
@@ -119,11 +133,8 @@ export const duplicateSends: InvariantDefinition = {
     name: 'duplicate_sends',
     params: z.object({}).strict(),
     check: ({ journal, truth, janitorResets }, gate) => {
-        const duplicated = [...recordsByDelivery(truth).values()]
-            .map((records) => ({
-                record: records[0],
-                extra: records.filter(({ status }) => isAccepted(status)).length - 1,
-            }))
+        const duplicated = acceptedDeliveriesOf(truth)
+            .map(({ record, accepted }) => ({ record, extra: accepted - 1 }))
             .filter(({ extra }) => extra > 0)
         const observed = duplicated.reduce((sum, { extra }) => sum + extra, 0)
         const [first] = duplicated

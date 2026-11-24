@@ -7,11 +7,6 @@ import {
     Badge,
     Button,
     Checkbox,
-    Empty,
-    EmptyContent,
-    EmptyDescription,
-    EmptyHeader,
-    EmptyTitle,
     Table,
     TableBody,
     TableCell,
@@ -35,7 +30,6 @@ import { urls } from 'scenes/urls'
 
 import { dataQualityOverviewLogic } from 'products/data_quality/frontend/overview/dataQualityOverviewLogic'
 
-import { CATALOG_PAGE_SIZE } from '../catalogPagination'
 import { sortDirectionFor } from '../catalogSort'
 import { humanizeDefinitionKind, metricDisplayName } from '../common'
 import { CatalogChecksSummary } from '../components/CatalogChecksSummary'
@@ -44,16 +38,17 @@ import { PageSelectionCheckbox } from '../components/PageSelectionCheckbox'
 import { SortHeadProps, SortableTableHead } from '../components/SortableTableHead'
 import type { DataCatalogMetricApi } from '../generated/api.schemas'
 import { bulkBusyReason } from '../metricActionGuards'
-import { DEFAULT_METRICS_FILTERS, metricsLogic } from '../metricsLogic'
+import { metricsLogic } from '../metricsLogic'
 import { MutedCellText } from '../tables/MutedCellText'
 import { CatalogMetricRowMenu } from './CatalogMetricRowMenu'
 import {
-    DEFAULT_METRIC_CHECKS_FILTER,
+    MetricsListKey,
     MetricsSortColumn,
     catalogMetricsLogic,
     metricOwnerName,
     metricUpdatedAt,
 } from './catalogMetricsLogic'
+import { CatalogMetricsNoMatch } from './CatalogMetricsNoMatch'
 import { MetricApproveButton } from './MetricApproveButton'
 import { MetricOwnerCombobox } from './MetricOwnerCombobox'
 
@@ -66,12 +61,26 @@ const STATUS_LABELS: Record<string, string> = {
     proposed: 'Proposed',
 }
 
-function StatusBadges({ metric }: { metric: DataCatalogMetricApi }): JSX.Element {
+const SELECT_PAGE_LABELS: Record<MetricsListKey, string> = {
+    all: 'Select all metrics on this page',
+    proposed: 'Select all metrics that wait for approval on this page',
+    approved: 'Select all approved metrics on this page',
+}
+
+interface MetricListCellProps {
+    metric: DataCatalogMetricApi
+    list: MetricsListKey
+}
+
+function StatusBadges({ metric, list }: MetricListCellProps): JSX.Element {
     return (
         <div className="flex flex-wrap items-center gap-1">
-            <Badge variant={metric.status === 'approved' ? 'success' : 'warning'}>
-                {STATUS_LABELS[metric.status] ?? metric.status}
-            </Badge>
+            {/* The heading of the list of metrics that wait for approval already names their status. */}
+            {list !== 'proposed' && (
+                <Badge variant={metric.status === 'approved' ? 'success' : 'warning'}>
+                    {STATUS_LABELS[metric.status] ?? metric.status}
+                </Badge>
+            )}
             {metric.is_drifted && <Badge variant="destructive">Drifted</Badge>}
             {metric.status === 'proposed' && <MetricApproveButton metric={metric} />}
         </div>
@@ -125,7 +134,7 @@ function OwnerCell({ metric }: { metric: DataCatalogMetricApi }): JSX.Element {
     )
 }
 
-function NameCell({ metric }: { metric: DataCatalogMetricApi }): JSX.Element {
+function NameCell({ metric, list }: MetricListCellProps): JSX.Element {
     return (
         <div className="flex min-w-0 flex-col gap-1">
             <Button
@@ -143,7 +152,7 @@ function NameCell({ metric }: { metric: DataCatalogMetricApi }): JSX.Element {
                 </Text>
             )}
             <div className={cn(NARROW_ONLY, 'flex flex-col items-start gap-1')}>
-                <StatusBadges metric={metric} />
+                <StatusBadges metric={metric} list={list} />
                 <MetricChecksCell metric={metric} />
                 <OwnerCell metric={metric} />
             </div>
@@ -174,33 +183,7 @@ function MetricChecksCell({ metric }: { metric: DataCatalogMetricApi }): JSX.Ele
     )
 }
 
-function NoMetrics(): JSX.Element {
-    const { setFilters } = useActions(metricsLogic)
-    const { setChecksFilter } = useActions(catalogMetricsLogic)
-    return (
-        <Empty>
-            <EmptyHeader>
-                <EmptyTitle>No metrics match</EmptyTitle>
-                <EmptyDescription>Change the search or the filters to see more metrics.</EmptyDescription>
-            </EmptyHeader>
-            <EmptyContent>
-                <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                        setFilters(DEFAULT_METRICS_FILTERS)
-                        setChecksFilter(DEFAULT_METRIC_CHECKS_FILTER)
-                    }}
-                    data-attr="data-catalog-metrics-show-all"
-                >
-                    Show all metrics
-                </Button>
-            </EmptyContent>
-        </Empty>
-    )
-}
-
-function MetricRow({ metric, selected }: { metric: DataCatalogMetricApi; selected: boolean }): JSX.Element {
+function MetricRow({ metric, list, selected }: MetricListCellProps & { selected: boolean }): JSX.Element {
     const { openMetric, toggleMetricSelected } = useActions(catalogMetricsLogic)
     const openUnlessInteractive = (event: MouseEvent<HTMLTableRowElement>): void => {
         if (isPlainRowClick(event)) {
@@ -223,10 +206,10 @@ function MetricRow({ metric, selected }: { metric: DataCatalogMetricApi; selecte
                 />
             </TableCell>
             <TableCell expand valign="top">
-                <NameCell metric={metric} />
+                <NameCell metric={metric} list={list} />
             </TableCell>
             <TableCell valign="top" className={WIDE_ONLY_CELL}>
-                <StatusBadges metric={metric} />
+                <StatusBadges metric={metric} list={list} />
             </TableCell>
             <TableCell valign="top" className={WIDE_ONLY_CELL}>
                 <MetricChecksCell metric={metric} />
@@ -252,16 +235,10 @@ function MetricRow({ metric, selected }: { metric: DataCatalogMetricApi; selecte
     )
 }
 
-export function CatalogMetricsTable(): JSX.Element {
-    const {
-        visibleMetrics,
-        pageMetrics: pageItems,
-        currentPage,
-        pageCount,
-        sort,
-        selectedMetricIds,
-    } = useValues(catalogMetricsLogic)
+export function CatalogMetricsTable({ list }: { list: MetricsListKey }): JSX.Element {
+    const { listPages, sort, selectedMetricIds } = useValues(catalogMetricsLogic)
     const { toggleSort, setPage, setMetricsSelected } = useActions(catalogMetricsLogic)
+    const { metrics: pageItems, total, currentPage, pageCount, pageSize } = listPages[list]
     const sortProps = (column: MetricsSortColumn): SortHeadProps => ({
         direction: sortDirectionFor(sort, column),
         onToggle: () => toggleSort(column),
@@ -276,14 +253,19 @@ export function CatalogMetricsTable(): JSX.Element {
                     <TableRow>
                         <TableHead className="w-0 pr-0">
                             <PageSelectionCheckbox
-                                label="Select all metrics on this page"
+                                label={SELECT_PAGE_LABELS[list]}
                                 pageIds={pageIds}
                                 selectedIds={selectedMetricIds}
                                 onChange={setMetricsSelected}
                             />
                         </TableHead>
                         <SortableTableHead label="Name" expand {...sortProps('name')} />
-                        <SortableTableHead label="Status" className={WIDE_ONLY_CELL} {...sortProps('status')} />
+                        {list === 'all' ? (
+                            <SortableTableHead label="Status" className={WIDE_ONLY_CELL} {...sortProps('status')} />
+                        ) : (
+                            // Each metric in the list has the same status, so a sort by status changes nothing.
+                            <TableHead className={WIDE_ONLY_CELL}>Status</TableHead>
+                        )}
                         <SortableTableHead label="Checks" className={WIDE_ONLY_CELL} {...sortProps('checks')} />
                         <TableHead className={EXTRA_WIDE_ONLY_CELL}>Definition</TableHead>
                         <TableHead className={EXTRA_WIDE_ONLY_CELL}>Source</TableHead>
@@ -296,7 +278,7 @@ export function CatalogMetricsTable(): JSX.Element {
                 </TableHeader>
                 {pageItems.length === 0 ? (
                     <TableEmpty>
-                        <NoMetrics />
+                        <CatalogMetricsNoMatch />
                     </TableEmpty>
                 ) : (
                     <TableBody>
@@ -304,6 +286,7 @@ export function CatalogMetricsTable(): JSX.Element {
                             <MetricRow
                                 key={metric.id}
                                 metric={metric}
+                                list={list}
                                 selected={selectedMetricIds.includes(metric.id)}
                             />
                         ))}
@@ -314,9 +297,9 @@ export function CatalogMetricsTable(): JSX.Element {
                 <QuillTablePagination
                     currentPage={currentPage}
                     pageCount={pageCount}
-                    pageSize={CATALOG_PAGE_SIZE}
-                    total={visibleMetrics.length}
-                    onPageChange={setPage}
+                    pageSize={pageSize}
+                    total={total}
+                    onPageChange={(page) => setPage(list, page)}
                 />
             )}
         </div>

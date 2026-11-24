@@ -16,6 +16,7 @@ export const DASHBOARD_V2_REQUIRED_LEVEL: Record<DashboardV2Action, AccessContro
     addTile: AccessControlLevel.Editor,
     removeTile: AccessControlLevel.Editor,
     updateSection: AccessControlLevel.Editor,
+    setTileParts: AccessControlLevel.Editor,
     addTab: AccessControlLevel.Editor,
     renameTab: AccessControlLevel.Editor,
     removeTab: AccessControlLevel.Editor,

@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
 
 import { IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
@@ -11,10 +11,24 @@ import { REPLAY_FILTERS_ENTRY_POINT, replayFiltersScannerLogic } from '../replay
 import type { ScannerHandoffFromFilters } from '../scannerHandoffFromFilters'
 import { ReplayFiltersScannerPopover } from './ReplayFiltersScannerPopover'
 
-export function ReplayFiltersScannerButton({ handoff }: { handoff: ScannerHandoffFromFilters }): JSX.Element {
+export function ReplayFiltersScannerButton({
+    handoff,
+    openOnMount,
+}: {
+    handoff: ScannerHandoffFromFilters
+    /** Set when this button replaces the entry point's placeholder, so the click that swapped them opens the popover. */
+    openOnMount?: boolean
+}): JSX.Element {
     const { popoverOpen } = useValues(replayFiltersScannerLogic)
     const { setPopoverOpen } = useActions(replayFiltersScannerLogic)
     const buttonRef = useRef<HTMLButtonElement>(null)
+
+    useEffect(() => {
+        if (openOnMount) {
+            setPopoverOpen(true)
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
 
     return (
         <PostHogCaptureOnViewed

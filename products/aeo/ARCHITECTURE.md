@@ -63,7 +63,7 @@ A count that names one more column reads every row in the window in full, and lo
 
 ## Stored results
 
-The overview and the rankings are the same for every person who opens the page, and their inputs change a few times a day.
+The overview, the rankings and the movers are the same for every person who opens the page, and their inputs change a few times a day.
 `stored_results.py` keeps their results, so a read is one cache lookup and no query on the checks.
 
 - **A result is stored under a data version.** Every writer calls `bump_data_version_on_commit` after it changes what a read returns, and a read looks only under the current version, so it never gets a result from before a write.
@@ -72,7 +72,7 @@ The overview and the rankings are the same for every person who opens the page, 
 - **The views the page opens on are always stored.** `refresh_stored_results` computes the default window after every reconcile, and a beat task computes it again every 10 minutes. A filtered view is computed on its first read and stored for the next.
 - **The version lives on the Redis primary**, and a failed bump never fails the write that made it.
 - **A stored result lives 30 minutes.** A writer that forgets to bump can leave an old result in use for that long at most, and for 10 minutes at most on the default views.
-- **A new day in the project's timezone is a new result**, because the window ends today.
+- **A result is stored per date range, under the days the range resolves to.** A relative range such as `-30d` resolves to new days each day in the project's timezone, so a new day is a new result. A request with no range and one that sends the default range read the same result.
 - In a test, a bump waits for a commit that a `TestCase` never makes. Wrap the write in `captureOnCommitCallbacks(execute=True)` when the test reads again after it.
 
 The stored result does not replace fast queries: the refresh runs them every 10 minutes for each project, and a filtered view runs them on its first read.

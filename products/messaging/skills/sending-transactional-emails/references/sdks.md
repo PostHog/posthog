@@ -22,7 +22,7 @@ Read the section for the backend's language. Each SDK sends both of the skill's 
 
 ## Go
 
-- **Package:** `github.com/posthog/posthog-go`, version `v1.43.0` or later.
+- **Package:** `github.com/posthog/posthog-go/v2`. A project still on posthog-go 1.x uses `github.com/posthog/posthog-go`, version `v1.43.0` or later.
 - **Client:** `posthog.NewWithConfig(projectToken, posthog.Config{Endpoint: ..., SecretKey: ...})`. On a self-hosted instance, set `AppHost`. With `SecretKey` set, the client polls flag definitions with it, so give the key the feature flag read scope too, or it logs a failed poll each time.
 - **Code send:** `client.Emails().Send(ctx, posthog.CodeEmail{To, TemplateKey, Subject, HTML, Text, DistinctID, IdempotencyKey})`, with `From`, `ReplyTo`, `Sensitive` (`posthog.Ptr(true)`) and `Tracking` optional, such as `posthog.EmailTrackingWith(posthog.EmailTrackingOptions{Engagement: posthog.Ptr(false)})`.
 - **Template send:** `client.Emails().Send(ctx, posthog.TemplateEmail{To, TemplateID, TemplateData, DistinctID, IdempotencyKey})`.
