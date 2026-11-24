@@ -21,15 +21,14 @@ export function organizationInactiveColumn(table: string): string {
 
 export function withoutDeactivatedOrganizations<T extends { id: string; team_id: number }>(
     kind: 'hog_function' | 'hog_flow',
-    rows: T[],
-    keepWhenInactive: (row: T) => boolean = () => false
+    rows: T[]
 ): T[] {
     const kept: T[] = []
     const skipped: T[] = []
     for (const row of rows as (T & { organization_inactive?: boolean })[]) {
         const inactive = row.organization_inactive === true
         delete row.organization_inactive
-        if (inactive && !keepWhenInactive(row)) {
+        if (inactive) {
             skipped.push(row)
         } else {
             kept.push(row)

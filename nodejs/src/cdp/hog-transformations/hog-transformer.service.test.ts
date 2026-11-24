@@ -3,6 +3,7 @@ import { mockProducer, mockProducerObserver } from '~/tests/helpers/mocks/produc
 import { DateTime } from 'luxon'
 
 import { closeHub, createHub } from '~/common/utils/db/hub'
+import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { PluginEvent } from '~/plugin-scaffold'
 
@@ -80,6 +81,7 @@ describe('HogTransformer', () => {
             // Deliberately not the default, so the assertion below proves the value is plumbed
             // through rather than hardcoded in the factory.
             TRANSFORMATIONS_HOG_TIMEOUT_MS: 123,
+            CDP_SKIP_DEACTIVATED_ORGANIZATIONS: false,
             CDP_INTERNAL_LOGS_SOURCES: '',
             LOGS_INTERNAL_INGESTION_SIGNING_KEYS: '',
             LOGS_INTERNAL_PRODUCER_URL: '',
@@ -98,6 +100,41 @@ describe('HogTransformer', () => {
 
         await transformer.stop()
     })
+
+    it.each([
+        ['on', true, 0],
+        ['off', false, 1],
+    ])(
+        'runs the transformations of a deactivated organization only with the switch %s',
+        async (_name, skip, expectedRuns) => {
+            await insertHogFunction(
+                hub.postgres,
+                teamId,
+                createHogFunction({
+                    type: 'transformation',
+                    name: defaultTemplate.name,
+                    team_id: teamId,
+                    enabled: true,
+                    bytecode: await compileHog(defaultTemplate.code),
+                })
+            )
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                'UPDATE posthog_organization SET is_active = false WHERE id = (SELECT organization_id FROM posthog_team WHERE id = $1)',
+                [teamId],
+                'deactivateOrganization'
+            )
+            const transformer = createHogTransformerService(
+                { ...hub, CDP_SKIP_DEACTIVATED_ORGANIZATIONS: skip },
+                { ...hub, monitoringOutputs: createTestMonitoringOutputs(mockProducer) }
+            )
+
+            const result = await transformer.transformEventAndProduceMessages(createPluginEvent({}, teamId))
+
+            expect(result.invocationResults).toHaveLength(expectedRuns)
+            await transformer.stop()
+        }
+    )
 
     it('prefetchHogFunctionsForTeams leaves the transformation caches warm for the event path', async () => {
         const fn = createHogFunction({
