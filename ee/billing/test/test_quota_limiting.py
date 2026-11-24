@@ -42,6 +42,7 @@ from ee.billing.quota_limiting import (
     UsageCounters,
     _identify_refresh_candidates,
     _patch_todays_usage,
+    _used_quota,
     add_limited_team_tokens,
     get_team_attribute_by_quota_resource,
     is_team_limited,
@@ -101,6 +102,24 @@ class TestQuotaLimiting(BaseTest):
     def _run_quota_limiting(self) -> QuotaLimitingRunResult:
         with self.captureOnCommitCallbacks(execute=True):
             return update_all_orgs_billing_quotas()
+
+    def test_run_result_names_the_limited_orgs_whose_limit_is_a_used_quota(self) -> None:
+        with self.settings(USE_TZ=False), time_machine.travel("2021-01-25T00:00:00Z", tick=False):
+            self.organization.usage = {
+                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+                "events": {"usage": 100, "limit": 100, "todays_usage": 0},
+                "rows_synced": {"usage": 0, "limit": 0, "todays_usage": 0},
+            }
+            self.organization.is_active = False
+            self.organization.save()
+
+            result = self._run_quota_limiting()
+
+        org_id = str(self.organization.id)
+        limited = {resource for resource, orgs in result.quota_limited_orgs.items() if org_id in orgs}
+        used_quota = {resource for resource, orgs in result.used_quota_orgs.items() if org_id in orgs}
+        assert limited >= {"events", "rows_synced", "feature_flag_requests"}
+        assert used_quota == {"events"}
 
     @parameterized.expand(
         [
@@ -2835,6 +2854,51 @@ def _fake_org(usage: dict | None) -> Any:
 
 _PERIOD = ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"]
 _PATCH_DAY = datetime.date(2021, 1, 15)
+
+
+class TestUsedQuota(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("used", {"events": {"usage": 5, "limit": 5}}, None, QuotaResource.EVENTS, True),
+            (
+                "used_today_only",
+                {"events": {"usage": 0, "limit": 0, "todays_usage": 5}},
+                None,
+                QuotaResource.EVENTS,
+                True,
+            ),
+            (
+                "zero_allowance",
+                {"events": {"usage": 0, "limit": 0, "todays_usage": 0}},
+                None,
+                QuotaResource.EVENTS,
+                False,
+            ),
+            ("without_usage", None, None, QuotaResource.EVENTS, False),
+            ("without_the_resource", {"events": {"usage": 5, "limit": 5}}, None, QuotaResource.RECORDINGS, False),
+            (
+                "deactivated_with_flag_usage",
+                {"feature_flag_requests": {"usage": 5, "limit": 100}},
+                False,
+                QuotaResource.FEATURE_FLAG_REQUESTS,
+                False,
+            ),
+            ("deactivated_other_resource", {"events": {"usage": 5, "limit": 5}}, False, QuotaResource.EVENTS, True),
+            (
+                "is_active_unset_with_flag_usage",
+                {"feature_flag_requests": {"usage": 5, "limit": 100}},
+                None,
+                QuotaResource.FEATURE_FLAG_REQUESTS,
+                True,
+            ),
+        ]
+    )
+    def test_a_limit_counts_as_a_used_quota(
+        self, _name: str, usage: dict[str, Any] | None, is_active: bool | None, resource: QuotaResource, expected: bool
+    ) -> None:
+        organization = Organization(usage=usage, is_active=is_active)
+
+        assert _used_quota(organization, resource) is expected
 
 
 @override_settings(CLOUD_DEPLOYMENT="US")
