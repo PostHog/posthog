@@ -639,11 +639,12 @@ class TestSendGridContacts(ClickhouseTestMixin, BaseTest):
         settings_override = override_settings(MESSAGING_SENDGRID_API_URL=self.server.url)
         settings_override.enable()
         self.addCleanup(settings_override.disable)
-        for target, kwargs in (
+        replacements: tuple[tuple[str, dict[str, Any]], ...] = (
             (f"{_CLIENT}.time.sleep", {}),
             (f"{_CLIENT}.REQUESTS_PER_SECOND", {"new": 100000}),
             ("products.messaging.backend.provider_imports.runs.start_provider_import_workflow", {}),
-        ):
+        )
+        for target, kwargs in replacements:
             patcher = patch(target, **kwargs)
             self.addCleanup(patcher.stop)
             patcher.start()

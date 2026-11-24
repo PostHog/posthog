@@ -1133,7 +1133,8 @@ def _fetch_contacts(
     list_counts = {list_id: row.get("contact_count") for list_id, row in lists.items()}
     counts = [count.get("contact_count") if isinstance(count, dict) else None, *list_counts.values()]
     # The account's own count can lag behind its lists, and reading no contacts would empty every cohort.
-    everyone_count = max(counts) if all(isinstance(value, int) for value in counts) else None
+    known_counts = [value for value in counts if isinstance(value, int)]
+    everyone_count = max(known_counts) if len(known_counts) == len(counts) else None
     for target, contact_count in ((ALL_CONTACTS, everyone_count), *list_counts.items()):
         members: list[dict[str, str]] = []
         exported = 0
