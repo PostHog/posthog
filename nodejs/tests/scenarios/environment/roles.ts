@@ -83,6 +83,8 @@ export function roleSpecs(
         AWS_ACCESS_KEY_ID: 'scenario',
         AWS_SECRET_ACCESS_KEY: 'scenario',
         PERSONHOG_ENABLED: 'true',
+        // No role here consumes the intake topics, so the API inserts runs itself.
+        CDP_INTAKE_KAFKA_ASYNC_TEAMS: '',
         ...settings,
     }
     return roleIdsOf(replicas).map((id, index) => ({
