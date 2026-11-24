@@ -6,14 +6,17 @@ from rest_framework import mixins, serializers, viewsets
 
 from posthog.api.pagination import FacadePageNumberPagination, facade_numbered_page_response
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.models.utils import strict_fetch
+from posthog.paging import Page, PageRequest
 
-from products.data_modeling.backend.facade.api import delete_orphaned_table_nodes, get_edge, list_edges
+from products.data_modeling.backend.facade.api import delete_orphaned_table_nodes, find_edge_id, list_edge_ids
 from products.data_modeling.backend.facade.models import Edge, NodeType
 from products.data_modeling.backend.presentation.views.metric_visibility import (
     DELETE_DENIED,
     EDIT_DENIED,
     MetricNodeVisibilityMixin,
 )
+from products.data_modeling.backend.presentation.views.rows import rows_in_id_order
 
 _METRIC_EDGE_REFUSAL = "Edges that connect a metric are maintained by the data catalog."
 
@@ -106,9 +109,20 @@ class EdgeViewSet(
 
     @extend_schema(responses=EdgeSummarySerializer(many=True))
     def list(self, request, *args, **kwargs):
-        return facade_numbered_page_response(
-            self, lambda page_request: list_edges(self.team, self.user_access_control, page=page_request)
-        )
+        def fetch(page_request: PageRequest) -> Page[Edge]:
+            edge_ids = list_edge_ids(self.team, self.user_access_control, page=page_request)
+            return Page(
+                results=rows_in_id_order(strict_fetch(Edge.objects.filter(team_id=self.team_id)), edge_ids.results),
+                count=edge_ids.count,
+            )
+
+        return facade_numbered_page_response(self, fetch)
 
     def read_object(self) -> Edge | None:
-        return get_edge(self.team, self.user_access_control, edge_id=self.kwargs["pk"])
+        edge_id = find_edge_id(self.team, self.user_access_control, edge_id=self.kwargs["pk"])
+        if edge_id is None:
+            return None
+        edges = Edge.objects.filter(team_id=self.team_id).select_related(
+            "dag", "source__saved_query", "target__saved_query"
+        )
+        return edges.filter(id=edge_id).first()

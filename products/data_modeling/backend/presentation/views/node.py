@@ -17,6 +17,8 @@ from posthog.exceptions import Conflict
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
+from posthog.models.utils import strict_fetch
+from posthog.paging import Page, PageRequest
 
 from products.data_modeling.backend.facade.api import (
     SCHEDULABLE_BUCKETS,
@@ -36,15 +38,15 @@ from products.data_modeling.backend.facade.api import (
     delete_node,
     endpoint_link,
     failing_model_count,
+    find_node_id,
     get_declared_target,
-    get_node,
     is_declared_pin,
-    list_lineage_edges,
-    list_lineage_nodes,
-    list_nodes,
+    lineage_edge_ids,
+    list_node_ids,
     load_node_descriptions,
     node_lineage,
     node_lineage_counts,
+    node_run_states,
     parse_warehouse_table_id,
     run_related_node_materializations,
     saved_query_pin_preview,
@@ -53,11 +55,12 @@ from products.data_modeling.backend.facade.api import (
     set_watching,
     suspension_state,
     unsuspend_nodes,
+    visible_node_ids_among,
     visible_node_ids_in_dags_of_saved_query,
     watched_node_ids,
     write_node_description,
 )
-from products.data_modeling.backend.facade.contracts import NodeDescription, NodeDescriptionTarget
+from products.data_modeling.backend.facade.contracts import NodeDescription, NodeDescriptionTarget, NodeRunState
 from products.data_modeling.backend.facade.models import (
     SAVED_QUERY_NODE_TYPES,
     DataWarehouseSavedQuery,
@@ -74,6 +77,7 @@ from products.data_modeling.backend.presentation.views.metric_visibility import 
     TABLE_EDIT_DENIED,
     MetricNodeVisibilityMixin,
 )
+from products.data_modeling.backend.presentation.views.rows import rows_in_id_order
 from products.warehouse_sources.backend.facade.api import allowed_table_ids
 from products.warehouse_sources.backend.facade.models import (
     sync_frequency_interval_to_sync_frequency,
@@ -232,6 +236,7 @@ class NodeListSerializer(serializers.ListSerializer):
         # Load every description for the page at once, to avoid one annotation query per node.
         cast(NodeSerializer, self.child).preload_descriptions(nodes)
         cast(NodeSerializer, self.child).preload_watching(nodes)
+        cast(NodeSerializer, self.child).preload_run_states(nodes)
         return super().to_representation(nodes)
 
 
@@ -362,21 +367,24 @@ class NodeSerializer(serializers.ModelSerializer):
         return self.context.get("hidden_node_types") or frozenset()
 
     def get_last_run_at(self, node: Node) -> str | None:
-        run_at = getattr(node, "_latest_job_run_at", None)
-        if run_at is not None:
-            return run_at.isoformat()
-        if getattr(node, "_has_serving_job", False):
+        run_state = self.run_state_for(node)
+        if run_state and run_state.completed_at is not None:
+            return run_state.completed_at.isoformat()
+        if run_state and run_state.has_serving_job:
             return None
         return node.properties.get("system", {}).get("last_run_at")
 
     def get_last_run_status(self, node: Node) -> str | None:
         """Skipped runs are written straight to the job table and never reach the stored status,
         so a blocked model would keep reporting the success before it."""
-        return getattr(node, "_latest_job_status", None) or node.properties.get("system", {}).get("last_run_status")
+        run_state = self.run_state_for(node)
+        status = run_state.status if run_state else None
+        return status or node.properties.get("system", {}).get("last_run_status")
 
     def get_last_run_error(self, node: Node) -> str | None:
         """Error of the run that last_run_status describes, so the two never disagree."""
-        return getattr(node, "_latest_job_error", None) or None
+        run_state = self.run_state_for(node)
+        return (run_state.error or None) if run_state else None
 
     def get_user_tag(self, node: Node) -> str | None:
         return node.properties.get("user", {}).get("tag")
@@ -433,6 +441,16 @@ class NodeSerializer(serializers.ModelSerializer):
         read_watched = self.context.get("read_watched_node_ids")
         self._watched = read_watched([node.id for node in nodes]) if read_watched else frozenset()
         self._watching_checked_node_ids = {node.id for node in nodes}
+
+    def preload_run_states(self, nodes: list[Node]) -> None:
+        read_run_states = self.context.get("read_node_run_states")
+        self._run_states = read_run_states([node.id for node in nodes]) if read_run_states else {}
+        self._run_state_checked_node_ids = {node.id for node in nodes}
+
+    def run_state_for(self, node: Node) -> NodeRunState | None:
+        if node.id not in getattr(self, "_run_state_checked_node_ids", ()):
+            self.preload_run_states([node])
+        return self._run_states.get(node.id)
 
     def preload_descriptions(self, nodes: list[Node]) -> None:
         read_descriptions = self.context.get("read_node_descriptions")
@@ -656,7 +674,18 @@ class NodeViewSet(
             "hidden_node_types": self._hidden_node_types(),
             "read_node_descriptions": self._readable_node_descriptions,
             "read_watched_node_ids": self._watched_among,
+            "read_node_run_states": self._run_states_of,
         }
+
+    def _run_states_of(self, node_ids: list[UUID]) -> dict[UUID, NodeRunState]:
+        return node_run_states(self.team_id, node_ids)
+
+    def _node(self, node_id: UUID | None) -> Node | None:
+        return next(iter(self._nodes([node_id])), None) if node_id else None
+
+    def _nodes(self, node_ids: list[UUID], *, strict: bool = False) -> list[Node]:
+        nodes = Node.objects.filter(team_id=self.team_id).select_related("saved_query", "dag")
+        return rows_in_id_order(strict_fetch(nodes) if strict else nodes, node_ids)
 
     def _watched_among(self, node_ids: list[UUID]) -> frozenset[UUID]:
         """Which of these nodes the caller watches, in one query for the whole page."""
@@ -769,15 +798,14 @@ class NodeViewSet(
                 key = UUID(key)
             except ValueError:
                 raise NotFound()
-        is_unwatch = self.action == "unwatch"
-        return get_node(
+        node_id = find_node_id(
             self.team,
             self.user_access_control,
             key=key,
             lookup=lookup,
-            include_hidden=is_unwatch,
-            include_run_state=not is_unwatch,
+            include_hidden=self.action == "unwatch",
         )
+        return self._node(node_id)
 
     @extend_schema(
         parameters=[
@@ -811,13 +839,12 @@ class NodeViewSet(
 
         search_terms = filters.SearchFilter().get_search_terms(request)
         paginator = facade_numbered_paginator(self)
-        page = paginator.read_facade_page(
-            request,
-            lambda page_request: list_nodes(
-                self.team, self.user_access_control, page=page_request, search_terms=search_terms
-            ),
-        )
-        nodes = page.results
+
+        def fetch(page_request: PageRequest) -> Page[Node]:
+            node_ids = list_node_ids(self.team, self.user_access_control, page=page_request, search_terms=search_terms)
+            return Page(results=self._nodes(node_ids.results, strict=True), count=node_ids.count)
+
+        nodes = paginator.read_facade_page(request, fetch).results
 
         node_ids = [str(n.id) for n in nodes]
         counts = node_lineage_counts(self.team_id, node_ids, hidden_types=self._hidden_node_types())
@@ -888,13 +915,8 @@ class NodeViewSet(
             key = UUID(req.query_params[param])
         except ValueError:
             raise LineageLookupError("Invalid UUID")
-        return get_node(
-            self.team,
-            self.user_access_control,
-            key=key,
-            lookup=_LINEAGE_LOOKUPS[param],
-            include_run_state=False,
-        )
+        node_id = find_node_id(self.team, self.user_access_control, key=key, lookup=_LINEAGE_LOOKUPS[param])
+        return self._node(node_id)
 
     @extend_schema(
         parameters=[
@@ -934,15 +956,12 @@ class NodeViewSet(
 
         lineage = node_lineage(self.team_id, node.id, node.dag_id, hidden_types=self._hidden_node_types())
 
-        nodes = list_lineage_nodes(
-            self.team,
-            self.user_access_control,
-            node_ids=lineage.node_ids,
+        nodes = self._nodes(
+            list(visible_node_ids_among(self.team, self.user_access_control, node_ids=lineage.node_ids)), strict=True
         )
-        edges = list_lineage_edges(
-            self.team,
-            self.user_access_control,
-            node_ids=lineage.node_ids,
+        edges = rows_in_id_order(
+            strict_fetch(Edge.objects.filter(team_id=self.team_id).select_related("source", "target", "dag")),
+            lineage_edge_ids(self.team, self.user_access_control, node_ids=lineage.node_ids),
         )
 
         return response.Response(
