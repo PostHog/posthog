@@ -142,6 +142,11 @@ class TestSessionTables(SimpleTestCase):
             ("sql_selecting_every_field", [_sql("SELECT * FROM events")], {"events", "billing"}),
             ("sql_with_a_query_tag", [_sql("SELECT 1 FROM <HogQLQuery query='SELECT 1 FROM billing' />")], None),
             ("sql_with_a_filters_placeholder", [_sql("SELECT 1 FROM events WHERE {filters}")], None),
+            (
+                "sql_with_a_bound_filters_placeholder",
+                [_sql("SELECT 1 FROM events WHERE {filters(timestamp AS timestamp)}")],
+                None,
+            ),
             ("typed_query_with_no_kind", [_call("query-trends", {"series": [_EVENTS_NODE]})], None),
             (
                 "sql_over_a_view_by_its_models_name",

@@ -22,6 +22,7 @@ from posthog.hogql import ast
 from posthog.hogql.database.database import Database
 from posthog.hogql.errors import BaseHogQLError
 from posthog.hogql.parser import parse_select
+from posthog.hogql.placeholders import is_filters_placeholder
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.visitor import TraversingVisitor
 
@@ -316,7 +317,7 @@ class _SavedFilterFinder(TraversingVisitor):
 
     def visit_placeholder(self, node: ast.Placeholder) -> None:
         # The call log does not hold the filters that fill `{filters}`, and a filter can read a table.
-        self.found = self.found or (node.chain or [])[:1] == ["filters"]
+        self.found = self.found or is_filters_placeholder(node)
         super().visit_placeholder(node)
 
     def visit_compare_operation(self, node: ast.CompareOperation) -> None:
