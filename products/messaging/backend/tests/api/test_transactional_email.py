@@ -859,12 +859,20 @@ class TestTransactionalEmail(APIBaseTest):
 
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
-    def test_a_send_over_the_burst_limit_is_refused_while_the_throttle_reader_lags(self, mock_post, _flag, _capture):
+    @parameterized.expand(
+        [("not_listed", False, status.HTTP_429_TOO_MANY_REQUESTS), ("listed", True, status.HTTP_202_ACCEPTED)]
+    )
+    def test_a_send_over_the_burst_limit_is_refused_while_the_throttle_reader_lags(
+        self, mock_post, _flag, _capture, _name, listed, third_status
+    ):
         self._cdp_accepts(mock_post)
         client = self._sender_client("secret_key")
+        other_team = self.team.id + 1
+        allow_list = f"{other_team},{self.team.id}" if listed else str(other_team)
         with (
             override_settings(CACHES=lagging_reader_caches(unique_key_prefix("test-send-throttle"))),
             override_instance_config("RATE_LIMIT_ENABLED", True),
+            override_instance_config("TRANSACTIONAL_EMAIL_RATE_LIMIT_ALLOW_LIST_TEAMS", allow_list),
             patch.object(TransactionalEmailBurstThrottle, "rate", "2/minute"),
         ):
             try:
@@ -876,7 +884,7 @@ class TestTransactionalEmail(APIBaseTest):
                 redis_cache.delete_pattern("*")
                 is_rate_limit_enabled.cache_clear()
 
-        assert statuses == [status.HTTP_202_ACCEPTED, status.HTTP_202_ACCEPTED, status.HTTP_429_TOO_MANY_REQUESTS]
+        assert statuses == [status.HTTP_202_ACCEPTED, status.HTTP_202_ACCEPTED, third_status]
 
     def test_a_known_key_keeps_sending_at_the_key_limit_while_a_new_key_is_refused(self, mock_post, _flag, capture):
         self._cdp_accepts(mock_post)

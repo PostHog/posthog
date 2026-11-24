@@ -13,6 +13,7 @@ import {
     PersonPropertyFilter,
     Team,
 } from '../types'
+import type { PendingWake } from './services/cyclotron-v2/types'
 import type { QueuedSend } from './services/hogflows/transactional-email'
 import type { HogErrorClass } from './utils/hog-error-classification'
 import type { RebuildableInputsSource } from './utils/rebuildable-inputs'
@@ -390,6 +391,7 @@ export type CyclotronJobInvocation = {
     // The queue claimed this send with files only because it waited too long for room, without an SES token, so it
     // must fail as overdue and never send. The queue sets this on dequeue and never stores it.
     queueClaimedOverdue?: true
+    pendingWake?: PendingWake
 }
 
 // The result of an execution

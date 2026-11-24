@@ -1,4 +1,5 @@
 import type { Editor, EditorEvents } from '@tiptap/core'
+import posthog from 'posthog-js'
 
 import {
     EMAIL_DOCUMENT_DESIGN_KEY,
@@ -12,6 +13,12 @@ import { renderEmailHtml, renderEmailText, safeEmailDoc } from './renderEmailHtm
 import { unlayerToEmailDocument } from './unlayerToEmailDocument'
 
 type Listener = () => void
+
+function textOfHtml(html: string): string {
+    const body = new DOMParser().parseFromString(html, 'text/html').body
+    body.querySelectorAll('style, script').forEach((element) => element.remove())
+    return (body.textContent ?? '').replace(/\s+/g, ' ').trim()
+}
 
 /**
  * The saved form of a document: the same email as an old-editor design, so it stays editable there if the new editor
@@ -74,7 +81,15 @@ export function createEmailEditorAdapter(editor: Editor): Record<string, any> {
             callback({ html, design: designForDocument(doc, html) })
         },
         exportPlainText: (callback: (data: { text: string }) => void) => {
-            callback({ text: renderEmailText(editor.getJSON()) })
+            const doc = editor.getJSON()
+            try {
+                callback({ text: renderEmailText(doc) })
+            } catch (error) {
+                // The text part only stands in for the html in mail apps that can't show it, so it never stops an edit
+                // from saving.
+                posthog.captureException(error)
+                callback({ text: textOfHtml(renderEmailHtml(doc)) })
+            }
         },
         loadDesign: (design: Record<string, any>, html?: string) => {
             const wrappedHtml = design?.body?.rows?.[0]?.columns?.[0]?.contents?.[0]?.values?.html

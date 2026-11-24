@@ -63,11 +63,22 @@ export type CyclotronV2IdempotencyKey = { fingerprint: string; reply: Record<str
 
 export type CyclotronV2IdempotentOutcome = 'created' | 'replayed' | 'mismatch'
 
+// Keyed by wait_until_condition action id. `at` is the database clock at write time.
+export type PendingWakeEntry = {
+    kind: 'match' | 'recheck'
+    at: string
+    eventName?: string
+    eventUuid?: string
+    eventTimestamp?: string
+}
+export type PendingWake = Record<string, PendingWakeEntry>
+
 export type CyclotronV2IdempotentClaim = { outcome: CyclotronV2IdempotentOutcome; storedFingerprint?: string }
 
 export const CyclotronV2RescheduleOptionsSchema = z.object({
     scheduledAt: z.date().optional(),
     ...encodedStateFields,
+    wakeOnPendingWake: z.boolean().optional(),
     queueName: z.string().optional(),
     priority: z.number().int().optional(),
 })
@@ -127,6 +138,7 @@ export interface CyclotronV2DequeuedJob {
     // The overdue poll claimed this send with files because the worker had no room for it. That poll takes no SES
     // token, so the consumer must fail the send as overdue and never start it.
     readonly claimedOverdue: boolean
+    readonly pendingWake: PendingWake | null
 
     ack(): Promise<void>
     fail(): Promise<void>

@@ -230,9 +230,26 @@ describe('addUtmTagsToEmail', () => {
             expected: '<a href="https://example.com/?ph_workflow_run=run-1#/p?ph_workflow_run=x">x</a>',
         },
         {
-            case: 'tags a link that only opts out of UTM tags',
-            html: '<a data-ph-no-utm href="https://example.com/">x</a>',
-            expected: '<a data-ph-no-utm href="https://example.com/?ph_workflow_run=run-1">x</a>',
+            case: 'leaves a signed link marked data-ph-no-utm',
+            html: '<a data-ph-no-utm href="https://downloads.example.com/f.pdf?Signature=abc">x</a>',
+            expected: '<a data-ph-no-utm href="https://downloads.example.com/f.pdf?Signature=abc">x</a>',
+        },
+        {
+            case: 'leaves a signed link marked data-ph-no-utm, an earlier run id included',
+            html: '<a data-ph-no-utm href="https://downloads.example.com/f.pdf?ph_workflow_run=old&amp;Signature=abc">x</a>',
+            expected:
+                '<a data-ph-no-utm href="https://downloads.example.com/f.pdf?ph_workflow_run=old&amp;Signature=abc">x</a>',
+        },
+        {
+            case: 'leaves a link marked data-ph-no-utm after a value that is only a nonbreaking space',
+            html: '<a x=  data-ph-no-utm href="https://example.com/">x</a>',
+            expected: '<a x=  data-ph-no-utm href="https://example.com/">x</a>',
+        },
+        {
+            case: 'leaves an earlier run id on a link marked data-ph-no-utm for a team that turned the tag off',
+            runId: null,
+            html: '<a data-ph-no-utm href="https://example.com/?ph_workflow_run=old">x</a>',
+            expected: '<a data-ph-no-utm href="https://example.com/?ph_workflow_run=old">x</a>',
         },
         {
             case: 'only removes run ids of earlier sends for a team that turned the tag off',

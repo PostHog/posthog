@@ -15,7 +15,6 @@ from django.db import transaction
 import aiohttp
 import pyarrow as pa
 import deltalake
-import pyarrow.compute as pc
 import pyarrow.parquet as pq
 from opentelemetry import trace
 from pyarrow.lib import concat_batches
@@ -52,7 +51,7 @@ from posthog.temporal.common.clickhouse import (
     get_client as get_clickhouse_client,
 )
 from posthog.temporal.common.db_errors import is_transient_db_error
-from posthog.temporal.common.errors import NonReportableApplicationError, NonReportableError
+from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 
@@ -101,6 +100,8 @@ from products.endpoints.backend.facade.temporal import prepare_executable_query
 from products.warehouse_sources.backend.facade.hooks import saved_query_binding
 from products.warehouse_sources.backend.facade.pipelines import CDPProducer
 from products.warehouse_sources.backend.facade.temporal import AccountPropertyRowSink, PersonPropertyRowSink
+
+from . import arrow_batch_transforms
 
 LOGGER = get_logger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -252,17 +253,6 @@ _clickhouse_query_semaphore = asyncio.Semaphore(MAX_CONCURRENT_CLICKHOUSE_QUERIE
 class EmptyHogQLResponseColumnsError(Exception):
     def __init__(self):
         super().__init__("After running a HogQL query, no columns were returned")
-
-
-class UnstorableIntegerError(NonReportableError):
-    """A column holds a whole number too large for the signed integer types Delta Lake has."""
-
-    def __init__(self, column: str) -> None:
-        super().__init__(
-            f'Column "{column}" has whole numbers larger than {2**63 - 1}, which is the largest a '
-            f"materialized table can store. Wrap the column in toString() to store it as text."
-        )
-        self.column = column
 
 
 class RustPanicError(Exception):
@@ -444,249 +434,10 @@ def get_aws_storage_options() -> dict[str, str]:
     }
 
 
-def _transform_date_and_datetimes(batch: pa.RecordBatch, types: list[tuple[str, str]]) -> pa.RecordBatch:
-    """Transform date/datetimes from ClickHouse UInt representations back to proper types."""
-    new_columns: list[pa.Array] = []
-    new_fields: list[pa.Field] = []
-
-    types_to_transform = ["Date", "Date32", "DateTime", "DateTime64"]
-    for column_name, type in types:
-        field = batch.schema.field(column_name)
-        column = batch.column(column_name)
-
-        if not any(t.lower() in type.lower() for t in types_to_transform) or pa.types.is_date(field.type):
-            new_columns.append(column)
-            new_fields.append(field)
-            continue
-
-        # Handle array/list types (e.g., Array(DateTime))
-        if pa.types.is_list(field.type):
-            if "datetime" in type.lower():
-                list_element_type: pa.DataType = pa.timestamp("us", tz="UTC")
-                list_type = pa.list_(list_element_type)
-                list_field = field.with_type(list_type)
-                list_int64 = pc.cast(column, pa.list_(pa.int64()))
-                list_timestamp_s = pc.cast(list_int64, pa.list_(pa.timestamp("s")))
-                list_column = pc.cast(list_timestamp_s, list_type)
-            else:
-                list_element_type = pa.date32()
-                list_type = pa.list_(list_element_type)
-                list_field = field.with_type(list_type)
-                list_int32 = pc.cast(column, pa.list_(pa.int32()))
-                list_column = pc.cast(list_int32, list_type)
-
-            new_fields.append(list_field)
-            new_columns.append(list_column)
-            continue
-
-        # Handle scalar types
-        if "datetime64" in type.lower() and pa.types.is_timestamp(field.type):
-            new_field: pa.Field = field.with_type(pa.timestamp("us", tz="UTC"))
-            new_column = pc.cast(column, new_field.type)
-        elif "datetime" in type.lower():
-            new_field = field.with_type(pa.timestamp("us", tz="UTC"))
-            int64_col = pc.cast(column, pa.int64())
-            seconds_col = pc.cast(int64_col, pa.timestamp("s"))
-            new_column = pc.cast(seconds_col, new_field.type)
-        else:
-            new_field = field.with_type(pa.date32())
-            int32_col = pc.cast(column, pa.int32())
-            new_column = pc.cast(int32_col, new_field.type)
-
-        new_fields.append(new_field)
-        new_columns.append(new_column)
-
-    new_metadata: dict[str | bytes, str | bytes] | None = (
-        typing.cast(dict[str | bytes, str | bytes], dict(batch.schema.metadata)) if batch.schema.metadata else None
-    )
-
-    return pa.RecordBatch.from_arrays(new_columns, schema=pa.schema(new_fields, metadata=new_metadata))
-
-
-def _nullable_type(arrow_type: pa.DataType) -> pa.DataType:
-    if pa.types.is_large_list(arrow_type):
-        return pa.large_list(_nullable_field(arrow_type.value_field))
-
-    if pa.types.is_list(arrow_type):
-        return pa.list_(_nullable_field(arrow_type.value_field))
-
-    if pa.types.is_struct(arrow_type):
-        return pa.struct([_nullable_field(field) for field in arrow_type])
-
-    if pa.types.is_map(arrow_type):
-        # A map built from types has a nullable value and a non-nullable key, which Arrow requires.
-        return pa.map_(
-            _nullable_type(arrow_type.key_type), _nullable_type(arrow_type.item_type), arrow_type.keys_sorted
-        )
-
-    return arrow_type
-
-
-def _nullable_field(field: pa.Field) -> pa.Field:
-    return field.with_type(_nullable_type(field.type)).with_nullable(True)
-
-
-def _force_nullable(batch: pa.RecordBatch) -> pa.RecordBatch:
-    """Mark every column nullable so batch schemas don't diverge across delta commits.
-
-    ClickHouse emits non-nullable columns for expressions, constants, concat()/toString(),
-    and non-Nullable source columns. When such a query spans more than one batch, the first
-    batch's overwrite pins a non-nullable delta schema and the later append routes through
-    delta-rs's DataFusion writer to reconcile schemas. DataFusion lowercases identifiers and
-    then fails to resolve case-sensitive columns, e.g. "No field named userid. ... Did you
-    mean 'userId'?" — breaking any column with uppercase characters. Pinning every column to
-    nullable keeps each batch's schema identical to the first overwrite, so the append never
-    triggers that path and camelCase column names survive.
-
-    Nested children are relaxed too. A list element, struct field or map value that is
-    non-nullable in the first batch and nullable in a later one is accepted by the append, but
-    compaction then fails because it cannot cast the nullable child back to non-nullable.
-    """
-    nullable_schema = pa.schema(
-        [_nullable_field(field) for field in batch.schema],
-        metadata=typing.cast("dict[bytes | str, bytes | str] | None", batch.schema.metadata),
-    )
-    return batch.cast(nullable_schema)
-
-
-class UnstorableDecimalError(NonReportableApplicationError):
-    """A nested column holds a decimal with more digits than the 128-bit decimals Delta Lake has.
-
-    Non-retryable here rather than in the workflow's retry policy, so that a retry of the same
-    query does not repeat the read and the writes before it fails on the same value again.
-    """
-
-    def __init__(self, column: str) -> None:
-        super().__init__(
-            f'Column "{column}" has decimal values with more than 38 digits, which is the most a '
-            f"materialized table can store. Round the values, or wrap the column in toString() to store it as text.",
-            type="UnstorableDecimalError",
-            non_retryable=True,
-        )
-        self.column = column
-
-
-DELTA_MAX_DECIMAL_PRECISION = 38
-
-
-def _delta_decimal_type(arrow_type: pa.DataType) -> pa.DataType:
-    """The type Delta Lake stores this as. Unchanged unless a decimal wider than 128 bits is in it."""
-    if pa.types.is_decimal256(arrow_type):
-        if arrow_type.precision <= DELTA_MAX_DECIMAL_PRECISION:
-            return pa.decimal128(arrow_type.precision, arrow_type.scale)
-        return pa.decimal128(DELTA_MAX_DECIMAL_PRECISION, min(arrow_type.scale, DELTA_MAX_DECIMAL_PRECISION - 1))
-
-    if pa.types.is_large_list(arrow_type):
-        return pa.large_list(_delta_decimal_field(arrow_type.value_field))
-
-    if pa.types.is_list(arrow_type):
-        return pa.list_(_delta_decimal_field(arrow_type.value_field))
-
-    if pa.types.is_struct(arrow_type):
-        return pa.struct([_delta_decimal_field(field) for field in arrow_type])
-
-    if pa.types.is_map(arrow_type):
-        return pa.map_(
-            _delta_decimal_type(arrow_type.key_type), _delta_decimal_type(arrow_type.item_type), arrow_type.keys_sorted
-        )
-
-    return arrow_type
-
-
-def _delta_decimal_field(field: pa.Field) -> pa.Field:
-    return field.with_type(_delta_decimal_type(field.type))
-
-
-def _transform_unsupported_decimals(batch: pa.RecordBatch) -> pa.RecordBatch:
-    """Transform decimal columns wider than 128 bits, at any depth, to types supported by Delta Lake."""
-    schema = batch.schema
-    target_fields = [_delta_decimal_field(field) for field in schema]
-    if all(target.type.equals(field.type) for target, field in zip(target_fields, schema)):
-        return batch
-
-    precision = DELTA_MAX_DECIMAL_PRECISION
-    scale = DELTA_MAX_DECIMAL_PRECISION - 1
-
-    new_columns: list[pa.Array] = []
-    new_fields: list[pa.Field] = []
-
-    for field, target in zip(schema, target_fields):
-        col = batch[field.name]
-        if target.type.equals(field.type):
-            new_fields.append(field)
-            new_columns.append(col)
-        elif pa.types.is_decimal(field.type):
-            try:
-                cast_col = pc.cast(col, target.type)
-                new_fields.append(target)
-                new_columns.append(cast_col)
-            except Exception:
-                reduced_decimal_type = pa.decimal128(precision, scale)
-                # signals to the type checker that the underlying type is a pa.StringArray
-                string_col = typing.cast(pa.StringArray, pc.cast(col, pa.string()))
-                truncated = pc.utf8_slice_codeunits(string_col, 0, precision)
-                cast_reduced = pc.cast(truncated, reduced_decimal_type)
-                new_fields.append(field.with_type(reduced_decimal_type))
-                new_columns.append(cast_reduced)
-        else:
-            try:
-                new_columns.append(pc.cast(col, target.type))
-            except pa.ArrowInvalid as err:
-                raise UnstorableDecimalError(field.name) from err
-            new_fields.append(target)
-
-    new_metadata: dict[str | bytes, str | bytes] | None = (
-        typing.cast(dict[str | bytes, str | bytes], dict(schema.metadata)) if schema.metadata else None
-    )
-
-    return pa.RecordBatch.from_arrays(new_columns, schema=pa.schema(new_fields, metadata=new_metadata))
-
-
-_SIGNED_EQUIVALENT_BY_BIT_WIDTH = {8: pa.int16(), 16: pa.int32(), 32: pa.int64(), 64: pa.int64()}
-
-
-def _signed_equivalent(arrow_type: pa.DataType) -> pa.DataType:
-    """The type Delta Lake stores this as. Unchanged unless an unsigned integer is in it."""
-    if pa.types.is_unsigned_integer(arrow_type):
-        return _SIGNED_EQUIVALENT_BY_BIT_WIDTH[arrow_type.bit_width]
-
-    if pa.types.is_large_list(arrow_type):
-        return pa.large_list(_signed_equivalent_field(arrow_type.value_field))
-
-    if pa.types.is_list(arrow_type):
-        return pa.list_(_signed_equivalent_field(arrow_type.value_field))
-
-    if pa.types.is_struct(arrow_type):
-        return pa.struct([_signed_equivalent_field(field) for field in arrow_type])
-
-    if pa.types.is_map(arrow_type):
-        return pa.map_(_signed_equivalent(arrow_type.key_type), _signed_equivalent(arrow_type.item_type))
-
-    return arrow_type
-
-
-def _signed_equivalent_field(field: pa.Field) -> pa.Field:
-    return field.with_type(_signed_equivalent(field.type))
-
-
-def _transform_unsigned_integers(batch: pa.RecordBatch) -> pa.RecordBatch:
-    """Cast unsigned integer columns to the signed types Delta Lake stores them as."""
-    signed_fields = [_signed_equivalent_field(field) for field in batch.schema]
-    if all(signed.type.equals(field.type) for signed, field in zip(signed_fields, batch.schema)):
-        return batch
-
-    columns: list[pa.Array] = []
-    for field in signed_fields:
-        try:
-            columns.append(pc.cast(batch.column(field.name), field.type))
-        except pa.ArrowInvalid as err:
-            raise UnstorableIntegerError(field.name) from err
-
-    signed_schema = pa.schema(
-        signed_fields,
-        metadata=typing.cast("dict[bytes | str, bytes | str] | None", batch.schema.metadata),
-    )
-    return pa.RecordBatch.from_arrays(columns, schema=signed_schema)
+def _key_columns(plan: WritePlan) -> frozenset[str]:
+    if plan.config is None:
+        return frozenset()
+    return frozenset((plan.config.incremental_key, *plan.config.unique_key))
 
 
 async def _write_empty_parquet_for_zero_rows(table_uri: str, schema: pa.Schema, logger: FilteringBoundLogger) -> str:
@@ -1196,12 +947,14 @@ async def _materialize_fully(
     # brief to_thread released between batches, never pins a worker thread for the whole
     # read — which is what starved the shared executor that heartbeats/db/logging use.
     batch_index = 0
+    key_columns = _key_columns(plan)
     try:
         async for batch, ch_types in hogql_table(hogql_query, objects.team, logger):
-            batch = _transform_unsupported_decimals(batch)
-            batch = _transform_date_and_datetimes(batch, ch_types)
-            batch = _transform_unsigned_integers(batch)
-            batch = _force_nullable(batch)
+            batch = arrow_batch_transforms._transform_unsupported_decimals(batch)
+            batch = arrow_batch_transforms._replace_invalid_utf8(batch, key_columns=key_columns)
+            batch = arrow_batch_transforms._transform_date_and_datetimes(batch, ch_types)
+            batch = arrow_batch_transforms._transform_unsigned_integers(batch)
+            batch = arrow_batch_transforms._force_nullable(batch)
             if tracker is not None:
                 await asyncio.to_thread(tracker.check, batch)
             await _stage_person_property_batch(person_property_sink, batch_index, batch, fatal=False)
@@ -1299,13 +1052,15 @@ async def _materialize_incrementally(
     # Staged per attempt, never cleared: a retry resumes past the watermark the failed attempt
     # already saved, so its staged rows are that window's only record (see PersonPropertyRowSink).
     batch_index = 0
+    key_columns = _key_columns(plan)
 
     try:
         async for batch, ch_types in hogql_table(hogql_query, objects.team, logger, window=window):
-            batch = _transform_unsupported_decimals(batch)
-            batch = _transform_date_and_datetimes(batch, ch_types)
-            batch = _transform_unsigned_integers(batch)
-            batch = _force_nullable(batch)
+            batch = arrow_batch_transforms._transform_unsupported_decimals(batch)
+            batch = arrow_batch_transforms._replace_invalid_utf8(batch, key_columns=key_columns)
+            batch = arrow_batch_transforms._transform_date_and_datetimes(batch, ch_types)
+            batch = arrow_batch_transforms._transform_unsigned_integers(batch)
+            batch = arrow_batch_transforms._force_nullable(batch)
 
             if batch.num_rows == 0:
                 # A quiet window is normal. Nothing to upsert, and no watermark to advance.
@@ -1387,15 +1142,23 @@ async def _vacuum(delta_table: deltalake.DeltaTable, logger: FilteringBoundLogge
     A killed upsert leaves parquet that was never committed, so it carries no tombstone, and lite
     vacuum only reclaims tombstoned files. Those orphans would otherwise accumulate forever and
     inflate every later publish copy and folder-size read.
+
+    The vacuum commits to the delta log, so it can lose a commit race with a concurrent writer. The
+    run's data and watermark are already committed when this runs, and the next run vacuums again,
+    so a conflict here only logs a warning. It must not fail the run and make Temporal redo all the
+    work.
     """
     await logger.ainfo("Vacuuming delta table")
-    await asyncio.to_thread(
-        delta_table.vacuum,
-        retention_hours=DELTA_TABLE_RETENTION_HOURS,
-        enforce_retention_duration=False,
-        dry_run=False,
-        full=True,
-    )
+    try:
+        await asyncio.to_thread(
+            delta_table.vacuum,
+            retention_hours=DELTA_TABLE_RETENTION_HOURS,
+            enforce_retention_duration=False,
+            dry_run=False,
+            full=True,
+        )
+    except deltalake.exceptions.CommitFailedError as e:
+        await logger.awarning(f"Skipped the delta table vacuum because of a commit conflict: {e}")
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True, slots=True)

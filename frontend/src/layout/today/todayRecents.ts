@@ -1,4 +1,5 @@
-import { TodayMonitorRecent } from './todayMonitor'
+import { TODAY_DATA_RECENT_TYPES, TodayDataRecent } from './todayDataRecents'
+import type { TodayMonitorRecent } from './todayMonitor'
 import { TODAY_PEOPLE_RECENT_TYPES, TodayPeopleRecent } from './todayPeople'
 
 export interface TodayReleaseRecent {
@@ -12,9 +13,9 @@ export interface StoredReleaseRecent extends TodayReleaseRecent {
     viewedAt: number
 }
 
-export type TodayRecent = TodayPeopleRecent | TodayMonitorRecent | TodayReleaseRecent
+export type TodayRecent = TodayPeopleRecent | TodayMonitorRecent | TodayReleaseRecent | TodayDataRecent
 
-export type TodayRecentPane = 'people' | 'monitor' | 'release'
+export type TodayRecentPane = 'people' | 'monitor' | 'release' | 'data'
 
 /**
  * A scene logic that opens one record has a selector with this name. It gives the record as a recent, or null until
@@ -28,8 +29,27 @@ export function isPeopleRecent(recent: TodayRecent): recent is TodayPeopleRecent
     return (TODAY_PEOPLE_RECENT_TYPES as readonly string[]).includes(recent.type)
 }
 
+export function isDataRecent(recent: TodayRecent): recent is TodayDataRecent {
+    return (TODAY_DATA_RECENT_TYPES as readonly string[]).includes(recent.type)
+}
+
+export function isReleaseRecent(recent: TodayRecent): recent is TodayReleaseRecent {
+    return recent.type === 'release'
+}
+
+/** Monitor takes every record that no other pane claims. */
+export function isMonitorRecent(recent: TodayRecent): recent is TodayMonitorRecent {
+    return !isPeopleRecent(recent) && !isDataRecent(recent) && !isReleaseRecent(recent)
+}
+
 export function recentPane(recent: TodayRecent): TodayRecentPane {
-    return isPeopleRecent(recent) ? 'people' : recent.type === 'release' ? 'release' : 'monitor'
+    if (isPeopleRecent(recent)) {
+        return 'people'
+    }
+    if (isDataRecent(recent)) {
+        return 'data'
+    }
+    return isReleaseRecent(recent) ? 'release' : 'monitor'
 }
 
 /** Puts a visit first. Reloading the same page changes nothing, so the list stays stable while a page loads. */

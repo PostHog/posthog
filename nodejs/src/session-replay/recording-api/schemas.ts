@@ -24,10 +24,14 @@ export const RecordingParamsSchema = z.object({
     session_id: z.string({ error: 'Missing session_id parameter' }).min(1, 'Invalid session_id parameter'),
 })
 
-// Path params for the browser block route. A ref is short, so the length cap only rejects junk early.
-export const ReplayBlockParamsSchema = RecordingParamsSchema.extend({
-    viewer: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/, 'Invalid viewer'),
+// Path params for a block named by its ref. A ref is short, so the length cap only rejects junk early.
+export const BlockRefParamsSchema = RecordingParamsSchema.extend({
     ref: z.string().regex(/^v1\.[A-Za-z0-9_-]{1,1024}$/, 'Invalid block ref'),
+})
+
+// Path params for the browser block route.
+export const ReplayBlockParamsSchema = BlockRefParamsSchema.extend({
+    viewer: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/, 'Invalid viewer'),
 })
 
 // Path params with team_id only (no session_id)

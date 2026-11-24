@@ -26,7 +26,7 @@ export type LoadFailure = 'not_found' | 'failed'
  * `selection` is a click on a step. `navigation` is a node the view selects without a click: on open, from a
  * link, as the default node, as the root while the trace loads, or from the browser history.
  */
-export type NodeLoadTrigger = 'selection' | 'navigation' | 'prefetch' | 'thread'
+export type NodeLoadTrigger = 'selection' | 'keyboard' | 'navigation' | 'prefetch' | 'thread'
 
 export type NodeLoad =
     | { status: 'loading' }
@@ -82,7 +82,14 @@ export type TraceSearchStatus = 'idle' | 'loading' | 'ready' | 'error'
 
 export type TraceSearchFailure = 'too_slow' | 'failed'
 
-export type MatchDirection = 'next' | 'previous'
+export type StepDirection = 'next' | 'previous'
+
+export type MatchDirection = StepDirection
+
+/** A move within the step tree: to a neighbour in drawn order, to either end, or along the hierarchy. */
+export type TreeStep = StepDirection | 'first' | 'last' | 'parent' | 'child'
+
+export type StepKeySource = 'shortcut' | 'arrow'
 
 export type SummaryItemKind = 'bullet' | 'note'
 
@@ -115,7 +122,15 @@ export interface FeedbackStepContext {
 /** What a list row already knows about a trace, enough to paint the trace's header before the trace read answers. */
 export type TraceOverview = Pick<
     TraceApi,
-    'id' | 'name' | 'createdAt' | 'sessionId' | 'totals' | 'hasError' | 'errorCount' | 'totalsPartial'
+    | 'id'
+    | 'name'
+    | 'createdAt'
+    | 'sessionId'
+    | 'totals'
+    | 'hasError'
+    | 'errorCount'
+    | 'totalsPartial'
+    | 'costAndLatencyPartial'
 >
 
 export interface TraceSeed {

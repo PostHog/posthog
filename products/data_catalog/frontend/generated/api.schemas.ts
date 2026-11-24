@@ -7,6 +7,22 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface PendingReviewCountsApi {
+    /** Proposed metrics you can see that wait for approval. */
+    metrics: number
+    /** Proposed joins that wait to be accepted or rejected. */
+    relationships: number
+    /** Proposed certifications that wait for review. */
+    certifications: number
+}
+
+export interface CatalogAttentionApi {
+    /** Items that wait in each review queue. Every count is 0 without data catalog access. Null when the counts could not be read, so the badge keeps its last counts. */
+    pending_review: PendingReviewCountsApi | null
+    /** Models whose last run failed or whose scheduled runs are suspended. 0 without data warehouse read access. */
+    failing_models: number
+}
+
 /**
  * * `engineering` - Engineering
  * * `data` - Data
@@ -770,15 +786,6 @@ export interface DataCatalogMetricBulkDeleteApi {
     skipped: DataCatalogMetricBulkSkipApi[]
 }
 
-export interface PendingReviewCountsApi {
-    /** Proposed metrics you can see that wait for approval. */
-    metrics: number
-    /** Proposed joins that wait to be accepted or rejected. */
-    relationships: number
-    /** Proposed certifications that wait for review. */
-    certifications: number
-}
-
 export interface DataCatalogRelationshipProposalApi {
     readonly id: string
     /**
@@ -808,13 +815,6 @@ export interface DataCatalogRelationshipProposalApi {
     field_name: string
     /** Extra join configuration, e.g. a field mapping. */
     configuration?: unknown
-    /**
-     * Discovery confidence in this join, 0-1.
-     * @minimum 0
-     * @maximum 1
-     * @nullable
-     */
-    confidence?: number | null
     /** Why this join is proposed. */
     reasoning?: string
     /** Sampling evidence: match rates, sample values. */

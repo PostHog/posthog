@@ -5,6 +5,7 @@ import {
     MarketingAnalyticsRecommendation,
     MarketingAnalyticsRecommendationResolution,
     MarketingAnalyticsRecommendationCpaBenchmarkSource,
+    MarketingAnalyticsRecommendationDetectedChange,
     MarketingAnalyticsRecommendationRule,
     MarketingAnalyticsRecommendationsSource,
 } from '~/queries/schema/schema-general'
@@ -182,8 +183,18 @@ export function reconcileResolutionOverrides(
     )
 }
 
+export const DETECTED_CHANGE_DESCRIPTIONS: Record<MarketingAnalyticsRecommendationDetectedChange, string> = {
+    negative_keyword: 'Google Ads lists this search as a negative keyword.',
+    brand_negative: 'Google Ads lists your brand as a negative keyword.',
+    keyword_added: 'Google Ads lists this search as a keyword in an active Search campaign.',
+}
+
+export function isResolved(recommendation: MarketingAnalyticsRecommendation): boolean {
+    return !!recommendation.resolution || !!recommendation.detectedChange
+}
+
 export function unresolved(recommendations: MarketingAnalyticsRecommendation[]): MarketingAnalyticsRecommendation[] {
-    return recommendations.filter((recommendation) => !recommendation.resolution)
+    return recommendations.filter((recommendation) => !isResolved(recommendation))
 }
 
 export interface RecommendationsLoadStatus {
@@ -367,6 +378,7 @@ export function recommendationsSource(source: ExternalDataSource): MarketingAnal
             searchTermKeywordTable: syncedTable(source, 'search_term_keyword_stats'),
             performanceMaxSearchTermTable: syncedTable(source, 'performance_max_search_term_stats'),
             adTable: syncedTable(source, 'ad'),
+            keywordTable: syncedTable(source, 'keyword'),
         }
     }
     if (source.source_type === 'GoogleSearchConsole') {

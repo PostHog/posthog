@@ -81,6 +81,15 @@ def _normalize_call(row: dict[str, Any]) -> dict[str, Any]:
     return _normalize_timestamps(row)
 
 
+def _root_listing(settings: RetellAIEndpoint) -> tuple[str, Literal["GET", "POST"]]:
+    parent = settings.parents[0]
+    while parent.table is not None:
+        parent = ENDPOINTS[parent.table].parents[0]
+    if parent.path is None:
+        raise ValueError("Retell AI fan-out parent has neither a path nor a table")
+    return parent.path, parent.method
+
+
 def get_resource(
     name: str,
     api_version: str,
@@ -90,16 +99,15 @@ def get_resource(
     probe: bool = False,
 ) -> EndpointResource:
     settings = schema_for_resource(ENDPOINTS, name)
-    # A fan-out table has no listing of its own, so it reads (and probes) its first parent listing.
-    path, method = (
-        (settings.parents[0].path, settings.parents[0].method) if settings.parents else (settings.path, settings.method)
-    )
+    # A fan-out table has no listing of its own, so it reads (and probes) its first root parent listing.
+    path, method = _root_listing(settings) if settings.parents else (settings.path, settings.method)
     endpoint: Endpoint = {"path": path.format(api_version=api_version), "method": method}
     if settings.paginated:
         endpoint["data_selector"] = "items"
         endpoint["data_selector_required"] = True
         endpoint["paginator"] = "single_page" if probe else _paginator(settings.pagination_location)
-        pagination: dict[str, Any] = {"limit": 1 if probe else PAGE_SIZE, "sort_order": "ascending"}
+        sort_order = "ascending" if settings.parents else settings.sort_order
+        pagination: dict[str, Any] = {"limit": 1 if probe else PAGE_SIZE, "sort_order": sort_order}
         if settings.pagination_location == "json":
             if should_use_incremental_field and name in INCREMENTAL_FIELDS and watermark is not None:
                 timestamp = parse_datetime_value(watermark)
@@ -122,11 +130,11 @@ def get_resource(
     return resource
 
 
-def _parent_resource(parent: RetellAIParent) -> EndpointResource:
+def _parent_resource(path: str, parent: RetellAIParent) -> EndpointResource:
     return {
-        "name": parent.path,
+        "name": path,
         "endpoint": {
-            "path": parent.path,
+            "path": path,
             "method": parent.method,
             "params": {"limit": PAGE_SIZE, "sort_order": "ascending"},
             "data_selector": "items",
@@ -136,11 +144,18 @@ def _parent_resource(parent: RetellAIParent) -> EndpointResource:
     }
 
 
-def _child_resource(name: str, settings: RetellAIEndpoint, parent: RetellAIParent, parent_id: str) -> EndpointResource:
+def _child_resource(
+    name: str, settings: RetellAIEndpoint, parent: RetellAIParent, parent_id: str, version: str | None
+) -> EndpointResource:
     params: dict[str, Any] = {"limit": PAGE_SIZE}
     if settings.sortable:
         params["sort_order"] = "ascending"
-    params.update({key: value.replace("{id}", parent_id) for key, value in parent.child_params})
+    for key, value in parent.child_params:
+        if "{version}" in value:
+            if version is None:
+                continue
+            value = value.replace("{version}", version)
+        params[key] = value.replace("{id}", parent_id)
     resource: EndpointResource = {
         "name": name,
         "endpoint": {
@@ -160,36 +175,66 @@ def _child_resource(name: str, settings: RetellAIEndpoint, parent: RetellAIParen
     return resource
 
 
+def _parent_version(parent: RetellAIParent, row: dict[str, Any]) -> str | None:
+    if parent.version_field is None:
+        return None
+    value = row.get(parent.version_field)
+    return str(value) if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _parent_pages(
+    client: ClientConfig,
+    inputs: SourceInputs,
+    manager: ResumableSourceManager[RetellAIResumeConfig],
+    parent: RetellAIParent,
+) -> Iterator[list[dict[str, Any]]]:
+    if parent.table is not None:
+        return _fan_out_pages(client, inputs, manager, parent.table)
+    if parent.path is None:
+        raise ValueError("Retell AI fan-out parent has neither a path nor a table")
+    config: RESTAPIConfig = {"client": client, "resources": [_parent_resource(parent.path, parent)]}
+    return iter(rest_api_resource(config, inputs.team_id, inputs.job_id, None))
+
+
+def _fan_out_pages(
+    client: ClientConfig,
+    inputs: SourceInputs,
+    manager: ResumableSourceManager[RetellAIResumeConfig],
+    name: str,
+) -> Iterator[list[dict[str, Any]]]:
+    settings = ENDPOINTS[name]
+    for parent in settings.parents:
+        # Parent listings can return one row per version of the same parent.
+        seen: set[tuple[str, str | None]] = set()
+        for parent_page in _parent_pages(client, inputs, manager, parent):
+            for parent_row in parent_page:
+                parent_id = parent_row.get(parent.id_field)
+                if not isinstance(parent_id, str) or not parent_id:
+                    continue
+                version = _parent_version(parent, parent_row)
+                if (parent_id, version) in seen:
+                    continue
+                seen.add((parent_id, version))
+                child_config: RESTAPIConfig = {
+                    "client": client,
+                    "resources": [_child_resource(name, settings, parent, parent_id, version)],
+                }
+                yield from rest_api_resource(child_config, inputs.team_id, inputs.job_id, None)
+                manager.safe_point()
+            manager.safe_point()
+
+
 def _fan_out(
     api_key: str,
     inputs: SourceInputs,
     manager: ResumableSourceManager[RetellAIResumeConfig],
-    settings: RetellAIEndpoint,
 ) -> Iterator[list[dict[str, Any]]]:
     # One session for every parent and child request, so the fan-out reuses its connections.
     client: ClientConfig = {
         **_client_config(api_key),
         "session": make_tracked_session(redact_values=(api_key,), allow_redirects=False),
     }
-    for parent in settings.parents:
-        # Parent listings can return one row per version of the same parent.
-        seen: set[str] = set()
-        parent_pages = rest_api_resource(
-            {"client": client, "resources": [_parent_resource(parent)]}, inputs.team_id, inputs.job_id, None
-        )
-        for parent_page in parent_pages:
-            for parent_row in parent_page:
-                parent_id = parent_row.get(parent.id_field)
-                if not isinstance(parent_id, str) or not parent_id or parent_id in seen:
-                    continue
-                seen.add(parent_id)
-                child_config: RESTAPIConfig = {
-                    "client": client,
-                    "resources": [_child_resource(inputs.schema_name, settings, parent, parent_id)],
-                }
-                yield from rest_api_resource(child_config, inputs.team_id, inputs.job_id, None)
-                manager.safe_point()
-            manager.safe_point()
+    yield from _fan_out_pages(client, inputs, manager, inputs.schema_name)
 
 
 def validate_credentials(api_key: str, schema_name: str | None, api_version: str) -> tuple[bool, str | None]:
@@ -223,7 +268,7 @@ def retell_ai_source(
     if settings.parents:
         return SourceResponse(
             name=inputs.schema_name,
-            items=lambda: _fan_out(api_key, inputs, manager, settings),
+            items=lambda: _fan_out(api_key, inputs, manager),
             primary_keys=settings.primary_keys,
             supports_resume=False,
         )

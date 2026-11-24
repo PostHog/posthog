@@ -477,7 +477,6 @@ class RelationshipProposalSerializer(serializers.ModelSerializer):
             "joining_table_key",
             "field_name",
             "configuration",
-            "confidence",
             "reasoning",
             "evidence",
             "status",
@@ -504,7 +503,6 @@ class RelationshipProposalSerializer(serializers.ModelSerializer):
             "joining_table_name": {"help_text": "Name of the table being joined in."},
             "joining_table_key": {"help_text": "HogQL key expression on the joining table (casts allowed)."},
             "field_name": {"help_text": "Accessor the join adds to the source table."},
-            "confidence": {"help_text": "Discovery confidence in this join, 0-1."},
             "reasoning": {"help_text": "Why this join is proposed."},
         }
 
@@ -755,3 +753,14 @@ class PendingReviewCountsSerializer(serializers.Serializer):
     metrics = serializers.IntegerField(help_text="Proposed metrics you can see that wait for approval.")
     relationships = serializers.IntegerField(help_text="Proposed joins that wait to be accepted or rejected.")
     certifications = serializers.IntegerField(help_text="Proposed certifications that wait for review.")
+
+
+class CatalogAttentionSerializer(serializers.Serializer):
+    pending_review = PendingReviewCountsSerializer(
+        allow_null=True,
+        help_text="Items that wait in each review queue. Every count is 0 without data catalog access. "
+        "Null when the counts could not be read, so the badge keeps its last counts.",
+    )
+    failing_models = serializers.IntegerField(
+        help_text="Models whose last run failed or whose scheduled runs are suspended. 0 without data warehouse read access."
+    )

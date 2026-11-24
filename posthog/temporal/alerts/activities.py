@@ -49,7 +49,6 @@ from posthog.tasks.alerts.utils import (
     next_scheduled_check_time,
     record_alert_delivery,
     skip_because_of_weekend,
-    stamp_alert_notified,
 )
 from posthog.temporal.alerts.admission import (
     admit_evaluation_slots,
@@ -624,20 +623,12 @@ def _write_errored_alert_check(alert: AlertConfiguration, error: dict) -> tuple[
     through here, so the errored-check write stays in one place.
     """
     alert_check, should_notify = add_alert_check(alert, None, error)
-    return alert_check, _sends_from_insight_stack(alert, alert_check, should_notify)
+    return alert_check, _sends_from_insight_stack(alert, should_notify)
 
 
-def _sends_from_insight_stack(alert: AlertConfiguration, alert_check: AlertCheck, should_notify: bool) -> bool:
-    """Whether the insight stack sends the check's notification. It sends nothing for a platform-owned alert.
-
-    A held send is still recorded as sent, so `last_notified_at` moves as it would have and the
-    shadow stays comparable with the platform. The stamp on the check also keeps the investigation
-    safety net from sending it later.
-    """
-    if not (should_notify and alert.platform_owned):
-        return should_notify
-    stamp_alert_notified(alert, alert_check, datetime.now(UTC))
-    return False
+def _sends_from_insight_stack(alert: AlertConfiguration, should_notify: bool) -> bool:
+    """Whether the insight stack sends the check's notification. It sends nothing for a platform-owned alert."""
+    return should_notify and not alert.platform_owned
 
 
 @temporalio.activity.defn
@@ -753,7 +744,7 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
                 )
                 return EvaluateAlertResult(
                     alert_check_id=str(alert_check.id),
-                    should_notify=_sends_from_insight_stack(alert, alert_check, True),
+                    should_notify=_sends_from_insight_stack(alert, True),
                     new_state=AlertState.ERRORED,
                 )
             if error is not None:
@@ -770,9 +761,7 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             if alert.platform_owned:
                 # No investigation either: it exists to gate a notification, and each one costs a model call.
                 return EvaluateAlertResult(
-                    alert_check_id=str(alert_check.id),
-                    should_notify=_sends_from_insight_stack(alert, alert_check, should_notify),
-                    new_state=AlertState(alert_check.state),
+                    alert_check_id=str(alert_check.id), should_notify=False, new_state=AlertState(alert_check.state)
                 )
 
             # A finished investigation delivers its check's notification, so a check that sends none skips it.

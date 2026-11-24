@@ -10,12 +10,14 @@ from products.warehouse_sources.sources.everflow.everflow import (
     flatten_entity_row,
     validate_credentials,
 )
+from products.warehouse_sources.sources.everflow.settings import EVERFLOW_ENDPOINTS
 from products.warehouse_sources.sources.everflow.source import EverflowSource
 from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     ScriptedResponse,
     SourceDriver,
     always,
+    route,
     scripted_network,
 )
 
@@ -103,16 +105,70 @@ class TestTables:
                     "today_revenue_amount": type(None),
                 },
             ),
+            (
+                "affiliate_tiers",
+                {"network_affiliate_tier_id": 2, "payout_margin": 10},
+                {"network_affiliate_tier_id": int, "payout_margin": float},
+            ),
+            (
+                "partner_invoices",
+                {"network_affiliate_invoice_id": 7, "balance": 0, "billed": 120, "paid": 120.5},
+                {"network_affiliate_invoice_id": int, "balance": float, "billed": float, "paid": float},
+            ),
         ],
     )
     def test_whole_amounts_arrive_as_floats(
         self, endpoint: str, row: dict[str, Any], expected_types: dict[str, type]
     ) -> None:
-        result = _run(endpoint, [_table_page(endpoint, [row], total=1)])
+        result = _run(endpoint, [_table_page(EVERFLOW_ENDPOINTS[endpoint].data_selector, [row], total=1)])
 
         assert result.raised is None
         assert result.rows == [row]
         assert [{column: type(value) for column, value in mapped.items()} for mapped in result.rows] == [expected_types]
+
+    def test_partner_invoices_page_through_the_invoices_table(self) -> None:
+        result = _run(
+            "partner_invoices",
+            [
+                _table_page("invoices", [{"network_affiliate_invoice_id": 1}], total=501),
+                _table_page("invoices", [{"network_affiliate_invoice_id": 2}], total=501),
+            ],
+        )
+
+        assert result.raised is None
+        assert [request.method for request in result.requests] == ["POST", "POST"]
+        assert result.paths == ["/v1/networks/billings/affiliates/invoicestable"] * 2
+        assert result.params("page") == ["1", "2"]
+        assert result.params("page_size") == ["500", "500"]
+        assert [row["network_affiliate_invoice_id"] for row in result.rows] == [1, 2]
+
+    @pytest.mark.parametrize(
+        ("endpoint", "path", "key", "row"),
+        [
+            (
+                "categories",
+                "/v1/networks/categories",
+                "categories",
+                {"network_category_id": 6, "name": "Gaming", "status": "active"},
+            ),
+            (
+                "affiliate_tiers",
+                "/v1/networks/affiliatetiers",
+                "tiers",
+                {"network_affiliate_tier_id": 2, "network_affiliate_ids": [14, 21], "is_default_tier": False},
+            ),
+        ],
+    )
+    def test_lookups_read_one_unpaged_get(self, endpoint: str, path: str, key: str, row: dict[str, Any]) -> None:
+        # The lookups return no `paging` object, so a page loop would ask for the same rows again.
+        result = _run(endpoint, always(ScriptedResponse(json={key: [row]})))
+
+        assert result.raised is None
+        assert [(request.method, request.path) for request in result.requests] == [("GET", path)]
+        assert result.params("page") == [None]
+        assert result.params("page_size") == [None]
+        assert result.requests[0].body in (b"", None)
+        assert result.rows == [row]
 
     def test_a_rejected_key_fails_the_run_with_the_status_the_error_map_matches(self) -> None:
         result = _run(
@@ -121,6 +177,43 @@ class TestTables:
 
         assert result.raised is not None
         assert "401 Client Error: Unauthorized for url" in str(result.raised)
+
+
+class TestAffiliateUsers:
+    def test_reads_the_users_of_every_partner_on_every_page(self) -> None:
+        result = _run(
+            "affiliate_users",
+            route(
+                {
+                    "/networks/affiliatestable": [
+                        _table_page("affiliates", [{"network_affiliate_id": 101}, {"network_affiliate_id": 102}], 2001),
+                        _table_page("affiliates", [{"network_affiliate_id": 203}], 2001),
+                    ],
+                    "/networks/affiliates/101/users": [
+                        ScriptedResponse(
+                            json={"users": [{"network_affiliate_user_id": 1, "network_affiliate_id": 101}]}
+                        )
+                    ],
+                    # A partner deleted after the listing.
+                    "/networks/affiliates/102/users": [ScriptedResponse(status=404, json={"Error": "Not found"})],
+                    "/networks/affiliates/203/users": [
+                        ScriptedResponse(
+                            json={"users": [{"network_affiliate_user_id": 2, "network_affiliate_id": 203}]}
+                        )
+                    ],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        parent_requests = [request for request in result.requests if request.path == "/v1/networks/affiliatestable"]
+        assert [request.method for request in parent_requests] == ["POST", "POST"]
+        assert [request.param("page") for request in parent_requests] == ["1", "2"]
+        assert {request.method for request in result.requests if request.path.endswith("/users")} == {"GET"}
+        assert sorted((row["network_affiliate_id"], row["network_affiliate_user_id"]) for row in result.rows) == [
+            (101, 1),
+            (203, 2),
+        ]
 
 
 class TestConversions:

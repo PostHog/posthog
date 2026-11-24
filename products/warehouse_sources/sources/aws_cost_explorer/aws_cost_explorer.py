@@ -437,6 +437,24 @@ VALIDATION_ERROR_MESSAGES: dict[str, str] = {
     "BillExpirationException": "The requested dates are older than the data AWS keeps. Move the start date forward and try again.",
 }
 
+# AWS raises a ValidationException with this text when the connected credentials are a
+# linked/member account asking for a metric that includes discounts (amortized or net costs).
+# Only the management (payer) account, or a linked account with "View Discounts" turned on in
+# Cost Explorer preferences, can see those metrics, so retrying never changes the outcome.
+DISCOUNT_PERMISSION_ERROR_MESSAGE = (
+    "Linked accounts without permissions to view discounts may not query for this metric"
+)
+
+DISCOUNT_PERMISSION_ERROR_RESOLUTION = (
+    "This AWS account can't view amortized or net cost metrics. Connect the AWS management (payer) account, "
+    'or turn on "View Discounts" for this linked account in Cost Explorer preferences, to sync these metrics.'
+)
+
+
+def is_discount_permission_error(error: AwsCostExplorerError) -> bool:
+    return error.code == "ValidationException" and DISCOUNT_PERMISSION_ERROR_MESSAGE in str(error)
+
+
 TRANSIENT_VALIDATION_ERROR = "AWS Cost Explorer is busy or temporarily unavailable. Wait a moment and try again."
 
 GENERIC_VALIDATION_ERROR = (
@@ -560,6 +578,10 @@ def get_rows(
     if resume is not None:
         logger.debug(f"Resuming AWS Cost Explorer sync. endpoint={endpoint}, window={slices[index][0].start}")
 
+    # A resumed run already served the slices before `index`, so it never counts as fully rejected.
+    served_any_slice = index > 0
+    discount_error: Optional[AwsCostExplorerError] = None
+
     for window, slice_key in slices[index:]:
         window_services: Optional[list[str]] = None
         if endpoint_config.filter_by_window_services:
@@ -570,12 +592,24 @@ def get_rows(
                 continue
 
         while True:
-            body = send_operation(
-                session,
-                credentials,
-                endpoint_config.operation,
-                build_payload(endpoint_config, window, page_token, slice_key, window_services),
-            )
+            try:
+                body = send_operation(
+                    session,
+                    credentials,
+                    endpoint_config.operation,
+                    build_payload(endpoint_config, window, page_token, slice_key, window_services),
+                )
+            except AwsCostExplorerError as error:
+                # AWS refuses a linked account without discount visibility only the metrics that
+                # include discounts. Skip those slices so the metrics AWS serves still sync.
+                if not endpoint_config.slice_values or not is_discount_permission_error(error):
+                    raise
+                logger.warning(
+                    f"Skipping AWS Cost Explorer slice: the account can't view discounts. endpoint={endpoint}, slice={slice_key}"
+                )
+                discount_error = error
+                break
+            served_any_slice = True
             rows = normalize_results(endpoint_config, body, slice_key)
             if rows:
                 yield rows
@@ -594,6 +628,10 @@ def get_rows(
                 break
 
         page_token = None
+
+    if discount_error is not None and not served_any_slice:
+        # Nothing synced, so fail with the error `get_non_retryable_errors` maps to the fix.
+        raise discount_error
 
     resumable_source_manager.clear_state()
 

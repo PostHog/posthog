@@ -15,7 +15,11 @@ import { UUIDT } from '~/common/utils/utils'
 import { createKafkaTestTopicName, deleteKafkaTopics, ensureKafkaTopics } from '~/tests/helpers/kafka'
 
 import { CdpOutputs } from '../cdp-services'
-import { CDP_INTAKE_DLQ_OUTPUT, CDP_INTAKE_TRANSACTIONAL_EMAIL_OUTPUT, EMAIL_STATUS_OUTPUT } from '../outputs/outputs'
+import {
+    CDP_INTAKE_DLQ_OUTPUT,
+    CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_OUTPUT,
+    EMAIL_STATUS_OUTPUT,
+} from '../outputs/outputs'
 import { CyclotronV2Manager } from '../services/cyclotron-v2/manager'
 import { CdpDeadLetterService } from '../services/dead-letter/cdp-dead-letter.service'
 import { createInvocationSanitizer } from '../services/job-queue/shared'
@@ -230,7 +234,7 @@ describe('insertIntakeBatch', () => {
                 ENCRYPTION_SALT_KEYS,
             })
             const topic = new IngestionOutputs({
-                [CDP_INTAKE_TRANSACTIONAL_EMAIL_OUTPUT]: new SingleIngestionOutput(
+                [CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_OUTPUT]: new SingleIngestionOutput(
                     'intake-test',
                     topicName,
                     producer,

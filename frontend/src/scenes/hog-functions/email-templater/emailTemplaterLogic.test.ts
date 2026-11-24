@@ -22,6 +22,8 @@ import {
     editorDesignForEmail,
     buildPersonPropertyMergeValue,
     emailTemplaterLogic,
+    latestEmailEditSaved,
+    saveWithLatestEmailEdit,
 } from './emailTemplaterLogic'
 
 const DEFAULT_EMAIL_TEMPLATE: EmailTemplate = {
@@ -724,6 +726,42 @@ describe('emailTemplaterLogic', () => {
             expect(onChange.mock.calls[0][0]).toMatchObject({ design: DESIGN_EDITED })
         })
 
+        it('hands over an edit not yet reported when the person saves straight away', async () => {
+            editorListeners['design:loaded']()
+            await expectLogic(logic).toFinishAllListeners()
+            const save = jest.fn()
+
+            editorDesign = DESIGN_EDITED
+            await saveWithLatestEmailEdit(save)
+
+            expect(save).toHaveBeenCalledTimes(1)
+            expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ design: DESIGN_EDITED }))
+        })
+
+        it('saves again once the editor hands over an edit it failed to hand over before', async () => {
+            editorListeners['design:loaded']()
+            await expectLogic(logic).toFinishAllListeners()
+            const save = jest.fn()
+            const working = logic.values.emailEditorRef!.editor!.exportHtml
+            ;(logic.values.emailEditorRef!.editor as any).exportHtml = () => {
+                throw new Error('export failed')
+            }
+            jest.useFakeTimers()
+            editorDesign = DESIGN_EDITED
+            editorListeners['design:updated']()
+            await jest.advanceTimersByTimeAsync(500)
+            jest.useRealTimers()
+            await expectLogic(logic).toFinishAllListeners()
+            await saveWithLatestEmailEdit(save)
+            expect(save).not.toHaveBeenCalled()
+
+            ;(logic.values.emailEditorRef!.editor as any).exportHtml = working
+            await saveWithLatestEmailEdit(save)
+
+            expect(save).toHaveBeenCalledTimes(1)
+            expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ design: DESIGN_EDITED }))
+        })
+
         it('rebaselines on design:loaded so the normalized export does not count as an edit', async () => {
             expect(editorListeners['design:loaded']).toBeTruthy()
             editorListeners['design:loaded']()
@@ -852,6 +890,13 @@ describe('emailTemplaterLogic', () => {
             expect(parent.email).toMatchObject({ design: DESIGN_EDITED, text: 'edited' })
         })
 
+        it('a flush picks up an edit the editor has not reported yet', async () => {
+            editorDesign = DESIGN_EDITED
+            await logic.asyncActions.flushPendingDesignEdit()
+
+            expect(parent.email).toMatchObject({ design: DESIGN_EDITED })
+        })
+
         it('switching the sender keeps a canvas edit made while the flush is exporting', async () => {
             jest.useFakeTimers()
             editorDesign = DESIGN_EDITED
@@ -868,6 +913,239 @@ describe('emailTemplaterLogic', () => {
             await jest.advanceTimersByTimeAsync(500)
             jest.useRealTimers()
             await expectLogic(logic).toFinishAllListeners()
+        })
+
+        it('holds an edit it could not export, and a save waits for it instead of storing the older email', async () => {
+            const toast = jest.spyOn(lemonToast, 'error').mockImplementation(() => undefined as any)
+            let exportFails = true
+            logic.actions.setEmailEditorRef({
+                editor: {
+                    ...fakeEditorRef().editor,
+                    exportPlainText: (callback: (data: any) => void) => {
+                        if (exportFails) {
+                            throw new Error('export failed')
+                        }
+                        callback({ text: 'edited' })
+                    },
+                },
+            } as unknown as EditorRef)
+            const save = jest.fn()
+            jest.useFakeTimers()
+            editorDesign = DESIGN_EDITED
+            editorListeners['design:updated']()
+            await jest.advanceTimersByTimeAsync(500)
+
+            expect(parent.email.design).not.toEqual(DESIGN_EDITED)
+            expect(toast).toHaveBeenCalledWith(expect.stringContaining("Couldn't save this email"), expect.anything())
+
+            await saveWithLatestEmailEdit(save)
+            expect(save).not.toHaveBeenCalled()
+
+            exportFails = false
+            await saveWithLatestEmailEdit(save)
+            jest.useRealTimers()
+
+            expect(save).toHaveBeenCalledTimes(1)
+            expect(parent.email).toMatchObject({ design: DESIGN_EDITED, text: 'edited' })
+            toast.mockRestore()
+        })
+
+        it('saves once when the person clicks save again while the editor is still being read', async () => {
+            const save = jest.fn()
+            editorDesign = DESIGN_EDITED
+            holdNextExport = true
+
+            const first = saveWithLatestEmailEdit(save)
+            const second = saveWithLatestEmailEdit(save)
+            releaseHeldExport?.()
+            await Promise.all([first, second])
+
+            expect(save).toHaveBeenCalledTimes(1)
+        })
+
+        it('lets a save through when the editor closes while it is being read', async () => {
+            editorDesign = DESIGN_EDITED
+            holdNextExport = true
+
+            const saved = latestEmailEditSaved()
+            logic.unmount()
+            releaseHeldExport?.()
+
+            await expect(saved).resolves.toBe(true)
+            expect(parent.email).toMatchObject({ design: DESIGN_EDITED })
+        })
+
+        it('lets a save through once the editor that held a failed edit is gone', async () => {
+            const toast = jest.spyOn(lemonToast, 'error').mockImplementation(() => undefined as any)
+            logic.actions.setEmailEditorRef({
+                editor: {
+                    ...fakeEditorRef().editor,
+                    exportPlainText: () => {
+                        throw new Error('export failed')
+                    },
+                },
+            } as unknown as EditorRef)
+            const save = jest.fn()
+            jest.useFakeTimers()
+            editorDesign = DESIGN_EDITED
+            editorListeners['design:updated']()
+            await jest.advanceTimersByTimeAsync(500)
+            await saveWithLatestEmailEdit(save)
+            expect(save).not.toHaveBeenCalled()
+
+            logic.actions.setEmailEditorRef(null)
+            await saveWithLatestEmailEdit(save)
+            jest.useRealTimers()
+
+            expect(save).toHaveBeenCalledTimes(1)
+            toast.mockRestore()
+        })
+
+        it('lets a save through when a load echo with no change cannot be read as text', async () => {
+            const toast = jest.spyOn(lemonToast, 'error').mockImplementation(() => undefined as any)
+            logic.actions.setEmailEditorRef({
+                editor: {
+                    ...fakeEditorRef().editor,
+                    exportPlainText: () => {
+                        throw new Error('export failed')
+                    },
+                },
+            } as unknown as EditorRef)
+            const save = jest.fn()
+            jest.useFakeTimers()
+            editorListeners['design:updated']()
+            await jest.advanceTimersByTimeAsync(500)
+            await saveWithLatestEmailEdit(save)
+            jest.useRealTimers()
+
+            expect(save).toHaveBeenCalledTimes(1)
+            expect(toast).not.toHaveBeenCalled()
+            toast.mockRestore()
+        })
+
+        it('lets a save through when the canvas cannot be read but nothing was edited', async () => {
+            const toast = jest.spyOn(lemonToast, 'error').mockImplementation(() => undefined as any)
+            logic.actions.setEmailEditorRef({
+                editor: {
+                    ...fakeEditorRef().editor,
+                    exportPlainText: () => {
+                        throw new Error('export failed')
+                    },
+                },
+            } as unknown as EditorRef)
+            const save = jest.fn()
+            await saveWithLatestEmailEdit(save)
+
+            expect(save).toHaveBeenCalledTimes(1)
+            expect(toast).not.toHaveBeenCalled()
+            toast.mockRestore()
+        })
+
+        it('lets a save through when the canvas stops answering and nothing was edited', async () => {
+            logic.actions.setEmailEditorRef({
+                editor: { ...fakeEditorRef().editor, exportPlainText: () => {} },
+            } as unknown as EditorRef)
+            const save = jest.fn()
+            jest.useFakeTimers()
+            const saved = saveWithLatestEmailEdit(save)
+            await jest.advanceTimersByTimeAsync(5000)
+            await saved
+            jest.useRealTimers()
+
+            expect(save).toHaveBeenCalledTimes(1)
+        })
+
+        it('a flush on the plain-text tab picks up an edit the old editor has not reported yet', async () => {
+            logic.actions.setActiveContentTab('plaintext')
+            editorDesign = DESIGN_EDITED
+            await logic.asyncActions.flushPendingDesignEdit()
+
+            expect(parent.email).toMatchObject({ design: DESIGN_EDITED })
+        })
+
+        it('saves a canvas edit still waiting when the plain-text tab opens', async () => {
+            const save = jest.fn()
+            jest.useFakeTimers()
+            editorDesign = DESIGN_EDITED
+            editorListeners['design:updated']()
+            logic.actions.setActiveContentTab('plaintext')
+            await saveWithLatestEmailEdit(save)
+            await jest.advanceTimersByTimeAsync(500)
+            jest.useRealTimers()
+
+            expect(save).toHaveBeenCalledTimes(1)
+            expect(parent.email).toMatchObject({ design: DESIGN_EDITED })
+        })
+
+        it('leaves the email alone on a save when no design was ever loaded into the canvas', async () => {
+            logic.unmount()
+            parent = { email: value({ design: null, html: '', text: 'Plain text only' }) }
+            logic = emailTemplaterLogic(makeProps({ value: parent.email, onChange, liveChanges: true }))
+            logic.mount()
+            logic.actions.setIsModalOpen(true)
+            logic.actions.setEmailEditorRef({
+                editor: { ...fakeEditorRef().editor, registerProvider: () => {}, registerCallback: () => {} },
+            } as unknown as EditorRef)
+            logic.actions.onEmailEditorReady()
+            await expectLogic(logic).toFinishAllListeners()
+            const before = parent.email
+            editorDesign = DESIGN_EDITED
+            await logic.asyncActions.flushPendingDesignEdit()
+
+            expect(parent.email).toBe(before)
+        })
+
+        it('leaves the email alone on a save while a newly mounted editor is still loading', async () => {
+            const before = parent.email
+            logic.actions.setEmailEditorRef(fakeEditorRef())
+            editorDesign = DESIGN_EDITED
+            await logic.asyncActions.flushPendingDesignEdit()
+
+            expect(parent.email).toBe(before)
+        })
+
+        it('still picks up an unreported edit after a re-render hands over the same editor again', async () => {
+            const ref = logic.values.emailEditorRef
+            logic.actions.setEmailEditorRef(null)
+            logic.actions.setEmailEditorRef(ref)
+            editorDesign = DESIGN_EDITED
+            await logic.asyncActions.flushPendingDesignEdit()
+
+            expect(parent.email).toMatchObject({ design: DESIGN_EDITED })
+        })
+
+        it('reads the canvas early again once the editor confirms its loaded design', async () => {
+            updateProps({ design: DESIGN_EDITED_AGAIN })
+            editorDesign = DESIGN_EDITED
+            const before = parent.email
+            await logic.asyncActions.flushPendingDesignEdit()
+            expect(parent.email).toBe(before)
+
+            editorDesign = DESIGN_NORMALIZED
+            editorListeners['design:loaded']?.()
+            await expectLogic(logic).toFinishAllListeners()
+            editorDesign = DESIGN_EDITED
+            await logic.asyncActions.flushPendingDesignEdit()
+            expect(parent.email).toMatchObject({ design: DESIGN_EDITED })
+        })
+
+        it('blocks the save when an edit is waiting and the canvas stops answering', async () => {
+            const toast = jest.spyOn(lemonToast, 'error').mockImplementation(() => undefined as any)
+            logic.actions.setEmailEditorRef({
+                editor: { ...fakeEditorRef().editor, exportPlainText: () => {} },
+            } as unknown as EditorRef)
+            const save = jest.fn()
+            jest.useFakeTimers()
+            editorDesign = DESIGN_EDITED
+            editorListeners['design:updated']()
+            const saved = saveWithLatestEmailEdit(save)
+            await jest.advanceTimersByTimeAsync(5000)
+            await saved
+            jest.useRealTimers()
+
+            expect(save).not.toHaveBeenCalled()
+            expect(toast).toHaveBeenCalledWith(expect.stringContaining("Couldn't save this email"), expect.anything())
+            toast.mockRestore()
         })
 
         it('keeps the editor open and says so when an edit fails to save on close', async () => {
@@ -888,7 +1166,7 @@ describe('emailTemplaterLogic', () => {
             jest.useRealTimers()
 
             expect(logic.values.isModalOpen).toBe(true)
-            expect(toast).toHaveBeenCalledWith(expect.stringContaining("Couldn't save this email"))
+            expect(toast).toHaveBeenCalledWith(expect.stringContaining("Couldn't save this email"), expect.anything())
             toast.mockRestore()
         })
 

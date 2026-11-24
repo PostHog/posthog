@@ -284,9 +284,14 @@ class TestUserCustomerAnalyticsConfigAPI(APIBaseTest):
             format="json",
         )
         account_detail_tabs = {
-            "ordered_tab_ids": ["system:automations", "system:usage", "view:11111111-2222-4333-8444-555555555555"],
+            "ordered_tab_ids": [
+                "system:context",
+                "system:automations",
+                "system:usage",
+                "view:11111111-2222-4333-8444-555555555555",
+            ],
             "hidden_tab_ids": ["system:notes", "system:automations"],
-            "default_tab_id": "system:automations",
+            "default_tab_id": "system:context",
         }
 
         response = self.client.patch(self.endpoint, {"account_detail_tabs": account_detail_tabs}, format="json")

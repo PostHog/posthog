@@ -69,6 +69,7 @@ CREDENTIAL_AUTH_TYPES: Mapping[str, str] = {
     "apollo": "token",
     "app-lovin": "credentials",
     "app-store-connect": "credentials",
+    "appbot": "credentials",
     "appcues": "credentials",
     "appdirect": "credentials",
     "appdynamics": "credentials",

@@ -9,6 +9,7 @@ import structlog
 
 from posthog.session_recordings.recordings.errors import (
     BlockFetchError,
+    BlockNotFoundError,
     RecordingApiConfigurationError,
     RecordingDeletedError,
 )
@@ -58,7 +59,7 @@ class RecordingApiClient:
                 url, params=params, headers=recording_api_auth_headers(team_id, "read")
             ) as response:
                 if response.status == 404:
-                    raise BlockFetchError("Block not found")
+                    raise BlockNotFoundError("Block not found")
                 if response.status == 410:
                     error = await _recording_deleted_error(response)
                     logger.info(
@@ -156,7 +157,7 @@ class RecordingApiClient:
 
 
 @asynccontextmanager
-async def recording_api_client() -> AsyncIterator[RecordingApiClient]:
+async def recording_api_client(connection_limit: int = 100) -> AsyncIterator[RecordingApiClient]:
     """
     Async context manager for creating a RecordingApiClient instance.
 
@@ -175,6 +176,7 @@ async def recording_api_client() -> AsyncIterator[RecordingApiClient]:
 
     timeout = aiohttp.ClientTimeout(total=30, connect=5)
     # Authorization is per-request (a team + operation scoped JWT), so no session-level auth header.
+    connector = aiohttp.TCPConnector(limit=connection_limit)
     # nosemgrep: aiohttp-missing-trust-env -- internal service call to recording API
-    async with aiohttp.ClientSession(timeout=timeout, trust_env=False) as session:
+    async with aiohttp.ClientSession(timeout=timeout, trust_env=False, connector=connector) as session:
         yield RecordingApiClient(session, settings.RECORDING_API_URL)

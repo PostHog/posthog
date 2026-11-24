@@ -1,4 +1,11 @@
-from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType, frozen
+from typing import Literal
+
+from products.warehouse_sources.sources.sdk import (
+    DependentEndpointConfig,
+    IncrementalField,
+    IncrementalFieldType,
+    frozen,
+)
 
 BASE_URLS = {
     "us": "https://api.eflow.team/v1",
@@ -7,8 +14,10 @@ BASE_URLS = {
 
 # The documented maximum page size on the entity tables.
 TABLE_PAGE_SIZE = 2000
-# Everflow does not state a maximum for the conversions report, so this stays well under the table limit.
+# Everflow does not state a maximum for the conversions report or the invoices table, so these stay well
+# under the table limit.
 CONVERSIONS_PAGE_SIZE = 500
+INVOICES_PAGE_SIZE = 500
 
 # Everflow's timezone id for UTC. Response timestamps are always UTC; this pins how `from`/`to` dates read.
 UTC_TIMEZONE_ID = 67
@@ -29,6 +38,8 @@ class EverflowEndpointConfig:
     path: str
     data_selector: str
     primary_keys: tuple[str, ...]
+    method: Literal["GET", "POST"] = "POST"
+    # None means the endpoint returns everything in one response, with no `paging` object.
     page_size: int | None = TABLE_PAGE_SIZE
     incremental_fields: tuple[IncrementalField, ...] = ()
     partition_key: str | None = None
@@ -38,6 +49,7 @@ class EverflowEndpointConfig:
     # Fields Everflow documents as numbers but sends as a JSON integer when whole. Without the cast, a
     # first batch of whole values creates the column as int64 and a later fractional value fails the load.
     float_columns: tuple[str, ...] = ()
+    fanout: DependentEndpointConfig | None = None
 
 
 EVERFLOW_ENDPOINTS: dict[str, EverflowEndpointConfig] = {
@@ -121,6 +133,49 @@ EVERFLOW_ENDPOINTS: dict[str, EverflowEndpointConfig] = {
         ),
         partition_key="date",
         default_incremental_lookback_seconds=LOOKBACK_SECONDS,
+    ),
+    "categories": EverflowEndpointConfig(
+        name="categories",
+        path="/networks/categories",
+        method="GET",
+        data_selector="categories",
+        primary_keys=("network_category_id",),
+        page_size=None,
+    ),
+    "affiliate_tiers": EverflowEndpointConfig(
+        name="affiliate_tiers",
+        path="/networks/affiliatetiers",
+        method="GET",
+        data_selector="tiers",
+        primary_keys=("network_affiliate_tier_id",),
+        page_size=None,
+        float_columns=("payout_margin",),
+    ),
+    "partner_invoices": EverflowEndpointConfig(
+        name="partner_invoices",
+        path="/networks/billings/affiliates/invoicestable",
+        data_selector="invoices",
+        primary_keys=("network_affiliate_invoice_id",),
+        page_size=INVOICES_PAGE_SIZE,
+        float_columns=("balance", "billed", "paid"),
+    ),
+    "affiliate_users": EverflowEndpointConfig(
+        name="affiliate_users",
+        path="/networks/affiliates/{network_affiliate_id}/users",
+        method="GET",
+        data_selector="users",
+        primary_keys=("network_affiliate_id", "network_affiliate_user_id"),
+        page_size=None,
+        fanout=DependentEndpointConfig(
+            parent_name="affiliates",
+            resolve_param="network_affiliate_id",
+            resolve_field="network_affiliate_id",
+            include_from_parent=["network_affiliate_id"],
+            parent_field_renames={"network_affiliate_id": "network_affiliate_id"},
+            parent_params={"page_size": TABLE_PAGE_SIZE},
+            # A partner deleted between the partner listing and its users request returns 404.
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
     ),
 }
 

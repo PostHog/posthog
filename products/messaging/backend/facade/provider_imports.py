@@ -217,8 +217,9 @@ def start_provider_import(
 
 
 def list_provider_import_runs(team_id: int, limit: int = 20) -> list[ProviderImportRunState]:
-    """The team's most recent imports, newest first."""
-    return [_to_state(run) for run in runs.list_runs(team_id, limit)]
+    """The team's most recent imports, newest first, without each step's items. A run can hold hundreds of items per
+    step, which makes the list too large for an MCP client to read. `get_provider_import_run` returns them."""
+    return [_to_state(run, with_items=False) for run in runs.list_runs(team_id, limit)]
 
 
 def get_provider_import_run(team_id: int, run_id: UUID) -> ProviderImportRunState | None:
@@ -232,7 +233,7 @@ def _rejection_message(error: Exception) -> str:
     return str(error)
 
 
-def _to_state(run: ProviderImportRun) -> ProviderImportRunState:
+def _to_state(run: ProviderImportRun, with_items: bool = True) -> ProviderImportRunState:
     # After a rollback a run can name a provider this deploy lacks; its steps then show only their keys.
     provider = PROVIDERS.get(run.provider)
     specs = {spec.key: spec for spec in provider.steps} if provider else {}
@@ -240,7 +241,9 @@ def _to_state(run: ProviderImportRun) -> ProviderImportRunState:
         id=run.id,
         provider=run.provider,
         status=run.status,
-        steps=tuple(_step_progress(step, specs.get(step), run.progress.get(step, {})) for step in run.steps),
+        steps=tuple(
+            _step_progress(step, specs.get(step), run.progress.get(step, {}), with_items) for step in run.steps
+        ),
         created_at=run.created_at,
         started_at=run.started_at,
         finished_at=run.finished_at,
@@ -248,8 +251,12 @@ def _to_state(run: ProviderImportRun) -> ProviderImportRunState:
     )
 
 
-def _step_progress(key: str, spec: ImportStepSpec | None, progress: dict[str, Any]) -> ImportStepProgress:
+def _step_progress(
+    key: str, spec: ImportStepSpec | None, progress: dict[str, Any], with_items: bool = True
+) -> ImportStepProgress:
     counts = progress.get("counts", {})
+    stored_items = progress.get("items", [])
+    items = stored_items if with_items else []
     return ImportStepProgress(
         key=key,
         label=spec.label if spec else key,
@@ -267,8 +274,8 @@ def _step_progress(key: str, spec: ImportStepSpec | None, progress: dict[str, An
             ImportStepItem(
                 label=item["label"], status=item["status"], url=item.get("url"), notes=tuple(item.get("notes", []))
             )
-            for item in progress.get("items", [])
+            for item in items
         ),
         warnings_omitted=progress.get("warnings_omitted", 0),
-        items_omitted=progress.get("items_omitted", 0),
+        items_omitted=progress.get("items_omitted", 0) + len(stored_items) - len(items),
     )
