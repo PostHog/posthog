@@ -19,7 +19,7 @@ notice.
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
@@ -151,10 +151,10 @@ def _still_news(entry: QuarantinedIdentifier, now: datetime) -> bool:
     return entry.created_at > now - _STALE_AFTER
 
 
-def _clear_pending(entries: list[QuarantinedIdentifier]) -> None:
-    QuarantinedIdentifier.objects.using(WRITER_DB).filter(id__in=[entry.id for entry in entries]).update(
-        owner_notice_pending=False
-    )
+def _clear_pending(entries: list[QuarantinedIdentifier], team_id: int) -> None:
+    QuarantinedIdentifier.objects.using(WRITER_DB).filter(
+        team_id=team_id, id__in=[entry.id for entry in entries]
+    ).update(owner_notice_pending=False)
 
 
 def _claim_pending(trigger_id: UUID, team_id: int) -> _Claim:
@@ -176,25 +176,33 @@ def _claim_pending(trigger_id: UUID, team_id: int) -> _Claim:
     with transaction.atomic(using=WRITER_DB):
         # One notice task at a time per repo. Two tasks that both see the burst as over would otherwise
         # claim different rows and post the same burst to the same team twice.
-        Repo.objects.using(WRITER_DB).select_for_update().filter(id=repo_id, team_id=team_id).first()
+        # NO KEY: a quarantine insert takes KEY SHARE on the repo for its foreign key, and FOR UPDATE
+        # would block it while this transaction waits on that quarantine's rows.
+        Repo.objects.using(WRITER_DB).select_for_update(no_key=True).filter(id=repo_id, team_id=team_id).first()
         pending = list(
             QuarantinedIdentifier.objects.using(WRITER_DB)
             .filter(repo_id=repo_id, team_id=team_id, owner_notice_pending=True)
             .select_related("repo")
             .order_by("created_at")
         )
-        news = [entry for entry in pending if _still_news(entry, now)]
+        news: list[QuarantinedIdentifier] = []
+        stale: list[QuarantinedIdentifier] = []
+        for entry in pending:
+            if _still_news(entry, now):
+                news.append(entry)
+            else:
+                stale.append(entry)
         if news:
             quiet_until = news[-1].created_at + timedelta(seconds=QUARANTINE_NOTICE_QUIET_SECONDS)
             waited_long_enough = news[0].created_at <= now - _MAX_HOLD
             if now < quiet_until - _CLOCK_SLACK and not waited_long_enough:
-                _clear_pending([entry for entry in pending if entry not in news])
+                _clear_pending(stale, team_id)
                 # The oldest row's task looks again after the newest row's task should have posted.
                 # That covers a newest-row task that the broker lost or that expired in the queue.
                 if news[0].id != trigger_id:
                     return _Claim(entries=[], recheck_in_seconds=None)
                 return _Claim(entries=[], recheck_in_seconds=int((quiet_until + _CLOCK_SLACK - now).total_seconds()))
-        _clear_pending(pending)
+        _clear_pending(pending, team_id)
     return _Claim(entries=news, recheck_in_seconds=None)
 
 
@@ -212,7 +220,7 @@ def send_pending_notices(trigger_id: UUID, team_id: int) -> NoticeRun:
         repo, keys, run_queries.newest_run_by_run_type(run_queries.latest_default_branch_runs(repo.id))
     )
     stories_by_audience: dict[_Audience, list[_Story]] = defaultdict(list)
-    seen_stories: set[tuple[_Audience, str, str, str, datetime | None]] = set()
+    seen_stories: set[tuple[_Audience, str, str, str, date | None]] = set()
     for entry, key in zip(entries, keys):
         team_slug = found.team_by_key.get(key)
         if team_slug is None or team_slug == UNOWNED_TEAM:
@@ -224,7 +232,9 @@ def send_pending_notices(trigger_id: UUID, team_id: int) -> NoticeRun:
             auto_extension=_is_auto_extension(entry),
             created_by_id=entry.created_by_id,
         )
-        story = (audience, entry.run_type, _story_name(entry), entry.reason, entry.expires_at)
+        # The post names the expiry by day, so variants whose expiries differ by seconds read the same.
+        expiry_day = entry.expires_at.date() if entry.expires_at is not None else None
+        story = (audience, entry.run_type, _story_name(entry), entry.reason, expiry_day)
         if story in seen_stories:
             continue
         seen_stories.add(story)
@@ -240,7 +250,13 @@ def send_pending_notices(trigger_id: UUID, team_id: int) -> NoticeRun:
     for audience, stories in stories_by_audience.items():
         actor = actors.get(audience.created_by_id or 0, "Someone")
         message = build_message(repo, stories, actor)
-        posted = team_channels.post_to_team(workspace, audience.team_slug, found.registry, message)
+        try:
+            posted = team_channels.post_to_team(workspace, audience.team_slug, found.registry, message)
+        except Exception:
+            # The claim already cleared every row of the batch, so one team's broken channel must not
+            # cost the other teams their posts.
+            logger.warning("visual_review.quarantine_notice_post_failed", team_slug=audience.team_slug, exc_info=True)
+            continue
         logger.info(
             "visual_review.quarantine_notice", team_slug=audience.team_slug, stories=len(stories), posted=posted
         )

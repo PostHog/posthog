@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import pytest
 from unittest.mock import MagicMock, call, patch
@@ -60,6 +60,7 @@ class TestSendQuarantineNotice:
         identifier: str = _IDENTIFIER,
         source: ActorType = ActorType.HUMAN,
         reason: str = "Animation <!channel> timing",
+        expires_at: datetime | None = None,
     ) -> QuarantinedIdentifier:
         return quarantine.quarantine_identifier(
             repo_id=repo.id,
@@ -69,6 +70,7 @@ class TestSendQuarantineNotice:
             user_id=None if source == ActorType.AUTO else user.id,
             team_id=repo.team_id,
             source=source,
+            expires_at=expires_at,
             notify_owners=True,
         )
 
@@ -147,8 +149,11 @@ class TestSendQuarantineNotice:
 
     @pytest.mark.parametrize("trigger", ["first", "last"])
     def test_a_burst_posts_once_per_team_and_author_after_it_goes_quiet(self, team, repo, user, post, trigger):
-        first = self._quarantine(repo, user)
-        self._quarantine(repo, user, identifier="scenes-app-button--primary--dark")
+        expires_at = timezone.now() + timedelta(days=10)
+        first = self._quarantine(repo, user, expires_at=expires_at)
+        self._quarantine(
+            repo, user, identifier="scenes-app-button--primary--dark", expires_at=expires_at + timedelta(seconds=1)
+        )
         self._quarantine(repo, user, source=ActorType.AGENT, identifier="scenes-app-button--secondary--light")
         last = self._quarantine(repo, user, identifier="scenes-app-button--secondary--dark")
 
@@ -170,6 +175,15 @@ class TestSendQuarantineNotice:
             f"*{name} (using an AI agent)* quarantined a story owned by you. Please check. scenes-app-button--secondary",
             f"*{name}* quarantined 2 stories owned by you. Please check.",
         ]
+
+    def test_one_failing_post_does_not_cost_the_other_audiences_theirs(self, team, repo, user, post):
+        self._quarantine(repo, user)
+        last = self._quarantine(repo, user, source=ActorType.AGENT, identifier="scenes-app-button--secondary--light")
+        self._age(repo, 4)
+        post.side_effect = [RuntimeError("channel archived"), "1700000000.2"]
+
+        assert quarantine_notice.send_pending_notices(last.id, team.id).posts == 1
+        assert post.call_count == 2
 
     @pytest.mark.parametrize("oldest_age_minutes,posts", [(1, 0), (11, 1)])
     def test_a_long_stream_posts_once_the_oldest_notice_waited_too_long(
