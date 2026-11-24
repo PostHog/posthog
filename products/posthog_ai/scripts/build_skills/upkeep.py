@@ -12,7 +12,7 @@ from pathlib import Path
 
 import yaml
 
-from . import discovery, linting, served_skills, skill_manifest, tool_references
+from . import discovery, linting, skill_audience, skill_manifest, tool_references
 
 # Scout and ReviewHog skills are copied into each project's skill store, where an agent reads them
 # with `skill-get`. A served skill that names one is not sending the agent to `learn`. The harnesses
@@ -101,7 +101,7 @@ def _markdown_files(skill: skill_manifest.DiscoveredSkill) -> list[Path]:
 
 def _load_served(repo_root: Path, skills: list[skill_manifest.DiscoveredSkill]) -> tuple[list[ServedSkill], set[str]]:
     """Return the served product skills, and the names of the product skills that are not served."""
-    entries: dict[str, dict[str, object]] = json.loads((repo_root / served_skills.SERVED_SKILLS_FILE).read_text())[
+    entries: dict[str, dict[str, object]] = json.loads((repo_root / skill_audience.SERVED_SKILLS_FILE).read_text())[
         "skills"
     ]
     served: list[ServedSkill] = []
