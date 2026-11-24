@@ -32,7 +32,10 @@ const runRow = (
 })
 
 describe('RunStatusCell', () => {
-    afterEach(cleanup)
+    afterEach(() => {
+        cleanup()
+        jest.useRealTimers()
+    })
 
     it.each([
         { status: 'succeeded', level: 'error', outcome: 'complained', tag: 'MARKED AS SPAM', warning: null },
@@ -46,12 +49,12 @@ describe('RunStatusCell', () => {
     ] as const)(
         'shows only $tag and warning $warning for a $status run with level $level and outcome $outcome',
         ({ status, level, outcome, tag, warning }) => {
-            const { container, queryAllByLabelText } = render(<RunStatusCell row={runRow(status, level, outcome)} />)
+            const { container } = render(<RunStatusCell row={runRow(status, level, outcome)} />)
 
             expect(container.textContent).toBe(tag)
-            expect(
-                queryAllByLabelText(/^Logged an? (error|warning)$/).map((icon) => icon.getAttribute('aria-label'))
-            ).toEqual(warning ? [warning] : [])
+            expect(Array.from(container.querySelectorAll('svg'), (icon) => icon.getAttribute('aria-label'))).toEqual(
+                warning ? [warning] : []
+            )
         }
     )
 
@@ -72,6 +75,5 @@ describe('RunStatusCell', () => {
         expect(
             screen.getByText(/refused the email/).textContent?.match(/The run also logged an? \w+\./)?.[0] ?? null
         ).toBe(alsoLogged)
-        jest.useRealTimers()
     })
 })
