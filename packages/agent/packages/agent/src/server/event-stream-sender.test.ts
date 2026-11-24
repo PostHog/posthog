@@ -522,7 +522,7 @@ describe("TaskRunEventStreamSender", () => {
   it("truncates large fields of an oversized event instead of dropping it", async () => {
     const requestBodies = stubRecordingFetch();
     const losses: EventStreamLoss[] = [];
-    const maxEventBytes = 600;
+    const maxEventBytes = 800;
     const sender = createSender({
       maxEventBytes,
       onEventLoss: (loss) => losses.push(loss),
@@ -538,7 +538,14 @@ describe("TaskRunEventStreamSender", () => {
             toolCallId: "tool-1",
             status: "completed",
             rawOutput: {
-              content: [{ type: "text", text: "x".repeat(1000) }],
+              content: [
+                { type: "text", text: "x".repeat(1000) },
+                {
+                  type: "image",
+                  mimeType: "image/png",
+                  data: "z".repeat(1000),
+                },
+              ],
               _meta: {
                 "com.posthog.mcp/app_data": { rows: "y".repeat(1000) },
               },
@@ -564,7 +571,84 @@ describe("TaskRunEventStreamSender", () => {
     expect(update.rawOutput.content[0].text).toMatch(
       /^x+\n\[truncated: \d+ characters omitted\]$/,
     );
+    expect(update.rawOutput.content[1]).toEqual({
+      type: "text",
+      text: "Media not shown because it is too large to stream.",
+    });
     expect(losses).toEqual([{ reason: "truncated", count: 1 }]);
+  });
+
+  it("offers only rejection for a permission request too large to show", async () => {
+    const requestBodies = stubRecordingFetch();
+    const sender = createSender({ maxEventBytes: 1000 });
+
+    sender.enqueue({
+      type: "permission_request",
+      requestId: "request-1",
+      options: [
+        { kind: "allow_once", optionId: "allow", name: "Allow" },
+        { kind: "reject_once", optionId: "reject", name: "Reject" },
+      ],
+      toolCall: {
+        toolCallId: "tool-1",
+        title: "Edit src/app.ts",
+        kind: "edit",
+        rawInput: {
+          old_string: "a".repeat(2000),
+          new_string: "b".repeat(2000),
+        },
+        content: [
+          {
+            type: "diff",
+            path: "src/app.ts",
+            oldText: "a".repeat(2000),
+            newText: "b".repeat(2000),
+          },
+        ],
+      },
+    });
+    await sender.stop();
+
+    expect(JSON.parse(requestBodies[1].split("\n")[0]).event).toEqual({
+      type: "permission_request",
+      requestId: "request-1",
+      options: [{ kind: "reject_once", optionId: "reject", name: "Reject" }],
+      toolCall: {
+        toolCallId: "tool-1",
+        title: "Edit src/app.ts",
+        kind: "edit",
+        content: [
+          {
+            type: "content",
+            content: {
+              type: "text",
+              text: "This request is too large to show here, so it can only be rejected. Ask the agent to make a smaller change.",
+            },
+          },
+        ],
+      },
+    });
+  });
+
+  it("sends the loss event once the buffer drains without new events", async () => {
+    const requestBodies = stubRecordingFetch();
+    const sender = createSender({
+      maxBufferedEvents: 1,
+      keepProxyStreamOpen: false,
+    });
+
+    sender.enqueue({ type: "notification", notification: { method: "first" } });
+    sender.enqueue({
+      type: "notification",
+      notification: { method: "second" },
+    });
+
+    await vi.waitFor(() => {
+      expect(requestBodies.flatMap((body) => parseLines(body))).toContainEqual(
+        lossLine(2, 1),
+      );
+    });
+    await sender.stop();
   });
 
   it.each<[string, number]>([

@@ -5806,15 +5806,6 @@ export class AgentServer {
       this.mcpRelayServer = null;
     }
 
-    // Shutdown ends open spans and flushes batched records; without it,
-    // sandbox teardown races the OTel batch delay and drops the tail of the
-    // run's telemetry.
-    try {
-      await this.session.telemetry?.shutdown();
-    } catch (error) {
-      this.logger.error("Failed to shut down OTel run telemetry", error);
-    }
-
     // Drain pending permissions before ACP cleanup to avoid deadlocks —
     // cleanup may await operations that are blocked on a permission response.
     for (const [, pending] of this.pendingPermissions) {
@@ -5838,6 +5829,15 @@ export class AgentServer {
     if (completeEventStream) {
       await this.emitRtkSavings();
       await this.eventStreamSender?.stop();
+    }
+
+    // Shutdown ends open spans and flushes batched records; without it,
+    // sandbox teardown races the OTel batch delay and drops the tail of the
+    // run's telemetry.
+    try {
+      await this.session.telemetry?.shutdown();
+    } catch (error) {
+      this.logger.error("Failed to shut down OTel run telemetry", error);
     }
 
     this.pendingEvents = [];

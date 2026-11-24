@@ -70,6 +70,9 @@ const DEFAULT_STOP_TIMEOUT_MS = 30_000;
 const DEFAULT_STREAM_WINDOW_MS = 5 * 60 * 1_000;
 const STREAM_COMPLETE_CONTROL_TYPE = "_posthog/stream_complete";
 const TRUNCATED_STRING_CHARS_MIN = 256;
+const OMITTED_MEDIA_TEXT = "Media not shown because it is too large to stream.";
+const OVERSIZED_PERMISSION_TEXT =
+  "This request is too large to show here, so it can only be rejected. Ask the agent to make a smaller change.";
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   return typeof value === "object" && value !== null && !Array.isArray(value)
@@ -116,12 +119,49 @@ function serializeWithTruncatedStrings(
   maxStringChars: number,
 ): string {
   return JSON.stringify(event, (_key, value: unknown) => {
+    if (isMediaBlock(value)) {
+      return { type: "text", text: OMITTED_MEDIA_TEXT };
+    }
     if (typeof value !== "string" || value.length <= maxStringChars) {
       return value;
     }
     const omittedChars = value.length - maxStringChars;
     return `${value.slice(0, maxStringChars)}\n[truncated: ${omittedChars} characters omitted]`;
   });
+}
+
+function isMediaBlock(value: unknown): boolean {
+  const block = asRecord(value);
+  if (block?.type === "image" || block?.type === "audio") {
+    return true;
+  }
+  return (
+    block?.type === "resource" && asRecord(block.resource)?.blob !== undefined
+  );
+}
+
+function rejectOnlyPermissionRequest(
+  event: Record<string, unknown>,
+): Record<string, unknown> {
+  const toolCall = asRecord(event.toolCall);
+  const options = Array.isArray(event.options) ? event.options : [];
+  return {
+    ...event,
+    options: options.filter((option) =>
+      String(asRecord(option)?.kind).startsWith("reject"),
+    ),
+    toolCall: {
+      toolCallId: toolCall?.toolCallId,
+      title: toolCall?.title,
+      kind: toolCall?.kind,
+      content: [
+        {
+          type: "content",
+          content: { type: "text", text: OVERSIZED_PERMISSION_TEXT },
+        },
+      ],
+    },
+  };
 }
 
 export class TaskRunEventStreamSender {
@@ -338,6 +378,12 @@ export class TaskRunEventStreamSender {
     } finally {
       if (this.flushPromise === flushPromise) {
         this.flushPromise = null;
+      }
+      if (
+        !this.stopped &&
+        this.bufferedEvents.length < this.maxBufferedEvents
+      ) {
+        this.bufferPendingGapEvent();
       }
       if (!this.stopped && this.hasUnwrittenBufferedEvents()) {
         this.scheduleFlush(0);
@@ -808,7 +854,10 @@ export class TaskRunEventStreamSender {
       return trimmedEvent;
     }
 
-    const truncatedEvent = this.truncateOversizedEvent(trimmedEvent);
+    const truncatedEvent =
+      trimmedEvent.type === "permission_request"
+        ? this.fitWithinMaxEventBytes(rejectOnlyPermissionRequest(trimmedEvent))
+        : this.truncateOversizedEvent(trimmedEvent);
     if (!truncatedEvent) {
       this.config.logger.warn("Dropped oversized task run event", {
         eventBytes: trimmedEventBytes,
@@ -824,6 +873,12 @@ export class TaskRunEventStreamSender {
     });
     this.config.onEventLoss?.({ reason: "truncated", count: 1 });
     return truncatedEvent;
+  }
+
+  private fitWithinMaxEventBytes(
+    event: Record<string, unknown>,
+  ): Record<string, unknown> | null {
+    return this.envelopeBytes(event) <= this.maxEventBytes ? event : null;
   }
 
   private truncateOversizedEvent(

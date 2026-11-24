@@ -52,7 +52,7 @@ import {
   type TestRepo,
 } from "../test/fixtures/api";
 import { createPostHogHandlers } from "../test/mocks/msw-handlers";
-import type { StoredEntry, TaskRun } from "../types";
+import type { StoredEntry, StoredNotification, TaskRun } from "../types";
 import {
   AgentServer,
   codexProcessCwd,
@@ -66,6 +66,7 @@ import {
 } from "./agent-server";
 import { ContextSelection, type HumanMessage } from "./context-selection";
 import { CredentialRelayError } from "./credential-relay";
+import type { EventStreamLoss } from "./event-stream-sender";
 import { type JwtPayload, SANDBOX_CONNECTION_AUDIENCE } from "./jwt";
 import type { ExistingPrCheckoutResult } from "./pr-checkout";
 
@@ -1359,6 +1360,38 @@ describe("AgentServer HTTP Mode", () => {
 
       expect(testServer.eventStreamSender.enqueue).not.toHaveBeenCalled();
       expect(testServer.eventStreamSender.stop).toHaveBeenCalledOnce();
+    });
+
+    it("records event ingest losses raised while terminal cleanup stops ingest", async () => {
+      const testServer = stubSessionCleanup(createServer()) as ReturnType<
+        typeof stubSessionCleanup
+      > & {
+        session: { telemetry?: unknown };
+        recordEventStreamLoss(loss: EventStreamLoss): void;
+      };
+      const recorded: StoredNotification[] = [];
+      let telemetryShutDown = false;
+      testServer.session.telemetry = {
+        append: (_runId: string, entry: StoredNotification) => {
+          if (!telemetryShutDown) recorded.push(entry);
+        },
+        shutdown: async () => {
+          telemetryShutDown = true;
+        },
+      };
+      testServer.eventStreamSender.stop = vi.fn(async () => {
+        testServer.recordEventStreamLoss({ reason: "stop_timeout", count: 2 });
+      });
+
+      await testServer.cleanupSession({ completeEventStream: true });
+
+      expect(recorded.map((entry) => entry.notification)).toEqual([
+        {
+          jsonrpc: "2.0",
+          method: "_posthog/event_stream_loss",
+          params: { reason: "stop_timeout", count: 2 },
+        },
+      ]);
     });
 
     it("emits rtk savings once before terminal event ingest stops", async () => {
