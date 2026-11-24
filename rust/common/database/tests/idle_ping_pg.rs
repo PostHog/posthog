@@ -34,7 +34,6 @@ async fn wait_until_idle(pool: &PgPool) {
     .expect("the connection did not go back to the idle queue");
 }
 
-/// The two-argument form waits until the backend exits.
 async fn terminate_backend(connect_opts: PgConnectOptions, pid: i32) {
     let sidecar = PgPoolOptions::new()
         .max_connections(1)

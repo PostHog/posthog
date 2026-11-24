@@ -348,8 +348,6 @@ pub struct Config {
     #[envconfig(default = "1")]
     pub fallback_pg_min_connections: u32,
 
-    /// Ping a fallback connection before use only when it was idle at least this many
-    /// milliseconds. Zero pings on every acquire.
     #[envconfig(default = "0")]
     pub fallback_pg_ping_idle_after_ms: u64,
 

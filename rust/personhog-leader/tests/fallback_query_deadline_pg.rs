@@ -5,8 +5,6 @@ use personhog_leader::cache::PersonCacheKey;
 use personhog_leader::pg::{load_person_from_pg, LoadError};
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 
-/// A table lock held by another session stands in for a server that never answers: the load
-/// blocks inside Postgres, so only the client deadline can end it.
 #[sqlx::test]
 async fn an_unanswered_load_fails_and_frees_its_pool_slot(
     pool_opts: PgPoolOptions,
