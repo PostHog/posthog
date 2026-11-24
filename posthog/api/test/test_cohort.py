@@ -46,8 +46,10 @@ from posthog.models.async_deletion.async_deletion import AsyncDeletion, Deletion
 from posthog.models.event.new_events_schema import use_new_events_schema
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.person.util import get_person_by_id
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.property import BehavioralPropertyType, Property
 from posthog.models.team.team import Team
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.redis import get_client as get_redis_client
 from posthog.tasks.calculate_cohort import (
     calculate_cohort_ch,
@@ -3231,6 +3233,24 @@ email@example.org,
         response = self.client.get(f"/api/cohort/{cohort.pk}/persons?properties=%s" % (json.dumps([prop])))
         self.assertEqual(response.status_code, 200, response.json())
         self.assertEqual(len(response.json()["results"]), 1, response)
+
+    @parameterized.expand(
+        [
+            ("without_query_read", ["cohort:read", "person:read"], 403),
+            ("with_query_read", ["cohort:read", "person:read", "query:read"], 200),
+        ]
+    )
+    def test_hogql_property_filter_needs_query_read_scope(self, _name: str, scopes: list[str], expected_status: int):
+        cohort = Cohort.objects.create(team=self.team, is_static=True)
+        key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="cohorts", user=self.user, secure_value=hash_key_value(key), scopes=scopes)
+        properties = json.dumps([{"type": "hogql", "key": "1 = 1"}])
+
+        response = self.client.get(
+            f"/api/cohort/{cohort.pk}/persons", {"properties": properties}, headers={"authorization": f"Bearer {key}"}
+        )
+
+        self.assertEqual(response.status_code, expected_status, response.content)
 
     def test_filter_by_cohort_prop_from_clickhouse(self):
         for i in range(5):

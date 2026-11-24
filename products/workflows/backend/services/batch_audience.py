@@ -21,6 +21,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.access_control.backend.facade import api as access_control_api
+from products.cohorts.backend.facade.api import get_cohort_ref
 from products.feature_flags.backend.user_blast_radius import (
     PERSON_BATCH_SIZE as GROUP_AUDIENCE_PAGE_SIZE,
     get_user_blast_radius_persons,
@@ -124,6 +125,14 @@ def reject_unusable_audience_conditions(team: Team, filters: dict) -> None:
         raise exceptions.ValidationError(BATCH_FLAG_CONDITION_REJECTION)
 
 
+def _is_static_cohort(team: Team, cohort_id: Any) -> bool:
+    try:
+        cohort = get_cohort_ref(team_id=team.pk, cohort_id=int(cohort_id))
+    except (TypeError, ValueError):
+        return False
+    return cohort is not None and cohort.is_static
+
+
 def reject_audience_reading_restricted_properties(team: Team, filters: dict, user: Optional[User]) -> None:
     """
     Refuse an audience whose preview would count different people than the send reaches.
@@ -152,9 +161,10 @@ def reject_audience_reading_restricted_properties(team: Team, filters: dict, use
     with unevaluable_filters_as_validation_errors():
         prop_group = expand_cohort_properties(replace_proxy_properties(team, filters or {}), team)
     for prop in prop_group.flat:
-        if prop.type == "static-cohort":
-            # A static cohort reads stored membership, which no property rule masks. A precalculated cohort can
-            # be recalculated inline from its filters, so it is not exempt.
+        if prop.type == "static-cohort" and _is_static_cohort(team, prop.value):
+            # A static cohort reads stored membership, which no property rule masks. The caller sets the filter
+            # type, so the stored cohort decides. A precalculated cohort can be recalculated inline from its
+            # filters, so it is not exempt.
             continue
         if prop.type == "person" and not key_read_overlaps_restriction(str(prop.key), person_diff):
             continue
