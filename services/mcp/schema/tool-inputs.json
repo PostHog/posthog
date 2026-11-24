@@ -3513,6 +3513,17 @@
                                 "enum": ["source_id", "schema_id", "destination_id"]
                             },
                             "description": "One key that matches the alert. source_id for source_kind=warehouse_source with group_by=source (the default), schema_id for group_by=schema, destination_id for source_kind=warehouse_destination."
+                        },
+                        "max_instances": {
+                            "description": "Most groups the alert tracks at once, from 1 to 100. Defaults to 100. Groups past it are not tracked, and the last message says how many were left out.",
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 100
+                        },
+                        "on_overflow": {
+                            "description": "What happens to groups past max_instances. degrade_visible, the only mode, names how many were left out.",
+                            "type": "string",
+                            "const": "degrade_visible"
                         }
                     },
                     "required": ["mode", "keys"],
@@ -3608,6 +3619,17 @@
                                 "enum": ["source_id", "schema_id", "destination_id"]
                             },
                             "description": "One key that matches the alert. source_id for source_kind=warehouse_source with group_by=source (the default), schema_id for group_by=schema, destination_id for source_kind=warehouse_destination."
+                        },
+                        "max_instances": {
+                            "description": "Most groups the alert tracks at once, from 1 to 100. Defaults to 100. Groups past it are not tracked, and the last message says how many were left out.",
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 100
+                        },
+                        "on_overflow": {
+                            "description": "What happens to groups past max_instances. degrade_visible, the only mode, names how many were left out.",
+                            "type": "string",
+                            "const": "degrade_visible"
                         }
                     },
                     "required": ["mode", "keys"],

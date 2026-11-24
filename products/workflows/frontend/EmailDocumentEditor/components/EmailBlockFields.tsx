@@ -6,6 +6,7 @@ import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 import { enclosingColumns, selectedBlock, setBlockAttribute, setBlockStyle } from '../emailCommands'
 import { EmailBlockStyle, EmailSides, resolvePageStyle } from '../emailDocument'
 import { useEmailEditorContext } from '../emailEditorContext'
+import { htmlSentAsWritten } from '../renderEmailHtml'
 import { EmailBoxFields } from './EmailBoxFields'
 import { EmailColumnsFields } from './EmailColumnsFields'
 import { EmailHtmlCodeField } from './EmailHtmlCodeField'
@@ -46,6 +47,7 @@ export function EmailBlockFields({ editor }: { editor: Editor }): JSX.Element | 
     const set = (patch: Partial<EmailBlockStyle>): void => setBlockStyle(editor, pos, patch)
     const page = resolvePageStyle(editor.state.doc.attrs.page)
     const columns = enclosingColumns(editor)
+    const sentAsWritten = type === 'emailHtml' && htmlSentAsWritten(editor.getJSON()) !== null
 
     let fields: JSX.Element | null = null
     switch (type) {
@@ -331,7 +333,9 @@ export function EmailBlockFields({ editor }: { editor: Editor }): JSX.Element | 
                         html={String(node.attrs.html ?? '')}
                         onChange={(html) => setBlockAttribute(editor, pos, 'html', html)}
                     />
-                    <EmailBoxFields style={style} set={set} defaultPadding={NO_PADDING} showBorder={false} />
+                    {sentAsWritten ? null : (
+                        <EmailBoxFields style={style} set={set} defaultPadding={NO_PADDING} showBorder={false} />
+                    )}
                 </>
             )
             break
@@ -345,7 +349,9 @@ export function EmailBlockFields({ editor }: { editor: Editor }): JSX.Element | 
                 <h3 className="text-sm font-semibold m-0">{BLOCK_LABELS[type] ?? type}</h3>
             ) : null}
             {type !== 'emailColumns' ? fields : null}
-            {type !== 'emailColumns' ? <EmailVisibilityFields editor={editor} pos={pos} /> : null}
+            {type !== 'emailColumns' && !(sentAsWritten && !node.attrs.emailVisibility) ? (
+                <EmailVisibilityFields editor={editor} pos={pos} />
+            ) : null}
             {columns ? (
                 <>
                     {type !== 'emailColumns' ? <LemonDivider className="my-1" /> : null}

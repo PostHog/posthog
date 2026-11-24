@@ -4848,6 +4848,38 @@ class TestTaskAPI(BaseTaskAPITest):
         mock_workflow.assert_called_once()
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_run_endpoint_starts_on_the_model_the_message_asks_for(self, _mock_workflow):
+        task = self.create_task()
+        task.origin_product = Task.OriginProduct.POSTHOG_AI
+        task.save(update_fields=["origin_product"])
+        completion = MagicMock()
+        completion.choices = [
+            MagicMock(message=MagicMock(content='{"model": "claude-opus-4-8", "reasoning_effort": null}'))
+        ]
+        lookup = "products.tasks.backend.logic.services.prompt_model_switch"
+        with (
+            patch(
+                "products.tasks.backend.logic.services.model_catalogue.list_gateway_models",
+                return_value=(
+                    GatewayModel(id="claude-opus-4-8", owned_by="anthropic", context_window=200_000),
+                    GatewayModel(id="gpt-5.5", owned_by="openai", context_window=400_000),
+                ),
+            ),
+            patch(f"{lookup}.prompt_model_switch_enabled", return_value=True),
+            patch("products.tasks.backend.logic.model_override.build_ai_gateway_openai_client") as build,
+        ):
+            build.return_value.with_options.return_value.chat.completions.create.return_value = completion
+            response = self.client.post(
+                f"/api/projects/@current/tasks/{task.id}/run/",
+                {"pending_user_message": "use opus for this", "runtime_adapter": "codex", "model": "gpt-5.5"},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        state = TaskRun.objects.get(id=response.json()["latest_run"]["id"]).state
+        self.assertEqual((state["runtime_adapter"], state["model"]), ("claude", "claude-opus-4-8"))
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_run_endpoint_persists_pending_user_message(self, mock_workflow):
         task = self.create_task()
 

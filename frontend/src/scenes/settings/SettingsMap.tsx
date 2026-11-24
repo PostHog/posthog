@@ -9,6 +9,7 @@ import { AssignmentRules } from '@posthog/products-error-tracking/frontend/scene
 import { GroupingRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/grouping_rules/GroupingRules'
 import { RateLimitSettings } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/rate_limit/RateLimitSettings'
 import { Releases } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/releases/Releases'
+import { ImportWizard } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/sentry_migration/ImportWizard'
 import { SeverityRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/severity_rules/SeverityRules'
 import { SpikeDetectionSettings } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/spike_detection/SpikeDetectionSettings'
 import { SymbolSets } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/SymbolSets'
@@ -1049,6 +1050,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <Releases />,
                 keywords: ['version', 'deploy', 'release', 'regression'],
             },
+            {
+                id: 'error-tracking-import',
+                title: 'Import from another tool',
+                description:
+                    'Bring filters and rate limits over from another error tracking tool. Review how each setting translates before you import it.',
+                component: <ImportWizard />,
+                flag: 'ERROR_TRACKING_SENTRY_MIGRATION',
+                keywords: ['sentry', 'migrate', 'migration', 'import', 'inbound filter', 'rate limit'],
+            },
         ],
     },
     {
@@ -1996,7 +2006,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'workflows-email-run-link-tag',
                 title: 'Connect email clicks to sessions',
                 description:
-                    'Connects each tracked link click in your workflow and broadcast emails to the session it starts on your site, so you can see what the person did next, including the session replay when recording is on. It works for links on the domain you send email from, including its subdomains, and your site needs posthog-js. Tracked links carry an extra URL parameter to make the connection.',
+                    'Connects each tracked link click in your workflow and broadcast emails to the session it starts on your site, so you can see what the person did next, including the session replay when recording is on. It works for links on the main domain you send email from and on any of its subdomains. For example, when you send from mail.example.com, links to example.com and app.example.com are connected. Your site needs posthog-js. Tracked links carry an extra URL parameter to make the connection.',
                 component: <WorkflowsRunLinkTagSettings />,
                 keywords: [
                     'workflows',
