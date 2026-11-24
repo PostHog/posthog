@@ -387,7 +387,7 @@ class TestQuotaLimiting(BaseTest):
         self.organization.save()
 
         flush_persons_and_events()
-        with self.assertNumQueries(FuzzyInt(4, 20)):
+        with self.assertNumQueries(FuzzyInt(4, 21)):
             result = self._run_quota_limiting()
         assert patch_capture.call_count == 0  # No events should be captured since org won't be limited
         assert result.quota_limited_orgs["events"] == {}
@@ -1446,8 +1446,16 @@ class TestQuotaLimiting(BaseTest):
     ) -> None:
         self.redis_client.delete("@posthog/quota-limits/feature_flag_requests")
 
+        demo_team = create_team(organization=self.organization)
+        Team.objects.filter(pk=demo_team.pk).update(is_demo=True)
+
         def limited(resource: QuotaResource) -> bool:
-            return is_team_limited(self.team.api_token, resource, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
+            results = {
+                is_team_limited(team.api_token, resource, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
+                for team in (self.team, demo_team)
+            }
+            assert len(results) == 1
+            return results.pop()
 
         self.organization.is_active = is_active
         with self.captureOnCommitCallbacks(execute=True):

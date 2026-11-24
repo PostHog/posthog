@@ -2053,6 +2053,11 @@ def update_all_orgs_billing_quotas(
                 if token not in failed_team_tokens
             ]
 
+    # Demo projects are outside the run above, so their deactivation limit is carried over here.
+    flag_limited_teams = quota_limited_teams[QuotaResource.FEATURE_FLAG_REQUESTS.value]
+    for token in Team.objects.filter(organization__is_active=False).values_list("api_token", flat=True):
+        flag_limited_teams.setdefault(token, _deactivated_org_flags_limited_until())
+
     if not dry_run:
         redis_start = time()
         for field in quota_limited_teams:
