@@ -54,7 +54,16 @@ class TestSwitchOffChangesNoInsightSurface(ClickhouseTestMixin, APIBaseTest):
             name="real time",
             calculation_interval=AlertCalculationInterval.REAL_TIME.value,
         )
-        for alert in (self.alert, self.real_time):
+        # On the same insight, so the chart has a threshold besides the alert's own, and an AI detector,
+        # so the AI limit counts something that a switch-off could drop.
+        self.ai_sibling = create_insight_alert(
+            self.team,
+            created_by=self.user,
+            name="ai sibling",
+            insight=self.alert.insight,
+            detector_config={"type": "llm"},
+        )
+        for alert in (self.alert, self.real_time, self.ai_sibling):
             move_to_platform(alert, at=NOW - timedelta(days=10))
         self.url = f"/api/projects/{self.team.id}/alerts"
 
@@ -86,13 +95,14 @@ class TestSwitchOffChangesNoInsightSurface(ClickhouseTestMixin, APIBaseTest):
                 ),
                 "investigation loads": _enabled(investigated_alert(self.team.id, self.alert.id)),
                 "firing signal loads": _enabled(legacy_alert(team_id=self.team.id, alert_id=self.alert.id)),
-                "chart thresholds": [drawn.name for drawn in _thresholds_drawn_on_chart(self.alert)],
+                "chart thresholds": sorted(drawn.name for drawn in _thresholds_drawn_on_chart(self.alert)),
                 "real-time limit": AlertConfiguration._counted(self.team.id, active_real_time=True),
                 "AI detector limit": count_enabled_llm_alerts(team_id=self.team.id),
             }
 
     def test_switching_off_the_rows_changes_no_surface(self) -> None:
         before = self._surfaces()
+        assert (before["chart thresholds"], before["AI detector limit"]) == (["ai sibling", "alert"], 1)
 
         _switch_off(self.team.id)
 
