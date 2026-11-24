@@ -42,6 +42,7 @@ export type ProviderEdgeOptions = {
     caDir?: string
     region?: string
     feedbackUrl?: string
+    truth?: Truth
 }
 
 export type ProviderEdge = {
@@ -86,7 +87,7 @@ function integerAtLeast(value: string | null, min: number, fallback: number): nu
 type Feedback = { signer: SnsSigner; url: string }
 
 export async function startProviderEdge(options: ProviderEdgeOptions): Promise<ProviderEdge> {
-    const truth = new Truth()
+    const truth = options.truth ?? new Truth()
     const sent: SesMessage[] = []
     const faults = new FaultList()
     const trackingSigner = options.trackingKeys ? new EmailTrackingCodeSigner(options.trackingKeys, '') : undefined

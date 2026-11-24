@@ -33,7 +33,7 @@ from products.autoresearch.backend.testing import TeamScopedTestMixin
 from products.autoresearch.backend.training import artifacts
 from products.autoresearch.backend.training.ingestion import handle_task_run_completed
 from products.autoresearch.backend.training.promotion import PromotionError, complete_training_run
-from products.tasks.backend.models import TaskRun as TaskRunModel  # tach-ignore
+from products.tasks.backend.models import TaskRun as TaskRunModel
 
 VALID_FEATURE_SQL = (
     "SELECT a.person_id AS distinct_id, countIf(e.event = '$pageview') AS pv "

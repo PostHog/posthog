@@ -70,7 +70,7 @@ if TYPE_CHECKING:
 
 
 class TestResolveSandboxAiProduct:
-    """Must agree with resolveAiProduct/resolveGatewayProduct in
+    """Must agree with resolveAiProduct in
     packages/agent/packages/agent/src/utils/gateway.ts — a disagreement makes a
     routed run mint no token (degrades to Python) or mint an unused token."""
 
@@ -157,14 +157,10 @@ class TestSharedRoutingContract:
         "case", _CASES["resolve_ai_product"], ids=lambda c: f"{c['origin_product']}/{c['ai_stage']}"
     )
     def test_resolve_matches_contract(self, case):
-        assert (
-            resolve_sandbox_ai_product(
-                case["origin_product"],
-                case["ai_stage"],
-                internal=case["internal"],
-            )
-            == case["expected"]
-        )
+        assert [
+            resolve_sandbox_ai_product(case["origin_product"], None, internal=case["internal"]),
+            resolve_sandbox_ai_product(case["origin_product"], case["ai_stage"], internal=case["internal"]),
+        ] == [case["product"], case["expected"]]
 
     @pytest.mark.parametrize("case", _CASES["routed"], ids=lambda c: f"{c['origin_product']}/{c['ai_stage']}")
     def test_routed_matches_contract(self, case):
@@ -265,6 +261,7 @@ class TestMintScopedToken:
     def test_private_mint_revokes_an_unacknowledged_token(
         self, mint_settings, capture_mode: object, gateway_config: AIGatewayConfig | None
     ) -> None:
+        mint_settings.SANDBOX_AI_GATEWAY_WORKER_URL = "http://localhost:18080"
         with patch.object(internal_requests if gateway_config is not None else requests, "post") as post:
             post.side_effect = [
                 self._response(201, {"token": "phe_ordinary", "capture_mode": capture_mode}),
@@ -277,8 +274,9 @@ class TestMintScopedToken:
                 is None
             )
         assert post.call_count == 2
-        expected_url = gateway_config.url.rstrip("/") if gateway_config else "https://ai-gateway.dev.posthog.dev/v1"
+        expected_url = gateway_config.url.rstrip("/") if gateway_config else "http://localhost:18080/v1"
         expected_key = gateway_config.api_key if gateway_config else "phs_test_mint"
+        assert post.call_args_list[0].args == (f"{expected_url}/tokens",)
         assert post.call_args.args == (f"{expected_url}/tokens/revoke",)
         assert post.call_args.kwargs["json"] == {"token": "phe_ordinary"}
         assert post.call_args.kwargs["headers"] == {"Authorization": f"Bearer {expected_key}"}
