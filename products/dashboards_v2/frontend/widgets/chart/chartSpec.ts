@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
-import { type WidgetQuery, widgetQuerySchema } from '../../dashboard/dashboardSchema'
+import { type WidgetQuery, timeRangeSchema, widgetQuerySchema } from '../../dashboard/dashboardSchema'
+import type { TimeRange } from '../../dashboard/dashboardTypes'
 import { UNKNOWN_WIDGET_SIZE, type WidgetSpec } from '../widgetSpec'
 import type { VizSpec } from './vizTypes'
 
@@ -8,6 +9,8 @@ export interface ChartConfig {
     query: WidgetQuery
     /** How the result is drawn. Changing it never changes the data. */
     viz: { type: string; options?: unknown }
+    /** Overrides the time range around the chart, such as the dashboard's. */
+    time?: TimeRange
 }
 
 /**
@@ -45,6 +48,7 @@ export function chartSpec(vizTypes: VizSpec[]): WidgetSpec<ChartConfig> {
         configSchema: z.strictObject({
             query: widgetQuerySchema,
             viz: vizSchemas.length > 0 ? z.union(vizSchemas) : z.never(),
+            time: timeRangeSchema.optional(),
         }),
         refreshes: true,
     }
