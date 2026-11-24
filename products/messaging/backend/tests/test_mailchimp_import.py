@@ -694,6 +694,26 @@ class TestMailchimpContacts(ClickhouseTestMixin, TestMailchimpImportBase):
         assert len(tried) == 5
         assert run.progress["contacts"]["items"][6]["notes"][0].startswith("4 more")
 
+    def test_listing_tags_stops_after_several_audiences_fail(self) -> None:
+        self.mailchimp.data["lists"] += [
+            {
+                "id": f"extra{number}",
+                "name": f"Extra {number}",
+                "members": [],
+                "abuse_reports": [],
+                "interest_categories": [],
+            }
+            for number in range(4)
+        ]
+        self.mailchimp.failures.append(Failure(route="segments", status=500, times=1000))
+
+        run = self._import_contacts("new_people")
+
+        assert run.progress["contacts"]["status"] == "completed"
+        assert len({call["path"] for call in self.mailchimp.calls if call["route"] == "segments"}) == 5
+        items = {item["label"]: item["notes"][0] for item in run.progress["contacts"]["items"]}
+        assert items["Tags and segments in other audiences"].startswith("2 more audiences")
+
     def test_contacts_import_when_an_audience_hides_its_tags(self) -> None:
         self.mailchimp.failures.append(Failure(route="segments", status=500, times=1000))
 

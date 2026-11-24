@@ -117,6 +117,10 @@ MAX_SEGMENTS = 300
 MAX_FAILED_SEGMENTS = 5
 MAX_SEGMENT_MEMBERSHIPS = 250_000
 SEGMENT_NAME_LENGTH = 200
+UNLISTED_SEGMENTS_NOTE = (
+    "Mailchimp couldn't share this audience's tags and segments, so their cohorts stay as they are. Import again."
+)
+STOPPED_READING_NOTE = "Mailchimp failed several reads, so PostHog stopped. Import again later."
 UNREADABLE_SEGMENT_NOTE = "Mailchimp couldn't share its members, so its cohort stays as it is. Import again."
 # Mailchimp calls a tag a static segment. A fuzzy segment is one Mailchimp makes for its own use.
 _SEGMENT_KINDS = {"static": "tag", "saved": "segment"}
@@ -900,19 +904,24 @@ def _read_segments(
     skipped: list[ImportItem] = []
     memberships = left_out = failed = 0
     found: list[tuple[int, dict[str, Any], int]] = []
+    unlisted = 0
     for position, (audience, _rows) in enumerate(subscribed):
+        if failed >= MAX_FAILED_SEGMENTS:
+            unlisted += 1
+            continue
         try:
             segments = client.all(
                 f"/lists/{quoted(str(audience['id']))}/segments",
                 "segments",
                 {"fields": "segments.id,segments.name,segments.type,total_items"},
+                whole=True,
             )
         except (MailchimpKeyRejected, MailchimpRateLimited):
             raise
         except MailchimpAPIError:
             failed += 1
             label = f"Tags and segments in {_audience_name(audience)}"
-            skipped.append(ImportItem(label=label, status="failed", notes=(UNREADABLE_SEGMENT_NOTE,)))
+            skipped.append(ImportItem(label=label, status="failed", notes=(UNLISTED_SEGMENTS_NOTE,)))
             continue
         found += [
             (segment["id"], segment, position)
@@ -947,9 +956,17 @@ def _read_segments(
                 empty_note="No subscribed contacts, so no one is in its cohort.",
             )
         )
+    if unlisted:
+        skipped.append(
+            ImportItem(
+                label="Tags and segments in other audiences",
+                status="skipped",
+                notes=(f"{unlisted:,} more audiences weren't checked for them. {STOPPED_READING_NOTE}",),
+            )
+        )
     if left_out:
         note = (
-            "Mailchimp failed several reads, so PostHog stopped. Import again later."
+            STOPPED_READING_NOTE
             if failed >= MAX_FAILED_SEGMENTS
             else "Export the ones you need from Mailchimp and upload them as CSV files."
         )
