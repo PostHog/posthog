@@ -79,7 +79,12 @@ from posthog.hogql.resolver_utils import (
     suggested_field_fix,
     zero_argument_function_call,
 )
-from posthog.hogql.transforms.flag_calls_from_flag_evaluations import FlagCallScope, swap_flag_calls, swaps_flag_calls
+from posthog.hogql.transforms.flag_calls_from_flag_evaluations import (
+    EVENTS_NAMES,
+    FlagCallScope,
+    swap_flag_calls,
+    swaps_flag_calls,
+)
 from posthog.hogql.transforms.grouped_clauses import raise_on_whole_document_grouping
 from posthog.hogql.transforms.trino.persons import (
     lower_trino_table,
@@ -1496,8 +1501,13 @@ class Resolver(CloningVisitor):
     ) -> ast.SelectQuery | ast.SelectSetQuery:
         """`body`, unresolved, with each `events` scan of flag calls that the swap accepts reading
         `posthog.flag_evaluations`. The swap checks the body as a query of its own."""
-        # The enclosing query's CTEs are in scope in the body. The swap reads `FROM events` as the table.
-        if not self.swap_flag_calls_in_views or "events" in self.ctes or not swaps_flag_calls(body, self.context):
+        # The enclosing query's CTEs are in scope in the body. The swap reads `FROM events` and `FROM posthog.events`
+        # as the table.
+        if (
+            not self.swap_flag_calls_in_views
+            or not EVENTS_NAMES.isdisjoint(self.ctes)
+            or not swaps_flag_calls(body, self.context)
+        ):
             return body
         # Each resolve below visits the views that this body reads. Without the cache, each of those views would rerun
         # its own swap. A chain of views would then cost twice as much at each level.
