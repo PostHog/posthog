@@ -7213,8 +7213,12 @@ class TestExternalDataSchemaLogs(ClickhouseTestMixin, APIBaseTest):
             )
 
         url = f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/logs/"
-        second_page = self.client.get(url, {"limit": 2, "offset": 2}).json()
+        with mock.patch(
+            "products.warehouse_sources.backend.presentation.views.external_data_schema.Database.create_for"
+        ) as database:
+            second_page = self.client.get(url, {"limit": 2, "offset": 2}).json()
 
+        database.assert_not_called()
         assert second_page["count"] == 3
         assert [entry["message"] for entry in second_page["results"]] == ["entry 1"]
 
