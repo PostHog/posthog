@@ -1157,6 +1157,8 @@ class TransactionalEmailTeamSustainedThrottle(ProjectSecretApiKeyTeamRateThrottl
 TRANSACTIONAL_EMAIL_SEND_SCOPE = "transactional_email:write"
 TRANSACTIONAL_PUSH_SEND_SCOPE = "transactional_push:write"
 TRANSACTIONAL_EMAIL_STATUS_SCOPE = "transactional_email:read"
+# No template type, so a template restored after the scope check can't pass as one the scope allowed.
+MISSING_TEMPLATE = "missing"
 
 
 def transactional_email_authorized_by(request: Any, required_scope: str) -> str:
@@ -1566,12 +1568,21 @@ class MessageTemplatesViewSet(
     def dangerously_get_required_scopes(self, request: Any, view: Any) -> list[str] | None:
         if self.action != "make_transactional":
             return None
-        # Schema generation asks for the scopes without a template.
-        template = self.read_object() if "pk" in self.kwargs else None
-        self._scoped_template_type = template.type if isinstance(template, MessageTemplateRow) else None
-        return [
-            TRANSACTIONAL_PUSH_SEND_SCOPE if self._scoped_template_type == "push" else TRANSACTIONAL_EMAIL_SEND_SCOPE
-        ]
+        # Read once: several permissions ask, and a later read could see another type than the one the scope allowed.
+        if self._scoped_template_type is None:
+            # Schema generation asks for the scopes without a template.
+            template = self.read_object() if "pk" in self.kwargs else None
+            self._scoped_template_type = template.type if isinstance(template, MessageTemplateRow) else MISSING_TEMPLATE
+        if self._scoped_template_type == "push":
+            return [TRANSACTIONAL_PUSH_SEND_SCOPE]
+        if (
+            self._scoped_template_type == MISSING_TEMPLATE
+            and scopes_caller_lacks(request, [TRANSACTIONAL_EMAIL_SEND_SCOPE])
+            and not scopes_caller_lacks(request, [TRANSACTIONAL_PUSH_SEND_SCOPE])
+        ):
+            # Either send scope may learn that a template doesn't exist.
+            return [TRANSACTIONAL_PUSH_SEND_SCOPE]
+        return [TRANSACTIONAL_EMAIL_SEND_SCOPE]
 
     def get_throttles(self):
         if self.action == "send":
@@ -1859,6 +1870,8 @@ class MessageTemplatesViewSet(
     @action(detail=True, methods=["POST"], pagination_class=None)
     def make_transactional(self, request: Any, *args: Any, **kwargs: Any) -> Response:
         template = self.get_object()
+        if self._scoped_template_type == MISSING_TEMPLATE:
+            raise NotFound()
         expected_type = request.validated_data.get("expected_type")
         if expected_type and template.type != expected_type:
             names = {"email": "an email", "push": "a push"}
