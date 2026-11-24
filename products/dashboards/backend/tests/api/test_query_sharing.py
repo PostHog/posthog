@@ -125,6 +125,55 @@ class TestDashboardQuerySharingExecution(ClickhouseTestMixin, NonAtomicAPIBaseTe
         self.assertEqual(sum(event["type"] == "tile" for event in events), 2)
         self.assertEqual(lookup.call_count, 1)
 
+    def test_forced_refresh_runs_the_shared_query_once(self) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="Sharing test")
+        tiles = [
+            DashboardTile.objects.create(
+                dashboard=dashboard,
+                insight=Insight.objects.create(team=self.team, query={"kind": "HogQLQuery", "query": query}),
+            )
+            for query in (
+                "SELECT count() AS n FROM events",
+                "SELECT count(uuid) AS n FROM events WHERE event = 'alpha'",
+            )
+        ]
+        for event in ["alpha", "alpha", "beta"]:
+            _create_event(team=self.team, event=event, distinct_id="synthetic-person")
+        flush_persons_and_events()
+        with (
+            patch(
+                "posthog.hogql.multi_query.posthoganalytics.feature_enabled",
+                side_effect=lambda key, *args, **kwargs: key == "hogql-query-sharing",
+            ),
+            patch("products.dashboards.backend.query_sharing.MATCH_WINDOW_SECONDS", 30),
+            patch("posthog.hogql.query.sync_execute", wraps=sync_execute) as execute,
+        ):
+            response = self.client.get(
+                f"/api/projects/{self.team.pk}/dashboards/{dashboard.pk}/stream_query_results/",
+                {
+                    "tile_ids": ",".join(str(tile.id) for tile in tiles),
+                    "debug": "true",
+                    "client_query_id": str(uuid4()),
+                    "refresh": "force_blocking",
+                },
+            )
+            self.assertEqual(response.status_code, 200)
+            events = [
+                json.loads(chunk.removeprefix(b"data: ").strip())
+                for chunk in cast(Iterator[bytes], cast(StreamingHttpResponse, response).streaming_content)
+            ]
+            response.close()
+
+        tile_events = [event for event in events if event["type"] == "tile"]
+        self.assertEqual(
+            {event["tile"]["id"]: event["tile"]["insight"]["result"] for event in tile_events},
+            {tiles[0].id: [[3]], tiles[1].id: [[2]]},
+        )
+        self.assertEqual(sum(event["debug"]["query_count"] for event in tile_events), 1)
+        statements = [str(call.args[0]) for call in execute.call_args_list]
+        self.assertEqual(len(statements), 1, statements)
+        self.assertIn("__batch_", statements[0])
+
     @parameterized.expand([("top_n", False, False), ("counts", True, False), ("daily_counts", True, True)])
     def test_shared_results_are_independently_cached(self, _name: str, counts: bool, daily: bool) -> None:
         dashboard = Dashboard.objects.create(team=self.team, name="Sharing test")

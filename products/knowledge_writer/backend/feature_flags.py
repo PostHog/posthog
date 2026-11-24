@@ -8,6 +8,7 @@ logger = structlog.get_logger(__name__)
 WRITER_FLAG = "knowledge-writer"
 AGENT_LAUNCH_FLAG = "knowledge-writer-agent-launch"
 OPEN_PULL_REQUESTS_FLAG = "knowledge-writer-open-prs"
+OPEN_PULL_REQUESTS_AUTHORS_FLAG = "knowledge-writer-open-prs-authors"
 
 
 def is_writer_enabled(team_id: int) -> bool:
@@ -23,6 +24,22 @@ def is_agent_launch_enabled(team: Team) -> bool:
 
 def open_pull_requests_flag_state(team: Team) -> bool | None:
     return team_flag_state(OPEN_PULL_REQUESTS_FLAG, team)
+
+
+def open_pull_requests_author_flag_state(author_login: str) -> bool | None:
+    login = author_login.lower()
+    try:
+        enabled = posthoganalytics.feature_enabled(
+            OPEN_PULL_REQUESTS_AUTHORS_FLAG,
+            f"github:{login}",
+            person_properties={"github_login": login},
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+    except Exception:
+        logger.exception("knowledge_writer_flag_check_failed", flag=OPEN_PULL_REQUESTS_AUTHORS_FLAG)
+        return None
+    return enabled if isinstance(enabled, bool) else None
 
 
 def is_team_flag_enabled(flag: str, team: Team) -> bool:

@@ -1,7 +1,5 @@
 import { combineUrl } from 'kea-router'
 
-import type { LemonTagType } from '@posthog/lemon-ui'
-
 import { dayjs } from 'lib/dayjs'
 import { hasDeniedApprovalRequest, isSchedulePaused } from 'scenes/feature-flags/scheduleOccurrences'
 import { urls } from 'scenes/urls'
@@ -154,8 +152,6 @@ export const STAGE_LABEL: Record<ReleaseStage, string> = {
     ended: 'Ended',
 }
 
-export type ReleaseBadgeVariant = 'default' | 'info' | 'destructive' | 'warning' | 'success' | 'completed'
-
 export const STAGE_TONE: Record<ReleaseStage, 'default' | 'info' | 'warning' | 'success'> = {
     planned: 'default',
     flag: 'default',
@@ -185,26 +181,6 @@ export const STAGE_COLOR: Record<ReleaseStage, string> = {
     early_access: 'var(--release-early-access)',
     released: 'var(--release-released)',
     ended: 'var(--muted-foreground)',
-}
-
-export function badgeVariantForTag(type: LemonTagType): ReleaseBadgeVariant {
-    switch (type) {
-        case 'success':
-            return 'success'
-        case 'warning':
-        case 'caution':
-            return 'warning'
-        case 'danger':
-            return 'destructive'
-        case 'completion':
-            return 'completed'
-        case 'primary':
-        case 'highlight':
-        case 'info':
-            return 'info'
-        default:
-            return 'default'
-    }
 }
 
 const flagFilters = (flag: FeatureFlagApi): FlagFilters => (flag.filters ?? {}) as FlagFilters

@@ -14,12 +14,14 @@ import { DashboardPlacement } from '~/types'
 import type { DashboardTile, InsightModel } from '~/types'
 
 import { streamDashboardQueryResults } from 'products/dashboards/frontend/streamDashboardQueryResults'
+import type { DashboardStreamResultTiming } from 'products/dashboards/frontend/streamDashboardQueryResults'
 
-import type { DashboardLogicProps, DashboardSettings } from './dashboardLogic'
+import type { DashboardLogicProps, DashboardSettings, TileLoadRefresh } from './dashboardLogic'
 import {
     RATE_LIMITED_ERROR_CODE,
     RATE_LIMIT_ERROR_MESSAGE,
     TaskQueue,
+    type TileLoads,
     getInsightQueryError,
     isRefreshRejectionStub,
 } from './dashboardUtils'
@@ -168,7 +170,7 @@ export type TileRefreshReporter = (
     refreshDurationMs: number,
     individualRefresh: boolean,
     requestTiming: undefined,
-    loadTiming: { queueWaitMs: number; requestMs: undefined; dashboardV2Ui: boolean },
+    loadTiming: { queueWaitMs: number; requestMs: number; dashboardV2Ui: boolean },
     filterChange: undefined,
     isAutomatic: boolean | undefined,
     eventProperties: Record<string, unknown>
@@ -191,9 +193,18 @@ export interface BoardStreamOutcome<T extends InsightTile> {
     refreshEventProperties: Record<string, unknown>
 }
 
+export interface RefreshBoardStreamOutcome<T extends InsightTile> extends BoardStreamOutcome<T> {
+    /** A tab switch stopped the stream. Its `leftTiles` wait for their tab to show again. */
+    stopped: boolean
+    /** The stream's query id and start time, for reporting the tiles it left as aborted. */
+    queryId: string
+    startedAt: number
+}
+
 interface BoardStreamLoad<T extends InsightTile> {
     refresh: BoardStreamRefresh
     teamId: number
+    queryId: string
     report: TileRefreshReporter
     settle: (tile: T, outcome: TileOutcome) => void
 }
@@ -219,7 +230,12 @@ async function loadThroughBoardStream<T extends InsightTile>(
     const tilesById = new Map(tiles.map((tile) => [tile.id, tile]))
     const settledTileIds = new Set<number>()
     const startedAt = performance.now()
-    const settleLoaded = (tile: T, insight: InsightModel, isCached: boolean): void => {
+    const settleLoaded = (
+        tile: T,
+        insight: InsightModel,
+        isCached: boolean,
+        timing: DashboardStreamResultTiming
+    ): void => {
         settledTileIds.add(tile.id)
         dashboardsModel.actions.updateDashboardInsight(insight, undefined, dashboardId)
         actions.setRefreshStatus(tile.insight.short_id)
@@ -231,12 +247,16 @@ async function loadThroughBoardStream<T extends InsightTile>(
             refresh.variables,
             Math.floor(performance.now() - startedAt),
             false,
+            // An open stream has no completed-response or resource timing for this tile.
             undefined,
-            // Stream tiles skip the per-tile load queue and have no request of their own.
-            { queueWaitMs: 0, requestMs: undefined, dashboardV2Ui: true },
+            { queueWaitMs: 0, requestMs: Math.floor(timing.requestToResultMs), dashboardV2Ui: true },
             undefined,
             refresh.isAutomatic,
-            { stream_fallback: false }
+            {
+                stream_fallback: false,
+                request_timing_scope: 'stream_start_to_result',
+                ...(timing.httpRequestId ? { http_request_id: timing.httpRequestId } : {}),
+            }
         )
         load.settle(tile, isCached ? 'cached' : 'refreshed')
     }
@@ -251,14 +271,14 @@ async function loadThroughBoardStream<T extends InsightTile>(
             dashboardId,
             {
                 tile_ids: tiles.map((tile) => tile.id).join(','),
-                client_query_id: uuid(),
+                client_query_id: load.queryId,
                 refresh: refresh.forceRefresh ? 'force_blocking' : 'blocking',
                 cached_first: true,
                 filters_override: JSON.stringify(refresh.filters),
                 variables_override: JSON.stringify(refresh.variables),
             },
             signal,
-            (result) => {
+            (result, _debug, timing) => {
                 const tile = result.id !== undefined ? tilesById.get(result.id) : undefined
                 if (signal.aborted || !tile || settledTileIds.has(tile.id)) {
                     return
@@ -276,9 +296,9 @@ async function loadThroughBoardStream<T extends InsightTile>(
                     settleErrored(tile, queryError?.code ? queryError : undefined)
                     return
                 }
-                settleLoaded(tile, insight, !!insight.is_cached)
+                settleLoaded(tile, insight, !!insight.is_cached, timing)
             },
-            ({ tiles: cachedTiles, pending }) => {
+            ({ tiles: cachedTiles, pending }, timing) => {
                 if (signal.aborted) {
                     return
                 }
@@ -297,7 +317,7 @@ async function loadThroughBoardStream<T extends InsightTile>(
                             dashboardsModel.actions.updateDashboardInsight(insight, undefined, dashboardId)
                         }
                     } else if (insight) {
-                        settleLoaded(tile, insight, true)
+                        settleLoaded(tile, insight, true, timing)
                     } else {
                         settleErrored(tile)
                     }
@@ -333,25 +353,43 @@ function boardStreamOutcome<T extends InsightTile>(
 export async function refreshThroughBoardStream<T extends InsightTile>(
     cache: Record<string, any>,
     tiles: T[],
-    refresh: BoardStreamRefresh,
+    refresh: BoardStreamRefresh & { tileLoads: TileLoads<TileLoadRefresh>; settings: DashboardSettings },
     {
         placement,
         report,
         settle,
     }: { placement: DashboardPlacement; report: TileRefreshReporter; settle: (tile: T, outcome: TileOutcome) => void }
-): Promise<BoardStreamOutcome<T> | null> {
+): Promise<RefreshBoardStreamOutcome<T> | null> {
     if (!refresh.currentTeamId || !usesBoardStream(placement, tiles.length)) {
         return null
     }
+    // Registered with tileLoads, so a tab switch that stops the loads of the tab a viewer leaves stops this stream.
+    const tileLoad = refresh.tileLoads.start(
+        tiles.map((tile) => tile.id),
+        refresh.signal,
+        { forceRefresh: refresh.forceRefresh, settings: refresh.settings }
+    )
     const controller = new AbortController()
-    refresh.signal.addEventListener('abort', () => controller.abort(), { once: true })
+    tileLoad.signal.addEventListener('abort', () => controller.abort(), { once: true })
     cache.disposables.add(() => () => controller.abort(), 'dashboard-board-stream', { pauseOnPageHidden: false })
-    return await loadThroughBoardStream(tiles, {
-        refresh: { ...refresh, signal: controller.signal },
-        teamId: refresh.currentTeamId,
-        report,
-        settle,
-    })
+    const queryId = uuid()
+    const startedAt = performance.now()
+    try {
+        const outcome = await loadThroughBoardStream(tiles, {
+            refresh: { ...refresh, signal: controller.signal },
+            teamId: refresh.currentTeamId,
+            queryId,
+            report,
+            settle: (tile, tileOutcome) => {
+                tileLoad.release(tile.id)
+                settle(tile, tileOutcome)
+            },
+        })
+        const stopped = tileLoad.signal.aborted && !refresh.signal.aborted
+        return { ...outcome, aborted: outcome.aborted && !stopped, stopped, queryId, startedAt }
+    } finally {
+        tileLoad.finish()
+    }
 }
 
 /**
@@ -395,6 +433,7 @@ export async function loadScrolledInTiles<T extends InsightTile>(
     return await loadThroughBoardStream(waiting, {
         refresh,
         teamId: refresh.currentTeamId,
+        queryId: uuid(),
         report,
         settle: () => {},
     })

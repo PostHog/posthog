@@ -28,6 +28,7 @@ from products.workflows.backend.facade.contracts import (
     ContactsCohortFilled,
     ContactsCohortGone,
     ContactsImportAccessLost,
+    ContactsPartMissing,
     PeopleImportInvalid,
     ProviderContactsResult,
 )
@@ -348,6 +349,18 @@ class TestProviderContacts(_StorageMixin, ClickhouseTestMixin, BaseTest):
                 self.team.id, staged.storage_prefix, 0, send_events=True, created_by_id=self.user.id
             )
         capture.assert_not_called()
+
+    def test_a_missing_part_leaves_the_cohort_as_it_is(self) -> None:
+        staged, members = self._stage_ada_after_a_fill_with_bea()
+        assert staged.cohort_id is not None
+        self.storage.objects.clear()
+
+        with self.assertRaises(ContactsPartMissing):
+            provider_contacts.fill_contacts_cohort(
+                self.team.id, staged.cohort_id, staged.storage_prefix, staged.chunks, created_by_id=self.user.id
+            )
+
+        assert self._clickhouse_members(staged.cohort_id) == members
 
     def test_a_cohort_deleted_while_the_list_was_sent_is_left_alone(self) -> None:
         staged, members = self._stage_ada_after_a_fill_with_bea()

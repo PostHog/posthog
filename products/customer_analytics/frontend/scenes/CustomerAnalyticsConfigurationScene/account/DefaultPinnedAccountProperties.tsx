@@ -1,7 +1,20 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
-import { Button, Heading, Item, ItemActions, ItemContent, ItemDescription, Text } from '@posthog/quill'
+import { LemonBanner, LemonButton, LemonSelect } from '@posthog/lemon-ui'
+import {
+    Button,
+    Heading,
+    Item,
+    ItemActions,
+    ItemContent,
+    ItemDescription,
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+    Text,
+} from '@posthog/quill'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
@@ -15,6 +28,10 @@ import { QuillAccountPropertyConfigurator } from 'products/customer_analytics/fr
 
 import { defaultPinnedAccountPropertiesLogic } from './defaultPinnedAccountPropertiesLogic'
 
+const PROJECT_SCOPE = 'project'
+const DESCRIPTION =
+    "Choose the account properties people see until they save their own selection. Members of a role see their role's defaults instead of the project defaults."
+
 export function DefaultPinnedAccountProperties(): JSX.Element {
     const {
         canSave,
@@ -24,8 +41,10 @@ export function DefaultPinnedAccountProperties(): JSX.Element {
         draftPinnedPropertyKeys,
         isOpen,
         propertyOptions,
+        roles,
         saveFailed,
         saving,
+        selectedRole,
         stalePinnedProperties,
     } = useValues(defaultPinnedAccountPropertiesLogic)
     const {
@@ -34,6 +53,7 @@ export function DefaultPinnedAccountProperties(): JSX.Element {
         retryDefinitions,
         saveDefaultPinnedProperties,
         setDraftPinnedPropertyKeys,
+        setSelectedRoleId,
     } = useActions(defaultPinnedAccountPropertiesLogic)
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
@@ -44,16 +64,23 @@ export function DefaultPinnedAccountProperties(): JSX.Element {
         restrictedReason ??
         (definitionsLoading ? 'Loading properties' : definitionsLoadFailed ? 'Could not load properties' : undefined)
 
+    const scopeLabel = selectedRole ? ` for ${selectedRole.name}` : ''
     const selectedSummary =
         defaultPinnedProperties.length === 0
-            ? 'No default properties selected.'
+            ? `No default properties selected${scopeLabel}.`
             : `${defaultPinnedProperties.length} default ${
                   defaultPinnedProperties.length === 1 ? 'property' : 'properties'
-              } selected.`
+              } selected${scopeLabel}.`
+    const scopeOptions = [
+        { value: PROJECT_SCOPE, label: 'Everyone in the project' },
+        ...roles.map((role) => ({ value: role.id, label: role.name })),
+    ]
+    const scopeValue = selectedRole?.id ?? PROJECT_SCOPE
+    const onScopeChange = (value: string): void => setSelectedRoleId(value === PROJECT_SCOPE ? null : value)
 
     const configuratorProps: AccountPropertyConfiguratorProps = {
         isOpen,
-        title: 'Default pinned properties',
+        title: `Default pinned properties${scopeLabel}`,
         options: propertyOptions,
         pinnedPropertyKeys: draftPinnedPropertyKeys,
         saving,
@@ -74,7 +101,7 @@ export function DefaultPinnedAccountProperties(): JSX.Element {
                             Default pinned properties
                         </Heading>
                         <Text size="xs" variant="muted" render={<p className="m-0" />}>
-                            Choose the account properties people see until they save their own selection.
+                            {DESCRIPTION}
                         </Text>
                     </div>
                     <Button
@@ -86,6 +113,26 @@ export function DefaultPinnedAccountProperties(): JSX.Element {
                         Configure defaults
                     </Button>
                 </div>
+                {roles.length > 0 ? (
+                    <Select value={scopeValue} onValueChange={(value) => onScopeChange(value as string)}>
+                        <SelectTrigger
+                            className="max-w-80"
+                            aria-label="Applies to"
+                            data-attr="default-pinned-account-properties-scope"
+                        >
+                            <SelectValue>
+                                {(selected: string) => scopeOptions.find((option) => option.value === selected)?.label}
+                            </SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                            {scopeOptions.map((option) => (
+                                <SelectItem key={option.value} value={option.value}>
+                                    {option.label}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                ) : null}
                 <Text size="xs" variant="muted" render={<p className="m-0" />}>
                     {selectedSummary}
                 </Text>
@@ -132,9 +179,7 @@ export function DefaultPinnedAccountProperties(): JSX.Element {
             <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                     <h3 className="mb-0">Default pinned properties</h3>
-                    <p className="text-secondary mb-0">
-                        Choose the account properties people see until they save their own selection.
-                    </p>
+                    <p className="text-secondary mb-0">{DESCRIPTION}</p>
                 </div>
                 <LemonButton
                     type="secondary"
@@ -145,6 +190,16 @@ export function DefaultPinnedAccountProperties(): JSX.Element {
                     Configure defaults
                 </LemonButton>
             </div>
+            {roles.length > 0 ? (
+                <LemonSelect
+                    value={scopeValue}
+                    onChange={onScopeChange}
+                    options={scopeOptions}
+                    className="max-w-80"
+                    aria-label="Applies to"
+                    data-attr="default-pinned-account-properties-scope"
+                />
+            ) : null}
             <p className="mb-0 text-sm text-secondary">{selectedSummary}</p>
             {definitionsLoadFailed ? (
                 <LemonBanner

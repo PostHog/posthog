@@ -2637,11 +2637,17 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.results, [("41FF", "Qf8=")])
 
-    def test_unreadable_result_type_names_the_columns_that_return_it(self):
+    @parameterized.expand(
+        [
+            ("small_query", ""),
+            ("query_over_default_ast_limit", f", length([{', '.join(['rand()'] * 30_000)}]) AS many_values"),
+        ]
+    )
+    def test_unreadable_result_type_names_the_columns_that_return_it(self, _name: str, extra_columns: str) -> None:
         with self.assertRaises(CHQueryErrorUnknownType) as error:
             execute_hogql_query(
                 "SELECT 1 AS readable, if(rand() > 0, 1, 'a') AS mixed, "
-                "if(rand() > 0, 2, 'b') AS also_mixed, toString(1) AS also_readable",
+                f"if(rand() > 0, 2, 'b') AS also_mixed, toString(1) AS also_readable{extra_columns}",
                 team=self.team,
             )
 
