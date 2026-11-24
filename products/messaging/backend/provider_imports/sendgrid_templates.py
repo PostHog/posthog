@@ -64,6 +64,7 @@ class _Found:
         self.uses_unsubscribe = False
         self.sender_variables: set[str] = set()
         self.web_link = False
+        self.reads_contact = False
         self.legacy_variables: set[str] = set()
 
     def root_value(self, name: str) -> str | None:
@@ -190,6 +191,7 @@ def _convert_handlebars(source: str | None, is_html: bool, contact_fields: bool)
         tag in _UNSUBSCRIBE_VARIABLES or _ASM_TAG.fullmatch(tag) for tag in converter.converted
     )
     found.web_link = "Weblink" in converter.converted
+    found.reads_contact = contact_fields and converter.read_root
     return converted, found
 
 
@@ -383,8 +385,8 @@ def convert_version(
     version: dict[str, object], *, generation: str = "dynamic", contact_fields: bool = False
 ) -> ConvertedSendGridTemplate:
     """A template version's subject and bodies in Liquid, with notes on anything to review. `contact_fields` says
-    SendGrid fills the tags from each contact, as it does for a Single Send, so they print the person's properties. The
-    contacts step copies SendGrid's fields to properties with the same names."""
+    SendGrid fills the tags from each contact, as it does for a Single Send, so they print the person's
+    properties with the same names."""
     html_source = _as_text(version.get("html_content"))
     text_source = _as_text(version.get("plain_content"))
     subject_source = _as_text(version.get("subject"))
@@ -443,10 +445,10 @@ def convert_version(
         send_notes.append(
             f"SendGrid fills {', '.join(senders)} from the sender. PostHog doesn't, so your app has to pass the value."
         )
-    if any("person.properties." in part for part in (subject, html, text)):
+    if any(state.reads_contact for state in states):
         send_notes.append(
-            "SendGrid's contact fields print the person's property with the same name. Import your contacts, or set "
-            "those properties, so they aren't empty. Alternate emails and SendGrid's own IDs aren't imported."
+            "SendGrid's contact fields print the person's property with the same name. Set those properties on your "
+            "people, or the fields print empty."
         )
     if names := sorted({name for state in states for name in state.legacy_variables}):
         send_notes.append(

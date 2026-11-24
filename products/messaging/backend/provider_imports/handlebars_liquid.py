@@ -146,8 +146,9 @@ class HandlebarsToLiquid:
         self._root_value = root_value
         self._split_text = split_text
         self._root_path = root_path
-        # Names the app passes, in a template that reads the rest from somewhere else.
+        # Stay under `variables` when `root_path` is something else.
         self._variable_names = variable_names
+        self.read_root = False
         self._html = HtmlContext() if is_html else None
         self._loop_names: list[str] = []
         self._after_raw_html = False
@@ -546,6 +547,7 @@ class HandlebarsToLiquid:
             raise _Unsupported
         if base == self._root_path and parts[0] in self._variable_names:
             base = "variables"
+        self.read_root = self.read_root or base == self._root_path
         return ".".join([base, *parts])
 
     def _block_param(self, name: str, frames: tuple[_Frame, ...]) -> str | None:

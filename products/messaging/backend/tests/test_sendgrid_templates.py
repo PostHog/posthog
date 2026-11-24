@@ -412,12 +412,12 @@ class TestSendGridTemplateConversion(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("single_send", True, "person.properties", "print the person's property"),
-            ("dynamic", False, "variables", ""),
+            ("single_send", True, "person.properties"),
+            ("dynamic", False, "variables"),
         ]
     )
     def test_contact_fields_read_the_person_and_a_send_reads_its_variables(
-        self, _name: str, contact_fields: bool, root: str, note: str
+        self, _name: str, contact_fields: bool, root: str
     ) -> None:
         converted = convert_version(
             {
@@ -436,7 +436,7 @@ class TestSendGridTemplateConversion(SimpleTestCase):
         assert "{{ variables.Sender_Name" in converted.html
         assert "{{ unsubscribe_url }}" in converted.html
         assert converted.text == f'{{{{ {root}.Plan | join: "," }}}}'
-        assert note in " ".join(converted.send_notes)
+        assert any("print the person's property" in note for note in converted.send_notes) == contact_fields
 
     def test_plain_text_is_built_from_the_html_when_sendgrid_would_build_it(self) -> None:
         html = (
