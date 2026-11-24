@@ -309,6 +309,34 @@ class TestHistoryLaneWrites(BaseTest):
         self.job.refresh_from_db()
         assert self.job.rows_synced == rows_synced
 
+    def test_history_turned_off_and_on_during_the_run_keeps_its_new_request(self) -> None:
+        self.schema.sync_type_config[HISTORY_SEED_PENDING_KEY] = "2026-10-05T00:00:00+00:00"
+        self.schema.save()
+        loaded = ExternalDataSchema.objects.get(id=self.schema.id)
+        self.schema.sync_type_config[HISTORY_SEED_PENDING_KEY] = "2026-10-06T00:00:00+00:00"
+        self.schema.save()
+        self._write_main([(1, "a", _JAN)], run_uuid="earlier-run")
+        self._stage([(2, "b", _FEB)], batch_index=0)
+
+        self._finalize(0, schema=loaded)
+
+        self.schema.refresh_from_db()
+        assert self.schema.sync_type_config[HISTORY_SEED_PENDING_KEY] == "2026-10-06T00:00:00+00:00"
+        self.job.refresh_from_db()
+        assert self.job.rows_synced == 2
+
+    def test_a_seed_copies_nothing_from_a_main_table_this_run_created(self) -> None:
+        self.schema.sync_type_config[HISTORY_SEED_PENDING_KEY] = "2026-10-05T00:00:00+00:00"
+        self.schema.save()
+        self._write_main([(2, "b", _FEB)], run_uuid=None)
+        self._write_main([(1, "a", _JAN)], run_uuid="run")
+        self._stage([(1, "a", _JAN), (2, "b", _FEB)], batch_index=0)
+
+        result = self._finalize(0)
+
+        assert self._history_rows() == [(1, "a", _JAN, None, "current"), (2, "b", _FEB, None, "current")]
+        assert result is not None and result.staged_rows == 2
+
     def _write_main(self, rows: Sequence[tuple[int, str, datetime | None]], *, run_uuid: str | None) -> None:
         table = _rows(rows).append_column(PARTITION_KEY, pa.array(["p"] * len(rows)))
         deltalake.write_deltalake(
@@ -327,8 +355,8 @@ class TestHistoryLaneWrites(BaseTest):
             self.history, batch, primary_keys=["id"], run_uuid=_HISTORY_RUN, batch_index=batch_index
         )
 
-    def _finalize(self, batch_index: int) -> HistoryFinalizeResult | None:
-        schema = ExternalDataSchema.objects.get(id=self.schema.id)
+    def _finalize(self, batch_index: int, schema: ExternalDataSchema | None = None) -> HistoryFinalizeResult | None:
+        schema = schema or ExternalDataSchema.objects.get(id=self.schema.id)
         return async_to_sync(finalize_history_lane)(
             self.history, ["id"], schema=schema, run_uuid=_HISTORY_RUN, batch_index=batch_index
         )

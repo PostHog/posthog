@@ -5333,7 +5333,7 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
                     source_columns=("email",),
                 ),
                 True,
-                False,
+                True,
             ),
             ("add_the_main_table", _OutputTablesCase(mode="both", initial_mode="cdc_only"), True, False),
             ("turn_off", _OutputTablesCase(mode="consolidated", initial_mode="both", cursor_type="date"), False, False),
@@ -5361,7 +5361,8 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
     def test_patch_sets_the_output_tables_of_an_incremental_table(
         self, _name: str, case: _OutputTablesCase, reloads: bool, seeds: bool
     ):
-        self._patch_output_tables(case, paused=seeds)
+        # A copy reads nothing from the source, so the billing limit holds back only a reload.
+        self._patch_output_tables(case, paused=seeds and not reloads)
 
         self.schema.refresh_from_db()
         assert self.schema.cdc_table_mode == case.mode

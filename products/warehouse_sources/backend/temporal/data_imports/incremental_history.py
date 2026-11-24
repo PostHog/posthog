@@ -55,14 +55,12 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta import history_upsert
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.history_upsert import (
+    STAGED_BATCH_COLUMN,
     HistoryFinalizeResult,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import VACUUM_RETENTION
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.writer import (
-    commit_covers_batch,
-    commit_runs,
-)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.writer import commit_runs
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import resolve_table_and_folder_names
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.projection import (
     filter_dwh_columns_by_enabled_columns,
@@ -79,7 +77,6 @@ _VALID_FROM_TYPE = pa.timestamp("us", tz="UTC")
 _SEED_BATCH_ROWS = 50_000
 _MAX_SEED_HISTORY_SCAN = 2000
 _VACUUM_MARGIN = timedelta(hours=1)
-_STAGING_HISTORY_SCAN = 50
 
 _TColumn = TypeVar("_TColumn")
 
@@ -263,11 +260,11 @@ async def finalize_history_lane(
     seed_requested_at = schema.sync_type_config.get(HISTORY_SEED_PENDING_KEY)
     seed_rows = 0
     if isinstance(seed_requested_at, str):
-        staged_rows = await _staged_seed_rows(_staging_ref(table), _seed_run_uuid(run_uuid))
+        staged_rows = await _staged_seed_rows(_staging_ref(table), _seed_tag(seed_requested_at))
         seed_rows = (
             staged_rows
             if staged_rows is not None
-            else await _stage_seed(table, schema, primary_keys, run_uuid, datetime.fromisoformat(seed_requested_at))
+            else await _stage_seed(table, schema, primary_keys, run_uuid, seed_requested_at)
         )
     result = await history_upsert.finalize(
         table,
@@ -281,18 +278,21 @@ async def finalize_history_lane(
     return result
 
 
-async def _staged_seed_rows(staging: DeltaTableRef, seed_run_uuid: str) -> int | None:
-    """The rows of this run's copy when a failed finalize left it staged, else None.
+async def _staged_seed_rows(staging: DeltaTableRef, seed_tag: str) -> int | None:
+    """The rows of this request's copy that a failed finalize left staged, else None.
 
-    Staged rows are deleted only after a finalize, so a retry reuses the copy instead of making another.
+    Staged rows are deleted only after a finalize, so a retry or the next run reuses the copy instead of
+    making another. The copy holds the main table from before the run that made it, and that run's rows
+    stay staged beside it.
     """
     staged = await staging.get_delta_table()
     if staged is None:
         return None
-    for commit in await asyncio.to_thread(staged.history, _STAGING_HISTORY_SCAN):
-        if commit_covers_batch(commit, seed_run_uuid, 0):
-            return int((commit.get("operationMetrics") or {}).get("num_added_rows", 0))
-    return None
+    batch = f"{seed_tag}:0"
+    rows = await asyncio.to_thread(
+        lambda: staged.to_pyarrow_dataset().count_rows(filter=pc.field(STAGED_BATCH_COLUMN) == batch)
+    )
+    return rows or None
 
 
 def _complete_seed_request(schema: ExternalDataSchema, requested_at: str, job: ExternalDataJob, rows: int) -> None:
@@ -320,7 +320,7 @@ async def _stage_seed(
     schema: ExternalDataSchema,
     primary_keys: Sequence[str],
     run_uuid: str,
-    requested_at: datetime,
+    requested_at: str,
 ) -> int:
     """Stage the main table's rows as they were before this run, each version starting at its cursor.
 
@@ -342,7 +342,7 @@ async def _stage_seed(
         schema_name=schema.name,
         cursor=normalize_column_name(schema.incremental_field),
         naming=HISTORY_NAMING,
-        tracked_since=requested_at,
+        tracked_since=datetime.fromisoformat(requested_at),
     )
     dataset = rows.to_pyarrow_dataset()
     columns = [name for name in dataset.schema.names if name != PARTITION_KEY]
@@ -361,24 +361,25 @@ async def _stage_seed(
         _tables(),
         key_columns=primary_keys,
         naming=HISTORY_NAMING,
-        run_uuid=_seed_run_uuid(run_uuid),
+        run_uuid=_seed_tag(requested_at),
         batch_index=0,
     )
     await table.logger.ainfo("history_seed_staged", rows=staged, main_table_version=rows.version())
     return staged
 
 
-def _seed_run_uuid(run_uuid: str) -> str:
-    # Its own tag, so the redelivery check of the run's real batches never finds the seed.
-    return f"{run_uuid}-seed"
+def _seed_tag(requested_at: str) -> str:
+    # One per request, so the redelivery check of a run's batches never finds it, and turning history off
+    # and on again makes a new copy.
+    return f"seed-{requested_at}"
 
 
 async def _rows_before_run(main: DeltaTableRef, run_uuid: str) -> deltalake.DeltaTable | None:
     """The main table at its last version before this run wrote to it. None when this run created it.
 
     A partitioned write tags only its last merge, so the boundary is the newest commit an earlier run
-    tagged, not the version before this run's first tag. Falls back to the current version when the
-    run's first write is old enough that a vacuum may have removed the files it replaced.
+    tagged, also while this run's first write is still in progress. Falls back to the current version
+    when the run's first write is old enough that a vacuum may have removed the files it replaced.
     """
     current = await main.get_delta_table()
     if current is None:
@@ -398,17 +399,19 @@ async def _rows_before_run(main: DeltaTableRef, run_uuid: str) -> deltalake.Delt
             boundary = commit
             break
         earliest = commit
-    if first is None or earliest is None:
-        return current
-    if len(commit_runs(first)) > 1:
+    if first is not None and len(commit_runs(first)) > 1:
         # A write shared with an earlier run holds rows of both, so the copy keeps it.
         version = int(first["version"])
     elif boundary is not None:
         version = int(boundary["version"])
+    elif first is None:
+        return current
+    elif int(commits[-1]["version"]) == 0:
+        return None
     else:
         version = int(first["version"]) - 1
-    if version < 0:
-        return None
+    if earliest is None or version == current.version():
+        return current
     written_at = datetime.fromtimestamp(int(earliest["timestamp"]) / 1000, UTC)
     if datetime.now(UTC) - written_at > VACUUM_RETENTION - _VACUUM_MARGIN:
         await main.logger.awarning("history_seed_reads_current_version", run_first_write=written_at.isoformat())

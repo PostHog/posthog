@@ -1429,6 +1429,8 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
             "xmin_last_value",
             "xmin_ceiling",
             "xmin_num_wraparound",
+            # The reset run reads every row again, so a copy of the old table would bill them twice.
+            HISTORY_SEED_PENDING_KEY,
         ]
         # We don't reset partition_format
         # We don't reset chunk_size_override
