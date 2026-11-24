@@ -5,6 +5,7 @@ from requests.exceptions import HTTPError
 
 from products.warehouse_sources.sources.ghost._config import GhostSourceConfig
 from products.warehouse_sources.sources.ghost.ghost import AUTH_ERROR, DOMAIN_ERROR, KEY_ERROR, PERMISSION_ERROR
+from products.warehouse_sources.sources.ghost.settings import CUSTOM_FIELDS_UNSUPPORTED_ERROR
 from products.warehouse_sources.sources.ghost.source import GhostSource
 from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
 
@@ -29,6 +30,14 @@ API_KEY = "0123456789abcdef01234567:" + "0123456789abcdef" * 4
             "members_metafields",
             None,
             (False, PERMISSION_ERROR),
+        ),
+        (
+            404,
+            "member_custom_fields",
+            "members/metafields/custom/",
+            "members_metafields",
+            None,
+            (False, CUSTOM_FIELDS_UNSUPPORTED_ERROR),
         ),
     ],
 )

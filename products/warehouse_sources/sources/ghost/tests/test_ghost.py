@@ -8,7 +8,12 @@ import jwt
 from products.warehouse_sources.sources.ghost._config import GhostSourceConfig
 from products.warehouse_sources.sources.ghost.ghost import GhostResumeConfig
 from products.warehouse_sources.sources.ghost.source import GhostSource
-from products.warehouse_sources.sources.sdk.testing import RecordedRequest, ScriptedResponse, SourceDriver
+from products.warehouse_sources.sources.sdk.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    error_message_matches,
+)
 
 KEY_ID = "0123456789abcdef01234567"
 KEY_SECRET = "0123456789abcdef" * 4
@@ -111,6 +116,19 @@ def test_unpaginated_endpoints_read_one_response_without_repeating_it(
     assert result.params("limit") == [None]
     assert result.params("filter") == [status_filter]
     assert result.committed_states == [GhostResumeConfig(finished=True)]
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "non_retryable"),
+    [("member_custom_fields", True), ("roles", False)],
+)
+def test_missing_route_on_an_older_site_fails_without_retries_only_for_custom_fields(
+    endpoint: str, non_retryable: bool
+) -> None:
+    result = driver().run(endpoint, [ScriptedResponse(status=404, json={"errors": [{"type": "NotFoundError"}]})])
+    assert result.raised is not None
+    assert result.rows == []
+    assert error_message_matches(str(result.raised), GhostSource().get_non_retryable_errors()) is non_retryable
 
 
 def test_resume_keeps_written_pages_and_does_not_replay_a_finished_run() -> None:
