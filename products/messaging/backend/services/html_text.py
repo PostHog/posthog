@@ -38,10 +38,11 @@ VOID_TAGS = frozenset(
 LINK_SCHEMES = ("http://", "https://", "mailto:")
 # Matches ECMAScript \s so Django and CDP agree on {{ unsubscribe_url }}.
 _JS_WHITESPACE = r"[\t\n\v\f\r \u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000\uFEFF]"
+_C0_AND_SPACE = "".join(chr(code) for code in range(0x21))
+_URL_IGNORED_CHARS = str.maketrans("", "", "\t\r\n")
 UNSUBSCRIBE_PLACEHOLDER = re.compile(rf"\{{\{{{_JS_WHITESPACE}*unsubscribe_url{_JS_WHITESPACE}*\}}\}}")
-_UNSUBSCRIBE_HREF = re.compile(
-    rf"{_JS_WHITESPACE}*\{{\{{{_JS_WHITESPACE}*unsubscribe_url{_JS_WHITESPACE}*\}}\}}(?:[?#][^\r\n]*|{_JS_WHITESPACE}*)"
-)
+# Leading C0 controls/space match WHATWG URL trimming used by CDP's link check.
+_UNSUBSCRIBE_HREF_PREFIX = re.compile(rf"[\x00-\x20]*\{{\{{{_JS_WHITESPACE}*unsubscribe_url{_JS_WHITESPACE}*\}}\}}")
 BLANK_LINES = re.compile(r"\n{3,}")
 WHITESPACE = re.compile(r"\s+")
 LINE_END = "\x00"
@@ -125,11 +126,23 @@ class _TextParser(HTMLParser):
         elif tag in LINE_TAGS:
             self.parts.append("\n")
         href = dict(attrs).get("href") if tag == "a" else None
-        if href is not None and (href.startswith(LINK_SCHEMES) or self._is_unsubscribe_link(href)):
-            self.open_links.append(_OpenLink(depth=len(self.open_tags), href=href, label_start=self.label_length))
+        if href is not None:
+            if href.startswith(LINK_SCHEMES):
+                self.open_links.append(_OpenLink(depth=len(self.open_tags), href=href, label_start=self.label_length))
+            elif self._is_unsubscribe_link(href):
+                cleaned = href.strip(_C0_AND_SPACE).translate(_URL_IGNORED_CHARS)
+                self.open_links.append(
+                    _OpenLink(depth=len(self.open_tags), href=cleaned, label_start=self.label_length)
+                )
 
     def _is_unsubscribe_link(self, href: str) -> bool:
-        return self.keep_unsubscribe_link and _UNSUBSCRIBE_HREF.fullmatch(href) is not None
+        if not self.keep_unsubscribe_link:
+            return False
+        match = _UNSUBSCRIBE_HREF_PREFIX.match(href)
+        if match is None:
+            return False
+        rest = href[match.end() :]
+        return not rest.strip(_C0_AND_SPACE) or rest.lstrip("\t\n\r").startswith(("?", "#"))
 
     def _push(self, tag: str) -> None:
         self.open_tags.append(tag)

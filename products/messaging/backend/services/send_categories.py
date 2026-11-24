@@ -100,7 +100,8 @@ def _create_or_restore(team_id: int, requested: SendCategoryDefinition) -> Messa
     category = _category_with_key(team_id, requested.key)
     if category is not None:
         return _use_existing(team_id, category, requested)
-    _require_room_for(team_id, requested.key)
+    if (existing := _require_room_or_existing_live(team_id, requested)) is not None:
+        return existing
     category, created = MessageCategory.objects.get_or_create(
         team_id=team_id,
         key=requested.key,
@@ -118,16 +119,28 @@ def _create_or_restore(team_id: int, requested: SendCategoryDefinition) -> Messa
 def _use_existing(team_id: int, category: MessageCategory, requested: SendCategoryDefinition) -> MessageCategory:
     _require_matching_type(category, requested)
     if category.deleted:
-        _require_room_for(team_id, requested.key)
+        if (existing := _require_room_or_existing_live(team_id, requested)) is not None:
+            return existing
         MessageCategory.objects.filter(team_id=team_id, pk=category.pk, deleted=True).update(
             deleted=False, updated_at=timezone.now()
         )
     return category
 
 
-def _require_room_for(team_id: int, key: str) -> None:
-    if MessageCategory.objects.filter(team_id=team_id, deleted=False).exclude(key=key).count() >= SEND_CATEGORY_LIMIT:
-        raise _too_many_categories(key)
+def _require_room_or_existing_live(team_id: int, requested: SendCategoryDefinition) -> MessageCategory | None:
+    if (
+        MessageCategory.objects.filter(team_id=team_id, deleted=False).exclude(key=requested.key).count()
+        < SEND_CATEGORY_LIMIT
+    ):
+        return None
+    # The category management API doesn't take the send lock, so check once more in case it just made this key live
+    # while SEND_CATEGORY_LIMIT other categories are already live.
+    existing = _category_with_key(team_id, requested.key)
+    if existing is not None:
+        _require_matching_type(existing, requested)
+        if not existing.deleted:
+            return existing
+    raise _too_many_categories(requested.key)
 
 
 def _too_many_categories(key: str) -> TooManyCategories:
