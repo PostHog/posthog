@@ -8,6 +8,7 @@ from opentelemetry import trace
 from structlog import get_logger
 from temporalio import activity
 
+from posthog.dataclasses import frozen
 from posthog.sync import database_sync_to_async_pool
 
 from products.data_modeling.backend.facade.api import (
@@ -31,7 +32,7 @@ LOGGER = get_logger(__name__)
 tracer = trace.get_tracer(__name__)
 
 
-@dataclasses.dataclass
+@frozen
 class PrepareQueryableTableInputs:
     team_id: int
     job_id: str
@@ -107,11 +108,11 @@ class StageQueryableFilesResult:
     staged_size_mib: float | None = None
 
 
-@dataclasses.dataclass(frozen=False)
+@frozen
 class PublishQueryableTableInputs(PrepareQueryableTableInputs):
     # Keyword-only so it can stay required behind the defaulted fields it inherits.
     staged_folder_path: str = dataclasses.field(kw_only=True)
-    staged_size_mib: float | None = dataclasses.field(default=None, kw_only=True)
+    staged_size_mib: float | None = None
 
 
 @tracer.start_as_current_span("prepare_queryable_table.stage_files")
