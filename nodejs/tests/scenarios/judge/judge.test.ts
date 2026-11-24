@@ -11,7 +11,7 @@ import { internalFetch } from '~/common/utils/request'
 import type { ResidentBacklog } from '../backlog/backlog'
 import type { Backlog } from '../cards'
 import { ProviderEdge, TruthRecord, UNIT_EMAIL_DOMAIN, startProviderEdge } from '../provider-edge'
-import { Truth } from '../provider-edge/truth'
+import { TRUTH_PAGE_LIMIT, Truth } from '../provider-edge/truth'
 import { atLeastOnce } from './invariants'
 import { FollowUpAnswer, JournalEntry, Judge, RunEvidence, createJudge } from './judge'
 import { TruthSource, edgeTruth } from './truth'
@@ -25,6 +25,7 @@ const NOBODY_LISTENING = 'http://127.0.0.1:1/public/m/ses_webhook'
 
 describe('judge', () => {
     let edge: ProviderEdge
+    let edgeRecords: Truth
     let ses: SESv2Client
     let unfinishedJobs: number
     let clockMs: number
@@ -85,11 +86,13 @@ describe('judge', () => {
         })
 
     beforeEach(async () => {
+        edgeRecords = new Truth()
         edge = await startProviderEdge({
             port: 0,
             trackingKeys: TRACKING_KEYS,
             caDir,
             feedbackUrl: NOBODY_LISTENING,
+            truth: edgeRecords,
         })
         ses = new SESv2Client({
             endpoint: edge.url,
@@ -672,6 +675,12 @@ describe('judge', () => {
             duringFinalPage = () => sends.shift()?.() ?? Promise.resolve()
         }
 
+    const recordOtherRuns = (records: number): void => {
+        for (let i = 1; i <= records; i++) {
+            edgeRecords.append({ kind: 'ses.send', status: 200, unitId: `run-c-${i}`, actionId: 'email', detail: {} })
+        }
+    }
+
     it.each<[string, () => Promise<unknown>, () => Promise<unknown>, object]>([
         [
             'its only send',
@@ -784,6 +793,18 @@ describe('judge', () => {
                 await judge.converge(20, NEVER_ABORTED)
                 await onFinalPages(
                     () => deliver('run-b-2'),
+                    () => deliver(UNIT)
+                )()
+            },
+            NO_RESETS,
+            "the edge kept accepting this run's sends through 3 final reads of the truth",
+        ],
+        [
+            "the edge accepted a resend of this run while a later final read's last page came back full and ended at its head",
+            async () => {
+                await judge.converge(20, NEVER_ABORTED)
+                await onFinalPages(
+                    () => Promise.resolve(recordOtherRuns(TRUTH_PAGE_LIMIT)),
                     () => deliver(UNIT)
                 )()
             },
