@@ -29,6 +29,12 @@ pub const FRAME_CACHE_HITS: &str = "cymbal_frame_cache_hits";
 pub const FRAME_CACHE_MISSES: &str = "cymbal_frame_cache_misses";
 pub const FRAME_DB_HITS: &str = "cymbal_frame_db_hits";
 pub const FRAME_DB_MISSES: &str = "cymbal_frame_db_misses";
+// Labelled by `commit` (`async` / `sync`), pool wait included.
+pub const FRAME_SAVE_TIME: &str = "cymbal_frame_save_ms";
+// Labelled by `mode` and `team_id`. It counts opens only, so few teams get a series.
+pub const FRAME_MISS_BREAKER_OPENED: &str = "cymbal_frame_miss_breaker_opened";
+// Misses while a breaker is open, by `mode`. In `log` they still use Postgres.
+pub const FRAME_MISS_BREAKER_SKIPPED: &str = "cymbal_frame_miss_breaker_skipped";
 pub const FRAME_NOT_RESOLVED: &str = "cymbal_frame_not_resolved";
 pub const RELEASE_ID_CACHE_HITS: &str = "cymbal_release_id_cache_hits";
 pub const RELEASE_ID_CACHE_MISSES: &str = "cymbal_release_id_cache_misses";
@@ -81,6 +87,11 @@ pub const BYTE_HISTOGRAM_BUCKETS: &[f64] = &[
     268_435_456.0,   // 256 MiB
     536_870_912.0,   // 512 MiB
     1_073_741_824.0, // 1 GiB
+];
+
+// A healthy frame save takes under 1 ms, below the lowest default bucket.
+pub const FRAME_SAVE_TIME_BUCKETS: &[f64] = &[
+    0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 1000.0, 5000.0,
 ];
 pub const ISSUE_CREATED: &str = "cymbal_issue_created";
 pub const ISSUE_CREATED_EVENT_PROPERTIES_STORED: &str =

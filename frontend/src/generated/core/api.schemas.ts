@@ -2056,6 +2056,13 @@ export interface TeamCustomerAnalyticsPinnedAccountPropertyApi {
     id: string
 }
 
+export interface TeamCustomerAnalyticsRoleDefaultPinnedPropertiesApi {
+    /** Organization role whose members inherit these properties. */
+    role_id: string
+    /** Ordered account properties shown to members of this role. */
+    pinned_properties: TeamCustomerAnalyticsPinnedAccountPropertyApi[]
+}
+
 export interface TeamCustomerAnalyticsConfigApi {
     /** Event used as the activity signal (DAU/WAU/MAU). */
     activity_event?: unknown
@@ -2074,6 +2081,8 @@ export interface TeamCustomerAnalyticsConfigApi {
     account_group_type_index?: number | null
     /** Ordered account properties shown until a user saves a personal pinned-property selection. Pass an empty list to show no properties by default. */
     default_pinned_properties?: TeamCustomerAnalyticsPinnedAccountPropertyApi[]
+    /** Default pinned account properties per organization role. A user who has not saved a personal selection sees the merged defaults of every role they belong to, ordered by role name, instead of default_pinned_properties. Replaces every role's defaults on write. */
+    role_default_pinned_properties?: TeamCustomerAnalyticsRoleDefaultPinnedPropertiesApi[]
 }
 
 /**

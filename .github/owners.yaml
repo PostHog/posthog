@@ -48,6 +48,9 @@ rules:
           - team-apm
           - team-analytics
           - team-warehouse-sources
+          - team-error-tracking
+          - team-self-driving
+          - team-surfaces
     - match: '/workflows/cd-llm-analytics-image.yml'
       owners: [team-devex, team-ai-observability]
     - match:
