@@ -4941,6 +4941,21 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
         self.assertIn("already exists", response.json()["error"])
 
+    def test_create_unlisted_dashboard_reads_dashboards_from_the_writer(self) -> None:
+        # Tests configure no "replica" alias, so a Dashboard read routed to it raises instead of
+        # silently missing the uncommitted row the way a real replica does.
+        def route_dashboard_reads_to_replica(model: type, **hints: Any) -> str:
+            return "replica" if model is Dashboard else "default"
+
+        with patch("django.db.router.db_for_read", side_effect=route_dashboard_reads_to_replica):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/dashboards/create_unlisted_dashboard/",
+                {"tag": "llm-analytics"},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+
     def test_filter_dashboards_by_creation_mode(self):
         """Test that dashboards can be filtered by creation_mode query param"""
         # Create dashboards with different creation modes

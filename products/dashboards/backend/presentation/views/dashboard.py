@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any, Optional, TypedDict, cast
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import URLValidator
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, router, transaction
 from django.db.models import (
     CharField,
     Count,
@@ -4957,7 +4957,10 @@ class DashboardsViewSet(
         with transaction.atomic():
             Team.objects.select_for_update().filter(id=self.team_id).first()
 
-            existing = Dashboard.objects.filter(
+            # Read from the writer: a replica cannot see a dashboard that a concurrent request just
+            # committed, which breaks this uniqueness check, or the row created below in this transaction.
+            writer_dashboards = Dashboard.objects.using(router.db_for_write(Dashboard))
+            existing = writer_dashboards.filter(
                 team=self.team,
                 deleted=False,
                 creation_mode="unlisted",
@@ -4973,7 +4976,7 @@ class DashboardsViewSet(
             created = create_unlisted_dashboard(
                 team=self.team, user=cast(User, request.user), template=self.TEMPLATE_MAP[tag]()
             )
-            dashboard = Dashboard.objects.get(team_id=self.team_id, pk=created.id)
+            dashboard = writer_dashboards.get(team_id=self.team_id, pk=created.id)
 
             return Response(
                 DashboardSerializer(dashboard, context=self.get_serializer_context()).data,
