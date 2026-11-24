@@ -295,9 +295,7 @@ export-shape	posthog.temporal.oauth.ScoutScopePosture	products.tasks.backend.fac
 export-shape	posthog.user_permissions.UserPermissions	products.access_control.backend.facade.user_access_control	export-shape(class)	1
 export-shape	posthog.user_permissions.UserPermissions	products.authorization.backend.facade.api	export-shape(class)	1
 export-shape	posthog.week_start_day.WeekStartDay	products.customer_analytics.backend.facade.queries	export-shape(class)	1
-export-shape	products.access_control.backend.facade.subject_access_control.SubjectAccessControl	products.access_control.backend.facade.resolution_preview	export-shape(class)	1
 export-shape	products.access_control.backend.facade.subject_access_control.SubjectAccessControl	products.access_control.backend.facade.subject_access_control	export-shape(class)	1
-export-shape	products.access_control.backend.facade.user_access_control.UserAccessControl	products.access_control.backend.facade.resolution_preview	export-shape(class)	1
 export-shape	products.access_control.backend.facade.user_access_control.UserAccessControl	products.access_control.backend.facade.user_access_control	export-shape(class)	1
 export-shape	products.access_control.backend.facade.user_access_control.UserAccessControl	products.actions.backend.facade.api	export-shape(class)	1
 export-shape	products.access_control.backend.facade.user_access_control.UserAccessControl	products.ai_observability.backend.facade.api	export-shape(class)	1
@@ -834,8 +832,8 @@ facade-no-drf	products.tasks.backend.facade.api	products.tasks.backend.presentat
 facade-no-drf	products.tasks.backend.facade.api	rest_framework.exceptions	1
 facade-no-drf	products.tasks.backend.facade.client_provenance	rest_framework.request	1
 facade-signature	products.access_control.backend.facade.api	redact_restricted_properties	return	typing.Any	1
-facade-signature	products.access_control.backend.facade.resolution_preview	deciding_subject_row	return	builtins.object	1
-facade-signature	products.access_control.backend.facade.resolution_preview	deciding_subject_row	return	products.access_control.backend.models.access_control.AccessControl	1
+facade-signature	products.access_control.backend.facade.subject_access_control	SubjectAccessControl.deciding_row	return	builtins.object	1
+facade-signature	products.access_control.backend.facade.subject_access_control	SubjectAccessControl.deciding_row	return	products.access_control.backend.models.access_control.AccessControl	1
 facade-signature	products.access_control.backend.facade.subject_access_control	SubjectAccessControl.preload_access_controls	param:rows	builtins.object	1
 facade-signature	products.access_control.backend.facade.subject_access_control	SubjectAccessControl.preload_access_controls	param:rows	products.access_control.backend.models.access_control.AccessControl	1
 facade-signature	products.access_control.backend.facade.subject_access_control	SubjectAccessControl.seed_narrowed_access_controls	param:rows	builtins.object	1
@@ -2060,7 +2058,6 @@ level:isolated	groups	1
 level:isolated	knowledge_writer	1
 level:isolated	ml_inference	1
 level:isolated	release	1
-level:isolated	review_hog	1
 level:isolated	security	1
 level:isolated	stamphog	1
 level:isolated	streamlit_apps	1
@@ -3496,10 +3493,7 @@ thin-commands	products.aeo.backend.management.commands.backfill_aeo_check_facts	
 thin-commands	products.ai_gateway.backend.management.commands.llm_gateway_team	products.ai_gateway.backend.logic	1
 thin-commands	products.alerts.backend.management.commands.backfill_platform_insight_alert_created_at	products.alerts.backend.models.alert	1
 thin-commands	products.alerts.backend.management.commands.backfill_platform_insight_alert_creators	products.alerts.backend.models.alert	1
-thin-commands	products.alerts.backend.management.commands.cut_over_insight_alerts_to_platform	products.alerts.backend.logic.alert_email	1
-thin-commands	products.alerts.backend.management.commands.cut_over_insight_alerts_to_platform	products.alerts.backend.models.alert	1
 thin-commands	products.alerts.backend.management.commands.delete_orphaned_platform_insight_alert_copies	products.alerts.backend.models.alert	1
-thin-commands	products.alerts.backend.management.commands.report_insight_alert_destination_buckets	products.alerts.backend.logic.destination_bucket_report	1
 thin-commands	products.alerts_platform.backend.management.commands.report_legacy_config_drift	products.alerts_platform.backend.logic.legacy_config_drift	1
 thin-commands	products.alerts_platform.backend.management.commands.report_legacy_config_drift	products.alerts_platform.backend.logic.legacy_drift_sources	1
 thin-commands	products.approvals.backend.management.commands.approval_coverage	products.approvals.backend.models	1
@@ -3606,6 +3600,7 @@ thin-commands	products.logs.backend.management.commands.delete_orphaned_platform
 thin-commands	products.mcp_analytics.backend.management.commands.cluster_mcp_intents	products.mcp_analytics.backend.models	1
 thin-commands	products.review_hog.backend.management.commands.publish_review	products.review_hog.backend.models	1
 thin-commands	products.review_hog.backend.management.commands.reset_review_hog	products.review_hog.backend.models	1
+thin-commands	products.signals.backend.management.commands.backfill_inbox_summary	products.signals.backend.models	1
 thin-commands	products.signals.backend.management.commands.backfill_report_pull_requests	products.signals.backend.models	1
 thin-commands	products.signals.backend.management.commands.backfill_suggested_reviewer_index	products.signals.backend.models	1
 thin-commands	products.signals.backend.management.commands.backfill_task_run_artefacts	products.signals.backend.models	1

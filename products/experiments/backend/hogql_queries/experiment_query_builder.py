@@ -29,7 +29,7 @@ from posthog.models.team.team import Team
 
 from products.actions.backend.facade.api import get_actions
 from products.experiments.backend.hogql_queries.breakdown_injector import BreakdownInjector
-from products.experiments.backend.hogql_queries.cuped_config import CupedQueryConfig
+from products.experiments.backend.hogql_queries.cuped_config import CupedQueryConfig, activation_blocks_cuped
 from products.experiments.backend.hogql_queries.experiment_cuped_query_builder import CupedQueryBuilder
 from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureQueryBuilder
 from products.experiments.backend.hogql_queries.experiment_funnel_query_builder import FunnelQueryBuilder
@@ -201,11 +201,7 @@ class ExperimentQueryBuilder:
         self.breakdowns = breakdowns or []
         self.breakdown_injector = BreakdownInjector(self.breakdowns, metric) if metric else None
         self.cuped_config = cuped_config or CupedQueryConfig()
-        # ponytail: funnel CUPED sources its pre-exposure covariate from the metric_events
-        # scan, but activation mode forces the temporal filter that removes those rows, so
-        # the covariate would silently be 0 for everyone. Disable it until the covariate
-        # gets its own pre-window scan.
-        if activation_config is not None and isinstance(metric, ExperimentFunnelMetric):
+        if activation_blocks_cuped(metric, has_activation=activation_config is not None):
             self.cuped_config = CupedQueryConfig(enabled=False, lookback_days=self.cuped_config.lookback_days)
 
         # Frozen snapshot for builders that take a context instead of this builder,

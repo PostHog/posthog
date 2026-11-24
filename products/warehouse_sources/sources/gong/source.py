@@ -75,6 +75,10 @@ To also sync these tables, additionally grant the scope listed next to each:
 - `call_outcomes` (the call outcome values defined for your company): `api:call-outcomes:read`
 - `library_folders` and `library_folder_calls` (public call library folders and the calls in them): `api:library:read`
 - `flows` (Gong Engage flows): `api:flows:read`
+- `aggregate_activity` (counts of the calls each user hosted, attended, listened to, shared, and gave feedback on, per day): `api:stats:user-actions`
+- `logs` (audit logs of sign-ins, user activity, call plays, and access to externally shared calls): `api:logs:read`
+
+The `user_settings_history` table (changes to each user's recording and import settings) needs only `api:users:read`, but it makes one request per user on every sync, which counts against Gong's daily API limit.
 """,
             iconPath="/static/services/gong.png",
             docsUrl="https://posthog.com/docs/cdp/sources/gong",

@@ -554,6 +554,48 @@ class TestDeliverReport(SimpleTestCase):
         self.assertEqual(run.delivery_errors, ["slack failed"])
         self.assertEqual(mock_disable.called, not retryable)
 
+    @parameterized.expand(
+        [
+            ("only_target_disables_report", [{"type": "email", "value": " , "}], "failed", True),
+            ("non_string_value", [{"type": "email", "value": ["a@x.com"]}], "failed", True),
+            (
+                "alongside_working_target",
+                [{"type": "email", "value": " , "}, {"type": "email", "value": "a@x.com"}],
+                "partial_failure",
+                False,
+            ),
+        ]
+    )
+    @patch("posthog.temporal.ai_observability.eval_reports.delivery.disable_undeliverable_report")
+    @patch("posthog.temporal.ai_observability.eval_reports.delivery.deliver_email_report")
+    @patch("posthog.temporal.ai_observability.eval_reports.delivery.deliver_slack_report")
+    @patch("products.ai_observability.backend.models.evaluation_reports.EvaluationReportRun.objects")
+    @patch("products.ai_observability.backend.models.evaluation_reports.EvaluationReport.objects")
+    def test_email_target_without_addresses_is_not_delivered(
+        self,
+        _name,
+        targets,
+        expected_status,
+        expect_disabled,
+        mock_report_qs,
+        mock_run_qs,
+        _mock_slack,
+        mock_email,
+        mock_disable,
+    ):
+        report = self._make_report(targets)
+        run = self._make_report_run()
+
+        mock_report_qs.select_related.return_value.get.return_value = report
+        mock_run_qs.get.return_value = run
+        mock_email.return_value = []
+
+        deliver_report("report-id", "run-id")
+
+        self.assertEqual(run.delivery_status, expected_status)
+        self.assertEqual(len(run.delivery_errors), 1)
+        self.assertEqual(mock_disable.called, expect_disabled)
+
     @patch("posthog.temporal.ai_observability.eval_reports.delivery.deliver_email_report")
     @patch("posthog.temporal.ai_observability.eval_reports.delivery.deliver_slack_report")
     @patch("products.ai_observability.backend.models.evaluation_reports.EvaluationReportRun.objects")

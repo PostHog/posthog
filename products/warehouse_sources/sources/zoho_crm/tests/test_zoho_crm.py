@@ -15,6 +15,7 @@ from products.warehouse_sources.sources.sdk.testing import (
     ScriptedResponse,
     SourceDriver,
     UnexpectedRequest,
+    error_message_matches,
     scripted_network,
     source_inputs,
 )
@@ -33,6 +34,8 @@ from products.warehouse_sources.sources.zoho_crm.zoho_crm import (
     ZohoCRMResumeConfig,
     chunk_fields,
     format_modified_since,
+    get_rows,
+    list_custom_modules,
     readable_field_names,
     resolve_hosts,
     validate_credentials,
@@ -172,6 +175,25 @@ class TestZohoCRMClient:
             with pytest.raises(RESTClientNonRetryableError):
                 client.mint_access_token()
 
+    @pytest.mark.parametrize("status", [500, 502, 503, 504])
+    def test_token_exchange_retries_a_transient_5xx(self, status: int) -> None:
+        with scripted_network(_script([], tokens=[_response(status), _token_response()])) as network:
+            token = _client().mint_access_token()
+
+        assert token == "access-token"
+        assert [request.path for request in network.requests_log].count(_TOKEN_PATH) == 2
+
+    @pytest.mark.parametrize("status", [500, 502, 503, 504])
+    def test_token_exchange_5xx_after_retries_is_retryable_not_non_retryable(self, status: int) -> None:
+        source = ZohoCRMSource()
+        with scripted_network(_script([], tokens=[_response(status)] * 4)):
+            with pytest.raises(HTTPError) as exc_info:
+                _client().mint_access_token()
+
+        message = str(exc_info.value)
+        assert error_message_matches(message, source.get_retryable_errors())
+        assert not error_message_matches(message, source.get_non_retryable_errors())
+
     def test_remints_once_on_401_and_replays_the_request(self) -> None:
         with scripted_network(
             _script([_response(401), _response(200, {"data": []})], tokens=[_token_response(), _token_response()])
@@ -187,7 +209,10 @@ class TestZohoCRMClient:
         with scripted_network(_script([])) as network:
             ZohoCRMClient("us", "cid", "secret-value", "refresh-value")
 
-        assert network.session_options == [{"redact_values": ("secret-value", "refresh-value"), "capture": False}]
+        assert [
+            {"redact_values": options["redact_values"], "capture": options["capture"]}
+            for options in network.session_options
+        ] == [{"redact_values": ("secret-value", "refresh-value"), "capture": False}]
 
 
 class TestReadableFieldNames:
@@ -236,12 +261,33 @@ class TestReadableFieldNames:
             with pytest.raises(ZohoCRMApiError, match=expected_detail):
                 readable_field_names(_client(), "v8", "Vendors")
 
-    def test_400_without_a_structured_body_stays_a_plain_http_error(self) -> None:
-        with scripted_network(_script([ScriptedResponse(status=400, body=b"not json")])):
+    @pytest.mark.parametrize(
+        ("call", "responses"),
+        [
+            pytest.param(lambda: readable_field_names(_client(), "v8", "Leads"), [], id="fields_metadata"),
+            pytest.param(lambda: list_custom_modules(_client(), "v8"), [], id="modules_metadata"),
+            pytest.param(
+                lambda: list(
+                    get_rows(
+                        _client(), "v8", "Leads", mock.MagicMock(**{"can_resume.return_value": False}), mock.MagicMock()
+                    )
+                ),
+                [_fields_response(1)],
+                id="records_page",
+            ),
+        ],
+    )
+    @pytest.mark.parametrize("body", [b"not json", b""])
+    def test_400_without_a_structured_body_stays_a_plain_http_error(
+        self, call: Callable[[], Any], responses: list[ScriptedResponse], body: bytes
+    ) -> None:
+        with scripted_network(_script([*responses, ScriptedResponse(status=400, body=body)])):
             with pytest.raises(HTTPError) as ctx:
-                readable_field_names(_client(), "v8", "Leads")
+                call()
 
         assert not isinstance(ctx.value, ZohoCRMApiError)
+        # A self-referencing cause sends Temporal's failure converter into a RecursionError.
+        assert ctx.value.__cause__ is not ctx.value
 
     def test_invalid_module_error_matches_get_non_retryable_errors(self) -> None:
         body = {"code": "INVALID_MODULE", "message": "the module name given seems to be invalid"}

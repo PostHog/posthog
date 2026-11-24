@@ -128,7 +128,12 @@ does not replace text typed for a later message. Sign-out or session expiry clea
 drafts. Demo drafts stay in the current composer; the web preview stores drafts in memory only.
 Picked files are not part of a draft. They stay in memory and go when the sheet closes (see [Attachments](#attachments)).
 
-## Rich replies
+## Message formatting
+
+Sent messages display pasted web URLs and labeled links copied from Slack in the theme's accent color, with medium-weight text and an underline.
+Slack links show their destination host beside a custom label and decode escaped ampersands and angle brackets.
+URLs containing a username or password appear as plain text.
+Tap a link to open its destination in the browser. Copy keeps the original message text.
 
 Sent messages have an icon-only copy button in both chat versions and report discussions. For AI replies, Copy appears below the last message of each turn.
 It copies the full message text, preserving Markdown and code blocks, and shows a checkmark after the clipboard confirms success.
@@ -167,8 +172,10 @@ uses the code fallback. Adding this renderer requires a new native build with
 `mobile_chat_diagram_failed` is captured once per diagram with `reason` (`timeout`, `render_error`, `load_error`, `process_gone` or `open_window`).
 
 A tap on an object link, Open insight, Open chart on web, Open SQL editor, or a markdown link opens it in the browser.
-`mobile_chat_link_opened` is captured after the system opens it, with `source` (`object_chip`, `insight_card`, `query_card` or `markdown`),
-`object_kind` (the registry kind, null for a markdown link) and `app_link` (a markdown link that was an app path).
+`mobile_chat_link_opened` is captured after the system opens a link, with `source`
+(`user_message`, `object_chip`, `insight_card`, `query_card` or `markdown`).
+For links in replies, the event also includes `object_kind` (the registry kind, or null) and
+`app_link` (whether a Markdown link points to an app path).
 
 Saved insights need the `insight:read` OAuth scope, and generated queries need `query:read`.
 Existing sessions missing either scope need a new sign-in, and the server's mobile OAuth application must allow it.
