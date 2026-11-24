@@ -39,10 +39,11 @@ const glow = (color: string, at: string, size = '100% 70%'): string =>
     `radial-gradient(${size} at ${at}, color-mix(in srgb, ${color} 85%, transparent) 0%, transparent 62%)`
 const fade = (...stops: string[]): string => `linear-gradient(165deg, ${stops.join(', ')})`
 
-// posthog.com's warm off-white. The brand palette has no neutral ground, and the share card is meant to look like the site.
-export const POSTHOG_CREAM = '#EEEFE9'
+// PostHog's dark app ground (--color-bg-3000-dark). The brand palette has no neutral, and the share card sits
+// between dark story cards.
+const POSTHOG_DARK = '#1D1F27'
 const soft = (color: string, at: string, size: string): string =>
-    `radial-gradient(${size} at ${at}, ${color} 0%, transparent 70%)`
+    `radial-gradient(${size} at ${at}, color-mix(in srgb, ${color} 45%, transparent) 0%, transparent 70%)`
 
 const hoggies = {
     party: pngHoggie(partyPng),
@@ -116,8 +117,8 @@ export const CARD_THEMES: Record<WrappedCardKey, WrappedCardTheme> = {
         hoggie: hoggies.wizard,
     },
     share: {
-        background: `${soft(colors.tangerine.lighter, '95% 5%', '60% 35%')}, ${soft(colors.lemon.lighter, '50% 42%', '75% 35%')}, ${soft(colors.cobalt.lighter, '0% 100%', '60% 35%')}, ${POSTHOG_CREAM}`,
-        light: true,
+        background: `${soft(colors.tangerine.core, '95% 5%', '60% 35%')}, ${soft(colors.yellow.core, '50% 38%', '70% 30%')}, ${soft(colors.violet.core, '0% 100%', '70% 40%')}, ${POSTHOG_DARK}`,
+        light: false,
         hoggie: hoggies.selfie,
     },
 }

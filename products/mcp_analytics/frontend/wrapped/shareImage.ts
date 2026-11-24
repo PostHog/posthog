@@ -1,9 +1,6 @@
 import { captureElementImage } from 'lib/utils/captureElementImage'
 import { canCopyImageToClipboard } from 'lib/utils/copyImageToClipboard'
 
-/** Elements with this class are on the share card for the viewer, not for the picture. */
-export const SHARE_ACTIONS_CLASS = 'MCPWrapped__share-actions'
-
 // A full-height phone story, whatever size the card renders at on screen.
 const IMAGE_WIDTH = 1080
 const IMAGE_HEIGHT = 1920
@@ -13,7 +10,6 @@ export type ShareOutcome = 'done' | 'unsupported' | 'failed' | 'cancelled'
 
 export function captureShareCard(element: HTMLElement): Promise<Blob> {
     return captureElementImage(element, {
-        filter: (node) => !(node instanceof Element && node.classList.contains(SHARE_ACTIONS_CLASS)),
         // Square corners, so the picture fills the whole frame when it is posted.
         style: { transform: 'none', margin: '0', borderRadius: '0' },
         type: IMAGE_TYPE,
