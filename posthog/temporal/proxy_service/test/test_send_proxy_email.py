@@ -5,23 +5,13 @@ from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
+from temporalio.service import RPCError, RPCStatusCode
+
 from posthog.models import ProxyRecord
 from posthog.models.messaging import MessagingRecord
 from posthog.models.organization import Organization
 from posthog.models.user import User
 from posthog.temporal.proxy_service.common import SendProxyCreatedEmailInputs, activity_send_proxy_created_email
-
-
-@pytest.fixture(autouse=True)
-def _no_temporal_worker_reconnect(monkeypatch):
-    # The activity calls django.db.connection.connect() to recover from stale
-    # worker connections in production. Under test that drops the test's
-    # wrapping atomic transaction (and the freshly-opened connection can't see
-    # data the test just wrote). Stub it out so tests can stay on fast
-    # transaction-rollback isolation instead of needing transaction=True.
-    from django.db import connection
-
-    monkeypatch.setattr(connection, "connect", lambda: None)
 
 
 def _make_inputs(**overrides):
@@ -148,9 +138,26 @@ class TestSendProxyCreatedEmail:
                 activity_send_proxy_created_email(inputs)
                 MockEmailMessage.assert_not_called()
 
-    def test_swallows_exceptions_without_raising(self):
-        inputs = _make_inputs()
+    def test_schedule_lookup_failure_retries_before_email_dispatch(self, monitor_schedule: MagicMock) -> None:
+        org = Organization.objects.create(name="Test Org")
+        user = User.objects.create_and_join(org, "retry@example.com", "password")
+        proxy = ProxyRecord.objects.create(
+            organization=org, domain="proxy.example.com", target_cname="target.example.com", created_by=user
+        )
+        inputs = _make_inputs(organization_id=org.id, proxy_record_id=proxy.id)
+        monitor_schedule.side_effect = [RPCError("Temporarily unavailable", RPCStatusCode.UNAVAILABLE, b""), False]
+        deliveries: list[dict] = []
 
-        with patch("posthog.email.is_email_available", side_effect=Exception("boom")):
-            # Should not raise
+        def enqueue_email(*args, **kwargs) -> None:
+            deliveries.append(kwargs)
+
+        with (
+            patch("posthog.email.is_email_available", return_value=True),
+            patch("posthog.email._send_email.apply_async", new=enqueue_email),
+        ):
+            with pytest.raises(RPCError):
+                activity_send_proxy_created_email(inputs)
+            assert deliveries == []
             activity_send_proxy_created_email(inputs)
+
+        assert len(deliveries) == 1

@@ -6,7 +6,7 @@ import typing as t
 import asyncio
 import datetime as dt
 import ipaddress
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 
 from django.conf import settings
 
@@ -60,7 +60,7 @@ from posthog.temporal.proxy_service.proto import CertificateState_READY, CreateR
 LOGGER = get_logger(__name__)
 
 
-@dataclass
+@dataclass(frozen=False)
 class CreateManagedProxyInputs:
     """Inputs for the CreateManagedProxy Workflow and Activity."""
 
@@ -68,6 +68,7 @@ class CreateManagedProxyInputs:
     proxy_record_id: uuid.UUID
     domain: str
     target_cname: str
+    use_cloudflare: bool | None = None
 
     @property
     def properties_to_log(self) -> dict[str, t.Any]:
@@ -95,7 +96,7 @@ async def start_proxy_provisioning(
 
     await temporal.start_workflow(
         "create-proxy",
-        inputs,
+        replace(inputs, use_cloudflare=is_cloudflare_proxy_by_cname(inputs.target_cname)),
         id=workflow_id,
         task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
         id_conflict_policy=id_conflict_policy,
@@ -473,8 +474,8 @@ class CreateManagedProxyWorkflow(PostHogWorkflow):
     @staticmethod
     def parse_inputs(inputs: list[str]) -> CreateManagedProxyInputs:
         """Parse inputs from the management command CLI."""
-        loaded = json.loads(inputs[0])
-        return CreateManagedProxyInputs(**loaded)
+        parsed = CreateManagedProxyInputs(**json.loads(inputs[0]))
+        return replace(parsed, use_cloudflare=is_cloudflare_proxy_by_cname(parsed.target_cname))
 
     @temporalio.workflow.run
     async def run(self, inputs: CreateManagedProxyInputs) -> None:
@@ -546,8 +547,9 @@ class CreateManagedProxyWorkflow(PostHogWorkflow):
                 ),
             )
 
-            # Branch based on whether to use Cloudflare or the legacy proxy provisioner
-            if use_cloudflare_proxy() or is_cloudflare_proxy_by_cname(inputs.target_cname):
+            # Histories started before the backend was recorded still replay their original branch.
+            use_cloudflare = use_cloudflare_proxy() if inputs.use_cloudflare is None else inputs.use_cloudflare
+            if use_cloudflare:
                 # Cloudflare for SaaS path: Create Custom Hostname and Worker Route
                 cloudflare_inputs = CreateCloudflareProxyInputs(
                     organization_id=inputs.organization_id,
