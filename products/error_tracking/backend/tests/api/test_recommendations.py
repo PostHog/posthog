@@ -49,7 +49,6 @@ MOCK_SOURCE_MAPS_META = {"total_frames": 0, "unresolved_frames": 0, "unresolved_
 
 
 def _issue_summaries_flag(enabled_team_id: int | None):
-    # Local definitions only: the fake has no remote service to fall back to.
     def local_flags(flag, distinct_id, *, groups, only_evaluate_locally, **_options):
         return only_evaluate_locally and flag == ISSUE_SUMMARY_FLAG and groups == {"project": str(enabled_team_id)}
 

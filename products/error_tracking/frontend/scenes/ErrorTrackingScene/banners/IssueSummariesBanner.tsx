@@ -11,7 +11,6 @@ import { ReporterHog } from './reporterHog'
 
 const AI_FEATURES_SETTINGS_URL = errorTrackingConfigurationSettingUrl('error-tracking-ai-features')
 
-// Mounts only while the banner is visible, so the "shown" event fires exactly when it was seen.
 export function IssueSummariesBanner({ navigation }: { navigation?: ReactNode }): JSX.Element {
     const { dismissBanner } = useActions(errorTrackingBannersLogic)
 
