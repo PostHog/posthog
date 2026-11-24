@@ -180,9 +180,6 @@ def _ignoring_case(item: dict[str, Any]) -> dict[str, Any]:
     # Customer.io compares attribute values without case, and saves "DE" as "de".
     if item["operator"] not in ("exact", "is_not") or not isinstance(item.get("value"), str):
         return item
-    if item["value"].lower() == item["value"].upper() or item["value"].lower() in ("true", "false"):
-        # A number or a boolean compares as its type, which a pattern would not.
-        return item
     pattern = "".join(_any_case(character) for character in item["value"])
     return {**item, "operator": "regex" if item["operator"] == "exact" else "not_regex", "value": f"^{pattern}$"}
 

@@ -444,12 +444,12 @@ class TestCustomerioConditions(SimpleTestCase):
             (
                 "number",
                 {"type": "attribute", "field": "seats", "operator": "eq", "value": "5"},
-                [{"key": "seats", "operator": "exact", "type": "person", "value": "5"}],
+                [{"key": "seats", "operator": "regex", "type": "person", "value": "^5$"}],
             ),
             (
                 "boolean",
                 {"type": "attribute", "field": "beta", "operator": "eq", "value": "true"},
-                [{"key": "beta", "operator": "exact", "type": "person", "value": "true"}],
+                [{"key": "beta", "operator": "regex", "type": "person", "value": "^[tT][rR][uU][eE]$"}],
             ),
             (
                 "negated",
