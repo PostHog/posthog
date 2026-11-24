@@ -10,12 +10,18 @@ import { cn } from 'lib/utils/css-classes'
 import { labMark, modelLab } from '../../aiLabs'
 import { HarnessLogo } from '../../dashboard/harness'
 import type { MCPWrappedCardsApi } from '../../generated/api.schemas'
-import { ARCHETYPE_NAMES, ARCHETYPE_TAGLINES, type ShareTile, shareTiles, toolNameSize } from '../storyCards'
+import {
+    ARCHETYPE_NAMES,
+    ARCHETYPE_TAGLINES,
+    type ShareTile,
+    shareTiles,
+    toolNameSize,
+    wrappableToolName,
+} from '../storyCards'
 import { WrappedCard } from '../WrappedCard'
 import { ARCHETYPE_HOGGIES } from '../wrappedTheme'
 
 const MCP_ANALYTICS_URL = 'https://posthog.com/mcp-analytics'
-const PERSONALITY_COUNT = Object.keys(ARCHETYPE_NAMES).length
 
 // Each number gets its own brand colour, so the list reads like a poster rather than a table.
 const STAT_ICONS = {
@@ -49,11 +55,6 @@ function StatIcon({ tile }: { tile: ShareTile }): JSX.Element {
     )
 }
 
-// Lets a snake_case tool name wrap between its words instead of in the middle of one.
-function breakAtUnderscores(name: string): string {
-    return name.replaceAll('_', '_\u200B')
-}
-
 /** The poster at the end of the story, which the share actions turn into an image. */
 export const ShareCard = forwardRef<HTMLDivElement, { cards: MCPWrappedCardsApi; projectName: string; year: number }>(
     function ShareCard({ cards, projectName, year }, ref): JSX.Element {
@@ -76,7 +77,6 @@ export const ShareCard = forwardRef<HTMLDivElement, { cards: MCPWrappedCardsApi;
                         <Hoggie className="MCPWrapped__hero-hoggie relative size-40" loading="eager" />
                     </div>
                     <p className="m-0 text-base font-bold">{ARCHETYPE_TAGLINES[archetype]}</p>
-                    <p className="m-0 text-xs opacity-60">One of {PERSONALITY_COUNT} MCP server personalities</p>
                 </div>
                 <dl className="MCPWrapped__rise m-0 grid grid-cols-2 gap-x-5">
                     {tiles.map((tile, index) => (
@@ -105,7 +105,7 @@ export const ShareCard = forwardRef<HTMLDivElement, { cards: MCPWrappedCardsApi;
                                     )}
                                     title={tile.value}
                                 >
-                                    {tile.kind === 'tool' ? breakAtUnderscores(tile.value) : tile.value}
+                                    {tile.kind === 'tool' ? wrappableToolName(tile.value) : tile.value}
                                 </dd>
                             </div>
                         </div>

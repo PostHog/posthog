@@ -197,6 +197,18 @@ export function durationParts(ms: number): DurationParts {
     return { value: (ms / 3_600_000).toFixed(1), unit: 'h', longUnit: 'hours' }
 }
 
+const MAX_TOOL_NAME_LENGTH = 40
+
+/**
+ * A tool name ready to wrap in a narrow column: break points between words (after underscores and before
+ * camelCase capitals), and the middle cut from names too long to fit, keeping the start and end people recognise.
+ */
+export function wrappableToolName(name: string): string {
+    const fitted =
+        name.length > MAX_TOOL_NAME_LENGTH ? `${name.slice(0, MAX_TOOL_NAME_LENGTH - 16)}…${name.slice(-15)}` : name
+    return fitted.replaceAll('_', '_\u200B').replace(/([a-z0-9])([A-Z])/g, '$1\u200B$2')
+}
+
 export function formatDuration(ms: number): string {
     const { value, unit } = durationParts(ms)
     return `${value} ${unit}`

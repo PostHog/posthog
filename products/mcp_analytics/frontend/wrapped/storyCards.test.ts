@@ -12,6 +12,7 @@ import {
     speedLine,
     peakMultiple,
     rushHourLine,
+    wrappableToolName,
 } from './storyCards'
 
 const BASE: MCPWrappedCardsApi = {
@@ -159,5 +160,18 @@ describe('storyCards', () => {
         [7100, 'Some calls kept agents waiting.'],
     ])('describes a p95 of %d ms', (p95, expected) => {
         expect(speedLine(p95)).toBe(expected)
+    })
+
+    it.each([
+        ['snake_case breaks after underscores', 'query_run', 'query_\u200Brun'],
+        ['camelCase breaks before capitals', 'getAllFlags', 'get\u200BAll\u200BFlags'],
+        ['kebab-case is left to wrap at its hyphens', 'get-all-flags', 'get-all-flags'],
+        [
+            'a name over 40 characters keeps its start and end',
+            'feature_flag_get_all_definitions_with_overrides_and_more',
+            'feature_\u200Bflag_\u200Bget_\u200Ball_\u200Bdef…rrides_\u200Band_\u200Bmore',
+        ],
+    ])('%s', (_, name, expected) => {
+        expect(wrappableToolName(name)).toBe(expected)
     })
 })
