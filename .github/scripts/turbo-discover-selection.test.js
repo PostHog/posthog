@@ -723,6 +723,31 @@ test('a change to a Celery task module of an isolated product runs Django', () =
     fs.rmSync(root, { recursive: true, force: true })
 })
 
+// Files directly under products/ run for every product, and settings read db_routing.yaml.
+test('a change to a shared file directly under products/ runs every product and Django', () => {
+    for (const file of ['products/__init__.py', 'products/conftest.py', 'products/db_routing.yaml']) {
+        const { products, runLegacy, runLegacyReason } = decideCanvas({ affectedProducts: [], changedFiles: [file] })
+        assert.deepEqual(
+            { products, runLegacy, runLegacyReason },
+            { products: ALL_PRODUCTS, runLegacy: true, runLegacyReason: 'products_root' },
+            file
+        )
+    }
+})
+
+// A watched module that is a symlink runs its target, wherever the target lives.
+test('a change to the target of a symlinked watched file runs Django', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'links-'))
+    fs.mkdirSync(path.join(root, 'products/canvas/backend/tests'), { recursive: true })
+    fs.writeFileSync(path.join(root, 'products/canvas/backend/tests/_impl.py'), '')
+    fs.symlinkSync('tests/_impl.py', path.join(root, 'products/canvas/backend/linked.py'))
+    const fileMap = { 'products/canvas/backend/linked.py': ['posthog/api/canvas.py'] }
+    const closed = closeWatchedSets(parseWatchedAnswer(watchedAnswer()), fileMap, root)
+    const target = 'products/canvas/backend/tests/_impl.py'
+    assert.equal(decideCanvas({ affectedProducts: [], watched: closed, changedFiles: [target] }).runLegacy, true)
+    fs.rmSync(root, { recursive: true, force: true })
+})
+
 // Each case is an answer the diff cannot be judged by, so every product and Django run.
 test('a missing answer, a failed level or a change to hoglint itself widens to every product', () => {
     const cases = [

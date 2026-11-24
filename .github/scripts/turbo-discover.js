@@ -592,6 +592,19 @@ function pythonFilesUnder(repoRoot, dir) {
     return found
 }
 
+// The repo path a symlinked file points to, or null for a regular or missing file.
+function symlinkTarget(file, repoRoot) {
+    const full = path.join(repoRoot, file)
+    try {
+        if (!fs.lstatSync(full).isSymbolicLink()) {
+            return null
+        }
+        return path.relative(fs.realpathSync(repoRoot), fs.realpathSync(full))
+    } catch {
+        return null
+    }
+}
+
 // Celery's `app.autodiscover_tasks()` imports each installed app's `tasks` module by name, so no
 // import names it: a `backend/tasks.py` file, or the modules of a `backend/tasks/` package and
 // of its nested packages. A task's registered name comes from its module, and a core test
@@ -673,7 +686,19 @@ function closeWatchedSets(watched, fileMap, repoRoot = process.cwd()) {
         }
         closed.set(product, reached)
     }
-    return { ...watched, watched: closed }
+    // A watched file that is a symlink runs its target, which can sit in tests/ or frontend/
+    // where a change would not reach the product. Watch the target, and map it back.
+    const symlinkTargets = new Map()
+    for (const [product, files] of closed) {
+        for (const file of [...files]) {
+            const target = symlinkTarget(file, repoRoot)
+            if (target !== null && !files.has(target)) {
+                files.add(target)
+                symlinkTargets.set(target, product)
+            }
+        }
+    }
+    return { ...watched, watched: closed, symlinkTargets }
 }
 
 // Runs `hoglint watched --map` in repoRoot and returns { graph, watched }: the product graph or
@@ -879,7 +904,20 @@ function decideProductChange({ affectedProducts, allProducts, watched, changedFi
         )
         return everything('watched_policy')
     }
-    const reached = [...new Set([...affectedProducts, ...productsReachedByFiles(changedFiles, allProducts)])].sort()
+    // A file directly under products/ (the package's __init__.py, the shared conftest.py,
+    // db_routing.yaml that settings read) belongs to no one product and runs for all of them.
+    const looseRoot = (changedFiles ?? []).filter(
+        (f) => f.startsWith(PRODUCTS_DIR) && !f.slice(PRODUCTS_DIR.length).includes('/') && !f.endsWith('.md')
+    )
+    if (looseRoot.length > 0) {
+        console.error(`Shared files under products/ changed (${JSON.stringify(looseRoot)}) — testing all products + Django`)
+        return everything('products_root')
+    }
+    const symlinkTargets = watched?.symlinkTargets ?? new Map()
+    const viaLinks = (changedFiles ?? []).filter((f) => symlinkTargets.has(f)).map((f) => symlinkTargets.get(f))
+    const reached = [
+        ...new Set([...affectedProducts, ...productsReachedByFiles(changedFiles, allProducts), ...viaLinks]),
+    ].sort()
     if (reached.length === 0) {
         console.error('No product changes detected')
         return { ...none, products: [], runLegacy: false }
