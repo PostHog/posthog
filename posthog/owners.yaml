@@ -112,8 +112,6 @@ rules:
       owners: team-apm
     - match: '/test/repo_invariants/test_temporal_workflow_catalog.py'
       owners: team-cloud-foundations
-    - match: '/test/repo_invariants/test_warehouse_source_generated_config_inputs.py'
-      owners: team-warehouse-sources
     - match:
           - '/test/repo_invariants/test_email_http_templates.py'
           - '/test/repo_invariants/test_message_preference_styles.py'
