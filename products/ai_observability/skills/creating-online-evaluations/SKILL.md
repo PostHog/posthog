@@ -345,7 +345,7 @@ posthog:llma-evaluation-update
 
 Each now runs on every new matching generation, or once per matching trace for a trace target. This isn't
 one-and-done: the user should be aware that they need to keep an eye on results and iterate if the outcome
-is not the expected one. To wire results into a Slack feed, see `feature-usage-feed`.
+is not the expected one.
 
 If the user asked to see results before anything goes live, show the test results for the whole set and ask
 once, in the same reply: "Enable these N now?" Enable the ones they approve right away, in this session. Don't
