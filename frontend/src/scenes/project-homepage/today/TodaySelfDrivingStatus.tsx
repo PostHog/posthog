@@ -16,18 +16,17 @@ import { signalSourcesLogic } from 'products/signals/frontend/inbox/signalSource
 import { TodayRow } from './TodayRow'
 import { TodaySelfDrivingRow } from './TodaySelfDrivingRow'
 
-function QuietRows({ quietRow }: { quietRow: ReactNode }): JSX.Element {
+function QuietRows({ children }: { children: ReactNode }): JSX.Element {
     return (
         <ol className="TodayRows" data-attr="today-for-you-empty">
-            <TodaySelfDrivingRow />
-            {quietRow}
+            {children}
         </ol>
     )
 }
 
 export function TodaySelfDrivingStatus({ quietRow }: { quietRow: ReactNode }): JSX.Element {
     if (!useFeatureFlag('PRODUCT_AUTONOMY')) {
-        return <QuietRows quietRow={quietRow} />
+        return <QuietRows>{quietRow}</QuietRows>
     }
     return <TodaySelfDrivingVerdict quietRow={quietRow} />
 }
@@ -45,7 +44,12 @@ function TodaySelfDrivingVerdict({ quietRow }: { quietRow: ReactNode }): JSX.Ele
         return <Skeleton className="h-12 w-full" />
     }
     if (!computeIsSelfDrivingSetUp(enabledSourcesCount, scoutConfigs ?? [])) {
-        return <QuietRows quietRow={quietRow} />
+        return (
+            <QuietRows>
+                <TodaySelfDrivingRow />
+                {quietRow}
+            </QuietRows>
+        )
     }
     return (
         <ol className="TodayRows">
