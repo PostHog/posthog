@@ -62,7 +62,15 @@ export function roleSpecs(
     sesValkey: { host: string; port: number } = SES_RATE_LIMITER_VALKEY,
     replicas: Replicas = {}
 ): RoleSpec[] {
-    const { AWS_PROFILE: _profile, SCENARIO_POOLER_URLS: poolerUrls, ...inherited } = base
+    const {
+        AWS_PROFILE: _profile,
+        SCENARIO_POOLER_URLS: poolerUrls,
+        CDP_RATE_LIMITER_REFILL_RATE: _refillRate,
+        CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: _sesRefill,
+        CDP_SES_RATE_LIMIT_CAPACITY: _sesCapacity,
+        CONSUMER_BATCH_SIZE: _batchSize,
+        ...inherited
+    } = base
     const poolers = poolerUrls ? poolerUrls.split(',') : []
     const {
         KAFKA_CONSUMER_GROUP_ID: _group,

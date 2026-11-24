@@ -42,6 +42,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.c
     slot_exists,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import (
+    SSLRequiredError,
     _is_dropped_or_connect_timeout,
     _retry_on_connection_dropped,
     source_requires_ssl,
@@ -215,9 +216,12 @@ class PostgresCDCAdapter:
         # psycopg raises OperationalError for every failure to reach the source DB
         # (connect timeout, refused, unreachable host, DNS, dropped, auth); sshtunnel
         # raises BaseSSHTunnelForwarderError when the tunnel itself can't be established;
-        # the host policy raises HostNotAllowedError before any socket opens.
-        # None points at a bug in our code.
-        return isinstance(exc, psycopg.OperationalError | BaseSSHTunnelForwarderError | HostNotAllowedError)
+        # the host policy raises HostNotAllowedError before any socket opens;
+        # _connect_to_postgres replaces the OperationalError of a server without SSL
+        # with SSLRequiredError, a plain Exception. None points at a bug in our code.
+        return isinstance(
+            exc, psycopg.OperationalError | BaseSSHTunnelForwarderError | HostNotAllowedError | SSLRequiredError
+        )
 
     def customer_fixable_error_message(self, exc: BaseException) -> str | None:
         return _customer_fixable_setup_message(exc)

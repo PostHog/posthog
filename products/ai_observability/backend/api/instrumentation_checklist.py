@@ -13,7 +13,7 @@ from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.models.scoping.manager import TeamScopedQuerySet
 from posthog.models.user import User
 
-from ..instrumentation_checklist.grading import CheckKey, CheckStatus, grade_checklist
+from ..instrumentation_checklist.grading import CheckKey, CheckStatus, agent_prompt, checklist_progress, grade_checklist
 from ..instrumentation_checklist.stats import WINDOW_DAYS, fetch_checklist_stats
 from ..models.instrumentation_checklist import AIObservabilityChecklistItemState
 from .metrics import llma_track_latency
@@ -55,6 +55,17 @@ class InstrumentationChecklistSerializer(serializers.Serializer):
         many=True,
         help_text="Every check, graded. Checks are always all returned, including the ones that pass.",
     )
+    agent_prompt = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "Ready-made prompt to give a coding agent, listing every check graded 'warning' with its docs link. "
+            "Null when no check warns."
+        ),
+    )
+    passing = serializers.IntegerField(
+        help_text="How many checks need no work: those graded 'ok' plus those dismissed.",
+    )
+    total = serializers.IntegerField(help_text="How many checks were graded, the number `passing` is out of.")
 
 
 class InstrumentationChecklistQuerySerializer(serializers.Serializer):
@@ -120,7 +131,16 @@ class AIObservabilityInstrumentationChecklistViewSet(TeamAndOrgViewSetMixin, vie
         # actions regrade the cached counts rather than paying for the aggregate again.
         stats = fetch_checklist_stats(self.team, force_refresh=force_refresh)
         checks = grade_checklist(stats, dismissed.values_list("check_key", flat=True))
-        serializer = InstrumentationChecklistSerializer({"window_days": WINDOW_DAYS, "checks": checks})
+        progress = checklist_progress(checks)
+        serializer = InstrumentationChecklistSerializer(
+            {
+                "window_days": WINDOW_DAYS,
+                "checks": checks,
+                "agent_prompt": agent_prompt(checks),
+                "passing": progress.passing,
+                "total": progress.total,
+            }
+        )
         return Response(serializer.data)
 
     @validated_request(

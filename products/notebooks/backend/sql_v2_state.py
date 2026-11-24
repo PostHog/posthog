@@ -314,18 +314,37 @@ def _is_stale(
     return False
 
 
-def annotate_run_state(cells: list[NotebookCellState], team_id: int, notebook: Any) -> None:
+def annotate_run_state(
+    cells: list[NotebookCellState], team_id: int, notebook: Any, *, for_release: bool = False
+) -> dict[str, NotebookNodeRun]:
     runnable_ids = [cell.node_id for cell in cells if cell.cell_type in ("sql", "python", "saved_insight")]
     if not runnable_ids:
-        return
+        return {}
     runs = (
         NotebookNodeRun.objects.for_team(team_id)
         .filter(notebook=notebook, node_id__in=runnable_ids)
         .order_by("node_id", "-created_at")
     )
-    latest_by_node = {run.node_id: run for run in runs.distinct("node_id")}
+    latest_runs = runs.defer("bound_variables")
+    if for_release:
+        latest_runs = runs.select_related("notebook_run").only(
+            "node_id",
+            "status",
+            "node_type",
+            "code",
+            "connection_id",
+            "send_raw_query",
+            "bound_variables",
+            "created_at",
+            "updated_at",
+            "notebook_run__variables",
+        )
+    latest_by_node = {run.node_id: run for run in latest_runs.distinct("node_id")}
     latest_done_by_node = {
-        run.node_id: run for run in runs.filter(status=NotebookNodeRun.Status.DONE).distinct("node_id")
+        run.node_id: run
+        for run in runs.filter(status=NotebookNodeRun.Status.DONE)
+        .only("node_id", "code", "created_at")
+        .distinct("node_id")
     }
 
     cells_by_node = {cell.node_id: cell for cell in cells}
@@ -337,15 +356,18 @@ def annotate_run_state(cells: list[NotebookCellState], team_id: int, notebook: A
         if latest is None:
             cell.status = "never_run"
             continue
-        envelope = latest.envelope if isinstance(latest.envelope, dict) else {}
         cell.last_run = {
             "run_id": str(latest.id),
             "status": latest.status,
             "finished_at": latest.updated_at,
-            "row_count": envelope.get("row_count"),
-            "columns": envelope.get("columns"),
-            "error": latest.error or envelope.get("error") or None,
         }
+        if not for_release:
+            envelope = latest.envelope if isinstance(latest.envelope, dict) else {}
+            cell.last_run.update(
+                row_count=envelope.get("row_count"),
+                columns=envelope.get("columns"),
+                error=latest.error or envelope.get("error") or None,
+            )
         if latest.status == NotebookNodeRun.Status.RUNNING:
             cell.status = "running"
         elif latest.status == NotebookNodeRun.Status.DONE and _is_stale(
@@ -354,6 +376,7 @@ def annotate_run_state(cells: list[NotebookCellState], team_id: int, notebook: A
             cell.status = "stale"
         else:
             cell.status = latest.status
+    return latest_by_node
 
 
 def build_notebook_cell_state(team_id: int, notebook: Any) -> list[NotebookCellState]:

@@ -51,7 +51,11 @@ import {
 } from 'products/data_warehouse/frontend/sql_editor/LemonSaveAsMenu'
 import { QuerySaveConfirmation } from 'products/data_warehouse/frontend/sql_editor/QuerySaveConfirmation'
 import { QuillQuerySaveConfirmation } from 'products/data_warehouse/frontend/sql_editor/QuillQuerySaveConfirmation'
-import { SAVE_AS_TARGETS } from 'products/data_warehouse/frontend/sql_editor/saveAsTargets'
+import {
+    SAVE_AS_TARGETS,
+    getCohortIdentifier,
+    getCohortSaveDisabledReason,
+} from 'products/data_warehouse/frontend/sql_editor/saveAsTargets'
 import type { SaveAsTarget, SaveAsTargetId } from 'products/data_warehouse/frontend/sql_editor/saveAsTargets'
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
@@ -551,11 +555,15 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         insightLoading,
         sourceQuery,
         isSourceQueryLastRun,
+        isMultiQuery,
         selectedConnectionId,
         hasEditorChanges,
         saveAsViewDisabledReason,
+        metadata,
+        activeQueryText,
     } = useValues(sqlEditorLogic)
-    const { convertToNotebook, openHistoryModal, openSaveAsMenu, selectSaveAsTarget } = useActions(editorSceneLogic)
+    const { convertToNotebook, openHistoryModal, openSaveAsMenu, selectSaveAsTarget, saveAsCohort } =
+        useActions(editorSceneLogic)
     const {
         runQuery,
         reviewQuerySave,
@@ -668,24 +676,33 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         <IconWarning data-attr="sql-editor-save-warning" className="ml-1" aria-hidden="true" />
     ) : null
 
-    const disabledReasonForSaveAsTarget = (target: SaveAsTargetId): string | null | undefined => {
-        if (target === 'insight') {
-            return saveAsInsightDisabledReason
-        }
-        if (target === 'view') {
-            return (
-                saveAsViewDisabledReason ??
-                saveAsDisabledReason ??
-                saveAsViewAccessDisabledReason ??
-                (sourceQuery.source.executionTarget === 'managed_trino' && needsSaveConfirmation
-                    ? 'Run the latest query successfully to determine the view’s columns'
-                    : undefined)
-            )
-        }
-        if (target === 'endpoint') {
-            return saveAsEndpointQueryDisabledReason ?? saveAsEndpointDisabledReason
-        }
-        return saveAsDisabledReason
+    const cohortIdentifier = useMemo(
+        () =>
+            getCohortIdentifier(
+                response && 'columns' in response ? response.columns : undefined,
+                metadata?.query?.trim() === (activeQueryText ?? queryInput)?.trim() ? metadata?.table_names : undefined
+            ),
+        [response, metadata, activeQueryText, queryInput]
+    )
+    const saveAsDisabledReasons: Record<SaveAsTargetId, () => string | null | undefined> = {
+        cohort: () =>
+            saveAsDisabledReason ??
+            getCohortSaveDisabledReason({
+                isDirectConnection: !!selectedConnectionId || sourceQuery.source.executionTarget === 'managed_trino',
+                isMultiQuery,
+                hasCurrentResults: !needsSaveConfirmation,
+                identifier: cohortIdentifier,
+            }),
+        insight: () => saveAsInsightDisabledReason,
+        view: () =>
+            saveAsViewDisabledReason ??
+            saveAsDisabledReason ??
+            saveAsViewAccessDisabledReason ??
+            (sourceQuery.source.executionTarget === 'managed_trino' && needsSaveConfirmation
+                ? 'Run the latest query successfully to determine the view’s columns'
+                : undefined),
+        endpoint: () => saveAsEndpointQueryDisabledReason ?? saveAsEndpointDisabledReason,
+        metric: () => saveAsDisabledReason,
     }
 
     const hasContextualRecommendation = editorSource !== 'insight' || dashboardId !== null
@@ -693,7 +710,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         id: item.action,
         ...SAVE_AS_TARGETS[item.action],
         recommended: hasContextualRecommendation && item.action === saveAsMenuItems.primary.action,
-        disabledReason: disabledReasonForSaveAsTarget(item.action),
+        disabledReason: saveAsDisabledReasons[item.action](),
         dataAttr: item.dataAttr ?? `sql-editor-save-as-${item.action}`,
     }))
 
@@ -704,6 +721,8 @@ function SQLEditorSceneTitle(): JSX.Element | null {
             saveAsView(false, undefined, candidates)
         } else if (target === 'endpoint') {
             saveAsEndpoint(candidates)
+        } else if (target === 'cohort') {
+            saveAsCohort(cohortIdentifier)
         } else {
             saveAsMetric(undefined, candidates)
         }
@@ -722,23 +741,24 @@ function SQLEditorSceneTitle(): JSX.Element | null {
 
     const secondarySaveMenuItems = saveAsMenuItems.secondary.map((item) => ({
         ...item,
-        onClick: () => confirmSave((candidates) => saveAsTarget(item.action, candidates)),
-        disabledReason: disabledReasonForSaveAsTarget(item.action),
+        onClick: () => onSaveAsTargetSelect(item.action),
+        disabledReason: saveAsDisabledReasons[item.action](),
     }))
 
     const legacySaveMenuItems = [
         { action: 'insight' as const, label: 'Save as new insight...' },
         { action: 'view' as const, label: 'Save as new view...' },
         { action: 'endpoint' as const, label: 'Save as endpoint...' },
+        { action: 'cohort' as const, label: 'Save as cohort...' },
     ].map((item) => ({
         ...item,
-        onClick: () => confirmSave((candidates) => saveAsTarget(item.action, candidates)),
-        disabledReason: disabledReasonForSaveAsTarget(item.action),
+        onClick: () => onSaveAsTargetSelect(item.action),
+        disabledReason: saveAsDisabledReasons[item.action](),
     }))
 
     const onPrimarySaveClick = (): void =>
         confirmSave((candidates) => saveAsTarget(saveAsMenuItems.primary.action, candidates))
-    const primarySaveDisabledReason = disabledReasonForSaveAsTarget(saveAsMenuItems.primary.action)
+    const primarySaveDisabledReason = saveAsDisabledReasons[saveAsMenuItems.primary.action]()
 
     const {
         disabledReason: editingViewDisabledReason,

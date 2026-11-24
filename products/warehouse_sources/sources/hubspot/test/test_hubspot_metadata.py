@@ -9,15 +9,19 @@ from requests.exceptions import HTTPError
 
 from products.warehouse_sources.sources.hubspot.metadata import (
     get_conversation_threads_rows,
+    get_marketing_campaigns_rows,
     get_owners_rows,
     get_pipeline_stages_rows,
     get_pipelines_rows,
     get_properties_rows,
+    get_teams_rows,
 )
 from products.warehouse_sources.sources.hubspot.scopes import HubspotForbiddenError
 from products.warehouse_sources.sources.hubspot.settings import (
+    CAMPAIGN_PROPERTIES,
     HUBSPOT_API_VERSION_2026_03,
     HUBSPOT_API_VERSION_2026_09,
+    HUBSPOT_API_VERSION_V3,
     HUBSPOT_METADATA_ENDPOINTS,
 )
 
@@ -124,18 +128,41 @@ class TestMetadataFetchers:
         assert {r["object_type"] for r in rows} == {readable_type}
 
     @pytest.mark.parametrize(
-        "api_version,path",
+        "fetcher,api_version,path,params",
         [
-            (HUBSPOT_API_VERSION_2026_09, "/conversations/conversations/2026-09/threads"),
+            (
+                get_conversation_threads_rows,
+                HUBSPOT_API_VERSION_2026_09,
+                "/conversations/conversations/2026-09/threads",
+                {"limit": 100, "association": "TICKET"},
+            ),
             # The Conversations API has no 2026-03 release, so that pin reads the v3 path.
-            (HUBSPOT_API_VERSION_2026_03, "/conversations/v3/conversations/threads"),
+            (
+                get_conversation_threads_rows,
+                HUBSPOT_API_VERSION_2026_03,
+                "/conversations/v3/conversations/threads",
+                {"limit": 100, "association": "TICKET"},
+            ),
+            # The 2026-09 Campaigns release is a public beta, so that pin reads the stable 2026-03 one.
+            (
+                get_marketing_campaigns_rows,
+                HUBSPOT_API_VERSION_2026_09,
+                "/marketing/campaigns/2026-03",
+                {"limit": 100, "properties": ",".join(CAMPAIGN_PROPERTIES)},
+            ),
+            (
+                get_marketing_campaigns_rows,
+                HUBSPOT_API_VERSION_V3,
+                "/marketing/v3/campaigns",
+                {"limit": 100, "properties": ",".join(CAMPAIGN_PROPERTIES)},
+            ),
         ],
     )
-    def test_conversation_threads_pages_by_after_cursor(self, api_version: str, path: str) -> None:
-        # The threads API documents `paging.next.link` as optional, so paging must not depend on it.
+    def test_pages_by_after_cursor(self, fetcher: Any, api_version: str, path: str, params: dict[str, Any]) -> None:
+        # These APIs document `paging.next.link` as optional or relative, so paging must not depend on it.
         pages = {
-            None: {"results": [{"id": "1", "status": "OPEN"}], "paging": {"next": {"after": "c1"}}},
-            "c1": {"results": [{"id": "2", "status": "CLOSED", "threadAssociations": {"associatedTicketId": "9"}}]},
+            None: {"results": [{"id": "1"}], "paging": {"next": {"after": "c1", "link": "?after=c1"}}},
+            "c1": {"results": [{"id": "2"}]},
         }
         requests: list[tuple[str, dict[str, Any] | None]] = []
 
@@ -148,13 +175,58 @@ class TestMetadataFetchers:
 
         session = type("_S", (), {"get": staticmethod(_get)})()
         with patch(_SESSION, new=lambda *_a, **_k: session):
-            rows = _call(get_conversation_threads_rows, api_version)
+            rows = _call(fetcher, api_version)
 
-        params = {"limit": 100, "association": "TICKET"}
         assert requests == [(path, params), (path, {**params, "after": "c1"})]
         assert [r["id"] for r in rows] == ["1", "2"]
-        assert rows[1]["threadAssociations"] == '{"associatedTicketId": "9"}'
+
+    def test_conversation_threads_keeps_thread_associations(self) -> None:
+        payload = {"id": "2", "status": "CLOSED", "threadAssociations": {"associatedTicketId": "9"}}
+        with patch(_FETCH_DATA, new=_fetch_data_returning({"/conversations/v3/conversations/threads": [[payload]]})):
+            rows = _call(get_conversation_threads_rows)
+
+        assert rows[0]["threadAssociations"] == '{"associatedTicketId": "9"}'
         assert set(rows[0]) >= set(HUBSPOT_METADATA_ENDPOINTS["conversation_threads"].columns)
+
+    @pytest.mark.parametrize(
+        "api_version,path",
+        [
+            (HUBSPOT_API_VERSION_V3, "/settings/v3/users/teams"),
+            (HUBSPOT_API_VERSION_2026_03, "/settings/users/2026-03/teams"),
+            # The 2026-09 User Provisioning release is a public beta, so that pin reads 2026-03.
+            (HUBSPOT_API_VERSION_2026_09, "/settings/users/2026-03/teams"),
+        ],
+    )
+    def test_teams_reads_the_stable_route_and_encodes_members(self, api_version: str, path: str) -> None:
+        payload = {"id": "7", "name": "Sales EMEA", "userIds": ["101", "102"]}
+        with patch(_FETCH_DATA, new=_fetch_data_returning({path: [[payload]]})):
+            rows = _call(get_teams_rows, api_version)
+
+        assert rows == [{"id": "7", "name": "Sales EMEA", "userIds": '["101", "102"]', "secondaryUserIds": None}]
+
+    def test_marketing_campaigns_lifts_properties_and_keeps_the_envelope(self) -> None:
+        payload = {
+            "id": "a1b2c3d4-0000-4000-8000-000000000001",
+            "createdAt": "2026-01-02T03:04:05Z",
+            "updatedAt": "2026-02-03T04:05:06Z",
+            "businessUnits": [{"id": 0}],
+            "properties": {"hs_name": "Spring launch", "hs_campaign_status": "active"},
+        }
+        with patch(_SESSION) as session:
+            session.return_value.get.return_value = MagicMock(
+                status_code=200, json=MagicMock(return_value={"results": [payload]})
+            )
+            rows = _call(get_marketing_campaigns_rows)
+
+        row = rows[0]
+        assert row["id"] == payload["id"]
+        assert row["createdAt"] == "2026-01-02T03:04:05Z"
+        assert row["updatedAt"] == "2026-02-03T04:05:06Z"
+        assert row["businessUnits"] == '[{"id": 0}]'
+        assert row["hs_name"] == "Spring launch"
+        assert row["hs_end_date"] is None
+        assert "properties" not in row
+        assert set(row) == set(HUBSPOT_METADATA_ENDPOINTS["marketing_campaigns"].columns)
 
     def test_owners_fails_the_table_when_the_grant_cannot_read_it(self) -> None:
         with _patch_session({"/crm/owners/2026-03"}, {}), pytest.raises(HubspotForbiddenError):

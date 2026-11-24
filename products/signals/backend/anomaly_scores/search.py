@@ -17,17 +17,20 @@ from posthog.schema import IntervalType
 from posthog.dataclasses import frozen
 from posthog.interval_specs import interval_spec
 from posthog.models import Team, User
+from posthog.models.file_system.file_system_view_log import recent_view_logs
 from posthog.utils import absolute_uri
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.dashboards.backend.facade.api import (
     dashboards_by_insight,
     live_tile_insight_ids,
+    live_tile_insight_ids_on_dashboards,
     viewable_dashboard_ids,
     viewable_dashboard_ref,
 )
 from products.dashboards.backend.facade.contracts import DashboardRef
 from products.product_analytics.backend.facade.api import (
+    insight_ids_by_short_ids,
     insight_ids_named_like,
     viewable_insights,
     viewable_saved_queries,
@@ -74,6 +77,16 @@ URL_BUCKETS_AFTER = 3
 MAX_INSIGHT_SERIES = MAX_LIMITS.max_series
 # A larger set of requested insights is filtered after the read, so the ClickHouse query stays small.
 MAX_SCOPED_INSIGHTS = 1_000
+# The fewest completed buckets of an interval that the range of its series holds. A short range such as the last
+# 3 days rarely holds a completed weekly or monthly bucket, so without this those series are never checked in it.
+MIN_RANGE_BUCKETS: Mapping[IntervalType, int] = {IntervalType.WEEK: 2, IntervalType.MONTH: 1}
+# The windows a search can scope to the insights and dashboards the user viewed, in days.
+VIEWED_WITHIN_DAYS = (7, 14, 30, 45, 90)
+# The view log takes any type, ref and time from its caller, so one user can store any number of rows. The viewed
+# scope reads only the newest rows, which bounds the Postgres lookups that follow.
+MAX_VIEWED_ITEMS = 1_000
+# The largest id a dashboard can have. A larger value in an `__in` lookup makes Postgres reject the whole query.
+MAX_DASHBOARD_ID = 2**31 - 1
 SCORING_DISABLED_MESSAGE = "Anomaly scoring is not enabled for this project, so no insight is scored."
 SCORING_SOURCE_OFF_MESSAGE = (
     "The Product analytics source is turned off in this project's self-driving settings, so no insight is scored. "
@@ -122,6 +135,17 @@ class AnomalySearchFilters:
     search: str | None = None
     # Adds the scored buckets of each series row in the chart window of its interval, at the cost of one more query.
     include_points: bool = False
+    # Only the insights the user viewed in this many days, directly or on a dashboard. None for every insight.
+    viewed_within_days: int | None = None
+
+
+@frozen
+class AnomalyIntervalRange:
+    """The range a search applied to the series of one interval."""
+
+    interval: IntervalType
+    date_from: datetime.datetime
+    date_to: datetime.datetime
 
 
 @frozen
@@ -157,6 +181,8 @@ class AnomalySearchResult:
     insights_scored_in_range: int
     # Over a fixed window before now, not the requested range, so it says whether scores are ready to rely on.
     scored_days: int
+    # One entry per interval the search covers. A weekly or monthly range can start before the requested one.
+    interval_ranges: list[AnomalyIntervalRange]
     series: list[SeriesRow]
     insights: list[InsightRow]
     has_more: bool
@@ -167,6 +193,8 @@ class AnomalySearchResult:
     message: str | None
     # The newest scored bucket of any series the filters match, so it does not change with the order or the page.
     scored_through: datetime.datetime | None
+    # The user viewed no insight in the requested window, so the search covers every insight instead.
+    viewed_scope_empty: bool = False
 
     @property
     def scored_history_ready(self) -> bool:
@@ -266,6 +294,31 @@ def _expected_buckets(
     return len(bucket_starts(summary.newest_bucket, summary.interval, date_from=date_from, date_to=date_to, now=now))
 
 
+def interval_ranges(
+    team: Team,
+    intervals: Sequence[IntervalType],
+    *,
+    date_from: datetime.datetime,
+    date_to: datetime.datetime,
+    now: datetime.datetime,
+) -> list[AnomalyIntervalRange]:
+    """The range of each interval: the requested range, started earlier when needed to hold ``MIN_RANGE_BUCKETS``.
+
+    The buckets counted are the newest that completed by the end of the range, or by ``now`` when that is earlier.
+    They line up with the project's week start day, as the scored insight buckets do.
+    """
+    end = min(date_to, now).astimezone(team.timezone_info)
+    ranges: list[AnomalyIntervalRange] = []
+    for interval in intervals:
+        start = date_from
+        buckets = MIN_RANGE_BUCKETS.get(interval)
+        if buckets:
+            spec = interval_spec(interval)
+            start = min(date_from, spec.align(end, team.week_start_day) - spec.period * buckets)
+        ranges.append(AnomalyIntervalRange(interval=interval, date_from=start, date_to=date_to))
+    return ranges
+
+
 def _importance(team: Team, insight_ids: Collection[int], now: datetime.datetime) -> dict[int, SeriesImportance]:
     if not insight_ids:
         return {}
@@ -289,19 +342,50 @@ def _viewable_dashboards(team: Team, user: User, insight_ids: Collection[int]) -
     return {insight_id: tuple(ref for ref in refs if ref.id in viewable) for insight_id, refs in by_insight.items()}
 
 
-def _requested_insight_ids(team: Team, user: User, filters: AnomalySearchFilters) -> set[int] | None:
+def _dashboard_id(ref: str) -> int | None:
+    """The dashboard id a view-log ref holds, or None when the ref cannot be one.
+
+    ``str.isdigit`` alone is not enough, because it accepts digits such as ``²`` that ``int`` rejects.
+    """
+    if not (ref.isascii() and ref.isdigit()) or len(ref) > len(str(MAX_DASHBOARD_ID)):
+        return None
+    dashboard_id = int(ref)
+    return dashboard_id if dashboard_id <= MAX_DASHBOARD_ID else None
+
+
+def _viewed_insight_ids(team: Team, user: User, *, days: int, now: datetime.datetime) -> set[int]:
+    """The insights the user opened in the last ``days``, and the insights on the live tiles of the dashboards they opened.
+
+    A dashboard counts with the tiles it has now, not the tiles it had when the user opened it. The view log records
+    views in the web app only, so an insight read through the API or an MCP tool does not count. Only the newest
+    ``MAX_VIEWED_ITEMS`` views count, and a view dated after ``now`` does not count.
+    """
+    refs: dict[str, set[str]] = {"insight": set(), "dashboard": set()}
+    views = recent_view_logs(team_id=team.id, user_id=user.id).filter(
+        type__in=list(refs), viewed_at__gte=now - datetime.timedelta(days=days), viewed_at__lte=now
+    )[:MAX_VIEWED_ITEMS]
+    for view_type, ref in views.values_list("type", "ref"):
+        refs[view_type].add(ref)
+    dashboard_ids = {dashboard_id for ref in refs["dashboard"] if (dashboard_id := _dashboard_id(ref)) is not None}
+    return insight_ids_by_short_ids(team_id=team.id, short_ids=refs["insight"]) | live_tile_insight_ids_on_dashboards(
+        dashboard_ids, team_id=team.id
+    )
+
+
+def _requested_insight_ids(
+    team: Team, user: User, filters: AnomalySearchFilters, viewed: set[int] | None
+) -> set[int] | None:
     """The insights the filters allow, or None for every insight."""
-    insight_ids: set[int] | None = None
+    scopes: list[set[int]] = [] if viewed is None else [viewed]
     if filters.dashboard_id is not None:
         if viewable_dashboard_ref(filters.dashboard_id, team=team, user=user) is None:
             raise AnomalyDashboardNotFound()
-        insight_ids = set(live_tile_insight_ids(filters.dashboard_id))
+        scopes.append(set(live_tile_insight_ids(filters.dashboard_id)))
     if filters.insight_id is not None:
-        insight_ids = {filters.insight_id} if insight_ids is None else insight_ids & {filters.insight_id}
+        scopes.append({filters.insight_id})
     if filters.search:
-        named = insight_ids_named_like(team_id=team.id, search=filters.search)
-        insight_ids = named if insight_ids is None else insight_ids & named
-    return insight_ids
+        scopes.append(insight_ids_named_like(team_id=team.id, search=filters.search))
+    return set.intersection(*scopes) if scopes else None
 
 
 def _scoring_off_message(config: AnomalyScoringConfig, team: Team) -> str | None:
@@ -330,14 +414,35 @@ def search(team: Team, user: User, filters: AnomalySearchFilters, now: datetime.
     """The anomaly rate of each series in the range, in the requested order, by series or by insight."""
     config = parse_config(read_payload())
     off_message = _scoring_off_message(config, team)
-    requested = _requested_insight_ids(team, user, filters)
+    viewed: set[int] | None = None
+    if filters.viewed_within_days is not None:
+        # An empty scope could only show an empty list, so the search covers every insight and says so instead.
+        viewed = _viewed_insight_ids(team, user, days=filters.viewed_within_days, now=now) or None
+    requested = _requested_insight_ids(team, user, filters, viewed)
     intervals = (filters.interval,) if filters.interval is not None else config.intervals
     watched = {insight.insight_id for insight in active_insights([team.id], intervals, now, config.active_window_days)}
     if requested is not None:
         watched &= requested
 
+    ranges = interval_ranges(
+        team,
+        (filters.interval,)
+        if filters.interval is not None
+        else [IntervalType(value) for value in AnomalyInterval.values],
+        date_from=filters.date_from,
+        date_to=filters.date_to,
+        now=now,
+    )
+    range_from = {interval_range.interval: interval_range.date_from for interval_range in ranges}
+
     scope = requested if requested is None or len(requested) <= MAX_SCOPED_INSIGHTS else None
-    summaries = series_summaries(team, date_from=filters.date_from, date_to=filters.date_to, insight_ids=scope)
+    summaries = series_summaries(
+        team,
+        date_from=filters.date_from,
+        date_to=filters.date_to,
+        insight_ids=scope,
+        interval_from={interval: start for interval, start in range_from.items() if start != filters.date_from},
+    )
     requested_series = [summary for summary in summaries.series if requested is None or summary.insight_id in requested]
     insights = {
         insight.id: insight
@@ -396,7 +501,9 @@ def search(team: Team, user: User, filters: AnomalySearchFilters, now: datetime.
                     summary.interval,
                     queries.get(insights[summary.insight_id].short_id),
                 ),
-                expected_buckets=_expected_buckets(summary, filters.date_from, filters.date_to, now),
+                expected_buckets=_expected_buckets(
+                    summary, range_from.get(summary.interval, filters.date_from), filters.date_to, now
+                ),
                 flagged_points=summary.flagged_points[:FLAGGED_POINTS],
                 points=None if points is None else tuple(points[(summary.insight_id, summary.series_key)]),
                 dashboards=dashboards.get(summary.insight_id, ()),
@@ -444,6 +551,7 @@ def search(team: Team, user: User, filters: AnomalySearchFilters, now: datetime.
         watched_insights=watched_count,
         insights_scored_in_range=scored_in_range,
         scored_days=scored_days(team, now=now),
+        interval_ranges=ranges,
         series=series_rows,
         insights=insight_rows,
         has_more=has_more,
@@ -455,6 +563,7 @@ def search(team: Team, user: User, filters: AnomalySearchFilters, now: datetime.
         scored_through=max(
             (summary.scored_through for summary in in_range if summary.scored_through is not None), default=None
         ),
+        viewed_scope_empty=filters.viewed_within_days is not None and viewed is None,
     )
 
 

@@ -6,6 +6,7 @@ import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { ImportFromAnotherToolPrompt } from '../../OptOuts/ImportFromAnotherToolPrompt'
 import { FirstSendStatus } from './FirstSendStatus'
 import { SendFromCodeSetup } from './SendFromCodeSetup'
 import { SendingDomainRow } from './SendingDomainRow'
@@ -41,6 +42,11 @@ export function SendFromCodeEmptyState(): JSX.Element {
                         </Link>
                     </p>
                 ) : null}
+                <ImportFromAnotherToolPrompt
+                    entryPoint="transactional"
+                    linkText="Import your templates."
+                    dataAttr="transactional-empty-state-import"
+                />
             </div>
         </div>
     )

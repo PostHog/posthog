@@ -451,14 +451,14 @@ class PostgresDestinationWriter:
             full_refresh = run.is_full_refresh
             target = staging_table_name(run) if full_refresh else run.table_name
 
-            rows_written = 0
+            outcome = BatchWriteOutcome(rows_written=0, bytes_written=0)
 
             async with self._client() as client:
                 if full_refresh and await self._already_published(client, run):
                     # This run's staging table is gone and the live table carries this run's
                     # publish stamp, so the run finished. Re-creating a staging table from this
                     # one batch and swapping it in would replace the whole table with it.
-                    return BatchWriteOutcome(rows_written=0)
+                    return outcome
 
                 first = True
                 async for batch in batches:
@@ -508,11 +508,9 @@ class PostgresDestinationWriter:
                             await self._mark_owned(client, target, run.schema_id)
                         first = False
 
-                    rows_written += await self._write_record_batch(
-                        client, target, batch, ctx, full_refresh=full_refresh
-                    )
+                    outcome += await self._write_record_batch(client, target, batch, ctx, full_refresh=full_refresh)
 
-            return BatchWriteOutcome(rows_written=rows_written)
+            return outcome
 
     async def _delete_batch_rows(self, client: PostgreSQLClient, target: str, batch_index: int) -> None:
         async with self._write_cursor(client) as cursor:
@@ -545,9 +543,15 @@ class PostgresDestinationWriter:
 
     async def _load_batch(
         self, client: PostgreSQLClient, table: str, batch: pa.RecordBatch, column_names: list[str]
-    ) -> None:
-        """Put one record batch into a table, whatever the dialect's bulk load is."""
-        await client.copy_tsv_to_postgres(self._tsv_buffer(batch, column_names), self._schema, table, column_names)
+    ) -> int:
+        """Put one record batch into a table, whatever the dialect's bulk load is.
+
+        Returns the bytes sent to the server for it.
+        """
+        buffer = self._tsv_buffer(batch, column_names)
+        size = buffer.getbuffer().nbytes
+        await client.copy_tsv_to_postgres(buffer, self._schema, table, column_names)
+        return size
 
     async def _write_record_batch(
         self,
@@ -557,37 +561,37 @@ class PostgresDestinationWriter:
         ctx: DestinationBatchContext,
         *,
         full_refresh: bool,
-    ) -> int:
+    ) -> BatchWriteOutcome:
         run = ctx.run
         if batch.num_rows == 0:
-            return 0
+            return BatchWriteOutcome(rows_written=0, bytes_written=0)
 
         column_names = list(batch.schema.names)
 
         if full_refresh:
             stamped = stamp_batch_index(batch, ctx.batch_index)
-            await self._load_batch(client, target, stamped, [*column_names, self._batch_index_column])
-            return batch.num_rows
+            bytes_written = await self._load_batch(client, target, stamped, [*column_names, self._batch_index_column])
+            return BatchWriteOutcome(rows_written=batch.num_rows, bytes_written=bytes_written)
 
         if run.is_incremental and run.primary_keys:
             return await self._merge_batch(client, target, batch, column_names)
 
-        await self._load_batch(client, target, batch, column_names)
-        return batch.num_rows
+        bytes_written = await self._load_batch(client, target, batch, column_names)
+        return BatchWriteOutcome(rows_written=batch.num_rows, bytes_written=bytes_written)
 
     async def _merge_batch(
         self, client: PostgreSQLClient, target: str, batch: pa.RecordBatch, column_names: list[str]
-    ) -> int:
+    ) -> BatchWriteOutcome:
         """Upsert a batch on the schema's primary keys, through a stage table."""
         run = self._ctx
         stage = merge_stage_name(target, run)
         source = dedupe_merge_source(batch, list(run.primary_keys))
 
         await self._ensure_merge_stage(client, target, stage, batch.schema)
-        await self._load_batch(client, stage, source, column_names)
+        bytes_written = await self._load_batch(client, stage, source, column_names)
         await self._upsert_from_stage(client, target, stage, column_names, list(run.primary_keys))
 
-        return source.num_rows
+        return BatchWriteOutcome(rows_written=source.num_rows, bytes_written=bytes_written)
 
     async def _ensure_merge_stage(self, client: PostgreSQLClient, target: str, stage: str, schema: pa.Schema) -> None:
         """Ready the run's stage table to receive one batch.

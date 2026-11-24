@@ -37,6 +37,9 @@ Outcome = Literal[
     "prepare_failed",
     "prepare_retry",
     "prepare_timeout",
+    "run_cancelled",
+    "run_completed",
+    "run_failed",
 ]
 
 
@@ -48,10 +51,12 @@ class EgressActivities:
         self.cleanup_attempts = 0
         self.probe_attempts = 0
         self.prepare_attempts = 0
+        self.renewal_attempts = 0
         self.execution: AgentEgressExecutionInput | None = None
         self.cleanup: AgentEgressCleanupInput | None = None
         self.preparing = asyncio.Event()
         self.probing = asyncio.Event()
+        self.renewed = asyncio.Event()
         self.closed = asyncio.Event()
         self.cleaning = asyncio.Event()
         self.release_cleanup = asyncio.Event()
@@ -72,19 +77,30 @@ class EgressActivities:
         return AgentEgressPrepared(
             sandbox_id="sb-egress-test",
             duration_seconds=1
-            if self.outcome in ("completed", "renewal_retry", "probe_rejected", "prepare_retry", "prepare_timeout")
+            if input.probe.sandbox_expires_at is not None
+            or self.outcome in ("completed", "renewal_retry", "probe_rejected", "prepare_retry", "prepare_timeout")
             else 60,
+            enrollment_expires_at=input.probe.sandbox_expires_at,
         )
 
     @activity.defn(name="renew_agent_egress")
     async def renew(self, input: AgentEgressExecutionInput) -> None:
         assert input == self.execution
+        self.renewal_attempts += 1
         if self.outcome == "renewal_failed":
             raise ApplicationError("Execution lease expired", non_retryable=True)
+        if self.outcome in ("run_cancelled", "run_completed", "run_failed"):
+            raise ApplicationError(
+                "The task run has ended",
+                self.outcome.removeprefix("run_"),
+                type="AgentEgressRunEnded",
+                non_retryable=True,
+            )
         if self.outcome == "renewal_retry":
             if activity.info().attempt == 1:
                 raise ApplicationError("Registry temporarily unavailable")
             self.closed.set()
+        self.renewed.set()
 
     @activity.defn(name="probe_agent_egress")
     async def probe(self, input: AgentEgressExecutionInput) -> dict[int, int]:
@@ -111,6 +127,73 @@ class EgressActivities:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("probe_fails", [False, True])
+@pytest.mark.parametrize(
+    "outcome", ["completed", "cancelled", "renewal_failed", "run_cancelled", "run_completed", "run_failed"]
+)
+async def test_enrollment_outlives_diagnostics(
+    probe_fails: bool, outcome: Outcome, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.INFO, logger="temporalio.workflow")
+    caplog.set_level(logging.INFO, logger="temporalio.activity")
+    activities = EgressActivities("probe_rejected" if probe_fails else "completed", cleanup_fails=False)
+    queue = f"agent-egress-lifetime-test-{uuid4()}"
+    async with await WorkflowEnvironment.start_time_skipping() as environment:
+        expires_at = (await environment.get_current_time() + timedelta(seconds=35)).timestamp()
+        input = AgentEgressProbeInput(
+            config_path="/run/egress/probe.json",
+            team_id=1,
+            run_id=str(uuid4()),
+            sandbox_id="sb-egress-test",
+            enrollment=True,
+            sandbox_expires_at=expires_at,
+        )
+        async with Worker(
+            environment.client,
+            task_queue=queue,
+            workflows=[AgentEgressProbeWorkflow],
+            activities=[activities.prepare, activities.renew, activities.probe, activities.close],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            handle = await environment.client.start_workflow(
+                AgentEgressProbeWorkflow.run,
+                input,
+                id=queue,
+                task_queue=queue,
+                execution_timeout=timedelta(minutes=2),
+            )
+            await asyncio.wait_for(activities.probing.wait(), timeout=15)
+            await environment.sleep(11)
+            assert not activities.cleaning.is_set()
+            await asyncio.wait_for(activities.renewed.wait(), timeout=15)
+            assert activities.probe_attempts == 1
+            assert activities.renewal_attempts >= 1
+            activities.outcome = outcome
+            if outcome == "cancelled":
+                await handle.cancel()
+            if outcome in ("cancelled", "run_cancelled", "renewal_failed"):
+                with pytest.raises(WorkflowFailureError) as failure:
+                    await asyncio.wait_for(handle.result(), timeout=15)
+                expected = ActivityError if outcome == "renewal_failed" else CancelledError
+                assert isinstance(failure.value.cause, expected)
+            else:
+                assert await asyncio.wait_for(handle.result(), timeout=15) == ({} if probe_fails else {204: 3})
+            if outcome == "completed":
+                assert (await environment.get_current_time()).timestamp() >= expires_at
+                assert activities.renewal_attempts >= 3
+            assert activities.cleanup is not None
+            assert activities.cleanup.reason == (
+                "failed"
+                if outcome in ("renewal_failed", "run_failed")
+                else "cancelled"
+                if outcome in ("cancelled", "run_cancelled")
+                else "completed"
+            )
+            assert activities.cleanup_attempts == 1
+            assert ("agent_egress_diagnostics_failed" in caplog.text) is probe_fails
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "outcome",
     [
@@ -122,6 +205,9 @@ class EgressActivities:
         "prepare_failed",
         "prepare_retry",
         "prepare_timeout",
+        "run_cancelled",
+        "run_completed",
+        "run_failed",
     ],
 )
 @pytest.mark.parametrize("cleanup_fails", [False, True])
@@ -156,16 +242,20 @@ async def test_workflow_cleans_up_its_execution(
                     await asyncio.wait_for(activities.probing.wait(), timeout=15)
                 if outcome == "cancelled":
                     await handle.cancel()
-                elif outcome in ("renewal_failed", "renewal_retry"):
+                elif outcome in ("renewal_failed", "renewal_retry", "run_cancelled", "run_completed", "run_failed"):
                     await environment.sleep(11)
-                if outcome in ("completed", "renewal_retry", "prepare_retry", "prepare_timeout") and not cleanup_fails:
+                if outcome in ("run_completed", "run_failed") and (not cleanup_fails or outcome == "run_failed"):
+                    assert await asyncio.wait_for(handle.result(), timeout=15) == {}
+                elif (
+                    outcome in ("completed", "renewal_retry", "prepare_retry", "prepare_timeout") and not cleanup_fails
+                ):
                     assert await asyncio.wait_for(handle.result(), timeout=15) == {204: 3}
                 else:
                     with pytest.raises(WorkflowFailureError) as failure:
                         await asyncio.wait_for(handle.result(), timeout=15)
-                    expected = CancelledError if outcome == "cancelled" else ActivityError
+                    expected = CancelledError if outcome in ("cancelled", "run_cancelled") else ActivityError
                     assert isinstance(failure.value.cause, expected)
-                    if outcome != "cancelled":
+                    if outcome not in ("cancelled", "run_cancelled"):
                         assert isinstance(failure.value.cause, ActivityError)
                         assert isinstance(failure.value.cause.cause, ApplicationError)
                         expected_message = {
@@ -185,9 +275,9 @@ async def test_workflow_cleans_up_its_execution(
                     execution=activities.execution,
                     sandbox_id=None if outcome == "prepare_failed" else "sb-egress-test",
                     reason="failed"
-                    if outcome in ("renewal_failed", "probe_rejected", "prepare_failed")
+                    if outcome in ("renewal_failed", "probe_rejected", "prepare_failed", "run_failed")
                     else "cancelled"
-                    if outcome == "cancelled"
+                    if outcome in ("cancelled", "run_cancelled")
                     else "completed",
                 )
             finally:

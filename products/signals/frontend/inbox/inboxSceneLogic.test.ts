@@ -17,13 +17,16 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { OriginProduct, Task, TaskRun, TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
+import type { SignalScoutConfigApi } from 'products/signals/frontend/generated/api.schemas'
 import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { myClaim } from './__mocks__/inboxMocks'
 import { inboxSceneLogic, mergeSignalRuns, REPORT_READ_ACTIVE_MS } from './inboxSceneLogic'
 import { inboxBulkActionsLogic } from './logics/inboxBulkActionsLogic'
 import { reportListLogic, sectionListLogicProps } from './logics/reportListLogic'
+import { scoutFleetLogic } from './logics/scoutFleetLogic'
 import { InboxTabKey, SignalReport, SignalReportStatus, SignalScoutRunSummary } from './types'
+import { scoutDisplayName } from './utils/scoutRunsWindow'
 
 function openedCalls(spy: jest.SpyInstance): any[][] {
     return spy.mock.calls.filter((call) => call[0] === 'Inbox report opened')
@@ -326,6 +329,50 @@ describe('inboxSceneLogic routing', () => {
             router.actions.push(urls.inboxScout('signals-scout-web-vitals'), { tab })
             expect(logic.values.selectedScoutSkillName).toBe('signals-scout-web-vitals')
             expect(logic.values.scoutDetailTab).toBe(tab)
+        })
+
+        it('reports the open scout as a recent once its config loads, so the scout can be pinned', () => {
+            mountLogic()
+            router.actions.push(urls.inboxScout('signals-scout-web-vitals'))
+            expect(logic.values.todayRecent).toBeNull()
+
+            const config = { id: 'config-1', skill_name: 'signals-scout-web-vitals' } as SignalScoutConfigApi
+            scoutFleetLogic.actions.loadScoutConfigsSuccess([config])
+            expect(logic.values.todayRecent).toEqual({
+                type: 'scout',
+                name: scoutDisplayName(config),
+                href: urls.inboxScout('signals-scout-web-vitals'),
+            })
+        })
+
+        it.each([
+            { navigation: 'the Automate pane', railNav: true, dataArea: true, root: 'Scouts', namesScout: true },
+            {
+                navigation: 'the new navigation',
+                railNav: true,
+                dataArea: false,
+                root: 'Self-driving inbox',
+                namesScout: true,
+            },
+            {
+                navigation: 'the old navigation',
+                railNav: false,
+                dataArea: false,
+                root: 'Self-driving inbox',
+                namesScout: false,
+            },
+        ])('names a scout page in breadcrumbs under $navigation', ({ railNav, dataArea, root, namesScout }) => {
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.TODAY_RAIL_NAV]: railNav,
+                [FEATURE_FLAGS.DATA_AREA]: dataArea,
+            })
+            mountLogic()
+            router.actions.push(urls.inboxScout('signals-scout-web-vitals'))
+            const config = { id: 'config-1', skill_name: 'signals-scout-web-vitals' } as SignalScoutConfigApi
+            scoutFleetLogic.actions.loadScoutConfigsSuccess([config])
+            expect(logic.values.breadcrumbs.map((crumb) => crumb.name)).toEqual(
+                namesScout ? [root, scoutDisplayName(config)] : [root]
+            )
         })
 
         it('leaves the tab on its default for a bare scout URL', () => {

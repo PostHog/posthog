@@ -10,3 +10,11 @@ export function humanizeEventColumnValue<T>(columnName: string, value: T): T {
     }
     return (formatEventName(value) ?? value) as T
 }
+
+export function chartAxisValues<T>(column: string, values: T[], useRawLabels: boolean): { data: T[]; rawData?: T[] } {
+    if (useRawLabels || column !== EVENT_COLUMN_NAME) {
+        return { data: values }
+    }
+    const labels = values.map((value) => humanizeEventColumnValue(column, value))
+    return labels.some((label, index) => label !== values[index]) ? { data: labels, rawData: values } : { data: values }
+}

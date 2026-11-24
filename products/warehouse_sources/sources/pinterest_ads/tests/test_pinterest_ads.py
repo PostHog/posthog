@@ -1,10 +1,13 @@
 import datetime as dt
+from collections.abc import Iterable
+from typing import Any, cast
 
 import pytest
 from unittest import mock
 
 import requests
 
+from products.warehouse_sources.sources.pinterest_ads._config import PinterestAdsSourceConfig
 from products.warehouse_sources.sources.pinterest_ads.pinterest_ads import (
     ANALYTICS_RESUME_KIND,
     ENTITY_RESUME_KIND,
@@ -19,6 +22,7 @@ from products.warehouse_sources.sources.pinterest_ads.settings import (
     ANALYTICS_ENDPOINT_PATHS,
     ANALYTICS_ENTITY_SOURCES,
     ANALYTICS_ID_PARAM_NAMES,
+    BASE_URL,
     ENTITY_ENDPOINT_PATHS,
     PINTEREST_ADS_CONFIG,
     TARGETING_ANALYTICS_ENDPOINT_PATHS,
@@ -609,6 +613,61 @@ class TestIterTargetingAnalyticsRows:
                 }
             ]
         ]
+
+
+class _FakePinterestSession:
+    def __init__(self) -> None:
+        self.requests: list[tuple[str, dict]] = []
+
+    def get(self, url, params=None, timeout=None):
+        self.requests.append((url, dict(params or {})))
+        if url.endswith("/targeting_analytics"):
+            body: object = {"data": []}
+        elif url.endswith("/analytics"):
+            body = []
+        elif url == f"{BASE_URL}/ad_accounts/acc123":
+            body = {"currency": "USD"}
+        else:
+            body = {"items": [{"id": "1"}]}
+        response = mock.MagicMock(status_code=200)
+        response.json.return_value = body
+        return response
+
+
+class TestReportingTimezone:
+    @pytest.mark.parametrize("endpoint", sorted({**ANALYTICS_ENDPOINT_PATHS, **TARGETING_ANALYTICS_ENDPOINT_PATHS}))
+    @pytest.mark.parametrize(
+        "stored_fields, expected_timezone",
+        [
+            ({}, None),
+            ({"reporting_timezone": "PINTEREST_TIME_ZONE"}, None),
+            ({"reporting_timezone": "AD_ACCOUNT_TIME_ZONE"}, "AD_ACCOUNT_TIME_ZONE"),
+        ],
+    )
+    def test_analytics_requests_follow_the_configured_time_zone(self, endpoint, stored_fields, expected_timezone):
+        config = PinterestAdsSourceConfig.from_dict(
+            {"ad_account_id": "acc123", "pinterest_ads_integration_id": "456", **stored_fields}
+        )
+        session = _FakePinterestSession()
+        inputs = mock.MagicMock(schema_name=endpoint, should_use_incremental_field=False)
+
+        with (
+            mock.patch.object(
+                PinterestAdsSource,
+                "get_oauth_integration",
+                return_value=mock.MagicMock(access_token="token"),
+            ),
+            mock.patch(
+                "products.warehouse_sources.sources.pinterest_ads.pinterest_ads.build_session",
+                return_value=session,
+            ),
+        ):
+            response = PinterestAdsSource().source_for_pipeline(config, _make_resume_manager(), inputs)
+            list(cast(Iterable[Any], response.items()))
+
+        analytics_requests = [params for url, params in session.requests if url.endswith("analytics")]
+        assert analytics_requests
+        assert all(params.get("reporting_timezone") == expected_timezone for params in analytics_requests)
 
 
 class TestIterEntityRowsWithoutPagination:

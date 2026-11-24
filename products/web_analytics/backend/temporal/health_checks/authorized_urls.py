@@ -20,7 +20,7 @@ from products.web_analytics.backend.temporal.health_checks.web_projects import t
 class AuthorizedUrlsCheck(HealthCheck):
     name = "authorized_urls"
     kind = "authorized_urls"
-    owner = JobOwners.TEAM_WEB_ANALYTICS
+    owner = JobOwners.TEAM_ANALYTICS
     policy = DEFAULT_EXECUTION_POLICY
     schedule = "15 8 * * *"
     active_since_days = 30

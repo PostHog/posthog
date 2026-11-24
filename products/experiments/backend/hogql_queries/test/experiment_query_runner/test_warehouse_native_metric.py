@@ -5,6 +5,7 @@ from typing import Any
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.core.exceptions import PermissionDenied as DjangoPermissionDenied
 from django.utils import timezone
 
 from google.cloud.bigquery.table import Row
@@ -27,9 +28,12 @@ from posthog.hogql.direct_connection import RAW_QUERY_TABLE_DENIED_ERROR
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.api.query_access_check import denied_query_resources
 from posthog.constants import AvailableFeature
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import OrganizationMembership
+from posthog.models.sharing_configuration import SharingConfiguration
+from posthog.shared_link_user import SharedLinkUser
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
@@ -38,6 +42,7 @@ from products.experiments.backend.facade.warehouse_native_access import WAREHOUS
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.warehouse_native_query_builder import WarehouseNativeQueryBuilder
+from products.experiments.backend.warehouse_native_sources import WarehouseNativeAccessError
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
@@ -270,12 +275,20 @@ class TestWarehouseNativeMetric(APIBaseTest):
         )
         AccessControl.objects.create(team=self.team, resource="external_data_source", access_level="none")
 
-        with self.assertRaises(ValidationError) as raised:
+        with self.assertRaises(WarehouseNativeAccessError) as raised:
             ExperimentQueryRunner(query=query, team=self.team).run(
                 execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE, user=self.user
             )
 
         self.assertIn("does not exist, or you do not have access", str(raised.exception))
+        # Publishing a link to the query asks the same hook, and records only an access control error.
+        self.assertEqual(
+            denied_query_resources(self.user, self.team, [query.model_dump(mode="json")]), ["external_data_source"]
+        )
+        # A shared link reads without a user, and the cached totals would otherwise answer it.
+        share = SharingConfiguration.objects.create(team=self.team, enabled=True)
+        with self.assertRaises(DjangoPermissionDenied):
+            ExperimentQueryRunner(query=query, team=self.team, user=SharedLinkUser(share))
 
         # The dashboard results widget reads the same cache for the viewer.
         widget = experiment_results_widget(
