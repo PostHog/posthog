@@ -1092,6 +1092,7 @@ class TestResendContacts(ClickhouseTestMixin, BaseTest):
             "2 contacts had the same email as another contact, ignoring capital letters and spaces, so they were "
             "merged with that contact.",
             "1 contact had no valid email, so it was skipped.",
+            "1 contact had a character like é before the @, which PostHog can't send to, so it was skipped.",
         } <= set(notes)
         segment_cohorts = Cohort.objects.filter(team_id=self.team.id, description="Imported from Resend segment seg-1.")
         assert segment_cohorts.count() == 1

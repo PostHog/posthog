@@ -5,6 +5,9 @@ import json
 from collections.abc import Iterable, Mapping
 from typing import Any
 
+from django.core.exceptions import ValidationError
+from django.core.validators import validate_email
+
 from posthog.dataclasses import frozen
 
 from products.messaging.backend.provider_imports.base import (
@@ -45,7 +48,7 @@ CONTACT_COUNT_LABELS = (
     ("new_people", "New people"),
     ("not_sent", "Didn't reach PostHog"),
     ("skipped_new_people", "No matching person, left out"),
-    ("unsendable", "Skipped because PostHog can't send to letters like é before the @"),
+    ("unsendable", "Skipped because PostHog can't send to a character like é before the @"),
     ("dropped", "Skipped because the address isn't valid or repeats"),
     ("repeats_merged", "Repeated addresses merged"),
     ("invalid_skipped", "Invalid addresses skipped"),
@@ -215,7 +218,8 @@ def _save_lists(
     unsendable = sum(1 for row in everyone.rows if _is_unsendable(row["email"]))
     if unsendable:
         notes.append(
-            f"{_contacts(unsendable)} skipped, because PostHog can't send to an address with letters like é before the @."
+            f"{_contacts(unsendable)} had a character like é before the @, which PostHog can't send to, so "
+            f"{_they(unsendable)} skipped."
         )
     if result.people:
         notes.append(
@@ -256,7 +260,13 @@ def _save_lists(
 
 
 def _is_unsendable(email: str) -> bool:
-    return not email.rpartition("@")[0].isascii()
+    if email.rpartition("@")[0].isascii():
+        return False
+    try:
+        validate_email(email)
+    except ValidationError:
+        return True
+    return False
 
 
 def _import(
