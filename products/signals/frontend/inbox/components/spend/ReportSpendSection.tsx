@@ -19,6 +19,11 @@ function reportOwnSpend({ generation, implementation }: ReportSpendApi): number 
     return (generation.total_spend ?? 0) + (implementation.total_spend ?? 0)
 }
 
+// A scout that authors a report directly skips the generation stage, so it has no generation receipts to miss.
+function generationApplies({ generation, scout_authored }: ReportSpendApi): boolean {
+    return !scout_authored || generation.total_spend !== null
+}
+
 export function ReportSpendSection({
     reportId,
     onToggleCollapsed,
@@ -30,6 +35,7 @@ export function ReportSpendSection({
     const logic = reportSpendLogic({ teamId: currentTeamId ?? 0, reportId })
     const { spend, spendLoading, failed } = useValues(logic)
     const { refreshSpend } = useActions(logic)
+    const ownSpend = spend ? reportOwnSpend(spend) : null
 
     return (
         <DetailSection
@@ -39,12 +45,9 @@ export function ReportSpendSection({
             defaultCollapsed
             onToggleCollapsed={onToggleCollapsed}
             meta={
-                spend && !failed ? (
+                spend && !failed && (ownSpend !== null || !spend.scout_authored) ? (
                     <span className="text-xs text-secondary" data-attr="report-spend-total">
-                        <RecordedSpend
-                            amount={reportOwnSpend(spend)}
-                            description="Report generation and implementation."
-                        />
+                        <RecordedSpend amount={ownSpend} description="Report generation and implementation." />
                     </span>
                 ) : null
             }
@@ -64,17 +67,19 @@ export function ReportSpendSection({
                 <LemonSkeleton className="h-8 w-full" />
             ) : (
                 <div className="flex flex-col gap-2 text-xs" data-attr="report-spend">
-                    <div className="flex flex-wrap justify-between gap-2">
-                        <span>Report generation</span>
-                        <RecordedSpend amount={spend.generation.total_spend} />
-                    </div>
+                    {generationApplies(spend) && (
+                        <div className="flex flex-wrap justify-between gap-2">
+                            <span>Report generation</span>
+                            <RecordedSpend amount={spend.generation.total_spend} />
+                        </div>
+                    )}
                     {spend.implementation.total_spend !== null && (
                         <div className="flex flex-wrap justify-between gap-2">
                             <span>Implementation</span>
                             <RecordedSpend amount={spend.implementation.total_spend} />
                         </div>
                     )}
-                    {spend.shared_scout_runs.total_spend !== null && (
+                    {spend.scout_authored && (
                         <div className="flex flex-col gap-1">
                             <div className="flex flex-wrap justify-between gap-2">
                                 <span>Authoring scout runs</span>
