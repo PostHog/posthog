@@ -410,6 +410,34 @@ describe('CDP API', () => {
         }
     })
 
+    it('still previews a transformation of a deactivated organization', async () => {
+        await hub.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            'UPDATE posthog_organization SET is_active = false WHERE id = (SELECT organization_id FROM posthog_team WHERE id = $1)',
+            [hogFunction.team_id],
+            'deactivateOrganization'
+        )
+        hub.CDP_SKIP_DEACTIVATED_ORGANIZATIONS = true
+
+        try {
+            const res = await supertest(app)
+                .post(`/api/projects/${hogFunction.team_id}/hog_functions/new/invocations`)
+                .send({
+                    globals,
+                    configuration: {
+                        type: 'transformation',
+                        hog: 'return event',
+                        bytecode: await compileHog('return event'),
+                    },
+                    mock_async_functions: true,
+                })
+
+            expect(res.status).toEqual(200)
+        } finally {
+            hub.CDP_SKIP_DEACTIVATED_ORGANIZATIONS = false
+        }
+    })
+
     it('can invoke a function via the API with mocks', async () => {
         const res = await supertest(app)
             .post(`/api/projects/${hogFunction.team_id}/hog_functions/${hogFunction.id}/invocations`)
