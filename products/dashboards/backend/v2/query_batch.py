@@ -470,6 +470,7 @@ class QueryBatch:
         self._futures: list[Future[None]] = []
         self._active: set[str] = set()
         self._cancelled = False
+        self._logql_cancelled = Event()
         self._admitted = False
         self._to_refresh: list[ResolvedQuery] = []
         self._lock = Lock()
@@ -801,6 +802,7 @@ class QueryBatch:
                 min_interval=item.interval,
                 max_data_points=item.max_data_points,
                 budget=budget,
+                cancelled=self._logql_cancelled,
             )
         except Exception as e:
             return _error_line(index, e, team=self._team)
@@ -882,6 +884,7 @@ class QueryBatch:
                 return
             self._closed = True
             self._cancelled = True
+            self._logql_cancelled.set()
             active = tuple(self._active)
             admitted, self._admitted = self._admitted, False
         if self._pool is not None:

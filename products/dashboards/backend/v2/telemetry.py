@@ -12,20 +12,20 @@ A relative range has the same span on every refresh, so it gets the same step an
 import re
 import json
 import math
+import asyncio
 from datetime import UTC, datetime, timedelta, tzinfo
-from time import monotonic
+from threading import Event
 from typing import Any, Optional
 
 from django.conf import settings
 from django.utils.timezone import now
 
-import requests
+import httpx
 import structlog
 from dateutil.relativedelta import relativedelta
 
-from posthog.api.snuffle_proxy import SNUFFLE_API_FEATURE_FLAG, SnuffleNotConfiguredError, snuffle_request
+from posthog.api.snuffle_proxy import SNUFFLE_API_FEATURE_FLAG, SnuffleNotConfiguredError, snuffle_stream
 from posthog.api_queries_budget import BudgetSpec, budget_enabled, budget_spec_for, refill_and_read
-from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.limit import get_app_telemetry_queries_rate_limiter
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
@@ -179,22 +179,14 @@ def assert_can_read_logs(team: Team, user: User, user_access_control: UserAccess
         raise UserAccessControlError("logs", "viewer")
 
 
-def _read_capped(response: requests.Response, deadline: float) -> bytes:
+async def _read_capped(response: httpx.Response) -> bytes:
     body = bytearray()
-    try:
-        for chunk in response.iter_content(chunk_size=64 * 1024):
-            # The socket timeout only bounds the gap between chunks, so a trickling body is cut off here.
-            if monotonic() > deadline:
-                raise TelemetryTargetError("The LogQL query timed out. Try a shorter date range.")
-            body.extend(chunk)
-            if len(body) > MAX_LOGQL_RESPONSE_BYTES:
-                raise TelemetryTargetError(
-                    "The LogQL query returned too much data. Aggregate by fewer labels or shorten the range."
-                )
-    except requests.RequestException as exc:
-        raise TelemetryTargetError("The LogQL query backend cannot be reached. Try again later.") from exc
-    finally:
-        response.close()
+    async for chunk in response.aiter_bytes(chunk_size=64 * 1024):
+        body.extend(chunk)
+        if len(body) > MAX_LOGQL_RESPONSE_BYTES:
+            raise TelemetryTargetError(
+                "The LogQL query returned too much data. Aggregate by fewer labels or shorten the range."
+            )
     return bytes(body)
 
 
@@ -232,30 +224,49 @@ def _assert_budget_left(team: Team, budget: Optional[BudgetSpec]) -> None:
         raise TelemetryTargetError("This project has used its query budget for now. Try again later.")
 
 
-def _query_range(team: Team, data: dict[str, str], budget: Optional[BudgetSpec]) -> Any:
+def _query_range(team: Team, data: dict[str, str], budget: Optional[BudgetSpec], cancelled: Optional[Event]) -> Any:
     """The body is read inside the telemetry slot, so a slow or large response keeps holding it."""
     _assert_budget_left(team, budget)
     with get_app_telemetry_queries_rate_limiter().run(org_id=team.organization_id, team_id=team.pk, is_api=False):
-        deadline = monotonic() + settings.SNUFFLE_APM_TIMEOUT_SECONDS
         try:
-            response = snuffle_request(
-                team.pk, "POST", "/loki/api/v1/query_range", data=data, workload=Workload.LOGS, stream=True
-            )
+            return asyncio.run(_query_range_async(team.pk, data, cancelled))
         except SnuffleNotConfiguredError as exc:
             raise TelemetryTargetError("LogQL queries are not available on this PostHog instance.") from exc
-        except requests.Timeout as exc:
+        except (TimeoutError, httpx.TimeoutException) as exc:
             raise TelemetryTargetError("The LogQL query timed out. Try a shorter date range.") from exc
-        except requests.RequestException as exc:
+        except httpx.RequestError as exc:
             raise TelemetryTargetError("The LogQL query backend cannot be reached. Try again later.") from exc
-        return _loki_data(response, deadline)
 
 
-def _loki_data(response: requests.Response, deadline: float) -> Any:
+async def _query_range_async(team_id: int, data: dict[str, str], cancelled: Optional[Event]) -> Any:
+    if cancelled is not None and cancelled.is_set():
+        raise asyncio.CancelledError
+    request_task = asyncio.current_task()
+    assert request_task is not None
+
+    async def cancel_on_disconnect() -> None:
+        assert cancelled is not None
+        while not cancelled.is_set():
+            await asyncio.sleep(0.1)
+        request_task.cancel()
+
+    monitor = asyncio.create_task(cancel_on_disconnect()) if cancelled is not None else None
+    try:
+        # Async cancellation closes the socket even while waiting for headers or an incomplete body chunk.
+        async with asyncio.timeout(settings.SNUFFLE_APM_TIMEOUT_SECONDS):
+            async with snuffle_stream(team_id, "POST", "/loki/api/v1/query_range", data=data) as response:
+                return await _loki_data(response)
+    finally:
+        if monitor is not None:
+            monitor.cancel()
+            await asyncio.gather(monitor, return_exceptions=True)
+
+
+async def _loki_data(response: httpx.Response) -> Any:
     if response.status_code in (401, 403) or response.status_code >= 500:
-        response.close()
         logger.error("dashboard_v2_logql_upstream_failed", status_code=response.status_code)
         raise TelemetryTargetError("The LogQL query backend failed. Try again later.")
-    payload = _decode(_read_capped(response, deadline))
+    payload = _decode(await _read_capped(response))
     if response.status_code >= 400:
         raise TelemetryTargetError(_upstream_error(payload))
     if payload is None:
@@ -274,6 +285,7 @@ def run_logql(
     min_interval: Optional[str],
     max_data_points: Optional[int],
     budget: Optional[BudgetSpec] = None,
+    cancelled: Optional[Event] = None,
 ) -> dict[str, Any]:
     """Run a LogQL range query on Snuffle, uncached. Returns Loki's `data` as `results`. The caller has
     checked logs access with `assert_can_read_logs`."""
@@ -292,7 +304,7 @@ def run_logql(
         "step": str(step),
         "limit": str(LOG_LINE_LIMIT),
     }
-    results = _query_range(team, data, budget)
+    results = _query_range(team, data, budget, cancelled)
     return {
         "results": results,
         "start": start.isoformat(),
