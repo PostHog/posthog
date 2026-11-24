@@ -14,6 +14,9 @@ on:
             - 'docker-compose.multinode-clickhouse.yml'
             # The multinode stack extends this file, which pins the ClickHouse image.
             - 'docker-compose.base.yml'
+            # Migrations after 0364 run as the `migrations` user defined here.
+            - 'docker/clickhouse/users-dev.xml'
+            - 'bin/migrate-clickhouse-with-prod-grants'
             - 'tools/infra-scripts/clickhouse-multinode/**'
             - 'posthog/clickhouse/hcl/**'
             - '.github/workflows/ci-clickhouse-multinode-migrations.yml'

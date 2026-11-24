@@ -3,12 +3,10 @@ import { OnboardingComponentsContext, createInstallation } from 'scenes/onboardi
 import { getFlutterSteps as getFlutterStepsPA } from '../product-analytics/flutter'
 import { StepDefinition } from '../steps'
 
-const FLUTTER_ERROR_TRACKING_MIN_VERSION = '5.58.0'
-
 export const getFlutterSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, Markdown, CalloutBox, dedent } = ctx
 
-    const installSteps = getFlutterStepsPA(ctx, { minVersion: FLUTTER_ERROR_TRACKING_MIN_VERSION })
+    const installSteps = getFlutterStepsPA(ctx)
 
     const exceptionAutocaptureStep: StepDefinition = {
         title: 'Set up exception autocapture',
@@ -22,11 +20,6 @@ export const getFlutterSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                         `}
                     </Markdown>
                 </CalloutBox>
-                <Markdown>
-                    {dedent`
-                        Dart AOT symbolication and background isolate listeners require \`posthog_flutter\` ${FLUTTER_ERROR_TRACKING_MIN_VERSION} or later. If your project uses an earlier version, set \`posthog_flutter: ^${FLUTTER_ERROR_TRACKING_MIN_VERSION}\` in \`pubspec.yaml\` and run \`flutter pub get\`.
-                    `}
-                </Markdown>
                 <Markdown>
                     {dedent`
                         You can autocapture exceptions by configuring the \`errorTrackingConfig\` when setting up PostHog:

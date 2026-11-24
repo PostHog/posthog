@@ -1121,6 +1121,33 @@ class TaskStatusMismatchRow:
 
 
 @dataclass(frozen=True)
+class StaleLiveRunRow:
+    profile: str
+    run_environment: str
+    rule: str
+    count: int
+
+
+@dataclass(frozen=True)
+class SweptRunRow:
+    profile: str
+    count: int
+
+
+@dataclass(frozen=True)
+class FencedRunTokensRow:
+    profile: str
+    outcome: str
+    count: int
+
+
+@dataclass(frozen=True)
+class ReopenedSweptRunsRow:
+    outcome: str
+    count: int
+
+
+@dataclass(frozen=True)
 class TaskRunGaugeRow:
     """One metric value keyed by (status, environment, origin_product)."""
 

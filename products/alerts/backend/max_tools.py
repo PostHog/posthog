@@ -40,6 +40,9 @@ from products.product_analytics.backend.facade.models import Insight, resolve_in
 from ee.hogai.artifacts.types import ModelArtifactResult
 from ee.hogai.tool import MaxTool
 
+# The platform modules this tool calls are imported inside each function, because they reach this
+# module back through the alert workflows and the chat agent.
+
 UPSERT_ALERT_CONTEXT_PROMPT_TEMPLATE = """
 The user is currently viewing an insight that supports alerts. Here are the insight's details for use with the `upsert_alert` tool:
 
@@ -193,17 +196,8 @@ class UpsertAlertToolArgs(BaseModel):
     )
 
 
-def _follow_on_commit(alert: AlertConfiguration) -> None:
-    # Deferred to break a cycle: platform_alert_backfill reaches this module back through the alert
-    # workflows and the chat agent.
-    from products.alerts.backend.platform_alert_backfill import follow_insight_alert  # noqa: PLC0415
-
-    transaction.on_commit(lambda: follow_insight_alert(alert), robust=True)
-
-
 def _native_alert(*, team_id: int, alert_id: str) -> AlertConfiguration | None:
     """The team's insight alert with no insight row under `alert_id`, as the insight API presents it, or None."""
-    # Deferred for the same cycle as `_follow_on_commit`.
     from products.alerts.backend.platform_insight_alert import native_insight_alert_view  # noqa: PLC0415
 
     try:
@@ -220,7 +214,6 @@ def _persist_native_alert(
     *, team_id: int, insight: Insight, creator: User, fields: dict[str, Any]
 ) -> AlertConfiguration:
     """Creates an alert with no insight row, its creator subscribed, as the row path subscribes them."""
-    # Deferred for the same cycle as `_follow_on_commit`.
     from products.alerts.backend.platform_ownership import create_native_alert  # noqa: PLC0415
     from products.alerts.backend.platform_subscribers import set_native_subscribers  # noqa: PLC0415
 
@@ -350,7 +343,6 @@ class UpsertAlertTool(MaxTool):
             except ValidationError as e:
                 return str(e), {"error": "validation_failed"}
 
-            # Deferred for the same cycle as `_follow_on_commit`.
             from products.alerts.backend.platform_ownership import creates_native_alert  # noqa: PLC0415
 
             alert = await self._persist_alert(
@@ -425,6 +417,11 @@ class UpsertAlertTool(MaxTool):
                 return _SaveRefusal(
                     message="The alert's insight changed. Retry the update.", error_code="validation_failed"
                 )
+            from products.alerts.backend.platform_ownership import on_updated, show_locked_copy  # noqa: PLC0415
+
+            moved = alert.platform_owned
+            if moved and not show_locked_copy(alert):
+                return _SaveRefusal(message=f"Alert '{alert.id}' not found.", error_code="alert_not_found")
             new_interval = action.calculation_interval or alert.calculation_interval
             new_enabled = action.enabled if action.enabled is not None else alert.enabled
             if refusal := self._admission_refusal(alert, action, new_interval=new_interval, new_enabled=new_enabled):
@@ -485,7 +482,7 @@ class UpsertAlertTool(MaxTool):
 
             if self._has_threshold_changes(action):
                 try:
-                    update_fields.extend(self._update_threshold(alert, action))
+                    update_fields.extend(self._update_threshold(alert, action, save=not moved))
                 except ValidationError as e:
                     return _SaveRefusal(message=str(e), error_code="validation_failed")
             if conditions_or_threshold_changed:
@@ -493,19 +490,14 @@ class UpsertAlertTool(MaxTool):
             if schedule_reset_required:
                 alert.next_check_at = timezone.now()
                 update_fields.append("next_check_at")
-            alert.save(update_fields=update_fields)
-            if alert.platform_owned:
-                # Deferred for the same cycle as `_follow_on_commit`.
-                from products.alerts.backend.platform_ownership import on_updated  # noqa: PLC0415
-
+            if moved:
                 try:
                     on_updated(alert, snooze_changed=False, rescheduled=schedule_reset_required)
                 except (PlatformCannotOwn, InvalidPlatformAlertEdit) as error:
-                    # Rolls back the insight row, so neither row takes an edit the platform rejects.
                     transaction.set_rollback(True)
                     return _SaveRefusal(message=str(error), error_code="validation_failed")
-            elif enabled_changed and action.enabled:
-                _follow_on_commit(alert)
+            else:
+                alert.save(update_fields=update_fields)
             # Again under the lock, because the check above counted without it and another update can race.
             # After `on_updated`, for the lock order the API's `update` keeps.
             if limit_error := AlertConfiguration.update_limit_error(
@@ -573,7 +565,6 @@ class UpsertAlertTool(MaxTool):
     def _save_native_alert(self, alert: AlertConfiguration, action: UpdateAlertAction) -> _SaveRefusal | None:
         """`_save_alert` for an alert with no insight row: the same checks under the insight API's lock
         order, then the edit written to the platform, which keeps the alert."""
-        # Deferred for the same cycle as `_follow_on_commit`.
         from products.alerts.backend.platform_insight_alert import native_insight_alert_view  # noqa: PLC0415
         from products.alerts.backend.platform_ownership import write_native_alert_edit  # noqa: PLC0415
 
@@ -707,11 +698,15 @@ class UpsertAlertTool(MaxTool):
         if not alert_id:
             return None
         try:
-            return await AlertConfiguration.objects.select_related("threshold", "insight", "created_by").aget(
+            alert = await AlertConfiguration.objects.select_related("threshold", "insight", "created_by").aget(
                 id=alert_id, team=self._team
             )
         except Exception:
             return await sync_to_async(_native_alert)(team_id=self._team.id, alert_id=alert_id)
+        from products.alerts.backend.platform_insight_alert import show_copy_settings  # noqa: PLC0415
+
+        await sync_to_async(show_copy_settings)([alert])
+        return alert
 
     @classmethod
     def _proposed_threshold_configuration(cls, alert: AlertConfiguration, action: UpdateAlertAction) -> dict | None:
@@ -734,21 +729,24 @@ class UpsertAlertTool(MaxTool):
         return config
 
     @classmethod
-    def _update_threshold(cls, alert: AlertConfiguration, action: UpdateAlertAction) -> list[str]:
-        """Returns list of alert field names that were modified (for use with update_fields)."""
+    def _update_threshold(cls, alert: AlertConfiguration, action: UpdateAlertAction, *, save: bool = True) -> list[str]:
+        """Returns list of alert field names that were modified (for use with update_fields). Without
+        `save`, the threshold changes on the alert only, for an edit written to the platform's copy."""
         config = cls._proposed_threshold_configuration(alert, action)
         threshold = alert.threshold
 
         if threshold is None:
             threshold = Threshold(team=alert.team, insight=alert.insight, name=alert.name, configuration=config)
             threshold.clean()
-            threshold.save()
+            if save:
+                threshold.save()
             alert.threshold = threshold
             return ["threshold"]
 
         threshold.configuration = config
         threshold.clean()
-        threshold.save(update_fields=["configuration"])
+        if save:
+            threshold.save(update_fields=["configuration"])
         return []
 
     async def _check_alert_limit(self) -> str | None:
@@ -868,12 +866,8 @@ class UpsertAlertTool(MaxTool):
             alert_configuration=alert,
             created_by=user,
         )
-        # Deferred for the same cycle as `_follow_on_commit`.
         from products.alerts.backend.platform_ownership import on_created  # noqa: PLC0415
 
-        # A draft is handed over too, so turning it on later needs no second cutover run.
-        handed_over = on_created(alert, timezone.now())
-        if alert.enabled and not handed_over:
-            _follow_on_commit(alert)
+        on_created(alert, timezone.now())
 
         return alert

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from hoglint_shadow import ChangedLines, HookFilter, OldToolEdits, ShadowReport, StagedChange, git_diff, report_findings
+from hoglint_shadow import ChangedLines, HookFilter, ShadowReport, StagedChange, git_diff, report_findings
 from parameterized import parameterized
 
 # Real hoglint output and the real git diff of the same state. In the `.out` files every line is
@@ -31,7 +31,7 @@ CAFE = "products/visual_review/backend/logic/café_probe.py"
 SPACE = "products/visual_review/backend/logic/space probe.py"
 LEDGER = "hoglint.ledger"
 EXCEPTIONS = "hoglint.exceptions.toml"
-REST = "findings are not on lines this commit changes; CI and the ledger catch-up judge them."
+REST = "findings are not on lines this commit changes; CI judges them."
 CONTINUES = "hoglint did not finish this check, so the commit continues. CI runs the full check."
 VENV_HOGLINT = ".flox/cache/venv/bin/hoglint"
 PROBE_ADVISORY = (
@@ -86,8 +86,8 @@ def hook(
     return HookFilter(output, stderr, status, change, hoglint).verdict()
 
 
-def report(output: str, diff: str, stderr: str = "", status: int = 1) -> ShadowReport:
-    return ShadowReport(output, stderr, status, "Tuesday, Nov 24", ChangedLines.of(diff))
+def report(output: str, diff: str, stderr: str = "", status: int = 1, base: str | None = None) -> ShadowReport:
+    return ShadowReport(output, stderr, status, ChangedLines.of(diff), base)
 
 
 def with_lines(output: str, before: str, added: list[str]) -> str:
@@ -283,7 +283,10 @@ class TestShadowReport:
     def test_a_finding_on_a_changed_line_warns_and_an_advisory_row_there_is_a_notice(self) -> None:
         shadow = report(fixture("compare.out"), fixture("compare.diff"))
         assert shadow.annotations() == [
-            f"::warning file={CONTRACTS},line=863,title=hoglint contracts-no-django (shadow)::products.visual_review.backend.facade.contracts reaches django.db.models: products.visual_review.backend.facade.contracts -> django.db.models",
+            f"::warning file={CONTRACTS},line=863,title=hoglint contracts-no-django::products.visual_review.backend.facade.contracts reaches django.db.models: products.visual_review.backend.facade.contracts -> django.db.models"
+            "%0Awhy: A contracts module must import without Django. Other products and tools import contracts where Django is not set up."
+            "%0Afix (needs care): Break the chain at its first step. Move that import into the function that uses it, or under TYPE_CHECKING if only a type needs it."
+            "%0Afix (needs care): Move the code that needs Django out of the contracts module.",
             f"::notice file={PROBE},line=1,title=hoglint public-surface (advisory)::products.visual_review.backend.logic.shadow_probe names products.event_definitions.backend.models.event_definition.EventDefinition, which is not exported to it. Does not block. If the facade of products.event_definitions exports this object, import it from the facade. If not, continue: CI records the coupling for the owners of products.event_definitions.",
         ]
 
@@ -291,7 +294,7 @@ class TestShadowReport:
         summary = report(fixture("compare.out"), fixture("compare.diff")).summary()
         blocks, rest = summary.split("**From this PR: reports only**")
         reports, others = rest.split("**Not on lines this PR changes")
-        assert "From Tuesday, Nov 24 on, hoglint blocks the rows in this section." in blocks
+        assert "hoglint blocks the rows in this section." in blocks
         assert "contracts-no-django products.visual_review.backend.facade.contracts django.db.models" in blocks
         assert "public-surface" not in blocks
         assert "hoglint blocks" not in reports
@@ -300,6 +303,32 @@ class TestShadowReport:
         assert "  If the facade of products.event_definitions exports this object" in reports
         assert "contracts-no-django" not in reports
         assert "Advisory rows, which never block: 6041." in others
+
+    @parameterized.expand(
+        [
+            (
+                "compare_finds_a_row",
+                "compare",
+                1,
+                "HEAD^1",
+                "`hoglint compare --base HEAD^1` exited 1. It fails this check on the rows under **From this PR: blocks**.",
+            ),
+            ("check_passes", "advisory", 0, None, "`hoglint check` exited 0: nothing blocks."),
+            (
+                "fails_with_no_blocking_row",
+                "advisory",
+                1,
+                None,
+                "`hoglint check` exited 1, and no row under **From this PR: blocks** explains it. "
+                "Look in the log for a stale ledger line, a failed level claim or a new unknown.",
+            ),
+        ]
+    )
+    def test_the_summary_opens_with_what_hoglint_s_exit_means(
+        self, _name: str, case: str, status: int, base: str | None, intro: str
+    ) -> None:
+        summary = report(fixture(f"{case}.out"), fixture(f"{case}.diff"), status=status, base=base).summary()
+        assert summary.split("\n")[0] == intro
 
     def test_a_backtick_fence_in_a_row_cannot_close_the_summary_s_text_block(self) -> None:
         injected = "``` [all checks passed](https://example.com)"
@@ -317,7 +346,7 @@ class TestShadowReport:
         monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
         output = tmp_path / "hoglint.txt"
         output.write_text("    at products/x/probe\r::error file=a.py,line=1::forged.py:1\n")
-        args = argparse.Namespace(output=output, stderr=None, status=1, until="Tuesday, Nov 24")
+        args = argparse.Namespace(output=output, stderr=None, status=1, base=None)
         report_findings(args, ChangedLines())
         lines = capsys.readouterr().out.split("\n")
         stop = next(line for line in lines if line.startswith("::stop-commands::"))
@@ -370,14 +399,3 @@ class TestChangedLines:
         Path("z.py").write_text("y\n")
         run("add", ".")
         assert ChangedLines.of(git_diff("--cached")).lines == {"m.py": {1, 4}, "z.py": {1}}
-
-
-class TestOldToolEdits:
-    def test_notes_only_edits_to_files_that_go_away(self) -> None:
-        pyproject_diff = '@@ -640,6 +640,7 @@ ignore_imports = [\n+    "products.example.backend.facade.api -> products.example.backend.models",\n'
-        edits = OldToolEdits(
-            ["products/visual_review/backend/models.py", "tach.toml", "pyproject.toml"],
-            pyproject_diff,
-            "Tuesday, Nov 24",
-        )
-        assert edits.paths() == ["tach.toml", "pyproject.toml"]
