@@ -302,7 +302,7 @@ def _build(integration: WorkspaceIntegration, slack: SlackIntegration, key: str)
     # A root nobody replied to, that names nobody and that Jev passed over can never be picked, so it is not kept.
     kept = [
         root
-        for root in _scored(integration, roots, texts)
+        for root in score_roots(integration.team_id, roots, texts)
         if root.reply_count or root.mentions or root.score >= RANK_MIN_PROBABILITY
     ]
     cache.set(key, [asdict(root) for root in kept], INDEX_TTL_SECONDS)
@@ -371,7 +371,8 @@ def _root_ref(channel_id: str, message: dict[str, Any]) -> RootRef:
     )
 
 
-def _scored(integration: WorkspaceIntegration, roots: list[RootRef], texts: list[str]) -> list[RootRef]:
+def score_roots(team_id: int, roots: list[RootRef], texts: list[str]) -> list[RootRef]:
+    """The roots with Jev's probability that a teammate who missed the day wants to know. Only the newest are scored."""
     if not roots:
         return []
     newest = sorted(range(len(roots)), key=lambda index: roots[index].moved_at, reverse=True)[
@@ -380,7 +381,7 @@ def _scored(integration: WorkspaceIntegration, roots: list[RootRef], texts: list
     client = build_system_one_client(
         model=RANK_MODEL,
         ai_product="slack_app",
-        team_id=integration.team_id,
+        team_id=team_id,
         properties={"slack_app_classifier": "daily_summary_rank", "slack_app_flow": "slack_app_daily_focus"},
         timeout=RANK_TIMEOUT_SECONDS,
         privacy_mode=True,

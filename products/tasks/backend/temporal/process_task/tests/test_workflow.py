@@ -3851,14 +3851,19 @@ class TestProcessTaskWorkflowUnit:
         assert mark_repo_ready not in calls
 
     @pytest.mark.parametrize(
-        "custom_image_name, expected_image_source, expected_image_source_label",
+        "custom_image_name, expected_image_source, expected_image_source_label, resume_error_type",
         [
-            (None, "base_image", "published sandbox base image"),
-            ("sandbox-custom-abc", "custom_image", "custom base image sandbox-custom-abc"),
+            (None, "base_image", "published sandbox base image", "SandboxNotRunningError"),
+            (
+                "sandbox-custom-abc",
+                "custom_image",
+                "custom base image sandbox-custom-abc",
+                "ResumeSnapshotCredentialScrubError",
+            ),
         ],
     )
     async def test_get_sandbox_for_repository_falls_back_to_fresh_sandbox_when_resume_injection_fails(
-        self, monkeypatch, custom_image_name, expected_image_source, expected_image_source_label
+        self, monkeypatch, custom_image_name, expected_image_source, expected_image_source_label, resume_error_type
     ):
         workflow = ProcessTaskWorkflow()
         workflow._context = _build_context(
@@ -3905,7 +3910,7 @@ class TestProcessTaskWorkflowUnit:
                 create_inputs.append(args[0])
                 return created_dead if len(create_inputs) == 1 else created_fresh
             if activity_fn is inject_fresh_tokens_on_resume:
-                raise ApplicationError("Sandbox not in running state.", type="SandboxNotRunningError")
+                raise ApplicationError("Resume could not safely reuse the sandbox.", type=resume_error_type)
             if activity_fn is invalidate_resume_snapshot:
                 invalidate_inputs.append(args[0])
                 return None
