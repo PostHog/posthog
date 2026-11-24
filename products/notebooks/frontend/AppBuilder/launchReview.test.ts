@@ -4,7 +4,11 @@ import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/t
 import { buildLaunchReview, notebookFunnel } from './launchReview'
 import { appSourceCells, emptyAppLayout, newAppBlock } from './notebookAppLayout'
 
-it('keeps the existing app and binds the review, funnel population, and playlist to the selected flag value', () => {
+it.each([
+    { dateRange: undefined, expectedRange: { date_from: '-7d' } },
+    { dateRange: { date_to: '-1d' }, expectedRange: { date_from: '-7d', date_to: '-1d' } },
+    { dateRange: { date_from: '-14d', date_to: '-1d' }, expectedRange: { date_from: '-14d', date_to: '-1d' } },
+])('keeps the app and scopes the funnel and playlist to $expectedRange', ({ dateRange, expectedRange }) => {
     const layout = emptyAppLayout()
     layout.blocks.push(newAppBlock('text', 'overview', { text: 'Prior analysis' }))
     const result = buildLaunchReview('<FeatureFlag id={42} />', layout, {
@@ -13,7 +17,7 @@ it('keeps the existing app and binds the review, funnel population, and playlist
         flagValue: 'compact',
         funnel: {
             kind: NodeKind.FunnelsQuery,
-            dateRange: { date_from: '-14d' },
+            dateRange,
             series: [
                 {
                     kind: NodeKind.EventsNode,
@@ -39,7 +43,7 @@ it('keeps the existing app and binds the review, funnel population, and playlist
     expect(cells[0]).toMatchObject({ tagName: 'FeatureFlag', props: { id: 42 } })
     const flagProperty = { key: '$feature/example-checkout', operator: 'exact', type: 'event', value: ['compact'] }
     expect(notebookFunnel(cells[1])).toMatchObject({
-        dateRange: { date_from: '-14d' },
+        dateRange: expectedRange,
         series: [
             { event: 'checkout opened', properties: [expect.objectContaining({ key: 'platform' }), flagProperty] },
             { event: 'checkout completed' },
@@ -49,7 +53,7 @@ it('keeps the existing app and binds the review, funnel population, and playlist
         tagName: 'RecordingPlaylist',
         props: {
             universalFilters: {
-                date_from: '-14d',
+                ...expectedRange,
                 filter_group: {
                     type: FilterLogicalOperator.And,
                     values: [{ type: FilterLogicalOperator.And, values: [flagProperty] }],

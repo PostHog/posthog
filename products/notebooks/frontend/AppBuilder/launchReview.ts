@@ -73,8 +73,10 @@ export function buildLaunchReview(
         operator: PropertyOperator.Exact,
         value: [flagValue],
     }
+    const dateRange = { ...funnel.dateRange, date_from: funnel.dateRange?.date_from ?? '-7d' }
     const scopedFunnel: FunnelsQuery = {
         ...funnel,
+        dateRange,
         response: undefined,
         series: funnel.series.map((step, i) =>
             i === 0 ? { ...step, properties: [...(step.properties ?? []), flagProperty] } : step
@@ -85,8 +87,8 @@ export function buildLaunchReview(
     })
 
     const recordingFilters: RecordingUniversalFilters = {
-        date_from: funnel.dateRange?.date_from ?? '-30d',
-        date_to: funnel.dateRange?.date_to,
+        date_from: dateRange.date_from,
+        date_to: dateRange.date_to,
         duration: [],
         filter_test_accounts: funnel.filterTestAccounts,
         filter_group: {
