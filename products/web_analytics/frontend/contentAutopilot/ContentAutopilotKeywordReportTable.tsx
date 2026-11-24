@@ -210,21 +210,18 @@ export const ContentAutopilotKeywordReportTable = (): JSX.Element => {
                         columns={columns}
                         defaultSorting={{ columnKey: 'answer_mention_rate', order: -1 }}
                         footer={
-                            <span className="px-3 py-2 text-xs text-muted">
-                                Over {pluralize(report.answers, 'answer')} {windowRange(report)}. A keyword matches any
-                                text that contains it, case ignored.
-                                {searchConsoleMissing ? (
-                                    <>
-                                        {' '}
-                                        <Link to={GOOGLE_SEARCH_CONSOLE_DOCS_URL} target="_blank">
-                                            Connect Google Search Console
-                                        </Link>{' '}
-                                        to see how often your site appears on Google for each keyword.
-                                    </>
-                                ) : impressionsFailed ? (
-                                    " Couldn't load the Search Console numbers. Reload the page to try again."
-                                ) : null}
-                            </span>
+                            searchConsoleMissing ? (
+                                <span className="px-3 py-2 text-xs text-muted">
+                                    <Link to={GOOGLE_SEARCH_CONSOLE_DOCS_URL} target="_blank">
+                                        Connect Google Search Console
+                                    </Link>{' '}
+                                    to see how often your site appears on Google for each keyword.
+                                </span>
+                            ) : impressionsFailed ? (
+                                <span className="px-3 py-2 text-xs text-muted">
+                                    Couldn't load the Search Console numbers. Reload the page to try again.
+                                </span>
+                            ) : undefined
                         }
                     />
                 </div>

@@ -24,8 +24,6 @@ import {
 import { contentAutopilotPromptDetailLogic } from './contentAutopilotPromptDetailLogic'
 import { contentAutopilotPromptsLogic } from './contentAutopilotPromptsLogic'
 import {
-    EXAMPLE_FAILED_DRAFT_OPPORTUNITY,
-    EXAMPLE_FAILED_PROPOSAL_LIST,
     EXAMPLE_KEYWORD_MODIFIERS,
     EXAMPLE_KEYWORD_REPORT,
     EXAMPLE_KEYWORDS,
@@ -239,43 +237,11 @@ const NeedsImprovementStory = (): JSX.Element => {
     )
 }
 
-export const Onboarding: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="opportunities" />
-Onboarding.decorators = [workspaceHandlers({ profiles: [] })]
-
-export const MultipleSites: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="opportunities" />
+export const MultipleSites: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="settings" />
 MultipleSites.decorators = [workspaceHandlers({ profiles: [EXAMPLE_PROFILE, EXAMPLE_SECOND_PROFILE] })]
 
 export const SiteSettings: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="settings" />
 SiteSettings.decorators = [workspaceHandlers({ profiles: [EXAMPLE_PROFILE] })]
-
-export const ReadyForReview: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="opportunities" />
-ReadyForReview.decorators = [
-    workspaceHandlers({
-        profiles: [EXAMPLE_PROFILE],
-        runs: [EXAMPLE_RUN],
-        proposals: [EXAMPLE_PROPOSAL_LIST, EXAMPLE_FAILED_PROPOSAL_LIST],
-        opportunities: [...EXAMPLE_OPPORTUNITIES, EXAMPLE_FAILED_DRAFT_OPPORTUNITY],
-    }),
-]
-
-export const FailedRun: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="opportunities" />
-FailedRun.decorators = [
-    workspaceHandlers({
-        profiles: [EXAMPLE_PROFILE],
-        runs: [
-            {
-                ...EXAMPLE_RUN,
-                run_status: 'failed',
-                errors: [
-                    {
-                        error_code: 'timed_out',
-                        message: 'Drafting took too long. Try fewer opportunities at once.',
-                    },
-                ],
-            },
-        ],
-    }),
-]
 
 const ProposalStory = ({ tab }: { tab?: ContentAutopilotProposalTab }): JSX.Element => {
     const { profileDataLoaded } = useValues(contentAutopilotLogic)
@@ -301,37 +267,6 @@ ProposalReview.decorators = [
         profiles: [EXAMPLE_PROFILE],
         runs: [EXAMPLE_RUN],
         proposals: [EXAMPLE_PROPOSAL_LIST],
-        opportunities: EXAMPLE_OPPORTUNITIES,
-    }),
-]
-
-export const ActiveRun: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="drafts" />
-ActiveRun.parameters = { testOptions: { waitForLoadersToDisappear: false } }
-ActiveRun.decorators = [
-    workspaceHandlers({
-        profiles: [EXAMPLE_PROFILE],
-        runs: [{ ...EXAMPLE_RUN, run_status: 'generating', completed_at: null }],
-        proposals: [{ ...EXAMPLE_PROPOSAL_LIST, lifecycle_status: 'generating' }],
-        opportunities: [{ ...EXAMPLE_OPPORTUNITIES[0], status: 'queued', proposal_id: null }],
-    }),
-]
-
-export const DraftsTab: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="drafts" />
-DraftsTab.decorators = [
-    workspaceHandlers({
-        profiles: [EXAMPLE_PROFILE],
-        runs: [EXAMPLE_RUN],
-        proposals: [
-            { ...EXAMPLE_PROPOSAL_LIST, id: '00000000-0000-4000-8000-000000000211', lifecycle_status: 'failed' },
-            EXAMPLE_PROPOSAL_LIST,
-            {
-                ...EXAMPLE_PROPOSAL_LIST,
-                id: '00000000-0000-4000-8000-000000000212',
-                proposal_type: 'new_content',
-                lifecycle_status: 'exported',
-                title: 'Does web analytics work without cookies?',
-            },
-        ],
         opportunities: EXAMPLE_OPPORTUNITIES,
     }),
 ]

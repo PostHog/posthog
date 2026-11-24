@@ -5,11 +5,9 @@ import { LemonBanner, LemonButton, LemonDialog, LemonTabs } from '@posthog/lemon
 
 import { AI_VISIBILITY_TAB_FILTERS, type AiVisibilityFilterTab } from './aiVisibilityFilters'
 import { ContentAutopilotCitationsModal } from './ContentAutopilotCitationsModal'
-import { ContentAutopilotDrafts } from './ContentAutopilotDrafts'
 import { ContentAutopilotFilterBar } from './ContentAutopilotFilterBar'
 import { ContentAutopilotKeywords } from './ContentAutopilotKeywords'
 import { type ContentAutopilotWorkspaceTab, contentAutopilotLogic } from './contentAutopilotLogic'
-import { ContentAutopilotOpportunities } from './ContentAutopilotOpportunities'
 import { ContentAutopilotPageHeader } from './ContentAutopilotPageHeader'
 import { ContentAutopilotPromptAddModal } from './ContentAutopilotPromptAddModal'
 import { ContentAutopilotPromptDetail } from './ContentAutopilotPromptDetail'
@@ -21,7 +19,6 @@ import { ContentAutopilotProposalDetail } from './ContentAutopilotProposalDetail
 import { ContentAutopilotRankings } from './ContentAutopilotRankings'
 import { ContentAutopilotSettings } from './ContentAutopilotSettings'
 import { ContentAutopilotSetup } from './ContentAutopilotSetup'
-import { ContentAutopilotSiteGate } from './ContentAutopilotSiteGate'
 import { ContentAutopilotSitePicker } from './ContentAutopilotSitePicker'
 
 const FilteredTab = ({
@@ -37,14 +34,6 @@ const FilteredTab = ({
     </div>
 )
 
-/** The site tabs work on one site at a time, so they carry the site picker where the other tabs carry filters. */
-const SiteTab = ({ children }: { children: JSX.Element }): JSX.Element => (
-    <div className="flex flex-col gap-4">
-        <ContentAutopilotSitePicker />
-        <ContentAutopilotSiteGate>{children}</ContentAutopilotSiteGate>
-    </div>
-)
-
 export const ContentAutopilot = (): JSX.Element => {
     // Mounted here, so a prompt's own URL opens it whatever tab was last open.
     const { promptId } = useValues(contentAutopilotPromptDetailLogic)
@@ -52,8 +41,6 @@ export const ContentAutopilot = (): JSX.Element => {
         profile,
         activeRun,
         siteRuns,
-        draftRows,
-        readyDraftCount,
         latestRunErrors,
         workspaceTab,
         onboardingOpen,
@@ -63,13 +50,11 @@ export const ContentAutopilot = (): JSX.Element => {
         runMutationLoading,
         workspaceError,
         profileDataLoaded,
-        visibleOpportunities,
         draftingEnabled,
     } = useValues(contentAutopilotLogic)
     const { cancelRun, loadWorkspace, setWorkspaceTab } = useActions(contentAutopilotLogic)
-    // A link to a drafting tab still opens the page when drafting is off, on the overview instead.
-    const visibleTab =
-        !draftingEnabled && (workspaceTab === 'opportunities' || workspaceTab === 'drafts') ? 'overview' : workspaceTab
+    // The drafting tabs are gone, so an old link to one opens the overview.
+    const visibleTab = workspaceTab === 'opportunities' || workspaceTab === 'drafts' ? 'overview' : workspaceTab
     const loading = siteProfilesLoading || runsLoading || proposalsLoading
     const lastRun = siteRuns[0]
     const confirmCancelRun = (): void => {
@@ -184,35 +169,6 @@ export const ContentAutopilot = (): JSX.Element => {
                                         </FilteredTab>
                                     ),
                                 },
-                                draftingEnabled
-                                    ? {
-                                          key: 'opportunities',
-                                          label:
-                                              profile && visibleOpportunities.length
-                                                  ? `Opportunities (${visibleOpportunities.length})`
-                                                  : 'Opportunities',
-                                          content: (
-                                              <SiteTab>
-                                                  <ContentAutopilotOpportunities />
-                                              </SiteTab>
-                                          ),
-                                      }
-                                    : null,
-                                profile && draftingEnabled
-                                    ? {
-                                          key: 'drafts',
-                                          label: readyDraftCount
-                                              ? `Drafts (${readyDraftCount} ready to review)`
-                                              : draftRows.length
-                                                ? `Drafts (${draftRows.length})`
-                                                : 'Drafts',
-                                          content: (
-                                              <SiteTab>
-                                                  <ContentAutopilotDrafts />
-                                              </SiteTab>
-                                          ),
-                                      }
-                                    : null,
                             ]}
                         />
                     )}
