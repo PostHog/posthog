@@ -44,6 +44,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.auth import ProjectSecretAPIKeyAuthentication, ProjectSecretAPIKeyUser
 from posthog.event_usage import get_event_source, get_mcp_properties, groups, report_user_action, sanitize_header_value
+from posthog.exceptions import InsufficientScope
 from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models import ProjectSecretAPIKey, User
 from posthog.models.file_system.constants import resolved_workflows_list_v2
@@ -51,9 +52,11 @@ from posthog.models.file_system.file_system_mixin import file_system_sync
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.tag import tagify
 from posthog.permissions import (
+    get_authenticator_scopes,
     is_authenticated_via_project_secret_api_key,
     legacy_scope_object_used,
     scopes_caller_lacks,
+    scopes_missing_after_legacy_fallback,
 )
 from posthog.rate_limit import (
     PersonalOrProjectSecretApiKeyRateThrottle,
@@ -1160,8 +1163,6 @@ TRANSACTIONAL_EMAIL_SEND_SCOPE = "transactional_email:write"
 TRANSACTIONAL_PUSH_SEND_SCOPE = "transactional_push:write"
 TRANSACTIONAL_EMAIL_STATUS_SCOPE = "transactional_email:read"
 TRANSACTIONAL_PUSH_STATUS_SCOPE = "transactional_push:read"
-# No template type, so a template restored after the scope check can't pass as one the scope allowed.
-MISSING_TEMPLATE = "missing"
 
 
 def transactional_email_authorized_by(request: Any, required_scope: str) -> str:
@@ -1561,7 +1562,6 @@ class MessageTemplatesViewSet(
     transactional_email_route = "template"
     # Access rules on hog_flow name workflow ids, never template ids, so no rule names one template.
     records_have_object_access_rules = False
-    _scoped_template_type: str | None = None
 
     serializer_class = MessageTemplateSerializer
 
@@ -1571,21 +1571,20 @@ class MessageTemplatesViewSet(
     def dangerously_get_required_scopes(self, request: Any, view: Any) -> list[str] | None:
         if self.action != "make_transactional":
             return None
-        # Read once: several permissions ask, and a later read could see another type than the one the scope allowed.
-        if self._scoped_template_type is None:
-            # Schema generation asks for the scopes without a template.
-            template = self.read_object() if "pk" in self.kwargs else None
-            self._scoped_template_type = template.type if isinstance(template, MessageTemplateRow) else MISSING_TEMPLATE
-        if self._scoped_template_type == "push":
-            return [TRANSACTIONAL_PUSH_SEND_SCOPE]
-        if (
-            self._scoped_template_type == MISSING_TEMPLATE
-            and scopes_caller_lacks(request, [TRANSACTIONAL_EMAIL_SEND_SCOPE])
-            and not scopes_caller_lacks(request, [TRANSACTIONAL_PUSH_SEND_SCOPE])
+        # Scopes are checked before project membership, so this can't depend on the template. The action checks
+        # the scope of the template's own type.
+        if scopes_caller_lacks(request, [TRANSACTIONAL_EMAIL_SEND_SCOPE]) and not scopes_caller_lacks(
+            request, [TRANSACTIONAL_PUSH_SEND_SCOPE]
         ):
-            # Either send scope may learn that a template doesn't exist.
             return [TRANSACTIONAL_PUSH_SEND_SCOPE]
         return [TRANSACTIONAL_EMAIL_SEND_SCOPE]
+
+    def _require_send_scope(self, scope: str) -> None:
+        held_scopes = get_authenticator_scopes(self.request.successful_authenticator)
+        if held_scopes is None or "*" in held_scopes:
+            return
+        if scopes_missing_after_legacy_fallback(self.request, self, held_scopes, [scope]):
+            raise InsufficientScope([scope])
 
     def get_throttles(self):
         if self.action == "send":
@@ -1873,8 +1872,9 @@ class MessageTemplatesViewSet(
     @action(detail=True, methods=["POST"], pagination_class=None)
     def make_transactional(self, request: Any, *args: Any, **kwargs: Any) -> Response:
         template = self.get_object()
-        if self._scoped_template_type == MISSING_TEMPLATE:
-            raise NotFound()
+        self._require_send_scope(
+            TRANSACTIONAL_PUSH_SEND_SCOPE if template.type == "push" else TRANSACTIONAL_EMAIL_SEND_SCOPE
+        )
         expected_type = request.validated_data.get("expected_type")
         if expected_type and template.type != expected_type:
             names = {"email": "an email", "push": "a push"}
@@ -1897,7 +1897,7 @@ class MessageTemplatesViewSet(
                 template.id,
                 user_id=self._actor_id(),
                 from_integration_id=request.validated_data.get("from_integration_id"),
-                template_type=self._scoped_template_type or template.type,
+                template_type=template.type,
             )
         except TransactionalEmailError as e:
             raise TransactionalEmailRejected(e) from None

@@ -228,6 +228,9 @@ tools:
 | -------------- | -------- | -------------------------------------------------------------------------------------------------------- |
 | `message`      | Yes      | Prompt shown to the user. Supports `{paramName}` placeholders interpolated from the validated tool args. |
 | `action_label` | No       | Short label for the action (e.g. "delete project"). Defaults to the tool's title.                        |
+| `preview`      | No       | Module under `src/tools/` that reads what the action works on. Replaces `{preview}` in `message`.        |
+
+With `preview`, prepare fails when the module can't read what the action works on, and execute refuses when it changed since prepare. The module quotes text that people wrote with `quoteUntrusted`.
 
 The prepare step also signs the active project/organization scope into the hash, and execute refuses if the active scope has changed since prepare — so a confirmation prepared in one project can't be replayed against another after `switch-project`.
 Action arguments belong only on the prepare call. The execute schema is strict: it rejects extra action fields and recovers the original validated arguments from the signed hash.
