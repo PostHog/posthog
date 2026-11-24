@@ -2,6 +2,7 @@ from posthog.test.base import BaseTest
 
 from parameterized import parameterized
 
+from posthog.api.oauth.provisioning_review import PartnerDecisionRefused, decide_partner
 from posthog.models.oauth import OAuthApplication
 from posthog.models.oauth_provisioning import ProvisioningConfig
 from posthog.models.oauth_provisioning_review import (
@@ -135,6 +136,24 @@ class TestOAuthApplicationConsole(BaseTest):
         assert response.status_code != 302
         review.refresh_from_db()
         assert review.status == ProvisioningReviewStatus.NEEDS_HUMAN
+
+    def test_asking_a_partner_blocked_meanwhile_for_changes_keeps_the_block(self) -> None:
+        app = self._app(config=ProvisioningConfig(disabled=True))
+        CIMDProvisioningReview.objects.create(
+            application=app, domain="example.com", status=ProvisioningReviewStatus.REJECTED
+        )
+
+        with self.assertRaises(PartnerDecisionRefused):
+            decide_partner(
+                app,
+                decision=ProvisioningReviewStatus.CHANGES_REQUESTED,
+                reason="Staff: Unclear product",
+                partner_message="Add a homepage.",
+            )
+
+        app.refresh_from_db()
+        assert app.provisioning.disabled is True
+        assert CIMDProvisioningReview.objects.get(application=app).status == ProvisioningReviewStatus.REJECTED
 
     def test_block_reaches_a_partner_left_active_and_disabled(self) -> None:
         app = self._app(config=ProvisioningConfig(active=True, disabled=True))

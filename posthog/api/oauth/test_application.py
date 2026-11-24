@@ -10,8 +10,9 @@ from posthog.api.oauth.provisioning_review import (
     MAX_PARTNER_NOTES_IN_RUN_LOG,
     MAX_RUN_LOG_ENTRIES,
     PARTNER_NOTE_STEP,
-    _with_partner_note,
+    _append_to_run_log,
     decide_partner,
+    partner_timeline,
     send_partner_note,
     settle_review,
 )
@@ -273,6 +274,14 @@ class TestOrganizationOAuthApplicationViewSet(APIBaseTest):
         for internal in ("malicious", "internal only", "reviewer@example.com", "written before"):
             self.assertNotIn(internal, response.content.decode())
 
+        app.organization = Organization.objects.create(name="Next owner of the client ID")
+        app.save(update_fields=["organization"])
+        relinked = partner_timeline(CIMDProvisioningReview.objects.select_related("application").get(application=app))
+        self.assertEqual(
+            [(event.kind, event.message) for event in relinked],
+            [("registered", ""), ("automated_review", ""), ("staff_decision", "")],
+        )
+
     def test_review_note_answers_a_decision_at_once_and_waits_between_notes_to_staff(self):
         app = self._create_app(self.organization, is_provisioning_partner=True)
         CIMDProvisioningReview.objects.create(
@@ -290,14 +299,28 @@ class TestOrganizationOAuthApplicationViewSet(APIBaseTest):
 
 
 class TestPartnerNotesInRunLog(SimpleTestCase):
-    def test_partner_notes_cannot_push_staff_decisions_out_of_a_full_run_log(self):
-        verdicts = [{"step": "settled", "message": f"Decision {index}"} for index in range(MAX_RUN_LOG_ENTRIES)]
-        run_log: list[dict] = list(verdicts)
+    def test_notes_cannot_push_decisions_or_reopenings_out_of_a_full_run_log(self):
+        decisions = [{"step": "settled", "message": f"Decision {index}"} for index in range(MAX_RUN_LOG_ENTRIES - 1)]
+        reopening = {"step": PARTNER_NOTE_STEP, "previous_status": "declined", "message": "Asked again"}
+        run_log = _append_to_run_log(list(decisions), reopening)
 
         for index in range(MAX_RUN_LOG_ENTRIES):
-            run_log = _with_partner_note(run_log, {"step": PARTNER_NOTE_STEP, "message": f"Note {index}"})
+            run_log = _append_to_run_log(
+                run_log, {"step": PARTNER_NOTE_STEP, "previous_status": "needs_human", "message": f"Note {index}"}
+            )
 
-        notes = [entry for entry in run_log if entry["step"] == PARTNER_NOTE_STEP]
-        self.assertEqual([entry for entry in run_log if entry["step"] != PARTNER_NOTE_STEP], verdicts)
-        self.assertEqual(len(notes), MAX_PARTNER_NOTES_IN_RUN_LOG)
-        self.assertEqual(notes[-1]["message"], f"Note {MAX_RUN_LOG_ENTRIES - 1}")
+        self.assertEqual(len(run_log), MAX_RUN_LOG_ENTRIES)
+        self.assertEqual(
+            [entry for entry in run_log if entry.get("previous_status") != "needs_human"], [*decisions, reopening]
+        )
+
+    def test_added_notes_keep_only_the_latest_ones(self):
+        run_log: list[dict] = []
+
+        for index in range(MAX_PARTNER_NOTES_IN_RUN_LOG + 5):
+            run_log = _append_to_run_log(
+                run_log, {"step": PARTNER_NOTE_STEP, "previous_status": "needs_human", "message": f"Note {index}"}
+            )
+
+        self.assertEqual(len(run_log), MAX_PARTNER_NOTES_IN_RUN_LOG)
+        self.assertEqual(run_log[-1]["message"], f"Note {MAX_PARTNER_NOTES_IN_RUN_LOG + 4}")

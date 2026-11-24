@@ -12,7 +12,7 @@ from posthog.admin.console.panels import Fact, Operation, OperationHandler, Owne
 from posthog.admin.console.records import RECORD_TYPES
 from posthog.admin.console.registry import console
 from posthog.admin.console.tools import Link
-from posthog.api.oauth.provisioning_review import decide_partner, partner_provisioning_status
+from posthog.api.oauth.provisioning_review import PartnerDecisionRefused, decide_partner, partner_provisioning_status
 from posthog.models.oauth import OAuthApplication, revoke_application_sessions
 from posthog.models.oauth_provisioning import (
     PROVISIONING_CAPABILITIES,
@@ -207,16 +207,21 @@ DECISION_SUCCESS_MESSAGES = {
 
 
 def _decision_handler(decision: ProvisioningReviewStatus) -> OperationHandler:
-    def decide(request: HttpRequest, obj: Model, form: forms.Form | None) -> None:
+    def decide(request: HttpRequest, obj: Model, form: forms.Form | None) -> HttpResponse | None:
         assert isinstance(obj, OAuthApplication) and form is not None
-        decide_partner(
-            obj,
-            decision=decision,
-            reason=f"Staff: {form.cleaned_data['reason']}",
-            partner_message=form.cleaned_data["partner_message"],
-            actor=str(getattr(request.user, "email", "")),
-        )
+        try:
+            decide_partner(
+                obj,
+                decision=decision,
+                reason=f"Staff: {form.cleaned_data['reason']}",
+                partner_message=form.cleaned_data["partner_message"],
+                actor=str(getattr(request.user, "email", "")),
+            )
+        except PartnerDecisionRefused as refused:
+            messages.error(request, str(refused))
+            return HttpResponse(status=400)
         messages.success(request, DECISION_SUCCESS_MESSAGES[decision].format(name=obj.name))
+        return None
 
     return decide
 

@@ -118,7 +118,7 @@ def append_run_log(application_id: str, step: str, message: str, *, level: str =
         review = CIMDProvisioningReview.objects.select_for_update().filter(application_id=application_id).first()
         if review is None:
             return
-        review.run_log = [*review.run_log, _log_entry(step, message, level=level, **details)][-MAX_RUN_LOG_ENTRIES:]
+        review.run_log = _append_to_run_log(review.run_log, _log_entry(step, message, level=level, **details))
         review.save(update_fields=["run_log"])
 
 
@@ -236,8 +236,8 @@ def _write_verdict(
     review.decided_stage = stage
     review.reason = reason
     review.decided_at = timezone.now()
-    review.run_log = [
-        *review.run_log,
+    review.run_log = _append_to_run_log(
+        review.run_log,
         _log_entry(
             SETTLED_STEP,
             message,
@@ -246,8 +246,9 @@ def _write_verdict(
             stage=str(stage),
             actor=actor,
             partner_message=review.partner_message,
+            organization_id=_organization_id(review.application),
         ),
-    ][-MAX_RUN_LOG_ENTRIES:]
+    )
     review.save(update_fields=["status", "decided_stage", "reason", "decided_at", "run_log", "partner_message"])
     return previous
 
@@ -455,6 +456,12 @@ def decide_partner(
         )
         if review is None and decision not in DECISIONS_WITHOUT_REVIEW:
             raise ValueError(f"{app.name} has no review, so it can only be accepted or blocked")
+        # Read on the locked row, so a block saved since the caller loaded the app is seen.
+        if decision == ProvisioningReviewStatus.CHANGES_REQUESTED and review is not None:
+            if review.application.provisioning.disabled:
+                raise PartnerDecisionRefused(
+                    f"{app.name} is blocked. Accept or decline it to lift the block before asking for changes."
+                )
         if review is not None:
             message_changed = review.partner_message != partner_message
             review.partner_message = partner_message
@@ -463,16 +470,17 @@ def decide_partner(
                     review, status=decision, stage=ProvisioningReviewStage.STAFF, reason=reason, actor=actor
                 )
             elif message_changed:
-                review.run_log = [
-                    *review.run_log,
+                review.run_log = _append_to_run_log(
+                    review.run_log,
                     _log_entry(
                         STAFF_MESSAGE_STEP,
                         f"Message to the partner changed: {partner_message or '(none)'}",
                         status=str(decision),
                         actor=actor,
                         partner_message=partner_message,
+                        organization_id=_organization_id(review.application),
                     ),
-                ][-MAX_RUN_LOG_ENTRIES:]
+                )
                 review.save(update_fields=["partner_message", "run_log"])
         if decision == ProvisioningReviewStatus.ACCEPTED:
             app.update_provisioning(active=True, disabled=False)
@@ -486,6 +494,10 @@ def decide_partner(
     if previous is not None:
         assert review is not None
         _capture_settled(review, previous_status=previous)
+
+
+class PartnerDecisionRefused(Exception):
+    """Staff can't make this decision on the app as it is now. The message says why."""
 
 
 class PartnerNoteRefused(Exception):
@@ -535,10 +547,16 @@ def send_partner_note(app: OAuthApplication, *, user: User, note: str) -> CIMDPr
         review.status = status
         review.decided_stage = None
         review.decided_at = None
-        review.run_log = _with_partner_note(
+        review.run_log = _append_to_run_log(
             review.run_log,
             _log_entry(
-                PARTNER_NOTE_STEP, message, user_id=user.pk, previous_status=previous, author=user.email, note=note
+                PARTNER_NOTE_STEP,
+                message,
+                user_id=user.pk,
+                previous_status=previous,
+                author=user.email,
+                note=note,
+                organization_id=_organization_id(review.application),
             ),
         )
         review.save(update_fields=["status", "decided_stage", "decided_at", "run_log"])
@@ -559,11 +577,29 @@ def send_partner_note(app: OAuthApplication, *, user: User, note: str) -> CIMDPr
     return review
 
 
-def _with_partner_note(run_log: list[dict[str, Any]], entry: dict[str, Any]) -> list[dict[str, Any]]:
-    """Add a note, dropping only older notes, so a note never pushes a staff or pipeline entry out of the log."""
-    notes = [index for index, logged in enumerate(run_log) if logged.get("step") == PARTNER_NOTE_STEP]
-    dropped = set(notes[: max(0, len(notes) + 1 - MAX_PARTNER_NOTES_IN_RUN_LOG)])
-    return [*(logged for index, logged in enumerate(run_log) if index not in dropped), entry]
+def _organization_id(app: OAuthApplication) -> str | None:
+    return str(app.organization_id) if app.organization_id else None
+
+
+def _is_added_note(entry: Mapping[str, Any]) -> bool:
+    """A note sent while the review already waited for staff. It changed no status, unlike a note that reopened a
+    decision, so it is the one entry the log may drop to stay within its caps."""
+    return (
+        entry.get("step") == PARTNER_NOTE_STEP and entry.get("previous_status") == ProvisioningReviewStatus.NEEDS_HUMAN
+    )
+
+
+def _append_to_run_log(run_log: list[dict[str, Any]], entry: dict[str, Any]) -> list[dict[str, Any]]:
+    """Append to the log within its caps. Only added notes are dropped while there are any, oldest first, so
+    partner text can't push out a decision, a reopening or the pipeline's evidence."""
+    log = [*run_log, entry]
+    added_notes = [index for index, logged in enumerate(log) if _is_added_note(logged)]
+    dropped = set(added_notes[: max(0, len(added_notes) - MAX_PARTNER_NOTES_IN_RUN_LOG)])
+    log = [logged for index, logged in enumerate(log) if index not in dropped]
+    while len(log) > MAX_RUN_LOG_ENTRIES:
+        oldest_note = next((index for index, logged in enumerate(log) if _is_added_note(logged)), 0)
+        del log[oldest_note]
+    return log
 
 
 def partner_provisioning_status(
@@ -611,15 +647,21 @@ def partner_timeline(review: CIMDProvisioningReview) -> list[PartnerReviewEvent]
     """What happened on the review, oldest first, as the partner's organization admins may see it. The internal
     reason, the research and the staff member's name stay out, because they describe what the review checks."""
     events = [PartnerReviewEvent(at=review.created_at.isoformat(), kind=PartnerReviewEventKind.REGISTERED)]
+    organization_id = _organization_id(review.application)
     for entry in review.run_log:
-        event = _partner_event(entry)
+        event = _partner_event(entry, organization_id)
         if event is not None:
             events.append(event)
     return events
 
 
-def _partner_event(entry: Mapping[str, Any]) -> PartnerReviewEvent | None:
+def _partner_event(entry: Mapping[str, Any], organization_id: str | None) -> PartnerReviewEvent | None:
     step, at, status = entry.get("step"), str(entry.get("at", "")), entry.get("status")
+    # Notes and staff messages were written to the organization linked then. A client_id can be relinked to
+    # another organization, which must not read what was said to the last one.
+    same_organization = organization_id is not None and entry.get("organization_id") == organization_id
+    if step in (PARTNER_NOTE_STEP, STAFF_MESSAGE_STEP) and not same_organization:
+        return None
     if step == PARTNER_NOTE_STEP and entry.get("note"):
         return PartnerReviewEvent(
             at=at,
@@ -639,7 +681,7 @@ def _partner_event(entry: Mapping[str, Any]) -> PartnerReviewEvent | None:
             at=at,
             kind=PartnerReviewEventKind.STAFF_DECISION,
             status=ProvisioningReviewStatus(status),
-            message=str(entry.get("partner_message", "")),
+            message=str(entry.get("partner_message", "")) if same_organization else "",
         )
     if step == STAFF_MESSAGE_STEP:
         return PartnerReviewEvent(
