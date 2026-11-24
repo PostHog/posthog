@@ -39,6 +39,7 @@ export function TodayProductPaneSidebar({ pane }: { pane: TodayProductPaneKey })
             recent={recent}
             icon={iconForType(config.recentIcons[recent.type])}
             description={config.recentDescriptions[recent.type]}
+            meta={config.recentTypeLabels?.[recent.type]}
             active={activeRow === recentRowKey(recent.href)}
             dataAttr={dataAttr}
         />

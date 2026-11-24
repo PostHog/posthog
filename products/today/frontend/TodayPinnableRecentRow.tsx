@@ -6,12 +6,14 @@ export function TodayPinnableRecentRow({
     recent,
     icon,
     description,
+    meta,
     active,
     dataAttr,
 }: {
     recent: { type: string; name: string; href: string; ref?: string }
     icon: JSX.Element
     description: string
+    meta?: string
     active: boolean
     dataAttr: string
 }): JSX.Element {
@@ -22,6 +24,7 @@ export function TodayPinnableRecentRow({
             href={recent.href}
             icon={icon}
             description={description}
+            meta={meta}
             active={active}
             action={
                 <SidebarPinButton

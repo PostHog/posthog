@@ -345,6 +345,23 @@ describe('inboxSceneLogic routing', () => {
             })
         })
 
+        it.each([
+            ['the Automate pane on', true],
+            ['the Automate pane off', false],
+        ])('names the scout page in breadcrumbs with %s', (_, automateOn) => {
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+                [FEATURE_FLAGS.AUTOMATE_AREA]: automateOn,
+            })
+            mountLogic()
+            router.actions.push(urls.inboxScout('signals-scout-web-vitals'))
+            const config = { id: 'config-1', skill_name: 'signals-scout-web-vitals' } as SignalScoutConfigApi
+            scoutFleetLogic.actions.loadScoutConfigsSuccess([config])
+            expect(logic.values.breadcrumbs.map((crumb) => crumb.name)).toEqual(
+                automateOn ? ['Scouts', scoutDisplayName(config)] : ['Self-driving inbox']
+            )
+        })
+
         it('leaves the tab on its default for a bare scout URL', () => {
             mountLogic()
             router.actions.push(urls.inboxScout('signals-scout-web-vitals'))

@@ -17,8 +17,8 @@ function automateSpecs(): TodayPaneProductSpec[] {
         { href: urls.destinations(), section: '/pipeline/batch-exports', iconType: 'data_pipeline' },
         {
             href: urls.subscriptions(),
-            item: { path: 'Subscriptions', iconType: 'inbox' as FileSystemIconType, href: urls.subscriptions() },
-            // Subscriptions shares the Self-driving icon with Scouts.
+            item: { path: 'Subscriptions', iconType: 'team_activity', href: urls.subscriptions() },
+            // pinned: autocapture `data-attr` suffix, `automate-sidebar-product-subscriptions`.
             key: 'subscriptions',
         },
         {
@@ -65,12 +65,13 @@ export const AUTOMATE_PANE: TodayProductPaneConfig = {
     lead: { id: 'products', rowDataAttr: 'automate-sidebar-product', specs: automateSpecs },
     sections: [],
     recentTypes: TODAY_AUTOMATE_RECENT_TYPES,
-    recentIcons: { workflow: 'workflows', destination: 'data_pipeline', subscription: 'inbox', scout: 'inbox' },
+    recentIcons: { workflow: 'workflows', destination: 'data_pipeline', subscription: 'team_activity', scout: 'inbox' },
     recentDescriptions: {
         workflow: 'A workflow. Open it to see its steps, runs, and metrics.',
         destination: 'A destination. Open it to see its configuration and the events it sent.',
         subscription: 'A subscription. Open it to see its schedule and delivery history.',
         scout: 'A scout. Open it to see its runs, reports, and what it has learned.',
     },
+    recentTypeLabels: { scout: 'Scout' },
     loadRecentHistory: loadViewedDestinations,
 }

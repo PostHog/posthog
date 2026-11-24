@@ -12,6 +12,7 @@ export function TodayRecentRow({
     href,
     icon,
     description,
+    meta,
     active,
     action,
     dataAttr,
@@ -21,6 +22,7 @@ export function TodayRecentRow({
     href: string
     icon: JSX.Element
     description: string
+    meta?: string
     active: boolean
     action?: JSX.Element
     dataAttr: string
@@ -36,6 +38,7 @@ export function TodayRecentRow({
                 value={value}
                 label={name}
                 icon={icon}
+                meta={meta}
                 to={href}
                 active={active}
                 action={action}

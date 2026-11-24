@@ -15,7 +15,7 @@ export interface TodayPaneProductSpec {
     item?: FileSystemImport
     /** The icon of the page header the row opens, when it differs from the product list's icon. */
     iconType?: FileSystemIconType
-    /** The row's key, for a row that shares its icon type with another row of the pane. */
+    /** The row's key when it differs from its icon type. */
     key?: string
 }
 
@@ -84,6 +84,8 @@ export interface TodayProductPaneConfig {
     recentTypes: readonly string[]
     recentIcons: Record<string, FileSystemIconType>
     recentDescriptions: Record<string, string>
+    /** A type shown after a record's name, for types whose names can read as a product's name. */
+    recentTypeLabels?: Record<string, string>
     /** Records viewed before this pane existed, newest first, to fill Recents on a first visit. */
     loadRecentHistory?: () => Promise<TodayRecent[]>
 }

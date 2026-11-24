@@ -20,6 +20,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { TodayAutomateRecent } from '~/layout/today/todayAutomateRecents'
+import { isTodayPaneEnabled } from '~/layout/today/todayPaneFlags'
 import { TODAY_RECENT_KEY } from '~/layout/today/todayRecents'
 import { Breadcrumb } from '~/types'
 import type { UserType } from '~/types'
@@ -567,6 +568,7 @@ export interface inboxSceneLogicValues {
     linkImplementReportId: string | null
     scoutDetailTab: ScoutDetailTab | null
     scoutTemplateDraft: ScoutCreateInitialValues | null
+    scoutsInAutomate: boolean
     selectedReport: SignalReport | null
     selectedReportId: string | null
     selectedReportLoading: boolean
@@ -680,8 +682,22 @@ export interface inboxSceneLogicActions {
 export interface inboxSceneLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         activeTab: (activeTabState: InboxTabKey | null) => InboxTabKey
-        breadcrumbs: (selectedReport: SignalReport | null, selectedReportId: string | null) => Breadcrumb[]
-        todayRecent: (selectedScoutSkillName: string | null, scoutConfigs: any) => TodayAutomateRecent | null
+        scoutsInAutomate: (
+            featureFlags: FeatureFlagsSet,
+            activeTab: InboxTabKey,
+            selectedScoutSkillName: string | null
+        ) => boolean
+        breadcrumbs: (
+            selectedReport: SignalReport | null,
+            selectedReportId: string | null,
+            scoutsInAutomate: boolean,
+            selectedScoutSkillName: string | null,
+            scoutConfigs: SignalScoutConfig[] | null
+        ) => Breadcrumb[]
+        todayRecent: (
+            selectedScoutSkillName: string | null,
+            scoutConfigs: SignalScoutConfig[] | null
+        ) => TodayAutomateRecent | null
         isStaff: (user: UserType | null) => boolean
         signalRuns: (signalRunsResponse: SignalRun[] | null) => SignalRun[]
         signalRunsLoading: (signalRunsResponse: SignalRun[] | null, signalRunsResponseLoading: boolean) => boolean
@@ -957,19 +973,42 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             (activeTabState: InboxTabKey | null): InboxTabKey =>
                 activeTabState && isInboxTabKey(activeTabState) ? activeTabState : 'reports',
         ],
+        // Under the new navigation Scouts is its own Automate row, so its pages drop the inbox tabs and title.
+        scoutsInAutomate: [
+            (s) => [s.featureFlags, s.activeTab, s.selectedScoutSkillName],
+            (featureFlags: FeatureFlagsSet, activeTab: InboxTabKey, selectedScoutSkillName: string | null): boolean =>
+                !!featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV] &&
+                isTodayPaneEnabled('automate', featureFlags) &&
+                (activeTab === 'scouts' || !!selectedScoutSkillName),
+        ],
         breadcrumbs: [
-            (s) => [s.selectedReport, s.selectedReportId],
-            (selectedReport: SignalReport | null, selectedReportId: string | null): Breadcrumb[] => [
-                {
-                    key: 'inbox',
-                    name: sceneConfigurations[Scene.Inbox].name,
-                    iconType: 'inbox',
-                    path: urls.inbox('reports'),
-                },
-                ...(selectedReport && selectedReport.id === selectedReportId
-                    ? [{ key: selectedReport.id, name: selectedReport.title }]
-                    : []),
-            ],
+            (s) => [s.selectedReport, s.selectedReportId, s.scoutsInAutomate, s.selectedScoutSkillName, s.scoutConfigs],
+            (
+                selectedReport: SignalReport | null,
+                selectedReportId: string | null,
+                scoutsInAutomate: boolean,
+                selectedScoutSkillName: string | null,
+                scoutConfigs: SignalScoutConfig[] | null
+            ): Breadcrumb[] => {
+                if (scoutsInAutomate) {
+                    const config = scoutConfigs?.find((candidate) => candidate.skill_name === selectedScoutSkillName)
+                    return [
+                        { key: 'scouts', name: 'Scouts', iconType: 'inbox', path: urls.inbox('scouts') },
+                        ...(config ? [{ key: config.skill_name, name: scoutDisplayName(config) }] : []),
+                    ]
+                }
+                return [
+                    {
+                        key: 'inbox',
+                        name: sceneConfigurations[Scene.Inbox].name,
+                        iconType: 'inbox',
+                        path: urls.inbox('reports'),
+                    },
+                    ...(selectedReport && selectedReport.id === selectedReportId
+                        ? [{ key: selectedReport.id, name: selectedReport.title }]
+                        : []),
+                ]
+            },
         ],
         [TODAY_RECENT_KEY]: [
             (s) => [s.selectedScoutSkillName, s.scoutConfigs],
