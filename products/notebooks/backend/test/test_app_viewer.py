@@ -1,6 +1,7 @@
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
+from posthog.clickhouse.client.execute_async import QueryNotFoundError
 from posthog.constants import AvailableFeature
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -10,7 +11,7 @@ from products.notebooks.backend.markdown_conversion import (
     build_markdown_notebook_content,
     get_markdown_notebook_markdown,
 )
-from products.notebooks.backend.models import Notebook, NotebookAppRelease
+from products.notebooks.backend.models import Notebook, NotebookAppRelease, NotebookNodeRun
 
 
 class TestNotebookAppViewer(ClickhouseTestMixin, APIBaseTest):
@@ -92,6 +93,17 @@ class TestNotebookAppViewer(ClickhouseTestMixin, APIBaseTest):
             return_value=False,
         ):
             assert self.client.post(url, payload, format="json").status_code == 403
+        with (
+            patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True),
+            patch(
+                "products.notebooks.backend.presentation.notebook_throttles.NotebookAppQueryBurstThrottle.rate",
+                "1/minute",
+            ),
+        ):
+            assert self.client.post(url, payload, format="json").status_code == 200
+            assert self.client.post(url, payload, format="json").status_code == 429
+            self.client.force_login(self.user)
+            assert self.client.post(url, payload, format="json").status_code == 200
         notebook.refresh_from_db()
         assert notebook.variables == defaults
         assert get_markdown_notebook_markdown(notebook.content) == "Unpublished draft"
@@ -127,3 +139,53 @@ def test_date_filter_only_recomputes_native_outputs_with_changed_bindings() -> N
     assert "2026-10-19" in plans["date"].query
     assert not plans["date"].matches_defaults
     assert plans["constant"].matches_defaults
+
+
+class TestPublishedAppResults(APIBaseTest):
+    @patch(
+        "products.notebooks.backend.presentation.app_serializers.posthoganalytics.feature_enabled", return_value=True
+    )
+    def test_published_run_restores_rows_after_cache_expiry(self, _flag) -> None:
+        notebook = Notebook.objects.create(team=self.team, created_by=self.user)
+        rows = [[number] for number in range(74)] + [["published last row"]]
+        run = NotebookNodeRun.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            notebook=notebook,
+            node_type="hogql",
+            node_id="orders",
+            code="SELECT 1",
+            status="done",
+            envelope={"first_page": rows[:50], "has_more": True, "columns": ["value"]},
+        )
+        source = f'<SQLV2 nodeId="orders" code="SELECT 1" runId="{run.id}" result={{{{"first_page":[[0]]}}}} />'
+        notebook.content = build_markdown_notebook_content(source)
+        notebook.save(update_fields=["content"])
+        layout = {
+            "tabs": [{"id": "summary", "title": "Summary"}],
+            "blocks": [{"id": "output", "kind": "cell", "tab_id": "summary", "node_id": "orders"}],
+        }
+        url = f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/"
+        with patch("products.notebooks.backend.app_release_results.sync_direct_run", return_value=rows):
+            published = self.client.patch(url, {"app_revision": 0, "app_published": layout}, format="json")
+        assert published.status_code == 200, published.json()
+        release = self.client.get(url + "app_release/")
+        assert release.status_code == 200
+        assert b"published last row" not in release.content
+        result_url = url + f"sql_v2/runs/{run.id}/"
+        with patch("products.notebooks.backend.sql_v2_direct.get_query_status", side_effect=QueryNotFoundError):
+            republished = self.client.patch(url, {"app_revision": 1, "app_published": layout}, format="json")
+            assert republished.status_code == 200, republished.json()
+            current = NotebookAppRelease.objects.for_team(self.team.id).get(notebook=notebook, revision=2)
+            assert current.sql_rows == {str(run.id): rows}
+            with patch("products.notebooks.backend.app_release_results.MAX_RELEASE_RESULT_BYTES", 64):
+                oversized = self.client.patch(url, {"app_revision": 2, "app_published": layout}, format="json")
+                assert oversized.status_code == 200, oversized.json()
+                current = NotebookAppRelease.objects.for_team(self.team.id).get(notebook=notebook, revision=3)
+                assert current.sql_rows == {}
+            restored = self.client.get(result_url, {"node_id": "orders"})
+            assert restored.status_code == 200, restored.json()
+            assert restored.json()["rows"] == rows
+            assert self.client.get(result_url, {"node_id": "other"}).status_code == 404
+            run.connection_id = run.id
+            run.save(update_fields=["connection_id"])
+            assert self.client.get(result_url, {"node_id": "orders"}).status_code == 403

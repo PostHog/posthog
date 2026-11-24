@@ -77827,7 +77827,7 @@ export namespace Schemas {
          * @nullable
          */
       error?: string | null;
-      /** SQL (hogql) runs only: the full capped row set for client-side paging, present while the query manager's transient result is alive (~20 minutes). Absent afterwards and for kernel (python/duckdb) runs, which keep only the envelope's first_page preview. */
+      /** Capped SQL rows for paging, available from the query cache or a retained app release. The result envelope also includes the first saved page. */
       rows?: unknown[][];
     }
 

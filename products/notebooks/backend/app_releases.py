@@ -5,6 +5,7 @@ from django.db.models import QuerySet
 
 from rest_framework.exceptions import ValidationError
 
+from products.notebooks.backend.app_release_results import capture_published_sql_rows
 from products.notebooks.backend.facade.contracts import AppBlockSource, AppRelease, AppReleaseReview
 from products.notebooks.backend.markdown_collab import get_markdown_notebook_markdown
 from products.notebooks.backend.models import Notebook, NotebookAppRelease, NotebookNodeRun
@@ -25,7 +26,12 @@ from products.notebooks.backend.util import _parse_markdown_component_props, ite
 
 
 def releases_for(notebook: Notebook) -> QuerySet[NotebookAppRelease]:
-    return NotebookAppRelease.objects.for_team(notebook.team_id).filter(notebook=notebook).order_by("-revision")
+    return (
+        NotebookAppRelease.objects.for_team(notebook.team_id)
+        .filter(notebook=notebook)
+        .defer("sql_rows")
+        .order_by("-revision")
+    )
 
 
 def read_release(team_id: int, notebook_id: UUID, *, previous: bool = False) -> AppRelease | None:
@@ -74,6 +80,7 @@ def record_release(team_id: int, notebook_id: UUID, *, restore_previous: bool = 
         variables=restore.variables if restore else notebook.variables or [],
         title=restore.title if restore else notebook.title or "",
         layout=layout,
+        sql_rows=restore.sql_rows if restore else capture_published_sql_rows(notebook, markdown, layout),
     )
     releases.exclude(pk__in=releases.values("pk")[:2]).delete()
 

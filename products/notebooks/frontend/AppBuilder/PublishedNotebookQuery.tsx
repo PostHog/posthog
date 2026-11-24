@@ -1,7 +1,6 @@
-import { LemonBanner } from '@posthog/lemon-ui'
+import { LemonBanner, Spinner } from '@posthog/lemon-ui'
 
 import type { NotebookComponentBlockNode, NotebookComponentProps } from 'lib/components/MarkdownNotebook/types'
-import { type NotebookNodeSQLV2Result, toCachedResults } from 'scenes/notebooks/Nodes/NotebookNodeSQLV2'
 import { getSqlV2PropsFromQueryProp } from 'scenes/notebooks/Notebook/markdownNotebookV2'
 
 import { applyVisualizationType, columnsFromResponse } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
@@ -10,6 +9,7 @@ import { DataVisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/s
 import type { QueryContext } from '~/queries/types'
 import { ChartDisplayType } from '~/types'
 
+import { type PublishedRunResult, type SavedRows, savedQueryResult } from './notebookAppPublishedResults'
 import type { ViewerOutput } from './notebookAppViewerLogic'
 
 function publishedVisualization(
@@ -40,27 +40,61 @@ function publishedVisualization(
     return viz
 }
 
+function rowSummary(rows: SavedRows, count: number): string {
+    switch (rows) {
+        case 'partial':
+            return `Only the first ${count} saved rows are available.`
+        case 'capped':
+            return `Showing ${count} saved rows, the limit for a SQL run.`
+        case 'complete':
+            return 'Published result'
+    }
+}
+
+function publishedQueryHeight(
+    display: ChartDisplayType | undefined,
+    height: NotebookComponentProps[string]
+): number | undefined {
+    if (display === ChartDisplayType.BoldNumber || display === ChartDisplayType.Metric) {
+        return undefined
+    }
+    return Math.max(160, Math.min(Number(height) || 320, 1000))
+}
+
 export function PublishedNotebookQuery({
     cell,
     current,
+    pinned,
     sessionId,
     chartInputFilters,
 }: {
     cell: NotebookComponentBlockNode
     current?: ViewerOutput
+    pinned?: PublishedRunResult
     sessionId: string
     chartInputFilters: QueryContext['chartInputFilters']
 }): JSX.Element {
     const attributes = { ...cell.props, ...getSqlV2PropsFromQueryProp(cell.props) }
-    const snapshot = attributes.result as NotebookNodeSQLV2Result | undefined
-    const result = current?.result ?? (snapshot ? toCachedResults(snapshot) : undefined)
-    if (!result) {
+    const output = current
+        ? { result: current.result, rows: 'complete' as const }
+        : savedQueryResult(attributes, pinned)
+    if (output === 'loading') {
+        return <Spinner />
+    }
+    if (output === 'unavailable') {
+        return <LemonBanner type="info">The saved result is unavailable.</LemonBanner>
+    }
+    if (!output) {
         return <LemonBanner type="info">No published result for this cell.</LemonBanner>
     }
-    const viz = publishedVisualization(attributes, result, current?.query)
+    const { result, rows } = output
+    const viz = publishedVisualization(
+        rows === 'partial' ? { ...attributes, outputTab: 'results' } : attributes,
+        result,
+        current?.query
+    )
     const key = sessionId + '-' + cell.id + '-' + (current?.generation ?? 'published')
-    const compact = viz.display === ChartDisplayType.BoldNumber || viz.display === ChartDisplayType.Metric
-    const height = compact ? undefined : Math.max(160, Math.min(Number(attributes.height) || 320, 1000))
+    const height = publishedQueryHeight(viz.display, attributes.height)
     return (
         <div className="min-w-0">
             <div className="flex min-h-0 flex-col overflow-auto" style={{ height }}>
@@ -74,11 +108,7 @@ export function PublishedNotebookQuery({
                     embedded
                 />
             </div>
-            {!current && (
-                <small className="text-secondary">
-                    {snapshot?.previewOnly ? 'Published preview' : 'Published result'}
-                </small>
-            )}
+            {!current && <small className="text-secondary">{rowSummary(rows, result.results.length)}</small>}
         </div>
     )
 }

@@ -78,7 +78,7 @@ export const SqlChart = (props: SqlChartProps): JSX.Element => {
                 {...props}
                 directPointClick
                 pointClickHint="Filter the app by this value"
-                onPointClick={(_, index) => selectInput(xData.data[index])}
+                onPointClick={(_, index) => selectInput((xData.rawData ?? xData.data)[index])}
             />
         )
     }

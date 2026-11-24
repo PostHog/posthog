@@ -72,6 +72,7 @@ from products.notebooks.backend.collab import submit_steps
 from products.notebooks.backend.facade.api import to_markdown_notebook_content
 from products.notebooks.backend.facade.app_releases import (
     plan_viewer_queries,
+    read_published_run_rows,
     read_release,
     record_release,
     review_release,
@@ -140,6 +141,8 @@ from products.notebooks.backend.presentation.app_serializers import (
     update_app_revision,
 )
 from products.notebooks.backend.presentation.notebook_throttles import (
+    NotebookAppQueryBurstThrottle,
+    NotebookAppQuerySustainedThrottle,
     NotebookCreateBurstThrottle,
     NotebookCreateSustainedThrottle,
     NotebookKernelStartBurstThrottle,
@@ -877,6 +880,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         throttles = super().get_throttles()
         if self.action == "create":
             return [*throttles, NotebookCreateBurstThrottle(), NotebookCreateSustainedThrottle()]
+        if self.action == "app_queries":
+            return [*throttles, NotebookAppQueryBurstThrottle(), NotebookAppQuerySustainedThrottle()]
         if self.action in ("kernel_start", "kernel_restart"):
             return [*throttles, NotebookKernelStartBurstThrottle(), NotebookKernelStartSustainedThrottle()]
         return throttles
@@ -2460,7 +2465,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
         # Direct (hogql) runs have no callback: this poll advances the row from the async
         # query status, and while the manager's result is alive it also returns the full
-        # capped row set for client-side paging (`rows`, absent once expired).
+        # capped row set for client-side paging. Published runs may retain those rows.
         #
         # It runs before the access gate on purpose. This poll is the only thing that moves a
         # direct run to a terminal state, and the only place its expiry watchdog fires, so
@@ -2473,6 +2478,14 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         # The two are mutually exclusive — each is a no-op for the other's node types.
         expire_stale_kernel_run(run)
         self._require_run_connection_access(run, user)
+        if (
+            rows is None
+            and notebook.app_published is not None
+            and run.node_type == NotebookNodeRun.NodeType.HOGQL
+            and run.status == NotebookNodeRun.Status.DONE
+            and (run.envelope or {}).get("has_more")
+        ):
+            rows = read_published_run_rows(self.team_id, notebook.pk, run.id)
 
         # Interrupted runs keep their envelope too: the walkthrough (Journey 9) promises the
         # captured stdout/stderr arrive with the final envelope even when the user stopped it.

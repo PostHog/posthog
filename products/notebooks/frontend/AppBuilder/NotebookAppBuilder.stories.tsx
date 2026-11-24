@@ -26,16 +26,25 @@ import {
 } from './notebookAppBuilderFixtures'
 
 const SHORT_ID = 'app-builder-demo'
-const buildContent = (variables: NotebookVariable[]): ReturnType<typeof buildMarkdownNotebookContent> =>
+const savedChartRun = '00000000-0000-4000-8000-000000000061'
+const buildContent = (
+    variables: NotebookVariable[],
+    published = false
+): ReturnType<typeof buildMarkdownNotebookContent> =>
     buildMarkdownNotebookContent(
         [
             '# Product weekly review',
-            ...appBuilderDemoCells.map((cell) =>
-                serializeMarkdownNotebookComponent('SQLV2', {
+            ...appBuilderDemoCells.map((cell) => {
+                const result = appBuilderDemoResults(variables)[cell.nodeId]
+                const hasSavedRun = published && cell.nodeId === 'weekly-signups'
+                return serializeMarkdownNotebookComponent('SQLV2', {
                     ...cell,
-                    result: appBuilderDemoResults(variables)[cell.nodeId],
+                    ...(hasSavedRun ? { runId: savedChartRun } : {}),
+                    result: hasSavedRun
+                        ? { ...result, first_page: result.first_page.slice(0, 5), previewOnly: true, has_more: true }
+                        : result,
                 })
-            ),
+            }),
         ].join('\n\n')
     )
 const notebook = {
@@ -94,11 +103,15 @@ const meta: Meta = {
                         results_as_of: '2026-10-18T09:00:00Z',
                         title: notebook.title,
                         layout,
-                        markdown: getMarkdownNotebookMarkdown(notebook.content),
+                        markdown: getMarkdownNotebookMarkdown(buildContent(appBuilderDemoVariables, true)),
                         variables: appBuilderDemoVariables,
                         has_previous: false,
                     },
                 ],
+                [`/api/projects/:team_id/notebooks/app-builder-demo/sql_v2/runs/${savedChartRun}`]: () => {
+                    const result = appBuilderDemoResults(appBuilderDemoVariables)['weekly-signups']
+                    return [200, { status: 'done', result: { ...result, status: 'ok' }, rows: result.first_page }]
+                },
                 '/api/projects/:team_id/notebooks/app-builder-demo/collab/stream': () => [503, {}],
                 '/api/projects/:team_id/notebooks/app-builder-demo/kernel/status': {
                     backend: null,
