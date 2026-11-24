@@ -28,7 +28,7 @@ A server that supports version 1 answers with `X-PostHog-Ingestion-Response: 1` 
 - `results` has exactly one entry per request item, in request order. A client must treat any other length as a failure of the whole request.
 - `ok`: the item succeeded. `value` is the service's own payload.
 - `drop`: the service skipped the item on purpose. `reason` is a snake_case label.
-- `retry`: the item failed for a reason that may clear later.
+- `retry`: the item failed for a reason that is specific to it and may clear later. A client may resend that item alone, up to a fixed number of attempts, and then sends it to the dead letter queue. It must not resend the rest of the batch because of it.
 - `fail`: the item can never succeed as sent.
 - `error.code` is a snake_case machine label. The shared codes are `invalid_input` and `deadline_exceeded`. A service may add its own.
 - `error.message` is for humans and logs. Clients must not parse it.
@@ -51,9 +51,9 @@ Only a 2xx response carries item results and echoes the header. Other status cod
 - 429 and 503, with an optional `Retry-After`, and other 5xx: retry the whole request.
 - Other 4xx: the request itself is malformed.
 
-A server uses these only when the failure is not specific to an item, for example when a database or a downstream pool is unavailable. It must not report that kind of failure as a `retry` for every item. A client should still treat a batch where every item is `retry` as a failure of the whole request, and never drop data because of it. When a client splits one batch over several requests, it applies this rule to the whole batch and not to each response, because one request can hold a single slow item.
+A server uses these only when the failure is not specific to an item, for example when a database or a downstream pool is unavailable. It must not report that kind of failure as a `retry` for every item. A client should still treat a batch of more than one item where every item is `retry` as a failure of the whole request, and never drop data because of it. A batch of one item is exempt: there the rule cannot tell an unavailable service from one item that always asks for a retry, and that item would block the consumer on every attempt. When a client splits one batch over several requests, it applies this rule to the whole batch and not to each response, because one request can hold a single slow item.
 
 ## Implementations
 
 - Rust servers: this crate. `PerItemResults` extracts the opt-in from an axum request, and `ItemResults` checks the length and answers with the header.
-- Node ingestion: `nodejs/src/ingestion/common/service-response.ts` parses a response and turns each result into a pipeline result. A `fail` or `retry` item goes to the DLQ, its warnings become ingestion warnings, and the all-retry rule fails the batch.
+- Node ingestion: `nodejs/src/ingestion/common/service-response.ts` parses a response and turns each result into a pipeline result. A `fail` item goes to the DLQ. A `retry` item goes there too, because this client makes no resend attempts. Each item's warnings become ingestion warnings, and the all-retry rule fails a batch of more than one item.

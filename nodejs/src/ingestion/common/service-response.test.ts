@@ -62,7 +62,7 @@ describe('service response', () => {
         expect(result).toMatchObject({ type: PipelineResultType.OK, warnings: [warning] })
     })
 
-    it('fails the whole batch as retriable when every item asks for a retry', () => {
+    it('fails the whole batch as retriable only when several items all ask for a retry', () => {
         const retry: ItemResult<{ id: number }> = {
             result: 'retry',
             error: { code: 'deadline_exceeded', message: 'slow' },
@@ -71,5 +71,8 @@ describe('service response', () => {
         expect(() => toPipelineResults('svc', [retry, retry], (value) => ok(value))).toThrow(
             expect.objectContaining({ isRetriable: true })
         )
+        expect(toPipelineResults('svc', [retry], (value) => ok(value))).toMatchObject([
+            { type: PipelineResultType.DLQ, reason: 'svc_item_retry' },
+        ])
     })
 })

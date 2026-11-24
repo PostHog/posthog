@@ -85,17 +85,18 @@ export function parseItemResults<T>(body: unknown, valueSchema: z.ZodType<T>, ex
  * goes to the DLQ as `<service>_item_fail` or `<service>_item_retry`, and each item's warnings
  * become ingestion warnings on its result.
  *
- * @throws ServiceResponseError, retriable, when every item asks for a retry. The contract treats
- * that as a failure of the whole request, so an outage of the service fails the batch instead of
- * sending all of it to the DLQ. Pass the whole batch, not one HTTP response, because one response
- * can hold a single slow item.
+ * @throws ServiceResponseError, retriable, when a batch of more than one item asks for a retry on
+ * every item. The contract treats that as a failure of the whole request, so an outage of the
+ * service fails the batch instead of sending all of it to the DLQ. A batch of one item is exempt,
+ * because an item that always asks for a retry would otherwise fail the batch on every attempt.
+ * Pass the whole batch, not one HTTP response, because one response can hold a single slow item.
  */
 export function toPipelineResults<T, O>(
     service: string,
     results: ItemResult<T>[],
     onOk: (value: T, index: number, warnings: PipelineWarning[]) => PipelineResult<O>
 ): PipelineResult<O>[] {
-    if (results.length > 0 && results.every((item) => item.result === 'retry')) {
+    if (results.length > 1 && results.every((item) => item.result === 'retry')) {
         throw new ServiceResponseError(`${service} asked to retry every item in the batch`, true)
     }
 
