@@ -43,10 +43,18 @@ def validate_cdc_prerequisites(conn: pymysql.Connection, tables: list[str], data
         return version_errors
 
     resolved = resolve_tables(tables, database)
+    missing_grants = _missing_grants(conn)
     errors: list[str] = []
     errors.extend(_check_binlog_settings(conn))
-    errors.extend(_check_binlog_filters(conn, {table.database for table in resolved} or {database or ""}))
-    errors.extend(_check_grants(conn))
+    # The binlog's filters are only readable with REPLICATION CLIENT, which the grants error asks for.
+    if "REPLICATION CLIENT" not in missing_grants:
+        errors.extend(_check_binlog_filters(conn, {table.database for table in resolved} or {database or ""}))
+    if missing_grants:
+        errors.append(
+            f"The database user is missing {', '.join(missing_grants)}. Run: GRANT REPLICATION SLAVE, "
+            "REPLICATION CLIENT, PROCESS ON *.* TO '<user>'@'%'; Granting these through a role only works when "
+            "the role is active by default."
+        )
     errors.extend(_check_retention(conn))
     errors.extend(_check_tables_have_primary_keys(conn, resolved))
     return errors
@@ -158,7 +166,7 @@ def _check_binlog_filters(conn: pymysql.Connection, databases: set[str]) -> list
     ]
 
 
-def _check_grants(conn: pymysql.Connection) -> list[str]:
+def _missing_grants(conn: pymysql.Connection) -> list[str]:
     with conn.cursor() as cur:
         cur.execute("SHOW GRANTS FOR CURRENT_USER()")
         grants = [str(row[0]) for row in cur.fetchall()]
@@ -168,14 +176,7 @@ def _check_grants(conn: pymysql.Connection) -> list[str]:
             held.update(privilege.strip().upper() for privilege in match.group("privileges").split(","))
     if "ALL PRIVILEGES" in held:
         return []
-    missing = [grant for grant in _REQUIRED_GRANTS if grant not in held]
-    if not missing:
-        return []
-    return [
-        f"The database user is missing {', '.join(missing)}. Run: GRANT REPLICATION SLAVE, REPLICATION CLIENT, "
-        "PROCESS ON *.* TO '<user>'@'%'; Granting these through a role only works when the role is active by "
-        "default."
-    ]
+    return [grant for grant in _REQUIRED_GRANTS if grant not in held]
 
 
 def is_rds(conn: pymysql.Connection) -> bool:

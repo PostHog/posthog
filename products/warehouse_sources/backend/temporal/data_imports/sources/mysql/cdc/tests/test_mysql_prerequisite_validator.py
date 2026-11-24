@@ -66,9 +66,17 @@ class TestValidateCDCPrerequisites:
             [error] = self._validate(mysql_server)
         assert expected in error
 
-    def test_missing_replication_grants_are_named(self, mysql_server):
-        [error] = self._validate(mysql_server, grants="REPLICATION CLIENT")
-        assert "missing REPLICATION SLAVE, PROCESS" in error
+    @pytest.mark.parametrize(
+        "grants,missing",
+        [
+            ("REPLICATION CLIENT", "REPLICATION SLAVE, PROCESS"),
+            # Without REPLICATION CLIENT the server refuses to show the binlog's filters.
+            ("REPLICATION SLAVE, PROCESS", "REPLICATION CLIENT"),
+        ],
+    )
+    def test_missing_replication_grants_are_named(self, mysql_server, grants, missing):
+        [error] = self._validate(mysql_server, grants=grants)
+        assert f"missing {missing}." in error
 
     def test_table_without_primary_key_is_named(self, mysql_server):
         [error] = self._validate(mysql_server, tables=("keyed", "unkeyed"))
