@@ -8283,17 +8283,17 @@ Note: Two API versions in play: the resource endpoints PostHog syncs are /cloud/
 
 ## Kajabi — gaps
 
-Today (12): `contact_offers`, `contact_taggings`, `contact_tags`, `contacts`, `courses`, `customers`, `offers`, `order_items`, `orders`, `products`, `purchases`, `transactions`
+Today (16): `contact_offers`, `contact_taggings`, `contact_tags`, `contacts`, `courses`, `customers`, `form_submissions`, `forms`, `offer_products`, `offers`, `order_items`, `orders`, `payouts`, `products`, `purchases`, `transactions`
 
 Diffed against: <https://developers.kajabi.com/llms.txt>
 
-- [ ] `Forms (GET /v1/forms)` — Lead capture forms, the parent lookup for form submissions (medium)
-- [ ] `Form submissions (GET /v1/form_submissions)` — Each lead capture submission, a top of funnel fact table next to contacts (high)
-- [ ] `Payouts (GET /v1/kajabi_payments_payouts)` — Payouts from Kajabi Payments, for reconciling revenue against transactions we sync (high)
+- [x] `Forms (GET /v1/forms)` — Lead capture forms, the parent lookup for form submissions (medium)
+- [x] `Form submissions (GET /v1/form_submissions)` — Each lead capture submission, a top of funnel fact table next to contacts (high)
+- [x] `Payouts (GET /v1/kajabi_payments_payouts)` — Payouts from Kajabi Payments, for reconciling revenue against transactions we sync (high)
 - [ ] `Contact notes (GET /v1/contact_notes)` — Notes teammates write on the contacts we sync (medium)
 - [ ] `Custom fields (GET /v1/custom_fields)` — Definitions of custom contact fields, a lookup for custom field values on contacts (medium)
 - [ ] `Customer offers (GET /v1/customers/{customer_id}/relationships/offers)` — Offers each customer holds, fanned out over customers, like the contact_offers table (medium)
-- [ ] `Offer products (GET /v1/offers/{offer_id}/relationships/products)` — Join table from offers to the products and courses they grant (medium)
+- [x] `Offer products (GET /v1/offers/{offer_id}/relationships/products)` — Join table from offers to the products and courses they grant (medium)
 - [ ] `Sites (GET /v1/sites)` — Sites in the account, a lookup for the site_id filter and site level analysis (low)
 - [ ] `Website pages (GET /v1/website_pages)` — Site pages catalog for content inventory (low)
 - [ ] `Landing pages (GET /v1/landing_pages)` — Landing page catalog for marketing analysis (low)
