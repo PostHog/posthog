@@ -32,21 +32,19 @@ describe('RunStatusCell', () => {
     afterEach(cleanup)
 
     it.each([
-        { status: 'succeeded', level: 'error', outcome: 'complained', tag: 'Marked as spam', warningIcon: true },
-        { status: 'succeeded', level: null, outcome: 'complained', tag: 'Marked as spam', warningIcon: false },
-        { status: 'succeeded', level: 'error', outcome: 'bounced', tag: 'Email bounced', warningIcon: true },
-        { status: 'succeeded', level: null, outcome: 'bounced', tag: 'Email bounced', warningIcon: false },
-        { status: 'succeeded', level: 'warn', outcome: null, tag: null, warningIcon: true },
-        { status: 'succeeded', level: null, outcome: null, tag: null, warningIcon: false },
-        { status: 'failed', level: 'error', outcome: 'bounced', tag: null, warningIcon: false },
+        { status: 'succeeded', level: 'error', outcome: 'complained', tag: 'MARKED AS SPAM', warningIcon: false },
+        { status: 'succeeded', level: null, outcome: 'complained', tag: 'MARKED AS SPAM', warningIcon: false },
+        { status: 'succeeded', level: 'error', outcome: 'bounced', tag: 'EMAIL BOUNCED', warningIcon: false },
+        { status: 'succeeded', level: null, outcome: 'bounced', tag: 'EMAIL BOUNCED', warningIcon: false },
+        { status: 'succeeded', level: 'warn', outcome: null, tag: 'SUCCEEDED', warningIcon: true },
+        { status: 'succeeded', level: null, outcome: null, tag: 'SUCCEEDED', warningIcon: false },
+        { status: 'failed', level: 'error', outcome: 'bounced', tag: 'FAILED', warningIcon: false },
     ] as const)(
-        'shows $tag and a warning icon $warningIcon for a $status run with level $level and outcome $outcome',
+        'shows only the $tag tag and a warning icon $warningIcon for a $status run with level $level and outcome $outcome',
         ({ status, level, outcome, tag, warningIcon }) => {
-            const { container, queryByText } = render(<RunStatusCell row={runRow(status, level, outcome)} />)
+            const { container } = render(<RunStatusCell row={runRow(status, level, outcome)} />)
 
-            expect(
-                queryByText('Email bounced')?.textContent ?? queryByText('Marked as spam')?.textContent ?? null
-            ).toBe(tag)
+            expect(Array.from(container.querySelectorAll('.LemonTag'), (el) => el.textContent)).toEqual([tag])
             expect(container.querySelector('svg') !== null).toBe(warningIcon)
         }
     )

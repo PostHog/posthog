@@ -32,15 +32,17 @@ const EMAIL_OUTCOME_TAG: Record<EmailOutcome, { label: string; description: stri
 
 export function RunStatusCell({ row }: { row: HogInvocationRow }): JSX.Element {
     const succeeded = row.status === 'succeeded'
-    const showWarningIcon = succeeded && row.problem_log_level !== null
+    const emailOutcome = succeeded ? row.email_outcome : null
+    const showWarningIcon = succeeded && !emailOutcome && row.problem_log_level !== null
     return (
         <div className="flex flex-wrap items-center gap-1">
-            <LemonTag type={tagTypeForStatus(row.status)}>{row.status.toUpperCase()}</LemonTag>
-            {succeeded && row.email_outcome ? (
-                <Tooltip title={EMAIL_OUTCOME_TAG[row.email_outcome].description}>
-                    <LemonTag type="danger">{EMAIL_OUTCOME_TAG[row.email_outcome].label}</LemonTag>
+            {emailOutcome ? (
+                <Tooltip title={EMAIL_OUTCOME_TAG[emailOutcome].description}>
+                    <LemonTag type="danger">{EMAIL_OUTCOME_TAG[emailOutcome].label.toUpperCase()}</LemonTag>
                 </Tooltip>
-            ) : null}
+            ) : (
+                <LemonTag type={tagTypeForStatus(row.status)}>{row.status.toUpperCase()}</LemonTag>
+            )}
             {showWarningIcon ? (
                 <Tooltip
                     title={
