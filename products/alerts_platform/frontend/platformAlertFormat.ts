@@ -213,7 +213,6 @@ export function describeGroup(alert: PlatformAlertApi, groupingKeys: readonly st
     return labels.length ? labels.map(({ key, value }) => `${key}=${value}`).join(' ') : alert.grouping_key
 }
 
-// A snooze that covers the whole alert or one group, or the count of snoozed groups under an alert.
 export type PlatformAlertMute = { until: string; count?: undefined } | { until: null; count: number }
 
 function activeSnooze(snoozeUntil: string | null, now: Date): string | null {

@@ -184,8 +184,6 @@ export const platformAlertsLogic = kea<platformAlertsLogicType>([
                 cache.disposables.dispose('snoozeExpiry')
                 return
             }
-            // The mute markers read the clock only when the list loads, so reload when the next snooze ends.
-            // A wait past the timer limit fires early, and the reload arms the next one.
             cache.disposables.add(() => {
                 const delay = Math.min(Math.max(dayjs(snoozeUntil).diff(dayjs()), 0) + 1000, MAX_TIMER_DELAY_MS)
                 const timer = setTimeout(() => actions.loadConfigurations(), delay)
