@@ -23,7 +23,7 @@ describe("the gateway listing", () => {
   it("offers the models the backend offers the desktop product", () => {
     const offered = rememberSavedGatewayListing().map((model) => model.id);
 
-    expect(offered.sort()).toEqual(backendOfferedModels("posthog_code").sort());
+    expect(offered.sort()).toEqual(backendOfferedModels());
   });
 
   it.each([

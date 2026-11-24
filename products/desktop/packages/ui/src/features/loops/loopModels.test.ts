@@ -144,9 +144,10 @@ describe("loopReasoningEffortOptions", () => {
     },
     {
       adapter: "claude",
-      model: "@cf/zai-org/glm-5.2",
-      expectedValues: ["high", "max"],
+      model: "zai-org/glm-5.3",
+      expectedValues: ["low", "high", "max"],
     },
+    { adapter: "claude", model: "@cf/zai-org/glm-5.2", expectedValues: [] },
     { adapter: "claude", model: "unknown-model", expectedValues: [] },
     {
       adapter: "codex",

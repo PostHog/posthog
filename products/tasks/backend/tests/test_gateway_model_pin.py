@@ -1,3 +1,6 @@
+import json
+from pathlib import Path
+
 import pytest
 
 from syrupy.extensions.json import JSONSnapshotExtension
@@ -256,3 +259,18 @@ def test_what_each_product_may_call_and_offer_from_the_saved_listing(snapshot) -
         for product in sorted(PRODUCT_ALLOWED_MODELS)
     }
     assert recorded == snapshot(extension_class=JSONSnapshotExtension)
+
+
+_AGENT_TESTING = Path(__file__).resolve().parents[4] / "packages" / "agent" / "packages" / "agent-contracts" / "testing"
+
+
+def test_the_agent_workspace_reads_this_saved_listing() -> None:
+    backend_copy = Path(__file__).parent / "fixtures" / "gateway_models.json"
+
+    assert json.loads((_AGENT_TESTING / "gateway-models.json").read_text()) == json.loads(backend_copy.read_text())
+
+
+def test_the_agent_workspace_expects_what_the_desktop_product_offers() -> None:
+    offered = sorted(listed.id for listed in offered_listing("posthog_code", saved_gateway_listing()))
+
+    assert json.loads((_AGENT_TESTING / "offered-models.json").read_text()) == offered

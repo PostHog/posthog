@@ -13,7 +13,7 @@ import {
 
 it.each([
   ["codex", "gpt-5.6-sol", "auto", "max"],
-  ["claude", "claude-sonnet-4-6", "acceptEdits", "high"],
+  ["claude", "claude-opus-4-5", "acceptEdits", "high"],
   ["claude", "moonshotai/kimi-k3", "acceptEdits", undefined],
 ] as const)(
   "updates controls for %s model %s",

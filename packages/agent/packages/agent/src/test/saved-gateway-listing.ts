@@ -5,7 +5,7 @@ import { beforeEach } from "vitest";
 const SAVED_GATEWAY_LISTING: unknown = JSON.parse(
   readFileSync(
     new URL(
-      "../../../../../../products/tasks/backend/tests/fixtures/gateway_models.json",
+      "../../../agent-contracts/testing/gateway-models.json",
       import.meta.url,
     ),
     "utf8",
