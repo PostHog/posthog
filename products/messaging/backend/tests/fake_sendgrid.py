@@ -96,7 +96,8 @@ class FakeSendGridState:
         # Path -> (requests allowed per window, seconds in a window).
         self.rate_limits: dict[str, tuple[int, int]] = {}
         self._windows: dict[str, tuple[float, int]] = {}
-        # What "ready" exports are short of: "bytes" cuts the file off, "rows" leaves out the last contact.
+        # How "ready" exports fall short: "bytes" cuts the packed file off, "connection" ends an unpacked one early,
+        # "rows" leaves out the last contact, and "empty" holds no contacts and counts none.
         self.export_damage: str | None = None
         # How many checks an export stays pending for, and the status that follows.
         self.export_pending_checks = 1
@@ -206,8 +207,11 @@ class _Handler(BaseHTTPRequestHandler):
         if status == "failure":
             body["message"] = "export failed"
         if status == "ready":
-            body["contact_count"] = len(export["contacts"])
-            body["urls"] = [f"{self.server.url}/__exports/{export_id}.csv.gz?signature=secret"]
+            # SendGrid documents the count as optional.
+            if state.export_damage != "connection":
+                body["contact_count"] = 0 if state.export_damage == "empty" else len(export["contacts"])
+            empty = state.export_damage == "empty"
+            body["urls"] = [] if empty else [f"{self.server.url}/__exports/{export_id}.csv.gz?signature=secret"]
         return 200, body, {}
 
     def _send_export_file(self, export_id: str, query: dict[str, str]) -> None:
@@ -240,13 +244,20 @@ class _Handler(BaseHTTPRequestHandler):
                 ]
             )
         payload = gzip.compress(rows.getvalue().encode())
+        stated_length = len(payload)
         if state.export_damage == "bytes":
             payload = payload[:-12]
+            stated_length = len(payload)
+        if state.export_damage == "connection":
+            text = rows.getvalue()
+            stated_length = len(text.encode())
+            payload = text[: text.rindex("\r\n", 0, -2) + 2].encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/gzip")
-        self.send_header("Content-Length", str(len(payload)))
+        self.send_header("Content-Length", str(stated_length))
         self.end_headers()
         self.wfile.write(payload)
+        self.close_connection = True
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)

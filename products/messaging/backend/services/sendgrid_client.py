@@ -16,6 +16,7 @@ from urllib.parse import parse_qs, urlparse
 
 from django.conf import settings
 
+import urllib3
 import requests
 
 from posthog.dataclasses import frozen
@@ -36,6 +37,7 @@ RELATIVE_RESET_LIMIT_SECONDS = 86_400
 DEFAULT_TIMEOUT_SECONDS = 30
 MAX_RESPONSE_BYTES = 100 * 1024 * 1024
 RESPONSE_CHUNK_BYTES = 1024 * 1024
+DOWNLOAD_CHUNK_BYTES = 64 * 1024
 # An export holds a few hundred bytes per contact, so this fits more contacts than one import takes.
 MAX_DOWNLOAD_BYTES = 200 * 1024 * 1024
 # Each read of a download has the request timeout, so a server that trickles bytes needs a total limit too.
@@ -43,6 +45,7 @@ MAX_DOWNLOAD_SECONDS = 30 * 60
 DOWNLOAD_TOO_LARGE_MESSAGE = (
     "SendGrid's contact export is larger than one import takes. Upload your people as a CSV file instead."
 )
+INCOMPLETE_DOWNLOAD_MESSAGE = "SendGrid's contact export arrived incomplete."
 UNFOLLOWED_LINK_MESSAGE = "SendGrid sent a download link PostHog won't follow."
 GZIP_MAGIC = b"\x1f\x8b"
 USER_AGENT = "posthog-messaging-import/1.0"
@@ -153,7 +156,11 @@ class SendGridClient:
         """A file SendGrid links to, unpacked, as a temporary file. The API key never goes with it."""
         # SendGrid's links are https. A stand-in for SendGrid in development serves its files from the API's own host.
         local = (settings.DEBUG or settings.TEST) and url.startswith(f"{self._base_url}/")
-        if urlparse(url).scheme != "https" and not local:
+        try:
+            scheme = urlparse(url).scheme
+        except ValueError:
+            raise SendGridAPIError(UNFOLLOWED_LINK_MESSAGE) from None
+        if scheme != "https" and not local:
             raise SendGridAPIError(UNFOLLOWED_LINK_MESSAGE)
         for retry in range(MAX_TRANSIENT_RETRIES + 1):
             with tempfile.TemporaryFile() as packed, tempfile.TemporaryFile() as unpacked:
@@ -173,7 +180,13 @@ class SendGridClient:
         # The link itself grants access to the contacts, so no message or chained exception holds it.
         try:
             with pinned_session(url) if pinned else requests.Session() as session:
-                with session.get(url, timeout=self._timeout, allow_redirects=False, stream=True) as response:
+                with session.get(
+                    url,
+                    headers={"Accept-Encoding": "identity", "User-Agent": USER_AGENT},
+                    timeout=self._timeout,
+                    allow_redirects=False,
+                    stream=True,
+                ) as response:
                     if response.status_code >= 500:
                         raise SendGridDownloadIncomplete(f"SendGrid's file returned HTTP {response.status_code}.")
                     # A redirect isn't followed, and its body isn't the file.
@@ -182,16 +195,21 @@ class SendGridClient:
                             f"SendGrid's file returned HTTP {response.status_code}.", status_code=response.status_code
                         )
                     size = 0
-                    for chunk in response.iter_content(RESPONSE_CHUNK_BYTES):
+                    # The bytes as sent, because requests neither limits what it unpacks nor notices a body that ends
+                    # before its stated length.
+                    for chunk in response.raw.stream(DOWNLOAD_CHUNK_BYTES, decode_content=False):
                         size += len(chunk)
                         if size > MAX_DOWNLOAD_BYTES:
                             raise SendGridResponseTooLarge(DOWNLOAD_TOO_LARGE_MESSAGE)
                         if time.monotonic() > deadline:
                             raise SendGridAPIError("SendGrid's contact export took too long to download.")
                         file.write(chunk)
+                    stated = response.headers.get("Content-Length", "")
+                    if stated.isdigit() and size != int(stated):
+                        raise SendGridDownloadIncomplete(INCOMPLETE_DOWNLOAD_MESSAGE)
         except SSRFBlockedError:
             raise SendGridAPIError(UNFOLLOWED_LINK_MESSAGE) from None
-        except requests.RequestException as e:
+        except (requests.RequestException, urllib3.exceptions.HTTPError) as e:
             raise SendGridDownloadIncomplete(
                 f"Couldn't download SendGrid's contact export ({type(e).__name__})."
             ) from None
@@ -292,7 +310,7 @@ def _unpacked(packed: IO[bytes], unpacked: IO[bytes]) -> IO[bytes]:
                     raise SendGridResponseTooLarge(DOWNLOAD_TOO_LARGE_MESSAGE)
                 unpacked.write(chunk)
     except (EOFError, gzip.BadGzipFile, zlib.error):
-        raise SendGridDownloadIncomplete("SendGrid's contact export arrived incomplete.") from None
+        raise SendGridDownloadIncomplete(INCOMPLETE_DOWNLOAD_MESSAGE) from None
     unpacked.seek(0)
     return unpacked
 

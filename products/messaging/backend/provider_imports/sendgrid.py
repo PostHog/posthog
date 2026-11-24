@@ -13,11 +13,12 @@ import time
 import hashlib
 from bisect import bisect_right
 from collections import Counter
-from collections.abc import Iterable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import replace
 from datetime import UTC, datetime
 from functools import partial
+from itertools import chain
 from typing import IO, Any
 from urllib.parse import quote
 
@@ -154,8 +155,8 @@ STEP_SCOPES: dict[str, tuple[tuple[str, ...], ...]] = {
     # A Single Send built from a design reads that design.
     "single_sends": (("marketing.read",), ("design_library.read",)),
     "lists": (("marketing.read",),),
-    # Reads the global unsubscribes again, to keep them out of the cohorts.
-    "contacts": (("marketing.read",), ("suppression.read",)),
+    # Reads every suppression and unsubscribe again, once the exports are in.
+    "contacts": (("marketing.read",), ("suppression.read",), ("asm.groups.read",)),
     "domains": (("whitelabel.read",),),
 }
 # SendGrid grants no marketing scope at all to a key on an account without Marketing Campaigns, even with full access.
@@ -319,15 +320,17 @@ class SendGridImportProvider(ImportProvider):
             description=(
                 "Matches each contact to a person in PostHog by email and fills in their contact fields where PostHog "
                 "has none. Fills a cohort with all your contacts and one with each list's contacts, without those who "
-                "unsubscribed from everything. SendGrid prepares an export of each list, which can take a while. Needs "
-                "Bounces, invalid addresses and spam reports, Global unsubscribes and Group unsubscribes selected too, "
-                "so no one who left in SendGrid gets marketing email. Needs marketing.read and suppression.read."
+                "unsubscribed from everything. SendGrid prepares an export of each list, which can take a while. Select "
+                "all three steps for suppressions and unsubscribes too, so no one who left in SendGrid gets marketing "
+                "email. If you import several subusers, the cohort with all your contacts holds the last one's. Needs "
+                "marketing.read, suppression.read and asm.groups.read."
             ),
             count_labels=CONTACT_COUNT_LABELS,
             requires=OPT_OUT_STEPS,
             needs=OPT_OUT_STEPS,
             counts_as_events=True,
             feature_flag=CONTACTS_FLAG,
+            hidden_note="Contacts don't become people.",
         ),
         replace(new_people_step("SendGrid"), feature_flag=CONTACTS_FLAG),
     )
@@ -1127,20 +1130,20 @@ def _fetch_contacts(
             checkpoint={"key": fingerprint, "exports": json.dumps(exports)},
         )
 
-    # SendGrid counts an empty list as 0, so it needs no export.
-    counted = {list_id: row.get("contact_count") for list_id, row in lists.items()}
-    counted[ALL_CONTACTS] = count.get("contact_count") if isinstance(count, dict) else None
-    if any(contact_count != 0 for contact_count in counted.values()):
-        counted[ALL_CONTACTS] = None
-    for target in (ALL_CONTACTS, *lists):
+    list_counts = {list_id: row.get("contact_count") for list_id, row in lists.items()}
+    everyone_count = count.get("contact_count") if isinstance(count, dict) else None
+    account_is_empty = everyone_count == 0 and all(list_count == 0 for list_count in list_counts.values())
+    for target, contact_count in ((ALL_CONTACTS, everyone_count), *list_counts.items()):
         members: list[dict[str, str]] = []
-        if counted[target] != 0:
+        target_is_empty = account_is_empty if target == ALL_CONTACTS else contact_count == 0
+        if not target_is_empty:
             if target not in exports:
                 exports[target] = _start_export(client, target)
                 yield progress_page()
             try:
+                exported = 0
                 for fields in _exported_contacts(client, exports[target]):
-                    read += target == ALL_CONTACTS
+                    exported += 1
                     email = fields.get("email")
                     # The people come from the export of every contact, so one added to SendGrid since then waits for
                     # the next import.
@@ -1148,22 +1151,30 @@ def _fetch_contacts(
                         continue
                     if member := contacts.add(email, _contact_properties(fields)):
                         members.append(member)
+                if not exported and isinstance(contact_count, int) and contact_count > 0:
+                    raise _ExportGone(f"SendGrid's contact export holds none of {contact_count:,} contacts.")
             except _ExportGone as e:
                 del exports[target]
                 yield progress_page()
                 raise ImportProviderUnavailable(str(e)) from e
         if target == ALL_CONTACTS:
+            read = 0 if target_is_empty else exported
             scanned = {member["email"].lower() for member in members}
             repeats_merged, invalid_skipped = contacts.repeats_merged, contacts.invalid_skipped
         else:
             list_members[target] = members
 
-    # The opt-out step read these before SendGrid prepared the exports, which can take hours. Someone who unsubscribed
-    # in between is in the exports, so they're opted out and kept out of every cohort here.
+    # The opt-out steps read these before SendGrid prepared the exports, which can take hours. Someone who left in
+    # between is in the exports, so every opt-out is read again here, and global unsubscribes stay out of the cohorts.
+    for page in chain(
+        _fetch_suppressions(client, context, None, fingerprint),
+        _fetch_group_unsubscribes(client, context, None, fingerprint),
+    ):
+        yield replace(progress_page(), save=partial(_save_without_counts, page.save))
     unsubscribed: dict[str, list[str]] = {}
     end_time = int(timezone.now().timestamp())
-    for page in _list_pages_after(client, "/v3/suppression/unsubscribes", 0, None, end_time):
-        for entry in page.rows:
+    for list_page in _list_pages_after(client, "/v3/suppression/unsubscribes", 0, None, end_time):
+        for entry in list_page.rows:
             address = exact_email(_list_email(entry))
             if address and address.lower() in scanned:
                 unsubscribed[address] = [ALL_MESSAGE_PREFERENCE_CATEGORY_ID]
@@ -1196,6 +1207,11 @@ def _fetch_contacts(
             contacts.other_spellings,
         ),
     )
+
+
+def _save_without_counts(save: Callable[[], SavedPage]) -> SavedPage:
+    # The opt-out steps show these counts already.
+    return replace(save(), imported=0, counts={})
 
 
 def _save_contacts(
@@ -1268,7 +1284,7 @@ def _ready_export(client: SendGridClient, export_id: str) -> dict[str, Any]:
             case "failure":
                 raise _ExportGone(f"SendGrid couldn't export your contacts: {str(export.get('message') or '')[:200]}")
         if time.monotonic() > deadline:
-            raise _ExportGone("SendGrid took too long to export your contacts. PostHog asks again.")
+            raise SendGridAPIError("SendGrid hasn't finished exporting your contacts yet. PostHog keeps checking.")
         time.sleep(EXPORT_POLL_SECONDS)
 
 

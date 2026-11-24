@@ -720,10 +720,21 @@ class TestSendGridContacts(ClickhouseTestMixin, BaseTest):
         downloads = [r for r in self.state.requests if r["path"] == "/__exports"]
         assert [(r["authorization"], r["query"]) for r in downloads] == [("", {"signature": "secret"})] * 3
 
-    def test_someone_who_unsubscribes_after_the_opt_out_step_is_opted_out_and_in_no_cohort(self) -> None:
+    def test_someone_who_leaves_after_the_opt_out_steps_is_not_mailable(self) -> None:
         run = self._start()
         self.state.account["unsubscribes"].append({"created": 1700005000, "email": "Ada@example.com"})
+        self.state.account["spam_reports"].append({"created": 1700005000, "email": "zoe@example.com"})
+        self.state.account["group_suppressions"]["103"].append("nolist@example.com")
         runs.run_step(self.team.id, run.id, "contacts", attempt=1)
+
+        assert MessageSuppression.objects.for_team(self.team.id).filter(identifier="zoe@example.com").exists()
+        category = MessageCategory.objects.get(team_id=self.team.id, key="sendgrid_103")
+        left = MessageRecipientPreference.objects.get(team_id=self.team.id, identifier="nolist@example.com")
+        assert left.preferences == {str(category.id): "OPTED_OUT"}
+        assert (
+            "bounced"
+            not in ProviderImportRun.objects.for_team(self.team.id).get(id=run.id).progress["contacts"]["counts"]
+        )
 
         assert all("ada@example.com" not in cohort["members"] for cohort in self._cohorts(run).values())
         opted_out = MessageRecipientPreference.objects.filter(
@@ -748,6 +759,8 @@ class TestSendGridContacts(ClickhouseTestMixin, BaseTest):
     @parameterized.expand(
         [
             ("cut_off_file", {"export_damage": "bytes"}, "arrived incomplete"),
+            ("cut_off_connection", {"export_damage": "connection"}, "arrived incomplete"),
+            ("nothing_exported", {"export_damage": "empty"}, "holds none of 7 contacts"),
             ("missing_rows", {"export_damage": "rows"}, "holds 6 of 7 contacts"),
             ("failed_export", {"export_status": "failure"}, "couldn't export your contacts"),
         ]
@@ -788,7 +801,28 @@ class TestSendGridContacts(ClickhouseTestMixin, BaseTest):
         with patch(f"{_CLIENT}.MAX_DOWNLOAD_BYTES", 300), self.assertRaises(ImportTooLarge):
             runs.run_step(self.team.id, run.id, "contacts", attempt=1)
 
-    @parameterized.expand([("http", "http://example.com/x.csv"), ("private_address", "https://127.0.0.1/x.csv")])
+        assert len([r for r in self.state.requests if r["path"] == "/__exports"]) == 1
+
+    def test_an_export_that_stays_pending_is_checked_again_rather_than_started_again(self) -> None:
+        run = self._start()
+        self.state.export_pending_checks = 5
+        with (
+            patch("products.messaging.backend.provider_imports.sendgrid.EXPORT_TIMEOUT_SECONDS", 0),
+            self.assertRaisesRegex(ImportProviderUnavailable, "hasn't finished"),
+        ):
+            runs.run_step(self.team.id, run.id, "contacts", attempt=1)
+
+        runs.run_step(self.team.id, run.id, "contacts", attempt=2)
+
+        assert len(self.state.exports) == 3
+
+    @parameterized.expand(
+        [
+            ("http", "http://example.com/x.csv"),
+            ("private_address", "https://127.0.0.1/x.csv"),
+            ("malformed", "https://[x"),
+        ]
+    )
     def test_a_link_to_an_unsafe_address_is_refused(self, _name: str, url: str) -> None:
         with self.assertRaisesRegex(SendGridAPIError, "won't follow"):
             with SendGridClient(FULL_KEY, self.server.url).download(url):

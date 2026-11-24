@@ -270,5 +270,6 @@ class TestProviderImportFlag(APIBaseTest):
         response = self.client.post(url, body)
 
         assert ("contacts" in [step["key"] for step in sendgrid["steps"]]) == contacts_on
+        assert ("Contacts don't become people." in sendgrid["not_imported"]) != contacts_on
         assert response.status_code == 400
         assert response.json()["detail"] == ("started" if contacts_on else "SendGrid has no step named contacts.")
