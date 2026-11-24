@@ -131,7 +131,10 @@ impl TeamDbSlots {
     }
 
     pub fn record_hot_arrivals(&self, team_ids: impl IntoIterator<Item = TeamId>) {
-        self.record_hot_arrivals_at(team_ids, Instant::now());
+        for (team_id, events) in self.hot_arrivals_at(team_ids, Instant::now()) {
+            let team: Arc<str> = Arc::from(team_id.to_string());
+            metrics::counter!(TEAM_DB_SLOTS_HOT_EVENTS, "team_id" => team).increment(events);
+        }
     }
 
     fn acquire_at(&self, team_id: TeamId, now: Instant) -> SlotGuard {
@@ -169,21 +172,20 @@ impl TeamDbSlots {
         self.lock(now).is_hot(team_id, now)
     }
 
-    fn record_hot_arrivals_at(&self, team_ids: impl IntoIterator<Item = TeamId>, now: Instant) {
+    fn hot_arrivals_at(
+        &self,
+        team_ids: impl IntoIterator<Item = TeamId>,
+        now: Instant,
+    ) -> Vec<(TeamId, u64)> {
         let mut events_per_team: HashMap<TeamId, u64> = HashMap::new();
         for team_id in team_ids {
             *events_per_team.entry(team_id).or_default() += 1;
         }
         let state = self.lock(now);
-        let hot_events: u64 = events_per_team
-            .iter()
-            .filter(|(team_id, _)| state.is_hot(**team_id, now))
-            .map(|(_, events)| events)
-            .sum();
-        drop(state);
-        if hot_events > 0 {
-            metrics::counter!(TEAM_DB_SLOTS_HOT_EVENTS).increment(hot_events);
-        }
+        events_per_team
+            .into_iter()
+            .filter(|(team_id, _)| state.is_hot(*team_id, now))
+            .collect()
     }
 
     fn lock(&self, now: Instant) -> MutexGuard<'_, State> {
@@ -287,6 +289,18 @@ mod tests {
 
         assert!(slots.is_hot_at(1, now + WINDOW - Duration::from_millis(1)));
         assert!(!slots.is_hot_at(1, now + WINDOW));
+    }
+
+    #[test]
+    fn hot_arrivals_count_the_events_of_hot_teams_only() {
+        let slots = slots(1, &[]);
+        let now = Instant::now();
+        {
+            let _a = slots.acquire_at(1, now);
+            let _b = slots.acquire_at(1, now);
+        }
+
+        assert_eq!(slots.hot_arrivals_at([1, 2, 1], now), vec![(1, 2)]);
     }
 
     #[test]

@@ -102,7 +102,7 @@ A warning log names the team, at most once a minute for each team.
 | --- | --- |
 | `cymbal_team_db_slots_calls_total` | slot calls, by `outcome`: `within` or `over_limit` |
 | `cymbal_team_db_slots_in_flight` | the team's count when a call takes a slot |
-| `cymbal_team_db_slots_hot_events_total` | exceptions that arrive for a hot team |
+| `cymbal_team_db_slots_hot_events_total` | exceptions that arrive for a hot team, by `team_id`. Only hot teams get a series. |
 | `cymbal_team_db_slots_teams` | the teams that the pod tracks |
 
 ## Issue-created rate limit (notifications mode)
