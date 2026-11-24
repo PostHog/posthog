@@ -68,6 +68,7 @@ export const SOURCE_KINDS: Record<PlatformAlertConfigurationSourceKindEnumApi, S
     },
     [PlatformAlertConfigurationSourceKindEnumApi.ErrorTracking]: {
         label: 'Error tracking',
+        iconType: 'error_tracking',
         alertUrl: () => urls.errorTracking(),
     },
 }
