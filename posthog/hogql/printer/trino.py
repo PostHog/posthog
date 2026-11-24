@@ -3985,8 +3985,10 @@ class TrinoPrinter(PostgresPrinter):
                 )
                 return f"ARRAY[{entries}]"
             matches = f"regexp_extract_all({value}, {regex}, 0)"
-            candidates = bounded_sequence("1", f"greatest(cardinality({matches}), 1)")
-            indexes = f"filter({candidates}, __hogql_index -> __hogql_index <= cardinality({matches}))"
+            indexes = (
+                f"filter(sequence(1, greatest(cardinality({matches}), 1)), "
+                f"__hogql_index -> __hogql_index <= cardinality({matches}))"
+            )
             entries = ", ".join(f"coalesce(element_at({column}, __hogql_index), '')" for column in columns)
             return f"transform({indexes}, __hogql_index -> ARRAY[{entries}])"
         replacement = node.args[2]
