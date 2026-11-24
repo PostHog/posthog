@@ -263,13 +263,17 @@ describe('ImpactFunnelCard', () => {
         expect(patches).toEqual([])
     })
 
-    it('turns on link tracking for the environment it shows, not its project', async () => {
+    it("saves to an environment's own id, never its project's, and shows the save error and keeps the prompt when that id is not a project", async () => {
         const savedUrls: string[] = []
         const environment = { ...teamWithLinkTagging(false), id: 1001, project_id: 1000 }
         useMocks({
             patch: {
-                '/api/organizations/:organization_id/projects/:id/': async ({ request }) => {
+                // The real endpoint looks the id up as a project id, so an environment's own id is not found.
+                '/api/organizations/:organization_id/projects/:id/': async ({ request, params }) => {
                     savedUrls.push(new URL(request.url).pathname)
+                    if (Number(params.id) !== environment.project_id) {
+                        return [404, { detail: 'Not found.' }]
+                    }
                     const { workflows_config } = (await request.json()) as Partial<TeamType>
                     return [
                         200,
@@ -284,7 +288,10 @@ describe('ImpactFunnelCard', () => {
 
         fireEvent.click(await screen.findByText('Turn on for project'))
 
-        expect(await screen.findByText('Converted')).toBeInTheDocument()
+        expect((await screen.findAllByText('Turn on link tracking failed: Not found.'))[0]).toBeInTheDocument()
+        expect(screen.getByText('Link tracking is off')).toBeInTheDocument()
+        expect(screen.getByText('Turn on for project').closest('button')).toHaveAttribute('aria-disabled', 'false')
+        expect(screen.queryByText('Converted')).not.toBeInTheDocument()
         expect(savedUrls).toEqual([`/api/organizations/${environment.organization}/projects/1001/`])
     })
 
@@ -326,7 +333,7 @@ describe('ImpactFunnelCard', () => {
         expect(patches).toHaveLength(1)
     })
 
-    it('picks the conversion event from the empty conversion step', async () => {
+    it('picks the conversion event from the empty conversion step, and shows it in the picker above', async () => {
         const capture = jest.spyOn(posthog, 'capture')
         useMocks({
             get: {
@@ -337,12 +344,18 @@ describe('ImpactFunnelCard', () => {
         })
         initKeaTests(true, teamWithLinkTagging(true))
         answer = [200, IMPACT]
-        renderCard()
+        render(
+            <Provider>
+                <EmailImpactTab workflowId="workflow-1" alwaysSensitive={false} />
+            </Provider>
+        )
+        expect(screen.getByTestId('email-impact-event')).not.toHaveTextContent('plan upgraded')
 
         fireEvent.click(await screen.findByTestId('email-impact-funnel-event'))
         fireEvent.click(await screen.findByText('plan upgraded'))
 
         expect(await screen.findByText('From send to "plan upgraded"')).toBeInTheDocument()
+        expect(screen.getByTestId('email-impact-event')).toHaveTextContent('plan upgraded')
         await waitFor(() => expect(requestedEvents).toContain('plan upgraded'))
         expect(capture).toHaveBeenCalledWith('transactional email impact event picked', {
             source: 'funnel',
