@@ -4165,9 +4165,9 @@ async def test_mysql_incremental_integer_cursor(
 
 def _keyset_source_inputs(team: Team, schema_name: str, job_inputs: dict[str, Any], job_id: str) -> SourceInputs:
     source = ExternalDataSource.objects.create(
-        source_id=uuid.uuid4(),
-        connection_id=uuid.uuid4(),
-        destination_id=uuid.uuid4(),
+        source_id=str(uuid.uuid4()),
+        connection_id=str(uuid.uuid4()),
+        destination_id=str(uuid.uuid4()),
         team=team,
         status="running",
         source_type="MySQL",
