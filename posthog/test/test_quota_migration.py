@@ -2,6 +2,7 @@ import os
 import sys
 import tempfile
 import subprocess
+from collections.abc import Callable
 from datetime import UTC, datetime
 
 import time_machine
@@ -11,10 +12,12 @@ from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 from prometheus_client import REGISTRY
+from redis import Redis
 from redis.client import Pipeline
 from redis.exceptions import (
     ConnectionError as RedisConnectionError,
     RedisClusterException,
+    ResponseError,
     TimeoutError as RedisTimeoutError,
 )
 from structlog.testing import capture_logs
@@ -350,7 +353,10 @@ class TestQuotaMigration(SimpleTestCase):
     def test_failed_secondary_snapshot_skips_reconciliation_even_after_recovery(self) -> None:
         self.shared.zadd(self.key, {"old": 1900000000})
         self.secondary.zadd(self.key, {"unknown": 1900000000})
-        with patch.object(self.secondary, "zscan", side_effect=RedisTimeoutError("unavailable")):
+        with (
+            patch("posthog.quota_migration.sleep"),
+            patch.object(self.secondary, "zscan", side_effect=RedisTimeoutError("unavailable")),
+        ):
             snapshots = snapshot_quota_stores({self.key: ["old"]})
         _retry_after.clear()
         reconcile_limited_team_tokens(self.resource, ["old"], {}, self.cache, store_snapshots=snapshots)
@@ -435,6 +441,129 @@ class TestQuotaMigration(SimpleTestCase):
         reconcile_secondary_quota_sets(snapshots, dict.fromkeys(keys, {}))
         assert [self.secondary.zrange(key, 0, -1) for key in keys] == stored
 
+    @parameterized.expand(
+        [
+            ("snapshot_one_timeout", "snapshot", 0, {2: RedisTimeoutError}, [1.0], True),
+            ("snapshot_two_timeouts", "snapshot", 0, dict.fromkeys([2, 3], RedisTimeoutError), [1.0, 2.0], True),
+            (
+                "snapshot_lost_seed",
+                "snapshot",
+                0,
+                {2: RedisClusterException, 3: RedisConnectionError},
+                [1.0, 2.0],
+                True,
+            ),
+            ("snapshot_three_timeouts", "snapshot", 0, dict.fromkeys([2, 3, 4], RedisTimeoutError), [1.0, 2.0], False),
+            (
+                "snapshot_failures_on_two_keys",
+                "snapshot",
+                0,
+                dict.fromkeys([2, 7], RedisTimeoutError),
+                [1.0, 2.0],
+                True,
+            ),
+            ("snapshot_third_failure", "snapshot", 0, dict.fromkeys([2, 4, 7], RedisTimeoutError), [1.0, 2.0], False),
+            ("snapshot_first_retry_past_deadline", "snapshot", 299, {2: RedisTimeoutError}, [], False),
+            (
+                "snapshot_second_retry_past_deadline",
+                "snapshot",
+                297,
+                dict.fromkeys([2, 3], RedisTimeoutError),
+                [1.0],
+                False,
+            ),
+            ("snapshot_error_reply", "snapshot", 0, {2: ResponseError}, [], False),
+            ("compare_lost_seed", "compare", 0, {2: RedisClusterException}, [1.0], True),
+        ]
+    )
+    def test_failed_copy_page_is_retried(
+        self,
+        _name: str,
+        operation: str,
+        first_page_seconds: int,
+        failures: dict[int, type[Exception]],
+        expected_delays: list[float],
+        recovers: bool,
+    ) -> None:
+        keys = [self.key, f"{self.cache.value}{QuotaResource.RECORDINGS.value}"]
+        members = {f"team-{index}": 1900000000 for index in range(7)}
+        for client in (self.shared, self.secondary):
+            for key in keys:
+                client.zadd(key, members)  # type: ignore[arg-type]
+        labels = {"operation": "snapshot", "result": "failure"}
+        before = REGISTRY.get_sample_value("billing_quota_secondary_operations_total", labels) or 0
+        stale = self.secondary
+        replacement = get_client("redis://quota-secondary.test:6379/0", socket_timeout=5)
+        raised: list[tuple[str, type[Exception]]] = []
+        cursors: list[int] = []
+        clock = 0.0
+
+        def scanner(client: Redis) -> Callable[..., object]:
+            zscan = client.zscan
+
+            def scan(key: str, cursor: int, count: int) -> object:
+                nonlocal clock
+                cursors.append(cursor)
+                if client is stale and raised:
+                    raise AttributeError("'NoneType' object has no attribute 'redis_connection'")
+                if len(cursors) == 1:
+                    clock += first_page_seconds
+                if failure := failures.get(len(cursors)):
+                    raised.append((key, failure))
+                    raise failure("member=private-token")
+                return zscan(key, cursor, count=count)
+
+            return scan
+
+        def wait(seconds: float) -> None:
+            nonlocal clock
+            clock += seconds
+
+        with (
+            capture_logs() as logs,
+            patch("posthog.quota_migration.QUOTA_READ_PAGE_SIZE", 2, create=True),
+            patch("posthog.quota_migration.monotonic", side_effect=lambda: clock),
+            patch("posthog.quota_migration.sleep", side_effect=wait) as delay,
+            patch(
+                "posthog.quota_migration.get_secondary_quota_redis_client",
+                side_effect=[stale, replacement, replacement],
+            ),
+            patch.object(stale, "zscan", side_effect=scanner(stale)),
+            patch.object(replacement, "zscan", side_effect=scanner(replacement)),
+        ):
+            if operation == "snapshot":
+                secondary = snapshot_quota_stores(dict.fromkeys(keys, [])).secondary
+                read = None if secondary is None else {key: sorted(tokens) for key, tokens in secondary.items()}
+                assert read == (dict.fromkeys(keys, sorted(members)) if recovers else None)
+            else:
+                assert compare_quota_stores(keys) == recovers
+        assert [failure for _key, failure in raised] == list(failures.values())
+        assert [call.args[0] for call in delay.call_args_list] == expected_delays
+        expected_logs = [
+            {
+                "event": "quota_secondary_read_retry",
+                "key": key,
+                "attempt": attempt,
+                "error_type": failure.__name__,
+                "log_level": "warning",
+            }
+            for attempt, (key, failure) in enumerate(raised[: len(expected_delays)], start=1)
+        ]
+        if recovers:
+            assert cursors.count(0) == len(keys)
+        else:
+            assert REGISTRY.get_sample_value("billing_quota_secondary_operations_total", labels) == before + 1
+            expected_logs.append(
+                {
+                    "event": "quota_secondary_operation_failed",
+                    "operation": "snapshot",
+                    "resource": "snapshot",
+                    "error_type": raised[-1][1].__name__,
+                    "log_level": "warning",
+                }
+            )
+        assert logs == expected_logs
+
     @override_settings(QUOTA_LIMITING_REDIS_URL=None)
     def test_unconfigured_secondary_preserves_shared_writes(self) -> None:
         add_limited_team_tokens(self.resource, {"new": 1900000100}, self.cache)
@@ -470,10 +599,17 @@ class TestQuotaMigration(SimpleTestCase):
         with (
             capture_logs() as logs,
             patch("posthog.quota_migration.sleep"),
-            patch.object(self.secondary, "zscan", side_effect=[(0, []), RedisTimeoutError("member=private-token")]),
+            patch.object(
+                self.secondary, "zscan", side_effect=[(0, []), *[RedisTimeoutError("member=private-token")] * 3]
+            ),
         ):
             assert not compare_quota_stores([self.key])
-        assert logs == [{"event": "quota_comparison_failed", "error_type": "TimeoutError", "log_level": "warning"}]
+        retry = {"event": "quota_secondary_read_retry", "key": self.key, "error_type": "TimeoutError"}
+        assert logs == [
+            {**retry, "attempt": 1, "log_level": "warning"},
+            {**retry, "attempt": 2, "log_level": "warning"},
+            {"event": "quota_comparison_failed", "error_type": "TimeoutError", "log_level": "warning"},
+        ]
         assert QUOTA_COMPARE_MISMATCHES.labels(key=self.key)._value.get() == 7
         assert QUOTA_COMPARE_LAST_SUCCESS._value.get() == 123
 
