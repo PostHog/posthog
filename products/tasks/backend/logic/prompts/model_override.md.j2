@@ -1,4 +1,4 @@
-You are routing a Slack message addressed to the PostHog agent. Decide whether the author asked for THIS task to run on a particular model or reasoning effort.
+You are routing a {{ message_kind }} addressed to the PostHog agent. Decide whether the author asked for THIS task to run on a particular model or reasoning effort.
 
 Only these models can be selected — copy the id exactly as written:
 {{ model_catalogue }}
@@ -31,6 +31,6 @@ Rules for the fields:
 
 When you are unsure, answer with nulls — the author's saved default is the right thing to run.
 
-Message: {{ event_text }}
+Message: {{ message }}
 
 Answer with the two fields, e.g. {"model": "claude-fable-5", "reasoning_effort": "high"} or {"model": null, "reasoning_effort": null}

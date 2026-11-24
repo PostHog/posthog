@@ -21,7 +21,7 @@ class PromptTemplates:
             # The default renders a missing name as the empty string, which drops a
             # paragraph of the prompt rather than failing.
             undefined=StrictUndefined,
-            # nosemgrep: python.jinja2.security.audit.autoescape-disabled-false.incorrect-autoescape-disabled -- the output is a prompt, not HTML. Escaping would send an apostrophe in a Slack message to the model as &#39;.
+            # nosemgrep: python.jinja2.security.audit.autoescape-disabled-false.incorrect-autoescape-disabled -- the output is a prompt, not HTML. Escaping would send an apostrophe in a message to the model as &#39;.
             autoescape=False,
             trim_blocks=True,
             lstrip_blocks=True,
