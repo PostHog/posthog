@@ -752,9 +752,9 @@ Note: Read the complete official GraphQL reference and compared query fields and
 
 Re-audited 2026-11-19 against: <https://www.useanvil.com/docs/api/graphql/reference/>
 
-- [ ] `Etch templates (GraphQL organization(organizationEid) { etchTemplates })` — signature templates that etch packets are created from, with signer roles and config (medium)
-- [ ] `Forges (GraphQL organization(organizationEid) { forges })` — form definitions with published state and field info, the form-side counterpart of casts (medium)
-- [ ] `Organization user invites (GraphQL organization(organizationEid) { organizationUserInvites })` — pending staff invitations beside the organization_users table (low)
+- [x] `Etch templates (GraphQL organization(organizationEid) { etchTemplates })` — signature templates that etch packets are created from, with signer roles and config (medium)
+- [x] `Forges (GraphQL organization(organizationEid) { forges })` — form definitions with published state and field info, the form-side counterpart of casts (medium)
+- [x] `Organization user invites (GraphQL organization(organizationEid) { organizationUserInvites })` — pending staff invitations beside the organization_users table (low)
 
 Note (2026-11-19): Read the full GraphQL reference page and listed the Organization, Forge and EtchTemplate object fields plus the 11 root query fields against the 10 tables. Welds, casts, packets, weld data and their logs are built. Webhooks, user uploads, payment methods and integrations were excluded as config, files or connection flags. Etch templates and forges are fields on Organization and take limit and offset or an isArchived filter.
 
