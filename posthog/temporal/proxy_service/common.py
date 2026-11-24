@@ -93,15 +93,24 @@ def record_exists(proxy_record_id: uuid.UUID) -> bool:
 def update_record(*, proxy_record_id: uuid.UUID, message: t.Optional[str] = None, status: t.Optional[str] = None):
     close_stale_db_connections()
     connection.ensure_connection()
-    prs = ProxyRecord.objects.filter(id=proxy_record_id)
+    records = ProxyRecord.objects.filter(id=proxy_record_id).exclude(status=ProxyRecord.Status.DELETING)
     updates: dict[str, t.Any] = {"updated_at": timezone.now()}
     if message is not None:
         updates["message"] = message
     if status is not None:
         updates["status"] = status
+    if status == ProxyRecord.Status.VALID and records.filter(needs_activation_recovery=True).exists():
+        from posthog.managed_proxy import cloudflare_proxy_lock  # noqa: PLC0415
+
+        # Cleanup must see the final status if it runs after recovery clears the flag.
+        with cloudflare_proxy_lock(proxy_record_id):
+            active_records = records.filter(cloudflare_deprovisioned=False).exclude(organization__is_active=False)
+            if active_records.update(**updates, needs_activation_recovery=False):
+                return
+
     # A failed deletion and late provisioning updates must not erase deletion intent.
     # Keep this conditional in SQL so an API deletion cannot race a stale record save.
-    if not prs.exclude(status=ProxyRecord.Status.DELETING).update(**updates):
+    if not records.update(**updates):
         raise RecordDeletedException("proxy record was deleted or marked for deletion before workflow completed")
 
 
