@@ -41,6 +41,7 @@ from ee.api.agentic_provisioning.accounts import (
 )
 from ee.api.agentic_provisioning.analytics import capture_provisioning_event
 from ee.api.agentic_provisioning.constants import PENDING_AUTH_CACHE_PREFIX, SAFE_STATE_RE
+from ee.api.agentic_provisioning.teams import ProjectCreationRefusedError, assert_user_can_create_project
 from ee.api.agentic_provisioning.tokens import user_can_access_team
 
 
@@ -54,12 +55,20 @@ def _partner_deactivated_redirect(pending_key: str) -> HttpResponseRedirect:
     return HttpResponseRedirect(f"{settings.SITE_URL}?error=partner_deactivated")
 
 
+def _consent_page_url(params: dict[str, str]) -> str:
+    return f"{settings.SITE_URL.rstrip('/')}/agentic/authorize?{urlencode(params)}"
+
+
 def _consent_page_redirect(state: str) -> HttpResponseRedirect:
     capture_provisioning_event("authorize", "selection_required")
 
-    base = settings.SITE_URL.rstrip("/")
-    params = urlencode({"state": _sanitize_state(state)})
-    return HttpResponseRedirect(f"{base}/agentic/authorize?{params}")
+    return HttpResponseRedirect(_consent_page_url({"state": _sanitize_state(state)}))
+
+
+def _project_creation_refused_redirect(state: str, refused: ProjectCreationRefusedError) -> HttpResponseRedirect:
+    capture_provisioning_event("authorize", "project_creation_refused", error_code=refused.code)
+
+    return HttpResponseRedirect(_consent_page_url({"state": _sanitize_state(state), "error": refused.code}))
 
 
 def _paying_partner(partner: OAuthApplication | None) -> OAuthApplication | None:
@@ -123,6 +132,10 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
 
     if not non_demo_teams:
         organization = memberships[0].organization
+        try:
+            assert_user_can_create_project(user, organization)
+        except ProjectCreationRefusedError as refused:
+            return _project_creation_refused_redirect(state, refused)
         team = Team.objects.create_with_data(initiating_user=user, organization=organization)
         non_demo_teams = [team]
         capture_provisioning_event("authorize", "auto_created_project", team_id=team.id)
@@ -277,6 +290,11 @@ class AuthorizeConfirmView(APIView):
                 )
             except PartnerOrganizationChanged:
                 return _consent_changed_response(confirm_partner)
+            except ProjectCreationRefusedError as refused:
+                capture_provisioning_event(
+                    "authorize_confirm", "project_creation_refused", partner=confirm_partner, error_code=refused.code
+                )
+                return Response({"error": refused.code}, status=403)
             success_properties["partner_organization"] = "created" if created else "reused"
 
         # Mint the auth code BEFORE deleting pending state so a cache hiccup

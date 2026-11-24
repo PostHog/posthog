@@ -8,7 +8,7 @@ from django.db import IntegrityError, transaction
 from django.db.models import Q
 
 from posthog.models.oauth import OAuthAccessToken
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.user import User
@@ -134,8 +134,9 @@ def _claim_provisioned_team(
     return None
 
 
-def _assert_user_can_create_project(user: User, team: Team) -> None:
-    organization = team.organization
+def assert_user_can_create_project(user: User, organization: Organization) -> None:
+    """Raise ProjectCreationRefusedError unless the user may create a project in the organization
+    and the organization is under its project limit."""
     membership = OrganizationMembership.objects.filter(organization_id=organization.id, user=user).first()
     if membership is None or not membership_can_create_projects(organization, membership.effective_level):
         raise ProjectCreationRefusedError(PROJECT_CREATION_FORBIDDEN_CODE, PROJECT_CREATION_REQUIRES_ADMIN_MESSAGE)
@@ -195,7 +196,7 @@ def resolve_or_create_project_team(
     if concurrent_mapping:
         return _resolve_mapped_team(concurrent_mapping, scoped_teams, user, access_token, enforce_ip_policy)
 
-    _assert_user_can_create_project(user, base_team)
+    assert_user_can_create_project(user, base_team.organization)
 
     project_name = configuration.get("project_name", "Default project")
     new_team = Team.objects.create_with_data(

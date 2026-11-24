@@ -26,6 +26,35 @@ export type AgenticPendingAuth = {
     partner_organization_name: string | null
 }
 
+export interface ConsentError {
+    title: string
+    description: string
+}
+
+// The authorize redirect sends these codes in the `error` search param when it can't offer a project.
+function describeConsentError(code: string): ConsentError {
+    switch (code) {
+        case 'forbidden':
+            return {
+                title: 'No project to connect',
+                description:
+                    'You do not have access to a project in your organization, and only organization admins can create one. Ask an admin to create a project or give you access to one, then start again from the app that sent you here.',
+            }
+        case 'project_limit_reached':
+            return {
+                title: 'No project to connect',
+                description:
+                    'You do not have access to a project in your organization, and it has reached its project limit. Ask an organization admin to give you access to a project, then start again from the app that sent you here.',
+            }
+        default:
+            return {
+                title: 'Authorization failed',
+                description:
+                    'PostHog cannot finish this authorization. Start it again from the app that sent you here.',
+            }
+    }
+}
+
 // A stuck confirm request left the button spinning with no way out, so bound it.
 const CONFIRM_TIMEOUT_MS = 20000
 
@@ -92,6 +121,18 @@ function describeConfirmFailure(error: unknown, partnerName: string): ConfirmFai
                 message: 'This authorization request changed while the page was open. Start over to review it.',
                 retryable: false,
             }
+        case 'project_limit_reached':
+            return {
+                reason: code,
+                message: `This organization has reached its project limit, so PostHog cannot create a project for ${partnerName}. Delete a project you no longer need, then try again.`,
+                retryable: true,
+            }
+        case 'forbidden':
+            return {
+                reason: code,
+                message: `Only organization admins can create projects in this organization. Ask an admin to connect ${partnerName}.`,
+                retryable: false,
+            }
         default:
             return {
                 reason: typeof code === 'string' ? code : 'unknown',
@@ -130,6 +171,8 @@ export interface agenticAuthorizeLogicValues {
     allOrganizations: OrganizationBasicType[]
     allTeams: TeamBasicType[] | null
     allTeamsLoading: boolean
+    consentError: ConsentError | null
+    consentErrorCode: string | null
     filteredTeams: TeamBasicType[]
     isAgenticAuthorizationSubmitting: boolean
     isAgenticAuthorizationValid: boolean
@@ -150,6 +193,9 @@ export interface agenticAuthorizeLogicActions {
         value: true
     }
     loadAllTeams: () => any
+    setConsentErrorCode: (consentErrorCode: string | null) => {
+        consentErrorCode: string | null
+    }
     loadAllTeamsFailure: (
         error: string,
         errorObject?: any
@@ -223,6 +269,7 @@ export interface agenticAuthorizeLogicActions {
 export interface agenticAuthorizeLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         allOrganizations: (user: UserType | null) => OrganizationBasicType[]
+        consentError: (consentErrorCode: string | null) => ConsentError | null
         filteredTeams: (
             allTeams: TeamBasicType[] | null,
             agenticAuthorization: AgenticAuthorizationFormValues
@@ -249,6 +296,7 @@ export const agenticAuthorizeLogic = kea<agenticAuthorizeLogicType>([
     })),
     actions({
         setState: (state: string) => ({ state }),
+        setConsentErrorCode: (consentErrorCode: string | null) => ({ consentErrorCode }),
         cancel: true,
     }),
     loaders(({ values }) => ({
@@ -276,6 +324,12 @@ export const agenticAuthorizeLogic = kea<agenticAuthorizeLogicType>([
             '' as string,
             {
                 setState: (_, { state }) => state,
+            },
+        ],
+        consentErrorCode: [
+            null as string | null,
+            {
+                setConsentErrorCode: (_, { consentErrorCode }) => consentErrorCode,
             },
         ],
     }),
@@ -356,6 +410,11 @@ export const agenticAuthorizeLogic = kea<agenticAuthorizeLogicType>([
         },
     })),
     selectors(() => ({
+        consentError: [
+            (s) => [s.consentErrorCode],
+            (consentErrorCode: string | null): ConsentError | null =>
+                consentErrorCode ? describeConsentError(consentErrorCode) : null,
+        ],
         allOrganizations: [
             (s) => [s.user],
             (user: UserType): OrganizationBasicType[] => {
@@ -409,8 +468,13 @@ export const agenticAuthorizeLogic = kea<agenticAuthorizeLogicType>([
                 return
             }
             const state = (searchParams['state'] as string) ?? ''
+            const consentErrorCode = searchParams['error'] ? String(searchParams['error']) : null
 
             actions.setState(state)
+            actions.setConsentErrorCode(consentErrorCode)
+            if (consentErrorCode) {
+                return
+            }
             if (state) {
                 actions.loadPendingAuth()
             }
