@@ -552,6 +552,8 @@ async def hogql_table(
         "ENUM": ("toString", ()),
         "IPv4": ("toString", ()),
         "IPv6": ("toString", ()),
+        "Variant": ("toNullableString", ()),
+        "Dynamic": ("toNullableString", ()),
     }
 
     def _conversion_target(ch_type: str) -> str:
