@@ -1,5 +1,8 @@
 ---
 name: setting-up-ai-visibility
+metadata:
+  audience: customer
+  feature_flag: aeo-citation-tracking
 description: >
   Set up AI visibility (AI citation tracking) for a PostHog project over the PostHog MCP: confirm the
   project's own site and brand, review competitor brands, choose which AI answer engines run and how

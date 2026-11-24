@@ -1,5 +1,7 @@
 ---
 name: diagnosing-replay-capture-gaps
+metadata:
+  audience: customer
 description: >
   Explains why part of one session recording was not captured, by reading the
   exported rrweb JSON (`*-ph-recording.json`) and the SDK lifecycle and config

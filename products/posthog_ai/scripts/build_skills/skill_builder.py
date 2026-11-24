@@ -9,7 +9,7 @@ import zipfile
 import textwrap
 from pathlib import Path
 
-from . import discovery, frontmatter, linting, rendering, reserved_names, skill_manifest, source_files
+from . import discovery, frontmatter, linting, rendering, reserved_names, skill_audience, skill_manifest, source_files
 
 _ZIP_FIXED_TIME = (2025, 1, 1, 0, 0, 0)
 
@@ -143,6 +143,10 @@ class SkillBuilder:
         """Validate skill sources without rendering (no Django needed)."""
         return linting.SkillLinter(self.repo_root, self.discoverer.discover()).run()
 
+    def write_served_skills(self) -> Path:
+        """Rewrite the served-skills file that the MCP server reads, from the skill headers."""
+        return skill_audience.write_served_skills(self.repo_root, self.discoverer.discover())
+
     def init_skill(self, product_name: str, skill_name: str, *, template: bool = False) -> Path:
         """Scaffold a new skill directory with SKILL.md boilerplate.
 
@@ -168,6 +172,8 @@ class SkillBuilder:
             ---
             name: {skill_name}
             description: TODO
+            metadata:
+              audience: TODO
             ---
 
             # {display_name}

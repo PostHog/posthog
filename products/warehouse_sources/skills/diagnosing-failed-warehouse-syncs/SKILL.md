@@ -1,5 +1,7 @@
 ---
 name: diagnosing-failed-warehouse-syncs
+metadata:
+  audience: customer
 description: >
   Diagnose why a data warehouse sync is failing and recommend the right recovery action. Use when the user asks "why
   isn't my Stripe/Postgres/Hubspot sync working?", "this table has been stuck for hours", "the data in the warehouse

@@ -1,5 +1,7 @@
 ---
 name: investigating-logs
+metadata:
+  audience: customer
 description: >
   Investigate logs in a PostHog project: verify a service or deployment is healthy, explain an error spike,
   triage an incident, or understand what a log stream is saying. Use when the user asks to "check the logs",

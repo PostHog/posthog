@@ -1,5 +1,7 @@
 ---
 name: migrating-from-fivetran
+metadata:
+  audience: customer
 description: >
   Move a user's Fivetran connectors into PostHog data warehouse sources. Use when the user says "migrate from
   Fivetran", "import my Fivetran setup", "replace Fivetran with PostHog", or asks what of their Fivetran account

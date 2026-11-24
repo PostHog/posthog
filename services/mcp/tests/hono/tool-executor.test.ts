@@ -11,6 +11,7 @@ vi.mock('@/resources', () => ({
     getPromptsFromManifest: vi.fn().mockResolvedValue([]),
 }))
 
+import servedSkillsJson from '@/generated/served-skills.json'
 import {
     MCP_EXEC_SKILLS_FEATURE_FLAG,
     MCP_SERVED_SKILLS_LIST_FLAG,
@@ -26,7 +27,6 @@ import { buildToolDomainsCompact } from '@/lib/instructions'
 import { CHATGPT_APP_OAUTH_CLIENT_ID } from '@/lib/oauth-constants'
 import { CHART_DATA_PREAMBLE } from '@/lib/time-series-chart-data'
 import { RENDER_UI_RESOURCE_URI, URI_MAP } from '@/resources/ui-apps.generated'
-import servedSkillsJson from '@/skills/served-skills.json'
 import { makeSkillFile, SkillCatalog } from '@/skills/skill-catalog'
 import { GENERATED_TOOL_MAP } from '@/tools/generated'
 import { getToolDefinition } from '@/tools/toolDefinitions'
@@ -835,9 +835,9 @@ describe('ToolExecutor', () => {
             // Names come from the real list, so an edit to the list cannot break these cases.
             const listed = Object.entries(servedSkillsJson.skills) as [
                 string,
-                { feature_flag?: string; consumers?: string[] },
+                { audience: string; feature_flag?: string; consumers?: string[] },
             ][]
-            const openSkill = listed.find(([, entry]) => Object.keys(entry).length === 0)![0]
+            const openSkill = listed.find(([, entry]) => !entry.feature_flag && !entry.consumers)![0]
             const [gatedSkill, { feature_flag: gate }] = listed.find(([, entry]) => entry.feature_flag)!
             const [scopedSkill, { consumers }] = listed.find(([, entry]) => entry.consumers && !entry.feature_flag)!
             const unlistedSkill = 'internal-runbook'

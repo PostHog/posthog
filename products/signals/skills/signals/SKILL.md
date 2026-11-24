@@ -1,5 +1,7 @@
 ---
 name: signals
+metadata:
+  audience: customer
 description: >
   How to query the document_embeddings table for raw signal data using HogQL. Use when you need to
   perform semantic search over signals, fetch every signal that contributed to a specific report,

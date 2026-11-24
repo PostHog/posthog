@@ -1,5 +1,7 @@
 ---
 name: analyzing-funnel-correlation
+metadata:
+  audience: customer
 description: >
   Find the events and person properties that correlate with funnel conversion or drop-off.
   Use when the user asks why people convert or drop off in a funnel, what converters do

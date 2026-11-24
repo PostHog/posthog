@@ -1,5 +1,7 @@
 ---
 name: diagnosing-missing-recordings
+metadata:
+  audience: customer
 description: >
   Diagnoses why a session recording is missing or was not captured.
   Use when a user asks why a session has no replay, why recordings aren't appearing,

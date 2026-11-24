@@ -1,5 +1,7 @@
 ---
 name: reviewing-warehouse-suggestions
+metadata:
+  audience: customer
 description: >
   Reviews PostHog's warehouse suggestions with a person and acts on them.
   Explains why a view should be materialized, unmaterialized, certified or deprecated using the numbers in the suggestion,

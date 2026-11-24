@@ -50,7 +50,7 @@ jobs:
                         - '.github/workflows/ci-agent-skills.yml'
                         - '.github/actions/setup-uv/**'
                         - 'services/mcp/schema/**'
-                        - 'services/mcp/src/skills/served-skills.json'
+                        - 'services/mcp/src/generated/served-skills.json'
                         # check-skills zips products/*/skills/* via `hogli build:skills`
                         # (see build.py's affected-path map), so posthog_ai's frontend
                         # can't affect it. Scoped to posthog_ai, not
@@ -62,7 +62,7 @@ jobs:
                         - 'products/*/skills/**'
                         - 'products/posthog_ai/scripts/build_skills/**'
                         - 'services/mcp/schema/**'
-                        - 'services/mcp/src/skills/served-skills.json'
+                        - 'services/mcp/src/generated/served-skills.json'
                         - '.github/workflows/ci-agent-skills.yml'
 
     lint-skills:
@@ -84,7 +84,7 @@ jobs:
                       /products/posthog_ai/scripts/build_skills/
                       /products/*/skills/
                       /services/mcp/schema/
-                      /services/mcp/src/skills/served-skills.json
+                      /services/mcp/src/generated/served-skills.json
                   sparse-checkout-cone-mode: false
 
             - name: Install uv

@@ -1,5 +1,7 @@
 ---
 name: working-with-skills
+metadata:
+  audience: customer
 description: >-
   Best practices for agents managing PostHog skills via the MCP `skill-*` tools —
   how to discover, read, create, update, and refactor skills efficiently, especially

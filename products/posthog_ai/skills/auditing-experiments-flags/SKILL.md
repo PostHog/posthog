@@ -1,5 +1,7 @@
 ---
 name: auditing-experiments-flags
+metadata:
+  audience: customer
 description: 'Audit PostHog experiments and feature flags for configuration issues, staleness, and best-practice violations. Read when the user asks to audit, health-check, or review experiments or feature flags, check flag hygiene, or verify experiment setup.'
 ---
 

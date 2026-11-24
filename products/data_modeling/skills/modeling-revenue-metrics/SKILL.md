@@ -1,5 +1,7 @@
 ---
 name: modeling-revenue-metrics
+metadata:
+  audience: customer
 description: >
   Build reusable revenue models — MRR, ARR, gross revenue, new/expansion/contraction/churn, ARPU, LTV, and
   per-customer/per-account revenue — on either PostHog data-warehouse views (HogQL) or an external dbt

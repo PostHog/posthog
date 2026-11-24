@@ -1,5 +1,7 @@
 ---
 name: analyzing-expensive-users
+metadata:
+  audience: customer
 description: >
   Analyze the most expensive users in AI observability and explain why they cost so much.
   Use when the user asks about top spenders, expensive users, per-user LLM cost,
