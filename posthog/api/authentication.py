@@ -426,6 +426,12 @@ def require_verified_email_for_login(user: User) -> None:
 class BrowserTokenField(serializers.Field):
     """A token a login or signup page may send. A value that is not a string reads as empty, so it never fails the request."""
 
+    def validate_empty_values(self, data: Any) -> tuple[bool, Any]:
+        # DRF refuses a null before to_internal_value runs, so a null reads as empty here
+        if data is None:
+            return (True, "")
+        return super().validate_empty_values(data)
+
     def to_internal_value(self, data: Any) -> str:
         return data if isinstance(data, str) else ""
 

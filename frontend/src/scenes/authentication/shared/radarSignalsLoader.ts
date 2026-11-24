@@ -11,7 +11,6 @@ export function startRadarSignalsFor(clientId: string | null | undefined): void 
         .catch(() => undefined)
 }
 
-/** The token to send with a login or signup, or '' when there is none in time. */
 export async function radarSignalsIdFor(clientId: string | null | undefined): Promise<string> {
     if (!clientId) {
         return ''

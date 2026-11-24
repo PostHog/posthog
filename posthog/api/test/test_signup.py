@@ -2044,7 +2044,9 @@ class TestSignupChallengeAPI(APIBaseTest):
         assert mock_put.call_args[0][0] == "https://api.workos.com/radar/attempts/radar_att_01ABC"
         assert mock_put.call_args[1]["json"] == {"attempt_status": "success", "challenge_status": "success"}
 
-    @parameterized.expand([("string", "signals_abc", "signals_abc"), ("not_a_string", {"id": 1}, "")])
+    @parameterized.expand(
+        [("string", "signals_abc", "signals_abc"), ("not_a_string", {"id": 1}, ""), ("null", None, "")]
+    )
     @pytest.mark.skip_on_multitenancy
     @patch("posthog.workos_radar._call_radar_api")
     @override_settings(WORKOS_RADAR_ENABLED=True, WORKOS_RADAR_API_KEY="test_key")

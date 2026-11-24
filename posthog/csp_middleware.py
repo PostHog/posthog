@@ -106,8 +106,8 @@ def is_embeddable_document(path: str) -> bool:
 # The hosted survey view sets its own policy, so the app policy reaches `/external_surveys/` only on
 # a response that the view did not build. No report shows how such a response behaves under an
 # enforced policy.
-# The auth page serves password login on both paths without a reload
-RADAR_SIGNALS_DOCUMENT_PATHS = frozenset({"/login", "/login/", "/signup", "/signup/"})
+# The auth page serves password login on both paths without a reload, and an invite link opens /signup/<invite id>
+RADAR_SIGNALS_DOCUMENT_PATHS = re.compile(r"/(?:login|signup)/?|/signup/[0-9a-fA-F-]{36}/?")
 
 REPORT_ONLY_ROUTES = re.compile(r"/exporter|/external_surveys/[^/]+/?")
 
@@ -340,7 +340,7 @@ class CSPMiddleware:
             report_sample = " 'report-sample'" if request.path == "/exporter" else ""
             # Only the auth documents run the WorkOS Radar signals script, which posts to the WorkOS
             # API from our page. WorkOS serves the script itself, so no other document trusts it.
-            is_radar_document = request.path in RADAR_SIGNALS_DOCUMENT_PATHS
+            is_radar_document = bool(RADAR_SIGNALS_DOCUMENT_PATHS.fullmatch(request.path))
             radar_script_src = " https://js.workos.com/radar/" if is_radar_document else ""
             radar_connect_src = " https://api.workos.com" if is_radar_document else ""
             csp_parts = [
