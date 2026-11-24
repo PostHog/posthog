@@ -790,6 +790,7 @@ services:
             - discovery.type=single-node
             - ES_JAVA_OPTS=-Xms256m -Xmx256m
             - xpack.security.enabled=false
+            - ingest.geoip.downloader.enabled=false
         image: elasticsearch:7.17.28
         healthcheck:
             test:
@@ -823,6 +824,7 @@ services:
             - POSTGRES_SEEDS=db
             - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
             - ENABLE_ES=false
+            - TEMPORAL_VERSION_CHECK_DISABLED=1
         image: temporalio/auto-setup:1.26.2
         labels:
             kompose.volume.type: configMap
