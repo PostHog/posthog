@@ -2230,6 +2230,26 @@ describe('EmailService', () => {
             })
             let tlsHandshakeThatNeverAnswersPort: number
 
+            const sendThroughATlsHandshakeThatNeverAnswers = (emailService: EmailService): (() => boolean) => {
+                const clientHellosBefore = clientHellosHeld
+                const handler = new NodeHttpHandler()
+                emailService.sesV2Client = sesClientFor(ses, {
+                    requestHandler: {
+                        handle: (request: any, options: any) =>
+                            handler.handle(
+                                {
+                                    ...request,
+                                    protocol: 'https:',
+                                    hostname: '127.0.0.1',
+                                    port: tlsHandshakeThatNeverAnswersPort,
+                                },
+                                options
+                            ),
+                    },
+                })
+                return () => clientHellosHeld > clientHellosBefore
+            }
+
             beforeAll(async () => {
                 await new Promise<void>((resolve) => tlsHandshakeThatNeverAnswers.listen(0, '127.0.0.1', resolve))
                 tlsHandshakeThatNeverAnswersPort = (tlsHandshakeThatNeverAnswers.address() as AddressInfo).port
@@ -2975,28 +2995,7 @@ describe('EmailService', () => {
                         emailService.sesV2Client = sesClientFor(ses, { retryStrategy: oneRetryAfter(2_000) })
                     },
                 ],
-                [
-                    'the TLS handshake with SES does not finish',
-                    (emailService: EmailService) => {
-                        const clientHellosBefore = clientHellosHeld
-                        const handler = new NodeHttpHandler()
-                        emailService.sesV2Client = sesClientFor(ses, {
-                            requestHandler: {
-                                handle: (request: any, options: any) =>
-                                    handler.handle(
-                                        {
-                                            ...request,
-                                            protocol: 'https:',
-                                            hostname: '127.0.0.1',
-                                            port: tlsHandshakeThatNeverAnswersPort,
-                                        },
-                                        options
-                                    ),
-                            },
-                        })
-                        return () => clientHellosHeld > clientHellosBefore
-                    },
-                ],
+                ['the TLS handshake with SES does not finish', sendThroughATlsHandshakeThatNeverAnswers],
             ])(
                 'when %s past the deadline, retries the send later and delivers it with its files once',
                 async (_name, fault) => {
@@ -3180,6 +3179,7 @@ describe('EmailService', () => {
                         ? new https.Agent({
                               ...TLS_WITHOUT_A_CERTIFICATE,
                               keepAlive: true,
+                              maxSockets: 1,
                               pskCallback: () => ({ psk: PRE_SHARED_KEY, identity: 'fake-ses' }),
                               checkServerIdentity: () => undefined,
                           })
@@ -3187,7 +3187,7 @@ describe('EmailService', () => {
                     const earlierRequest = behindAnEarlierRequest
                         ? new Promise<void>((resolve, reject) =>
                               outsideTheSend.runInAsyncScope(() =>
-                                  http
+                                  (overTls ? https : http)
                                       .request({ agent, host: '127.0.0.1', port, path: '/earlier' }, (answer) =>
                                           answer.resume().on('end', resolve)
                                       )
@@ -3266,6 +3266,11 @@ describe('EmailService', () => {
                     proxyThatDropsTheConnectionOnceSesTakesTheEmail({ behindAnEarlierRequest: true }),
                     failedOnceDelivered,
                 ],
+                [
+                    'SES takes the email over TLS on a connection an earlier request left open, and it drops before the answer',
+                    proxyThatDropsTheConnectionOnceSesTakesTheEmail({ overTls: true, behindAnEarlierRequest: true }),
+                    failedOnceDelivered,
+                ],
             ])(
                 'when %s on the first attempt of a send with files, delivers the email once',
                 async (_name, firstAttempt, expected) => {
@@ -3339,6 +3344,25 @@ describe('EmailService', () => {
                     )
                 }
             )
+
+            it('fails a test send whose TLS handshake with SES outlasts the deadline as a provider timeout, not a file load', async () => {
+                const emailService = sender({ attachmentSendDeadlineMs: 1000 })
+                const reachedTheHandshake = sendThroughATlsHandshakeThatNeverAnswers(emailService)
+
+                const result = await emailService.executeSendEmail(invocation, true)
+
+                expect({
+                    finished: result.finished,
+                    error: result.error,
+                    reachedTheHandshake: reachedTheHandshake(),
+                }).toEqual({
+                    finished: true,
+                    error: expect.stringMatching(
+                        /^attachment_unavailable: the email provider did not accept this email .* before the send deadline in 1 try,/
+                    ),
+                    reachedTheHandshake: true,
+                })
+            })
 
             it('counts the load retries across reschedules and fails the send on the 11th try', async () => {
                 const emailService = sender()

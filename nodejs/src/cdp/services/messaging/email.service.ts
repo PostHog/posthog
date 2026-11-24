@@ -370,6 +370,12 @@ function describeAttachmentFailure(
             message: `${EMAIL_MESSAGE_TOO_LARGE}: this email and its attachment files are larger than one email can carry, so it was not sent.`,
         }
     }
+    if (error instanceof EmailSendDeadlineError) {
+        return {
+            reason: EMAIL_ATTACHMENT_UNAVAILABLE,
+            message: `${EMAIL_ATTACHMENT_UNAVAILABLE}: the email provider did not accept this email with its attachment files before the send deadline in ${tries} ${tries === 1 ? 'try' : 'tries'}, so it was not sent.`,
+        }
+    }
     if (isAttachmentLoadFailure(error)) {
         return {
             reason: EMAIL_ATTACHMENT_UNAVAILABLE,
