@@ -88,7 +88,7 @@ describe('suggestionReadiness', () => {
         [
             'ready, scout never ran',
             optimization({ lastCheckedHoursAgo: null, nextCheckInHours: null }),
-            'First check within a day',
+            'Waiting for the first check',
             null,
         ],
         [
@@ -129,11 +129,16 @@ describe('suggestionReadiness', () => {
         )
     })
 
-    it('does not claim missing data when the sample is unknown', () => {
-        const check = suggestionReadiness(optimization({ noSample: true }), NOW)?.steps.find(
-            (step) => step.key === 'check'
-        )
-        expect(check?.detail).toEqual('Last checked 6 hours ago.')
+    test.each([
+        ['the sample is unknown', optimization({ noSample: true }), 'Last checked 6 hours ago.'],
+        [
+            'a new version went live after the last check',
+            optimization({ liveHoursAgo: 1 }),
+            'Suggestions can start once the steps above are done. Last checked 6 hours ago.',
+        ],
+    ])('does not claim the last check found missing data when %s', (_name, input, detail) => {
+        const check = suggestionReadiness(input, NOW)?.steps.find((step) => step.key === 'check')
+        expect(check?.detail).toEqual(detail)
     })
 
     test.each([

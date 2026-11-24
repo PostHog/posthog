@@ -125,9 +125,7 @@ export function suggestionReadiness(
               ? 'PostHog checks this workflow on a schedule and files a suggestion when it finds a change worth making.'
               : [
                     sample ? 'Suggestions can start once the steps above are done.' : null,
-                    lastChecked
-                        ? `Last checked ${lastChecked.from(now)}${sample ? ', not enough data yet' : ''}.`
-                        : null,
+                    lastChecked ? `Last checked ${lastChecked.from(now)}.` : null,
                 ]
                     .filter(Boolean)
                     .join(' '),
@@ -139,7 +137,7 @@ export function suggestionReadiness(
     if (!enabled) {
         headline = 'Turn on suggestions to start'
         detail = sample?.reached
-            ? 'This workflow has enough data, so the first check runs within a day of turning them on.'
+            ? 'This workflow has enough data, so suggestions can start at the first check after you turn them on.'
             : sample
               ? 'You can turn them on now. PostHog starts suggesting once the steps below are done.'
               : null
@@ -157,7 +155,7 @@ export function suggestionReadiness(
             ? `Next check ${nextCheckText}`
             : lastChecked
               ? 'Waiting for the next check'
-              : 'First check within a day'
+              : 'Waiting for the first check'
         detail = lastChecked ? `Last checked ${lastChecked.from(now)}.` : null
     }
 
