@@ -1,12 +1,11 @@
-import { sceneConfigurations } from 'scenes/scenes'
-import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { WarehouseConsoleGate } from '../WarehouseConsole/WarehouseConsoleGate'
 import { WarehouseSettingsContent } from './WarehouseSettingsContent'
+import { WarehouseSettingsTitle } from './WarehouseSettingsTitle'
 
 export const scene: SceneExport = {
     component: WarehouseSettingsScene,
@@ -17,11 +16,7 @@ export function WarehouseSettingsScene(): JSX.Element {
     return (
         <WarehouseConsoleGate>
             <SceneContent>
-                <SceneTitleSection
-                    name={sceneConfigurations[Scene.WarehouseSettings].name}
-                    description={sceneConfigurations[Scene.WarehouseSettings].description}
-                    resourceType={{ type: 'data_warehouse' }}
-                />
+                <WarehouseSettingsTitle />
                 <div data-quill className="@container/warehouse-settings flex flex-col gap-4">
                     <WarehouseSettingsContent />
                 </div>

@@ -3,7 +3,12 @@ import { Text } from '@posthog/quill'
 
 import { WarehouseSection } from '../WarehouseConsole/WarehouseSection'
 
-const SETUP_STEPS = ['Name your warehouse', 'Events and persons copy in', 'Source tables land on their next sync']
+const SETUP_STEPS = [
+    'Name your warehouse',
+    "This project's events and persons copy in",
+    'Source tables land on their next sync',
+    'Enable your other projects one by one',
+]
 
 const INCLUDED = [
     { icon: <IconPulse />, label: 'See what has landed' },

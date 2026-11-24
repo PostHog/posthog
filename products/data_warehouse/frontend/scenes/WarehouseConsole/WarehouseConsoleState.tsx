@@ -48,7 +48,7 @@ export function WarehouseConsoleState({ page }: { page: string }): JSX.Element |
                 </EmptyTitle>
                 <EmptyDescription>
                     {consoleState === 'no_warehouse'
-                        ? 'Set up your warehouse in Settings first. This page works once it is ready.'
+                        ? 'Set up your warehouse first. This page works once it is ready.'
                         : 'Your warehouse is still being set up, or its query engine is not ready. Check its status in Settings.'}
                 </EmptyDescription>
             </EmptyHeader>
@@ -61,7 +61,7 @@ export function WarehouseConsoleState({ page }: { page: string }): JSX.Element |
                 }}
                 data-attr="warehouse-console-open-settings"
             >
-                Open Settings
+                {consoleState === 'no_warehouse' ? 'Open setup' : 'Open Settings'}
             </Button>
         </Empty>
     )
