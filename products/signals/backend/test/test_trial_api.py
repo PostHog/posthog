@@ -1,4 +1,4 @@
-from contextlib import AbstractContextManager, nullcontext
+from contextlib import AbstractContextManager
 from datetime import timedelta
 from decimal import Decimal
 from uuid import uuid4
@@ -348,7 +348,7 @@ class TestTrialAPI(APIBaseTest):
             ),
             patch("products.signals.backend.trial.service.report_user_action", new=capture),
             patch("products.signals.backend.trial.experiment.posthoganalytics.get_feature_flag", return_value="test"),
-            patch("products.signals.backend.trial.experiment.ph_scoped_capture") as exposure,
+            patch("products.signals.backend.trial.experiment.ph_background_capture") as exposure,
             self.captureOnCommitCallbacks(execute=True),
         ):
             response = self.client.post(
@@ -489,7 +489,7 @@ class TestTrialAPI(APIBaseTest):
             patch(
                 "products.signals.backend.trial.experiment.posthoganalytics.get_feature_flag", return_value=variant
             ) as flag,
-            patch("products.signals.backend.trial.experiment.ph_scoped_capture", return_value=nullcontext(exposure)),
+            patch("products.signals.backend.trial.experiment.ph_background_capture", return_value=exposure),
             patch("products.signals.backend.trial.service.report_user_action") as enrollment,
             patch(
                 "products.signals.backend.trial.billing.TrialBilling.status",

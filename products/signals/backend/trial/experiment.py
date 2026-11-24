@@ -5,7 +5,8 @@ from uuid import UUID
 import posthoganalytics
 
 from posthog.exceptions_capture import capture_exception
-from posthog.ph_client import ph_scoped_capture
+from posthog.ph_client import ph_background_capture
+from posthog.utils import get_instance_region
 
 from products.signals.backend.trial.limits import STANDARD_TRIAL_LIMITS, TrialLimits
 
@@ -38,15 +39,15 @@ def resolve_trial_limits(organization_id: UUID, limits: TrialLimits) -> tuple[Tr
 
 
 def capture_trial_exposure(grant: "SignalTrialGrant", variant: str) -> None:
-    with ph_scoped_capture() as capture:
-        capture(
-            distinct_id=str(grant.organization_id),
-            event="$experiment_exposure",
-            groups={"organization": str(grant.organization_id)},
-            properties={
-                "$feature_flag": TRIAL_REPORT_LIMIT_EXPERIMENT,
-                "$feature_flag_response": variant,
-                f"$feature/{TRIAL_REPORT_LIMIT_EXPERIMENT}": variant,
-                "grant_id": str(grant.id),
-            },
-        )
+    capture = ph_background_capture(event_region=get_instance_region())
+    capture(
+        distinct_id=str(grant.organization_id),
+        event="$experiment_exposure",
+        groups={"organization": str(grant.organization_id)},
+        properties={
+            "$feature_flag": TRIAL_REPORT_LIMIT_EXPERIMENT,
+            "$feature_flag_response": variant,
+            f"$feature/{TRIAL_REPORT_LIMIT_EXPERIMENT}": variant,
+            "grant_id": str(grant.id),
+        },
+    )
