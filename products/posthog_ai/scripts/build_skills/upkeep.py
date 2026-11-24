@@ -24,6 +24,8 @@ HISTORY_DAYS = 90
 LARGEST_SKILLS_SHOWN = 15
 BOT_SHARE_SKILLS_SHOWN = 15
 MIN_COMMITS_FOR_BOT_SHARE = 3
+# A skill that names one optional gated tool among many still works for a caller without the flag.
+FLAG_MISMATCH_MIN_SHARE = 0.5
 _NAME_BOUNDARY = r"(?<![A-Za-z0-9_/-])({})(?![A-Za-z0-9_-])"
 _TOOL_MENTION = r"(?:`|posthog:)({})(?![A-Za-z0-9_-])"
 
@@ -142,12 +144,14 @@ def _load_tool_flags(repo_root: Path) -> dict[str, str]:
     return flags
 
 
-def _find_flag_mismatches(served: list[ServedSkill], tool_flags: dict[str, str]) -> list[FlagMismatch]:
-    """A skill names tools behind a flag that its list entry does not declare.
+def _find_flag_mismatches(
+    served: list[ServedSkill], tool_names: set[str], tool_flags: dict[str, str]
+) -> list[FlagMismatch]:
+    """Half or more of the tools a skill names sit behind a flag that its list entry does not declare.
 
-    A caller without that flag gets the skill and cannot call those tools.
+    A caller without that flag gets the skill and cannot call most of its tools.
     """
-    pattern = _name_pattern(_TOOL_MENTION, set(tool_flags))
+    pattern = _name_pattern(_TOOL_MENTION, tool_names)
     if pattern is None:
         return []
     mismatches: list[FlagMismatch] = []
@@ -155,8 +159,10 @@ def _find_flag_mismatches(served: list[ServedSkill], tool_flags: dict[str, str])
         tools = {
             match.group(1) for path in _markdown_files(entry.skill) for match in pattern.finditer(path.read_text())
         }
-        by_flag = Counter(tool_flags[tool] for tool in tools if tool_flags[tool] != entry.feature_flag)
-        if by_flag:
+        by_flag = Counter(
+            tool_flags[tool] for tool in tools if tool in tool_flags and tool_flags[tool] != entry.feature_flag
+        )
+        if tools and sum(by_flag.values()) / len(tools) >= FLAG_MISMATCH_MIN_SHARE:
             mismatches.append(FlagMismatch(entry, dict(by_flag)))
     return mismatches
 
@@ -221,7 +227,9 @@ def build_report(
     return UpkeepReport(
         served=served,
         pointers=_find_pointers(repo_root, served, unserved),
-        flag_mismatches=_find_flag_mismatches(served, _load_tool_flags(repo_root)),
+        flag_mismatches=_find_flag_mismatches(
+            served, tool_references._load_mcp_tool_names(repo_root) or set(), _load_tool_flags(repo_root)
+        ),
         sizes=_measure_sizes(repo_root, served, before_root),
         measured_before=before_root is not None,
         commit_shares=_count_commits(repo_root, served),
@@ -271,7 +279,10 @@ def render_markdown(report: UpkeepReport) -> str:
     else:
         lines += ["None.", ""]
 
-    lines += [f"## Served skills whose tools need a flag the list does not declare ({len(report.flag_mismatches)})", ""]
+    lines += [
+        f"## Served skills with most tools behind a flag the list does not declare ({len(report.flag_mismatches)})",
+        "",
+    ]
     if report.flag_mismatches:
         lines += _table(
             ["Skill", "Owner", "Listed flag", "Tools behind another flag"],
