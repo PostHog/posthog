@@ -91,6 +91,7 @@ class TestSeriesValuesPrecompute(ClickhouseTestMixin, APIBaseTest):
             ("hour_utc_series_filter", IntervalType.HOUR, "UTC", "-3d", None, "series"),
             ("day_los_angeles_series_filter", IntervalType.DAY, "America/Los_Angeles", "-7d", None, "series"),
             ("hour_los_angeles_query_filter", IntervalType.HOUR, "America/Los_Angeles", "-3d", None, "query"),
+            ("day_tokyo_series_filter", IntervalType.DAY, "Asia/Tokyo", "-7d", None, "series"),
             (
                 "day_los_angeles_past_range",
                 IntervalType.DAY,
