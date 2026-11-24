@@ -87,6 +87,12 @@ impl<'a> GlobalRateLimitKey<'a> {
 /// deployments therefore have to point at the same rate-limiter Redis.
 const AI_BYTES_REDIS_KEY_PREFIX: &str = "@ph/grl/capture/ai_bytes";
 
+const DRY_RUN_METRIC: &str = "capture_global_rate_limiter_dry_run";
+/// Alerting reads any traffic on `DRY_RUN_METRIC` as "this deployment runs its
+/// limiter dry" and stays silent. The per-token limiter starts in dry run, so it
+/// counts here to keep its dry run from muting the per-(token, distinct_id) alerts.
+const TOKEN_DRY_RUN_METRIC: &str = "capture_global_rate_limiter_token_dry_run";
+
 /// The per-instance knobs that distinguish one capture limiter from another.
 /// Named fields rather than positional arguments: several are same-typed (two
 /// `&str`, two `bool`) and a swap would silently misconfigure a limiter.
@@ -117,6 +123,8 @@ struct LimiterSpec<'a> {
     enable_dynamic_source: bool,
     /// Evaluate and report, but never enforce.
     dry_run: bool,
+    /// Counter a dry run increments for each check it would have limited.
+    dry_run_metric: &'static str,
 }
 
 /// The window the AI byte budget is enforced over, and the env var that
@@ -144,6 +152,7 @@ struct RedisClusterUrls<'a> {
 pub struct GlobalRateLimiter {
     limiter: Box<dyn CommonGlobalRateLimiter>,
     dry_run: bool,
+    dry_run_metric: &'static str,
     metrics_scope: Arc<str>,
 }
 
@@ -176,6 +185,7 @@ impl GlobalRateLimiter {
                 metrics_scope: &metrics_scope,
                 enable_dynamic_source: config.global_rate_limit_custom_threshold_key.is_some(),
                 dry_run: config.global_rate_limit_dry_run,
+                dry_run_metric: DRY_RUN_METRIC,
             },
         )
     }
@@ -206,6 +216,7 @@ impl GlobalRateLimiter {
                 // Its own flag lets it run dry while the per-(token, distinct_id)
                 // limiter enforces under the shared one.
                 dry_run: config.global_rate_limit_dry_run || config.global_rate_limit_token_dry_run,
+                dry_run_metric: TOKEN_DRY_RUN_METRIC,
             },
         )
     }
@@ -251,6 +262,7 @@ impl GlobalRateLimiter {
                 // holds event-count limits, in different units.
                 enable_dynamic_source: false,
                 dry_run: config.ai_byte_limit_dry_run,
+                dry_run_metric: DRY_RUN_METRIC,
             },
         )
     }
@@ -390,6 +402,7 @@ impl GlobalRateLimiter {
         Ok(Self {
             limiter: Box::new(limiter),
             dry_run,
+            dry_run_metric: spec.dry_run_metric,
             metrics_scope: Arc::from(spec.metrics_scope),
         })
     }
@@ -424,9 +437,8 @@ impl GlobalRateLimiter {
         match (result, self.dry_run) {
             (Some(response), true) => {
                 counter!(
-                    "capture_global_rate_limiter_dry_run",
+                    self.dry_run_metric,
                     "key_type" => if response.is_custom_limited { "custom" } else { "global" },
-                    "scope" => self.metrics_scope.clone(),
                 )
                 .increment(1);
                 warn!(
@@ -591,6 +603,7 @@ impl GlobalRateLimiter {
         Self {
             limiter: Box::new(limiter),
             dry_run: false,
+            dry_run_metric: DRY_RUN_METRIC,
             metrics_scope: Arc::from("test"),
         }
     }
@@ -619,6 +632,7 @@ impl GlobalRateLimiter {
         Self {
             limiter: Box::new(limiter),
             dry_run: false,
+            dry_run_metric: DRY_RUN_METRIC,
             metrics_scope: Arc::from("test"),
         }
     }
@@ -633,6 +647,7 @@ impl GlobalRateLimiter {
         Self {
             limiter: Box::new(limiter),
             dry_run: true,
+            dry_run_metric: DRY_RUN_METRIC,
             metrics_scope: Arc::from("test"),
         }
     }
@@ -920,6 +935,42 @@ mod tests {
         assert!(
             !limiter.is_custom_key("phc_other"),
             "the per-(token, distinct_id) overrides must not reach the per-token limiter"
+        );
+    }
+
+    #[tokio::test]
+    async fn token_limiter_dry_run_counts_on_its_own_counter() {
+        let config = shard_config(&[("GLOBAL_RATE_LIMIT_TOKEN_THRESHOLD", "1")]);
+        let limiter = GlobalRateLimiter::new_token(
+            &config,
+            vec![Arc::new(common_redis::MockRedisClient::new())],
+        )
+        .expect("valid config");
+        let recorder = metrics_util::debugging::DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let _metrics_guard = metrics::set_default_local_recorder(&recorder);
+
+        // The first check is a cache miss, which the limiter always admits.
+        for _ in 0..3 {
+            assert!(limiter.is_limited("phc_flood", 1).await.is_none());
+        }
+
+        let counters: HashMap<String, u64> = snapshotter
+            .snapshot()
+            .into_vec()
+            .into_iter()
+            .filter_map(|(key, _, _, value)| match value {
+                metrics_util::debugging::DebugValue::Counter(v) => {
+                    Some((key.key().name().to_string(), v))
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(counters.get(TOKEN_DRY_RUN_METRIC), Some(&2));
+        assert_eq!(
+            counters.get(DRY_RUN_METRIC),
+            None,
+            "a per-token dry run must not feed the counter alerting reads as a dry-run signal"
         );
     }
 
