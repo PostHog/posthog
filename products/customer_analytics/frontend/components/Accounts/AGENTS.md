@@ -120,7 +120,7 @@ The server selects the first valid hostname from:
 
 `AccountsTableRow.logoDomain` carries the resolved hostname. `AccountLogo` tries each source in turn and falls back to the `Lettermark` after the last one fails:
 
-1. `${window.JS_URL}/favicons/<domain>`, the static CDN copy shared with web analytics. The hourly `cache_account_domain_favicons` Dagster job (`products/web_analytics/dags/cache_favicons.py`) stores it for every domain that `list_logo_domains_across_teams` returns.
+1. `${window.JS_URL}/favicons/<domain>`, the static CDN copy shared with web analytics. The hourly `cache_account_domain_favicons` Dagster job (`products/customer_analytics/dags/cache_account_favicons.py`) stores it for the domains that `list_logo_domains_across_teams` in `backend/logic/account_logo.py` returns. It reuses the web analytics favicon download and upload code.
 2. `GET /api/projects/<id>/accounts/icon/?domain=…&theme=…`, for a domain that the job has not cached yet. The action proxies logo.dev through `CDPIconsService`, which enforces per-team and instance budgets and caches misses for 24 hours.
 
 Both sources are first-party, so the browser does not send customer domains to a third party or need another CSP origin. Keep logo.dev behind the proxy.

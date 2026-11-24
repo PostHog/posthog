@@ -2,7 +2,7 @@ from posthog.test.base import BaseTest
 
 from posthog.models import Team
 
-from products.customer_analytics.backend.facade.api import list_logo_domains_across_teams
+from products.customer_analytics.backend.logic.account_logo import list_logo_domains_across_teams
 from products.customer_analytics.backend.models import Account
 
 
