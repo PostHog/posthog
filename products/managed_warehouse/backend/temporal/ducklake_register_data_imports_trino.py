@@ -35,7 +35,7 @@ from products.managed_warehouse.backend.temporal.ducklake_declared_columns impor
     columns_missing_from_files,
     trino_type_for_clickhouse,
 )
-from products.managed_warehouse.backend.trino_connection import connect_managed_warehouse_trino
+from products.managed_warehouse.backend.trino_connection import TRINO_SOURCE_IMPORT, connect_managed_warehouse_trino
 from products.managed_warehouse.backend.trino_execution import TrinoQueryControl
 
 if TYPE_CHECKING:
@@ -315,7 +315,9 @@ def _registration_statements(
     """
     if cancel_after_seconds is not None and cancel_after_seconds <= 0:
         raise TimeoutError("Trino registration started too close to the Temporal activity deadline")
-    with connect_managed_warehouse_trino(organization_id, principal=principal, canary=canary) as connection:
+    with connect_managed_warehouse_trino(
+        organization_id, principal=principal, canary=canary, source=TRINO_SOURCE_IMPORT
+    ) as connection:
         if cancel_after_seconds is None:
             yield _TrinoStatements(connection)
             return

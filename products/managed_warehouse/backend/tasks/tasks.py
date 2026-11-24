@@ -84,3 +84,18 @@ def run_trino_compile_check_task(
         batch_index=batch_index,
         results=results,
     )
+
+
+@shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
+def check_managed_warehouse_budgets() -> None:
+    from products.managed_warehouse.backend.logic import budget_alerts  # noqa: PLC0415
+
+    for organization_id in budget_alerts.organization_ids_to_check():
+        check_managed_warehouse_budget_for_org.delay(organization_id)
+
+
+@shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value, soft_time_limit=60, time_limit=90)
+def check_managed_warehouse_budget_for_org(organization_id: str) -> None:
+    from products.managed_warehouse.backend.logic import budget_alerts  # noqa: PLC0415
+
+    budget_alerts.check_organization_budget(organization_id)

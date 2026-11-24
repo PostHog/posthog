@@ -87,6 +87,8 @@ import type {
     PipelineRowsStatsResponseApi,
     ProvisionWarehouseRequestApi,
     ProvisionWarehouseResponseApi,
+    QueryEstimateRequestApi,
+    QueryEstimateResponseApi,
     QueryHistoryResponseApi,
     QueryTabStateApi,
     QueryTabStateListParams,
@@ -1180,6 +1182,27 @@ export const managedViewsetsUpdate = async (
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(dataWarehouseManagedViewSetApi),
+    })
+}
+
+export const getManagedWarehouseConsoleEstimateCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/managed_warehouse_console/estimate/`
+}
+
+/**
+ * Plan the query without running it and report the tables it reads, the most it can scan and the compute cost of that, before the monthly free tier. Callers without access to every project of the organization get the tables with unknown sizes.
+ * @summary Estimate a managed warehouse query
+ */
+export const managedWarehouseConsoleEstimateCreate = async (
+    projectId: string,
+    queryEstimateRequestApi: QueryEstimateRequestApi,
+    options?: RequestInit
+): Promise<QueryEstimateResponseApi> => {
+    return apiMutator<QueryEstimateResponseApi>(getManagedWarehouseConsoleEstimateCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(queryEstimateRequestApi),
     })
 }
 

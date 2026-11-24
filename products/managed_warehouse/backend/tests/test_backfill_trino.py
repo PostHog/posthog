@@ -130,7 +130,7 @@ def test_the_backfill_connection_uses_the_canary_host_only_when_asked(canary: bo
         with connect_backfill_catalog("org-1", canary=canary):
             pass
 
-    connect.assert_called_once_with("org-1", principal=BACKFILL_TRINO_PRINCIPAL, canary=canary)
+    connect.assert_called_once_with("org-1", principal=BACKFILL_TRINO_PRINCIPAL, canary=canary, source="posthog-import")
 
 
 class TestRegisterFiles:
@@ -505,7 +505,9 @@ class TestHoglakeBackfillCatalog:
             with connect_hoglake_backfill_catalog("org-1", canary=True, team_id=7):
                 pass
 
-        connect.assert_called_once_with("org-1", principal=BACKFILL_TRINO_PRINCIPAL, canary=True)
+        connect.assert_called_once_with(
+            "org-1", principal=BACKFILL_TRINO_PRINCIPAL, canary=True, source="posthog-import"
+        )
 
 
 @pytest.fixture
