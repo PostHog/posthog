@@ -21,7 +21,7 @@ NO_PAGELEAVE_LOOKBACK_DAYS = 30
 class NoPageleaveEventsCheck(RollupHealthCheck):
     name = "no_pageleave_events"
     kind = "no_pageleave_events"
-    owner = JobOwners.TEAM_WEB_ANALYTICS
+    owner = JobOwners.TEAM_ANALYTICS
     product = Product.WEB_ANALYTICS
     schedule = "30 3 * * *"
     active_since_days = 30

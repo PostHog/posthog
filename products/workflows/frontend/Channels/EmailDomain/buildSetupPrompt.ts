@@ -1,6 +1,7 @@
-import type {
-    EmailDomainDnsHostApi,
-    EmailDomainStatusRecordApi,
+import {
+    type EmailDomainDnsHostApi,
+    EmailDomainSetupRecordStatusEnumApi,
+    type EmailDomainStatusRecordApi,
 } from 'products/integrations/frontend/generated/api.schemas'
 
 export interface SetupPromptInput {
@@ -16,6 +17,9 @@ export interface SetupPromptInput {
 }
 
 const formatRecord = (record: EmailDomainStatusRecordApi): string => {
+    if (record.status === EmailDomainSetupRecordStatusEnumApi.Verified) {
+        return `- ${record.type}  ${record.hostname}  (already in place, keep it)`
+    }
     const priority = record.priority != null ? ` (priority ${record.priority})` : ''
     return `- ${record.type}  ${record.hostname}  ->  ${record.value}${priority}`
 }
@@ -46,7 +50,7 @@ const buildMcpPrompt = ({
         'Steps',
         `1. Read the current records and status with integrations-email-status-retrieve (project ${projectId}, integration ${integrationId}). If the PostHog MCP is not available, use the records listed below.`,
         `2. If the host supports Domain Connect, ask me to open ${pageUrl} and click the button that adds the records at the host. I approve the change there. Wait for me.`,
-        '3. Otherwise add the records at the DNS host yourself. Paste names and values exactly. If the host appends the domain to the name field, enter only the part before the domain. Always publish both SPF TXT records, merging include:amazonses.com into an existing SPF record at the same name instead of adding a second one. Never add a second _dmarc record; keep an existing one.',
+        '3. Otherwise add each record whose status is not "verified" at the DNS host yourself. A verified record is already published, so leave it as it is and never copy its value. Paste names and values exactly. If the host appends the domain to the name field, enter only the part before the domain. For each SPF TXT record that is not verified, merge include:amazonses.com into an existing SPF record at the same name instead of adding a second one. Never add a second _dmarc record; keep an existing one.',
         '4. Poll integrations-email-status-retrieve every 30 seconds until the status is "verified". Stop after 30 minutes and tell me which records are still missing.',
         `5. Then call integrations-email-verify-create once so the sender can send. If it fails, your API key cannot save the verification. Ask me to open ${pageUrl} to finish it.`,
         '',

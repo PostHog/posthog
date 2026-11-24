@@ -7,14 +7,14 @@ from products.experiments.backend.logic.result_stats import MetricResultStats
 from products.experiments.backend.metric_calculation.config import (
     build_primary_calculation_configs,
     calculation_metric_name,
-    team_experiments_configs,
 )
 from products.experiments.backend.metric_calculation.results import MetricResultStore
 from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.running_time_target import running_time_target
 
 
-def load_primary_metric(experiment: Experiment) -> PrimaryMetric | None:
+def load_primary_metric(experiment: Experiment, *, team_config: TeamExperimentsConfig) -> PrimaryMetric | None:
     """
     The first primary metric of a launched experiment with its current stored result, or None. Never raises: the
     checks that read it then report that they couldn't check.
@@ -22,14 +22,13 @@ def load_primary_metric(experiment: Experiment) -> PrimaryMetric | None:
     if not experiment.is_launched:
         return None
     try:
-        return _load_primary_metric(experiment)
+        return _load_primary_metric(experiment, team_config)
     except Exception as error:
         capture_exception(error)
         return None
 
 
-def _load_primary_metric(experiment: Experiment) -> PrimaryMetric | None:
-    team_config = team_experiments_configs([experiment.team_id])[experiment.team_id]
+def _load_primary_metric(experiment: Experiment, team_config: TeamExperimentsConfig) -> PrimaryMetric | None:
     calculation_config = next(iter(build_primary_calculation_configs(experiment, team_config=team_config)), None)
     if calculation_config is None:
         return None

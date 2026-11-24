@@ -290,6 +290,7 @@ from products.workflows.backend.facade.sandbox_email import (
     deliverable_own_sender_ids,
     has_sandbox_sender,
     has_verified_own_sender,
+    is_sensitive,
     own_only_settings,
     own_sender_verification,
     provision_sandbox_sender,
@@ -3328,6 +3329,80 @@ class IspSendingHealthSerializer(serializers.Serializer):
     )
 
 
+class EmailSendingNextTierSerializer(serializers.Serializer):
+    """What the project needs to do for the daily tier check to raise its allowance one step."""
+
+    emails_per_day = serializers.IntegerField(read_only=True, help_text="How many emails the next tier allows per day.")
+    daily_target = serializers.IntegerField(
+        read_only=True, help_text="Emails the project must send in a day for that day to count toward the next tier."
+    )
+    days_required = serializers.IntegerField(
+        read_only=True, help_text="Separate days the project must reach daily_target on."
+    )
+    days_reached = serializers.IntegerField(
+        read_only=True,
+        help_text="Days since the last tier change the project reached daily_target on, up to days_required.",
+    )
+    not_before = serializers.DateTimeField(
+        read_only=True,
+        help_text="The earliest time the next tier can be granted, counted from the last tier change or, before any change, from project creation.",
+    )
+
+
+class EmailSendingRecentRatesSerializer(serializers.Serializer):
+    """Rates over the short window the daily tier check demotes on, with the limits it applies."""
+
+    window_days = serializers.IntegerField(read_only=True, help_text="Days the rates cover.")
+    emails_sent = serializers.IntegerField(read_only=True, help_text="Workflow emails sent in the window.")
+    bounce_rate = serializers.FloatField(read_only=True, help_text="Hard bounces divided by emails sent, from 0 to 1.")
+    complaint_rate = serializers.FloatField(
+        read_only=True, help_text="Spam complaints divided by emails sent, from 0 to 1."
+    )
+    complaints = serializers.IntegerField(
+        read_only=True,
+        help_text="Spam complaints received in the window, including complaints about emails sent before it.",
+    )
+    max_bounce_rate = serializers.FloatField(read_only=True, help_text="Bounce rate above which the allowance drops.")
+    max_complaint_rate = serializers.FloatField(
+        read_only=True, help_text="Spam complaint rate above which the allowance drops."
+    )
+    bounces_within_limits = serializers.BooleanField(
+        read_only=True,
+        help_text="False when the daily check would lower the allowance because of bounces. A window with too few "
+        "emails to judge counts as within limits.",
+    )
+    complaints_within_limits = serializers.BooleanField(
+        read_only=True,
+        help_text="False when the daily check would lower the allowance because of spam complaints. A window with too "
+        "few emails and complaints to judge counts as within limits.",
+    )
+
+
+EMAIL_SENDING_ALLOWANCE_CHANGE_REASONS = [
+    "clean_and_used",
+    "trusted_account",
+    "inactive",
+    "rates_above_threshold",
+    "workflow_auto_paused",
+    "ses_reputation_high",
+    "ses_tenant_paused",
+    "staff_suspension",
+    "staff_set",
+]
+
+
+class EmailSendingAllowanceChangeSerializer(serializers.Serializer):
+    changed_at = serializers.DateTimeField(read_only=True, help_text="When the allowance changed.")
+    previous_emails_per_day = serializers.IntegerField(
+        read_only=True, help_text="Emails allowed per day before the change."
+    )
+    emails_per_day = serializers.IntegerField(read_only=True, help_text="Emails allowed per day after the change.")
+    reason = serializers.CharField(
+        read_only=True,
+        help_text="Why the allowance changed. One of: " + ", ".join(EMAIL_SENDING_ALLOWANCE_CHANGE_REASONS) + ".",
+    )
+
+
 class EmailSendingAllowanceSerializer(serializers.Serializer):
     """How much workflow email this project may send, and how much of that it has used."""
 
@@ -3354,6 +3429,19 @@ class EmailSendingAllowanceSerializer(serializers.Serializer):
         allow_null=True,
         help_text="The largest audience a single email batch may reach when its sending rate limit is slow enough. "
         "Null when no rate limit raises max_batch_audience.",
+    )
+    next_tier = EmailSendingNextTierSerializer(
+        read_only=True,
+        allow_null=True,
+        help_text="How to reach the next tier. Null at the top tier or when PostHog set the tier by hand.",
+    )
+    recent_rates = EmailSendingRecentRatesSerializer(
+        read_only=True,
+        allow_null=True,
+        help_text="The rates the daily tier check demotes on. Null when PostHog set the tier by hand.",
+    )
+    recent_changes = EmailSendingAllowanceChangeSerializer(
+        many=True, read_only=True, help_text="Allowance changes from the last 90 days, newest first, at most 5."
     )
 
 
@@ -4872,6 +4960,13 @@ def _switched_to_sandbox(action: dict, drop_own_sender_settings: bool) -> dict:
             {
                 "sender": f"{INVALID_ACTION_ID} Add a new email step with such an ID on the PostHog test sender, "
                 "then remove this one."
+            }
+        )
+    if is_sensitive(action):
+        raise exceptions.ValidationError(
+            {
+                "sender": "This step is sensitive, and the PostHog test sender would store its email. "
+                "Keep it on one of the project's own senders."
             }
         )
     dropped = own_only_settings(action)

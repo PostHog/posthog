@@ -15,6 +15,7 @@
                 "backend/hogql_queries/trends/**",
                 "!backend/hogql_queries/trends/test/**",
                 "backend/scopes.py",
+                "backend/activity_log_config.py",
                 "backend/apps.py"
             ],
             "outputs": [],

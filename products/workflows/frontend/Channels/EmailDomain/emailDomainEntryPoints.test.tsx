@@ -175,13 +175,17 @@ describe('email domain setup entry points', () => {
         expect(document.querySelector('[data-attr="workflow-sandbox-sender-set-up-domain"]')).toBeNull()
     })
 
-    it('offers a new domain from the live workflow banner when the only verified sender stopped sending', async () => {
+    it("opens the stopped sender's domain page from the live workflow banner when no verified sender can send", async () => {
+        backend.addSender({ email: 'hello@pending.example.com' })
         const stopped = backend.addSender({ email: `hello@${DOMAIN}`, verified: true })
         stopped.config = { ...(stopped.config as Record<string, unknown>), ses_sending_status: 'failed' }
         await renderInApp(liveWorkflowBanner)
 
-        expect(await screen.findByText(/set up your sending domain and switch those steps/)).toBeInTheDocument()
-        expect(screen.queryByText(/switch those steps to your verified sender/)).toBeNull()
+        expect(await screen.findByText(/fix your sending domain and switch those steps to it/)).toBeInTheDocument()
+        fireEvent.click(element('workflow-sandbox-sender-fix-domain'))
+        await flush()
+
+        expect(router.values.location.pathname).toMatch(new RegExp(`${urls.workflowsEmailDomain(stopped.id)}$`))
     })
 
     it("offers no setup from the live workflow banner while the senders can't be read", async () => {

@@ -308,7 +308,7 @@ def bootstrap_product(
     else:
         prompted_display_name = click.prompt("  Display name", default=display_name, show_default=True)
         owner = click.prompt(
-            "  Owning GitHub team slug (e.g. team-product-analytics)",
+            "  Owning GitHub team slug (e.g. team-analytics)",
             default="",
             show_default=False,
         )

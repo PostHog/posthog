@@ -15,7 +15,8 @@ import type { PromptVisibilityMetric } from './promptReport'
 import type { EngineVisibilityChart } from './visibilityChart'
 
 const BASE_CONFIG: TimeSeriesLineChartConfig = {
-    xAxis: { interval: 'day' },
+    // The labels are calendar days, so UTC keeps each tick and tooltip date on its own day.
+    xAxis: { interval: 'day', timezone: 'UTC' },
     legend: { show: true },
     showCrosshair: true,
     // Straight segments, because a curve invents values between days.

@@ -16,7 +16,7 @@ class DirectClickHouseTable(DirectSQLTable):
         if self.clickhouse_database.strip():
             parts.append(escape_clickhouse_identifier(self.clickhouse_database))
         parts.append(escape_clickhouse_identifier(self.clickhouse_table_name))
-        return ".".join(parts)
+        return self.project_allowed_columns(".".join(parts), escape_clickhouse_identifier)
 
     def to_printed_postgres(self, context) -> str:
         raise QueryError("Direct ClickHouse tables cannot be printed into Postgres SQL")
