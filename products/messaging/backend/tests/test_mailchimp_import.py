@@ -581,12 +581,13 @@ class TestMailchimpContacts(ClickhouseTestMixin, TestMailchimpImportBase):
 
         assert not Cohort.objects.filter(team_id=self.team.id).exists()
 
-    def test_a_contact_who_joined_after_the_run_started_waits_for_the_next_import(self) -> None:
+    @parameterized.expand([("opt_in", "timestamp_opt"), ("no_opt_in_time", "last_changed")])
+    def test_a_contact_who_joined_after_the_run_started_waits_for_the_next_import(self, _name: str, field: str) -> None:
         self.mailchimp.data["lists"][1]["members"].append(
             {
                 "email_address": "new@example.com",
                 "status": "subscribed",
-                "timestamp_opt": (datetime.now(UTC) + timedelta(days=1)).isoformat(),
+                field: (datetime.now(UTC) + timedelta(days=1)).isoformat(),
             }
         )
 

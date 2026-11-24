@@ -878,7 +878,7 @@ def _collect_subscribed(
         if item.get("status") != "subscribed":
             continue
         # The opt-out steps didn't see who joined after the run started, so they wait for the next import.
-        joined = _timestamp(item.get("timestamp_opt"))
+        joined = _timestamp(item.get("timestamp_opt")) or _timestamp(item.get("last_changed"))
         if joined and joined > run_started:
             continue
         row = contacts.add(item.get("email_address"), _merge_properties(item.get("merge_fields")))
