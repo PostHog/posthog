@@ -1382,8 +1382,12 @@ tools:
             emission returns the report the first call authored (`idempotent_replay` true) rather than a second one, so
             a call that timed out is worth sending again. That is not cross-run dedup: use `inbox-reports-search` (or
             `inbox-reports-list` when the search is not available) to find a report from an earlier run and
-            `scout-edit-report` to update it instead of authoring a near-duplicate. Opt-in: only available to scouts
-            that list `emit_report` in their skill's `allowed_tools`.
+            `scout-edit-report` to update it instead of authoring a near-duplicate. The server refuses a second report
+            for a GitHub issue: when an open report already names one of your `source_issues`, no report is created,
+            and the response carries `skipped_reason` `source_issue_already_reported` and that report's `report_id`.
+            Add your findings to that report with `scout-edit-report`. A separate report about the same issue is
+            accepted only with a `follow_up_of`, `part_of`, `depends_on` or `recurrence_of` link to that report.
+            Opt-in: only available to scouts that list `emit_report` in their skill's `allowed_tools`.
         required_when_set:
             priority:
                 - priority_explanation
