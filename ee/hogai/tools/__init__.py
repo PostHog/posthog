@@ -25,7 +25,6 @@ _TOOL_MODULES: dict[str, str] = {
     "SwitchModeTool": ".switch_mode",
     "TaskTool": ".task",
     "TodoWriteTool": ".todo_write",
-    "UpsertDashboardTool": "products.dashboards.backend.facade.max_tools",
 }
 
 __all__ = [
@@ -42,7 +41,6 @@ __all__ = [
     "ExecuteSQLTool",
     "SwitchModeTool",
     "CreateInsightTool",
-    "UpsertDashboardTool",
     "CreateNotebookTool",
 ]
 
@@ -66,8 +64,6 @@ def __getattr__(name: str) -> Any:
 
 
 if TYPE_CHECKING:
-    from products.dashboards.backend.facade.max_tools import UpsertDashboardTool as UpsertDashboardTool
-
     from .call_mcp_server.tool import CallMCPServerTool as CallMCPServerTool
     from .create_form import CreateFormTool as CreateFormTool
     from .create_insight import CreateInsightTool as CreateInsightTool

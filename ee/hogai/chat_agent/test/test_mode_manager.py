@@ -30,7 +30,7 @@ from posthog.models import Team, User
 from posthog.models.organization import OrganizationMembership
 
 from products.alerts.backend.max_tools import UpsertAlertTool
-from products.dashboards.backend.facade.max_tools import UpsertDashboardTool
+from products.dashboards.backend.max_tools import UpsertDashboardTool
 from products.surveys.backend.max_tools import CreateSurveyTool, EditSurveyTool, SurveyAnalysisTool
 
 from ee.hogai.chat_agent.mode_manager import ChatAgentModeManager
