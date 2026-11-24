@@ -77,7 +77,7 @@ Pick the first path that works:
    Call `integrations-domain-connect-check-retrieve` with the sending domain.
    If `supported` is true, call `integrations-domain-connect-apply-url-create` with the `integration_id`.
    You cannot approve it yourself. Give the URL to the person and say what will happen: they sign in at their DNS host (for example Cloudflare), review the records and approve. Nothing changes until they approve.
-   When PostHog confirms that neither the sending domain nor its parent domain has a `_dmarc` record, the URL also adds the default policy `v=DMARC1; p=none;`: tell the person before they approve. Otherwise it leaves DMARC out and keeps the existing policy.
+   When PostHog confirms that neither the sending domain nor its organizational domain, such as `example.com` for `mail.tx.example.com`, has a `_dmarc` record, the URL also adds the default policy `v=DMARC1; p=none;`: tell the person before they approve. Otherwise it leaves DMARC out and keeps the existing policy.
    The URL never adds an `organization` TXT record. After the person approves, call `integrations-email-status-retrieve` with `refresh=true`.
    Publish any record other than DMARC that is still `pending`, such as an `organization` TXT record, through path 2 or 3, but first confirm at the DNS host that the record is missing.
    A lookup can lag behind the approval, and a second SPF record breaks SPF.
@@ -95,8 +95,9 @@ Pick the first path that works:
 
 DMARC is the domain owner's policy, so never add, change or delete a `_dmarc` record yourself, on any path.
 If the DMARC record shows as `verified`, the domain already has a policy; keep it.
-If it is `pending`, tell the person and let them decide: give them the suggested record, and the `_dmarc` records you can see at the sending domain and at its parent domain, such as `_dmarc.example.com` for `mail.example.com`.
-Tell them to add the suggested record only after they confirm at their DNS host that neither name has a `_dmarc` record, and otherwise to keep the existing policy, since a second DMARC record makes receivers ignore both.
+If it is `pending`, tell the person and let them decide: give them the suggested record, and the `_dmarc` records you can see at the sending domain and every parent up to its organizational domain, such as `_dmarc.tx.example.com` and `_dmarc.example.com` for `mail.tx.example.com`.
+Tell them to add the suggested record only after they confirm at their DNS host that none of those names has a `_dmarc` record, since a second DMARC record makes receivers ignore both.
+If the sending domain has a `_dmarc` record PostHog cannot read, name that record and leave the repair and the policy choice to them.
 A `pending` DMARC record can mean no policy exists, the lookup timed out, or an existing record has a form PostHog cannot read, such as no `p=` tag right after `v=DMARC1;`.
 
 ### 5. Poll, then verify once
