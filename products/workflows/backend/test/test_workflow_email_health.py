@@ -344,6 +344,10 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
         decided: list[str],
         paused: list[str],
     ):
+        set_instance_setting("EMAIL_HOST", "localhost")
+        set_instance_setting("EMAIL_ENABLED", True)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
         self.flow.actions = actions
         self.flow.save(update_fields=["actions"])
         sibling = HogFlow.objects.create(name="Second blast", team=self.team, actions=actions)
@@ -351,9 +355,9 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
         self._seed(source_id=str(sibling.id), sent=sibling_seed[0], hard_bounces=sibling_seed[1])
         names = {str(self.flow.id): "exempt", str(sibling.id): "sibling"}
 
-        with self._unenforced(True):
+        with self._unenforced(True), self.captureOnCommitCallbacks(execute=True):
             decisions = find_workflow_email_pauses(now=self.now)
-            self._sweep()
+            sweep_workflow_email_health(now=self.now)
 
         assert [names[decision.hog_flow_id] for decision in decisions] == decided
         for flow in (self.flow, sibling):
@@ -361,6 +365,7 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
         assert [names[str(flow.id)] for flow in (self.flow, sibling) if flow.email_sending_paused_at] == paused
         assert (self.flow.email_sending_paused_at, self.flow.email_sending_warned_at) == (None, None)
         assert sibling.email_sending_warned_at is None
+        assert len(mail.outbox) == len(paused)
 
     @parameterized.expand(
         [
@@ -573,7 +578,15 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
             "that do not exist came from it."
         )
 
-    def test_a_project_breach_from_transactional_workflows_warns_each_without_a_pause(self):
+    @parameterized.expand(
+        [
+            ("1h", 1, 150, 30, 0.2, "the last hour"),
+            ("24h", 4, 550, 33, 0.06, "the last 24 hours"),
+        ]
+    )
+    def test_a_project_breach_from_transactional_workflows_warns_each_without_a_pause(
+        self, window: str, hours_ago: int, sent: int, bounces: int, rate: float, window_description: str
+    ):
         set_instance_setting("EMAIL_HOST", "localhost")
         set_instance_setting("EMAIL_ENABLED", True)
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -582,10 +595,11 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
         newsletter = HogFlow.objects.create(name="Newsletter", team=self.team)
         self.flow.actions = TRANSACTIONAL_ACTIONS
         self.flow.save()
-        self._seed(sent=150, hard_bounces=30)
-        self._seed(source_id=str(sibling.id), sent=150, hard_bounces=30)
-        self._seed(source_id=str(newsletter.id), sent=700)
-        labels = {"signal": "bounce", "window": "1h", "mode": "transactional", "scope": "project"}
+        at = self.now - timedelta(hours=hours_ago)
+        self._seed(sent=sent, hard_bounces=bounces, at=at)
+        self._seed(source_id=str(sibling.id), sent=sent, hard_bounces=bounces, at=at)
+        self._seed(source_id=str(newsletter.id), sent=700, at=at)
+        labels = {"signal": "bounce", "window": window, "mode": "transactional", "scope": "project"}
         counted_before = REGISTRY.get_sample_value("workflow_email_auto_pause_total", labels) or 0
 
         with capture_logs() as logs, self.captureOnCommitCallbacks(execute=True):
@@ -596,8 +610,9 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
         assert sorted(
             (log["hog_flow_id"], log["project_emails_sent"], log["project_rate"])
             for log in logs
-            if log["event"] == "would_pause_workflow_email_sending" and log["mode"] == "transactional"
-        ) == sorted([(str(self.flow.id), 300, 0.2), (str(sibling.id), 300, 0.2)])
+            if log["event"] == "would_pause_workflow_email_sending"
+            and all(log.get(label) == value for label, value in labels.items())
+        ) == sorted((str(flow.id), 2 * sent, rate) for flow in (self.flow, sibling))
         delivered = []
         for message in mail.outbox:
             [html_part] = [part for part in message.message().walk() if part.get_content_type() == "text/html"]
@@ -609,9 +624,10 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
                     "needs attention" in str(message.subject),
                     message.to,
                     next(flow.name for flow in (self.flow, sibling, newsletter) if f"/workflows/{flow.id}/" in html),
-                    "Emails to addresses that do not exist reached 20% of the 300 emails this project's "
-                    "transactional workflows sent in the last hour. This workflow sent 150 of those emails, and 30 "
-                    "of the emails to addresses that do not exist came from it." in html,
+                    f"Emails to addresses that do not exist reached {rate:.0%} of the {2 * sent:,} emails "
+                    f"this project's transactional workflows sent in {window_description}. This workflow sent {sent} "
+                    f"of those emails, and {bounces} of the emails to addresses that do not exist came from it."
+                    in html,
                     "we don't pause it automatically" in html,
                 )
             )
@@ -656,6 +672,10 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
         }
 
     def test_a_transactional_project_breach_is_reported_alongside_own_warning(self):
+        set_instance_setting("EMAIL_HOST", "localhost")
+        set_instance_setting("EMAIL_ENABLED", True)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
         self.flow.actions = TRANSACTIONAL_ACTIONS
         self.flow.save(update_fields=["actions"])
         sibling = HogFlow.objects.create(name="Password reset", team=self.team, actions=TRANSACTIONAL_ACTIONS)
@@ -680,6 +700,15 @@ class TestWorkflowEmailHealthDetector(ClickhouseTestMixin, BaseTest):
             for log in logs
             if log["event"] == "warned_workflow_email_sending" and log["hog_flow_id"] == str(self.flow.id)
         ] == [("complaint", "24h", "workflow")]
+        delivered = []
+        for message in mail.outbox:
+            [html_part] = [part for part in message.message().walk() if part.get_content_type() == "text/html"]
+            html_bytes = html_part.get_payload(decode=True)
+            assert isinstance(html_bytes, bytes)
+            html = html_bytes.decode()
+            if f"/workflows/{self.flow.id}/" in html:
+                delivered.append("Spam complaints reached 0.2% of the 6,000 emails this workflow sent" in html)
+        assert delivered == [True]
 
     @parameterized.expand(
         [
