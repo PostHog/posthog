@@ -290,6 +290,12 @@ class HubspotEndpointConfig:
     # sync near-empty rows, and listing those names by hand risks requesting properties a portal
     # doesn't have. The property list is still truncated by the URL-length / search caps.
     discover_all_properties: bool = False
+    # Whether HubSpot's CRM Objects Search API (POST .../search) accepts this object type at all.
+    # False for engagement objects (calls, communications, emails, feedback_submissions, meetings,
+    # notes, tasks): HubSpot rejects a search request for these with a 400, regardless of API
+    # version, so they must stay on the GET path (get_rows) even once incremental sync is otherwise
+    # eligible for them.
+    supports_search: bool = True
 
 
 HUBSPOT_ENDPOINTS: dict[str, HubspotEndpointConfig] = {
@@ -340,6 +346,7 @@ HUBSPOT_ENDPOINTS: dict[str, HubspotEndpointConfig] = {
         partition_key="hs_timestamp",
         cursor_filter_property_field="hs_lastmodifieddate",
         incremental_fields=[_incremental_field("hs_lastmodifieddate")],
+        supports_search=False,
     ),
     "meetings": HubspotEndpointConfig(
         name="meetings",
@@ -348,6 +355,7 @@ HUBSPOT_ENDPOINTS: dict[str, HubspotEndpointConfig] = {
         partition_key="hs_timestamp",
         cursor_filter_property_field="hs_lastmodifieddate",
         incremental_fields=[_incremental_field("hs_lastmodifieddate")],
+        supports_search=False,
     ),
     # Leads need the `crm.objects.leads.read` scope, which existing connections weren't granted,
     # and the object must be enabled in the portal (Sales Hub Pro+). Default-disabled so existing
@@ -373,6 +381,7 @@ HUBSPOT_ENDPOINTS: dict[str, HubspotEndpointConfig] = {
         cursor_filter_property_field="hs_lastmodifieddate",
         incremental_fields=[_incremental_field("hs_lastmodifieddate")],
         discover_all_properties=True,
+        supports_search=False,
     ),
     "notes": HubspotEndpointConfig(
         name="notes",
@@ -382,6 +391,7 @@ HUBSPOT_ENDPOINTS: dict[str, HubspotEndpointConfig] = {
         cursor_filter_property_field="hs_lastmodifieddate",
         incremental_fields=[_incremental_field("hs_lastmodifieddate")],
         discover_all_properties=True,
+        supports_search=False,
     ),
     "tasks": HubspotEndpointConfig(
         name="tasks",
@@ -391,6 +401,7 @@ HUBSPOT_ENDPOINTS: dict[str, HubspotEndpointConfig] = {
         cursor_filter_property_field="hs_lastmodifieddate",
         incremental_fields=[_incremental_field("hs_lastmodifieddate")],
         discover_all_properties=True,
+        supports_search=False,
     ),
     "communications": HubspotEndpointConfig(
         name="communications",
@@ -400,6 +411,7 @@ HUBSPOT_ENDPOINTS: dict[str, HubspotEndpointConfig] = {
         cursor_filter_property_field="hs_lastmodifieddate",
         incremental_fields=[_incremental_field("hs_lastmodifieddate")],
         discover_all_properties=True,
+        supports_search=False,
     ),
     "feedback_submissions": HubspotEndpointConfig(
         name="feedback_submissions",
@@ -408,6 +420,7 @@ HUBSPOT_ENDPOINTS: dict[str, HubspotEndpointConfig] = {
         cursor_filter_property_field="hs_lastmodifieddate",
         incremental_fields=[_incremental_field("hs_lastmodifieddate")],
         discover_all_properties=True,
+        supports_search=False,
     ),
     # Commerce and product objects. Each needs its own read scope that existing connections were
     # never granted, so they start off and only sync once the account is reconnected. They are

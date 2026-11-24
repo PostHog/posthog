@@ -58,6 +58,21 @@ class TestShouldUseSearchPath:
         with patch.dict(HUBSPOT_ENDPOINTS, {"deals": no_cursor}):
             assert src._should_use_search_path(inputs) is False
 
+    def test_false_when_endpoint_does_not_support_search(self) -> None:
+        # emails is an engagement object: HubSpot's CRM Objects Search API 400s on it regardless
+        # of API version, so it must stay on the GET path even though it has a cursor field and
+        # the initial sync is already complete (the only state that would otherwise route here).
+        src = HubspotSource()
+        inputs = _make_inputs(schema_name="emails")
+        assert HUBSPOT_ENDPOINTS["emails"].supports_search is False
+        schema = MagicMock()
+        schema.initial_sync_complete = True
+        with patch(
+            "products.warehouse_sources.backend.models.external_data_schema.ExternalDataSchema.objects.get",
+            return_value=schema,
+        ):
+            assert src._should_use_search_path(inputs) is False
+
     def test_false_when_db_lookup_fails(self) -> None:
         src = HubspotSource()
         inputs = _make_inputs()

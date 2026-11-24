@@ -456,6 +456,8 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
         """Route to the search-based incremental path only when:
         - the schema is configured for incremental sync,
         - the endpoint supports incremental (has a cursor filter property),
+        - the endpoint's object type is searchable via HubSpot's CRM Objects Search API
+          (engagement objects are not — see `HubspotEndpointConfig.supports_search`),
         - the initial full sync has completed (so we have a meaningful watermark and the
           delta is small enough that per-page association backfills are cheap),
         - the pipeline isn't being reset.
@@ -470,6 +472,8 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
             return False
         endpoint_config = HUBSPOT_ENDPOINT_CONFIGS.get(inputs.schema_name)
         if endpoint_config is None or not endpoint_config.cursor_filter_property_field:
+            return False
+        if not endpoint_config.supports_search:
             return False
         from products.warehouse_sources.sources.sdk import ExternalDataSchema
 
