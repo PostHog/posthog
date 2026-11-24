@@ -23,20 +23,31 @@ function WarehousePipelineHealthLineBody(): JSX.Element | null {
             <Text size="xs" variant="muted" data-attr="warehouse-home-pipeline-health-summary" render={<span />}>
                 {text}
             </Text>
-            <WarehouseSectionLink
-                to={urls.warehousePipelineHealth()}
-                onClick={() => {
-                    posthog.capture('warehouse overview link clicked', { target: 'pipeline_health' })
-                }}
-                data-attr="warehouse-home-pipeline-health-link"
-            >
-                All pipelines
-            </WarehouseSectionLink>
+            <div className="flex flex-wrap items-center gap-x-1">
+                <WarehouseSectionLink
+                    to={urls.warehousePostHogData()}
+                    onClick={() => {
+                        posthog.capture('warehouse overview link clicked', { target: 'posthog_data' })
+                    }}
+                    data-attr="warehouse-home-posthog-data-link"
+                >
+                    PostHog data
+                </WarehouseSectionLink>
+                <WarehouseSectionLink
+                    to={urls.warehouseSourceData()}
+                    onClick={() => {
+                        posthog.capture('warehouse overview link clicked', { target: 'source_data' })
+                    }}
+                    data-attr="warehouse-home-source-data-link"
+                >
+                    Source data
+                </WarehouseSectionLink>
+            </div>
         </div>
     )
 }
 
-/** One muted line under the Pipelines heading on how much has landed in the warehouse, with a link to the Pipelines page. */
+/** One muted line under the Pipelines heading on how much has landed in the warehouse, with links to the PostHog data and Source data pages. */
 export function WarehousePipelineHealthLine(): JSX.Element {
     return (
         <WarehouseConsoleReady>

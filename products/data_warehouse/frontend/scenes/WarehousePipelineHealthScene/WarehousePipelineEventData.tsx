@@ -19,7 +19,7 @@ export function WarehousePipelineEventData(): JSX.Element | null {
     }
     return (
         <WarehouseSection
-            title="PostHog data"
+            title="Events and persons"
             description={
                 ingestedEvent
                     ? 'Events and persons arrive in PostHog continuously. This shows how much has been copied into your warehouse.'

@@ -16,12 +16,12 @@ describe('todayWarehouseItems', () => {
         expect(visibleWarehouseItems(featureFlags).some((item) => item.key === 'data_ops')).toBe(listed)
     })
 
-    const MANAGE_KEYS = ['data_ops', 'pipeline_health', 'usage', 'queries', 'storage', 'access', 'connect', 'settings']
+    const MANAGE_KEYS = ['data_ops', 'usage', 'queries', 'storage', 'access', 'connect', 'settings']
 
     test.each([
         [
             { [FEATURE_FLAGS.MANAGED_WAREHOUSE_CONSOLE]: true, [FEATURE_FLAGS.DATA_WAREHOUSE_SCENE]: true },
-            ['pipeline_health', 'usage', 'queries', 'storage', 'access', 'connect', 'settings'],
+            ['usage', 'queries', 'storage', 'access', 'connect', 'settings'],
         ],
         [{ [FEATURE_FLAGS.DATA_WAREHOUSE_SCENE]: true }, ['data_ops']],
         [{ [FEATURE_FLAGS.MANAGED_TRINO_QUERY]: true }, ['data_ops']],
@@ -36,7 +36,8 @@ describe('todayWarehouseItems', () => {
         ['/models', 'models'],
         ['/models/abc', 'models'],
         ['/warehouse', 'home'],
-        ['/warehouse/pipelines', 'pipeline_health'],
+        ['/warehouse/posthog-data', 'posthog_data'],
+        ['/warehouse/source-data', 'source_data'],
         ['/warehouse/usage', 'usage'],
         ['/warehouse/queries', 'queries'],
         ['/warehouse/storage', 'storage'],
@@ -54,6 +55,20 @@ describe('todayWarehouseItems', () => {
         ['/data-management/destinations', null],
     ])('marks %s as %s', (path, key) => {
         expect(warehouseItemForLocation(path, WAREHOUSE_ITEMS)?.key ?? null).toBe(key)
+    })
+
+    test.each([
+        ['/models', 'lineage', 'models_lineage'],
+        ['/models', null, 'models'],
+        // A tab no item names, or a page under the path, falls back to the page's first tab.
+        ['/models', 'nonsense', 'models'],
+        ['/models/abc', 'lineage', 'models_lineage'],
+        ['/data-catalog', 'relationships', 'data_catalog_relationships'],
+        ['/data-catalog', null, 'data_catalog'],
+        // `tab` belongs to the page it is on, so it does not move another page to one of its tabs.
+        ['/warehouse/storage', 'usage', 'storage'],
+    ])('marks %s with tab %s as %s', (path, tab, key) => {
+        expect(warehouseItemForLocation(path, WAREHOUSE_ITEMS, tab)?.key ?? null).toBe(key)
     })
 
     test.each([

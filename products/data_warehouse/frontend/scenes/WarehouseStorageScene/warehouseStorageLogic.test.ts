@@ -59,7 +59,7 @@ describe('warehouseStorageLogic', () => {
     })
 
     it.each([
-        [{ tab: 'readiness' }, '/warehouse/pipelines'],
+        [{ tab: 'readiness' }, '/warehouse/posthog-data'],
         [{}, '/warehouse/storage'],
     ])('sends the old link with %j to %s', (searchParams, expectedPath) => {
         router.actions.push('/warehouse/storage', searchParams)

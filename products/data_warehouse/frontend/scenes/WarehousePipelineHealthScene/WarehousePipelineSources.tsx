@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 
-import { DataTable, type DataTableProps, Text } from '@posthog/quill'
+import { Button, DataTable, type DataTableProps, Text } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
@@ -12,7 +12,6 @@ import { WarehouseTime } from '../WarehouseConsole/WarehouseTime'
 import { tablesInSync } from './pipelineHealthStats'
 import { WarehouseLandingCell } from './WarehouseLandingCell'
 import { warehousePipelineHealthLogic } from './warehousePipelineHealthLogic'
-import { WarehousePipelineSourceToggle } from './WarehousePipelineSourceToggle'
 
 // pinned: the data-attr values in this file feed autocapture and dashboards, so renaming them breaks both.
 
@@ -24,22 +23,20 @@ const COLUMNS: DataTableProps<ManagedWarehouseSourceSummaryApi, unknown>['column
         enableSorting: false,
         meta: { expand: true },
         cell: ({ row }) => (
-            <div className="flex items-center gap-1">
-                <WarehousePipelineSourceToggle
-                    sourceId={row.original.source_id}
-                    sourceName={row.original.source_name}
-                />
-                <LinkPrimitive
-                    to={urls.dataWarehouseSource(`managed-${row.original.source_id}`, 'schemas')}
-                    onClick={() => warehousePipelineHealthLogic.actions.linkClicked('source')}
-                    className="block max-w-56 truncate"
-                    title={`${row.original.source_name} (${row.original.source_type})`}
-                    data-attr="warehouse-pipeline-health-source-link"
-                >
-                    {row.original.source_name}
-                    <span className="text-muted-foreground"> · {row.original.source_type}</span>
-                </LinkPrimitive>
-            </div>
+            <LinkPrimitive
+                to={urls.dataWarehouseSource(`managed-${row.original.source_id}`, 'schemas')}
+                onClick={(event) => {
+                    // The row opens the tables dialog. The name goes to the source page instead.
+                    event.stopPropagation()
+                    warehousePipelineHealthLogic.actions.linkClicked('source')
+                }}
+                className="block max-w-56 truncate"
+                title={`${row.original.source_name} (${row.original.source_type})`}
+                data-attr="warehouse-pipeline-health-source-link"
+            >
+                {row.original.source_name}
+                <span className="text-muted-foreground"> · {row.original.source_type}</span>
+            </LinkPrimitive>
         ),
     },
     {
@@ -78,7 +75,21 @@ const COLUMNS: DataTableProps<ManagedWarehouseSourceSummaryApi, unknown>['column
         header: 'Tables',
         enableSorting: false,
         meta: { align: 'right' },
-        cell: ({ row }) => <span className="whitespace-nowrap tabular-nums">{tablesInSync(row.original)}</span>,
+        cell: ({ row }) => (
+            <Button
+                variant="link"
+                size="sm"
+                className="whitespace-nowrap tabular-nums"
+                aria-label={`Show tables in ${row.original.source_name}: ${tablesInSync(row.original)}`}
+                onClick={(event) => {
+                    event.stopPropagation()
+                    warehousePipelineHealthLogic.actions.toggleSource(row.original.source_id)
+                }}
+                data-attr="warehouse-pipeline-health-source-toggle"
+            >
+                {tablesInSync(row.original)}
+            </Button>
+        ),
     },
 ]
 
@@ -109,6 +120,7 @@ export function WarehousePipelineSources(): JSX.Element {
                 fullWidth
                 pageSize={sources.length > 20 ? 20 : undefined}
                 getRowId={(row) => row.source_id}
+                onRowClick={(row) => warehousePipelineHealthLogic.actions.toggleSource(row.source_id)}
                 empty={
                     <Text size="sm" variant="muted" className="px-3 py-4" render={<div />}>
                         No sources import into this warehouse yet.{' '}

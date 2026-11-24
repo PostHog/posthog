@@ -1,6 +1,17 @@
 import { useActions, useValues } from 'kea'
 
-import { Button, DataTable, type DataTableProps, Skeleton, Text } from '@posthog/quill'
+import {
+    DataTable,
+    type DataTableProps,
+    Dialog,
+    DialogBody,
+    DialogContent,
+    DialogDescription,
+    DialogHeader,
+    DialogTitle,
+    Skeleton,
+    Text,
+} from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
@@ -8,7 +19,6 @@ import { urls } from 'scenes/urls'
 import type { ManagedWarehouseSourceTableStatusApi } from '../../generated/api.schemas'
 import { formatCount } from '../WarehouseConsole/warehouseConsoleFormat'
 import { WarehouseResourceError } from '../WarehouseConsole/WarehouseResourceError'
-import { WarehouseSection } from '../WarehouseConsole/WarehouseSection'
 import { WarehouseTime } from '../WarehouseConsole/WarehouseTime'
 import { humanizeStatus } from './pipelineHealthStats'
 import { WarehouseLandingCell } from './WarehouseLandingCell'
@@ -81,22 +91,20 @@ const COLUMNS: DataTableProps<ManagedWarehouseSourceTableStatusApi, unknown>['co
     },
 ]
 
-/** The tables of the source whose chevron is open, loaded the first time it opens. */
-export function WarehousePipelineSourceTables(): JSX.Element | null {
+/** A dialog with the tables of one source, loaded the first time it opens. */
+export function WarehousePipelineSourceTables(): JSX.Element {
     const { expandedSource, expandedSourceSchemas, schemasFailed, schemasLoading } =
         useValues(warehousePipelineHealthLogic)
     const { toggleSource, retrySourceSchemas } = useActions(warehousePipelineHealthLogic)
+    const sourceId = expandedSource?.source_id
 
-    if (!expandedSource) {
-        return null
-    }
-    const sourceId = expandedSource.source_id
-
-    let content: JSX.Element
-    if (expandedSourceSchemas) {
+    let content: JSX.Element | null = null
+    if (!sourceId) {
+        content = null
+    } else if (expandedSourceSchemas) {
         content =
             expandedSourceSchemas.length === 0 ? (
-                <Text size="sm" variant="muted" className="px-3 py-4" render={<div />}>
+                <Text size="sm" variant="muted" render={<div />}>
                     This source has no tables yet.
                 </Text>
             ) : (
@@ -111,33 +119,33 @@ export function WarehousePipelineSourceTables(): JSX.Element | null {
     } else if (schemasFailed[sourceId] && !schemasLoading[sourceId]) {
         content = (
             <WarehouseResourceError
-                title={`Couldn't load tables in ${expandedSource.source_name}`}
+                title="Couldn't load tables"
                 onRetry={() => retrySourceSchemas(sourceId)}
                 data-attr="warehouse-pipeline-health-schemas-retry"
             />
         )
     } else {
-        content = <Skeleton className="mx-3 h-24 w-[calc(100%-1.5rem)]" />
+        content = <Skeleton className="h-24 w-full" />
     }
 
     return (
-        <div id="warehouse-pipeline-health-source-tables">
-            <WarehouseSection
-                title={`Tables in ${expandedSource.source_name}`}
-                flush={!!expandedSourceSchemas?.length}
-                data-attr="warehouse-pipeline-health-source-tables"
-                controls={
-                    <Button
-                        size="sm"
-                        onClick={() => toggleSource(sourceId)}
-                        data-attr="warehouse-pipeline-health-source-hide"
-                    >
-                        Hide
-                    </Button>
+        <Dialog
+            open={!!sourceId}
+            onOpenChange={(open) => {
+                if (!open && sourceId) {
+                    toggleSource(sourceId)
                 }
-            >
-                {content}
-            </WarehouseSection>
-        </div>
+            }}
+        >
+            <DialogContent size="wide" data-attr="warehouse-pipeline-health-source-tables">
+                <DialogHeader>
+                    <DialogTitle>{expandedSource ? `Tables in ${expandedSource.source_name}` : 'Tables'}</DialogTitle>
+                    <DialogDescription>
+                        The latest source sync of each table, and whether it has landed in your warehouse.
+                    </DialogDescription>
+                </DialogHeader>
+                <DialogBody>{content}</DialogBody>
+            </DialogContent>
+        </Dialog>
     )
 }

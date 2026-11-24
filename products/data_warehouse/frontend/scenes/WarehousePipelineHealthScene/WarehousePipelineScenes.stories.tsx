@@ -15,7 +15,8 @@ import type {
     ManagedWarehouseSourceSummaryApi,
     ManagedWarehouseSourceTableStatusApi,
 } from '../../generated/api.schemas'
-import { WarehousePipelineHealthScene } from './WarehousePipelineHealthScene'
+import { WarehousePostHogDataScene } from './WarehousePostHogDataScene'
+import { WarehouseSourceDataScene } from './WarehouseSourceDataScene'
 
 // Every date is written relative to this one, which `mockDate` pins as the clock.
 const NOW = Date.parse('2026-11-24T12:00:00Z')
@@ -230,41 +231,50 @@ function mocks(
     })
 }
 
-const meta: Meta<typeof WarehousePipelineHealthScene> = {
-    title: 'Scenes-App/Data Warehouse/Pipelines',
-    component: WarehousePipelineHealthScene,
+const meta: Meta = {
+    title: 'Scenes-App/Data Warehouse/Warehouse data',
     parameters: {
         layout: 'fullscreen',
-        pageUrl: urls.warehousePipelineHealth(),
         viewMode: 'story',
         mockDate: '2026-11-24T12:00:00Z',
         featureFlags: [FEATURE_FLAGS.MANAGED_WAREHOUSE_CONSOLE],
-        testOptions: { waitForSelector: '[data-attr="warehouse-pipeline-health-events"]' },
     },
 }
 export default meta
 
 type Story = StoryObj<typeof meta>
 
-const SOURCES_TAB = {
-    pageUrl: `${urls.warehousePipelineHealth()}?tab=sources`,
-    testOptions: { waitForSelector: '[data-attr="warehouse-pipeline-health-sources"]' },
-}
+const POSTHOG_DATA = {
+    render: () => <WarehousePostHogDataScene />,
+    parameters: {
+        pageUrl: urls.warehousePostHogData(),
+        testOptions: { waitForSelector: '[data-attr="warehouse-pipeline-health-events"]' },
+    },
+} satisfies Story
 
-export const PostHogData: Story = { decorators: [mocks(MIXED)] }
+const SOURCE_DATA = {
+    render: () => <WarehouseSourceDataScene />,
+    parameters: {
+        pageUrl: urls.warehouseSourceData(),
+        testOptions: { waitForSelector: '[data-attr="warehouse-pipeline-health-sources"]' },
+    },
+} satisfies Story
 
-export const PostHogDataBackfillOff: Story = { decorators: [mocks(EMPTY)] }
+export const PostHogData: Story = { ...POSTHOG_DATA, decorators: [mocks(MIXED)] }
 
-export const Sources: Story = { decorators: [mocks(MIXED)], parameters: SOURCES_TAB }
+export const PostHogDataBackfillOff: Story = { ...POSTHOG_DATA, decorators: [mocks(EMPTY)] }
 
-export const SourcesAllInSync: Story = { decorators: [mocks(HEALTHY)], parameters: SOURCES_TAB }
+export const SourceData: Story = { ...SOURCE_DATA, decorators: [mocks(MIXED)] }
 
-export const SourcesEmpty: Story = { decorators: [mocks(EMPTY)], parameters: SOURCES_TAB }
+export const SourceDataAllInSync: Story = { ...SOURCE_DATA, decorators: [mocks(HEALTHY)] }
 
-export const SourcesWithTablesOpen: Story = {
+export const SourceDataEmpty: Story = { ...SOURCE_DATA, decorators: [mocks(EMPTY)] }
+
+export const SourceDataWithTablesOpen: Story = {
+    ...SOURCE_DATA,
     decorators: [mocks(MIXED, { schemas: STRIPE_SCHEMAS })],
     parameters: {
-        ...SOURCES_TAB,
+        pageUrl: urls.warehouseSourceData(),
         testOptions: { waitForSelector: '[data-attr="warehouse-pipeline-health-schema-link"]' },
     },
     play: async ({ canvasElement }): Promise<void> => {
@@ -285,6 +295,10 @@ export const SourcesWithTablesOpen: Story = {
 }
 
 export const StatusLoadError: Story = {
+    ...POSTHOG_DATA,
     decorators: [mocks(500)],
-    parameters: { testOptions: { waitForSelector: '[data-attr="warehouse-pipeline-health-retry"]' } },
+    parameters: {
+        pageUrl: urls.warehousePostHogData(),
+        testOptions: { waitForSelector: '[data-attr="warehouse-pipeline-health-retry"]' },
+    },
 }

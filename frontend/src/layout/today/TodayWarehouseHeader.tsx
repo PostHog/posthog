@@ -28,10 +28,12 @@ import { WarehouseItem, visibleWarehouseItems } from './todayWarehouseItems'
 
 // pinned: the data-attr values and analytics event names in this file feed autocapture and dashboards, so renaming them breaks both.
 
-const GROUP_ORDER: WarehouseItem['group'][] = ['home', 'model', 'manage']
+const GROUP_ORDER: WarehouseItem['group'][] = ['home', 'data', 'models', 'data_catalog', 'manage']
 
 const GROUP_HEADINGS: Partial<Record<WarehouseItem['group'], string>> = {
-    model: 'Model',
+    data: 'Data',
+    models: 'Models',
+    data_catalog: 'Data catalog',
     manage: 'Manage',
 }
 
@@ -70,7 +72,7 @@ export function TodayWarehouseHeader({ className }: { className?: string }): JSX
                     >
                         <IconDatabase />
                         <span className="min-w-0 truncate">
-                            {current && current.key !== 'home' ? current.label : 'Warehouse'}
+                            {current && current.key !== 'home' ? (current.title ?? current.label) : 'Warehouse'}
                         </span>
                         <IconChevronDown />
                     </DropdownMenuTrigger>

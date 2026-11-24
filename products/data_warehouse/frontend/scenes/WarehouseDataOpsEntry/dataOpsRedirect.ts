@@ -8,6 +8,6 @@ export function dataOpsRedirectTarget(searchParams: Record<string, unknown>): st
         case 'settings':
             return urls.warehouseSettings()
         default:
-            return urls.warehousePipelineHealth()
+            return urls.warehousePostHogData()
     }
 }

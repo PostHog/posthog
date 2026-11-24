@@ -226,11 +226,11 @@ export const warehouseStorageLogic = kea<warehouseStorageLogicType>([
             }
         },
     })),
-    // Data readiness was a tab of this page before the Pipelines page replaced it.
+    // Data readiness was a tab of this page before the PostHog data and Source data pages replaced it.
     urlToAction(() => ({
         [urls.warehouseStorage()]: (_, searchParams) => {
             if (searchParams.tab === 'readiness') {
-                router.actions.replace(urls.warehousePipelineHealth())
+                router.actions.replace(urls.warehousePostHogData())
             }
         },
     })),

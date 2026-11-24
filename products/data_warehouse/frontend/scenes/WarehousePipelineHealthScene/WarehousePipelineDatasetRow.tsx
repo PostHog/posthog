@@ -60,9 +60,7 @@ export function WarehousePipelineDatasetRow({
                 ) : null}
             </div>
             {hasTotal && !backfillOff ? (
-                <div className="max-w-md">
-                    <WarehouseMeter used={dataset.completed_partitions} limit={total} label={`${label} backfill`} />
-                </div>
+                <WarehouseMeter used={dataset.completed_partitions} limit={total} label={`${label} backfill`} />
             ) : null}
             {backfillOff ? (
                 <Text size="xs" variant="muted">

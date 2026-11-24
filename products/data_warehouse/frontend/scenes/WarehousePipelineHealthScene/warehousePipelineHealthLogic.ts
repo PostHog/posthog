@@ -65,9 +65,6 @@ export interface warehousePipelineHealthLogicActions {
         schemas: ManagedWarehouseSourceTableStatusApi[]
         sourceId: string
     }
-    refreshClicked: () => {
-        value: true
-    }
     retrySourceSchemas: (sourceId: string) => {
         sourceId: string
     }
@@ -127,7 +124,6 @@ export const warehousePipelineHealthLogic = kea<warehousePipelineHealthLogicType
         ],
     })),
     actions({
-        refreshClicked: true,
         toggleSource: (sourceId: string) => ({ sourceId }),
         loadSourceSchemas: (sourceId: string) => ({ sourceId }),
         loadSourceSchemasSuccess: (sourceId: string, schemas: ManagedWarehouseSourceTableStatusApi[]) => ({
@@ -201,16 +197,12 @@ export const warehousePipelineHealthLogic = kea<warehousePipelineHealthLogicType
         ],
     }),
     listeners(({ actions, values }) => ({
-        refreshClicked: () => {
-            posthog.capture('warehouse pipeline health refresh clicked')
-            actions.loadManagedWarehouseDataStatus()
-        },
         toggleSource: ({ sourceId }) => {
             if (values.expandedSourceId !== sourceId) {
                 return
             }
             const source = values.sources.find((candidate) => candidate.source_id === sourceId)
-            posthog.capture('warehouse pipeline health source expanded', {
+            posthog.capture('warehouse pipeline health source tables opened', {
                 landing_state: source?.landing_state,
                 source_type: source?.source_type,
             })
@@ -230,7 +222,7 @@ export const warehousePipelineHealthLogic = kea<warehousePipelineHealthLogicType
                 actions.loadSourceSchemasFailure(sourceId)
             }
         },
-        // The open source keeps current as the status polls. Its rows stay on screen while the reload runs.
+        // The source whose tables are open keeps current as the status polls. Its rows stay on screen while the reload runs.
         loadManagedWarehouseDataStatusSuccess: () => {
             if (values.expandedSourceId && !values.schemasLoading[values.expandedSourceId]) {
                 actions.loadSourceSchemas(values.expandedSourceId)

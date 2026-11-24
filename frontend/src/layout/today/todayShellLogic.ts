@@ -690,13 +690,14 @@ export const todayShellLogic = kea<todayShellLogicType>([
             (s) => [s.routePane, router.selectors.location, s.featureFlags],
             (
                 routePane: TodayRailPane | null,
-                location: { pathname: string },
+                location: { pathname: string; search: string },
                 featureFlags: FeatureFlagsSet
             ): WarehouseItem | null =>
                 routePane === 'warehouse'
                     ? warehouseItemForLocation(
                           removeProjectIdIfPresent(location.pathname),
-                          visibleWarehouseItems(featureFlags)
+                          visibleWarehouseItems(featureFlags),
+                          new URLSearchParams(location.search).get('tab')
                       )
                     : null,
         ],
