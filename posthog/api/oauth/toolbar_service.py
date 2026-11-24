@@ -55,6 +55,21 @@ def _get_scope_ceiling() -> list[str]:
     return [scope for scope in settings.TOOLBAR_OAUTH_SCOPES if scope not in ALWAYS_ALLOWED_SCOPES]
 
 
+def _toolbar_application_fields() -> dict[str, str]:
+    return {
+        "name": settings.TOOLBAR_OAUTH_APPLICATION_NAME,
+        "client_type": OAuthApplication.CLIENT_PUBLIC,
+        "authorization_grant_type": OAuthApplication.GRANT_AUTHORIZATION_CODE,
+    }
+
+
+def _is_toolbar_application(application: OAuthApplication) -> bool:
+    if application.organization_id is None:
+        return False
+
+    return all(getattr(application, field) == value for field, value in _toolbar_application_fields().items())
+
+
 def _sync_scope_ceiling(application: OAuthApplication) -> None:
     scope_ceiling = _get_scope_ceiling()
     if application.scopes != scope_ceiling or application.optional_scopes:
@@ -214,10 +229,7 @@ def get_or_create_toolbar_oauth_application(user: User) -> OAuthApplication:
         Organization.objects.select_for_update().get(pk=user.organization.pk)
 
         existing = OAuthApplication.objects.filter(
-            organization=user.organization,
-            name=app_name,
-            client_type=OAuthApplication.CLIENT_PUBLIC,
-            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            organization=user.organization, **_toolbar_application_fields()
         ).first()
 
         if existing:
@@ -252,6 +264,23 @@ def get_or_create_toolbar_oauth_application(user: User) -> OAuthApplication:
             redirect_uri=redirect_uri,
         )
         return app
+
+
+def sync_toolbar_scope_ceiling_on_refresh(application: OAuthApplication) -> None:
+    """Apply the toolbar scope ceiling to the app that a toolbar refresh token belongs to.
+
+    A launch syncs the ceiling, but a toolbar that keeps a stored token only refreshes. Without
+    this sync, an app created before the ceiling existed keeps no ceiling, and its `*` tokens keep
+    refreshing as `*` until somebody in the organization launches the toolbar again.
+
+    The refresh endpoint accepts a refresh token of any app, so an app that is not the toolbar app
+    keeps its own scopes.
+    """
+    if not _is_toolbar_application(application):
+        return
+
+    with transaction.atomic():
+        _sync_scope_ceiling(application)
 
 
 def build_toolbar_oauth_state(state: ToolbarOAuthState) -> tuple[str, datetime]:

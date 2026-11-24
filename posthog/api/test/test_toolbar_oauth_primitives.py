@@ -691,6 +691,42 @@ class TestToolbarOAuthScopeCeiling(ToolbarOAuthAuthorizeMixin, APIBaseTest):
         assert response.json()["error"] == "invalid_grant"
         assert not OAuthAccessToken.objects.filter(token="pha_toolbar_ceiling_access").exists()
 
+    @parameterized.expand(
+        [
+            ("wildcard_token_is_revoked", "*", 400, None),
+            ("over_scoped_token_is_narrowed", "openid user:read user:write", 200, {"openid", "user:read"}),
+        ]
+    )
+    def test_toolbar_refresh_applies_the_ceiling_without_a_launch(
+        self, _name, token_scope, expected_status, expected_scopes
+    ):
+        app = self._create_app_without_ceiling([], [])
+        refresh_token = self._create_token_pair(app, token_scope)
+
+        def post_to_test_client(url: str, data: dict[str, str], timeout: int) -> requests.Response:
+            django_response = self._post_token(data)
+            response = requests.Response()
+            response.status_code = django_response.status_code
+            response._content = django_response.content
+            return response
+
+        with patch("posthog.api.oauth.toolbar_service.requests.post", side_effect=post_to_test_client):
+            response = self.client.post(
+                "/api/user/toolbar_oauth_refresh/",
+                data=json.dumps({"refresh_token": refresh_token.token, "client_id": app.client_id}),
+                content_type="application/json",
+            )
+
+        app.refresh_from_db()
+        assert app.scopes == TOOLBAR_RESOURCE_SCOPES
+        assert response.status_code == expected_status, response.content
+        if expected_scopes is None:
+            assert response.json()["code"] == "invalid_grant"
+            assert not OAuthAccessToken.objects.filter(application=app, scope="*").exists()
+        else:
+            refreshed = OAuthAccessToken.objects.get(token=response.json()["access_token"])
+            assert set(refreshed.scope.split()) == expected_scopes
+
     def test_wildcard_grant_cannot_be_exchanged_after_the_ceiling_is_synced(self):
         app = self._create_app_without_ceiling([], [])
         redirect_uri = f"{settings.SITE_URL}{CALLBACK_PATH}"
