@@ -1,9 +1,16 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Logger } from "../utils/logger";
-import { TaskRunEventStreamSender } from "./event-stream-sender";
+import {
+  type EventStreamLoss,
+  TaskRunEventStreamSender,
+} from "./event-stream-sender";
 import type { StreamingUpload } from "./streaming-upload";
 
 const STREAM_COMPLETE_CONTROL_TYPE = "_posthog/stream_complete";
+
+interface EventLine {
+  notification: { method: string; params?: { droppedCount?: number } };
+}
 
 async function readRequestBody(init?: RequestInit): Promise<string> {
   const body = init?.body;
@@ -432,11 +439,13 @@ describe("TaskRunEventStreamSender", () => {
       events: [
         { type: "notification", notification: { method: "first" } },
         { type: "notification", notification: { method: "second" } },
+        { type: "notification", notification: { method: "third" } },
       ],
-      acceptedMethod: "first",
+      expectedMethods: ["first", "_posthog/event_stream_gap"],
+      droppedCount: 2,
     },
     {
-      name: "when an event is oversized",
+      name: "when an event cannot be truncated to fit",
       senderOptions: { maxEventBytes: 120 },
       events: [
         {
@@ -448,36 +457,12 @@ describe("TaskRunEventStreamSender", () => {
         },
         { type: "notification", notification: { method: "small" } },
       ],
-      acceptedMethod: "small",
-    },
-    {
-      name: "when text still exceeds the limit after removing widget metadata",
-      senderOptions: { maxEventBytes: 600 },
-      events: [
-        {
-          type: "notification",
-          notification: {
-            method: "session/update",
-            params: {
-              update: {
-                sessionUpdate: "tool_call_update",
-                rawOutput: {
-                  content: [{ type: "text", text: "x".repeat(1000) }],
-                  _meta: {
-                    "com.posthog.mcp/app_data": { rows: "y".repeat(1000) },
-                  },
-                },
-              },
-            },
-          },
-        },
-        { type: "notification", notification: { method: "small" } },
-      ],
-      acceptedMethod: "small",
+      expectedMethods: ["_posthog/event_stream_gap", "small"],
+      droppedCount: 1,
     },
   ])(
-    "drops events before assigning sequence $name",
-    async ({ senderOptions, events, acceptedMethod }) => {
+    "replaces events dropped $name with a sequenced gap event",
+    async ({ senderOptions, events, expectedMethods, droppedCount }) => {
       const requestBodies: string[] = [];
       const fetchMock = vi.fn(
         async (_url: string | URL | Request, init?: RequestInit) => {
@@ -487,26 +472,90 @@ describe("TaskRunEventStreamSender", () => {
         },
       );
       vi.stubGlobal("fetch", fetchMock);
+      const losses: EventStreamLoss[] = [];
 
-      const sender = createSender(senderOptions);
+      const sender = createSender({
+        ...senderOptions,
+        onEventLoss: (loss) => losses.push(loss),
+      });
 
       for (const event of events) {
         sender.enqueue(event);
       }
       await sender.stop();
 
-      expect(parseLines(requestBodies[1])).toEqual([
-        {
-          seq: 1,
-          event: {
-            type: "notification",
-            notification: { method: acceptedMethod },
-          },
-        },
-        { type: STREAM_COMPLETE_CONTROL_TYPE, final_seq: 1 },
-      ]);
+      const lines = parseLines(requestBodies[1]);
+      expect(eventSequences(requestBodies[1])).toEqual([1, 2]);
+      expect(completionSequences(requestBodies[1])).toEqual([2]);
+      expect(
+        lines
+          .filter((line) => "seq" in line)
+          .map((line) => (line.event as EventLine).notification.method),
+      ).toEqual(expectedMethods);
+      expect(
+        lines
+          .map((line) => (line.event as EventLine | undefined)?.notification)
+          .find((notification) => notification?.params?.droppedCount),
+      ).toMatchObject({ jsonrpc: "2.0", params: { droppedCount } });
+      expect(losses).toEqual([{ reason: "dropped", count: droppedCount }]);
     },
   );
+
+  it("truncates large fields of an oversized event instead of dropping it", async () => {
+    const requestBodies: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+        const body = await readRequestBody(init);
+        requestBodies.push(body);
+        return responseForBody(body);
+      }),
+    );
+    const losses: EventStreamLoss[] = [];
+    const maxEventBytes = 600;
+    const sender = createSender({
+      maxEventBytes,
+      onEventLoss: (loss) => losses.push(loss),
+    });
+
+    sender.enqueue({
+      type: "notification",
+      notification: {
+        method: "session/update",
+        params: {
+          update: {
+            sessionUpdate: "tool_call_update",
+            toolCallId: "tool-1",
+            status: "completed",
+            rawOutput: {
+              content: [{ type: "text", text: "x".repeat(1000) }],
+              _meta: {
+                "com.posthog.mcp/app_data": { rows: "y".repeat(1000) },
+              },
+            },
+          },
+        },
+      },
+    });
+    await sender.stop();
+
+    const [line] = requestBodies[1].split("\n");
+    expect(new TextEncoder().encode(line).length).toBeLessThanOrEqual(
+      maxEventBytes,
+    );
+    const sent = JSON.parse(line);
+    const update = sent.event.notification.params.update;
+    expect(sent.seq).toBe(1);
+    expect(update).toMatchObject({
+      sessionUpdate: "tool_call_update",
+      toolCallId: "tool-1",
+      status: "completed",
+    });
+    expect(update.rawOutput.content[0].text).toMatch(
+      /^x+\n\[truncated: \d+ characters omitted\]$/,
+    );
+    expect(losses).toEqual([{ reason: "truncated", count: 1 }]);
+  });
 
   it.each<[string, number]>([
     ["tool_call", 10],
@@ -856,7 +905,8 @@ describe("TaskRunEventStreamSender", () => {
 
   it("stops retrying after the stop deadline", async () => {
     const requestBodies: string[] = [];
-    const warnings: string[] = [];
+    const errors: string[] = [];
+    const losses: EventStreamLoss[] = [];
     const fetchMock = vi.fn(
       async (_url: string | URL | Request, init?: RequestInit) => {
         const body = await readRequestBody(init);
@@ -877,13 +927,14 @@ describe("TaskRunEventStreamSender", () => {
       logger: new Logger({
         debug: false,
         onLog: (level, _scope, message) => {
-          if (level === "warn") {
-            warnings.push(message);
+          if (level === "error") {
+            errors.push(message);
           }
         },
       }),
       retryDelayMs: 10_000,
       stopTimeoutMs: 0,
+      onEventLoss: (loss) => losses.push(loss),
     });
 
     sender.enqueue({ type: "notification", notification: { method: "first" } });
@@ -891,9 +942,10 @@ describe("TaskRunEventStreamSender", () => {
 
     expect(requestBodies).toHaveLength(1);
     expect(eventSequences(requestBodies[0])).toEqual([1]);
-    expect(warnings).toContain(
+    expect(errors).toContain(
       "Task run event ingest stop deadline reached before fully completing transport",
     );
+    expect(losses).toEqual([{ reason: "stop_timeout", count: 1 }]);
   });
 
   it("continues after a payload error acknowledges a valid prefix", async () => {

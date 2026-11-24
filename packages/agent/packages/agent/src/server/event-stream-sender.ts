@@ -1,4 +1,5 @@
 import { Buffer } from "node:buffer";
+import { POSTHOG_NOTIFICATIONS } from "../acp-extensions";
 import type { Logger } from "../utils/logger";
 import {
   createNodeStreamingUpload,
@@ -28,6 +29,12 @@ interface TaskRunEventStreamSenderConfig {
   maxStreamBytes?: number;
   streamWindowMs?: number;
   createStreamingUpload?: StreamingUploadFactory;
+  onEventLoss?: (loss: EventStreamLoss) => void;
+}
+
+export interface EventStreamLoss {
+  reason: "truncated" | "dropped" | "stop_timeout";
+  count: number;
 }
 
 interface EventEnvelope {
@@ -62,6 +69,7 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
 const DEFAULT_STOP_TIMEOUT_MS = 30_000;
 const DEFAULT_STREAM_WINDOW_MS = 5 * 60 * 1_000;
 const STREAM_COMPLETE_CONTROL_TYPE = "_posthog/stream_complete";
+const TRUNCATED_STRING_CHARS_MIN = 256;
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   return typeof value === "object" && value !== null && !Array.isArray(value)
@@ -103,6 +111,21 @@ function omitToolAppData(
   };
 }
 
+function truncateStrings(
+  event: Record<string, unknown>,
+  maxStringChars: number,
+): Record<string, unknown> {
+  return JSON.parse(
+    JSON.stringify(event, (_key, value: unknown) => {
+      if (typeof value !== "string" || value.length <= maxStringChars) {
+        return value;
+      }
+      const omittedChars = value.length - maxStringChars;
+      return `${value.slice(0, maxStringChars)}\n[truncated: ${omittedChars} characters omitted]`;
+    }),
+  );
+}
+
 export class TaskRunEventStreamSender {
   private readonly ingestUrl: string;
   private readonly maxBufferedEvents: number;
@@ -131,7 +154,7 @@ export class TaskRunEventStreamSender {
   private sequenceSynced = false;
   private sequenceInitialized = false;
   private transportCompleted = false;
-  private droppedBeforeSequenceCount = 0;
+  private droppedEventCount = 0;
   private bufferRevision = 0;
   private consecutiveFailures = 0;
 
@@ -169,19 +192,28 @@ export class TaskRunEventStreamSender {
       config.createStreamingUpload ?? createNodeStreamingUpload;
   }
 
+  get pendingEventCount(): number {
+    return this.bufferedEvents.length;
+  }
+
   enqueue(event: Record<string, unknown>): void {
     if (this.stopped) return;
 
+    if (this.bufferedEvents.length >= this.maxBufferedEvents) {
+      this.recordBackpressureDrop();
+      return;
+    }
+
+    this.bufferPendingGapEvent();
     const acceptedEvent = this.prepareEvent(event);
     if (!acceptedEvent) {
       return;
     }
+    this.bufferEvent(acceptedEvent);
+  }
 
-    const envelope: EventEnvelope = {
-      seq: ++this.sequence,
-      event: acceptedEvent,
-    };
-    this.bufferedEvents.push(envelope);
+  private bufferEvent(event: Record<string, unknown>): void {
+    this.bufferedEvents.push({ seq: ++this.sequence, event });
     this.scheduleFlush();
   }
 
@@ -192,6 +224,7 @@ export class TaskRunEventStreamSender {
     }
 
     this.stopped = true;
+    this.bufferPendingGapEvent();
 
     if (this.flushTimer) {
       clearTimeout(this.flushTimer);
@@ -594,14 +627,21 @@ export class TaskRunEventStreamSender {
   }
 
   private warnStopDeadlineReached(startedAtMs: number): void {
-    this.config.logger.warn(
+    const lostEventCount = this.bufferedEvents.length;
+    this.config.logger.error(
       "Task run event ingest stop deadline reached before fully completing transport",
       {
-        remaining: this.bufferedEvents.length,
+        lostEventCount,
         stopTimeoutMs: this.stopTimeoutMs,
         elapsedMs: Date.now() - startedAtMs,
       },
     );
+    if (lostEventCount > 0) {
+      this.config.onEventLoss?.({
+        reason: "stop_timeout",
+        count: lostEventCount,
+      });
+    }
   }
 
   private async syncSequenceWithServer(): Promise<void> {
@@ -757,53 +797,90 @@ export class TaskRunEventStreamSender {
   private prepareEvent(
     event: Record<string, unknown>,
   ): Record<string, unknown> | null {
-    let eventBytes = Buffer.byteLength(
+    if (this.envelopeBytes(event) <= this.maxEventBytes) {
+      return event;
+    }
+
+    const trimmedEvent = omitToolAppData(event);
+    const trimmedEventBytes = this.envelopeBytes(trimmedEvent);
+    if (trimmedEventBytes <= this.maxEventBytes) {
+      return trimmedEvent;
+    }
+
+    const truncatedEvent = this.truncateOversizedEvent(trimmedEvent);
+    if (!truncatedEvent) {
+      this.config.logger.warn("Dropped oversized task run event", {
+        eventBytes: trimmedEventBytes,
+        maxEventBytes: this.maxEventBytes,
+      });
+      this.droppedEventCount += 1;
+      return null;
+    }
+
+    this.config.logger.warn("Truncated oversized task run event", {
+      eventBytes: trimmedEventBytes,
+      maxEventBytes: this.maxEventBytes,
+    });
+    this.config.onEventLoss?.({ reason: "truncated", count: 1 });
+    return truncatedEvent;
+  }
+
+  private truncateOversizedEvent(
+    event: Record<string, unknown>,
+  ): Record<string, unknown> | null {
+    for (
+      let maxStringChars = Math.floor(this.maxEventBytes / 2);
+      maxStringChars >= TRUNCATED_STRING_CHARS_MIN;
+      maxStringChars = Math.floor(maxStringChars / 2)
+    ) {
+      const truncatedEvent = truncateStrings(event, maxStringChars);
+      if (this.envelopeBytes(truncatedEvent) <= this.maxEventBytes) {
+        return truncatedEvent;
+      }
+    }
+    return null;
+  }
+
+  private recordBackpressureDrop(): void {
+    this.droppedEventCount += 1;
+    if (this.droppedEventCount === 1 || this.droppedEventCount % 100 === 0) {
+      this.config.logger.warn(
+        "Dropped task run event before assigning sequence due to backpressure",
+        {
+          dropped: this.droppedEventCount,
+          maxBufferedEvents: this.maxBufferedEvents,
+        },
+      );
+    }
+  }
+
+  private bufferPendingGapEvent(): void {
+    const droppedCount = this.droppedEventCount;
+    if (droppedCount === 0) {
+      return;
+    }
+
+    this.droppedEventCount = 0;
+    this.config.logger.warn("Task run event ingest emitting gap after drops", {
+      dropped: droppedCount,
+    });
+    this.config.onEventLoss?.({ reason: "dropped", count: droppedCount });
+    this.bufferEvent({
+      type: "notification",
+      timestamp: new Date().toISOString(),
+      notification: {
+        jsonrpc: "2.0",
+        method: POSTHOG_NOTIFICATIONS.EVENT_STREAM_GAP,
+        params: { droppedCount },
+      },
+    });
+  }
+
+  private envelopeBytes(event: Record<string, unknown>): number {
+    return Buffer.byteLength(
       this.serializeEnvelope({ seq: this.sequence + 1, event }),
       "utf8",
     );
-    if (eventBytes > this.maxEventBytes) {
-      const trimmedEvent = omitToolAppData(event);
-      if (trimmedEvent !== event) {
-        event = trimmedEvent;
-        eventBytes = Buffer.byteLength(
-          this.serializeEnvelope({ seq: this.sequence + 1, event }),
-          "utf8",
-        );
-      }
-    }
-    if (eventBytes > this.maxEventBytes) {
-      this.config.logger.warn("Dropped oversized task run event", {
-        eventBytes,
-        maxEventBytes: this.maxEventBytes,
-      });
-      return null;
-    }
-
-    if (this.bufferedEvents.length >= this.maxBufferedEvents) {
-      this.droppedBeforeSequenceCount += 1;
-      if (
-        this.droppedBeforeSequenceCount === 1 ||
-        this.droppedBeforeSequenceCount % 100 === 0
-      ) {
-        this.config.logger.warn(
-          "Dropped task run event before assigning sequence due to backpressure",
-          {
-            dropped: this.droppedBeforeSequenceCount,
-            maxBufferedEvents: this.maxBufferedEvents,
-          },
-        );
-      }
-      return null;
-    }
-
-    if (this.droppedBeforeSequenceCount > 0) {
-      this.config.logger.info("Task run event ingest recovered after drops", {
-        dropped: this.droppedBeforeSequenceCount,
-      });
-      this.droppedBeforeSequenceCount = 0;
-    }
-
-    return event;
   }
 
   private serializeEnvelope(envelope: EventEnvelope): string {

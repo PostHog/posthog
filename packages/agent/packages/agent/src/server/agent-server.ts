@@ -166,7 +166,10 @@ import {
 } from "./codex-subscription-token";
 import { ContextSelection, type HumanMessage } from "./context-selection";
 import { CredentialRelay, CredentialRelayError } from "./credential-relay";
-import { TaskRunEventStreamSender } from "./event-stream-sender";
+import {
+  type EventStreamLoss,
+  TaskRunEventStreamSender,
+} from "./event-stream-sender";
 import {
   buildGatewayEnv,
   codexAuthFromGatewayEnv,
@@ -749,9 +752,23 @@ export class AgentServer {
         token: config.eventIngestToken,
         logger: this.logger.child("EventIngest"),
         streamWindowMs: config.eventIngestStreamWindowMs,
+        onEventLoss: (loss) => this.recordEventStreamLoss(loss),
       });
     }
     this.app = this.createApp();
+  }
+
+  private recordEventStreamLoss(loss: EventStreamLoss): void {
+    const telemetry = this.session?.telemetry ?? this.initializingTelemetry;
+    telemetry?.append(this.session?.payload.run_id ?? this.config.runId, {
+      type: "notification",
+      timestamp: new Date().toISOString(),
+      notification: {
+        jsonrpc: "2.0",
+        method: POSTHOG_NOTIFICATIONS.EVENT_STREAM_GAP,
+        params: { reason: loss.reason, count: loss.count },
+      },
+    });
   }
 
   private getRuntimeAdapter(): Adapter {
@@ -1264,13 +1281,20 @@ export class AgentServer {
         ]),
         5_000,
       );
-      await withTimeout(
+      const cleanup = await withTimeout(
         this.session
           ? this.cleanupSession({ completeEventStream: true })
           : (this.eventStreamSender?.stop({ complete: false }) ??
               Promise.resolve()),
         5_000,
       );
+      const lostEventCount = this.eventStreamSender?.pendingEventCount ?? 0;
+      if (cleanup.result === "timeout" && lostEventCount > 0) {
+        this.logger.error(
+          "Agent server stop timed out with undelivered task run events",
+          { lostEventCount },
+        );
+      }
       // An abort during initialization leaves the root span open with no session
       // to carry it, and the caller exits the process as soon as this returns.
       await withTimeout(

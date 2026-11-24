@@ -76,6 +76,7 @@ AGENT_ERROR_METHOD = "_posthog/error"
 TRANSIENT_SIDE_CHANNEL_METHODS = frozenset(
     {
         "_posthog/console",
+        "_posthog/event_stream_gap",
         "_posthog/progress",
         "_posthog/sandbox_output",
     }
