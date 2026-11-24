@@ -7,6 +7,7 @@ export const appBuilderDemoVariables: NotebookVariable[] = [
     { name: 'region', type: 'string', value: 'All regions' },
     { name: 'weeks', type: 'number', value: 6 },
     { name: 'include_trials', type: 'boolean', value: true },
+    { name: 'week', type: 'date', value: '2026-07-27' },
 ]
 
 export const appBuilderDemoCells: (NotebookComponentProps & { nodeId: string; returnVariable: string })[] = [
@@ -22,6 +23,7 @@ FROM (
         if({region} = 'Europe', 0.65, if({region} = 'North America', 0.86, 0.78)) AS activation_rate
     FROM numbers(12)
     WHERE number >= 12 - {weeks}
+      AND (empty({week}) OR week >= toDateOrNull({week}))
 )
 ORDER BY week`,
         returnVariable: 'weekly_growth',
@@ -65,7 +67,10 @@ ORDER BY week`,
 
 export function appBuilderDemoResults(
     variables: NotebookVariable[]
-): Record<string, { columns: string[]; types: string[][]; row_count: number; first_page: (string | number)[][] }> {
+): Record<
+    string,
+    { columns: string[]; types: string[][]; row_count: number; first_page: (string | number | null)[][] }
+> {
     const values = Object.fromEntries(variables.map(({ name, value }) => [name, value]))
     const regionScale = values.region === 'Europe' ? 0.4 : values.region === 'North America' ? 0.6 : 1
     const rate = values.region === 'Europe' ? 0.65 : values.region === 'North America' ? 0.86 : 0.78
@@ -77,7 +82,9 @@ export function appBuilderDemoResults(
         const lower = Math.floor(active)
         const activated = active - lower === 0.5 ? lower + (lower % 2) : Math.round(active)
         return [date.toISOString().slice(0, 10), signups, activated]
-    }).slice(-Number(values.weeks))
+    })
+        .slice(-Number(values.weeks))
+        .filter(([week]) => !values.week || String(week) >= String(values.week).slice(0, 10))
     const signups = rows.reduce((total, row) => total + Number(row[1]), 0)
     const activated = rows.reduce((total, row) => total + Number(row[2]), 0)
     const growth = {
@@ -103,14 +110,14 @@ export function appBuilderDemoResults(
             columns: ['activation_rate'],
             types: [['activation_rate', 'Float64']],
             row_count: 1,
-            first_page: [[Math.round((1000 * activated) / signups) / 10]],
+            first_page: [[signups ? Math.round((1000 * activated) / signups) / 10 : null]],
         },
     }
 }
 
 export const appBuilderDemoLayout: NotebookAppLayoutApi = {
     title: 'Product weekly review',
-    description: 'Explore synthetic signup data. Change the inputs, then run the notebook to update every result.',
+    description: 'Explore synthetic signup and activation data by region and week.',
     full_width: true,
     tabs: [
         { id: 'overview', title: 'Overview' },
@@ -121,7 +128,7 @@ export const appBuilderDemoLayout: NotebookAppLayoutApi = {
             id: 'region',
             kind: 'input',
             tab_id: 'overview',
-            width: 4,
+            width: 3,
             variable: 'region',
             title: 'Region',
             input_kind: 'select',
@@ -131,7 +138,7 @@ export const appBuilderDemoLayout: NotebookAppLayoutApi = {
             id: 'window',
             kind: 'input',
             tab_id: 'overview',
-            width: 4,
+            width: 3,
             variable: 'weeks',
             title: 'Lookback (weeks)',
             input_kind: 'slider',
@@ -143,9 +150,18 @@ export const appBuilderDemoLayout: NotebookAppLayoutApi = {
             id: 'include',
             kind: 'input',
             tab_id: 'overview',
-            width: 4,
+            width: 3,
             variable: 'include_trials',
             title: 'Include trial accounts',
+            input_kind: 'auto',
+        },
+        {
+            id: 'first-week',
+            kind: 'input',
+            tab_id: 'overview',
+            width: 3,
+            variable: 'week',
+            title: 'Starting week',
             input_kind: 'auto',
         },
         {

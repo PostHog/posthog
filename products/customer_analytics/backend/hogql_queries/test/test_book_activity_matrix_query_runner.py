@@ -12,6 +12,10 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.schema import BookActivityMatrixQuery, DateRange, QueryStatus
 
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
+from posthog.hogql.query import execute_hogql_query
+
 from posthog.constants import AvailableFeature
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import OrganizationMembership, User
@@ -20,9 +24,11 @@ from posthog.test.persons import create_person
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.access_control.backend.models.access_control import AccessControl
 from products.customer_analytics.backend.constants import CUSTOMER_ANALYTICS_PRODUCT_USAGE_FLAG
+from products.customer_analytics.backend.hogql_queries.book_activity_base import agent_product_expr
 from products.customer_analytics.backend.hogql_queries.book_activity_matrix_query_runner import (
     BookActivityMatrixQueryRunner,
 )
+from products.customer_analytics.backend.logic.posthog_product_usage import AGENT_EVENT
 from products.customer_analytics.backend.models import Account
 from products.customer_analytics.backend.test.factories import (
     create_account,
@@ -124,6 +130,67 @@ class TestBookActivityMatrixQueryRunner(ClickhouseTestMixin, APIBaseTest):
             (alpha, "2026-10-25", "flags", 1),
             (beta, "2026-10-18", "surveys", 1),
         }
+
+    def test_counts_agent_calls_toward_products_and_splits_channels(self) -> None:
+        self._event(ANA, "insight created", "2026-10-26T10:00:00Z", self.alpha)
+        self._event(ANA, "$mcp_tool_call", "2026-10-26T11:00:00Z", self.alpha, {"$mcp_tool_name": "insight-get"})
+        self._event(ANA, "$mcp_tool_call", "2026-10-26T12:00:00Z", self.alpha, {"$mcp_tool_name": "execute-sql"})
+        self._event(
+            BO,
+            "$mcp_tool_call",
+            "2026-10-26T13:00:00Z",
+            self.alpha,
+            {"$mcp_tool_name": "renamed-tool", "$mcp_tool_category": "Feature flags"},
+        )
+        self._event(CY, "feature flag created", "2026-10-26T14:00:00Z", self.alpha)
+
+        results = self._run()
+
+        alpha = str(self.alpha.id)
+        assert {(c.series, c.users, c.uiUsers, c.agentUsers) for c in results.data if c.row == alpha} == {
+            ("pa", 1, 1, 1),
+            ("dwh", 1, 0, 1),
+            ("flags", 2, 1, 1),
+        }
+        alpha_combinations = [c for c in results.combinations if c.row == alpha]
+        assert sorted(c.users for c in alpha_combinations) == [1, 2]
+        assert len({c.mask for c in alpha_combinations}) == len(alpha_combinations)
+
+    def test_maps_each_agent_call_to_the_product_it_used(self) -> None:
+        cases: list[tuple[dict[str, Any], str]] = [
+            ({"$mcp_tool_name": "execute-sql", "$mcp_tool_category": "SQL"}, "dwh"),
+            ({"$mcp_tool_name": "EXECUTE-SQL"}, "dwh"),
+            ({"$mcp_tool_name": "dashboard-create-tile"}, "pa"),
+            ({"$mcp_tool_name": "feature-flag-get-all"}, "flags"),
+            ({"$mcp_tool_name": "query-session-recordings-list", "$mcp_tool_category": "Session replays"}, "replay"),
+            ({"$mcp_tool_name": "query-logs", "$mcp_tool_category": "Logs"}, "logs"),
+            ({"$mcp_tool_name": "renamed-tool", "$mcp_tool_category": "Feature flags"}, "flags"),
+            (
+                {"$mcp_tool_name": "custom-property-definitions-list", "$mcp_tool_category": "Customer analytics"},
+                "customers",
+            ),
+            ({"$mcp_tool_name": "query-metrics", "$mcp_tool_category": "Metrics"}, "tracing"),
+            ({"$mcp_tool_name": "llma-offline-experiment-get", "$mcp_tool_category": "AI observability"}, "llm"),
+            ({"$mcp_tool_name": "llma-prompt-get", "$mcp_tool_category": "Experiments"}, "llm"),
+            ({"$mcp_tool_name": "llma-dataset-revision-list"}, "llm"),
+            ({"$mcp_tool_name": "brand-new-tool"}, ""),
+            ({"$mcp_tool_name": "brand-new-tool", "$mcp_tool_category": "A category nobody mapped"}, ""),
+            ({"$mcp_tool_name": "exec", "$mcp_exec_verb": "info", "$mcp_exec_target_tool": "experiment-get"}, ""),
+            ({"$mcp_tool_name": "survey-create", "$mcp_tool_category": "Surveys", "$mcp_is_error": True}, ""),
+        ]
+        for index, (properties, _expected) in enumerate(cases):
+            self._event(ANA, AGENT_EVENT, "2026-10-26T10:00:00Z", self.alpha, {**properties, "case_index": index})
+        flush_persons_and_events()
+
+        response = execute_hogql_query(
+            parse_select(
+                "SELECT toInt(properties.case_index), {product} FROM events WHERE event = {event}",
+                placeholders={"product": agent_product_expr(), "event": ast.Constant(value=AGENT_EVENT)},
+            ),
+            team=self.team,
+        )
+
+        assert dict(response.results) == {index: expected for index, (_properties, expected) in enumerate(cases)}
 
     @parameterized.expand(
         [

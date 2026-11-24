@@ -9,7 +9,7 @@ What each file contains and how per-folder overrides resolve: [the engine's "Pol
 
 `policy.yml` declares only what differs from the shipped default, which the engine merges it onto:
 
-- `infra_cicd` replaces its `paths` list. It also matches `.github/pr-deploy`, and of the workflows it keeps only the ones that CODEOWNERS assigns to `team-security`, so those stay denied for every author. Of the compose files it leaves out only the local-only ones that `dev_stack` matches, so the files a hobby deploy or an image build reads stay denied for every author.
+- `infra_cicd` replaces its `paths` list. It also matches `.github/pr-deploy`, and of the workflows it keeps only the ones that the `master` branch ruleset requires `team-security` to review, so those stay denied for every author. Of the compose files it leaves out only the local-only ones that `dev_stack` matches, so the files a hobby deploy or an image build reads stay denied for every author.
 - `ci_workflows` is an extra, owner-only category. It matches every file under `.github/workflows/` and `.depot/workflows/`, and its `exempt_author_teams` lets stamphog approve there only for authors on `team-devex`.
 - `dev_stack` is an extra, owner-only category. It matches the compose files that only local runs start (`docker-compose.dev-full.yml`, `playwright` and `sandbox`), and its `exempt_author_teams` lets stamphog approve there only for authors on `team-devex`.
 - `stamphog_policy` extends its paths with `packages/owners-yaml/`, because the resolver there is a gate input. It also matches the dependency and revert proof workflows, the `tools/change-prover/` package with the prover and the scanner, and the `setup-uv` action they run, because an edit to them changes what a proof checks.
@@ -28,7 +28,7 @@ The repository uses the shipped default `review-guidance.md`.
 
 `steering.md` tells the reviewer to refuse a diff that adds a suppression or an exemption for one of those guards.
 A path rule cannot see these, because the marker sits in product code or in a busy file.
-That covers the isolation exemptions inside `tach.toml` and the product `turbo.json` files, which stay off the deny list because most of their edits are routine `depends_on` and input additions.
+That covers the isolation exemptions inside the product `turbo.json` files, which stay off the deny list because most of their edits are routine input additions.
 
 `ownership` comes from the shipped default, which declares one `hogli-resolver` source at the repo root, so stamphog reads the same merged view the reviewer auto-assigner builds.
 

@@ -1,6 +1,6 @@
 import type { Artifact, Manifest } from '../src/updates/manifest'
 import { GITHUB_REPOSITORY, RELEASES_URL } from '../src/updates/release-urls'
-import { binaryName, npmPackageName, TARGETS, type Target } from '../src/updates/targets'
+import { npmPackageName, shippedBinaries, TARGETS, type Target } from '../src/updates/targets'
 
 export function releaseTag(version: string): string {
     return `hog/v${version}`
@@ -66,7 +66,7 @@ export function platformPackageJson(target: Target, version: string): PackageJso
         os: [target.os],
         cpu: [target.cpu],
         ...(target.libc ? { libc: [target.libc] } : {}),
-        files: [`bin/${binaryName(target)}`],
+        files: shippedBinaries(target).map((name) => `bin/${name}`),
         preferUnplugged: true,
     }
 }
@@ -126,11 +126,13 @@ ${block('linux-x64')}
   end
 
   def install
-    bin.install "hog"
+    bin.install Dir["*"]
   end
 
   test do
-    assert_match version.to_s, shell_output("#{bin}/hog --version")
+    with_env(HOG_CHECK_INSTALL: "1") do
+      assert_match version.to_s, shell_output("#{bin}/hog --version")
+    end
   end
 end
 `
