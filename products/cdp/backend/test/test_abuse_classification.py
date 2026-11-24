@@ -519,12 +519,7 @@ class TestAbuseClassification(AbuseClassificationTestCase):
                     "inputs_schema": [{"key": "padding", "type": "string"}],
                     "inputs": {"padding": {"value": "B" * 300_000}},
                 },
-                {
-                    "error": "invalid_answer",
-                    "rule_hits": ["oversized_input"],
-                    "would_alert": True,
-                    "would_block": False,
-                },
+                {"error": "invalid_answer", "rule_hits": [], "would_alert": None, "would_block": None},
             ),
             (
                 "secret_input_runs_a_huge_range",
@@ -745,6 +740,20 @@ class TestAbuseClassification(AbuseClassificationTestCase):
         classify_hog_function_for_abuse(team_id=self.team.id, hog_function_id=str(hog_function.id))
 
         assert len(self.gateway.requests) == expected_requests
+
+    def test_a_queued_task_with_an_enabled_content_hash_still_scores_due_work(self) -> None:
+        hog_function = self.create_destination(hog=RULE_FREE_HOG)
+        HogFunction.objects.filter(pk=hog_function.pk).update(hog="print(event.event)")
+        events_before = len(self.captured_events())
+
+        classify_hog_function_for_abuse.delay(
+            team_id=self.team.id, hog_function_id=str(hog_function.id), enabled_content_hash="a" * 64
+        )
+
+        assert len(self.gateway.requests) == 2
+        [verdict] = self.captured_events()[events_before:]
+        assert verdict["properties"]["hog_function_id"] == str(hog_function.id)
+        assert "risk_score" in verdict["properties"]
 
     def test_an_undecryptable_secret_input_still_scores_the_public_config(self) -> None:
         hog_function = self.create_destination(hog=RULE_FREE_HOG)

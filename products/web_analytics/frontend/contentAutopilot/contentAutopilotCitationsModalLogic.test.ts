@@ -30,7 +30,8 @@ const page = (offset: number, limit: number): ReturnType<typeof aeoPromptsCitati
 const OWN_PAGE: CitationsLookup = {
     kind: 'url',
     value: 'https://example.com/docs/product-analytics',
-    days: 30,
+    dateFrom: '2026-10-01',
+    dateTo: '2026-10-30',
     branded: 'non_branded',
 }
 
@@ -55,7 +56,8 @@ describe('contentAutopilotCitationsModalLogic', () => {
         await expectLogic(logic).toFinishAllListeners().toMatchValues({ hasMoreCitations: true, isOwnPage: true })
         expect(mockCitations).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), {
             url: OWN_PAGE.value,
-            days: 30,
+            date_from: '2026-10-01',
+            date_to: '2026-10-30',
             branded: 'non_branded',
             include_answer_text: true,
             limit: 10,

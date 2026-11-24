@@ -270,11 +270,11 @@ export namespace Schemas {
     export interface AEOKeywordModifierReport {
       /** The 50 modifiers used by the most answers, most first. */
       modifiers: AEOKeywordModifier[];
-      /** Length of the window in days. */
+      /** Length of the window in days, from 'window_from' to 'window_to'. */
       days: number;
       /** First day of the window, in the project's timezone. */
       window_from: string;
-      /** Last day of the window (today), in the project's timezone. */
+      /** Last day of the window, in the project's timezone. */
       window_to: string;
       /**
          * The keyword filter, normalized. Null when the report covers every answer.
@@ -351,11 +351,11 @@ export namespace Schemas {
     export interface AEOKeywordReport {
       /** One row per keyword in the project's list, by keyword, including keywords with no match. */
       keywords: AEOKeywordReportRow[];
-      /** Length of the window in days. */
+      /** Length of the window in days, from 'window_from' to 'window_to'. */
       days: number;
       /** First day of the window, in the project's timezone. */
       window_from: string;
-      /** Last day of the window (today), in the project's timezone. */
+      /** Last day of the window, in the project's timezone. */
       window_to: string;
       /** Answered checks in the window. Answered checks are checks in the window where the engine answered; failed checks are left out. */
       answers: number;
@@ -916,7 +916,7 @@ export namespace Schemas {
     } as const;
 
     export interface AEOPromptSetOverview {
-      /** Checks across the prompt set in the last 'days' days. */
+      /** Checks across the prompt set from 'window_from' to 'window_to'. */
       current: AEOPromptSetCounts;
       /** The same counts for the 'days' days before 'window_from'. */
       previous: AEOPromptSetCounts;
@@ -934,7 +934,7 @@ export namespace Schemas {
       days: number;
       /** First day of the current window, in the project's timezone. */
       window_from: string;
-      /** Last day of the current window (today), in the project's timezone. */
+      /** Last day of the current window, in the project's timezone. */
       window_to: string;
       /** Prompts that are on and not archived: the ones the next daily run takes. */
       prompts_tracked: number;
@@ -1043,7 +1043,7 @@ export namespace Schemas {
       days: number;
       /** First day of the current window, in the project's timezone. */
       window_from: string;
-      /** Last day of the current window (today), in the project's timezone. */
+      /** Last day of the current window, in the project's timezone. */
       window_to: string;
       /** Which checks every count covers: 'all', 'branded' or 'non_branded' prompts, as requested.
        *
@@ -12018,6 +12018,13 @@ export namespace Schemas {
       key: string;
     }
 
+    export interface ErrorTrackingIssueTagsFilter {
+      /** Keys of tag definitions. Keeps the issues that have all of these tags. */
+      has?: string[] | null;
+      /** Keys of tag definitions. Keeps the issues that have none of these tags. */
+      hasNot?: string[] | null;
+    }
+
     export type ErrorTrackingOrderBy = typeof ErrorTrackingOrderBy[keyof typeof ErrorTrackingOrderBy];
 
 
@@ -12093,8 +12100,9 @@ export namespace Schemas {
       groupTypeIndex?: number | null;
       /** Filter to a specific error tracking issue by ID. */
       issueId?: string | null;
-      /** Filter by whether one issue tag is applied. Ignored when issue tags or this tag are off for the project. */
       issueTag?: ErrorTrackingIssueTagFilter | null;
+      /** Filter by issue tags. Get the keys from the issue tag definitions. The query ignores a key whose tag is off for the project. */
+      issueTags?: ErrorTrackingIssueTagsFilter | null;
       kind?: 'ErrorTrackingQuery';
       limit?: number | null;
       /** Modifiers used when performing the query */
@@ -23390,9 +23398,14 @@ export namespace Schemas {
     } as const;
 
     export interface BookActivityMatrixCell {
+      /** People active in this product through AI agents, such as MCP tool calls. */
+      agentUsers?: number | null;
       column: string;
       row: string;
       series: string;
+      /** People active in this product in the app. */
+      uiUsers?: number | null;
+      /** People active in this product through any channel. Each person counts once. */
       users: number;
     }
 
@@ -23488,6 +23501,8 @@ export namespace Schemas {
       actionCount: number;
       /** Every action event that qualified this person, most frequent first. */
       actions: BookActivityPersonAction[];
+      /** AI agent calls, such as MCP tool calls, that qualified this person for the product. */
+      agentCalls?: number | null;
       /** Bucket start, the same as `AccountActivityMatrixColumn.key`. */
       column: string;
       engagedSeconds: number;
@@ -27241,6 +27256,22 @@ export namespace Schemas {
       reason: string;
       /** Supporting evidence */
       evidence?: CapabilityStateEvidence;
+    }
+
+    export interface PendingReviewCounts {
+      /** Proposed metrics you can see that wait for approval. */
+      metrics: number;
+      /** Proposed joins that wait to be accepted or rejected. */
+      relationships: number;
+      /** Proposed certifications that wait for review. */
+      certifications: number;
+    }
+
+    export interface CatalogAttention {
+      /** Items that wait in each review queue. Every count is 0 without data catalog access. Null when the counts could not be read, so the badge keeps its last counts. */
+      pending_review: PendingReviewCounts | null;
+      /** Models whose last run failed or whose scheduled runs are suspended. 0 without data warehouse read access. */
+      failing_models: number;
     }
 
     export interface CatalogUser {
@@ -36343,13 +36374,6 @@ export namespace Schemas {
       field_name: string;
       /** Extra join configuration, e.g. a field mapping. */
       configuration?: unknown;
-      /**
-         * Discovery confidence in this join, 0-1.
-         * @minimum 0
-         * @maximum 1
-         * @nullable
-         */
-      confidence?: number | null;
       /** Why this join is proposed. */
       reasoning?: string;
       /** Sampling evidence: match rates, sample values. */
@@ -37919,6 +37943,18 @@ export namespace Schemas {
       best_effort_sources_withheld: boolean;
     }
 
+    export interface SavedQueryPlanClamp {
+      /**
+         * The refresh interval, in seconds, this view had before the rewrite. Null when it had none.
+         * @nullable
+         */
+      previous_target_seconds: number | null;
+      /** The refresh interval, in seconds, the view was set to: the fastest the organization's plan allowed. */
+      plan_floor_seconds: number;
+      /** When the refresh interval was rewritten. */
+      at: string;
+    }
+
     /**
      * * `Cancelled` - Cancelled
      * * `Modified` - Modified
@@ -38081,6 +38117,8 @@ export namespace Schemas {
       sync_frequency?: SavedQuerySyncFrequencyEnum | null;
       /** Which cadences this view can actually be set to, and what withholds the rest. Computed from the view's data modeling lineage: upstream source sync frequencies set a floor, downstream cadences set a ceiling, and the organization's plan can set a floor too. Read-only, and present on retrieve, create and update responses only. */
       readonly sync_frequency_bounds: SyncFrequencyBounds;
+      /** Set when a scheduled run slowed this view's refresh interval to the fastest one the organization's plan allows. Saving a different interval clears it. Null when no such rewrite stands. */
+      readonly plan_clamp: SavedQueryPlanClamp | null;
       readonly columns: readonly DataWarehouseSavedQueryColumnsItem[];
       readonly status: DataWarehouseSavedQueryStatusEnum | null;
       /** @nullable */
@@ -42631,6 +42669,57 @@ export namespace Schemas {
     } as const;
 
     /**
+     * What the project needs to do for the daily tier check to raise its allowance one step.
+     */
+    export interface EmailSendingNextTier {
+      /** How many emails the next tier allows per day. */
+      readonly emails_per_day: number;
+      /** Emails the project must send in a day for that day to count toward the next tier. */
+      readonly daily_target: number;
+      /** Separate days the project must reach daily_target on. */
+      readonly days_required: number;
+      /** Days since the last tier change the project reached daily_target on, up to days_required. */
+      readonly days_reached: number;
+      /** The earliest time the next tier can be granted, counted from the last tier change or, before any change, from project creation. */
+      readonly not_before: string;
+    }
+
+    /**
+     * Rates over the short window the daily tier check demotes on, with the limits it applies.
+     */
+    export interface EmailSendingRecentRates {
+      /** Days the rates cover. */
+      readonly window_days: number;
+      /** Workflow emails sent in the window. */
+      readonly emails_sent: number;
+      /** Hard bounces divided by emails sent, from 0 to 1. */
+      readonly bounce_rate: number;
+      /** Spam complaints divided by emails sent, from 0 to 1. */
+      readonly complaint_rate: number;
+      /** Spam complaints received in the window, including complaints about emails sent before it. */
+      readonly complaints: number;
+      /** Bounce rate above which the allowance drops. */
+      readonly max_bounce_rate: number;
+      /** Spam complaint rate above which the allowance drops. */
+      readonly max_complaint_rate: number;
+      /** False when the daily check would lower the allowance because of bounces. A window with too few emails to judge counts as within limits. */
+      readonly bounces_within_limits: boolean;
+      /** False when the daily check would lower the allowance because of spam complaints. A window with too few emails and complaints to judge counts as within limits. */
+      readonly complaints_within_limits: boolean;
+    }
+
+    export interface EmailSendingAllowanceChange {
+      /** When the allowance changed. */
+      readonly changed_at: string;
+      /** Emails allowed per day before the change. */
+      readonly previous_emails_per_day: number;
+      /** Emails allowed per day after the change. */
+      readonly emails_per_day: number;
+      /** Why the allowance changed. One of: clean_and_used, trusted_account, inactive, rates_above_threshold, workflow_auto_paused, ses_reputation_high, ses_tenant_paused, staff_suspension, staff_set. */
+      readonly reason: string;
+    }
+
+    /**
      * How much workflow email this project may send, and how much of that it has used.
      */
     export interface EmailSendingAllowance {
@@ -42651,6 +42740,12 @@ export namespace Schemas {
          * @nullable
          */
       readonly rate_limited_max_batch_audience: number | null;
+      /** How to reach the next tier. Null at the top tier or when PostHog set the tier by hand. */
+      readonly next_tier: EmailSendingNextTier | null;
+      /** The rates the daily tier check demotes on. Null when PostHog set the tier by hand. */
+      readonly recent_rates: EmailSendingRecentRates | null;
+      /** Allowance changes from the last 90 days, newest first, at most 5. */
+      readonly recent_changes: readonly EmailSendingAllowanceChange[];
     }
 
     /**
@@ -43260,6 +43355,18 @@ export namespace Schemas {
       saved_query_id?: string | null;
     }
 
+    export interface EndpointPlanClamp {
+      /**
+         * The data freshness, in seconds, the endpoint had before the rewrite. Null when it had none.
+         * @nullable
+         */
+      previous_data_freshness_seconds: number | null;
+      /** The data freshness, in seconds, the endpoint was set to: the fastest the organization's plan allowed. */
+      plan_floor_seconds: number;
+      /** When the data freshness was rewritten. */
+      at: string;
+    }
+
     export type EndpointRefreshMode = typeof EndpointRefreshMode[keyof typeof EndpointRefreshMode];
 
 
@@ -43368,6 +43475,8 @@ export namespace Schemas {
          * @nullable
          */
       plan_refresh_floor_seconds: number | null;
+      /** Set when a scheduled run slowed this materialized endpoint's data freshness to the fastest one the organization's plan allows. Saving a different data freshness clears it. Null when no such rewrite stands. */
+      plan_clamp: EndpointPlanClamp | null;
       /** Relative API path to execute this endpoint (e.g. /api/projects/{team_id}/endpoints/{name}/run). */
       endpoint_path: string;
       /**
@@ -43564,6 +43673,8 @@ export namespace Schemas {
          * @nullable
          */
       plan_refresh_floor_seconds: number | null;
+      /** Set when a scheduled run slowed this materialized endpoint's data freshness to the fastest one the organization's plan allows. Saving a different data freshness clears it. Null when no such rewrite stands. */
+      plan_clamp: EndpointPlanClamp | null;
       /** Relative API path to execute this endpoint (e.g. /api/projects/{team_id}/endpoints/{name}/run). */
       endpoint_path: string;
       /**
@@ -45182,7 +45293,7 @@ export namespace Schemas {
     }
 
     export interface ErrorTrackingIssueTagRead {
-      /** Key of the tag. Pass it as `issueTag.key` to filter the issue list. */
+      /** Key of the tag. To filter the issue list, put it in `issueTags.has` to keep the issues that have the tag, or in `issueTags.hasNot` to keep the issues that do not. */
       key: string;
       /** Short name of the tag. */
       label: string;
@@ -45326,7 +45437,7 @@ export namespace Schemas {
     }
 
     export interface ErrorTrackingIssueTagCorrection {
-      /** Key of the tag. Pass it as `issueTag.key` to filter the issue list. */
+      /** Key of the tag. To filter the issue list, put it in `issueTags.has` to keep the issues that have the tag, or in `issueTags.hasNot` to keep the issues that do not. */
       key: string;
       /** Short name of the tag. */
       label: string;
@@ -45339,7 +45450,7 @@ export namespace Schemas {
     }
 
     export interface ErrorTrackingIssueTagDefinition {
-      /** Key of the tag. Pass it as `issueTag.key` to filter the issue list. */
+      /** Key of the tag. To filter the issue list, put it in `issueTags.has` to keep the issues that have the tag, or in `issueTags.hasNot` to keep the issues that do not. */
       key: string;
       /** Short name of the tag. */
       label: string;
@@ -45353,7 +45464,7 @@ export namespace Schemas {
     }
 
     /**
-     * Why the rule was turned off after it failed on an event, or null when the rule is active. A turned-off rule tags no new issues until its filters are saved again.
+     * Why the rule was turned off after it failed on an event, or null when the rule is active. A turned-off rule tags no issues until its filters are saved again.
      * @nullable
      */
     export type ErrorTrackingIssueTagRuleDisabledData = {
@@ -45378,20 +45489,20 @@ export namespace Schemas {
       /** Tag key that issues store for this rule's tag. Use it to filter issues by the tag, or to apply or remove the tag on one issue. It changes when an edit changes which properties the filters read. */
       readonly key: string;
       /**
-         * Display name of the tag the rule applies to each new issue whose first event matches the filters.
+         * Display name of the tag the rule applies to matching issues.
          * @maxLength 128
          */
       label: string;
       /** What the tag means. Shown with the tag. */
       description: string;
-      /** Property-group filters on event properties, evaluated against the first event of each new issue. At least one filter is required. Person, cohort, HogQL and other filter types are rejected. */
+      /** Property-group filters on event properties. They are checked against the first event of each new issue, and once a day against the events of the past day. A rule that filters on `$exception_list` is checked against the first event only. At least one filter is required. Person, cohort, HogQL and other filter types are rejected. */
       filters: ErrorTrackingIssueTagRuleFilters;
       /** Starts at 1, and goes up by one each time the filters change. */
       readonly version: number;
       /** Position in the list of tag rules. Lower values come first. Every matching rule applies its tag, whatever its position. */
       order_key: number;
       /**
-         * Why the rule was turned off after it failed on an event, or null when the rule is active. A turned-off rule tags no new issues until its filters are saved again.
+         * Why the rule was turned off after it failed on an event, or null when the rule is active. A turned-off rule tags no issues until its filters are saved again.
          * @nullable
          */
       readonly disabled_data: ErrorTrackingIssueTagRuleDisabledData;
@@ -45403,7 +45514,7 @@ export namespace Schemas {
 
     export interface ErrorTrackingIssueTagRuleCreateRequest {
       /**
-         * Display name of the tag the rule applies to each new issue whose first event matches the filters.
+         * Display name of the tag the rule applies to matching issues.
          * @maxLength 128
          */
       label: string;
@@ -45412,7 +45523,7 @@ export namespace Schemas {
          * @maxLength 1000
          */
       description?: string;
-      /** Property-group filters on event properties, evaluated against the first event of each new issue. At least one filter is required. Person, cohort, HogQL and other filter types are rejected. */
+      /** Property-group filters on event properties. They are checked against the first event of each new issue, and once a day against the events of the past day. A rule that filters on `$exception_list` is checked against the first event only. At least one filter is required. Person, cohort, HogQL and other filter types are rejected. */
       filters: ErrorTrackingIssueTagRuleFilters;
       /**
          * Position in the list of tag rules. Lower values come first. Defaults to 0.
@@ -45438,7 +45549,7 @@ export namespace Schemas {
          * @maxLength 1000
          */
       description?: string;
-      /** Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply only to issues created after the update. Existing tags stay when the new filters read the same properties. When they read different properties, the rule gets a new key and loses its tags. */
+      /** Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply to new issues, and once a day to other issues that had a matching event in the past day. Existing tags stay when the new filters read the same properties. When they read different properties, the rule gets a new key and loses its tags. */
       filters?: ErrorTrackingIssueTagRuleFilters;
     }
 
@@ -45602,6 +45713,208 @@ export namespace Schemas {
     export const ErrorTrackingListWidgetTypeEnum = {
       ErrorTrackingList: 'error_tracking_list',
     } as const;
+
+    export type ErrorTrackingPlatformAlertTrigger = typeof ErrorTrackingPlatformAlertTrigger[keyof typeof ErrorTrackingPlatformAlertTrigger];
+
+
+    export const ErrorTrackingPlatformAlertTrigger = {
+      IssueCreated: 'issue_created',
+      IssueReopened: 'issue_reopened',
+      IssueAssigned: 'issue_assigned',
+    } as const;
+
+    export interface ErrorTrackingPlatformAlertCondition {
+      /**
+         * The issue changes the alert announces. Each matching change is announced once.
+         * @minItems 1
+         */
+      triggers: ErrorTrackingPlatformAlertTrigger[];
+    }
+
+    export type ErrorTrackingPlatformAlertFiltersPropertiesItem = { [key: string]: unknown };
+
+    /**
+     * Which issues and exceptions the alert announces, in the shape error tracking's destinations use.
+     */
+    export interface ErrorTrackingPlatformAlertFilters {
+      /** Property filters on the exception event. Every filter must match. */
+      properties?: ErrorTrackingPlatformAlertFiltersPropertiesItem[];
+    }
+
+    export interface ErrorTrackingPlatformAlertConfig {
+      /** The issues and exceptions the alert announces. */
+      filters?: ErrorTrackingPlatformAlertFilters;
+      /** The issue changes the alert announces. */
+      condition: ErrorTrackingPlatformAlertCondition;
+    }
+
+    /**
+     * Product whose data the alert evaluates. It cannot change after the create.
+     */
+    export type ErrorTrackingPlatformAlertConfigurationCreateSourceKind = typeof ErrorTrackingPlatformAlertConfigurationCreateSourceKind[keyof typeof ErrorTrackingPlatformAlertConfigurationCreateSourceKind];
+
+
+    export const ErrorTrackingPlatformAlertConfigurationCreateSourceKind = {
+      ErrorTracking: 'error_tracking',
+    } as const;
+
+    /**
+     * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+     */
+    export type ErrorTrackingPlatformAlertConfigurationCreateLabels = {[key: string]: string};
+
+    /**
+     * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+     */
+    export type ErrorTrackingPlatformAlertConfigurationCreateAnnotations = {[key: string]: string};
+
+    /**
+     * * `single` - Single
+     * * `by_result_labels` - By result labels
+     */
+    export type GroupingModeEnum = typeof GroupingModeEnum[keyof typeof GroupingModeEnum];
+
+
+    export const GroupingModeEnum = {
+      Single: 'single',
+      ByResultLabels: 'by_result_labels',
+    } as const;
+
+    /**
+     * * `degrade_visible` - Degrade visible
+     */
+    export type OnOverflowEnum = typeof OnOverflowEnum[keyof typeof OnOverflowEnum];
+
+
+    export const OnOverflowEnum = {
+      DegradeVisible: 'degrade_visible',
+    } as const;
+
+    export interface Grouping {
+      /** single keeps one instance for the whole alert. by_result_labels keeps one instance per distinct value of the labels in keys, so each group fires and resolves on its own.
+       *
+       * * `single` - Single
+       * * `by_result_labels` - By result labels */
+      mode: GroupingModeEnum;
+      /** Result labels whose values make a group, such as service_name. Empty for mode single, required for by_result_labels. Changing them deletes the existing instances and closes their notification threads without a message. */
+      keys?: string[];
+      /**
+         * Most instances the alert keeps at once. Groups past it are not tracked, and the last message says how many were left out.
+         * @minimum 1
+         * @maximum 100
+         */
+      max_instances?: number;
+      /** What happens to groups past max_instances. degrade_visible names how many were left out.
+       *
+       * * `degrade_visible` - Degrade visible */
+      on_overflow?: OnOverflowEnum;
+    }
+
+    /**
+     * The settings of a new alert. Every one but source_config has a default, which is stored.
+     */
+    export interface ErrorTrackingPlatformAlertConfigurationCreate {
+      /** Product whose data the alert evaluates. It cannot change after the create. */
+      source_kind: ErrorTrackingPlatformAlertConfigurationCreateSourceKind;
+      /**
+         * Human-readable name of the alert. Defaults to 'Untitled alert'.
+         * @maxLength 255
+         */
+      name?: string;
+      /** Whether the alert is evaluated on schedule. Defaults to true. */
+      enabled?: boolean;
+      /** Settings for a error_tracking alert. The bound the alert is evaluated against is under condition. */
+      source_config: ErrorTrackingPlatformAlertConfig;
+      /** How the alert splits its results into instances. Defaults to mode single. */
+      grouping?: Grouping;
+      /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. Defaults to null. */
+      schedule_restriction?: AlertScheduleRestriction | null;
+      /**
+         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441. Defaults to 1.
+         * @minimum 1
+         * @maximum 1441
+         */
+      evaluation_periods?: number;
+      /**
+         * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods. Defaults to 1.
+         * @minimum 1
+         * @maximum 1441
+         */
+      datapoints_to_alarm?: number;
+      /**
+         * Minimum minutes between notifications for the same alert. Defaults to 0.
+         * @minimum 0
+         * @maximum 2147483647
+         */
+      cooldown_minutes?: number;
+      /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+      labels?: ErrorTrackingPlatformAlertConfigurationCreateLabels;
+      /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+      annotations?: ErrorTrackingPlatformAlertConfigurationCreateAnnotations;
+    }
+
+    /**
+     * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
+     */
+    export type ErrorTrackingPlatformAlertConfigurationEditSourceKind = typeof ErrorTrackingPlatformAlertConfigurationEditSourceKind[keyof typeof ErrorTrackingPlatformAlertConfigurationEditSourceKind];
+
+
+    export const ErrorTrackingPlatformAlertConfigurationEditSourceKind = {
+      ErrorTracking: 'error_tracking',
+    } as const;
+
+    /**
+     * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+     */
+    export type ErrorTrackingPlatformAlertConfigurationEditLabels = {[key: string]: string};
+
+    /**
+     * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+     */
+    export type ErrorTrackingPlatformAlertConfigurationEditAnnotations = {[key: string]: string};
+
+    /**
+     * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
+     */
+    export interface ErrorTrackingPlatformAlertConfigurationEdit {
+      /** Product whose data the alert evaluates. It cannot change, so it must match the stored value. */
+      source_kind: ErrorTrackingPlatformAlertConfigurationEditSourceKind;
+      /**
+         * Human-readable name of the alert.
+         * @maxLength 255
+         */
+      name: string;
+      /** Whether the alert is evaluated on schedule. */
+      enabled: boolean;
+      /** Settings for a error_tracking alert. The bound the alert is evaluated against is under condition. */
+      source_config: ErrorTrackingPlatformAlertConfig;
+      /** How the alert splits its results into instances. */
+      grouping: Grouping;
+      /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
+      schedule_restriction: AlertScheduleRestriction | null;
+      /**
+         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441.
+         * @minimum 1
+         * @maximum 1441
+         */
+      evaluation_periods: number;
+      /**
+         * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
+         * @minimum 1
+         * @maximum 1441
+         */
+      datapoints_to_alarm: number;
+      /**
+         * Minimum minutes between notifications for the same alert.
+         * @minimum 0
+         * @maximum 2147483647
+         */
+      cooldown_minutes: number;
+      /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+      labels?: ErrorTrackingPlatformAlertConfigurationEditLabels;
+      /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+      annotations?: ErrorTrackingPlatformAlertConfigurationEditAnnotations;
+    }
 
     export interface ErrorTrackingRecommendation {
       /** Recommendation UUID. */
@@ -46599,6 +46912,11 @@ export namespace Schemas {
       pending: boolean;
       /** Open suggestions of the latest run, best first. At most 3. */
       results: EvalSuggestion[];
+    }
+
+    export interface EvalSuggestionSettings {
+      /** Whether the project gets suggestions. While false, the list returns none and the weekly run skips the project. */
+      enabled: boolean;
     }
 
     /**
@@ -48083,8 +48401,6 @@ export namespace Schemas {
       median: number | null;
       /** Median pass rate in each period, over evaluations with results in both. Null when none has. */
       medianComparison: PeriodComparison | null;
-      /** Median pass rate per bucket, aligned with `buckets`. */
-      medianTrend: (number | null)[];
     }
 
     export interface EvaluationsOverview {
@@ -58449,48 +58765,6 @@ export namespace Schemas {
       math_property?: string | null;
     }
 
-    /**
-     * * `single` - Single
-     * * `by_result_labels` - By result labels
-     */
-    export type GroupingModeEnum = typeof GroupingModeEnum[keyof typeof GroupingModeEnum];
-
-
-    export const GroupingModeEnum = {
-      Single: 'single',
-      ByResultLabels: 'by_result_labels',
-    } as const;
-
-    /**
-     * * `degrade_visible` - Degrade visible
-     */
-    export type OnOverflowEnum = typeof OnOverflowEnum[keyof typeof OnOverflowEnum];
-
-
-    export const OnOverflowEnum = {
-      DegradeVisible: 'degrade_visible',
-    } as const;
-
-    export interface Grouping {
-      /** single keeps one instance for the whole alert. by_result_labels keeps one instance per distinct value of the labels in keys, so each group fires and resolves on its own.
-       *
-       * * `single` - Single
-       * * `by_result_labels` - By result labels */
-      mode: GroupingModeEnum;
-      /** Result labels whose values make a group, such as service_name. Empty for mode single, required for by_result_labels. Changing them deletes the existing instances and closes their notification threads without a message. */
-      keys?: string[];
-      /**
-         * Most instances the alert keeps at once. Groups past it are not tracked, and the last message says how many were left out.
-         * @minimum 1
-         * @maximum 100
-         */
-      max_instances?: number;
-      /** What happens to groups past max_instances. degrade_visible names how many were left out.
-       *
-       * * `degrade_visible` - Degrade visible */
-      on_overflow?: OnOverflowEnum;
-    }
-
     export interface GumroadReviewSignalExtra {
       rating: string | null;
       product_id: string | null;
@@ -61991,6 +62265,15 @@ export namespace Schemas {
       worstCampaign: number | null;
     }
 
+    export type MarketingAnalyticsRecommendationDetectedChange = typeof MarketingAnalyticsRecommendationDetectedChange[keyof typeof MarketingAnalyticsRecommendationDetectedChange];
+
+
+    export const MarketingAnalyticsRecommendationDetectedChange = {
+      NegativeKeyword: 'negative_keyword',
+      BrandNegative: 'brand_negative',
+      KeywordAdded: 'keyword_added',
+    } as const;
+
     export type MarketingAnalyticsRecommendationRule = typeof MarketingAnalyticsRecommendationRule[keyof typeof MarketingAnalyticsRecommendationRule];
 
 
@@ -62087,6 +62370,8 @@ export namespace Schemas {
       /** CPA figures in the account currency. */
       cpa?: MarketingAnalyticsRecommendationCpa | null;
       currency?: string | null;
+      /** The change in Google Ads that applied this recommendation, when the synced data shows one. A detected recommendation counts as applied, so it follows the same rules as a resolved one. */
+      detectedChange?: MarketingAnalyticsRecommendationDetectedChange | null;
       identity: MarketingAnalyticsRecommendationIdentity;
       /** Monthly money impact in the account currency. Null when the rule has no money impact. */
       impact?: number | null;
@@ -62156,6 +62441,8 @@ export namespace Schemas {
       campaignTable?: string | null;
       /** Google Ads customer table, used for the account currency. */
       customerTable?: string | null;
+      /** Google Ads keyword table, used to tell which searches are already keywords. */
+      keywordTable?: string | null;
       /** Google Ads search term table for Performance Max campaigns. */
       performanceMaxSearchTermTable?: string | null;
       /** Google Search Console table with one row per query and page, used to find the page that ranks for a search. */
@@ -64907,29 +65194,6 @@ export namespace Schemas {
       version?: number | null;
     }
 
-    export interface TagDefinition {
-      /**
-         * Tag identifier
-         * @maxLength 100
-         */
-      name: string;
-      /**
-         * Description to help the LLM classify
-         * @maxLength 500
-         */
-      description?: string;
-    }
-
-    export interface HogTaggerConfig {
-      /**
-         * Hog source code to classify a generation into tags.
-         * @minLength 1
-         */
-      source: string;
-      /** Optional tag whitelist. Leave empty to allow any tag returned by the Hog code. */
-      tags?: TagDefinition[];
-    }
-
     export interface HoglakeConnect {
       /** The hoglake catalog (warehouse) these credentials reach */
       catalog: string;
@@ -65388,6 +65652,7 @@ export namespace Schemas {
      * * `postmark` - Postmark
      * * `sendgrid` - SendGrid
      * * `mailgun` - Mailgun
+     * * `mailchimp` - Mailchimp
      */
     export type ImportProviderKeyEnum = typeof ImportProviderKeyEnum[keyof typeof ImportProviderKeyEnum];
 
@@ -65398,6 +65663,7 @@ export namespace Schemas {
       Postmark: 'postmark',
       Sendgrid: 'sendgrid',
       Mailgun: 'mailgun',
+      Mailchimp: 'mailchimp',
     } as const;
 
     export interface ImportStepOption {
@@ -65443,7 +65709,8 @@ export namespace Schemas {
        * * `resend` - Resend
        * * `postmark` - Postmark
        * * `sendgrid` - SendGrid
-       * * `mailgun` - Mailgun */
+       * * `mailgun` - Mailgun
+       * * `mailchimp` - Mailchimp */
       key: ImportProviderKeyEnum;
       /** Display name of the provider. */
       label: string;
@@ -68728,32 +68995,6 @@ export namespace Schemas {
       created_at: string | null;
     }
 
-    /**
-     * * `openai` - Openai
-     * * `anthropic` - Anthropic
-     * * `gemini` - Gemini
-     * * `openrouter` - Openrouter
-     * * `fireworks` - Fireworks
-     * * `azure_openai` - Azure OpenAI
-     * * `together_ai` - Together AI
-     * * `minimax` - MiniMax
-     * * `openai_compatible` - OpenAI-compatible
-     */
-    export type LLMCompletionProviderEnum = typeof LLMCompletionProviderEnum[keyof typeof LLMCompletionProviderEnum];
-
-
-    export const LLMCompletionProviderEnum = {
-      Openai: 'openai',
-      Anthropic: 'anthropic',
-      Gemini: 'gemini',
-      Openrouter: 'openrouter',
-      Fireworks: 'fireworks',
-      AzureOpenai: 'azure_openai',
-      TogetherAi: 'together_ai',
-      Minimax: 'minimax',
-      OpenaiCompatible: 'openai_compatible',
-    } as const;
-
     export interface LLMModelInfo {
       /** Provider-specific model identifier (e.g. 'gpt-4o-mini', 'claude-3-5-sonnet-20241022'). */
       id: string;
@@ -68766,7 +69007,7 @@ export namespace Schemas {
       provider: string;
       /** How many of this provider's models appear in `models`. */
       model_count: number;
-      /** True when this provider's models can only be listed by passing `key_id` for one of the team's provider keys, so `model_count` is 0 until a key is supplied. False means PostHog funds some of the provider's models in the playground. LLM-judge evaluations and LLM taggers always run on one of the team's own provider keys, whatever this value is. */
+      /** True when this provider's models can only be listed by passing `key_id` for one of the team's provider keys, so `model_count` is 0 until a key is supplied. False means PostHog funds some of the provider's models in the playground. LLM-judge evaluations always run on one of the team's own provider keys, whatever this value is. */
       requires_provider_key: boolean;
     }
 
@@ -69649,27 +69890,6 @@ export namespace Schemas {
       generations: number;
       /** Number of $ai_generation events in attributed_cost_usd. */
       attributed_generations: number;
-    }
-
-    export interface LLMTaggerConfig {
-      /**
-         * Prompt instructing the LLM how to tag generations
-         * @minLength 1
-         */
-      prompt: string;
-      /** Available tags the LLM can assign */
-      tags: TagDefinition[];
-      /**
-         * Minimum number of tags to apply
-         * @minimum 0
-         */
-      min_tags?: number;
-      /**
-         * Maximum number of tags to apply (null = no limit)
-         * @minimum 1
-         * @nullable
-         */
-      max_tags?: number | null;
     }
 
     export interface LabelSummary {
@@ -82135,6 +82355,7 @@ export namespace Schemas {
      * * `warehouse_destination` - Warehouse destination
      * * `metrics` - Metrics
      * * `traces` - Traces
+     * * `error_tracking` - Error tracking
      */
     export type PlatformAlertConfigurationSourceKindEnum = typeof PlatformAlertConfigurationSourceKindEnum[keyof typeof PlatformAlertConfigurationSourceKindEnum];
 
@@ -82146,6 +82367,7 @@ export namespace Schemas {
       WarehouseDestination: 'warehouse_destination',
       Metrics: 'metrics',
       Traces: 'traces',
+      ErrorTracking: 'error_tracking',
     } as const;
 
     /**
@@ -82257,7 +82479,8 @@ export namespace Schemas {
        * * `warehouse_source` - Warehouse source
        * * `warehouse_destination` - Warehouse destination
        * * `metrics` - Metrics
-       * * `traces` - Traces */
+       * * `traces` - Traces
+       * * `error_tracking` - Error tracking */
       readonly source_kind: PlatformAlertConfigurationSourceKindEnum;
       /** Source-specific settings. The shape depends on source_kind. The bound the alert is evaluated against is under the condition key. */
       readonly source_config: PlatformAlertConfigurationSourceConfig;
@@ -86165,96 +86388,6 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: TaggedItem[];
-    }
-
-    /**
-     * * `llm` - LLM
-     * * `hog` - Hog
-     */
-    export type TaggerTypeEnum = typeof TaggerTypeEnum[keyof typeof TaggerTypeEnum];
-
-
-    export const TaggerTypeEnum = {
-      Llm: 'llm',
-      Hog: 'hog',
-    } as const;
-
-    export type TaggerConfig = LLMTaggerConfig | HogTaggerConfig;
-
-    export type TaggerConditionPropertiesItem = { [key: string]: unknown };
-
-    export interface TaggerCondition {
-      /**
-         * Stable identifier for this condition
-         * @maxLength 100
-         */
-      id: string;
-      /**
-         * Percentage of matching events to apply this condition to
-         * @minimum 0
-         * @maximum 100
-         */
-      rollout_percentage?: number;
-      /** Property filters that scope when this condition fires */
-      properties?: TaggerConditionPropertiesItem[];
-    }
-
-    export interface TaggerModelConfiguration {
-      /** LLM provider to use for this tagger.
-       *
-       * * `openai` - Openai
-       * * `anthropic` - Anthropic
-       * * `gemini` - Gemini
-       * * `openrouter` - Openrouter
-       * * `fireworks` - Fireworks
-       * * `azure_openai` - Azure OpenAI
-       * * `together_ai` - Together AI
-       * * `minimax` - MiniMax
-       * * `openai_compatible` - OpenAI-compatible */
-      provider: LLMCompletionProviderEnum;
-      /**
-         * Provider model identifier to use for this tagger.
-         * @maxLength 100
-         */
-      model: string;
-      /**
-         * LLM provider key UUID pinned for this tagger, or null when none is pinned.
-         * @nullable
-         */
-      provider_key_id: string | null;
-      /** @nullable */
-      readonly provider_key_name: string | null;
-    }
-
-    export interface Tagger {
-      readonly id: string;
-      readonly name: string;
-      readonly description: string;
-      readonly enabled: boolean;
-      readonly tagger_type: TaggerTypeEnum;
-      /** Tagger configuration. For tagger_type 'llm': {prompt, tags, min_tags?, max_tags?}. For tagger_type 'hog': {source, tags?}. */
-      readonly tagger_config: TaggerConfig;
-      /** Conditions that scoped when the tagger ran */
-      readonly conditions: readonly TaggerCondition[];
-      readonly model_configuration: TaggerModelConfiguration | null;
-      readonly created_at: string;
-      readonly updated_at: string;
-      readonly created_by: UserBasic;
-      readonly deleted: boolean;
-      /**
-         * The evaluation that replaced this tagger when it was migrated. Null until then.
-         * @nullable
-         */
-      readonly migrated_to_evaluation_id: string | null;
-    }
-
-    export interface PaginatedTaggerList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: Tagger[];
     }
 
     /**
@@ -91706,6 +91839,8 @@ export namespace Schemas {
       sync_frequency?: SavedQuerySyncFrequencyEnum | null;
       /** Which cadences this view can actually be set to, and what withholds the rest. Computed from the view's data modeling lineage: upstream source sync frequencies set a floor, downstream cadences set a ceiling, and the organization's plan can set a floor too. Read-only, and present on retrieve, create and update responses only. */
       readonly sync_frequency_bounds?: SyncFrequencyBounds;
+      /** Set when a scheduled run slowed this view's refresh interval to the fastest one the organization's plan allows. Saving a different interval clears it. Null when no such rewrite stands. */
+      readonly plan_clamp?: SavedQueryPlanClamp | null;
       readonly columns?: readonly PatchedDataWarehouseSavedQueryColumnsItem[];
       readonly status?: DataWarehouseSavedQueryStatusEnum | null;
       /** @nullable */
@@ -92249,7 +92384,7 @@ export namespace Schemas {
          * @maxLength 1000
          */
       description?: string;
-      /** Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply only to issues created after the update. Existing tags stay when the new filters read the same properties. When they read different properties, the rule gets a new key and loses its tags. */
+      /** Replacement event property filters, with at least one filter. Omit to keep the existing filters. New filters apply to new issues, and once a day to other issues that had a matching event in the past day. Existing tags stay when the new filters read the same properties. When they read different properties, the rule gets a new key and loses its tags. */
       filters?: ErrorTrackingIssueTagRuleFilters;
     }
 
@@ -92282,6 +92417,69 @@ export namespace Schemas {
          * @nullable
          */
       description?: string | null;
+    }
+
+    /**
+     * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
+     */
+    export type PatchedErrorTrackingPlatformAlertConfigurationEditSourceKind = typeof PatchedErrorTrackingPlatformAlertConfigurationEditSourceKind[keyof typeof PatchedErrorTrackingPlatformAlertConfigurationEditSourceKind];
+
+
+    export const PatchedErrorTrackingPlatformAlertConfigurationEditSourceKind = {
+      ErrorTracking: 'error_tracking',
+    } as const;
+
+    /**
+     * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+     */
+    export type PatchedErrorTrackingPlatformAlertConfigurationEditLabels = {[key: string]: string};
+
+    /**
+     * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+     */
+    export type PatchedErrorTrackingPlatformAlertConfigurationEditAnnotations = {[key: string]: string};
+
+    /**
+     * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
+     */
+    export interface PatchedErrorTrackingPlatformAlertConfigurationEdit {
+      /** Product whose data the alert evaluates. It cannot change, so it must match the stored value. */
+      source_kind: PatchedErrorTrackingPlatformAlertConfigurationEditSourceKind;
+      /**
+         * Human-readable name of the alert.
+         * @maxLength 255
+         */
+      name?: string;
+      /** Whether the alert is evaluated on schedule. */
+      enabled?: boolean;
+      /** Settings for a error_tracking alert. The bound the alert is evaluated against is under condition. */
+      source_config?: ErrorTrackingPlatformAlertConfig;
+      /** How the alert splits its results into instances. */
+      grouping?: Grouping;
+      /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
+      schedule_restriction?: AlertScheduleRestriction | null;
+      /**
+         * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441.
+         * @minimum 1
+         * @maximum 1441
+         */
+      evaluation_periods?: number;
+      /**
+         * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
+         * @minimum 1
+         * @maximum 1441
+         */
+      datapoints_to_alarm?: number;
+      /**
+         * Minimum minutes between notifications for the same alert.
+         * @minimum 0
+         * @maximum 2147483647
+         */
+      cooldown_minutes?: number;
+      /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+      labels?: PatchedErrorTrackingPlatformAlertConfigurationEditLabels;
+      /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+      annotations?: PatchedErrorTrackingPlatformAlertConfigurationEditAnnotations;
     }
 
     /**
@@ -92406,6 +92604,11 @@ export namespace Schemas {
          * @maximum 1
          */
       sampling_rate?: number;
+    }
+
+    export interface PatchedEvalSuggestionSettings {
+      /** Whether the project gets suggestions. While false, the list returns none and the weekly run skips the project. */
+      enabled?: boolean;
     }
 
     /**
@@ -96087,7 +96290,7 @@ export namespace Schemas {
       annotations?: PatchedWarehouseSourcePlatformAlertConfigurationEditAnnotations;
     }
 
-    export type PatchedPlatformAlertConfigurationEdit = PatchedInsightPlatformAlertConfigurationEdit | PatchedLogsPlatformAlertConfigurationEdit | PatchedMetricsPlatformAlertConfigurationEdit | PatchedTracesPlatformAlertConfigurationEdit | PatchedWarehouseDestinationPlatformAlertConfigurationEdit | PatchedWarehouseSourcePlatformAlertConfigurationEdit;
+    export type PatchedPlatformAlertConfigurationEdit = PatchedErrorTrackingPlatformAlertConfigurationEdit | PatchedInsightPlatformAlertConfigurationEdit | PatchedLogsPlatformAlertConfigurationEdit | PatchedMetricsPlatformAlertConfigurationEdit | PatchedTracesPlatformAlertConfigurationEdit | PatchedWarehouseDestinationPlatformAlertConfigurationEdit | PatchedWarehouseSourcePlatformAlertConfigurationEdit;
 
     /**
      * Request body for PATCH /api/users/@me/product_intro_seen.
@@ -100887,15 +101090,6 @@ export namespace Schemas {
       timestamp: string;
     }
 
-    export interface PendingReviewCounts {
-      /** Proposed metrics you can see that wait for approval. */
-      metrics: number;
-      /** Proposed joins that wait to be accepted or rejected. */
-      relationships: number;
-      /** Proposed certifications that wait for review. */
-      certifications: number;
-    }
-
     export interface PeopleImport {
       /** The static cohort that fills with the imported people. */
       cohort_id: number;
@@ -101821,7 +102015,7 @@ export namespace Schemas {
       annotations?: WarehouseSourcePlatformAlertConfigurationCreateAnnotations;
     }
 
-    export type PlatformAlertConfigurationCreate = LogsPlatformAlertConfigurationCreate | MetricsPlatformAlertConfigurationCreate | TracesPlatformAlertConfigurationCreate | WarehouseDestinationPlatformAlertConfigurationCreate | WarehouseSourcePlatformAlertConfigurationCreate;
+    export type PlatformAlertConfigurationCreate = ErrorTrackingPlatformAlertConfigurationCreate | LogsPlatformAlertConfigurationCreate | MetricsPlatformAlertConfigurationCreate | TracesPlatformAlertConfigurationCreate | WarehouseDestinationPlatformAlertConfigurationCreate | WarehouseSourcePlatformAlertConfigurationCreate;
 
     /**
      * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
@@ -102012,7 +102206,7 @@ export namespace Schemas {
       annotations?: WarehouseSourcePlatformAlertConfigurationEditAnnotations;
     }
 
-    export type PlatformAlertConfigurationEdit = InsightPlatformAlertConfigurationEdit | LogsPlatformAlertConfigurationEdit | MetricsPlatformAlertConfigurationEdit | TracesPlatformAlertConfigurationEdit | WarehouseDestinationPlatformAlertConfigurationEdit | WarehouseSourcePlatformAlertConfigurationEdit;
+    export type PlatformAlertConfigurationEdit = ErrorTrackingPlatformAlertConfigurationEdit | InsightPlatformAlertConfigurationEdit | LogsPlatformAlertConfigurationEdit | MetricsPlatformAlertConfigurationEdit | TracesPlatformAlertConfigurationEdit | WarehouseDestinationPlatformAlertConfigurationEdit | WarehouseSourcePlatformAlertConfigurationEdit;
 
     /**
      * * `slack` - Slack
@@ -105525,7 +105719,8 @@ export namespace Schemas {
        * * `resend` - Resend
        * * `postmark` - Postmark
        * * `sendgrid` - SendGrid
-       * * `mailgun` - Mailgun */
+       * * `mailgun` - Mailgun
+       * * `mailchimp` - Mailchimp */
       provider: ImportProviderKeyEnum;
       /** `queued` until the first step starts, `running`, then `completed` when every step completed or `failed` when any step failed.
        *
@@ -115924,7 +116119,7 @@ export namespace Schemas {
          * @nullable
          */
       readonly effective_precheck_query: string | null;
-      /** Where `effective_precheck_query` comes from: `config` (this scout's `precheck_query`), `skill_default` (the default its skill ships), or `off` (no pre-check runs). */
+      /** Where `effective_precheck_query` comes from: `config` (this scout's `precheck_query`), `skill_default` (the default its skill ships), or `off` (no pre-check runs). `skill_default` with a null `effective_precheck_query` means the scout runs a built-in check in code. */
       readonly precheck_query_source: ScoutPrecheckQuerySourceEnum;
       /**
          * When a scheduled run last evaluated this scout's pre-check. A skipped run writes no run row, so this stays recent while `last_run_at` ages. Null if no pre-check has run.
@@ -122119,7 +122314,7 @@ export namespace Schemas {
     }
 
     export interface StaffFlagEvaluationsModeMutation {
-      /** Target flag_evaluations mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects tab, events lists filtered to only $feature_flag_called, such as the Activity page, and the flag call and experiment enrollment counts on the home page. On 1, a HogQL query, such as an insight, also reads flag_evaluations when it pins $feature_flag_called and $feature_flag to string keys, and its date range starts within the table's coverage. Other queries, including default experiment exposures, read events. 1 also hides $feature_flag_called from event pickers, and refuses a new action step on it and a new cohort criterion on it that the batch calculation would read from events. 2 also stops ingestion writing $feature_flag_called to events for the teams it copies to flag_evaluations, which on PostHog Cloud is every team outside INGESTION_FLAG_EVALUATIONS_EXCLUDED_TEAMS. On 2, a HogQL query reads flag_evaluations for any date range and fails when it can't, a query that mixes flag calls with other events reads both tables, realtime cohorts refuse new flag-call criteria, and flags keep no last called time unless it syncs from flag_evaluations. On PostHog Cloud the table is available in SQL on every mode. Self-hosted, it is available on 1 and 2.
+      /** Target flag_evaluations mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects tab, events lists filtered to only $feature_flag_called, such as the Activity page, and the flag call and experiment enrollment counts on the home page. On 1, a HogQL query, such as an insight, also reads flag_evaluations when it pins $feature_flag_called and $feature_flag to string keys, and its date range starts within the table's coverage. Other queries, including default experiment exposures, read events. 1 also hides $feature_flag_called from event pickers, and refuses a new action step on it and a new cohort criterion on it that the batch calculation would read from events. 2 also stops ingestion writing $feature_flag_called to events for the teams it copies to flag_evaluations, which on PostHog Cloud is every team outside INGESTION_FLAG_EVALUATIONS_EXCLUDED_TEAMS, unless the organization keeps writing flag calls to events. With that kept, every reader behaves as described here, and FLAG_EVALUATIONS_READS_FORCE_EVENTS moves the organization back to events. The events copy starts when that takes effect and holds no earlier calls, so a read that moves back to events misses the calls only flag_evaluations holds. On 2, a HogQL query reads flag_evaluations for any date range and fails when it can't, a query that mixes flag calls with other events reads both tables, realtime cohorts refuse new flag-call criteria, and flags keep no last called time unless it syncs from flag_evaluations. On PostHog Cloud the table is available in SQL on every mode. Self-hosted, it is available on 1 and 2.
        *
        * * `0` - Events
        * * `1` - Read flag evaluations
@@ -122133,6 +122328,8 @@ export namespace Schemas {
       team_ids: number[];
       /** Also lower organizations that are above the target mode. Lowering an organization from 2 restarts the events writes that ingestion stopped for its teams. The events table keeps a gap for those teams for the time the organization spent on 2. */
       allow_downgrade?: boolean;
+      /** Only for mode 2. Ingestion keeps writing $feature_flag_called to the events table, while every reader behaves as on mode 2. The events copy starts when this takes effect and holds no earlier calls, so a read that moves back to events misses the calls only flag_evaluations holds. Any other mode clears it. */
+      keep_writing_flag_calls_to_events?: boolean;
       /** Report what the write would change, and write nothing. */
       dry_run?: boolean;
     }
@@ -122156,8 +122353,12 @@ export namespace Schemas {
       organization_name: string;
       /** Teams of the organization. They all read the organization's mode. */
       team_count: number;
-      /** Running experiments of the organization that read $feature_flag_called from events without its $experiment_exposure copy: through an exposure action, an activation, or a metric. Mode 2 stops those events writes, so those reads find no new calls. */
+      /** Running experiments of the organization that read $feature_flag_called from events without its $experiment_exposure copy: through an exposure action, an activation, or a metric. Mode 2 stops those events writes unless they are kept, and either way the events copy lacks the calls from before the writes stopped or were kept. */
       running_experiments_needing_flag_calls_in_events: number;
+      /** True when ingestion kept writing $feature_flag_called to events for the organization before the write. */
+      current_keeps_events_writes: boolean;
+      /** True when ingestion keeps writing $feature_flag_called to events for the organization after the write. */
+      target_keeps_events_writes: boolean;
       /** True when the write moved the organization to the target mode, or would on a dry run. */
       changed: boolean;
       /** True when the organization is above the target mode and stays there, because allow_downgrade is not set. */
@@ -122201,7 +122402,7 @@ export namespace Schemas {
       max_feature_flags_override: number | null;
       /** The flag-count limit actually enforced for this team: the override when one is set, otherwise the global MAX_FEATURE_FLAGS_PER_TEAM setting. */
       effective_max_feature_flags: number;
-      /** Which table the $feature_flag_called data of this team's organization is read from. Every team of an organization shares one mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects tab, events lists filtered to only $feature_flag_called, such as the Activity page, and the flag call and experiment enrollment counts on the home page. On 1, a HogQL query, such as an insight, also reads flag_evaluations when it pins $feature_flag_called and $feature_flag to string keys, and its date range starts within the table's coverage. Other queries, including default experiment exposures, read events. 1 also hides $feature_flag_called from event pickers, and refuses a new action step on it and a new cohort criterion on it that the batch calculation would read from events. 2 also stops ingestion writing $feature_flag_called to events for the teams it copies to flag_evaluations, which on PostHog Cloud is every team outside INGESTION_FLAG_EVALUATIONS_EXCLUDED_TEAMS. On 2, a HogQL query reads flag_evaluations for any date range and fails when it can't, a query that mixes flag calls with other events reads both tables, realtime cohorts refuse new flag-call criteria, and flags keep no last called time unless it syncs from flag_evaluations. On PostHog Cloud the table is available in SQL on every mode. Self-hosted, it is available on 1 and 2. This is the stored mode: while the FLAG_EVALUATIONS_READS_FORCE_EVENTS instance setting is on, an organization on 1 reads events anyway.
+      /** Which table the $feature_flag_called data of this team's organization is read from. Every team of an organization shares one mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects tab, events lists filtered to only $feature_flag_called, such as the Activity page, and the flag call and experiment enrollment counts on the home page. On 1, a HogQL query, such as an insight, also reads flag_evaluations when it pins $feature_flag_called and $feature_flag to string keys, and its date range starts within the table's coverage. Other queries, including default experiment exposures, read events. 1 also hides $feature_flag_called from event pickers, and refuses a new action step on it and a new cohort criterion on it that the batch calculation would read from events. 2 also stops ingestion writing $feature_flag_called to events for the teams it copies to flag_evaluations, which on PostHog Cloud is every team outside INGESTION_FLAG_EVALUATIONS_EXCLUDED_TEAMS, unless the organization keeps writing flag calls to events. With that kept, every reader behaves as described here, and FLAG_EVALUATIONS_READS_FORCE_EVENTS moves the organization back to events. The events copy starts when that takes effect and holds no earlier calls, so a read that moves back to events misses the calls only flag_evaluations holds. On 2, a HogQL query reads flag_evaluations for any date range and fails when it can't, a query that mixes flag calls with other events reads both tables, realtime cohorts refuse new flag-call criteria, and flags keep no last called time unless it syncs from flag_evaluations. On PostHog Cloud the table is available in SQL on every mode. Self-hosted, it is available on 1 and 2. This is the stored mode: while the FLAG_EVALUATIONS_READS_FORCE_EVENTS instance setting is on, an organization on 1, or on 2 with its events writes kept, reads events anyway.
        *
        * * `0` - Events
        * * `1` - Read flag evaluations
@@ -122321,7 +122522,8 @@ export namespace Schemas {
        * * `resend` - Resend
        * * `postmark` - Postmark
        * * `sendgrid` - SendGrid
-       * * `mailgun` - Mailgun */
+       * * `mailgun` - Mailgun
+       * * `mailchimp` - Mailchimp */
       provider: ImportProviderKeyEnum;
       /**
          * Keys of the steps to run, from the `providers` endpoint. They run in the provider's order, whatever order you send.
@@ -122330,7 +122532,7 @@ export namespace Schemas {
          */
       steps: string[];
       /**
-         * The provider's API key. For Customer.io, an App API key: leave it out to reuse the stored key. For Resend, a full access key. For Postmark, a server token or the account token. For SendGrid, a key with read access to the selected steps. For Mailgun, an account key that can read suppressions. PostHog deletes a Resend, Postmark, SendGrid or Mailgun key when the run ends, so send it every time.
+         * The provider's API key. For Customer.io, an App API key: leave it out to reuse the stored key. For Resend, a full access key. For Postmark, a server token or the account token. For SendGrid, a key with read access to the selected steps. For Mailgun, an account key that can read suppressions. For Mailchimp, a Marketing API key ending in its data center, such as -us21. PostHog deletes a Resend, Postmark, SendGrid, Mailgun or Mailchimp key when the run ends, so send it every time.
          * @maxLength 512
          */
       api_key?: string;
@@ -133998,6 +134200,14 @@ export namespace Schemas {
       calls_per_parent_invocation: number | null;
     }
 
+    export interface _StoredTraceResponse {
+      /**
+         * The id as lowercase hex when the team stores a span of this trace, in any time range. Null when the id is not an OpenTelemetry trace id, as 32 hex characters or a hyphenated UUID, or no span is stored.
+         * @nullable
+         */
+      traceId: string | null;
+    }
+
     export interface _SymbolSetDownloadResponse {
       /** Presigned URL to download the source map file. Use immediately; expires after one hour. */
       url: string;
@@ -137224,11 +137434,17 @@ export namespace Schemas {
      */
     branded?: AeoKeywordsModifiersBranded;
     /**
-     * Length of the window in days, ending today in the project's timezone. Default 7, at most 90.
-     * @minimum 1
-     * @maximum 90
+     * First day of the window. Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day of this month) or 'yStart'. Days are whole days in the project's timezone. Default '-7d'. The window from date_from to date_to can cover at most 91 days.
+     * @maxLength 32
+     * @nullable
      */
-    days?: number;
+    date_from?: string | null;
+    /**
+     * Last day of the window, included. Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day of this month) or 'yStart'. Days are whole days in the project's timezone. Default today. A later day is read as today.
+     * @maxLength 32
+     * @nullable
+     */
+    date_to?: string | null;
     /**
      * Only count checks from this answer engine, for example 'claude-web-search'. Omit to count every engine.
      * @maxLength 64
@@ -137269,11 +137485,17 @@ export namespace Schemas {
      */
     branded?: AeoKeywordsReportBranded;
     /**
-     * Length of the window in days, ending today in the project's timezone. Default 7, at most 90.
-     * @minimum 1
-     * @maximum 90
+     * First day of the window. Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day of this month) or 'yStart'. Days are whole days in the project's timezone. Default '-7d'. The window from date_from to date_to can cover at most 91 days.
+     * @maxLength 32
+     * @nullable
      */
-    days?: number;
+    date_from?: string | null;
+    /**
+     * Last day of the window, included. Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day of this month) or 'yStart'. Days are whole days in the project's timezone. Default today. A later day is read as today.
+     * @maxLength 32
+     * @nullable
+     */
+    date_to?: string | null;
     /**
      * Only count checks from this answer engine, for example 'claude-web-search'. Omit to count every engine.
      * @maxLength 64
@@ -137309,11 +137531,17 @@ export namespace Schemas {
      */
     branded?: boolean | null;
     /**
-     * The window needs_improvement reads, in days ending now. Default 30, at most 90. Ignored unless needs_improvement is true.
-     * @minimum 1
-     * @maximum 90
+     * First day of the window. Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day of this month) or 'yStart'. Days are whole days in the project's timezone. Default '-30d'. The window from date_from to date_to can cover at most 91 days.
+     * @maxLength 32
+     * @nullable
      */
-    days?: number;
+    date_from?: string | null;
+    /**
+     * Last day of the window, included. Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day of this month) or 'yStart'. Days are whole days in the project's timezone. Default today. A later day is read as today.
+     * @maxLength 32
+     * @nullable
+     */
+    date_to?: string | null;
     /**
      * With needs_improvement, only read the answers of this engine, for example 'claude-web-search'. Ignored unless needs_improvement is true.
      * @maxLength 64
@@ -137330,7 +137558,7 @@ export namespace Schemas {
      */
     limit?: number;
     /**
-     * Only list prompts that the engines answered in the last 'days' days without citing a target domain. Prompts with no answered check in that window are left out.
+     * Only list prompts that the engines answered from date_from to date_to without citing a target domain. Prompts with no answered check in that window are left out.
      */
     needs_improvement?: boolean;
     /**
@@ -137386,11 +137614,17 @@ export namespace Schemas {
      */
     branded?: AeoPromptsCitationsBranded;
     /**
-     * Length of the window in days, ending today in the project's timezone. Default 30, at most 90.
-     * @minimum 1
-     * @maximum 90
+     * First day of the window. Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day of this month) or 'yStart'. Days are whole days in the project's timezone. Default '-30d'. The window from date_from to date_to can cover at most 91 days.
+     * @maxLength 32
+     * @nullable
      */
-    days?: number;
+    date_from?: string | null;
+    /**
+     * Last day of the window, included. Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day of this month) or 'yStart'. Days are whole days in the project's timezone. Default today. A later day is read as today.
+     * @maxLength 32
+     * @nullable
+     */
+    date_to?: string | null;
     /**
      * List the answers that cited a page on this domain or one of its subdomains, case ignored. Takes a host from the overview's top_domains (docs.example.com) or a domain from the rankings (example.com).
      * @minLength 1
@@ -137450,11 +137684,17 @@ export namespace Schemas {
      */
     branded?: AeoPromptsOverviewBranded;
     /**
-     * Length of the window in days, ending today in the project's timezone. Default 30, at most 90.
-     * @minimum 1
-     * @maximum 90
+     * First day of the window. Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day of this month) or 'yStart'. Days are whole days in the project's timezone. Default '-30d'. The window from date_from to date_to can cover at most 91 days.
+     * @maxLength 32
+     * @nullable
      */
-    days?: number;
+    date_from?: string | null;
+    /**
+     * Last day of the window, included. Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day of this month) or 'yStart'. Days are whole days in the project's timezone. Default today. A later day is read as today.
+     * @maxLength 32
+     * @nullable
+     */
+    date_to?: string | null;
     /**
      * Only count checks from this answer engine, for example 'claude-web-search'. Omit to count every engine.
      * @maxLength 64
@@ -137489,11 +137729,17 @@ export namespace Schemas {
      */
     branded?: AeoPromptsRankingsBranded;
     /**
-     * Length of the window in days, ending today in the project's timezone. Default 30, at most 90.
-     * @minimum 1
-     * @maximum 90
+     * First day of the window. Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day of this month) or 'yStart'. Days are whole days in the project's timezone. Default '-30d'. The window from date_from to date_to can cover at most 91 days.
+     * @maxLength 32
+     * @nullable
      */
-    days?: number;
+    date_from?: string | null;
+    /**
+     * Last day of the window, included. Takes a date such as '2026-11-01' or a relative day such as '-30d' (30 days ago), '-2w', 'mStart' (first day of this month) or 'yStart'. Days are whole days in the project's timezone. Default today. A later day is read as today.
+     * @maxLength 32
+     * @nullable
+     */
+    date_to?: string | null;
     /**
      * Only count checks from this answer engine, for example 'claude-web-search'. Omit to count every engine.
      * @maxLength 64
@@ -148707,6 +148953,7 @@ export namespace Schemas {
      * * `warehouse_destination` - Warehouse destination
      * * `metrics` - Metrics
      * * `traces` - Traces
+     * * `error_tracking` - Error tracking
      * @minLength 1
      */
     source_kind?: PlatformAlertsListSourceKind;
@@ -148722,6 +148969,7 @@ export namespace Schemas {
       WarehouseDestination: 'warehouse_destination',
       Metrics: 'metrics',
       Traces: 'traces',
+      ErrorTracking: 'error_tracking',
     } as const;
 
     export type PlatformAlertsEventsListParams = {
@@ -149838,6 +150086,10 @@ export namespace Schemas {
      */
     plan?: string;
     /**
+     * Requires task_id. When true, keeps only the reports that the task's pull requests and commits link to: its source report, the reports the task attached a pull request to, and its pipeline, legacy and assignment associations. A report that the task only claimed is kept only when the task has no other report.
+     */
+    pr_targets?: boolean;
+    /**
      * Comma-separated list of priorities to include. Valid values: P0, P1, P2, P3, P4. Reports without a priority assignment are excluded when this filter is set.
      */
     priority?: string;
@@ -150146,6 +150398,10 @@ export namespace Schemas {
      * 'true' keeps only the reports that need the requesting user: the ones waiting on their input (pending_input and naming them as a suggested reviewer) and the ones they claimed, themselves or through their MCP agents. 'false' leaves those out. Combine with sort=personal to order them by the user's personal ranking.
      */
     needs_you?: boolean;
+    /**
+     * Requires task_id. When true, keeps only the reports that the task's pull requests and commits link to: its source report, the reports the task attached a pull request to, and its pipeline, legacy and assignment associations. A report that the task only claimed is kept only when the task has no other report.
+     */
+    pr_targets?: boolean;
     /**
      * Comma-separated list of priorities to include. Valid values: P0, P1, P2, P3, P4. Reports without a priority assignment are excluded when this filter is set.
      */
@@ -150928,44 +151184,6 @@ export namespace Schemas {
      * Optional end date: an ISO 8601 timestamp (e.g. 2024-01-31T23:59:59Z) or a relative date such as -1d
      */
     date_to?: string;
-    };
-
-    export type TaggersListParams = {
-    /**
-     * Filter by enabled status
-     */
-    enabled?: boolean;
-    /**
-     * Multiple values may be separated by commas.
-     */
-    id__in?: string[];
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * Only the tagger that was migrated to this evaluation
-     */
-    migrated_to_evaluation_id?: string;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Ordering
-     *
-     * * `created_at` - Created At
-     * * `-created_at` - Created At (descending)
-     * * `updated_at` - Updated At
-     * * `-updated_at` - Updated At (descending)
-     * * `name` - Name
-     * * `-name` - Name (descending)
-     */
-    order_by?: string[];
-    /**
-     * Search in name or description
-     */
-    search?: string;
     };
 
     export type TagsListParams = {
@@ -151765,6 +151983,15 @@ export namespace Schemas {
      * @minLength 1
      */
     search?: string;
+    };
+
+    export type TracingSpansStoredTraceRetrieveParams = {
+    /**
+     * A trace id from another product, such as an `$ai_trace_id`. Any string is accepted.
+     * @minLength 1
+     * @maxLength 255
+     */
+    trace_id: string;
     };
 
     export type TracingSpansValuesRetrieveParams = {

@@ -605,6 +605,7 @@ export type ProviderImportRunApiSettings = { [key: string]: string }
  * * `postmark` - Postmark
  * * `sendgrid` - SendGrid
  * * `mailgun` - Mailgun
+ * * `mailchimp` - Mailchimp
  */
 export type ImportProviderKeyEnumApi = (typeof ImportProviderKeyEnumApi)[keyof typeof ImportProviderKeyEnumApi]
 
@@ -614,6 +615,7 @@ export const ImportProviderKeyEnumApi = {
     Postmark: 'postmark',
     Sendgrid: 'sendgrid',
     Mailgun: 'mailgun',
+    Mailchimp: 'mailchimp',
 } as const
 
 /**
@@ -731,7 +733,8 @@ export interface ProviderImportRunApi {
      * * `resend` - Resend
      * * `postmark` - Postmark
      * * `sendgrid` - SendGrid
-     * * `mailgun` - Mailgun */
+     * * `mailgun` - Mailgun
+     * * `mailchimp` - Mailchimp */
     provider: ImportProviderKeyEnumApi
     /** `queued` until the first step starts, `running`, then `completed` when every step completed or `failed` when any step failed.
      *
@@ -770,7 +773,8 @@ export interface StartProviderImportApi {
      * * `resend` - Resend
      * * `postmark` - Postmark
      * * `sendgrid` - SendGrid
-     * * `mailgun` - Mailgun */
+     * * `mailgun` - Mailgun
+     * * `mailchimp` - Mailchimp */
     provider: ImportProviderKeyEnumApi
     /**
      * Keys of the steps to run, from the `providers` endpoint. They run in the provider's order, whatever order you send.
@@ -779,7 +783,7 @@ export interface StartProviderImportApi {
      */
     steps: string[]
     /**
-     * The provider's API key. For Customer.io, an App API key: leave it out to reuse the stored key. For Resend, a full access key. For Postmark, a server token or the account token. For SendGrid, a key with read access to the selected steps. For Mailgun, an account key that can read suppressions. PostHog deletes a Resend, Postmark, SendGrid or Mailgun key when the run ends, so send it every time.
+     * The provider's API key. For Customer.io, an App API key: leave it out to reuse the stored key. For Resend, a full access key. For Postmark, a server token or the account token. For SendGrid, a key with read access to the selected steps. For Mailgun, an account key that can read suppressions. For Mailchimp, a Marketing API key ending in its data center, such as -us21. PostHog deletes a Resend, Postmark, SendGrid, Mailgun or Mailchimp key when the run ends, so send it every time.
      * @maxLength 512
      */
     api_key?: string
@@ -830,7 +834,8 @@ export interface ImportProviderOptionApi {
      * * `resend` - Resend
      * * `postmark` - Postmark
      * * `sendgrid` - SendGrid
-     * * `mailgun` - Mailgun */
+     * * `mailgun` - Mailgun
+     * * `mailchimp` - Mailchimp */
     key: ImportProviderKeyEnumApi
     /** Display name of the provider. */
     label: string

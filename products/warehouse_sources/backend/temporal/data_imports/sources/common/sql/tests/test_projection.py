@@ -198,6 +198,13 @@ class TestFilterDwhColumnsByEnabledColumns:
         result = filter_dwh_columns_by_enabled_columns(self.dwh_columns, ["does_not_exist"], None)
         assert result == self.dwh_columns
 
+    def test_empty_projection_without_fallback_stays_empty(self) -> None:
+        # A live table reads the source directly, so falling back to every column would expose hidden ones.
+        result = filter_dwh_columns_by_enabled_columns(
+            self.dwh_columns, ["does_not_exist"], None, fall_back_to_all_columns=False
+        )
+        assert result == {}
+
     def test_empty_input_stays_empty(self) -> None:
         assert filter_dwh_columns_by_enabled_columns({}, ["email"], ["id"]) == {}
 

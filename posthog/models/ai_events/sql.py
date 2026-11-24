@@ -23,6 +23,14 @@ HEAVY_AI_PROPERTIES = [
 ]
 
 
+# Clamped at both ends: a missing or malformed header can never make a row expire early, and no producer to the
+# topic can keep one longer than ingestion's own limit or push drop_date past what a Date holds.
+RETENTION_DAYS_FROM_KAFKA_HEADERS_SQL = (
+    "toInt16(least(greatest("
+    "toInt16OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt16(30)), 30), 365))"
+)
+
+
 def _strip_heavy_properties_sql(properties_col: str) -> str:
     """Strip heavy AI properties from the JSON blob.
 
@@ -291,6 +299,9 @@ AS SELECT
     nullIf(JSONExtractRaw(src.properties, '$ai_output_state'), '') AS output_state,
     nullIf(JSONExtractRaw(src.properties, '$ai_tools'), '') AS tools,
 
+    -- Retention
+    {retention_days} AS retention_days,
+
     -- Kafka metadata
     _timestamp,
     _offset,
@@ -301,6 +312,7 @@ FROM {kafka_table} AS src
         target_table=target_table,
         kafka_table=kafka_table,
         stripped_properties=stripped_properties,
+        retention_days=RETENTION_DAYS_FROM_KAFKA_HEADERS_SQL,
     )
 
 

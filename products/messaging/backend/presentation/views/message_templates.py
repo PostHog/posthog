@@ -48,6 +48,7 @@ from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models import ProjectSecretAPIKey, User
 from posthog.models.file_system.constants import resolved_workflows_list_v2
 from posthog.models.file_system.file_system_mixin import file_system_sync
+from posthog.models.instance_setting import get_instance_setting
 from posthog.models.tag import tagify
 from posthog.permissions import (
     is_authenticated_via_project_secret_api_key,
@@ -59,6 +60,7 @@ from posthog.rate_limit import (
     ProjectSecretApiKeyTeamRateThrottle,
     reserve_units,
 )
+from posthog.settings.utils import get_list
 
 from products.cdp.backend.presentation.hog_functions import build_html_wrap_design, html_wrap_design_needs_refresh
 from products.messaging.backend.facade.api import (
@@ -1202,9 +1204,11 @@ def _flag_enabled(team: Any, flag: str) -> bool:
     )
 
 
-def transactional_email_throttles() -> list[
-    PersonalOrProjectSecretApiKeyRateThrottle | ProjectSecretApiKeyTeamRateThrottle
-]:
+def transactional_email_throttles(
+    team_id: int,
+) -> list[PersonalOrProjectSecretApiKeyRateThrottle | ProjectSecretApiKeyTeamRateThrottle]:
+    if str(team_id) in get_list(str(get_instance_setting("TRANSACTIONAL_EMAIL_RATE_LIMIT_ALLOW_LIST_TEAMS"))):
+        return []
     # Both send routes share these scopes, so a caller can't double its rate by using both.
     return [
         TransactionalEmailBurstThrottle(),
@@ -1556,7 +1560,7 @@ class MessageTemplatesViewSet(
 
     def get_throttles(self):
         if self.action == "send":
-            return transactional_email_throttles()
+            return transactional_email_throttles(self.team_id)
         return super().get_throttles()
 
     def read_object(self) -> MessageTemplateRow | MessageTemplatePlacement | None:
@@ -1897,7 +1901,7 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
     records_have_object_access_rules = False
 
     def get_throttles(self):
-        return transactional_email_throttles()
+        return transactional_email_throttles(self.team_id)
 
     def initial(self, request: Any, *args: Any, **kwargs: Any) -> None:
         super().initial(request, *args, **kwargs)

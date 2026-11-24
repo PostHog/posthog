@@ -1,5 +1,6 @@
 import json
 import dataclasses
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -16,6 +17,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.egress.limiter.policies import Priority
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import OrganizationMembership
@@ -31,9 +33,11 @@ from products.stamphog.backend.facade.enums import (
     DigestRunStatus,
     ReviewMode,
     ReviewRunStatus,
+    ReviewVerdict,
     RoutingMode,
 )
 from products.stamphog.backend.facade.github import StamphogGitHubError
+from products.stamphog.backend.logic.github_client import StamphogGitHubClient
 from products.stamphog.backend.models import (
     DigestRun,
     PullRequest,
@@ -45,6 +49,7 @@ from products.stamphog.backend.models import (
 )
 from products.stamphog.backend.presentation.serializers import CodeReviewApprovalRepositoryWriteSerializer
 from products.stamphog.backend.presentation.views import _INSTALL_STATE_SALT
+from products.stamphog.backend.tasks.tasks import process_pull_request_event
 from products.stamphog.backend.tests import fakes
 from products.stamphog.backend.tests.conftest import PRODUCT_DATABASES, StamphogTeamScopedTestMixin
 
@@ -580,10 +585,7 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert (config.enabled, config.installation_id, config.connected_by_user_id) == (True, "42", self.user.id)
         expected_mode = ReviewMode.LABEL if existing_installation in (None, "") else ReviewMode.ALL
         assert config.review_mode == expected_mode
-        expected_calls = (
-            [call(team_id=self.team.id, config_id=str(config.id))] if expected_mode == ReviewMode.LABEL else []
-        )
-        assert queue_label.call_args_list == expected_calls
+        assert queue_label.call_args_list == [call(team_id=self.team.id, config_id=str(config.id))]
 
     @parameterized.expand(
         [
@@ -986,6 +988,184 @@ class TestReviewRequestAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert self.start_workflow.called is expect_start
         if existing_silent:
             assert ReviewRun.objects.unscoped().get(id=first).status == ReviewRunStatus.SUPERSEDED
+
+    def _finish_as(self, run_id: str, verdict: ReviewVerdict) -> None:
+        # Store the context the way the workflow's fetch does, so the run records what its review saw.
+        client = StamphogGitHubClient("77")
+        output = {
+            **ReviewRun.objects.unscoped().get(id=run_id).output,
+            "pr": client.get_pr("PostHog/posthog", 5),
+            "reviews": client.get_pr_reviews("PostHog/posthog", 5),
+            "discussion": client.get_pr_discussion("PostHog/posthog", 5),
+            "review_threads": client.get_pr_review_threads("PostHog/posthog", 5),
+        }
+        ReviewRun.objects.unscoped().filter(id=run_id).update(
+            status=ReviewRunStatus.COMPLETED, verdict=verdict, output=output
+        )
+
+    def _comment(self, body: str, login: str = "bob", association: str = "MEMBER", bot: bool = False) -> None:
+        user = {"login": login, "type": "Bot" if bot else "User"}
+        self.github.issue_comments.setdefault(("PostHog/posthog", 5), []).append(
+            {"user": user, "author_association": association, "body": body}
+        )
+
+    def _answer_but_fail_the_thread_read(self, error: Exception) -> None:
+        self._comment("The flag is checked upstream.")
+        patcher = patch(f"{_CLIENT}.get_pr_review_threads", side_effect=error)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _add_trigger_label(self) -> dict[str, Any]:
+        runs = ReviewRun.objects.unscoped().filter(team_id=self.team.id).order_by("-created_at")
+        newest_before = runs.first()
+        payload = {
+            "action": "labeled",
+            "installation": {"id": "77"},
+            "repository": {"full_name": "PostHog/posthog"},
+            "pull_request": self.github.prs[("PostHog/posthog", 5)],
+            "label": {"name": "stamphog"},
+        }
+        process_pull_request_event(payload, f"delivery-{uuid7()}")
+        newest = runs.first()
+        assert newest is not None
+        return {"created": newest != newest_before, "run": {"id": str(newest.id)}}
+
+    def _ask(self, via: str) -> dict[str, Any]:
+        return self._request().json() if via == "api" else self._add_trigger_label()
+
+    def _label_notices(self) -> list[str]:
+        return [
+            w["body"]["body"] for w in self.github.github_writes if w["kind"] in ("issue_comment", "issue_comment_edit")
+        ]
+
+    def _label_removals(self) -> list[str]:
+        return [w["label"] for w in self.github.github_writes if w["kind"] == "remove_label"]
+
+    @parameterized.expand(
+        [
+            (f"{name}_via_{via}", verdict, change, expect_created, notice, via)
+            for name, verdict, change, expect_created, notice in [
+                ("nothing_changed", ReviewVerdict.REFUSED, lambda t: None, False, "found no new comments"),
+                (
+                    "stamphog_commented",
+                    ReviewVerdict.REFUSED,
+                    lambda t: t._comment("Not approved.", "stamphog[bot]", bot=True),
+                    False,
+                    "found no new comments",
+                ),
+                (
+                    "author_answered",
+                    ReviewVerdict.REFUSED,
+                    lambda t: t._comment("The flag is checked upstream."),
+                    True,
+                    None,
+                ),
+                ("escalation_answered", ReviewVerdict.ESCALATE, lambda t: t._comment("Owner signed off."), True, None),
+                (
+                    "evidence_unreadable",
+                    ReviewVerdict.REFUSED,
+                    lambda t: t._answer_but_fail_the_thread_read(
+                        StamphogGitHubError("GraphQL errors", status_code=502)
+                    ),
+                    False,
+                    "could not read the comments",
+                ),
+                (
+                    "evidence_read_shed",
+                    ReviewVerdict.REFUSED,
+                    lambda t: t._answer_but_fail_the_thread_read(GitHubEgressBudgetExhausted("budget spent")),
+                    False,
+                    "could not read the comments",
+                ),
+                (
+                    "approval_stands",
+                    ReviewVerdict.APPROVED,
+                    lambda t: t._comment("Thanks."),
+                    False,
+                    "already approved this commit",
+                ),
+                ("wait_stands", ReviewVerdict.WAIT, lambda t: t._comment("Thanks."), False, "does not repeat"),
+                (
+                    "review_in_flight",
+                    ReviewVerdict.REFUSED,
+                    lambda t: (
+                        ReviewRun.objects.unscoped().filter(team_id=t.team.id).update(status=ReviewRunStatus.REVIEWING)
+                    ),
+                    False,
+                    "already reviewing this commit",
+                ),
+            ]
+            for via in ("api", "label")
+        ]
+    )
+    def test_request_reviews_a_refused_head_again_only_for_new_evidence(
+        self,
+        _name: str,
+        verdict: ReviewVerdict,
+        change: Callable[[Any], None],
+        expect_created: bool,
+        notice: str | None,
+        via: str,
+    ) -> None:
+        if via == "label":
+            StamphogRepoConfig.objects.unscoped().filter(id=self.repo_config.id).update(review_mode=ReviewMode.ALL)
+        first = self._ask(via)["run"]["id"]
+        self._finish_as(first, verdict)
+        change(self)
+        self.start_workflow.reset_mock()
+
+        body = self._ask(via)
+
+        assert body["created"] is expect_created
+        assert self.start_workflow.called is expect_created
+        if expect_created:
+            run = ReviewRun.objects.unscoped().get(id=body["run"]["id"])
+            assert run.output["evidence_rerun_of"] == first
+            assert run.output["review_trigger"] == ("manual" if via == "api" else "label")
+        else:
+            assert body["run"]["id"] == first
+        if via == "api":
+            return
+        if notice is None:
+            assert (self._label_removals(), self._label_notices()) == ([], [])
+        else:
+            assert self._label_removals() == ["stamphog"]
+            assert len(self._label_notices()) == 1
+            assert notice in self._label_notices()[0]
+
+    @parameterized.expand([("api",), ("label",)])
+    def test_evidence_re_runs_never_repeat_reviewed_evidence_and_stop_at_the_cap(self, via: str) -> None:
+        if via == "label":
+            StamphogRepoConfig.objects.unscoped().filter(id=self.repo_config.id).update(review_mode=ReviewMode.ALL)
+        run_id = self._ask(via)["run"]["id"]
+        self._finish_as(run_id, ReviewVerdict.REFUSED)
+
+        def answer(text: str, *, fails: bool = False) -> dict:
+            self._comment(text)
+            body = self._ask(via)
+            if body["created"] and fails:
+                ReviewRun.objects.unscoped().filter(id=body["run"]["id"]).update(status=ReviewRunStatus.FAILED)
+            elif body["created"]:
+                self._finish_as(body["run"]["id"], ReviewVerdict.REFUSED)
+            return body
+
+        assert answer("First answer.")["created"] is True
+        after_first = list(self.github.issue_comments[("PostHog/posthog", 5)])
+        second = answer("Second answer.")
+        assert second["created"] is True
+
+        self.github.issue_comments[("PostHog/posthog", 5)] = after_first
+        body = self._ask(via)
+        assert (body["created"], body["run"]["id"]) == (False, second["run"]["id"])
+
+        # A re-run that failed reviewed nothing, so it leaves the third slot free.
+        assert answer("Third answer.", fails=True)["created"] is True
+        third = answer("Fourth answer.")
+        assert third["created"] is True
+        body = answer("Fifth answer.")
+        assert (body["created"], body["run"]["id"]) == (False, third["run"]["id"])
+        if via == "label":
+            assert "reached that limit" in self._label_notices()[-1]
 
     @parameterized.expand(
         [

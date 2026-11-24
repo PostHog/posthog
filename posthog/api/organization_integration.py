@@ -10,6 +10,7 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.cloud_utils import is_cloud
 from posthog.exceptions_capture import capture_exception
 from posthog.integrations import CrossTeamFilter, IntegrationManager, IntegrationNotFound, IntegrationRecord
 from posthog.models.organization_integration import OrganizationIntegration
@@ -26,6 +27,15 @@ class OpenInvoicesError(APIException):
         "Please contact support@posthog.com for help."
     )
     default_code = "open_invoices_error"
+
+
+class BillingDeauthorizationError(APIException):
+    status_code = status.HTTP_502_BAD_GATEWAY
+    default_detail = (
+        "Couldn't end the Vercel subscription, so the integration is still connected. "
+        "Try again, and if it keeps failing contact support@posthog.com."
+    )
+    default_code = "billing_deauthorization_failed"
 
 
 class OrganizationIntegrationSerializer(serializers.ModelSerializer):
@@ -90,6 +100,9 @@ class OrganizationIntegrationViewSet(
         responses={
             204: None,
             409: OpenApiResponse(description="Deauthorization is blocked because the account has unpaid invoices."),
+            502: OpenApiResponse(
+                description="The billing service failed to end the subscription, so the integration is kept."
+            ),
         },
     )
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -98,7 +111,8 @@ class OrganizationIntegrationViewSet(
     def perform_destroy(self, instance: OrganizationIntegration) -> None:
         is_marketplace = instance.config.get("type") != "connectable"
 
-        if is_marketplace and instance.integration_id:
+        # Gate on cloud, not on a license: local development creates a license when DEBUG is on.
+        if is_marketplace and instance.integration_id and is_cloud():
             from ee.billing.billing_manager import BillingServiceOpenInvoicesError
             from ee.vercel.integration import VercelIntegration
 
@@ -129,6 +143,7 @@ class OrganizationIntegrationViewSet(
                     integration_id=instance.integration_id,
                     error=str(e),
                 )
+                raise BillingDeauthorizationError()
 
         team_integrations_deleted = 0
         org_team_ids = Team.objects.filter(organization_id=instance.organization_id).values_list("id", flat=True)

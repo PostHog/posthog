@@ -11,7 +11,7 @@ rules:
     - match: '/capture/'
       owners: team-ingestion
     - match: '/common/cookieless/'
-      owners: team-web-analytics
+      owners: team-analytics
     - match: ['/common/symbol_data/', '/cymbal-proto/', '/cymbal/']
       owners: team-error-tracking
     - match: '/embedding-worker/'

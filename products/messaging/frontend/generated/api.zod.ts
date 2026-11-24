@@ -666,8 +666,8 @@ export const MessagingPreferencesRemoveOptOutCreateBody = /* @__PURE__ */ zod.ob
 })
 
 /**
- * Background imports from other messaging tools, such as Customer.io, Resend, SendGrid and Mailgun suppressions and
- * unsubscribes.
+ * Background imports from other messaging tools, such as Customer.io, Resend, SendGrid, Mailgun and Mailchimp
+ * suppressions and unsubscribes.
  *
  * A run executes outside the request, so a long provider list does not time out. Poll a run to show its progress.
  * @summary Start a background import from another messaging tool
@@ -680,12 +680,12 @@ export const messagingProviderImportsCreateBodySettingsMaxOne = 64
 
 export const MessagingProviderImportsCreateBody = /* @__PURE__ */ zod.object({
     provider: zod
-        .enum(['customerio', 'resend', 'postmark', 'sendgrid', 'mailgun'])
+        .enum(['customerio', 'resend', 'postmark', 'sendgrid', 'mailgun', 'mailchimp'])
         .describe(
-            '\* `customerio` - Customer.io\n\* `resend` - Resend\n\* `postmark` - Postmark\n\* `sendgrid` - SendGrid\n\* `mailgun` - Mailgun'
+            '\* `customerio` - Customer.io\n\* `resend` - Resend\n\* `postmark` - Postmark\n\* `sendgrid` - SendGrid\n\* `mailgun` - Mailgun\n\* `mailchimp` - Mailchimp'
         )
         .describe(
-            'The provider to import from.\n\n\* `customerio` - Customer.io\n\* `resend` - Resend\n\* `postmark` - Postmark\n\* `sendgrid` - SendGrid\n\* `mailgun` - Mailgun'
+            'The provider to import from.\n\n\* `customerio` - Customer.io\n\* `resend` - Resend\n\* `postmark` - Postmark\n\* `sendgrid` - SendGrid\n\* `mailgun` - Mailgun\n\* `mailchimp` - Mailchimp'
         ),
     steps: zod
         .array(zod.string().max(messagingProviderImportsCreateBodyStepsItemMax))
@@ -698,7 +698,7 @@ export const MessagingProviderImportsCreateBody = /* @__PURE__ */ zod.object({
         .max(messagingProviderImportsCreateBodyApiKeyMax)
         .optional()
         .describe(
-            "The provider's API key. For Customer.io, an App API key: leave it out to reuse the stored key. For Resend, a full access key. For Postmark, a server token or the account token. For SendGrid, a key with read access to the selected steps. For Mailgun, an account key that can read suppressions. PostHog deletes a Resend, Postmark, SendGrid or Mailgun key when the run ends, so send it every time."
+            "The provider's API key. For Customer.io, an App API key: leave it out to reuse the stored key. For Resend, a full access key. For Postmark, a server token or the account token. For SendGrid, a key with read access to the selected steps. For Mailgun, an account key that can read suppressions. For Mailchimp, a Marketing API key ending in its data center, such as -us21. PostHog deletes a Resend, Postmark, SendGrid, Mailgun or Mailchimp key when the run ends, so send it every time."
         ),
     settings: zod
         .record(zod.string(), zod.string().max(messagingProviderImportsCreateBodySettingsMaxOne))

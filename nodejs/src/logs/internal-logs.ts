@@ -47,6 +47,11 @@ export const INTERNAL_SOURCE_POLICIES: Readonly<Record<string, InternalSourcePol
     endpoints: { billed: false, teamRules: false, serviceName: 'posthog-internal-endpoints' },
     alert_destination: { billed: false, teamRules: false, serviceName: 'posthog-internal-alerts' },
     session_replay: { billed: false, teamRules: false, serviceName: 'posthog-internal-session-replay' },
+    warehouse_property_run: {
+        billed: false,
+        teamRules: false,
+        serviceName: 'posthog-internal-warehouse-properties',
+    },
 }
 
 type NotInternalReason =
