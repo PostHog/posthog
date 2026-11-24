@@ -1,8 +1,10 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
 from rest_framework import status
 
+from posthog.api.organization_integration import BillingDeauthorizationError
 from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_integration import OrganizationIntegration
@@ -132,8 +134,27 @@ class TestOrganizationIntegrationViewSet(APIBaseTest):
         self.assertFalse(OrganizationIntegration.objects.filter(id=self.integration_vercel.id).exists())
         self.assertFalse(Integration.objects.filter(id=team_integration.id).exists())
 
-    def test_delete_org_integration_blocked_when_billing_has_open_invoices(self):
+    @parameterized.expand(
+        [
+            (
+                "open_invoices",
+                status.HTTP_409_CONFLICT,
+                "Cannot uninstall billing provider: 1 unpaid invoice must be resolved first.",
+                False,
+            ),
+            ("billing_failure", status.HTTP_502_BAD_GATEWAY, BillingDeauthorizationError.default_detail, True),
+        ]
+    )
+    def test_delete_org_integration_kept_when_billing_deauthorization_fails(
+        self, error_kind, expected_status, expected_detail, expect_captured
+    ):
         from ee.billing.billing_manager import BillingServiceOpenInvoicesError
+
+        billing_error = (
+            BillingServiceOpenInvoicesError(expected_detail)
+            if error_kind == "open_invoices"
+            else RuntimeError("Billing service returned 500")
+        )
 
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
@@ -148,25 +169,41 @@ class TestOrganizationIntegrationViewSet(APIBaseTest):
             config={"type": "connectable"},
         )
 
-        billing_message = "Cannot uninstall billing provider: 1 unpaid invoice must be resolved first."
         url = f"/api/organizations/{self.organization.id}/integrations/{self.integration_vercel.id}/"
         with (
+            self.is_cloud(True),
             patch(
                 "ee.vercel.integration.VercelIntegration.delete_installation",
-                side_effect=BillingServiceOpenInvoicesError(billing_message),
+                side_effect=billing_error,
             ) as mock_delete_installation,
             patch("posthog.api.organization_integration.capture_exception") as mock_capture,
         ):
             response = self.client.delete(url)
 
-        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
-        self.assertEqual(response.json()["detail"], billing_message)
+        self.assertEqual(response.status_code, expected_status)
+        self.assertEqual(response.json()["detail"], expected_detail)
         mock_delete_installation.assert_called_once_with(self.integration_vercel.integration_id)
-        # An expected billing condition should not be reported as a crash.
-        mock_capture.assert_not_called()
+        self.assertEqual(mock_capture.called, expect_captured)
         # The local integration must survive so the UI disconnect can't sidestep the billing guard.
         self.assertTrue(OrganizationIntegration.objects.filter(id=self.integration_vercel.id).exists())
         self.assertTrue(Integration.objects.filter(id=team_integration.id).exists())
+
+    def test_delete_org_integration_skips_billing_off_cloud(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        url = f"/api/organizations/{self.organization.id}/integrations/{self.integration_vercel.id}/"
+        with (
+            self.is_cloud(False),
+            patch(
+                "ee.vercel.integration.VercelIntegration.delete_installation",
+                side_effect=RuntimeError("Billing service unreachable"),
+            ),
+        ):
+            response = self.client.delete(url)
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(OrganizationIntegration.objects.filter(id=self.integration_vercel.id).exists())
 
     def test_delete_organization_integration_unauthorized(self):
         self.client.logout()

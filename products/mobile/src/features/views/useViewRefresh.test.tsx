@@ -255,6 +255,169 @@ describe('useViewRefresh on a dashboard', () => {
         }
     }
 
+    test.each([
+        ['eligible', ['force_blocking']],
+        ['cooling', []],
+        ['unknown', []],
+        ['dashboard floor', []],
+        ['failed dashboard read', []],
+        ['expired cache', ['blocking']],
+    ] as const)('opening a dashboard with %s freshness', async (window, expectedModes) => {
+        const now = Date.now()
+        let snapshot: Freshness = {
+            ...oldValue(),
+            cacheTargetAge: new Date(now + 60_000).toISOString(),
+            nextAllowedRefreshAt: null,
+        }
+        const itemRead = jest.fn(async (_mode: RefreshMode) => OK)
+        const item: RefreshItem = {
+            key: 'dashboard-tile',
+            family: 'insights',
+            windowMode: 'force_cache',
+            snapshot: () => snapshot,
+            read: itemRead,
+        }
+        const props = options('7d', [item])
+        const { unmount } = renderHook(() =>
+            useViewRefresh({
+                ...props,
+                container: {
+                    ...dashboard('7d'),
+                    lastRefresh: () => (window === 'dashboard floor' ? new Date(now).toISOString() : null),
+                    read: async () => {
+                        await read('7d-dashboard', true)()
+                        snapshot = {
+                            ...snapshot,
+                            lastRefreshAt:
+                                window === 'dashboard floor' ? new Date(now).toISOString() : snapshot.lastRefreshAt,
+                            cacheTargetAge:
+                                window === 'expired cache' ? snapshot.lastRefreshAt : snapshot.cacheTargetAge,
+                            nextAllowedRefreshAt:
+                                window === 'unknown'
+                                    ? null
+                                    : new Date(now + (window === 'cooling' ? 60_000 : -60_000)).toISOString(),
+                        }
+                        return window === 'failed dashboard read' ? { status: 'failed', computed: false } : OK
+                    },
+                },
+            })
+        )
+        try {
+            await flush()
+            expect(itemRead).not.toHaveBeenCalled()
+            await settle('7d-dashboard')
+            expect(itemRead.mock.calls.map(([mode]) => mode)).toEqual(expectedModes)
+        } finally {
+            unmount()
+        }
+    })
+
+    test.each([
+        ['successful', ['force_blocking']],
+        ['failed', []],
+    ] as const)('opening a dashboard after a %s preview read', async (outcome, expectedModes) => {
+        const container = { ...dashboard('7d'), readAt: () => Date.now() }
+        if (outcome === 'failed') {
+            useItemErrors.getState().set(container.key, 'failed')
+        }
+        const itemRead = jest.fn(async (_mode: RefreshMode) => OK)
+        const items = tiles('7d', 1, false).map((item) => ({
+            ...item,
+            snapshot: () => ({ ...oldValue(), cacheTargetAge: new Date(Date.now() + 60_000).toISOString() }),
+            read: itemRead,
+        }))
+        const { unmount } = renderHook(() => useViewRefresh({ ...options('7d', items), container }))
+        try {
+            await flush()
+            expect(reads).toEqual([])
+            expect(itemRead.mock.calls.map(([mode]) => mode)).toEqual(expectedModes)
+        } finally {
+            unmount()
+        }
+    })
+
+    test('a dashboard refreshes on return, while scrolling uses the normal cache lifetime', async () => {
+        jest.useFakeTimers()
+        const itemRead = jest.fn(async (_mode: RefreshMode) => OK)
+        const items = tiles('7d', 2, false).map((item) => ({
+            ...item,
+            snapshot: () => ({
+                ...oldValue(),
+                cacheTargetAge: new Date(Date.now() + 60_000).toISOString(),
+            }),
+            read: itemRead,
+        }))
+        const props = { ...options('7d', items), visibleKeys: new Set(['7d-tile-0']) }
+        const { rerender, unmount } = renderHook((options: ViewRefreshOptions) => useViewRefresh(options), {
+            initialProps: props,
+        })
+        try {
+            await flush()
+            expect(itemRead.mock.calls.map(([mode]) => mode)).toEqual(['force_blocking'])
+
+            const scrolled = { ...props, visibleKeys: new Set(['7d-tile-1']) }
+            rerender(scrolled)
+            await flush()
+            expect(itemRead).toHaveBeenCalledTimes(1)
+
+            mockFocused = false
+            rerender(scrolled)
+            await act(async () => jest.advanceTimersByTimeAsync(READ_FLOOR_MS))
+            mockFocused = true
+            rerender(scrolled)
+            await flush()
+            expect(itemRead.mock.calls.map(([mode]) => mode)).toEqual(['force_blocking', 'force_blocking'])
+        } finally {
+            unmount()
+            jest.useRealTimers()
+        }
+    })
+
+    test('a visible dashboard refreshes eligible tiles after a minute in the background', async () => {
+        jest.useFakeTimers()
+        const now = Date.now()
+        const snapshot: Freshness = {
+            ...oldValue(),
+            cacheTargetAge: new Date(now + 600_000).toISOString(),
+            nextAllowedRefreshAt: new Date(now + 30_000).toISOString(),
+        }
+        const itemRead = jest.fn(async (_mode: RefreshMode) => OK)
+        const items = tiles('7d', 1, false).map((item) => ({ ...item, snapshot: () => snapshot, read: itemRead }))
+        let readAt: number | null = null
+        const container: RefreshContainer = {
+            ...dashboard('7d'),
+            readAt: () => readAt,
+            read: async () => {
+                readAt = Date.now()
+                return read('7d-dashboard', false)()
+            },
+        }
+        const { unmount } = renderHook(() => useViewRefresh({ ...options('7d', items), container }))
+        try {
+            await flush()
+            expect(reads).toEqual(['7d-dashboard'])
+            expect(itemRead).not.toHaveBeenCalled()
+
+            act(() => focusManager.setFocused(false))
+            await act(async () => jest.advanceTimersByTimeAsync(READ_FLOOR_MS - 1))
+            act(() => focusManager.setFocused(true))
+            await flush()
+            expect(reads).toEqual(['7d-dashboard'])
+            expect(itemRead).not.toHaveBeenCalled()
+
+            act(() => focusManager.setFocused(false))
+            await act(async () => jest.advanceTimersByTimeAsync(READ_FLOOR_MS))
+            act(() => focusManager.setFocused(true))
+            await flush()
+            expect(reads).toEqual(['7d-dashboard', '7d-dashboard'])
+            expect(itemRead.mock.calls.map(([mode]) => mode)).toEqual(['force_blocking'])
+        } finally {
+            unmount()
+            focusManager.setFocused(undefined)
+            jest.useRealTimers()
+        }
+    })
+
     test.each(['fresh list', 'refresh window', 'fast list', 'slow list', 'failed list'] as const)(
         'a pull gives feedback and settles with %s',
         async (scenario) => {

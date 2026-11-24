@@ -273,6 +273,26 @@ describe('dataCatalogMetricSceneLogic', () => {
     })
 
     it.each([
+        [404, false],
+        [500, true],
+    ])('reports a %s from loading the metric only when it is unexpected', async (status, reported) => {
+        const captureException = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
+        const loadError = new ApiError('Not found.', status)
+        ;(dataCatalogMetricsRetrieve as jest.Mock).mockRejectedValue(loadError)
+        const missingMetricLogic = dataCatalogMetricSceneLogic({ name: 'no_such_metric' })
+        try {
+            await expectLogic(missingMetricLogic, () => {
+                missingMetricLogic.mount()
+            }).toDispatchActions(['loadMetricFailure'])
+
+            expect(captureException.mock.calls.some(([error]) => error === loadError)).toBe(reported)
+        } finally {
+            missingMetricLogic.unmount()
+            captureException.mockRestore()
+        }
+    })
+
+    it.each([
         ['opens the data quality tab for its own metric', 'metric-1', 'data-quality'],
         ['stays put for another metric', 'metric-2', 'definition'],
     ])('when a toast asks to show run results, %s', (_, subjectId, expectedTab) => {

@@ -302,7 +302,7 @@ converted`)
         ])
         expect(capture).toHaveBeenCalledTimes(1)
 
-        connection.onOpen?.()
+        connection.onOpen?.(new Response(null))
         expect(connection.onError(error)).toBe(1000)
         expect(capture).toHaveBeenCalledTimes(2)
 

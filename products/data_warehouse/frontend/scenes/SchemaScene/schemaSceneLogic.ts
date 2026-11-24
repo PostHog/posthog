@@ -419,7 +419,7 @@ export const schemaSceneLogic = kea<schemaSceneLogicType>([
             }
             const turnsSyncingOn = schema.should_sync && !values.schemaData?.should_sync
             if (turnsSyncingOn && schema.pending_self_managed_table) {
-                confirmPendingSelfManagedSync(1, () => void runUpdate())
+                confirmPendingSelfManagedSync(() => void runUpdate())
                 return
             }
             await runUpdate()
@@ -459,7 +459,7 @@ export const schemaSceneLogic = kea<schemaSceneLogicType>([
                 }
             }
             if (schema.pending_self_managed_table) {
-                confirmPendingSelfManagedSync(1, () => void runReload())
+                confirmPendingSelfManagedSync(() => void runReload())
                 return
             }
             await runReload()

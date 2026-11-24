@@ -3,7 +3,7 @@
 The registry (`resources_with_object_access_controls`) walks the registered routes, so it cannot
 drift from the code: a viewset opts in by mixing in AccessControlViewSetMixin, which stamps the
 `object_access_controls` marker this module keys on. The naming helpers build the display names
-the settings UI and the resolution preview show for object rules.
+the settings UI shows for object rules.
 """
 
 from collections.abc import Callable, Collection
@@ -39,6 +39,10 @@ _MODELS_NOT_IN_ENTITY_MAP: dict[str, _ResourceDisplayModel] = {
     "action": _ResourceDisplayModel(app_label="actions", model_name="action", name_field="name"),
     "canvas": _ResourceDisplayModel(app_label="canvas", model_name="canvas", name_field="name"),
     "evaluation": _ResourceDisplayModel(app_label="ai_observability", model_name="evaluation", name_field="name"),
+    # The shared metric viewset serves facade contracts, so it has no queryset to derive a model from.
+    "experiment_saved_metric": _ResourceDisplayModel(
+        app_label="experiments", model_name="experimentsavedmetric", name_field="name"
+    ),
     "warehouse_view": _ResourceDisplayModel(
         app_label="data_modeling", model_name="datawarehousesavedquery", name_field="name"
     ),

@@ -39,9 +39,9 @@ const SESSIONS: Record<InstrumentationCheckStatusEnumApi, InstrumentationCheckAp
         key: AIObservabilityInstrumentationCheckEnumApi.Sessions,
         status: InstrumentationCheckStatusEnumApi.Pending,
         title: 'Sessions',
-        detail: 'Still collecting data. This check runs once there are 20 generations.',
+        detail: 'Waiting for your first generation. This check runs as soon as one arrives.',
         docs_url: SESSIONS_DOCS_URL,
-        stats: { generations: 4, events_with_session: 0, events_declining_session: 0 },
+        stats: { generations: 0, events_with_session: 0, events_declining_session: 0 },
     },
     dismissed: {
         key: AIObservabilityInstrumentationCheckEnumApi.Sessions,
@@ -109,9 +109,9 @@ const USER_IDENTITY: Record<InstrumentationCheckStatusEnumApi, InstrumentationCh
         key: AIObservabilityInstrumentationCheckEnumApi.UserIdentity,
         status: InstrumentationCheckStatusEnumApi.Pending,
         title: 'User identity',
-        detail: 'This check runs once there are 20 generations from a PostHog SDK. Generations sent over OpenTelemetry are not counted, because we cannot tell whether they are identified.',
+        detail: 'Waiting for your first generation from a PostHog SDK. Generations sent over OpenTelemetry are not counted, because we cannot tell whether they are identified.',
         docs_url: INSTALLATION_DOCS_URL,
-        stats: { sdk_generations: 4, sdk_generations_identified: 0 },
+        stats: { sdk_generations: 0, sdk_generations_identified: 0 },
     },
     dismissed: {
         key: AIObservabilityInstrumentationCheckEnumApi.UserIdentity,
@@ -144,9 +144,9 @@ const TRACE_STRUCTURE: Record<InstrumentationCheckStatusEnumApi, Instrumentation
         key: AIObservabilityInstrumentationCheckEnumApi.TraceStructure,
         status: InstrumentationCheckStatusEnumApi.Pending,
         title: 'Trace structure',
-        detail: 'Still collecting data. This check runs once there are 20 AI events.',
+        detail: 'Waiting for your first AI event. This check runs as soon as one arrives.',
         docs_url: INSTALLATION_DOCS_URL,
-        stats: { total_events: 6, spans: 0, events_with_parent: 0 },
+        stats: { total_events: 0, spans: 0, events_with_parent: 0 },
     },
     dismissed: {
         key: AIObservabilityInstrumentationCheckEnumApi.TraceStructure,
@@ -166,6 +166,13 @@ function checklist(
 ): InstrumentationChecklistApi {
     return {
         window_days: 30,
+        agent_prompt: null,
+        passing: [sessions, toolCalls, userIdentity, traceStructure].filter(
+            (status) =>
+                status === InstrumentationCheckStatusEnumApi.Ok ||
+                status === InstrumentationCheckStatusEnumApi.Dismissed
+        ).length,
+        total: 4,
         checks: [
             SESSIONS[sessions],
             TOOL_CALLS[toolCalls],

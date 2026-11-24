@@ -1,3 +1,4 @@
+import re
 import hmac
 import json
 import time
@@ -1333,6 +1334,70 @@ class TestAWSIntegration:
             # Default Redshift error message on {}
             or response.json()["detail"] == "Missing required inputs"
         )
+
+
+# Matches organization IDs (UUIDT, version nibble 0) but not uuid4.
+ORGANIZATION_SHAPED_EXTERNAL_ID = r"posthog-[0-9a-f]{8}-[0-9a-f]{4}-0[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}"
+
+
+class _ProbedSTS:
+    """Stands in for both STS clients: our own role hop, then the probes against the customer's role."""
+
+    CREDENTIALS = {"Credentials": {"AccessKeyId": "a", "SecretAccessKey": "s", "SessionToken": "t"}}
+
+    def __init__(self, random_probe: Exception | str) -> None:
+        # An exception to raise, "allow" for a role that trusts any ID, or a regex the role's trust policy matches.
+        self.random_probe = random_probe
+
+    def assume_role(self, *, RoleArn: str, RoleSessionName: str, **kwargs: Any) -> dict:
+        external_id = kwargs.get("ExternalId")
+        if "Policy" in kwargs or external_id == "posthog-org-1":
+            return self.CREDENTIALS
+        if external_id is not None:
+            if isinstance(self.random_probe, Exception):
+                raise self.random_probe
+            if self.random_probe == "allow" or re.fullmatch(self.random_probe, external_id):
+                return self.CREDENTIALS
+        raise _access_denied()
+
+
+def _access_denied() -> Exception:
+    from botocore.exceptions import ClientError
+
+    return ClientError({"Error": {"Code": "AccessDenied"}}, "AssumeRole")
+
+
+def _read_timeout() -> Exception:
+    from botocore.exceptions import ReadTimeoutError
+
+    return ReadTimeoutError(endpoint_url="https://sts.amazonaws.com")
+
+
+@pytest.mark.parametrize(
+    "random_probe,error",
+    [
+        (_access_denied(), None),
+        ("allow", "allows access without a required external id"),
+        (ORGANIZATION_SHAPED_EXTERNAL_ID, "allows access without a required external id"),
+        (_read_timeout(), "internal error"),
+    ],
+    ids=["denied", "allowed", "organization_shaped_wildcard", "timed_out"],
+)
+def test_validate_aws_role_arn_refuses_a_role_other_organizations_could_assume(
+    random_probe: Exception | str, error: str | None
+) -> None:
+    from posthog.models.integration import IntegrationError
+    from posthog.models.integration.aws import validate_aws_role_arn
+
+    sts = _ProbedSTS(random_probe)
+    session = MagicMock()
+    session.client.return_value = sts
+    with patch("boto3.client", return_value=sts), patch("boto3.Session", return_value=session):
+        if error is None:
+            validate_aws_role_arn("arn:aws:iam::123456789012:role/r", "arn:aws:iam::1:role/ours", "posthog-org-1")
+        else:
+            with pytest.raises(IntegrationError, match=error):
+                validate_aws_role_arn("arn:aws:iam::123456789012:role/r", "arn:aws:iam::1:role/ours", "posthog-org-1")
 
 
 class TestAWSRoleBasedIntegration:
