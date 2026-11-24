@@ -109,9 +109,10 @@ class TestResolveSandboxAiProduct:
         assert resolve_sandbox_ai_product("review_hog", "validation-c1") == "posthog_code"
         assert resolve_sandbox_ai_product("review_hog", None, internal=False) == "posthog_code"
 
-    def test_account_audit_requires_the_server_stamped_internal_flag(self):
-        assert resolve_sandbox_ai_product("account_audit", None, internal=True) == "account_audit"
-        assert resolve_sandbox_ai_product("account_audit", None, internal=False) == "posthog_code"
+    @pytest.mark.parametrize("origin_product", ["account_audit", "autoresearch"])
+    def test_reserved_origin_requires_the_server_stamped_internal_flag(self, origin_product):
+        assert resolve_sandbox_ai_product(origin_product, None, internal=True) == origin_product
+        assert resolve_sandbox_ai_product(origin_product, None, internal=False) == "posthog_code"
 
     def test_unmapped_internal_is_background_agents(self):
         assert resolve_sandbox_ai_product("image_builder", None, internal=True) == "background_agents"
@@ -339,7 +340,8 @@ class TestMintScopedToken:
         assert body["allowed_models"] == _PRODUCT_ALLOWED_MODELS["review_hog"]
 
     @pytest.mark.parametrize(
-        "product", ["posthog_ai", "account_audit", "background_agents", "review_hog", "slack_app", "workflows"]
+        "product",
+        ["posthog_ai", "account_audit", "autoresearch", "background_agents", "review_hog", "slack_app", "workflows"],
     )
     def test_model_pin_follows_the_catalog(self, product):
         from products.tasks.backend.facade.run_config import RuntimeAdapter, get_models_for_runtime_adapter
@@ -604,7 +606,6 @@ class TestMintableGate:
     @pytest.mark.parametrize(
         "origin_product,mints",
         [
-            ("autoresearch", True),
             ("business_knowledge", True),
             ("context_layer", True),
             ("knowledge_writer", True),
@@ -1491,6 +1492,24 @@ class TestMintRefusalScope:
         with patch(_CREDIT_LOOKUP, return_value="org_deactivated"):
             assert mint_refusal("workflows", team_id=2, state=None, model=None, runtime="acp") == "org_deactivated"
 
+    @pytest.mark.parametrize(
+        "product,origin,internal,expected",
+        [
+            ("account_audit", "account_audit", True, None),
+            ("account_audit", "account_audit", False, "no_account_audit_provenance"),
+            ("autoresearch", "autoresearch", True, None),
+            ("autoresearch", "autoresearch", False, "no_autoresearch_provenance"),
+            ("autoresearch", "business_knowledge", True, "no_autoresearch_provenance"),
+        ],
+    )
+    def test_reserved_product_requires_its_own_server_origin(self, product, origin, internal, expected):
+        assert (
+            mint_refusal(
+                product, team_id=2, state=None, model=None, runtime="acp", internal=internal, origin_product=origin
+            )
+            == expected
+        )
+
     @pytest.mark.parametrize("product", ["workflows", "review_hog", "signals_scout"])
     def test_slack_provenance_gate_leaves_other_products_alone(self, product):
         with patch(_CREDIT_LOOKUP, return_value=None):
@@ -1695,16 +1714,18 @@ class TestPosthogAiMint:
     [
         ("account_audit", True, True),
         ("account_audit", False, False),
+        ("autoresearch", True, True),
+        ("autoresearch", False, False),
     ],
 )
-def test_account_audit_cost_routing_requires_server_provenance(
+def test_reserved_origin_cost_routing_requires_server_provenance(
     settings: Settings, origin: str, internal: bool, mints: bool
 ) -> None:
     settings.SANDBOX_AI_GATEWAY_URL = "https://ai-gateway.example.com"
-    settings.SANDBOX_AI_GATEWAY_PRODUCTS = "account_audit"
+    settings.SANDBOX_AI_GATEWAY_PRODUCTS = origin
     settings.SANDBOX_AI_GATEWAY_MINT_KEY = "phs_test_mint"
-    # A non-internal account_audit origin resolves to posthog_code, which is unrouted here.
-    resolves_to_posthog_code = origin == "account_audit" and not internal
+    # A non-internal reserved origin resolves to posthog_code, which is unrouted here.
+    resolves_to_posthog_code = not internal
     with patch("products.tasks.backend.temporal.process_task.utils.mint_scoped_token", return_value="phe_test") as mint:
         refused = False
         try:
@@ -1717,7 +1738,7 @@ def test_account_audit_cost_routing_requires_server_provenance(
     assert ("AI_GATEWAY_TOKEN" in env) is mints
     assert mint.called is mints
     if mints:
-        mint.assert_called_once_with(ai_product="account_audit", team_id=123, user=None)
+        mint.assert_called_once_with(ai_product=origin, team_id=123, user=None)
 
 
 @pytest.mark.parametrize("internal", [True, False])

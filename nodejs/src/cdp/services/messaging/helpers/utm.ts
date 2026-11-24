@@ -256,6 +256,13 @@ export const addUtmTagsToEmail = (html: string, tags: UtmTags, siteUrl: string, 
     })
 }
 
+// A link signed over its whole query, such as a framework signed route or a presigned storage URL, fails
+// verification once a parameter is added or removed. A sent email cannot be fixed, so these stay as written.
+const SIGNATURE_PARAMS = new Set(['signature', 'sig', 'x-amz-signature', 'x-goog-signature', 'hmac', '_hash'])
+
+const isSigned = (parsed: URL): boolean =>
+    [...parsed.searchParams.keys()].some((key) => SIGNATURE_PARAMS.has(key.toLowerCase()))
+
 // The run tag always uses the fixed scanner: the legacy one only exists to keep UTM output unchanged for
 // teams outside CDP_EMAIL_UTM_LINK_SCANNER_TEAMS, and the run tag has its own allowlist.
 export const addWorkflowRunTagToEmail = (html: string, { runId, senderEmail, siteUrl }: WorkflowRunTag): string => {
@@ -264,16 +271,16 @@ export const addWorkflowRunTagToEmail = (html: string, { runId, senderEmail, sit
         return html
     }
     const siteHost = hostOf(siteUrl)
-    const isOnSenderDomain = (parsed: URL): boolean =>
-        parsed.host !== siteHost && registrableDomainOf(parsed.hostname) === senderDomain
+    const isTaggable = (parsed: URL): boolean =>
+        parsed.host !== siteHost && registrableDomainOf(parsed.hostname) === senderDomain && !isSigned(parsed)
     return addTagsToEmailLinks(html, {
         isOptedOut: (anchor) => isNeverClickTracked(anchor.html) || isOptedOutOfUtmTags(anchor),
         tagUrl: (url) => {
             if (runId !== null) {
-                return addTagsToUrl(removeWorkflowRunTag(url), { [WORKFLOW_RUN_PARAM]: runId }, isOnSenderDomain)
+                return addTagsToUrl(removeWorkflowRunTag(url), { [WORKFLOW_RUN_PARAM]: runId }, isTaggable)
             }
             const stripped = removeWorkflowRunTag(url)
-            return stripped !== url && parseTaggableUrl(stripped, isOnSenderDomain) ? stripped : null
+            return stripped !== url && parseTaggableUrl(stripped, isTaggable) ? stripped : null
         },
     })
 }
