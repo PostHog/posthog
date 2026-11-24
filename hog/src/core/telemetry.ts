@@ -4,6 +4,7 @@ import { z } from 'zod'
 import type { AccessKey } from '@/posthog/access-key'
 import { posthogFile, type Credentials } from '@/posthog/credentials'
 import { INGESTION_HOSTS } from '@/posthog/host'
+import { detectInstallMethod, type InstallKind } from '@/updates/install-method'
 import { VERSION } from '@/version'
 
 import type { Mode } from './agent'
@@ -97,6 +98,7 @@ export class Telemetry {
     private enabled: boolean
     private loggedIn: AccessKey | undefined
     readonly invocationId = randomUUID()
+    private installKind: Promise<InstallKind | null> | undefined
     commandName: string | undefined
     credentials: (() => Promise<Credentials>) | undefined
 
@@ -181,7 +183,12 @@ export class Telemetry {
                   distinctId: randomUUID(),
                   installId: '',
                   identified: false,
-                  properties: { ...this.commonProperties(), invocation_id: undefined, $process_person_profile: false },
+                  properties: {
+                      ...this.commonProperties(),
+                      install_method: await this.installMethod(),
+                      invocation_id: undefined,
+                      $process_person_profile: false,
+                  },
               }
         const sent = await this.post(
             [
@@ -219,6 +226,7 @@ export class Telemetry {
             identified: identity?.distinctId !== undefined,
             properties: {
                 ...this.commonProperties(),
+                install_method: await this.installMethod(),
                 install_id: installId,
                 // A self-hosted project ID means nothing in PostHog Cloud and would tie the install to that instance.
                 env_id: key && isCloudHost(key.host) ? key.projectId : null,
@@ -330,6 +338,15 @@ export class Telemetry {
             organization: project?.organization ?? user?.organization?.id,
             project: project?.uuid,
         }
+    }
+
+    // Only the kind leaves the machine: the path can hold a user name or a project's folder.
+    private installMethod(): Promise<InstallKind | null> {
+        this.installKind ??= detectInstallMethod(this.runtime).then(
+            (method) => method.kind,
+            () => null
+        )
+        return this.installKind
     }
 
     // A random ID kept next to the credentials, so usage counts machines instead of runs. It says

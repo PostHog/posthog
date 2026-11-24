@@ -1899,7 +1899,6 @@ export namespace Schemas {
      * * `subscription` - subscription
      * * `support_ticket` - support_ticket
      * * `survey` - survey
-     * * `tagger` - tagger
      * * `ticket` - ticket
      * * `task` - task
      * * `today` - today
@@ -2027,7 +2026,6 @@ export namespace Schemas {
       Subscription: 'subscription',
       SupportTicket: 'support_ticket',
       Survey: 'survey',
-      Tagger: 'tagger',
       Ticket: 'ticket',
       Task: 'task',
       Today: 'today',
@@ -2155,7 +2153,6 @@ export namespace Schemas {
        * * `subscription` - subscription
        * * `support_ticket` - support_ticket
        * * `survey` - survey
-       * * `tagger` - tagger
        * * `ticket` - ticket
        * * `task` - task
        * * `today` - today
@@ -2406,7 +2403,6 @@ export namespace Schemas {
        * * `subscription` - subscription
        * * `support_ticket` - support_ticket
        * * `survey` - survey
-       * * `tagger` - tagger
        * * `ticket` - ticket
        * * `task` - task
        * * `today` - today
@@ -2561,7 +2557,6 @@ export namespace Schemas {
      * * `session_recording_playlist` - session_recording_playlist
      * * `sharing_configuration` - sharing_configuration
      * * `survey` - survey
-     * * `tagger` - tagger
      * * `ticket` - ticket
      * * `toolbar` - toolbar
      * * `tracing` - tracing
@@ -2623,7 +2618,6 @@ export namespace Schemas {
       SessionRecordingPlaylist: 'session_recording_playlist',
       SharingConfiguration: 'sharing_configuration',
       Survey: 'survey',
-      Tagger: 'tagger',
       Ticket: 'ticket',
       Toolbar: 'toolbar',
       Tracing: 'tracing',
@@ -2688,7 +2682,6 @@ export namespace Schemas {
        * * `session_recording_playlist` - session_recording_playlist
        * * `sharing_configuration` - sharing_configuration
        * * `survey` - survey
-       * * `tagger` - tagger
        * * `ticket` - ticket
        * * `toolbar` - toolbar
        * * `tracing` - tracing
@@ -2829,7 +2822,6 @@ export namespace Schemas {
        * * `subscription` - subscription
        * * `support_ticket` - support_ticket
        * * `survey` - survey
-       * * `tagger` - tagger
        * * `ticket` - ticket
        * * `task` - task
        * * `today` - today
@@ -2963,7 +2955,6 @@ export namespace Schemas {
        * * `session_recording_playlist` - session_recording_playlist
        * * `sharing_configuration` - sharing_configuration
        * * `survey` - survey
-       * * `tagger` - tagger
        * * `ticket` - ticket
        * * `toolbar` - toolbar
        * * `tracing` - tracing
@@ -3053,7 +3044,6 @@ export namespace Schemas {
        * * `session_recording_playlist` - session_recording_playlist
        * * `sharing_configuration` - sharing_configuration
        * * `survey` - survey
-       * * `tagger` - tagger
        * * `ticket` - ticket
        * * `toolbar` - toolbar
        * * `tracing` - tracing
@@ -3485,6 +3475,8 @@ export namespace Schemas {
       propertyGroupsMode?: PropertyGroupsMode | null;
       pushDownPredicates?: boolean | null;
       s3TableUseInvalidColumns?: boolean | null;
+      /** Filter the sessions join of an events query by its session property filters and run it as a `GLOBAL LEFT JOIN`, so the sessions are read once instead of once per events shard. Applies only when every session filter is an equality or `IN` against non-empty strings, which are false for an event with no matching session. */
+      sessionFilterGlobalJoin?: boolean | null;
       /** Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter. */
       sessionIdPushdown?: boolean | null;
       /** Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`). */
@@ -75025,7 +75017,6 @@ export namespace Schemas {
        * * `subscription` - subscription
        * * `support_ticket` - support_ticket
        * * `survey` - survey
-       * * `tagger` - tagger
        * * `ticket` - ticket
        * * `task` - task
        * * `today` - today
@@ -106864,6 +106855,89 @@ export namespace Schemas {
       issue_url: string;
       /** Branch the pull request was opened from. */
       branch: string;
+    }
+
+    /**
+     * * `insight` - Insight
+     * * `hogql` - HogQL
+     */
+    export type QueryBatchLanguageEnum = typeof QueryBatchLanguageEnum[keyof typeof QueryBatchLanguageEnum];
+
+
+    export const QueryBatchLanguageEnum = {
+      Insight: 'insight',
+      Hogql: 'hogql',
+    } as const;
+
+    /**
+     * SQL variable values by variable ID, as `/query` takes in `variables_override`.
+     * @nullable
+     */
+    export type QueryBatchQueryVariables = { [key: string]: unknown } | null;
+
+    export interface QueryBatchTarget {
+      /**
+         * The panel's ID for this query. Not used for caching.
+         * @maxLength 200
+         */
+      refId: string;
+      /** 'insight': `query` is JSON `{query: <query node>, filters?, variables?}`, as a PostHog dashboard sends to `/query`. 'hogql': `query` is SQL that reads the time range through `{filters}`.
+       *
+       * * `insight` - Insight
+       * * `hogql` - HogQL */
+      language: QueryBatchLanguageEnum;
+      /**
+         * The query text, read according to `language`.
+         * @maxLength 200000
+         */
+      query: string;
+    }
+
+    export interface QueryBatchTime {
+      /**
+         * End of the range: `now`, `now-1h`, or ISO 8601.
+         * @maxLength 100
+         */
+      to: string;
+      /**
+         * Start of the range: `now-7d`, `now-30m`, or ISO 8601.
+         * @maxLength 100
+         */
+      from: string;
+    }
+
+    export interface QueryBatchQuery {
+      /** What to run. */
+      target: QueryBatchTarget;
+      /** The panel's time range. Relative expressions keep the cache key the same across reloads. */
+      time: QueryBatchTime;
+      /**
+         * SQL variable values by variable ID, as `/query` takes in `variables_override`.
+         * @nullable
+         */
+      variables?: QueryBatchQueryVariables;
+      /**
+         * For insight targets that have an interval: minute, hour, day, week, month, quarter or year.
+         * @maxLength 20
+         */
+      interval?: string;
+      /** Serve a stale cached result at once and recompute it in the background for the next read. */
+      swr?: boolean;
+      /** Answer from the cache only, stale or not. Never runs or refreshes the query. */
+      cacheOnly?: boolean;
+    }
+
+    export interface QueryBatchRequest {
+      /**
+         * The panels' queries, at most 500.
+         * @maxItems 500
+         */
+      queries: QueryBatchQuery[];
+      /**
+         * The dashboard these panels sit on. Its queries then run as that dashboard's tiles, under the dashboard query limits. Never read for anything else.
+         * @nullable
+         */
+      dashboard?: number | null;
     }
 
     export type QueryRequestVariablesOverride = {[key: string]: { [key: string]: unknown }} | null;
