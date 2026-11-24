@@ -7,6 +7,7 @@ Steps that read contacts walk a sorted list of targets, one per audience and con
 by offset. The checkpoint names the target and the offset, so a retried step continues where it stopped.
 """
 
+import re
 import html
 import json
 import hashlib
@@ -45,7 +46,7 @@ from products.messaging.backend.provider_imports.base import (
 )
 from products.messaging.backend.provider_imports.emails import exact_email, normalized_email
 from products.messaging.backend.provider_imports.imported_senders import apply_sender
-from products.messaging.backend.provider_imports.mailchimp_templates import convert_email
+from products.messaging.backend.provider_imports.mailchimp_templates import convert_email, convert_text
 from products.messaging.backend.services import mailchimp_client
 from products.messaging.backend.services.imported_data import (
     ImportedCategory,
@@ -92,6 +93,15 @@ RECENT_DAYS = 90
 UNSENT_STATUSES = frozenset({"save", "paused", "schedule"})
 CATEGORY_KEY_MAX_LENGTH = 64
 EMAILS_PER_PAGE = 10
+_PREVIEW_TAG = "*|MC_PREVIEW_TEXT|*"
+_MAILCHIMP_IMAGE = re.compile(
+    r"(?:src\s*=\s*[\"']?|background\s*=\s*[\"']?|url\(\s*[\"']?)(?:https?:)?//(?:[a-z0-9-]+\.)*(?:mcusercontent|mailchimp)\.com/",
+    re.IGNORECASE,
+)
+HOSTED_IMAGES_NOTE = (
+    "Mailchimp still hosts images in this email. Upload them to PostHog and replace them before you close your "
+    "Mailchimp account."
+)
 MAX_LIST_RESTARTS = 3
 # Bounds a worker's memory on a huge list. Past it, a restart counts the contacts it reads again twice, but skips none.
 MAX_REMEMBERED_CONTACTS = 100_000
@@ -142,6 +152,8 @@ class MailchimpImportProvider(ImportProvider):
         "Mailchimp fills merge tags such as *|COMPANY|* from the audience. PostHog reads *|FNAME|* and *|LNAME|* "
         "from the first_name and last_name person properties and every other tag from the property of the same "
         "name, so send those to PostHog for your people.",
+        "Mailchimp keeps hosting the images in your emails. Upload them to PostHog before you close your Mailchimp "
+        "account.",
         "Recipients see the imported audience and group names on the email preferences page. Rename any you don't "
         "want them to see.",
         "Once nothing sends through Mailchimp, delete the API key you created for this import.",
@@ -789,6 +801,9 @@ class _Email:
     from_name: str = ""
     from_email: str = ""
     description: str = ""
+    # What to review, besides what converting the email finds.
+    notes: tuple[str, ...] = ()
+    preview: str = ""
     # A saved template has no subject in Mailchimp, so it gets no note about one.
     has_subject: bool = True
     # Why there's nothing to import, when there isn't.
@@ -857,10 +872,46 @@ def _fetch_templates(
     audiences = _audiences(client) if by_key else []
     # A saved template belongs to no audience. With only one, its footer tags can only mean that audience.
     fixed = _audience_tags(audiences[0]) if len(audiences) == 1 else {}
-    yield from _paged_emails(list(by_key), lambda key: _read_template(client, by_key[key], fixed), context, checkpoint)
+    made_from: dict[int, dict[str, Any]] | None = None
+
+    def newest_campaign(template_id: int) -> dict[str, Any] | None:
+        nonlocal made_from
+        if made_from is None:
+            made_from = _newest_campaign_by_template(client)
+        return made_from.get(template_id)
+
+    yield from _paged_emails(
+        list(by_key),
+        lambda key: _read_template(client, by_key[key], fixed, newest_campaign),
+        context,
+        checkpoint,
+    )
 
 
-def _read_template(client: MailchimpClient, template: Mapping[str, Any], fixed: Mapping[str, str]) -> _Email:
+def _newest_campaign_by_template(client: MailchimpClient) -> dict[int, dict[str, Any]]:
+    campaigns = client.all(
+        "/campaigns",
+        "campaigns",
+        {
+            "fields": "campaigns.id,campaigns.create_time,campaigns.settings,total_items",
+            "sort_field": "create_time",
+            "sort_dir": "ASC",
+        },
+    )
+    newest: dict[int, dict[str, Any]] = {}
+    for campaign in campaigns:
+        template_id = _as_dict(campaign.get("settings")).get("template_id")
+        if isinstance(template_id, int) and template_id and campaign.get("id"):
+            newest[template_id] = campaign
+    return newest
+
+
+def _read_template(
+    client: MailchimpClient,
+    template: Mapping[str, Any],
+    fixed: Mapping[str, str],
+    newest_campaign: Callable[[int], dict[str, Any] | None],
+) -> _Email:
     template_id = int(template["id"])
     key = f"mailchimp-template-{template_id}"
     label = (_clean(template.get("name")) or f"Template {template_id}")[:400]
@@ -868,14 +919,24 @@ def _read_template(client: MailchimpClient, template: Mapping[str, Any], fixed: 
         content = client.get(f"/templates/{template_id}/default-content")
     except MailchimpNotFound:
         return _Email(key=key, label=label, missing=True)
-    body = content.get("html")
-    if not isinstance(body, str) or not body.strip():
+    body = _clean(content.get("html"))
+    notes: tuple[str, ...] = ()
+    if not body.strip() and (campaign := newest_campaign(template_id)):
+        body = _campaign_html(client, str(campaign["id"]))
+        settings = _as_dict(campaign.get("settings"))
+        title = _clean(settings.get("title")) or _clean(settings.get("subject_line")) or str(campaign["id"])
+        notes = (
+            f"Mailchimp's API doesn't share a saved template's own HTML, so this is the email of {title}, the newest "
+            "campaign made from it. Check for text that belongs only to that campaign.",
+        )
+    if not body.strip():
         return _Email(
             key=key,
             label=label,
             skipped=(
-                "Mailchimp's API doesn't share this template's HTML. In Mailchimp, export the template as HTML, then "
-                "paste it into a new PostHog template."
+                "Mailchimp's API doesn't share this template's HTML, and no campaign was made from it. In Mailchimp, "
+                "export the template as HTML, then paste it into a new PostHog template. Or create a campaign from it "
+                "and import again."
             ),
         )
     return _Email(
@@ -885,8 +946,16 @@ def _read_template(client: MailchimpClient, template: Mapping[str, Any], fixed: 
         # A saved template has no preview text, so a condition on it is false.
         fixed={**fixed, "MC_PREVIEW_TEXT": ""},
         description="Imported from Mailchimp.",
+        notes=notes,
         has_subject=False,
     )
+
+
+def _campaign_html(client: MailchimpClient, campaign_id: str) -> str:
+    try:
+        return _clean(client.get(f"/campaigns/{quoted(campaign_id)}/content", {"fields": "html"}).get("html"))
+    except MailchimpNotFound:
+        return ""
 
 
 def _campaign_selected(campaign: Mapping[str, Any], choice: str, now: datetime) -> bool:
@@ -980,8 +1049,12 @@ def _read_campaign(
     # Text with merge tags would land in the body unconverted, so its tag stays as written for a person to fix.
     if subject and "*|" not in subject:
         fixed["MC:SUBJECT"] = subject
+    shows_preview = _PREVIEW_TAG in body
+    if "*|" in preview:
+        # Put in as written, so its merge tags convert with the rest of the body.
+        body = body.replace(_PREVIEW_TAG, html.escape(preview))
     # An empty preview text is still known, so a condition on it is false. One with merge tags isn't empty, so a
-    # condition on it is true while the tag itself stays as written.
+    # condition on it is true.
     fixed["MC_PREVIEW_TEXT"] = None if "*|" in preview else preview
     status = _clean(campaign.get("status"))
     sent_at = _timestamp(campaign.get("send_time"))
@@ -995,6 +1068,8 @@ def _read_campaign(
         fixed=fixed,
         from_name=_clean(settings.get("from_name")),
         from_email=_clean(settings.get("reply_to")),
+        # A body that shows the preview text itself would show it twice.
+        preview="" if shows_preview else preview,
         description=" ".join((f"Imported from the Mailchimp campaign {label}.{sent}", *extra_notes)),
     )
 
@@ -1047,10 +1122,17 @@ def _save_emails(context: ImportContext, emails: list[_Email]) -> SavedPage:
         email: dict[str, Any] = with_editor_design({"subject": converted.subject, "html": converted.html})
         if converted.text:
             email["text"] = converted.text
+        preview_notes: tuple[str, ...] = ()
+        if source.preview:
+            preview = convert_text(source.preview, is_html=False)
+            email["preheader"] = preview.text
+            if preview.unsupported:
+                preview_notes = ("PostHog can't convert every merge tag in the preview text. Check it.",)
         sender_notes: tuple[str, ...] = ()
         if source.from_email:
             sender_notes = apply_sender(email, source.from_name, source.from_email, senders)
-        notes = (*converted.notes, *converted.send_notes, *sender_notes)
+        image_notes = (HOSTED_IMAGES_NOTE,) if _MAILCHIMP_IMAGE.search(source.html) else ()
+        notes = (*source.notes, *converted.notes, *preview_notes, *converted.send_notes, *image_notes, *sender_notes)
         fields = {
             "name": source.label,
             "key": source.key,

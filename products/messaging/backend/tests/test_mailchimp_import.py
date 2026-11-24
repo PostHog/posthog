@@ -14,7 +14,7 @@ from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.provider_import_run import ProviderImportRun
 from products.messaging.backend.provider_imports import runs
 from products.messaging.backend.provider_imports.base import ImportCredentialsInvalid, ImportProviderUnavailable
-from products.messaging.backend.provider_imports.mailchimp import MailchimpImportProvider
+from products.messaging.backend.provider_imports.mailchimp import HOSTED_IMAGES_NOTE, MailchimpImportProvider
 from products.messaging.backend.tests.fake_mailchimp import FULL_KEY, Failure, FakeMailchimp, split_url
 
 CLIENT = "products.messaging.backend.services.mailchimp_client"
@@ -138,6 +138,45 @@ class TestMailchimpImport(BaseTest):
         assert "A/B test with 2 variations. PostHog imported Short subject." in ab_test.description
         assert "no subject" not in ab_test.description
 
+    def test_a_template_whose_html_is_not_shared_comes_from_the_newest_campaign_made_from_it(self) -> None:
+        for number, created in ((1, "2026-09-01"), (2, "2026-09-03")):
+            self.mailchimp.data["campaigns"].append(
+                {
+                    "id": f"made{number}",
+                    "type": "regular",
+                    "status": "sent",
+                    "create_time": f"{created}T09:00:00+00:00",
+                    "send_time": f"{created}T10:00:00+00:00",
+                    "settings": {"title": f"Made {number}", "template_id": 102},
+                    "content": {"html": f'<p>Made {number} *|FNAME|*</p><img src="https://mcusercontent.com/1/a.png">'},
+                }
+            )
+
+        run = self._run(["templates"])
+
+        template = MessageTemplate.objects.get(team_id=self.team.id, key="mailchimp-template-102")
+        assert "<p>Made 2 {{ person.properties.first_name | escape | raw }}</p>" in template.content["email"]["html"]
+        item = next(item for item in run.progress["templates"]["items"] if item["label"] == "New builder template")
+        assert "the email of Made 2, the newest campaign made from it" in item["notes"][0]
+        assert HOSTED_IMAGES_NOTE in item["notes"]
+
+    @parameterized.expand(
+        [
+            ("not_in_the_body", "<p>Hi</p>", "Hi *|FNAME|*, news", "Hi {{ person.properties.first_name }}, news"),
+            ("already_in_the_body", "<p>*|MC_PREVIEW_TEXT|*</p>", "News", None),
+            ("none", "<p>Hi</p>", "", None),
+        ]
+    )
+    def test_preview_text_is_kept_once(self, _name: str, body: str, preview: str, expected: str | None) -> None:
+        campaign = self.mailchimp.data["campaigns"][0]
+        campaign["settings"]["preview_text"] = preview
+        campaign["content"]["html"] = body
+
+        self._run(["campaigns"])
+
+        email = MessageTemplate.objects.get(team_id=self.team.id, key="mailchimp-campaign-camp001").content["email"]
+        assert email.get("preheader") == expected
+
     def test_importing_again_adds_nothing(self) -> None:
         self._run()
         before = (
@@ -183,8 +222,8 @@ class TestMailchimpImport(BaseTest):
         if "camp003" in templates:
             html = templates["camp003"].content["email"]["html"]
             assert html == (
-                "<!--{% if true %}--><span>*|MC_PREVIEW_TEXT|*</span><!--{% endif %}-->{% if person.properties.first_name "
-                'and person.properties.first_name != "" %}<p>October {{ person.properties.first_name | escape | raw }}</p>'
+                "<!--{% if true %}--><span>{{ person.properties.first_name | escape | raw }}, our October news</span>"
+                '<!--{% endif %}-->{% if person.properties.first_name and person.properties.first_name != "" %}<p>October {{ person.properties.first_name | escape | raw }}</p>'
                 "{% endif %}"
             )
 

@@ -127,14 +127,14 @@ Follow the same steps, with these differences.
 
 **Campaigns.** Drafts, paused and scheduled campaigns import by default. Pass `campaigns: "recent"` to add campaigns sent in the last 90 days, or `"all"` for every campaign. Each becomes a draft template, so ask before importing years of sent campaigns.
 
-| Mailchimp                                               | In PostHog                                                    | What the team does                               |
-| ------------------------------------------------------- | ------------------------------------------------------------- | ------------------------------------------------ |
-| Audiences                                               | A category each, and opt-outs for who left                    | Builds the audience from its own data            |
-| Unsubscribed, pending, transactional, archived contacts | Opted out of that audience's category and its groups          | Nothing                                          |
-| Groups contacts can choose                              | A category each, opt-outs for who didn't choose it or left    | Puts the matching templates in that category     |
-| Cleaned contacts                                        | Suppression list, blocks all email                            | Reads the summary                                |
-| Abuse reports                                           | Suppression list, blocks marketing email only                 | Knows these people still get transactional email |
-| Saved templates                                         | Library templates in Liquid, when Mailchimp shares their HTML | Exports the rest as HTML from Mailchimp          |
-| Campaigns                                               | Library templates in Liquid                                   | Fixes the notes and sends a test                 |
+| Mailchimp                                               | In PostHog                                                  | What the team does                               |
+| ------------------------------------------------------- | ----------------------------------------------------------- | ------------------------------------------------ |
+| Audiences                                               | A category each, and opt-outs for who left                  | Builds the audience from its own data            |
+| Unsubscribed, pending, transactional, archived contacts | Opted out of that audience's category and its groups        | Nothing                                          |
+| Groups contacts can choose                              | A category each, opt-outs for who didn't choose it or left  | Puts the matching templates in that category     |
+| Cleaned contacts                                        | Suppression list, blocks all email                          | Reads the summary                                |
+| Abuse reports                                           | Suppression list, blocks marketing email only               | Knows these people still get transactional email |
+| Saved templates                                         | Library templates in Liquid, from a campaign made from each | Exports the rest as HTML from Mailchimp          |
+| Campaigns                                               | Library templates in Liquid                                 | Fixes the notes and sends a test                 |
 
-`*|FNAME|*`, `*|LNAME|*` and `*|EMAIL|*` read the person properties `first_name`, `last_name` and `email`. Other merge tags read the person property of the same name, such as `*|COMPANY|*` reading `COMPANY`, so the team sends those properties to PostHog for its people. Simple `*|IF:|*` conditions convert to Liquid. Any tag PostHog can't convert stays as written and is named in the template's notes. Hidden groups, customer journeys, classic automations, segments, tags, signup forms and reports stay behind.
+`*|FNAME|*`, `*|LNAME|*` and `*|EMAIL|*` read the person properties `first_name`, `last_name` and `email`. Other merge tags read the person property of the same name, such as `*|COMPANY|*` reading `COMPANY`, so the team sends those properties to PostHog for its people. Simple `*|IF:|*` conditions convert to Liquid. Any tag PostHog can't convert stays as written and is named in the template's notes. Images stay on Mailchimp's servers, so the team uploads them to PostHog before closing the account. Hidden groups, customer journeys, classic automations, segments, tags, signup forms and reports stay behind.
