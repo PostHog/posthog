@@ -1,3 +1,4 @@
+import { createHash } from 'crypto'
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
@@ -187,6 +188,9 @@ export class ConditionalBranchHandler implements ActionHandler {
         const isWait = action.type === 'wait_until_condition'
 
         if (conditionResult.scheduledAt) {
+            if (action.type === 'wait_until_condition' && invocation.state.currentAction) {
+                invocation.state.currentAction.parkedConditionHash = hashCondition(action.config.condition)
+            }
             if (rekeyWoken) {
                 counterHogflowRekeyWake.labels('reparked').inc()
             }
@@ -285,20 +289,33 @@ function conditionReferencesCohorts(condition: { filters?: unknown }): boolean {
     )
 }
 
+// Django can rewrite these without an edit, so they stay out of the condition hash.
+const DERIVED_FILTER_KEYS = new Set(['bytecode', 'bytecode_contract', 'bytecode_error', 'source'])
+
+function hashCondition(condition: { filters?: object | null } | undefined): string {
+    const authored = Object.entries(condition?.filters ?? {}).filter(([key]) => !DERIVED_FILTER_KEYS.has(key))
+    return createHash('sha256').update(JSON.stringify(authored)).digest('hex').slice(0, 16)
+}
+
 // True when this wait is being evaluated at or past the max_wait_duration it parked against.
 // calculatedScheduledAt returns null once that instant has passed, which is the same test the
-// timeout path uses. A wait that never parked, or that parked against a ceiling the flow has since
-// changed, reads false: neither is a wake the streams missed.
+// timeout path uses. A wait that never parked, or that parked against a ceiling or a condition the
+// flow has since changed, reads false: none of these is a wake the streams missed.
 function matchedAtMaxWait(
     invocation: CyclotronJobInvocationHogFlow,
     action: Extract<HogFlowAction, { type: 'conditional_branch' | 'wait_until_condition' }>
 ): boolean {
     const startedAtTimestamp = invocation.state.currentAction?.startedAtTimestamp
-    const maxWait = action.type === 'wait_until_condition' ? action.config.max_wait_duration : undefined
-    if (!startedAtTimestamp || !maxWait) {
+    if (action.type !== 'wait_until_condition' || !startedAtTimestamp || !action.config.max_wait_duration) {
         return false
     }
+    const maxWait = action.config.max_wait_duration
     if (invocation.state.currentAction?.parkedMaxWaitDuration !== maxWait) {
+        return false
+    }
+    // A run parked before this hash existed has none, and still counts.
+    const parkedConditionHash = invocation.state.currentAction.parkedConditionHash
+    if (parkedConditionHash !== undefined && parkedConditionHash !== hashCondition(action.config.condition)) {
         return false
     }
     try {
