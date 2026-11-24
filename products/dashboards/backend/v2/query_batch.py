@@ -75,6 +75,9 @@ MAX_OPEN_BATCHES = 16
 MAX_OPEN_BATCHES_PER_ORG = 4
 OPEN_WAIT_SECONDS = 10.0
 MAX_STREAM_SECONDS = 600.0
+# A stream that is still reading notices the deadline within a heartbeat and ends with timed-out lines, so only a
+# response still open after this long is cut.
+STALLED_RESPONSE_GRACE_SECONDS = 2 * HEARTBEAT_SECONDS
 _open_slots = BoundedSemaphore(MAX_OPEN_BATCHES)
 _org_open: dict[UUID, int] = {}
 _org_batches: dict[UUID, int] = {}
@@ -381,6 +384,8 @@ class QueryBatch:
         self._jobs: list[tuple[int, str, _Job]] = []
         self._queue: Queue[dict[str, Any]] = Queue()
         self._loop: asyncio.AbstractEventLoop | None = None
+        self._response: tuple[asyncio.AbstractEventLoop, asyncio.Task[Any]] | None = None
+        self._expired = False
         self._async_queue: asyncio.Queue[dict[str, Any]] | None = None
         self._pool: ThreadPoolExecutor | None = None
         self._futures: list[Future[None]] = []
@@ -403,7 +408,8 @@ class QueryBatch:
             self._open.release()
             raise
         # A client that stops reading parks the stream inside a send, where no deadline check runs, so a timer
-        # enforces it: it drops the held results, frees the run slot and cancels running queries.
+        # enforces it: it drops the held results, frees the run slot, cancels running queries and, under ASGI,
+        # ends the response.
         # A weak target, so a response dropped before it is iterated is still collected and its slot released.
         self._watchdog = Timer(max(0.0, self._deadline - monotonic()), _expire_if_alive, args=(weakref.ref(self),))
         self._watchdog.daemon = True
@@ -566,11 +572,35 @@ class QueryBatch:
         self.ready = [(index, _TIMED_OUT_BODY) for index, _body in self.ready]
 
     def _expire(self) -> None:
-        # The open slot stays held until the response closes. Dropping every buffered result is what keeps a stalled
-        # stream cheap, so a fresh batch admitted later is never added on top of results nobody will read.
+        # The open slot stays held until the response closes, because the server can still hold the last line it
+        # was given. Dropping every buffered result is what keeps a stalled stream cheap, so a fresh batch admitted
+        # later is never added on top of results nobody will read.
         self._drop_ready()
         self._close(False)
         self._drain_queues()
+        self._end_response()
+
+    def _end_response(self) -> None:
+        # Under ASGI the response is sent from the task that iterates `astream`. Cancelling that task ends a send
+        # that a stalled client has parked, so the server closes the connection and the stream's `finally` gives the
+        # open slot back. Under WSGI a parked write cannot be interrupted from another thread, so the slot stays
+        # held until the server or proxy times the connection out.
+        with self._lock:
+            self._expired = True
+            response = self._response
+        if response is None:
+            return
+        loop, task = response
+        try:
+            loop.call_soon_threadsafe(loop.call_later, STALLED_RESPONSE_GRACE_SECONDS, self._cancel_if_open, task)
+        except RuntimeError:
+            pass
+
+    def _cancel_if_open(self, task: asyncio.Task[Any]) -> None:
+        with self._lock:
+            still_open = self._response is not None
+        if still_open:
+            task.cancel()
 
     def _drain_queues(self) -> None:
         while True:
@@ -759,11 +789,22 @@ class QueryBatch:
             self._open.release()
 
     async def astream(self) -> AsyncIterator[bytes]:
+        task = asyncio.current_task()
+        if task is not None:
+            with self._lock:
+                self._response = (asyncio.get_running_loop(), task)
+                expired = self._expired
+            # The watchdog fired before the stream started, so it found no response to end.
+            if expired:
+                self._end_response()
         body = self._astream()
         try:
             async for chunk in body:
                 yield chunk
         finally:
+            # Cleared first, so a cancel scheduled by the watchdog cannot reach the request task after the stream ends.
+            with self._lock:
+                self._response = None
             self._watchdog.cancel()
             await body.aclose()
             self._open.release()
