@@ -122,7 +122,7 @@ beforeAll(async () => {
         ['names none', 'judy', 'fix(notebooks): change notebooks with no pull request'],
         ['names a pull request someone else opened', 'mallory', 'fix(notebooks): reuse a stack layer number (#10)'],
         ['names a merged pull request', 'alice', 'fix(notebooks): reuse a merged number (#2)'],
-    ]) {
+    ] as const) {
         execFileSync('git', ['checkout', '-q', '--detach', stackLayer], { cwd: repo })
         await commit(`products/notebooks/${author}.ts`, author, subject)
         unlinkedHeads[name] = revParse('HEAD')
