@@ -1561,6 +1561,12 @@ class TestClientOptions(SimpleTestCase):
                 {"authMechanism": "SCRAM-SHA-256", "authSource": "admin"},
             ),
             (
+                "srv_without_direct_connection",
+                "mongodb+srv://user:pw@cluster0.example.com/app?directConnection=false",
+                "mongodb+srv://user:pw@cluster0.example.com/app",
+                {"directConnection": "false"},
+            ),
+            (
                 "percent_encoded_value",
                 "mongodb://user:pw@db.example.com/db?appName=nightly%20import",
                 "mongodb://user:pw@db.example.com/db",
@@ -1591,13 +1597,18 @@ class TestClientOptions(SimpleTestCase):
             ("server_selection_timeout", "&serverSelectionTimeoutMS=1"),
             ("uuid_representation", "&uuidRepresentation=pythonLegacy"),
             ("ca_file", "&tlsCAFile=ca.pem"),
+            ("invalid_read_preference_tags", "&readPreferenceTags=dcny"),
+            ("invalid_read_preference", "&readPreference=bogus"),
+            ("invalid_boolean", "&directConnection=maybe"),
             # pymongo splits options on whitespace when the string has no `&` or `;`, but the client
             # never gets the options, so the text after the space is only part of the `tls` value.
             ("mechanism_after_a_space", " authMechanism=MONGODB-OIDC"),
             ("file_option_after_a_newline", "\ntlsCertificateKeyFile=c.pem"),
         ]
     )
-    def test_an_option_off_the_allowlist_has_no_effect_on_the_client(self, _name, options_after_tls):
+    def test_an_option_off_the_allowlist_or_with_an_invalid_value_has_no_effect_on_the_client(
+        self, _name, options_after_tls
+    ):
         # The URL sets tls=true, but the rule only matches it before `&` or the closing quote.
         # nosemgrep: trailofbits.generic.mongodb-insecure-transport.mongodb-insecure-transport
         call = self._client_call(f"mongodb://user:pw@db.example.com/db?tls=true{options_after_tls}")
@@ -1616,7 +1627,7 @@ class TestClientOptions(SimpleTestCase):
                 "&readPreferenceTags=dc:ny&maxStalenessSeconds=120&authSource=admin&authMechanism=SCRAM-SHA-256"
                 "&appName=import&tlsAllowInvalidHostnames=true&tlsAllowInvalidCertificates=true"
                 "&connectTimeoutMS=5000&socketTimeoutMS=5000&readConcernLevel=majority&compressors=zlib"
-                "&zlibCompressionLevel=5",
+                "&zlibCompressionLevel=5&timeoutMS=60000",
             ),
             # pymongo refuses tlsInsecure together with the two options it implies.
             ("tls_insecure", "tlsInsecure=true"),
@@ -1692,6 +1703,14 @@ class TestClientOptions(SimpleTestCase):
 
         # The resolver compares the limit with a host count, so the string "1" would fail there.
         assert resolver.call_args.args[2:] == ("analytics", 1)
+
+    def test_a_srv_string_cannot_ask_for_a_direct_connection(self):
+        with patch(f"{_MONGO_MODULE}.MongoClient") as client_class:
+            with pytest.raises(ConfigurationError, match="directConnection=true"):
+                with mongo_client("mongodb+srv://user:pw@cluster0.example.com/app?directConnection=true", team_id=1):
+                    pass
+
+        client_class.assert_not_called()
 
     def test_a_dns_txt_record_cannot_add_an_authentication_mechanism(self):
         resolver = MagicMock()

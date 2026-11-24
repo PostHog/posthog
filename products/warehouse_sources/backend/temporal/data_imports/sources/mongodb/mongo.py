@@ -22,10 +22,17 @@ from bson.dbref import DBRef
 from bson.json_util import JSONMode, JSONOptions
 from pymongo import ASCENDING, DESCENDING, MongoClient
 from pymongo.collection import Collection
-from pymongo.common import validate_non_negative_integer
+from pymongo.common import validate
 from pymongo.cursor import Cursor
 from pymongo.database import Database
-from pymongo.errors import CursorNotFound, ExecutionTimeout, OperationFailure, PyMongoError, ServerSelectionTimeoutError
+from pymongo.errors import (
+    ConfigurationError,
+    CursorNotFound,
+    ExecutionTimeout,
+    OperationFailure,
+    PyMongoError,
+    ServerSelectionTimeoutError,
+)
 from pymongo.server_description import ServerDescription
 from structlog.types import FilteringBoundLogger
 
@@ -357,6 +364,9 @@ UNSUPPORTED_FILE_OPTION_ERROR = "Connection string names a certificate file Post
 # gets the string without its options, so any other option has no effect: the ones a customer's
 # string usually carries (retryWrites, w, maxPoolSize) tune writes and the connection pool, which a
 # read-only import does not use. `tls` and `ssl` are not here because the client always uses TLS.
+# The three `tlsAllow*`/`tlsInsecure` options stay, because a DocumentDB cluster behind a load
+# balancer and a self-signed cluster cannot connect without them. They weaken only the connection
+# to the source owner's own server, which the owner chose.
 _ALLOWED_CLIENT_OPTIONS = {
     name.lower(): name
     for name in (
@@ -379,6 +389,7 @@ _ALLOWED_CLIENT_OPTIONS = {
         "tlsInsecure",
         "connectTimeoutMS",
         "socketTimeoutMS",
+        "timeoutMS",
     )
 }
 # Each occurrence adds a tag set. pymongo decodes the tags itself, so the value stays encoded.
@@ -386,6 +397,10 @@ _READ_PREFERENCE_TAGS_OPTION = "readpreferencetags"
 # pymongo gives this keyword to the SRV resolver before it validates keywords, and the resolver
 # compares it with a host count, so it must already be an int.
 _SRV_MAX_HOSTS_OPTION = "srvmaxhosts"
+# pymongo refuses this option for a `mongodb+srv` string only when the string carries it. As a
+# keyword it makes a Single topology, for which pymongo never calls `_make_safe_server_selector`.
+_DIRECT_CONNECTION_OPTION = "directconnection"
+_SRV_SCHEME = "mongodb+srv://"
 
 
 class UnsupportedConnectionOptionError(ValueError):
@@ -398,8 +413,8 @@ class UnsupportedAuthOptionError(UnsupportedConnectionOptionError):
 
 def _client_arguments(connection_string: str) -> tuple[str, dict[str, Any]]:
     """The string without its options, and the allowed options as keyword arguments. Raises when
-    the string names a file that has no replacement, or an authentication mechanism other than a
-    username and password."""
+    the string names a file that has no replacement, an authentication mechanism other than a
+    username and password, or `directConnection=true` on a `mongodb+srv` string."""
     # pymongo reads everything after the first `?` as options, so the address it gets has none.
     address, _, query = connection_string.partition("?")
     options: dict[str, Any] = {}
@@ -416,12 +431,20 @@ def _client_arguments(connection_string: str) -> tuple[str, dict[str, Any]]:
         name = _ALLOWED_CLIENT_OPTIONS.get(key)
         if name is None:
             continue
+        raw = value if key == _READ_PREFERENCE_TAGS_OPTION else unquote_plus(value)
+        # pymongo drops an option with an invalid value from the string and the client still opens,
+        # but it raises for the same value as a keyword. The validated value is not passed on,
+        # because pymongo validates keywords again and a timeout comes back in seconds, not ms.
+        try:
+            _, validated = validate(name, [raw] if key == _READ_PREFERENCE_TAGS_OPTION else raw)
+        except (ValueError, TypeError, ConfigurationError):
+            continue
+        if key == _DIRECT_CONNECTION_OPTION and validated and address.startswith(_SRV_SCHEME):
+            raise ConfigurationError(f"Cannot specify directConnection=true with {_SRV_SCHEME} URIs")
         if key == _READ_PREFERENCE_TAGS_OPTION:
-            options.setdefault(name, []).append(value)
-        elif key == _SRV_MAX_HOSTS_OPTION:
-            options[name] = validate_non_negative_integer(name, unquote_plus(value))
+            options.setdefault(name, []).append(raw)
         else:
-            options[name] = unquote_plus(value)
+            options[name] = validated if key == _SRV_MAX_HOSTS_OPTION else raw
     return address, options
 
 
