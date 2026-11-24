@@ -685,8 +685,7 @@ def _base58_encode(args: list[str]) -> str:
     value = "__hogql_base58_value"
     binary = f"to_utf8({value})"
     byte_count = f"length({binary})"
-    byte_positions = bounded_sequence("BIGINT '1'", byte_count)
-    positions = f"IF({byte_count} = 0, CAST(ARRAY[] AS ARRAY(BIGINT)), {byte_positions})"
+    positions = f"IF({byte_count} = 0, CAST(ARRAY[] AS ARRAY(BIGINT)), sequence(BIGINT '1', {byte_count}))"
     bytes_array = (
         f"transform({positions}, __hogql_base58_position -> "
         f"from_base(substr(to_hex({binary}), __hogql_base58_position * 2 - 1, 2), 16))"
@@ -1090,8 +1089,7 @@ def _has_subsequence(name: str, case_insensitive: bool, utf8: bool) -> Callable[
                 return f"regexp_extract_all({value}, '(?s).')"
             encoded = f"to_hex(to_utf8({value}))"
             count = f"length({encoded}) / 2"
-            candidates = bounded_sequence("1", f"greatest({count}, 1)")
-            indexes = f"filter({candidates}, __hogql_index -> __hogql_index <= {count})"
+            indexes = f"filter(sequence(1, greatest({count}, 1)), __hogql_index -> __hogql_index <= {count})"
             return f"transform({indexes}, __hogql_index -> substr({encoded}, 2 * __hogql_index - 1, 2))"
 
         haystack_characters = characters(haystack)
@@ -1326,8 +1324,10 @@ def _url_hierarchy(name: str, path_only: bool) -> Callable[[list[str]], str]:
             else f"__hogql_position = length({value})"
         )
         boundary = f"{slash_boundary} OR {marker_boundary} OR {terminal_boundary}"
-        candidates = bounded_sequence("1", f"greatest(length({value}), 1)")
-        positions = f"filter({candidates}, __hogql_position -> __hogql_position <= length({value}) AND ({boundary}))"
+        positions = (
+            f"filter(sequence(1, greatest(length({value}), 1)), "
+            f"__hogql_position -> __hogql_position <= length({value}) AND ({boundary}))"
+        )
         prefix = (
             f"substr({value}, {authority_length} + 1, __hogql_position - {authority_length})"
             if path_only
@@ -1495,8 +1495,10 @@ def _ngrams(args: list[str]) -> str:
     _require_args("ngrams", args, 2)
     value = "__hogql_ngram_args[1]"
     size = "CAST(__hogql_ngram_args[2] AS BIGINT)"
-    candidates = bounded_sequence("1", f"greatest(length({value}) - {size} + 1, 1)")
-    positions = f"filter({candidates}, __hogql_position -> __hogql_position <= length({value}) - {size} + 1)"
+    positions = (
+        f"filter(sequence(1, greatest(length({value}) - {size} + 1, 1)), "
+        f"__hogql_position -> __hogql_position <= length({value}) - {size} + 1)"
+    )
     result = f"transform({positions}, __hogql_position -> substr({value}, __hogql_position, {size}))"
     return (
         f"element_at(transform(ARRAY[ROW({args[0]}, {args[1]})], __hogql_ngram_args -> "

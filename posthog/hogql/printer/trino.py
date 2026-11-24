@@ -4659,8 +4659,7 @@ class TrinoPrinter(PostgresPrinter):
         def grams(value: str, label: str) -> str:
             size = f"length({value})"
             count = f"{size} - {gram_size - 1}"
-            candidates = bounded_sequence("1", f"greatest({count}, 1)")
-            indexes = f"filter({candidates}, {label}_index -> {label}_index <= {count})"
+            indexes = f"filter(sequence(1, greatest({count}, 1)), {label}_index -> {label}_index <= {count})"
             return f"transform({indexes}, {label}_index -> substr({value}, {label}_index, {gram_size}))"
 
         def frequencies(values: str, label: str) -> str:
