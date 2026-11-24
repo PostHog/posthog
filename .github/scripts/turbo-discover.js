@@ -377,9 +377,9 @@ function testlessProducts(testTasks) {
 // another product's facade) still cascades. Reuse it to compute who
 // transitively depends on a changed product's contract.
 //
-// hoglint_map.py pins hoglint in its PEP 723 block and runs under `uv run
+// hoglint_run.py pins hoglint in its PEP 723 block and runs under `uv run
 // --no-project`, so the callers need uv and nothing from the Python project.
-const HOGLINT_MAP_SCRIPT = path.join(__dirname, 'hoglint_map.py')
+const HOGLINT_RUN_SCRIPT = path.join(__dirname, 'hoglint_run.py')
 const PRODUCTS_DIR = 'products/'
 
 // Turbo package names are dashed; product directories are underscored. Every
@@ -511,7 +511,7 @@ function importDependents(changedProducts, moduleGraph, { direct = false } = {})
     return [...visited].map(moduleToProduct)
 }
 
-// Runs hoglint_map.py in repoRoot and returns the product graph, or null when uv
+// Runs `hoglint map` in repoRoot and returns the product graph, or null when uv
 // is missing, the run fails, or it prints something that is not the map. Callers
 // must treat null as "unknown dependents" and widen the matrix — never as "no
 // dependents", which would silently under-test exactly the contract changes
@@ -536,7 +536,7 @@ function loadImportGraph(repoRoot = process.cwd()) {
 function runHoglintMap(repoRoot) {
     let raw
     try {
-        raw = execFileSync('uv', ['run', '--no-project', HOGLINT_MAP_SCRIPT], { ...TURBO_EXEC_OPTS, cwd: repoRoot })
+        raw = execFileSync('uv', ['run', '--no-project', HOGLINT_RUN_SCRIPT, 'map'], { ...TURBO_EXEC_OPTS, cwd: repoRoot })
     } catch (e) {
         console.error(`::warning::hoglint map failed (${e.message}) — the dependent cascade widens to every product`)
         return null

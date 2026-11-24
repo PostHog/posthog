@@ -8,7 +8,7 @@ REPO_ROOT = SCRIPTS_DIR.parent.parent
 
 def pep723_hoglint_pin(script_text: str) -> str:
     match = re.search(r'^# dependencies = \[\s*"hoglint==([^"]+)"\s*\]', script_text, re.MULTILINE)
-    assert match is not None, "hoglint_map.py must pin exactly one dependency, hoglint==<version>"
+    assert match is not None, "hoglint_run.py must pin exactly one dependency, hoglint==<version>"
     return match.group(1)
 
 
@@ -21,10 +21,10 @@ def dev_group_hoglint_pin(pyproject_text: str) -> str:
     return pins[0]
 
 
-def test_hoglint_map_pins_the_dev_group_hoglint_version() -> None:
-    pinned = pep723_hoglint_pin((SCRIPTS_DIR / "hoglint_map.py").read_text())
+def test_hoglint_run_pins_the_dev_group_hoglint_version() -> None:
+    pinned = pep723_hoglint_pin((SCRIPTS_DIR / "hoglint_run.py").read_text())
     dev = dev_group_hoglint_pin((REPO_ROOT / "pyproject.toml").read_text())
     assert pinned == dev, (
-        f"hoglint_map.py pins hoglint=={pinned} but pyproject.toml's dev group pins hoglint=={dev}; "
+        f"hoglint_run.py pins hoglint=={pinned} but pyproject.toml's dev group pins hoglint=={dev}; "
         "bump both together so the import map comes from the hoglint that `hoglint compare` runs"
     )
