@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 
-import { Skeleton, Text, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
+import { Skeleton, Text, Tooltip, TooltipContent, TooltipTrigger, cn } from '@posthog/quill'
 
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
@@ -24,6 +24,13 @@ const EMPTY: Record<UsageKind, string> = {
     survey: 'No one answered in this period.',
 }
 
+const BARE_EMPTY: Record<UsageKind, string | null> = {
+    flag: 'Your code may not check this flag yet.',
+    experiment: null,
+    early_access: null,
+    survey: null,
+}
+
 const HEADER = 52
 const FOOTER = 8
 
@@ -32,18 +39,20 @@ export function ReleaseLaneUsageChart({
     scale,
     height,
     stickyOffset = 0,
+    bare = false,
 }: {
     target: UsageTarget
     scale: Scale
     height: number
     stickyOffset?: number
+    bare?: boolean
 }): JSX.Element {
     const { usage, usageLoading, insights } = useValues(
         releaseLaneUsageLogic({ target, from: scale.start.format('YYYY-MM-DD') })
     )
     const days = (usage?.days ?? []).filter((day) => !dayjs(day.day).isBefore(scale.start, 'day'))
     const peak = days.reduce((max, day) => (day.users > max.users ? day : max), { day: '', users: 0, total: 0 })
-    const area = height - HEADER - FOOTER
+    const area = height - (bare ? 0 : HEADER) - FOOTER
     const color = SPAN_LOOK[target.kind === 'early_access' ? 'early_access' : target.kind].color
 
     if (insights?.kind === 'experiment' && insights.metricName && insights.series.length) {
@@ -55,13 +64,28 @@ export function ReleaseLaneUsageChart({
                 scale={scale}
                 height={height}
                 stickyOffset={stickyOffset}
+                bare={bare}
             />
+        )
+    }
+
+    if (bare && !days.length) {
+        const text = usageLoading && !usage ? null : !usage ? 'Usage could not load.' : BARE_EMPTY[target.kind]
+        return text ? (
+            <Text size="xs" variant="muted">
+                {text}
+            </Text>
+        ) : (
+            <></>
         )
     }
 
     return (
         <div className="relative" style={{ height }} data-attr="release-lane-usage">
-            <div className="sticky z-10 flex w-fit flex-col px-3 pt-2" style={{ left: stickyOffset }}>
+            <div
+                className={cn('sticky z-10 flex w-fit flex-col px-3 pt-2', bare && 'hidden')}
+                style={{ left: stickyOffset }}
+            >
                 <Text size="xs" weight="medium">
                     {CAPTION[target.kind]}
                 </Text>

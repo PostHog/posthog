@@ -1,4 +1,4 @@
-import { Text, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
+import { Text, Tooltip, TooltipContent, TooltipTrigger, cn } from '@posthog/quill'
 
 import { dayjs } from 'lib/dayjs'
 
@@ -7,6 +7,7 @@ import { SPAN_LOOK, Scale, x } from './releaseTracks'
 
 const HEADER = 52
 const FOOTER = 8
+const LEGEND = 20
 
 function variantColor(variant: string, index: number): string {
     return variant === 'control'
@@ -25,6 +26,7 @@ export function ReleaseVariantChart({
     scale,
     height,
     stickyOffset = 0,
+    bare = false,
 }: {
     series: VariantPoint[]
     cumulative: boolean
@@ -32,6 +34,7 @@ export function ReleaseVariantChart({
     scale: Scale
     height: number
     stickyOffset?: number
+    bare?: boolean
 }): JSX.Element {
     const points = series.filter((point) => !dayjs(point.day).isBefore(scale.start, 'day'))
     const variants = [...new Set(points.map((point) => point.variant))].sort((a, b) =>
@@ -42,16 +45,21 @@ export function ReleaseVariantChart({
         byDay.set(point.day, (byDay.get(point.day) ?? new Map()).set(point.variant, point.value))
     }
     const peak = Math.max(0, ...points.map((point) => point.value))
-    const area = height - HEADER - FOOTER
+    const area = height - (bare ? LEGEND : HEADER) - FOOTER
     const group = Math.max(variants.length * 3, Math.round(scale.day * 0.7))
     const bar = Math.max(2, Math.floor(group / Math.max(1, variants.length)) - 1)
 
     return (
         <div className="relative" style={{ height }} data-attr="release-lane-variants">
-            <div className="sticky z-10 flex w-fit flex-col px-3 pt-2" style={{ left: stickyOffset }}>
-                <Text size="xs" weight="medium">
-                    {cumulative ? `${metricName}, so far` : `${metricName}, each day`}
-                </Text>
+            <div
+                className={cn('sticky z-10 flex w-fit flex-col', bare ? 'pt-0.5' : 'px-3 pt-2')}
+                style={{ left: stickyOffset }}
+            >
+                {!bare && (
+                    <Text size="xs" weight="medium">
+                        {cumulative ? `${metricName}, so far` : `${metricName}, each day`}
+                    </Text>
+                )}
                 <div className="flex items-center gap-3">
                     {variants.map((variant, index) => (
                         <span key={variant} className="flex items-center gap-1">
