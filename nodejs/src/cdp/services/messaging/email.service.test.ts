@@ -2223,8 +2223,10 @@ describe('EmailService', () => {
             let statusReader: KafkaConsumer
             let statusOffsetsBeforeSend: TopicPartitionOffset[]
             const socketsHeldInTheTlsHandshake = new Set<net.Socket>()
+            let clientHellosHeld = 0
             const tlsHandshakeThatNeverAnswers = net.createServer((socket) => {
-                socketsHeldInTheTlsHandshake.add(socket.resume())
+                socketsHeldInTheTlsHandshake.add(socket)
+                socket.once('data', () => clientHellosHeld++).resume()
             })
             let tlsHandshakeThatNeverAnswersPort: number
 
@@ -2951,7 +2953,7 @@ describe('EmailService', () => {
                 }
             )
 
-            it.each([
+            it.each<[string, (emailService: EmailService) => (() => boolean) | void]>([
                 [
                     'the bucket does not answer',
                     () => {
@@ -2976,6 +2978,7 @@ describe('EmailService', () => {
                 [
                     'the TLS handshake with SES does not finish',
                     (emailService: EmailService) => {
+                        const clientHellosBefore = clientHellosHeld
                         const handler = new NodeHttpHandler()
                         emailService.sesV2Client = sesClientFor(ses, {
                             requestHandler: {
@@ -2991,6 +2994,7 @@ describe('EmailService', () => {
                                     ),
                             },
                         })
+                        return () => clientHellosHeld > clientHellosBefore
                     },
                 ],
             ])(
@@ -2998,7 +3002,7 @@ describe('EmailService', () => {
                 async (_name, fault) => {
                     const emailService = sender({ attachmentSendDeadlineMs: 1000 })
                     const ownClient = emailService.sesV2Client
-                    fault(emailService)
+                    const reachedTheFault = fault(emailService)
 
                     const retry = await emailService.executeSendEmail(invocation)
                     expect({
@@ -3006,7 +3010,14 @@ describe('EmailService', () => {
                         error: retry.error,
                         retryLater: retry.invocation.queueScheduledAt!.toMillis() > Date.now(),
                         delivered: deliveredTo(ses, recipient),
-                    }).toEqual({ finished: false, error: undefined, retryLater: true, delivered: [] })
+                        reachedTheFault: reachedTheFault ? reachedTheFault() : true,
+                    }).toEqual({
+                        finished: false,
+                        error: undefined,
+                        retryLater: true,
+                        delivered: [],
+                        reachedTheFault: true,
+                    })
 
                     bucket.answer = 'pass'
                     ses.failWith(null)
