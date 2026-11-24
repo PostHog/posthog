@@ -1000,6 +1000,19 @@ class RowFilterColumnSerializer(serializers.Serializer):
     )
 
 
+LAST_CHECKED_AT_HELP_TEXT = (
+    "When the last successful sync of the source started, including runs that found no new rows. Use this, "
+    "not `last_synced_at`, to judge whether a table is stale: `last_synced_at` can stay put while every "
+    "run succeeds because the source has nothing new. Null until the first successful sync."
+)
+
+
+def last_checked_at_field() -> serializers.DateTimeField:
+    return serializers.DateTimeField(
+        source="last_check_started_at", read_only=True, allow_null=True, help_text=LAST_CHECKED_AT_HELP_TEXT
+    )
+
+
 class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     """A schema of an external data source: its sync configuration and the warehouse table it syncs into."""
 
@@ -1109,6 +1122,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "or fails for another reason, not when an update lands."
         ),
     )
+    last_checked_at = last_checked_at_field()
     webhook_not_registered = serializers.SerializerMethodField(
         read_only=True,
         help_text=(
@@ -1236,6 +1250,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "live_query_enabled",
             "live_query_unavailable_reason",
             "last_synced_at",
+            "last_checked_at",
             "latest_error",
             "incremental",
             "status",
@@ -1277,6 +1292,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "table",
             "table_id",
             "last_synced_at",
+            "last_checked_at",
             "latest_error",
             "status",
             "pending_self_managed_table",
@@ -2920,6 +2936,7 @@ class ExternalDataSchemaListSerializer(serializers.ModelSerializer):
     sync_frequency = serializers.SerializerMethodField(
         read_only=True, help_text="How often this table is scheduled to sync, or null if no interval is set."
     )
+    last_checked_at = last_checked_at_field()
 
     class Meta:
         model = ExternalDataSchema
@@ -2931,6 +2948,7 @@ class ExternalDataSchemaListSerializer(serializers.ModelSerializer):
             "status",
             "sync_type",
             "last_synced_at",
+            "last_checked_at",
             "sync_frequency",
             "latest_error",
             "table",
@@ -2999,6 +3017,7 @@ class ExternalDataSchemaSummarySerializer(serializers.ModelSerializer):
     """
 
     status = serializers.SerializerMethodField(read_only=True, help_text="Current sync status for this table.")
+    last_checked_at = last_checked_at_field()
     latest_error = serializers.SerializerMethodField(
         read_only=True,
         help_text=(
@@ -3009,7 +3028,7 @@ class ExternalDataSchemaSummarySerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ExternalDataSchema
-        fields = ["id", "name", "should_sync", "status", "last_synced_at", "latest_error"]
+        fields = ["id", "name", "should_sync", "status", "last_synced_at", "last_checked_at", "latest_error"]
         read_only_fields = fields
 
     @extend_schema_field(serializers.CharField(allow_null=True))
@@ -3042,6 +3061,7 @@ class ExternalDataSchemaCompactSerializer(ExternalDataSchemaSummarySerializer):
             "sync_type",
             "status",
             "last_synced_at",
+            "last_checked_at",
             "latest_error",
         ]
         read_only_fields = fields
@@ -3066,8 +3086,8 @@ class ExternalDataSchemaListQuerySerializer(serializers.Serializer):
         required=False,
         default=False,
         help_text=(
-            "Return one short row per table (id, name, source_id, should_sync, sync_type, status, last_synced_at "
-            "and a truncated latest_error) instead of the full sync configuration. Use it to check table health."
+            "Return one short row per table (id, name, source_id, should_sync, sync_type, status, last_synced_at, "
+            "last_checked_at and a truncated latest_error) instead of the full sync configuration. Use it to check table health."
         ),
     )
 
