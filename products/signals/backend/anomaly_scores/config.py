@@ -47,6 +47,9 @@ class IntervalScoring:
 class ScoringProfile:
     name: str
     intervals: dict[IntervalType, IntervalScoring]
+    # The name its stored models are kept under. Profiles with the same local part share it, so a project that
+    # moves between them keeps its models. Events still carry `name`.
+    model_profile: str
 
     def for_interval(self, interval: IntervalType) -> IntervalScoring | None:
         return self.intervals.get(interval)
@@ -74,6 +77,7 @@ def _zscore_and_judge(window: int) -> dict[str, Any]:
 
 DEFAULT_PROFILE = ScoringProfile(
     name="default-v1",
+    model_profile="default-v1",
     intervals={
         IntervalType.HOUR: IntervalScoring(min_points=336, detector=_zscore(336)),
         IntervalType.DAY: IntervalScoring(min_points=56, detector=_zscore(56)),
@@ -82,9 +86,10 @@ DEFAULT_PROFILE = ScoringProfile(
     },
 )
 
-# The local part is `default-v1`, so it flags the same buckets before the judge.
+# The local part is `default-v1`, so it flags the same buckets before the judge, and reads the same stored models.
 AI_JUDGE_PROFILE = ScoringProfile(
     name="default-v2",
+    model_profile=DEFAULT_PROFILE.model_profile,
     intervals={
         IntervalType.HOUR: IntervalScoring(min_points=336, detector=_zscore_and_judge(336)),
         IntervalType.DAY: IntervalScoring(min_points=56, detector=_zscore_and_judge(56)),

@@ -354,9 +354,14 @@ def supports_score_step(query: TrendsQuery) -> bool:
 
 
 def state_identity(query: TrendsQuery, scoring: IntervalScoring, team: Team, limits: ScoringLimits) -> StateIdentity:
+    """Stored artifacts are fits of the local part, so its version alone decides whether a stored model is current.
+
+    Profiles that differ only in their AI member get the same identity, and read each other's models.
+    """
+    local = dataclasses.replace(scoring, detector=split_ai_member(scoring.detector).local)
     return StateIdentity(
         interval=scoring_interval(query),
-        detector_version=detector_version(scoring, artifacts=True),
+        detector_version=detector_version(local, artifacts=True),
         query_hash=query_hash(query, team.timezone_info, limits),
     )
 

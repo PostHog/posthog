@@ -585,7 +585,7 @@ def _score_pick(input: ScoreInsightInput, now: datetime.datetime) -> ScoreInsigh
     team = Team.objects.get(id=pick.team_id)
     # Set before scoring, so a failure also waits for the cooldown instead of taking a slot on every tick.
     mark_attempted(pick.insight_id, ATTEMPT_COOLDOWN)
-    profile = resolve_profile(team, insight, input.ai_judge).name
+    model_profile = resolve_profile(team, insight, input.ai_judge).model_profile
     split = None
     if pick.run is not None:
         split = SplitRun()
@@ -600,7 +600,7 @@ def _score_pick(input: ScoreInsightInput, now: datetime.datetime) -> ScoreInsigh
                     insight_id=insight.id,
                     error=str(error)[:200],
                 )
-                invalidate_state(team, insight.id, profile)
+                invalidate_state(team, insight.id, model_profile)
                 record_failed(team.id, insight.id, now, ATTEMPT_COOLDOWN)
                 return ScoreInsightResult(status=STATUS_ARTIFACT_UNAVAILABLE, events=0, run=ScoringRun.SCORE)
     scores = score_insight(
@@ -616,7 +616,7 @@ def _score_pick(input: ScoreInsightInput, now: datetime.datetime) -> ScoreInsigh
     scores, ai_checks = judge_flags(scores, team=team, insight=insight, ai_judge=input.ai_judge)
     if scores.artifacts and scores.state is not None:
         # The blob goes first, so every event of this visit names a model that exists.
-        stored = write_artifacts(team.id, insight.id, profile, scores.artifacts)
+        stored = write_artifacts(team.id, insight.id, model_profile, scores.artifacts)
         scores = dataclasses.replace(
             scores,
             model_id=stored.model_id,
@@ -629,7 +629,7 @@ def _score_pick(input: ScoreInsightInput, now: datetime.datetime) -> ScoreInsigh
     # After the emit: a lost state write only scores buckets again, and their events collapse by uuid.
     # A state write before a failed emit would skip those buckets for good.
     if scores.state is not None:
-        save_state(team, insight.id, profile, scores.state)
+        save_state(team, insight.id, model_profile, scores.state)
     record_scored(
         team,
         insight.id,
