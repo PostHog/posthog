@@ -1,7 +1,6 @@
 import re
 from collections import Counter
 from html.parser import HTMLParser
-from urllib.parse import quote
 
 from posthog.dataclasses import frozen
 
@@ -39,8 +38,6 @@ VOID_TAGS = frozenset(
 LINK_SCHEMES = ("http://", "https://", "mailto:")
 # Matches ECMAScript \s so Django and CDP agree on {{ unsubscribe_url }}.
 _JS_WHITESPACE = r"[\t\n\v\f\r \u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000\uFEFF]"
-_C0_AND_SPACE = "".join(chr(code) for code in range(0x21))
-_URL_IGNORED_CHARS = str.maketrans("", "", "\t\r\n")
 UNSUBSCRIBE_PLACEHOLDER = re.compile(rf"\{{\{{{_JS_WHITESPACE}*unsubscribe_url{_JS_WHITESPACE}*\}}\}}")
 # Leading C0 controls/space match WHATWG URL trimming used by CDP's link check.
 _UNSUBSCRIBE_HREF_PREFIX = re.compile(rf"[\x00-\x20]*\{{\{{{_JS_WHITESPACE}*unsubscribe_url{_JS_WHITESPACE}*\}}\}}")
@@ -130,25 +127,10 @@ class _TextParser(HTMLParser):
         if href is not None:
             if href.startswith(LINK_SCHEMES):
                 self.open_links.append(_OpenLink(depth=len(self.open_tags), href=href, label_start=self.label_length))
-            elif (cleaned := self._clean_unsubscribe_link(href)) is not None:
+            elif self.keep_unsubscribe_link and _UNSUBSCRIBE_HREF_PREFIX.match(href) is not None:
                 self.open_links.append(
-                    _OpenLink(depth=len(self.open_tags), href=cleaned, label_start=self.label_length)
+                    _OpenLink(depth=len(self.open_tags), href="{{ unsubscribe_url }}", label_start=self.label_length)
                 )
-
-    def _clean_unsubscribe_link(self, href: str) -> str | None:
-        if not self.keep_unsubscribe_link:
-            return None
-        match = _UNSUBSCRIBE_HREF_PREFIX.match(href)
-        if match is None:
-            return None
-        rest = href[match.end() :]
-        prefix = href[: match.end()].strip(_C0_AND_SPACE).translate(_URL_IGNORED_CHARS)
-        if not rest.strip(_C0_AND_SPACE):
-            return prefix
-        if not rest.lstrip("\t\n\r").startswith(("?", "#")):
-            return None
-        suffix = WHITESPACE.sub(lambda m: quote(m.group(0)), rest.rstrip(_C0_AND_SPACE).translate(_URL_IGNORED_CHARS))
-        return f"{prefix}{suffix}"
 
     def _push(self, tag: str) -> None:
         self.open_tags.append(tag)

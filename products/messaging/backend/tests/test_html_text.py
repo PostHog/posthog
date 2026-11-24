@@ -34,7 +34,7 @@ class TestTextFromHtml(SimpleTestCase):
                 "marketing_send",
                 '<a href="{{unsubscribe_url}}">Unsubscribe</a>',
                 True,
-                "Unsubscribe ({{unsubscribe_url}})",
+                "Unsubscribe ({{ unsubscribe_url }})",
             ),
             (
                 "marketing_send_with_nbsp",
@@ -46,7 +46,7 @@ class TestTextFromHtml(SimpleTestCase):
                 "marketing_send_with_bom",
                 '<a href="{{\ufeffunsubscribe_url }}">Unsubscribe</a>',
                 True,
-                "Unsubscribe ({{\ufeffunsubscribe_url }})",
+                "Unsubscribe ({{ unsubscribe_url }})",
             ),
             (
                 "marketing_send_with_surrounding_bom",
@@ -67,52 +67,10 @@ class TestTextFromHtml(SimpleTestCase):
                 "Unsubscribe",
             ),
             (
-                "marketing_send_with_fragment",
-                '<a href="{{ unsubscribe_url }}#preferences">Unsubscribe</a>',
+                "marketing_send_with_query_keeps_bare_placeholder",
+                '<a href="{{ unsubscribe_url }}?utm_source=x">Unsubscribe</a>',
                 True,
-                "Unsubscribe ({{ unsubscribe_url }}#preferences)",
-            ),
-            (
-                "marketing_send_with_query_and_fragment",
-                '<a href="{{ unsubscribe_url }}?utm_source=email#preferences">Unsubscribe</a>',
-                True,
-                "Unsubscribe ({{ unsubscribe_url }}?utm_source=email#preferences)",
-            ),
-            (
-                "marketing_send_with_spaces_in_query_and_fragment",
-                '<a href="{{ unsubscribe_url }}?campaign=Fall  Launch#My  Prefs">Unsubscribe</a>',
-                True,
-                "Unsubscribe ({{ unsubscribe_url }}?campaign=Fall%20%20Launch#My%20%20Prefs)",
-            ),
-            (
-                "marketing_send_with_newline_in_query",
-                '<a href="{{ unsubscribe_url }}?utm_source=email\n&utm_medium=message">Unsubscribe</a>',
-                True,
-                "Unsubscribe ({{ unsubscribe_url }}?utm_source=email&utm_medium=message)",
-            ),
-            (
-                "marketing_send_with_newline_before_query",
-                '<a href="{{ unsubscribe_url }}\n?utm_source=email">Unsubscribe</a>',
-                True,
-                "Unsubscribe ({{ unsubscribe_url }}?utm_source=email)",
-            ),
-            (
-                "marketing_send_with_newline_in_fragment",
-                '<a href="{{ unsubscribe_url }}#pref\nerences">Unsubscribe</a>',
-                True,
-                "Unsubscribe ({{ unsubscribe_url }}#preferences)",
-            ),
-            (
-                "marketing_send_with_space_before_fragment",
-                '<a href="{{ unsubscribe_url }} #preferences">Unsubscribe</a>',
-                True,
-                "Unsubscribe",
-            ),
-            (
-                "marketing_send_with_extra_path_segment",
-                '<a href="{{ unsubscribe_url }}extra">Unsubscribe</a>',
-                True,
-                "Unsubscribe",
+                "Unsubscribe ({{ unsubscribe_url }})",
             ),
             ("transactional_send", '<a href="{{unsubscribe_url}}">Unsubscribe</a>', False, "Unsubscribe"),
         ]
