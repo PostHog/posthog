@@ -49,6 +49,11 @@ rust/persons_migrations/** @PostHog/team-ingestion
 # probe only verifies liveness, so PR review is the vendor-identity gate.
 products/mcp_store/backend/catalog.py @PostHog/team-context-and-mcp
 
+# The served-skills list decides which skills the MCP `learn` command gives to every customer's
+# agent. No check can tell whether a skill is written for a customer's agent, so PR review is
+# the only gate, and it comes from the team that answers for what those agents load.
+services/mcp/src/skills/served-skills.json @PostHog/team-context-and-mcp
+
 # Adding a line here exempts a product from isolation, so the full Django backend suite
 # keeps running on every change it makes — a cost paid by everyone, not just its team.
 # `hogli product:bootstrap` scaffolds a sealed product, so a new one should never need an
