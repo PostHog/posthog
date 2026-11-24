@@ -124,6 +124,7 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     loadTraceSpans: 'products.tracing.frontend.components.TraceDialog.traceDialogLogic', // The dialog shows its own retry
     loadTransactionalEmailOptions: 'products.workflows.frontend.Transactional.webhooks.deliveryWebhooksLogic',
     loadImpact: 'products.workflows.frontend.Transactional.impact.emailImpactLogic', // The funnel card shows its own retry
+    loadBroadcast: 'products.workflows.frontend.Broadcasts.broadcastWizardLogic', // The logic toasts its own load failure
     // The import window shows the refusal, and the run list keeps polling with its own retry
     startImport: 'products.workflows.providerImportLogic',
     loadImportRuns: 'products.workflows.providerImportLogic',
@@ -213,6 +214,7 @@ const NOT_FOUND_SELF_HANDLED = new Set([
 const NOT_FOUND_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
     // The workflow scene and the notebook node views that show the workflow render NotFound
     loadWorkflow: 'products.workflows.frontend.Workflows.workflowLogic',
+    loadBroadcast: 'products.workflows.frontend.Broadcasts.broadcastWizardLogic',
 }
 
 function isNotFoundSelfHandled(error: any, actionKey: string, logicPath: string): boolean {
