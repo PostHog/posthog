@@ -287,7 +287,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Published app layout. Cell content and results remain linked to the notebook. Null unpublishes the app."
+            "description": "Publish this layout with the saved notebook sources and input defaults. Null unpublishes the app."
         },
         "app_revision": {
             "description": "Current app revision. Required when saving or publishing a layout; stale revisions return 409.",
