@@ -4,6 +4,7 @@ from collections.abc import Collection, Iterable, Sequence
 from typing import TYPE_CHECKING, Any, Optional, cast
 from uuid import UUID
 
+from django.apps import apps
 from django.db import models
 from django.db.models import Count, Prefetch, Q, QuerySet, prefetch_related_objects
 
@@ -18,9 +19,13 @@ from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Tag, TaggedItem
 from posthog.models.activity_logging.activity_log import Change, Detail, LogActivityEntry, bulk_log_activity
 from posthog.models.tag import tagify
-from posthog.models.tagged_item_registry import content_type_for_entry, taggable_for_legacy_field
+from posthog.models.tagged_item_registry import TAGGABLE_MODELS, content_type_for_entry, taggable_for_legacy_field
+from posthog.permissions import is_service_auth
 
-from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
+from products.access_control.backend.facade.user_access_control import (
+    access_level_satisfied_for_resource,
+    model_to_resource,
+)
 
 if TYPE_CHECKING:
     from posthog.models.user import User
@@ -501,6 +506,10 @@ class TagListQuerySerializer(serializers.Serializer):
         return value
 
 
+# Mirrors the list rule in TeamAndOrgViewSetMixin, so counts match what an admin can list.
+RESOURCES_WITH_IMPLICIT_ADMIN_ACCESS = ("project", "dashboard", "feature_flag")
+
+
 class _TagCountPagination(BoundedLimitOffsetPagination):
     default_limit = 100
     max_limit = 100
@@ -563,13 +572,19 @@ class TaggedItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         if search:
             base_tags = base_tags.filter(name__icontains=search)
 
+        visible_tagged_items = self._get_visible_tagged_items_filter()
         if object_type is not None:
             entry = taggable_for_legacy_field(object_type)
             assert entry is not None
-            usage_count = Count("tagged_items", filter=Q(tagged_items__content_type=content_type_for_entry(entry)))
+            usage_count = Count(
+                "tagged_items",
+                filter=Q(tagged_items__content_type=content_type_for_entry(entry)) & visible_tagged_items,
+            )
         else:
-            usage_count = Count("tagged_items")
-        annotated_tags = base_tags.annotate(usage_count=usage_count, total_count=Count("tagged_items"))
+            usage_count = Count("tagged_items", filter=visible_tagged_items)
+        annotated_tags = base_tags.annotate(
+            usage_count=usage_count, total_count=Count("tagged_items", filter=visible_tagged_items)
+        )
 
         ordered_tags = annotated_tags.values("name", "usage_count", "total_count").order_by("-usage_count", "name")
         count_paginator = _TagCountPagination(total_count=base_tags.count())
@@ -583,3 +598,30 @@ class TaggedItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         else:
             results = [row["name"] for row in counted_page]
         return count_paginator.get_paginated_response(results)
+
+    def _get_visible_tagged_items_filter(self) -> Q:
+        visible = Q()
+        if is_service_auth(self.request):
+            return visible
+        for entry in TAGGABLE_MODELS:
+            model = apps.get_model(entry.model_label)
+            resource = model_to_resource(model)
+            if resource is None:
+                continue
+            include_all_if_admin = resource in RESOURCES_WITH_IMPLICIT_ADMIN_ACCESS
+            access = self.user_access_control.list_access_filter(resource, include_all_if_admin=include_all_if_admin)
+            if access is None or (not access.only_allowed and not access.blocked_ids):
+                continue
+            content_type = content_type_for_entry(entry)
+            tagged_objects = model._base_manager.filter(
+                pk__in=TaggedItem.objects.filter(team_id=self.team_id, content_type=content_type).values(
+                    entry.object_field
+                )
+            )
+            visible_objects = self.user_access_control.filter_queryset_by_access_level(
+                tagged_objects, include_all_if_admin=include_all_if_admin, resource=resource
+            )
+            visible &= ~Q(tagged_items__content_type=content_type) | Q(
+                **{f"tagged_items__{entry.object_field}__in": visible_objects.values("pk")}
+            )
+        return visible

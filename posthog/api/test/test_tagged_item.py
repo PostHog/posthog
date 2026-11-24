@@ -16,9 +16,11 @@ from posthog.api.tagged_item import (
     BulkUpdateTagsUUIDRequestSerializer,
     TagListQuerySerializer,
 )
+from posthog.constants import AvailableFeature
 from posthog.models import ActivityLog, Organization, Tag, Team
 from posthog.models.tagged_item import TaggedItem
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.product_analytics.backend.facade.models import Insight
 
@@ -172,6 +174,27 @@ class TestTaggedItemSerializerMixin(APIBaseTest):
         names_only = self.client.get(f"/api/projects/{self.team.id}/tags?search=churn&object_type=dashboard")
         assert names_only.status_code == status.HTTP_200_OK
         assert names_only.json()["results"] == ["churn-risk", "churn risk", "churn_risk"]
+
+    def test_list_tags_with_counts_skips_objects_the_user_cannot_view(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        visible = Dashboard.objects.create(team_id=self.team.id, name="visible")
+        restricted = Dashboard.objects.create(team_id=self.team.id, name="restricted")
+        insight = Insight.objects.create(team_id=self.team.id, name="i1")
+        tag = Tag.objects.create(name="churn-risk", team_id=self.team.id)
+        visible.tagged_items.create(tag=tag)
+        restricted.tagged_items.create(tag=tag)
+        insight.tagged_items.create(tag=tag)
+        AccessControl.objects.create(
+            team=self.team, resource="dashboard", resource_id=str(restricted.id), access_level="none"
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/tags?object_type=dashboard&include_counts=true")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"] == [{"tag": "churn-risk", "count": 1, "total_count": 2}]
 
     def test_list_tags_rejects_unknown_object_type(self) -> None:
         response = self.client.get(f"/api/projects/{self.team.id}/tags?object_type=not_a_model&include_counts=true")
