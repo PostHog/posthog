@@ -178,6 +178,7 @@ export function ReleaseTrackCard({ row }: { row: ReleaseRow }): JSX.Element {
     const stepsByFlag = useRolloutStepsByFlag(TRACK_MAX_FUTURE_DAYS)
     const { relatedByRelease } = useValues(releaseRelatedLogic)
     const related = relatedByRelease[row.id]
+    const hasInsights = (related?.insights.length ?? 0) > 0
     const track = useMemo(() => buildTrack(row, stepsByFlag, related), [row, stepsByFlag, related])
 
     const rows = useMemo(() => buildTrack(row, new Map(), related).lanes, [row, related])
@@ -260,11 +261,11 @@ export function ReleaseTrackCard({ row }: { row: ReleaseRow }): JSX.Element {
             ) : (
                 <div className="border-t border-border px-4 py-3">
                     <Text size="xs" variant="muted">
-                        Nothing linked yet.
+                        {hasInsights ? 'Nothing on the calendar yet.' : 'Nothing linked yet.'}
                     </Text>
                 </div>
             )}
-            {(canEditReleases || (related?.insights.length ?? 0) > 0) && (
+            {(canEditReleases || hasInsights) && (
                 <CardFooter className="flex flex-col items-stretch gap-3 border-t border-border">
                     <ReleaseLinkedInsights row={row} />
                     {canEditReleases && <ReleaseAddLinkCombobox row={row} />}
