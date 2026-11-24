@@ -169,15 +169,16 @@ describe('platformAlertFormat', () => {
         expect(listRowMute(row, new Date('2026-10-05T12:00:00Z'))).toEqual(expected)
     })
 
-    test.each<[string, boolean, number, number | null, string | null]>([
-        ['an alert with one group', true, 1, null, '2026-10-05T11:00:00Z'],
-        ['a disabled alert with one group', false, 1, null, null],
-        ['an alert with two groups', true, 2, null, null],
-        ['a group row', true, 2, 1, '2026-10-05T11:00:00Z'],
-    ])('listRowSince: %s', (_, enabled, groupCount, groupIndex, expected) => {
-        const alerts = Array.from({ length: groupCount }, () => ({
-            ...makeAlert(PlatformAlertStateApi.Firing),
-            firing_started_at: '2026-10-05T11:00:00Z',
+    test.each<[string, boolean, (string | null)[], number | null, string | null]>([
+        ['an alert with one group', true, ['2026-10-05T11:00:00Z'], null, '2026-10-05T11:00:00Z'],
+        ['an alert with one group that is not firing', true, [null], null, null],
+        ['a disabled alert with one group', false, ['2026-10-05T11:00:00Z'], null, null],
+        ['an alert with two groups', true, ['2026-10-05T10:00:00Z', '2026-10-05T11:00:00Z'], null, null],
+        ['a group row', true, ['2026-10-05T10:00:00Z', '2026-10-05T11:00:00Z'], 1, '2026-10-05T11:00:00Z'],
+    ])('listRowSince: %s', (_, enabled, groupStarts, groupIndex, expected) => {
+        const alerts = groupStarts.map((firing_started_at) => ({
+            ...makeAlert(firing_started_at ? PlatformAlertStateApi.Firing : PlatformAlertStateApi.NotFiring),
+            firing_started_at,
         }))
         const configuration = makeConfiguration({ enabled, alerts })
         const row: PlatformAlertListRow =
