@@ -15,6 +15,7 @@ import { WrappedCard } from '../WrappedCard'
 import { ARCHETYPE_HOGGIES } from '../wrappedTheme'
 
 const MCP_ANALYTICS_URL = 'https://posthog.com/mcp-analytics'
+const PERSONALITY_COUNT = Object.keys(ARCHETYPE_NAMES).length
 
 // Each number gets its own brand colour, so the list reads like a poster rather than a table.
 const STAT_ICONS = {
@@ -60,7 +61,7 @@ export const ShareCard = forwardRef<HTMLDivElement, { cards: MCPWrappedCardsApi;
         const Hoggie = ARCHETYPE_HOGGIES[archetype]
         const tiles = shareTiles(cards)
         return (
-            <WrappedCard ref={ref} cardKey="share" kicker={`MCP Wrapped · ${year}`} hideHoggie>
+            <WrappedCard ref={ref} cardKey="share" kicker={`MCP Wrapped ${year} · by PostHog`} hideHoggie>
                 <div className="MCPWrapped__rise">
                     <div className="text-base opacity-75">
                         <strong>{projectName}</strong>'s MCP server is
@@ -71,17 +72,18 @@ export const ShareCard = forwardRef<HTMLDivElement, { cards: MCPWrappedCardsApi;
                 </div>
                 <div className="MCPWrapped__pop flex flex-col items-center gap-1 text-center">
                     <div className="relative flex justify-center">
-                        <span className="absolute top-4 size-28 rounded-full bg-white/15 blur-2xl" />
-                        <Hoggie className="MCPWrapped__hero-hoggie relative size-32" loading="eager" />
+                        <span className="absolute top-6 size-32 rounded-full bg-white/15 blur-2xl" />
+                        <Hoggie className="MCPWrapped__hero-hoggie relative size-40" loading="eager" />
                     </div>
                     <p className="m-0 text-base font-bold">{ARCHETYPE_TAGLINES[archetype]}</p>
+                    <p className="m-0 text-xs opacity-60">One of {PERSONALITY_COUNT} MCP server personalities</p>
                 </div>
                 <dl className="MCPWrapped__rise m-0 grid grid-cols-2 gap-x-5">
                     {tiles.map((tile, index) => (
                         <div
                             key={tile.label}
                             className={cn(
-                                'flex min-w-0 items-center gap-2.5 border-t border-white/10 py-2',
+                                'flex min-w-0 items-center gap-2.5 border-t border-white/10 py-2.5',
                                 // An odd stat out spans the row, so the list stays balanced when data is missing.
                                 tiles.length % 2 === 1 && index === tiles.length - 1 && 'col-span-2'
                             )}
