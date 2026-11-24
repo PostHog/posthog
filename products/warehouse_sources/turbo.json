@@ -7,6 +7,7 @@
                 "backend/presentation/**",
                 "backend/cache.py",
                 "backend/routes.py",
+                "backend/source_status.py",
                 "backend/data_freshness.py",
                 "backend/integration_usages.py",
                 "backend/integration_hooks.py",
