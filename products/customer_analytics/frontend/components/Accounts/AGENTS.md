@@ -277,6 +277,9 @@ The page bootstrap carries flag values but no payloads, so the logic loads again
 The logic runs that endpoint through the generated `endpointsRunCreate` client with the account's external ID.
 `CONTEXT_COLUMNS` in `accountContextData.ts` lists every column the parser reads. A response without one of them shows an unreadable state and reports the missing names, so an endpoint change fails loudly instead of rendering blank cells.
 `accountContextData.ts` turns the returned rows into facts, signals, and internal Slack threads with plain-language labels.
+A signal shows its reason from an `explains` link and its notes from `acts_on` links. Renewal and credit runway signals are scheduled, so their empty state asks only for a note.
+Both signal views show the start date. The closed view also shows the close date and the number of days the signal stayed open.
+`topicColor` hashes a topic name to one of the 15 data color tokens, so one topic keeps one color on every fact and account. The tag stays neutral, and the color shows only in its glyph, so a topic never reads as a status.
 An account without an external ID, a viewer without access (403 or 404), an unreadable response, and a failed request each show their own state. Only a failed request offers a retry, and a 403 or 404 is not reported as an exception.
 The pane stores nothing in Customer analytics, so no account read, MCP tool, or agent context returns its rows. Its root carries `ph-no-capture`.
 The confirmed and inferred split, the filters, and pagination run client-side over one response. The tables set `useUrl: false`, and a filter change returns a table to its first page. Write actions render disabled until write-back exists.

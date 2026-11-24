@@ -45,9 +45,10 @@ from products.cohorts.backend.models.backfill import (
     CohortBackfillRunStatus,
     CohortBackfillTrigger,
 )
-from products.cohorts.backend.models.cohort import Cohort, CohortType
+from products.cohorts.backend.models.cohort import REALTIME_COHORT_MAX_PERSON_COUNT, Cohort, CohortType
 from products.cohorts.backend.models.dependencies import cohort_backfill_pending_key
-from products.cohorts.backend.parity.eligibility import behavioral_history_over_limit
+from products.cohorts.backend.models.leaf_shape import walk_filter_leaves
+from products.cohorts.backend.parity.eligibility import behavioral_history_over_limit, is_action_key
 from products.cohorts.backend.realtime_limits import max_realtime_history_days
 from products.cohorts.backend.realtime_teams import is_serving_team
 
@@ -68,6 +69,11 @@ class CohortRealtimeState(models.TextChoices):
 class CohortRealtimeUnavailableReason(models.TextChoices):
     HISTORY_OVER_LIMIT = "history_over_limit", "History over limit"
     TOO_LARGE_TO_BUILD = "too_large_to_build", "Too large to build"
+    UNSUPPORTED_CRITERIA = "unsupported_criteria", "Unsupported criteria"
+    ACTION_CRITERIA = "action_criteria", "Action criteria"
+    INCLUDES_NON_REALTIME_COHORT = "includes_non_realtime_cohort", "Includes a cohort that is not realtime"
+    MEMBERS_OVER_LIMIT = "members_over_limit", "Members over limit"
+    TEST_ACCOUNT_FILTER = "test_account_filter", "Test account filter"
 
 
 class CohortHistoryBuildPhase(models.TextChoices):
@@ -177,6 +183,55 @@ def _history_limit_to_report(
     return plan_history_days()
 
 
+def _criteria_reason(cohort: Cohort) -> tuple[bool, CohortRealtimeUnavailableReason | None]:
+    """Whether a save kept this cohort's criteria off realtime, and why, read from what saves stored on each criterion.
+
+    A save leaves bytecode or an error on every criterion it compiles, and neither on a reference to a cohort that
+    is not realtime. A save refuses a criterion that carries both, but what is stored can't say whether the bytecode
+    or the error is the stale one, so that criterion stops the cohort with no reason. A criterion with neither that
+    is not a cohort reference was never compiled, so what is stored can't say whether the criteria stop the cohort.
+    """
+    leaves = list(walk_filter_leaves((cohort.filters or {}).get("properties")))
+    if any(leaf.get("type") == "person_metadata" for leaf in leaves):
+        return True, CohortRealtimeUnavailableReason.UNSUPPORTED_CRITERIA
+    has_bytecode_and_error = any(leaf.get("bytecode") is not None and leaf.get("bytecode_error") for leaf in leaves)
+    uncompiled = [leaf for leaf in leaves if leaf.get("bytecode") is None]
+    if any(leaf.get("type") != "cohort" and not leaf.get("bytecode_error") for leaf in uncompiled):
+        return has_bytecode_and_error, None
+    refused = [leaf for leaf in uncompiled if leaf.get("bytecode_error")]
+    if any(leaf.get("type") == "behavioral" and is_action_key(leaf.get("key")) for leaf in refused):
+        return True, CohortRealtimeUnavailableReason.ACTION_CRITERIA
+    if refused:
+        return True, CohortRealtimeUnavailableReason.UNSUPPORTED_CRITERIA
+    if uncompiled:
+        return True, CohortRealtimeUnavailableReason.INCLUDES_NON_REALTIME_COHORT
+    return has_bytecode_and_error, None
+
+
+def _unavailable_reason(
+    cohort: Cohort, state: str, *, plan_history_days: Callable[[], int], today: date
+) -> tuple[CohortRealtimeUnavailableReason | None, int | None]:
+    """Why a settled cohort can't be realtime or can't be turned on, and the plan's history limit when that is why.
+
+    A ``daily`` cohort gets the first check that fails, in the order the save applies them, so fixing the reason
+    shown is never wasted on a cohort an earlier check still stops. A ``daily`` cohort whose criteria stop it with
+    no reason gets none, and no later check either, because fixing that check would leave the cohort ``daily``.
+    """
+    if state == CohortRealtimeState.DAILY:
+        criteria_stop_it, criteria_reason = _criteria_reason(cohort)
+        if criteria_stop_it:
+            return criteria_reason, None
+    history_limit_days = _history_limit_to_report(cohort, state, plan_history_days=plan_history_days, today=today)
+    if history_limit_days is not None:
+        return CohortRealtimeUnavailableReason.HISTORY_OVER_LIMIT, history_limit_days
+    if state == CohortRealtimeState.DAILY:
+        if (cohort.count or 0) > REALTIME_COHORT_MAX_PERSON_COUNT:
+            return CohortRealtimeUnavailableReason.MEMBERS_OVER_LIMIT, None
+        if (cohort.filters or {}).get("filterTestAccounts"):
+            return CohortRealtimeUnavailableReason.TEST_ACCOUNT_FILTER, None
+    return None, None
+
+
 def _pending_backfill_kinds(cohort: Cohort) -> set[str]:
     """The backfill kinds this cohort's current filters need and that have not stamped yet.
 
@@ -241,9 +296,9 @@ def _active_participations_per_cohort(
 def _queued_triggers(pairs: Sequence[tuple[int, str]]) -> dict[tuple[int, str], str] | None:
     """The trigger kind of the debounced run-creation task for each cohort and backfill kind asked for.
 
-    A save enqueues that task with a five-minute countdown, so for those five minutes the debounce
-    key is the only record that a build was asked for. Without it, every cohort would read as
-    `needs_attention` for the first five minutes after the edit that is about to rebuild it.
+    A save enqueues that task with a countdown, so during the countdown the debounce key is the only
+    record that a build was asked for. Without it, every cohort would read as `needs_attention` from
+    the edit that is about to rebuild it until the task creates the run.
 
     Returns None when the lookup itself failed, which is not the same answer as "no task is
     queued": the caller reports no state at all rather than asserting that nothing is preparing
@@ -370,7 +425,7 @@ def _resolve_for_team(team_id: int, cohorts: Sequence[Cohort]) -> dict[int, Coho
         if settled is None:
             pending.append(cohort)
         else:
-            history_limit_days = _history_limit_to_report(
+            reason, history_limit_days = _unavailable_reason(
                 cohort, settled, plan_history_days=plan_history_days, today=today
             )
             readiness[cohort.id] = CohortRealtimeReadiness(
@@ -379,7 +434,7 @@ def _resolve_for_team(team_id: int, cohorts: Sequence[Cohort]) -> dict[int, Coho
                 state=settled,
                 ready_at=cohort.realtime_ready_at if settled == CohortRealtimeState.READY else None,
                 build=None,
-                reason=CohortRealtimeUnavailableReason.HISTORY_OVER_LIMIT if history_limit_days is not None else None,
+                reason=reason,
                 history_limit_days=history_limit_days,
             )
 

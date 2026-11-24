@@ -67,7 +67,7 @@ filters:
         - products/alerts_platform/backend/temporal/metrics.py
         - products/alerts_platform/backend/temporal/telemetry.py
         - products/alerts_platform/backend/temporal/sources.py
-        - products/experiments/backend/temporal/recalculation_metrics.py
+        - products/experiments/backend/temporal/recalculation/metrics.py
         - products/logs/backend/temporal/metrics.py
         - products/logs/backend/temporal/volume_tick/metrics.py
         - products/tasks/backend/temporal/metrics.py
@@ -1243,6 +1243,8 @@ filters:
         - products/data_modeling/backend/facade/models.py
         - products/experiments/backend/temporal/registry.py
         - products/experiments/backend/temporal/models.py
+        - products/experiments/backend/temporal/recalculation/dispatch.py
+        - products/experiments/backend/temporal/recalculation/routing.py
         - 'products/experiments/backend/temporal/canary_*.py'
         - 'products/experiments/backend/temporal/enrollment_census_*.py'
         - 'products/experiments/backend/temporal/scheduled_recalculation_*.py'
