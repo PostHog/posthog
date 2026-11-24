@@ -166,13 +166,40 @@ export const EvaluationsNeedsSetup: ProductEmptyStateStory = productEmptyStateSt
     }
 )
 
-// Clusters detection is three-state: no AI events, AI events but no clustering run
-// yet, and runs. The default query mock answers the run query with no rows.
-export const ClustersNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(clustersEmptyState, 'needs-setup')
+export const ClustersNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(clustersEmptyState, 'needs-setup', {
+    mocks: {
+        get: {
+            '/api/projects/:team_id/llm_analytics/clustering_config/': {
+                enabled: false,
+                event_filters: [],
+                created_at: '2026-01-01T00:00:00Z',
+                updated_at: '2026-01-01T00:00:00Z',
+            },
+        },
+    },
+})
 
 export const ClustersWaitingForData: ProductEmptyStateStory = productEmptyStateStory(
     clustersEmptyState,
-    'waiting-for-data'
+    'waiting-for-data',
+    {
+        mocks: {
+            get: {
+                '/api/projects/:team_id/llm_analytics/clustering_config/': {
+                    enabled: true,
+                    event_filters: [],
+                    created_at: '2026-01-01T00:00:00Z',
+                    updated_at: '2026-01-01T00:00:00Z',
+                },
+                '/api/projects/:team_id/llm_analytics/clustering_jobs/': {
+                    results: [],
+                    count: 0,
+                    next: null,
+                    previous: null,
+                },
+            },
+        },
+    }
 )
 
 const businessKnowledgeNeedsSetup = productEmptyStateStory(businessKnowledgeEmptyState, 'needs-setup', {
@@ -184,6 +211,12 @@ const businessKnowledgeNeedsSetup = productEmptyStateStory(businessKnowledgeEmpt
                 { connected: false, integration_id: null, integration_name: '', repos: [] },
             ],
         },
+        post: {
+            '/api/environments/:team_id/query/:kind': async ({ request }) => {
+                const body = JSON.stringify(await request.json())
+                return [200, { results: body.includes('$host') ? [['hedgebox.net', 120]] : [] }]
+            },
+        },
     },
 })
 // With the flag on, the setup card also shows the step that connects a customer's own agent.
@@ -192,6 +225,11 @@ export const BusinessKnowledgeNeedsSetup: ProductEmptyStateStory = {
     parameters: {
         ...businessKnowledgeNeedsSetup.parameters,
         featureFlags: [FEATURE_FLAGS.BUSINESS_KNOWLEDGE_MCP],
+        testOptions: {
+            ...businessKnowledgeNeedsSetup.parameters?.testOptions,
+            // The suggested address comes from a mocked query after the first render.
+            waitForSelector: 'input[data-attr="business-knowledge-setup-website-url"][value="https://hedgebox.net"]',
+        },
     },
 }
 

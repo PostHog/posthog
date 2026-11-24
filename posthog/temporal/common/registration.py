@@ -5,7 +5,7 @@ with `load_product_modules`, so core imports no product's Temporal code by name.
 section of products/architecture.md.
 """
 
-from collections.abc import Callable, Coroutine
+from collections.abc import Callable, Coroutine, Iterable
 from functools import cache
 from typing import Any, Protocol
 
@@ -23,8 +23,10 @@ REGISTRATION_ATTRIBUTE = "TEMPORAL"
 
 
 class ActivityDefinition(Protocol):
-    # An activity is a sync or async function with any signature, so only the call shape is typed.
-    # The validator checks @activity.defn.
+    # An activity is a sync or async function with any signature, so only the call shape and the
+    # function name are typed. The validator checks @activity.defn.
+    __name__: str
+
     def __call__(self, *args: Any, **kwargs: Any) -> object: ...
 
 
@@ -46,6 +48,18 @@ class QueueBinding:
 class HistogramSpec:
     metric_name: str
     buckets: tuple[float, ...]
+    # The name of the `*_TASK_QUEUE` setting whose worker uses these buckets, or None for every worker.
+    queue_setting: str | None = None
+
+    @classmethod
+    def for_metrics(
+        cls, metric_names: Iterable[str], buckets: Iterable[float], queue_setting: str | None = None
+    ) -> tuple["HistogramSpec", ...]:
+        bucket_values = tuple(buckets)
+        return tuple(cls(metric_name=name, buckets=bucket_values, queue_setting=queue_setting) for name in metric_names)
+
+    def applies_to(self, task_queue: str) -> bool:
+        return self.queue_setting is None or getattr(settings, self.queue_setting) == task_queue
 
 
 # The scheduler calls a reconciler with a connected client. It creates, updates or deletes the
@@ -84,12 +98,16 @@ def _check_member(product: str, member: object, description: str) -> None:
         raise TemporalRegistrationError(f"{product} declares {description} {member!r}, which {owner} owns")
 
 
+def _check_queue_setting(product: str, queue_setting: str) -> None:
+    value = getattr(settings, queue_setting, None)
+    if not queue_setting.endswith("_TASK_QUEUE") or not isinstance(value, str) or not value:
+        raise TemporalRegistrationError(f"{product} binds to {queue_setting!r}, which is no task queue setting")
+
+
 def _check_binding(product: str, binding: object) -> None:
     if not isinstance(binding, QueueBinding):
         raise TemporalRegistrationError(f"{product} declares {binding!r} as a queue, but it is no QueueBinding")
-    value = getattr(settings, binding.queue_setting, None)
-    if not binding.queue_setting.endswith("_TASK_QUEUE") or not isinstance(value, str) or not value:
-        raise TemporalRegistrationError(f"{product} binds to {binding.queue_setting!r}, which is no task queue setting")
+    _check_queue_setting(product, binding.queue_setting)
     for workflow_class in binding.workflows:
         if workflow._Definition.from_class(workflow_class) is None:
             raise TemporalRegistrationError(f"{product} declares {workflow_class!r}, which has no @workflow.defn")
@@ -122,6 +140,8 @@ def validate_registration(product: str, registration: object) -> None:
     for histogram in registration.histograms:
         if not isinstance(histogram, HistogramSpec):
             raise TemporalRegistrationError(f"{product} declares {histogram!r}, which is no HistogramSpec")
+        if histogram.queue_setting is not None:
+            _check_queue_setting(product, histogram.queue_setting)
     for callback in (*registration.schedules, *registration.log_sources):
         if not callable(callback):
             raise TemporalRegistrationError(f"{product} declares {callback!r} as a callback, but it is not callable")
@@ -129,14 +149,18 @@ def validate_registration(product: str, registration: object) -> None:
 
 
 def _check_unique_histograms(registrations: dict[str, TemporalRegistration]) -> None:
-    declared: dict[str, str] = {}
+    # Two declarations may set buckets for one metric only on different queue settings. Under DEBUG and on a
+    # single-queue stack every setting resolves to one queue, so there the declaration that loads last wins.
+    declared: dict[str, list[tuple[str, str | None]]] = {}
     for product, registration in registrations.items():
         for histogram in registration.histograms:
-            other_product = declared.setdefault(histogram.metric_name, product)
-            if other_product != product:
-                raise TemporalRegistrationError(
-                    f"{product} and {other_product} both declare buckets for the metric {histogram.metric_name!r}"
-                )
+            claims = declared.setdefault(histogram.metric_name, [])
+            for other_product, other_queue in claims:
+                if None in (histogram.queue_setting, other_queue) or histogram.queue_setting == other_queue:
+                    raise TemporalRegistrationError(
+                        f"{product} and {other_product} both declare buckets for the metric {histogram.metric_name!r}"
+                    )
+            claims.append((product, histogram.queue_setting))
 
 
 class _NameClaims:
@@ -174,9 +198,10 @@ def load_registrations() -> dict[str, TemporalRegistration]:
         # Product apps are named `products.<product>.backend`.
         product = module.__name__.split(".")[1]
         declared = getattr(module, REGISTRATION_ATTRIBUTE, None)
-        # A product that still hands out WORKFLOWS and ACTIVITIES lists has no declaration yet.
         if declared is None:
-            continue
+            raise TemporalRegistrationError(
+                f"{product}: {REGISTRATION_MODULE} must declare {REGISTRATION_ATTRIBUTE}, or the worker hosts none of its code"
+            )
         validate_registration(product, declared)
         registrations[product] = declared
     _check_unique_histograms(registrations)

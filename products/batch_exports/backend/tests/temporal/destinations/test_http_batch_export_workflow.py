@@ -373,7 +373,7 @@ async def test_insert_into_http_activity_exports_mutation_properties_from_legacy
 
     with (
         unittest.mock.patch(
-            "products.batch_exports.backend.temporal.destinations.http_batch_export.use_new_events_schema",
+            "products.batch_exports.backend.temporal.destinations.http_batch_export.batch_exports_read_new_events_table",
             return_value=True,
         ),
         aioresponses(passthrough=[settings.CLICKHOUSE_HTTP_URL]) as responses,

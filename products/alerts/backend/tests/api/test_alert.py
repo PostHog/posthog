@@ -95,6 +95,7 @@ class TrendsInsightAPITest(APIBaseTest):
 
 class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
     def test_evaluation_delay_persists_and_patch_rejects_conflicts(self) -> None:
+        self._keep_the_team_on_insight()
         insight = self.create_trends_insight(interval="hour")
         response = self.client.post(
             f"/api/projects/{self.team.id}/alerts",
@@ -189,6 +190,7 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
             "insight_display_name": mock.ANY,
             "llm_detector_available": None,
             "pagerduty_available": False,
+            "destination_count": 0,
             "insight_short_id": mock.ANY,
             "last_notified_at": None,
             "name": "alert name",
@@ -1473,6 +1475,7 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
         expected_name: str | None,
         clears_next_check: bool,
     ) -> None:
+        self._keep_the_team_on_insight()
         creation_request = {
             "insight": self.insight["id"],
             "subscribed_users": [self.user.id],
@@ -3654,6 +3657,7 @@ class TestLLMDetectorValidation(TrendsInsightAPITest):
     @parameterized.expand([("instructions", "Only care about drops"), ("instructions", "Only drops")])
     @mock.patch("posthoganalytics.feature_enabled", return_value=True)
     def test_detector_edits_reset_state_and_schedule(self, field, value, _flag) -> None:
+        create_insight_alert(self.team, name="Kept on insight", enabled=False)
         config = {"type": "llm", "instructions": "Only drops"}
         created = self._create(config, calculation_interval="monthly")
         assert created.status_code == status.HTTP_201_CREATED, created.content

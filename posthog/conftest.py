@@ -162,6 +162,7 @@ def reset_clickhouse_tables():
     from posthog.models.app_metrics.sql import TRUNCATE_APP_METRICS_TABLE_SQL
     from posthog.models.channel_type.sql import TRUNCATE_CHANNEL_DEFINITION_TABLE_SQL
     from posthog.models.event.sql import (
+        TRUNCATE_EVENTS_JSON_RECENT_TABLE_SQL,
         TRUNCATE_EVENTS_JSON_TABLE_SQL,
         TRUNCATE_EVENTS_RECENT_TABLE_SQL,
         TRUNCATE_EVENTS_TABLE_SQL,
@@ -193,6 +194,7 @@ def reset_clickhouse_tables():
         TRUNCATE_EVENTS_TABLE_SQL(),
         TRUNCATE_EVENTS_JSON_TABLE_SQL(),
         TRUNCATE_EVENTS_RECENT_TABLE_SQL(),
+        TRUNCATE_EVENTS_JSON_RECENT_TABLE_SQL(),
         TRUNCATE_PERSON_TABLE_SQL,
         TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
         TRUNCATE_PERSON_DISTINCT_ID2_TABLE_SQL,
@@ -636,6 +638,7 @@ def mock_code_based_verifier(request, mocker):
         "posthog.helpers.two_factor_session.CodeBasedVerifier.should_send_code_based_verification",
         return_value=False,
     )
+    mocker.patch("posthog.api.authentication.social_require_idp_email_verification", return_value=None)
 
 
 class _JUnitTimingsPlugin:

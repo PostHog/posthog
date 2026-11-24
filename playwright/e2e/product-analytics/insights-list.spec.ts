@@ -6,7 +6,11 @@ test.describe('Insights list', () => {
     let workspace: PlaywrightWorkspaceSetupResult | null = null
 
     test.beforeAll(async ({ playwrightSetup }) => {
-        workspace = await playwrightSetup.createWorkspace({ use_current_time: true, skip_onboarding: true })
+        workspace = await playwrightSetup.createWorkspace({
+            use_current_time: true,
+            skip_onboarding: true,
+            no_demo_data: true,
+        })
     })
 
     test.beforeEach(async ({ page, playwrightSetup }) => {
@@ -27,11 +31,17 @@ test.describe('Insights list', () => {
 
         await test.step('search for the insight and navigate to it', async () => {
             await insight.goToList()
+            // The workspace has no demo data, so the unfiltered list already shows one row.
+            // The row count does not change when the search applies, so wait for the search URL and results.
+            const searchResponse = page.waitForResponse(
+                (response) =>
+                    response.url().includes('/insights/?') &&
+                    new URL(response.url()).searchParams.get('search') === insightName
+            )
             await page.getByPlaceholder('Search').fill(insightName)
+            await expect(page).toHaveURL((url) => url.searchParams.get('search') === insightName)
+            await searchResponse
 
-            // Wait for the table to settle with exactly one row containing our insight.
-            // This avoids a race where the search API response arrives mid-click,
-            // re-rendering the table and detaching the link element before navigation fires.
             const rows = page.locator('table tbody tr')
             await expect(rows).toHaveCount(1, { timeout: 10_000 })
 

@@ -173,9 +173,12 @@ def get_organization_personal_api_keys(organization: "Organization") -> QuerySet
     if not organization.members_can_use_personal_api_keys and organization.is_feature_available(
         AvailableFeature.ORGANIZATION_SECURITY_SETTINGS
     ):
-        membership &= Q(user__organization_membership__level__gte=OrganizationMembership.Level.ADMIN) | Q(
-            scopes__overlap=list(FEATURE_FLAG_DEFINITIONS_SCOPES)
+        admin_user_ids = (
+            OrganizationMembership.objects.with_effective_level()
+            .filter(organization=organization, resolved_level__gte=OrganizationMembership.Level.ADMIN)
+            .values("user_id")
         )
+        membership &= Q(user_id__in=admin_user_ids) | Q(scopes__overlap=list(FEATURE_FLAG_DEFINITIONS_SCOPES))
     team_ids = list(organization.teams.values_list("id", flat=True))
     return (
         PersonalAPIKey.objects.filter(membership, user__is_active=True)

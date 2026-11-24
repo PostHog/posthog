@@ -64,6 +64,7 @@ import {
   estimateTokens,
 } from "../claude/context-breakdown";
 import {
+  agentErrorRetryAfterMs,
   classifyAgentError,
   isRetryableUpstreamErrorClassification,
   rejectedRequestMessage,
@@ -199,9 +200,9 @@ type AppServerSessionMeta = {
   channelMode?: boolean;
   spokenNarration?: boolean;
   baseBranch?: string;
-  taskOriginProduct?: string;
-  endRunWhenDone?: boolean;
-  callerEndsRun?: boolean;
+  finishTool?: boolean;
+  finishReportRequired?: boolean;
+  reportActivityTool?: boolean;
   posthogExecPermissionRegex?: string;
   nativeGoal?: NativeGoalState;
 };
@@ -808,9 +809,9 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       taskRunId: meta.taskRunId,
       persistence: meta.persistence,
       baseBranch: meta.baseBranch,
-      taskOriginProduct: meta.taskOriginProduct,
-      endRunWhenDone: meta.endRunWhenDone === true,
-      callerEndsRun: meta.callerEndsRun === true,
+      finishTool: meta.finishTool === true,
+      finishReportRequired: meta.finishReportRequired === true,
+      reportActivityTool: meta.reportActivityTool === true,
     };
   }
 
@@ -2338,6 +2339,9 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       error: new RequestError(-32603, describeFatalError(message), {
         classification,
         result: sanitizeAgentErrorCause(message, classification),
+        ...(classification === "upstream_rate_limited"
+          ? { retryAfterMs: agentErrorRetryAfterMs(message) }
+          : {}),
         madeProgress: this.turnMadeProgress,
         ...(usage ? { usage } : {}),
       }),

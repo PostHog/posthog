@@ -82,8 +82,9 @@ class TestListParams:
     @parameterized.expand(
         [
             ("holds", "/v1/holds", {"limit": (str(PAGE_SIZE),)}),
-            # The stores list documents no `limit` parameter.
+            # The stores and checkout forms lists document no `limit` parameter.
             ("stores", "/v1/stores", {}),
+            ("checkout_forms", "/v1/checkout_forms", {}),
         ]
     )
     def test_first_request(self, endpoint: str, path: str, expected_query: dict[str, tuple[str, ...]]) -> None:
@@ -132,24 +133,60 @@ class TestFanout:
         assert result.params("starting_after") == [None, None, "vc_9", None, "vo_2", None]
         assert result.params("limit") == [str(PAGE_SIZE)] * 6
 
-    def test_waitlist_signups_carry_the_event_series_id(self) -> None:
+    @parameterized.expand([("waitlist_signups",), ("event_series_overrides",)])
+    def test_event_series_children_carry_the_event_series_id(self, endpoint: str) -> None:
+        child = TICKET_TAILOR_ENDPOINTS[endpoint].path.rsplit("/", 1)[-1]
         result = _run(
             route(
                 {
                     "/v1/event_series": [_page([{"id": "es_1"}, {"id": "es_2"}])],
-                    "/v1/event_series/es_1/waitlist_signups": [_page([{"id": "ws_1", "event_id": "ev_1"}])],
-                    "/v1/event_series/es_2/waitlist_signups": [_page([{"id": "ws_2", "event_id": "ev_2"}])],
+                    f"/v1/event_series/es_1/{child}": [_page([{"id": "x_1", "name": "a"}])],
+                    # A series deleted after the listing was read.
+                    f"/v1/event_series/es_2/{child}": [ScriptedResponse(status=404, json={"message": "Not found"})],
                 }
             ),
-            "waitlist_signups",
+            endpoint,
         )
 
         assert result.raised is None
-        assert [(r["event_series_id"], r["id"], r["event_id"]) for r in result.rows] == [
-            ("es_1", "ws_1", "ev_1"),
-            ("es_2", "ws_2", "ev_2"),
-        ]
+        assert [(r["event_series_id"], r["id"], r["name"]) for r in result.rows] == [("es_1", "x_1", "a")]
         assert all("_event_series_id" not in r for r in result.rows)
+        assert result.params("limit") == [str(PAGE_SIZE)] * 3
+
+    def test_checkout_form_elements_walk_every_form_without_a_limit(self) -> None:
+        result = _run(
+            route(
+                {
+                    "/v1/checkout_forms": [
+                        _page([{"id": "cf_2"}], next_link="/v1/checkout_forms?starting_after=cf_2"),
+                        _page([{"id": "cf_1"}]),
+                    ],
+                    "/v1/checkout_forms/cf_2/elements": [
+                        _page(
+                            [{"id": "ce_3", "checkout_form_id": "cf_2", "type": "radio"}],
+                            next_link="/v1/checkout_forms/cf_2/elements?starting_after=ce_3",
+                        ),
+                        _page([{"id": "ce_2", "checkout_form_id": "cf_2", "type": "select"}]),
+                    ],
+                    "/v1/checkout_forms/cf_1/elements": [_page([])],
+                }
+            ),
+            "checkout_form_elements",
+        )
+
+        assert result.raised is None
+        assert [(r["checkout_form_id"], r["id"]) for r in result.rows] == [("cf_2", "ce_3"), ("cf_2", "ce_2")]
+        assert all("_checkout_forms_id" not in r for r in result.rows)
+        assert result.paths == [
+            "/v1/checkout_forms",
+            "/v1/checkout_forms/cf_2/elements",
+            "/v1/checkout_forms/cf_2/elements",
+            "/v1/checkout_forms",
+            "/v1/checkout_forms/cf_1/elements",
+        ]
+        assert result.params("starting_after") == [None, None, "ce_3", "cf_2", None]
+        # Neither list documents `limit`, so no request may carry it.
+        assert result.params("limit") == [None] * 5
 
     def test_resume_skips_finished_parents_and_continues_the_current_child(self) -> None:
         result = _run(

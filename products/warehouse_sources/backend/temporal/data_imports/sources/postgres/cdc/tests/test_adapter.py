@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.c
     PostgresCDCAdapter,
     _slot_setup_error_message,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import SSLRequiredError
 
 _ADAPTER = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter"
 _POSTGRES = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres"
@@ -497,6 +498,7 @@ class TestIsConnectionError:
             ("operational", psycopg.OperationalError("connection refused"), True),
             ("ssh_tunnel", BaseSSHTunnelForwarderError("could not open tunnel"), True),
             ("host_policy", HostNotAllowedError("resolves to a private address"), True),
+            ("ssl_required", SSLRequiredError("SSL/TLS connection is required"), True),
             ("programming_bug", ValueError("unexpected status shape"), False),
         ]
     )

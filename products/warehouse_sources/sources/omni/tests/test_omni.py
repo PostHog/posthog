@@ -209,14 +209,44 @@ class TestOmniSourceEndToEnd:
         assert result.raised is None
         assert result.params("cursor") == ["resumed-cursor"]
 
-    def test_connections_single_page_never_checkpoints(self) -> None:
+    @pytest.mark.parametrize(
+        "endpoint, path, selector, rows",
+        [
+            ("Connections", "/api/v1/connections", "connections", [{"id": "c1"}, {"id": "c2"}]),
+            ("Labels", "/api/v1/labels", "labels", [{"name": "Production"}, {"name": "Draft"}]),
+        ],
+    )
+    def test_single_page_endpoints_never_checkpoint(
+        self, endpoint: str, path: str, selector: str, rows: list[dict[str, Any]]
+    ) -> None:
+        result = self._driver().run(endpoint, [ScriptedResponse(json={selector: rows})])
+
+        assert result.raised is None
+        assert result.paths == [path]
+        assert result.rows == rows
+        assert result.saved_states == []
+
+    def test_ai_conversations_paginates_by_cursor(self) -> None:
         result = self._driver().run(
-            "Connections", [ScriptedResponse(json={"connections": [{"id": "c1"}, {"id": "c2"}]})]
+            "AiConversations",
+            [
+                ScriptedResponse(
+                    json={
+                        "pageInfo": {"hasNextPage": True, "nextCursor": "conv-cursor"},
+                        "records": [{"id": "a1", "userId": "u1"}],
+                    }
+                ),
+                ScriptedResponse(
+                    json={"pageInfo": {"hasNextPage": False, "nextCursor": None}, "records": [{"id": "a2"}]}
+                ),
+            ],
         )
 
         assert result.raised is None
-        assert result.rows == [{"id": "c1"}, {"id": "c2"}]
-        assert result.saved_states == []
+        assert result.paths == ["/api/v1/ai/conversations", "/api/v1/ai/conversations"]
+        assert [row["id"] for row in result.rows] == ["a1", "a2"]
+        assert result.params("cursor") == [None, "conv-cursor"]
+        assert result.saved_states == [OmniResumeConfig(cursor="conv-cursor")]
 
     def test_users_scim_pagination_checkpoints_start_index(self) -> None:
         result = self._driver().run(
@@ -344,6 +374,90 @@ class TestOmniSourceEndToEnd:
             "/v1/documents/d2/access-list",
         ]
 
+    @pytest.mark.parametrize(
+        "endpoint, parent_path, parent_body, children, expected_keys",
+        [
+            (
+                "UserModelRoles",
+                "/api/scim/v2/users",
+                {"Resources": [{"id": "u1"}, {"id": "u2"}], "itemsPerPage": 2, "totalResults": 2, "startIndex": 1},
+                {
+                    "/api/v1/users/u1/model-roles": ScriptedResponse(
+                        json={
+                            "membershipId": "m1",
+                            "results": [
+                                {"modelId": "mod1", "connectionId": "con1", "from": {"type": "User Role"}},
+                                {
+                                    "modelId": "mod1",
+                                    "connectionId": "con1",
+                                    "from": {"type": "Group Role", "miniUuid": "g1", "name": "Analysts", "depth": 0},
+                                },
+                                {"modelId": "mod1", "connectionId": "con1", "from": {"type": "Connection Base Role"}},
+                            ],
+                        }
+                    ),
+                    # A user removed between the listing and the roles fetch is skipped.
+                    "/api/v1/users/u2/model-roles": ScriptedResponse(status=404, json={"detail": "not found"}),
+                },
+                [
+                    ("u1", "mod1", "con1", "User Role", ""),
+                    ("u1", "mod1", "con1", "Group Role", "g1"),
+                    ("u1", "mod1", "con1", "Connection Base Role", ""),
+                ],
+            ),
+            (
+                "UserGroupModelRoles",
+                "/api/scim/v2/groups",
+                {"Resources": [{"id": "g1"}, {"id": "g2"}], "itemsPerPage": 2, "totalResults": 2, "startIndex": 1},
+                {
+                    "/api/v1/user-groups/g1/model-roles": ScriptedResponse(
+                        json={"userGroupId": "g1", "results": [{"modelId": "mod1", "connectionId": "con1"}]}
+                    ),
+                    "/api/v1/user-groups/g2/model-roles": ScriptedResponse(status=404, json={"detail": "not found"}),
+                },
+                [("g1", "mod1", "con1")],
+            ),
+            (
+                "FolderPermissions",
+                "/api/v1/folders",
+                {"pageInfo": {"hasNextPage": False, "nextCursor": None}, "records": [{"id": "f1"}, {"id": "f2"}]},
+                {
+                    "/api/v1/folders/f1/permissions": ScriptedResponse(
+                        json={
+                            "permits": [
+                                {"id": "u1", "userId": "u1", "type": "user"},
+                                {"id": "g1", "userGroupId": "g1", "type": "userGroup"},
+                                # An organization-wide permission carries only the deprecated `id`.
+                                {"id": "org1", "type": "user"},
+                            ]
+                        }
+                    ),
+                    # The key lacks Manager permission on this folder; it's skipped, not fatal.
+                    "/api/v1/folders/f2/permissions": ScriptedResponse(status=403, json={"status": 403}),
+                },
+                [("f1", "u1"), ("f1", "g1"), ("f1", "org1")],
+            ),
+        ],
+    )
+    def test_fanout_tables_key_rows_by_parent(
+        self,
+        endpoint: str,
+        parent_path: str,
+        parent_body: dict[str, Any],
+        children: dict[str, ScriptedResponse],
+        expected_keys: list[tuple[str, ...]],
+    ) -> None:
+        result = self._driver().run(
+            endpoint,
+            route({parent_path: [ScriptedResponse(json=parent_body)], **{path: [r] for path, r in children.items()}}),
+        )
+
+        assert result.raised is None
+        assert result.response is not None
+        primary_keys = result.response.primary_keys
+        assert primary_keys == PRIMARY_KEYS[endpoint]
+        assert [tuple(row[key] for key in primary_keys) for row in result.rows] == expected_keys
+
     @pytest.mark.parametrize("endpoint", [name for name in PRIMARY_KEYS if name not in FANOUT_ENDPOINTS])
     def test_response_metadata_per_endpoint(self, endpoint: str) -> None:
         selector = {
@@ -355,6 +469,8 @@ class TestOmniSourceEndToEnd:
             "UserGroups": "Resources",
             "Models": "records",
             "UserAttributes": "records",
+            "AiConversations": "records",
+            "Labels": "labels",
         }[endpoint]
         body = {"pageInfo": {"hasNextPage": False, "nextCursor": None}, selector: []}
         result = self._driver().run(endpoint, [ScriptedResponse(json=body)])

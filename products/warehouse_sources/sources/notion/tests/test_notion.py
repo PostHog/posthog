@@ -1,3 +1,4 @@
+import json
 from collections.abc import Callable
 from typing import Any, Optional, cast
 
@@ -10,7 +11,6 @@ from tenacity import RetryCallState
 
 from products.warehouse_sources.sources.notion._config import NotionSourceConfig
 from products.warehouse_sources.sources.notion.notion import (
-    ADMIN_TOKEN_FORBIDDEN_ERROR,
     ADMIN_TOKEN_INVALID_ERROR,
     ADMIN_TOKEN_MISSING_ERROR,
     MAX_BLOCK_DEPTH,
@@ -31,7 +31,8 @@ from products.warehouse_sources.sources.notion.notion import (
     _request,
     _search_body,
     _wait_strategy,
-    check_permission_groups_access,
+    admin_scope_missing_error,
+    check_admin_endpoints_access,
     validate_credentials,
 )
 from products.warehouse_sources.sources.notion.source import NotionSource
@@ -221,24 +222,120 @@ class TestNotion:
         assert [t.num_rows for t in result.items] == [2, 1]
         assert result.saved_states == [NotionResumeConfig(next_cursor="c1")]
 
-    def test_permission_groups_stream_pages_through_the_workspace_groups(self) -> None:
+    @parameterized.expand(
+        [
+            ("permission_groups", "/admin/v1/spaces/ws-1/groups"),
+            ("user_credit_usage", "/admin/v1/spaces/ws-1/users/credit_usage"),
+        ]
+    )
+    def test_admin_list_stream_pages_through_the_workspace_list(self, endpoint: str, admin_path: str) -> None:
         result = self._driver("adm").run(
-            "permission_groups",
+            endpoint,
             [
                 ScriptedResponse(json={"object": "user", "bot": {"workspace_id": "ws-1"}}),
-                _scripted_list([{"object": "group", "id": "g1", "name": "Eng"}], True, "c1"),
-                _scripted_list([{"object": "group", "id": "g2", "name": "Ops"}]),
+                _scripted_list([{"id": "r1"}], True, "c1"),
+                _scripted_list([{"id": "r2"}]),
             ],
         )
 
         assert result.raised is None
         assert sum(t.num_rows for t in result.items) == 2
+        assert result.paths == ["/v1/users/me", admin_path, admin_path]
+        assert result.params("start_cursor") == [None, None, "c1"]
+
+    def test_permission_group_members_fan_out_over_every_group_and_skip_a_deleted_group(self) -> None:
+        def membership(group_id: str, user_id: str, role: str) -> dict[str, Any]:
+            return {
+                "object": "group_membership",
+                "group_id": group_id,
+                "member": {"type": "user", "user_id": user_id},
+                "role": role,
+            }
+
+        result = self._driver("adm").run(
+            "permission_group_members",
+            [
+                ScriptedResponse(json={"object": "user", "bot": {"workspace_id": "ws-1"}}),
+                _scripted_list([{"id": "g1"}, {"id": "g2"}], True, "gc1"),
+                _scripted_list([{"id": "g3"}]),
+                _scripted_list([membership("g1", "u1", "owner")], True, "mc1"),
+                _scripted_list([membership("g1", "u2", "member")]),
+                ScriptedResponse(status=404, json={"object": "error", "code": "object_not_found"}),
+                _scripted_list([membership("g3", "u1", "member")]),
+            ],
+        )
+
+        assert result.raised is None
+        rows = [row for table in result.items for row in table.to_pylist()]
+        assert [(row["group_id"], row["user_id"], row["role"]) for row in rows] == [
+            ("g1", "u1", "owner"),
+            ("g1", "u2", "member"),
+            ("g3", "u1", "member"),
+        ]
         assert result.paths == [
             "/v1/users/me",
             "/admin/v1/spaces/ws-1/groups",
             "/admin/v1/spaces/ws-1/groups",
+            "/admin/v1/spaces/ws-1/groups/g1/members",
+            "/admin/v1/spaces/ws-1/groups/g1/members",
+            "/admin/v1/spaces/ws-1/groups/g2/members",
+            "/admin/v1/spaces/ws-1/groups/g3/members",
         ]
-        assert result.params("start_cursor") == [None, None, "c1"]
+        assert result.params("start_cursor") == [None, None, "gc1", None, "mc1", None, None]
+
+    def test_agent_credit_usage_reads_every_billing_period_of_each_agent(self) -> None:
+        def period(start_ms: int, credits: float) -> dict[str, Any]:
+            return {
+                "credits_used": credits,
+                "credits_used_by_type": {"notion_credits": credits, "select_credits": None, "standard_credits": None},
+                "metrics_period_start_ms": start_ms,
+                "metrics_period_end_ms": start_ms + 1000,
+            }
+
+        result = self._driver("adm").run(
+            "agent_credit_usage",
+            [
+                ScriptedResponse(json={"object": "user", "bot": {"workspace_id": "ws-1"}}),
+                _scripted_list(
+                    [
+                        {"id": "a1", "status": "active", "credit_per_billing_period_list": [period(3000, 5)]},
+                        {
+                            "id": "a2",
+                            "status": "deleted",
+                            "credit_per_billing_period_list": [period(3000, 2)],
+                            "has_more": True,
+                            "next_cursor": "pc1",
+                        },
+                    ]
+                ),
+                ScriptedResponse(
+                    json={
+                        "id": "a2",
+                        "credit_per_billing_period_list": [period(2000, 1.5)],
+                        "has_more": True,
+                        "next_cursor": "pc2",
+                    }
+                ),
+                ScriptedResponse(
+                    json={"id": "a2", "credit_per_billing_period_list": [period(1000, 0.5)], "has_more": False}
+                ),
+            ],
+        )
+
+        assert result.raised is None
+        rows = {row["id"]: row for table in result.items for row in table.to_pylist()}
+        periods = {agent_id: json.loads(row["credit_per_billing_period_list"]) for agent_id, row in rows.items()}
+        assert [p["credits_used"] for p in periods["a1"]] == [5]
+        assert [p["credits_used"] for p in periods["a2"]] == [2, 1.5, 0.5]
+        assert "next_cursor" not in rows["a2"]
+        assert result.paths == [
+            "/v1/users/me",
+            "/admin/v1/spaces/ws-1/agents/credit_usage",
+            "/admin/v1/spaces/ws-1/agents/a2/credit_usage",
+            "/admin/v1/spaces/ws-1/agents/a2/credit_usage",
+        ]
+        assert result.params("include_deleted") == [None, "true", None, None]
+        assert result.params("start_cursor") == [None, None, "pc1", "pc2"]
 
     def test_iter_page_ids_restarts_when_cursor_invalid(self) -> None:
         # A page-id search cursor can expire mid-enumeration on a large workspace, which Notion
@@ -618,12 +715,12 @@ class TestNotion:
             ("no_admin_token", None, 200, None, ADMIN_TOKEN_MISSING_ERROR),
             ("integration_token_rejected", "adm", 401, None, None),
             ("admin_token_rejected", "adm", 200, 401, ADMIN_TOKEN_INVALID_ERROR),
-            ("admin_scope_missing", "adm", 200, 403, ADMIN_TOKEN_FORBIDDEN_ERROR),
+            ("admin_scope_missing", "adm", 200, 403, admin_scope_missing_error("permission-group:read")),
             ("reachable", "adm", 200, 200, None),
             ("rate_limited_is_not_a_denial", "adm", 200, 429, None),
         ]
     )
-    def test_check_permission_groups_access(
+    def test_check_admin_endpoints_access(
         self,
         _name: str,
         admin_token: str | None,
@@ -638,9 +735,11 @@ class TestNotion:
                 for _ in range(4 if admin_status == 429 else 1)
             )
         with scripted_network(responses) as network:
-            message = check_permission_groups_access("tok", admin_token, NOTION_VERSION_2026_03_11)
+            access = check_admin_endpoints_access(
+                "tok", admin_token, NOTION_VERSION_2026_03_11, ["pages", "permission_groups"]
+            )
 
-        assert message == expected
+        assert access == {"permission_groups": expected}
         expected_admin_urls = (
             ["https://api.notion.com/admin/v1/spaces/ws-1/groups?page_size=1"] if admin_status is not None else []
         )
@@ -649,3 +748,32 @@ class TestNotion:
             assert set(admin_urls) == set(expected_admin_urls)
         else:
             assert admin_urls == expected_admin_urls
+
+    def test_check_admin_endpoints_access_probes_each_list_once_and_names_the_missing_scope(self) -> None:
+        with scripted_network(
+            [
+                ScriptedResponse(json={"bot": {"workspace_id": "ws-1"}}),
+                ScriptedResponse(json={"results": []}),
+                ScriptedResponse(status=403, json={"object": "error", "code": "restricted_resource"}),
+                ScriptedResponse(json={"results": []}),
+            ]
+        ) as network:
+            access = check_admin_endpoints_access(
+                "tok",
+                "adm",
+                NOTION_VERSION_2026_03_11,
+                ["permission_groups", "permission_group_members", "user_credit_usage", "agent_credit_usage"],
+            )
+
+        assert access == {
+            "permission_groups": None,
+            "permission_group_members": None,
+            "user_credit_usage": admin_scope_missing_error("user:read"),
+            "agent_credit_usage": None,
+        }
+        assert [request.path for request in network.requests_log] == [
+            "/v1/users/me",
+            "/admin/v1/spaces/ws-1/groups",
+            "/admin/v1/spaces/ws-1/users/credit_usage",
+            "/admin/v1/spaces/ws-1/agents/credit_usage",
+        ]

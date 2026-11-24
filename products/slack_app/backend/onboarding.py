@@ -34,6 +34,7 @@ from products.slack_app.backend.logic.onboarding.checks import (
 )
 from products.slack_app.backend.logic.onboarding.dispatch import request_onboarding
 from products.slack_app.backend.services.slack_messages import context_block
+from products.slack_app.backend.services.slack_user_oauth import linked_posthog_distinct_id
 from products.slack_app.backend.services.slack_welcome_messages import (
     INBOX_CREATE_ACTION_ID,
     INBOX_JOIN_ACTION_ID,
@@ -251,7 +252,9 @@ def run_install_onboarding(integration: WorkspaceIntegration) -> None:
     if channel is not None:
         invite_user_to_inbox(integration, channel[0], installer)
     # The DM setup thread takes over the installer's setup, so it starts here in place of the old DM.
-    if is_slack_app_onboarding_enabled(integration):
+    if is_slack_app_onboarding_enabled(
+        integration, linked_posthog_distinct_id(slack_user_id=installer, slack_team_id=integration.integration_id)
+    ):
         request_onboarding(integration, installer, may_start=True)
         return
     send_onboarding_dm(integration, installer)

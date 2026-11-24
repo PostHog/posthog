@@ -8,54 +8,76 @@ import { mswDecorator } from '~/mocks/browser'
 import { toPaginatedResponse } from '~/mocks/handlers'
 import { SavedInsightsTabs } from '~/types'
 
-import type { AnomalySearchResponseApi, AnomalySeriesApi } from 'products/signals/frontend/generated/api.schemas'
+import type {
+    AnomalyPointsResponseApi,
+    AnomalySearchResponseApi,
+    AnomalySeriesApi,
+    AnomalySeriesPointApi,
+} from 'products/signals/frontend/generated/api.schemas'
 
 import insightsJson from '../savedInsights/__mocks__/insights.json'
 
 const SEARCH_URL = '/api/projects/:team_id/signals/anomalies/search/'
-const DAY_MS = 24 * 60 * 60 * 1000
-const RANGE_START = Date.UTC(2026, 10, 3)
+const POINTS_URL = '/api/projects/:team_id/signals/anomalies/points/'
+const HOUR_MS = 60 * 60 * 1000
+const DAY_MS = 24 * HOUR_MS
+const NOW = Date.UTC(2026, 10, 17)
+const FLAG_FROM = NOW - 3 * DAY_MS
+// The search starts a weekly range early enough to hold the last 2 completed weeks.
+const WEEK_FLAG_FROM = NOW - 14 * DAY_MS
 
-function dayIso(index: number): string {
-    return new Date(RANGE_START + index * DAY_MS).toISOString().replace('.000Z', '+00:00')
+function iso(time: number): string {
+    return new Date(time).toISOString().replace('.000Z', '+00:00')
 }
 
+interface StorySeries {
+    row: AnomalySeriesApi
+    chartFrom: string
+    points: AnomalySeriesPointApi[]
+}
+
+// `values` and `flagged` count buckets back from the newest completed one, so the last value is the newest.
 function makeSeries(
     id: number,
     name: string,
     label: string,
+    interval: 'hour' | 'day' | 'week',
     values: number[],
-    flagged: number[],
-    baselineRate: number | null
-): AnomalySeriesApi {
-    const flaggedDays = flagged.map(dayIso)
+    flaggedAgo: number[]
+): StorySeries {
+    const step = { hour: HOUR_MS, day: DAY_MS, week: 7 * DAY_MS }[interval]
+    const flagFrom = interval === 'week' ? WEEK_FLAG_FROM : FLAG_FROM
+    const points = values.map((value, index) => {
+        const ago = values.length - index
+        return { bucket_start: iso(NOW - ago * step), value, flag: flaggedAgo.includes(ago) }
+    })
+    const inFlagWindow = points.filter((point) => Date.parse(point.bucket_start) >= flagFrom)
+    const flagged = inFlagWindow.filter((point) => point.flag)
     return {
-        insight_id: id,
-        insight_name: name,
-        insight_url: `http://localhost:8000/project/997/insights/insight${id}`,
-        series_key: `${id}-${label}`,
-        series_label: label,
-        breakdown_value: null,
-        interval: 'day',
-        scored_buckets: values.length,
-        flagged_buckets: flagged.length,
-        anomaly_rate: flagged.length / values.length,
-        expected_buckets: 14,
-        coverage: values.length / 14,
-        scored_through: dayIso(values.length - 1),
-        baseline_rate: baselineRate,
-        dashboards: [{ id: 1, name: 'Growth' }],
-        first_flagged_bucket: flaggedDays[0] ?? null,
-        last_flagged_bucket: flaggedDays.at(-1) ?? null,
-        flagged_points: flagged
-            .slice()
-            .reverse()
-            .map((index) => ({ bucket_start: dayIso(index), value: values[index], score: 4.2 })),
-        points: values.map((value, index) => ({
-            bucket_start: dayIso(index),
-            value,
-            flag: flagged.includes(index),
-        })),
+        chartFrom: iso(NOW - { hour: 7, day: 28, week: 26 * 7 }[interval] * DAY_MS),
+        points,
+        row: {
+            insight_id: id,
+            insight_name: name,
+            insight_url: `http://localhost:8000/project/997/insights/insight${id}`,
+            series_key: `${id}-${label}`,
+            series_label: label,
+            breakdown_value: null,
+            interval,
+            scored_buckets: inFlagWindow.length,
+            flagged_buckets: flagged.length,
+            anomaly_rate: flagged.length / inFlagWindow.length,
+            expected_buckets: inFlagWindow.length,
+            coverage: 1,
+            scored_through: points[points.length - 1].bucket_start,
+            dashboards: [{ id: 1, name: 'Growth' }],
+            first_flagged_bucket: flagged[0]?.bucket_start ?? null,
+            last_flagged_bucket: flagged.at(-1)?.bucket_start ?? null,
+            flagged_points: flagged
+                .slice()
+                .reverse()
+                .map((point) => ({ bucket_start: point.bucket_start, value: point.value, score: 4.2 })),
+        },
     }
 }
 
@@ -66,17 +88,36 @@ function searchResponse(overrides: Partial<AnomalySearchResponseApi> = {}): Anom
         insights_scored_in_range: 120,
         scored_days: 28,
         scored_history_ready: true,
-        date_from: dayIso(0),
-        date_to: dayIso(14),
+        date_from: iso(FLAG_FROM),
+        date_to: iso(NOW),
+        interval_ranges: [
+            { interval: 'hour', date_from: iso(FLAG_FROM), date_to: iso(NOW) },
+            { interval: 'day', date_from: iso(FLAG_FROM), date_to: iso(NOW) },
+            { interval: 'week', date_from: iso(WEEK_FLAG_FROM), date_to: iso(NOW) },
+            { interval: 'month', date_from: iso(NOW - 47 * DAY_MS), date_to: iso(NOW) },
+        ],
         group_by: 'series',
         order: 'recent',
         series: [],
         insights: [],
         has_more: false,
         truncated: false,
+        series_capped: false,
         message: null,
+        scored_through: iso(NOW),
+        viewed_within_days: 30,
+        viewed_scope_empty: false,
         ...overrides,
     }
+}
+
+// 28 days with lower weekend values. `overrides` sets a value by how many days ago its bucket is.
+function dailyValues(weekday: number, weekend: number, overrides: Record<number, number> = {}): number[] {
+    return Array.from({ length: 28 }, (_, index) => {
+        const ago = 28 - index
+        const day = new Date(NOW - ago * DAY_MS).getUTCDay()
+        return overrides[ago] ?? (day === 0 || day === 6 ? weekend : weekday)
+    })
 }
 
 const FLAGGED_SERIES = [
@@ -84,12 +125,48 @@ const FLAGGED_SERIES = [
         1,
         'Signups by referrer',
         'Organic search',
-        [42, 40, 45, 43, 41, 44, 46, 43, 42, 45, 88, 97, 71, 44],
-        [10, 11, 12],
-        0.04
+        'day',
+        dailyValues(44, 30, { 10: 79, 3: 88, 2: 97 }),
+        [10, 3, 2]
     ),
-    makeSeries(2, 'Checkout started', 'Checkout started', [310, 305, 298, 312, 120, 115], [4, 5], 0),
+    makeSeries(1, 'Signups by referrer', 'Paid social', 'day', dailyValues(21, 15, { 3: 60, 2: 64 }), [3, 2]),
+    makeSeries(1, 'Signups by referrer', 'Newsletter', 'day', dailyValues(8, 5, { 2: 30 }), [2]),
+    makeSeries(1, 'Signups by referrer', 'Direct', 'day', dailyValues(64, 50, { 17: 20, 3: 30, 2: 28 }), [17, 3, 2]),
+    makeSeries(1, 'Signups by referrer', 'Partners', 'day', dailyValues(5, 3, { 2: 18 }), [2]),
+    makeSeries(4, 'Invites sent', 'Invites sent', 'day', dailyValues(120, 80, { 1: 310 }), [1]),
+    makeSeries(
+        2,
+        'Checkout started',
+        'Checkout started',
+        'hour',
+        Array.from(
+            { length: 7 * 24 },
+            (_, index) => 300 + 40 * Math.sin((index / 24) * 2 * Math.PI) - (index > 150 ? 180 : 0)
+        ),
+        [17, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 120]
+    ),
+    makeSeries(
+        3,
+        'Weekly active teams',
+        'Weekly active teams',
+        'week',
+        Array.from({ length: 26 }, (_, index) => 900 + 10 * index - (index === 24 ? 400 : 0)),
+        [2]
+    ),
 ]
+
+function pointsResponse(): AnomalyPointsResponseApi {
+    return {
+        date_to: iso(NOW),
+        series: FLAGGED_SERIES.map(({ row, chartFrom, points }) => ({
+            insight_id: row.insight_id,
+            series_key: row.series_key,
+            interval: row.interval,
+            date_from: chartFrom,
+            points,
+        })),
+    }
+}
 
 const meta: Meta = {
     component: App,
@@ -108,6 +185,10 @@ const meta: Meta = {
                 // One saved insight, so the scene shows its tabs rather than the first-run screen.
                 '/api/environments/:team_id/insights': toPaginatedResponse(insightsJson.results.slice(0, 1)),
                 '/api/projects/:team_id/insights/': toPaginatedResponse(insightsJson.results.slice(0, 1)),
+                '/api/projects/:team_id/dashboards/': toPaginatedResponse([
+                    { id: 1, name: 'Growth' },
+                    { id: 2, name: 'Checkout health' },
+                ]),
             },
         }),
     ],
@@ -124,11 +205,79 @@ export const FlaggedSeries: Story = {
             waitForSelector: '[data-attr="anomalies-tab-row-chart"]',
         },
     },
-    decorators: [mswDecorator({ get: { [SEARCH_URL]: searchResponse({ series: FLAGGED_SERIES, has_more: true }) } })],
+    decorators: [
+        mswDecorator({
+            get: { [SEARCH_URL]: searchResponse({ series: FLAGGED_SERIES.map(({ row }) => row), has_more: true }) },
+            post: { [POINTS_URL]: pointsResponse() },
+        }),
+    ],
+}
+
+export const SeriesCapped: Story = {
+    parameters: {
+        testOptions: {
+            snapshotBrowsers: [],
+            waitForLoadersToDisappear: true,
+            waitForSelector: '[data-attr="anomalies-tab-series-capped"]',
+        },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                [SEARCH_URL]: searchResponse({
+                    series: FLAGGED_SERIES.map(({ row }) => row),
+                    truncated: true,
+                    series_capped: true,
+                }),
+            },
+            post: { [POINTS_URL]: pointsResponse() },
+        }),
+    ],
 }
 
 export const NothingFlagged: Story = {
     decorators: [mswDecorator({ get: { [SEARCH_URL]: searchResponse() } })],
+}
+
+export const ScopeFallback: Story = {
+    parameters: {
+        testOptions: {
+            snapshotBrowsers: [],
+            waitForLoadersToDisappear: true,
+            waitForSelector: '[data-attr="anomalies-tab-scope-fallback"]',
+        },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                [SEARCH_URL]: searchResponse({
+                    series: FLAGGED_SERIES.map(({ row }) => row),
+                    viewed_scope_empty: true,
+                }),
+            },
+            post: { [POINTS_URL]: pointsResponse() },
+        }),
+    ],
+}
+
+export const NothingFlaggedInWholeProject: Story = {
+    parameters: { pageUrl: `${urls.savedInsights()}?tab=${SavedInsightsTabs.Anomalies}&anomalies_scope=project` },
+    decorators: [mswDecorator({ get: { [SEARCH_URL]: searchResponse({ viewed_within_days: null }) } })],
+}
+
+export const NothingChecked: Story = {
+    decorators: [mswDecorator({ get: { [SEARCH_URL]: searchResponse({ insights_scored_in_range: 0 }) } })],
+}
+
+export const SeriesCappedWithNoRows: Story = {
+    parameters: {
+        testOptions: {
+            snapshotBrowsers: [],
+            waitForLoadersToDisappear: true,
+            waitForSelector: '[data-attr="anomalies-tab-series-capped"]',
+        },
+    },
+    decorators: [mswDecorator({ get: { [SEARCH_URL]: searchResponse({ truncated: true, series_capped: true }) } })],
 }
 
 export const HistoryNotReady: Story = {

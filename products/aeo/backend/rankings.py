@@ -6,25 +6,22 @@ most, minus the review sites, forums and social networks that answers cite for e
 
 from __future__ import annotations
 
-import re
+import uuid
 import datetime as dt
 from collections import defaultdict
 from collections.abc import Mapping
 from functools import lru_cache
 from typing import Any
-from urllib.parse import urlparse
-from zoneinfo import ZoneInfo
 
 from django.db import connection
 from django.db.models import Count, Q, QuerySet
-from django.utils import timezone
 
 import tldextract
 
 from posthog.dataclasses import frozen
 from posthog.models.scoping.manager import resolve_effective_team_id
 
-from products.aeo.backend.brand import brand_names, brand_regex
+from products.aeo.backend.brand import brand_names
 from products.aeo.backend.facade.contracts import (
     MAX_RANKED_COMPETITORS,
     MAX_RANKED_DOMAINS,
@@ -39,7 +36,15 @@ from products.aeo.backend.facade.contracts import (
     RankedPage,
 )
 from products.aeo.backend.models import AEOBrand, AEOCitationCheck
-from products.aeo.backend.scope import SCOPE_SQL, CheckScope, scope_filter, scope_sql_params
+from products.aeo.backend.scope import (
+    NAMED_SCOPE_SQL,
+    SCOPE_SQL,
+    CheckScope,
+    named_scope_sql_params,
+    scope_filter,
+    scope_sql_params,
+)
+from products.aeo.backend.window import CheckWindow
 
 # Registrable names of sites answers cite whatever the brand, so they are never a competitor.
 NON_BRAND_NAMES = frozenset(
@@ -49,80 +54,75 @@ NON_BRAND_NAMES = frozenset(
 
 _DOMAIN_PARTS = tldextract.TLDExtract(suffix_list_urls=())
 
-# One row per brand and day: answered checks that day, and how many of them named the brand. An
-# answer names a brand when its text has the brand's name as a word, or it cites a host on the brand's
-# registrable domain; for the project's own brand any cited answer also counts, as in the mention rate.
+# One row per ranked brand and day: answered checks that day, and how many of them named or cited the brand,
+# from the stored brand rows. A ranked brand stands for one or more catalog brands: the project's own brands
+# rank together as the target. Both tables are narrowed by team and time, so the answer text and the wide
+# check rows are never loaded.
 _BRAND_DAYS_SQL = f"""
-    SELECT brand.domain, (check_row.created_at AT TIME ZONE %s)::date AS day, count(*),
-        count(*) FILTER (
-            WHERE check_row.answer_text ~* brand.pattern
-                OR (brand.is_target AND check_row.cited)
-                OR (
-                    jsonb_typeof(check_row.top_cited_domains) = 'array'
-                    AND EXISTS (
-                        SELECT 1 FROM jsonb_array_elements_text(check_row.top_cited_domains) AS host
-                        WHERE host = brand.domain OR right(host, length(brand.domain) + 1) = '.' || brand.domain
-                    )
-                )
-        )
-    FROM posthog_aeo_citation_check AS check_row
-    CROSS JOIN unnest(%s::text[], %s::text[], %s::bool[]) AS brand(domain, pattern, is_target)
-    WHERE check_row.team_id = %s AND check_row.created_at >= %s AND check_row.created_at < %s AND check_row.check_failed = false
-        AND check_row.mode = 'web_search'
-        AND {SCOPE_SQL}
-    GROUP BY brand.domain, day
+    WITH answered AS MATERIALIZED (
+        SELECT check_row.id, check_row.cited, (check_row.created_at AT TIME ZONE %(timezone)s)::date AS day
+        FROM posthog_aeo_citation_check AS check_row
+        WHERE check_row.team_id = %(team_id)s AND check_row.created_at >= %(since)s
+            AND check_row.created_at < %(until)s AND check_row.check_failed = false
+            AND check_row.mode = 'web_search'
+            AND {NAMED_SCOPE_SQL}
+    ),
+    days AS (
+        SELECT day, count(*) AS answers FROM answered GROUP BY day
+    ),
+    mentioning AS (
+        SELECT mention.domain, answered.day, count(DISTINCT answered.id) AS answers
+        FROM (
+            SELECT ranked.domain, check_brand.citation_check_id AS id
+            FROM posthog_aeo_check_brand AS check_brand
+            JOIN unnest(%(brand_ids)s::uuid[], %(brand_domains)s::text[]) AS ranked(brand_id, domain)
+                ON ranked.brand_id = check_brand.brand_id
+            WHERE check_brand.team_id = %(team_id)s AND check_brand.created_at >= %(since)s
+                AND check_brand.created_at < %(until)s AND (check_brand.mentioned OR check_brand.cited)
+            UNION ALL
+            -- The check keeps only its first cited hosts, but its cited flag saw them all, so it also
+            -- counts the target for a citation past the stored hosts.
+            SELECT %(target_domain)s::text, answered.id FROM answered
+            WHERE answered.cited AND %(target_domain)s::text IS NOT NULL
+        ) AS mention
+        JOIN answered ON answered.id = mention.id
+        GROUP BY mention.domain, answered.day
+    )
+    SELECT ranked.domain, days.day, days.answers, coalesce(mentioning.answers, 0)
+    FROM days
+    CROSS JOIN unnest(%(domains)s::text[]) AS ranked(domain)
+    LEFT JOIN mentioning ON mentioning.domain = ranked.domain AND mentioning.day = days.day
 """
 
-# A JSON field that is not a list reads as an empty one, so one malformed row can't fail the query.
-_CITED_HOSTS_SQL = f"""
-    SELECT DISTINCT lower(host)
-    FROM posthog_aeo_citation_check AS check_row,
-        jsonb_array_elements_text(
-            CASE WHEN jsonb_typeof(check_row.top_cited_domains) = 'array' THEN check_row.top_cited_domains ELSE '[]'::jsonb END
-        ) AS host
-    WHERE check_row.team_id = %s AND check_row.created_at >= %s AND check_row.created_at < %s AND check_row.check_failed = false
-        AND check_row.mode = 'web_search'
+# The cited URL rows of the answered checks in a window and scope. Both tables are narrowed by team and
+# time, so each side is read from its own window index and the wide check rows are never loaded.
+_CITED_FROM_SQL = f"""
+    FROM posthog_aeo_check_citation AS citation
+    JOIN posthog_aeo_citation_check AS check_row ON check_row.id = citation.citation_check_id
+    WHERE citation.team_id = %s AND citation.created_at >= %s AND citation.created_at < %s
+        AND check_row.team_id = %s AND check_row.created_at >= %s AND check_row.created_at < %s
+        AND check_row.check_failed = false AND check_row.mode = 'web_search'
         AND {SCOPE_SQL}
 """
-# The host to registrable domain mapping arrives as two parallel arrays.
 _DOMAIN_ANSWERS_SQL = f"""
-    SELECT mapping.domain, count(DISTINCT check_row.id)
-    FROM unnest(%s::text[], %s::text[]) AS mapping(host, domain),
-        posthog_aeo_citation_check AS check_row,
-        jsonb_array_elements_text(
-            CASE WHEN jsonb_typeof(check_row.top_cited_domains) = 'array' THEN check_row.top_cited_domains ELSE '[]'::jsonb END
-        ) AS cited_host
-    WHERE lower(cited_host) = mapping.host
-        AND check_row.team_id = %s AND check_row.created_at >= %s AND check_row.created_at < %s AND check_row.check_failed = false
-        AND check_row.mode = 'web_search'
-        AND {SCOPE_SQL}
-    GROUP BY mapping.domain
+    SELECT citation.domain, count(DISTINCT citation.citation_check_id)
+    {_CITED_FROM_SQL}
+        AND citation.domain <> ''
+    GROUP BY citation.domain
 """
-# URLs per host never overlap, so a domain's distinct URLs are the sum over its hosts.
 _DOMAIN_URLS_SQL = f"""
-    SELECT mapping.domain, count(DISTINCT url)
-    FROM unnest(%s::text[], %s::text[]) AS mapping(host, domain),
-        posthog_aeo_citation_check AS check_row,
-        jsonb_array_elements_text(
-            CASE WHEN jsonb_typeof(check_row.cited_urls) = 'array' THEN check_row.cited_urls ELSE '[]'::jsonb END
-        ) AS url
-    WHERE lower(substring(url from '^[a-zA-Z][a-zA-Z0-9+.-]*://(?:[^@/?#]*@)?([^/:?#]+)')) = mapping.host
-        AND check_row.team_id = %s AND check_row.created_at >= %s AND check_row.created_at < %s AND check_row.check_failed = false
-        AND check_row.mode = 'web_search'
-        AND {SCOPE_SQL}
-    GROUP BY mapping.domain
+    SELECT citation.domain, count(DISTINCT citation.url)
+    {_CITED_FROM_SQL}
+        AND citation.domain = ANY(%s) AND citation.url <> ''
+    GROUP BY citation.domain
 """
+# A URL without a host has no domain to rank under, and a host cited after the stored URLs has no URL.
 _PAGES_SQL = f"""
-    SELECT url, count(DISTINCT check_row.id)
-    FROM posthog_aeo_citation_check AS check_row,
-        jsonb_array_elements_text(
-            CASE WHEN jsonb_typeof(check_row.cited_urls) = 'array' THEN check_row.cited_urls ELSE '[]'::jsonb END
-        ) AS url
-    WHERE url <> '' AND check_row.team_id = %s AND check_row.created_at >= %s AND check_row.created_at < %s AND check_row.check_failed = false
-        AND check_row.mode = 'web_search'
-        AND {SCOPE_SQL}
-    GROUP BY url
-    ORDER BY count(DISTINCT check_row.id) DESC, url
+    SELECT citation.url, citation.domain, count(DISTINCT citation.citation_check_id)
+    {_CITED_FROM_SQL}
+        AND citation.domain <> '' AND citation.url <> ''
+    GROUP BY citation.url, citation.domain
+    ORDER BY count(DISTINCT citation.citation_check_id) DESC, citation.url
     LIMIT %s
 """
 
@@ -134,18 +134,12 @@ def registrable_domain(host: str) -> str:
 
 
 def get_rankings(
-    team_id: int, *, target_domains: list[str], timezone_name: str, days: int, scope: CheckScope
+    team_id: int, *, target_domains: list[str], timezone_name: str, window: CheckWindow, scope: CheckScope
 ) -> PromptSetRankings:
-    tz = ZoneInfo(timezone_name)
-    window_to = timezone.now().astimezone(tz).date()
-    window_from = window_to - dt.timedelta(days=days - 1)
-    window_start = dt.datetime.combine(window_from, dt.time.min, tzinfo=tz)
-    previous_start = window_start - dt.timedelta(days=days)
-
-    # Every read stops at the same instant, so a check written mid-request can't make the counts disagree.
-    until = timezone.now()
+    window_from, window_to = window.window_from, window.window_to
+    window_start, previous_start, until = window.start, window.previous_start, window.until
     answered = AEOCitationCheck.objects.for_team(team_id).filter(
-        scope_filter(scope, target_domains),
+        scope_filter(scope),
         created_at__gte=window_start,
         created_at__lt=until,
         check_failed=False,
@@ -155,35 +149,39 @@ def get_rankings(
 
     # A target like docs.example.com stands for the whole example.com brand.
     targets = {registrable_domain(domain.lower()) for domain in target_domains}
-    scope_params = scope_sql_params(scope, target_domains)
+    scope_params = scope_sql_params(scope)
     citations = _Citations(
         resolve_effective_team_id(team_id), since=window_start, until=until, scope_params=scope_params
     )
     ranked_domains = citations.ranked_domains()
     # Competitors a person confirmed in the brand catalog win; until there are any, derive them from citations.
     # Our own domains always rank as the target, even when someone labeled one a competitor.
-    confirmed = {
-        domain: aliases for domain, aliases in _confirmed_competitors(team_id).items() if domain not in targets
-    }
+    confirmed = {domain: name for domain, name in _confirmed_competitors(team_id).items() if domain not in targets}
+    catalog_ids = _catalog_brand_ids(team_id)
+    # Each competitor ranks by its catalog brand, so a domain the catalog does not have yet waits for the sync.
     competitors = list(confirmed) or _competitors(
-        ranked_domains, targets, brand_names(target_domains), catalog_excluded=_catalog_exclusions(team_id)
+        [(domain, count) for domain, count in ranked_domains if domain in catalog_ids],
+        targets,
+        brand_names(target_domains),
+        catalog_excluded=_catalog_exclusions(team_id),
     )
-    names = {domain: confirmed[domain][0] if domain in confirmed else _brand_name(domain) for domain in competitors}
+    names = {domain: confirmed[domain] if domain in confirmed else _brand_name(domain) for domain in competitors}
     top_domains = ranked_domains[:MAX_RANKED_DOMAINS]
     domain_urls = citations.urls_per_domain([domain for domain, _ in top_domains])
     target_domain = registrable_domain(target_domains[0].lower()) if target_domains else None
-    brands = ([(target_domain, brand_regex(target_domains), True)] if target_domain else []) + [
-        (domain, word_pattern(confirmed[domain] if domain in confirmed else (_brand_name(domain),)), False)
-        for domain in competitors
+    # Every own brand ranks as the one target, whatever domain it is on.
+    own_ids = tuple(catalog_ids[domain] for domain in target_domains if domain in catalog_ids)
+    brands = ([(target_domain, own_ids, True)] if target_domain else []) + [
+        (domain, (catalog_ids[domain],), False) for domain in competitors if domain in catalog_ids
     ]
     brand_days = _brand_days(
         team_id,
-        brands=[brand for brand in brands if brand[1]],
+        brands=brands,
         timezone_name=timezone_name,
         since=previous_start,
         until=until,
         window_from=window_from,
-        scope_params=scope_params,
+        scope=scope,
     )
     positive_share = _positive_share(answered) if target_domain else None
 
@@ -204,7 +202,7 @@ def get_rankings(
     )
     return PromptSetRankings(
         competitors_confirmed=bool(confirmed),
-        days=days,
+        days=window.days,
         window_from=window_from,
         window_to=window_to,
         branded=scope.segment,
@@ -254,71 +252,44 @@ class _BrandDays:
 
 class _Citations:
     """Cited registrable domains and pages across the answered checks in a window, counted in Postgres
-    once per answer. Python only maps the distinct cited hosts to registrable domains, which needs the
-    public suffix list."""
+    once per answer from the stored cited URL rows."""
 
     def __init__(self, team_id: int, *, since: dt.datetime, until: dt.datetime, scope_params: list[str | None]) -> None:
-        self._params: list[Any] = [team_id, since, until, *scope_params]
-        with connection.cursor() as cursor:
-            cursor.execute(_CITED_HOSTS_SQL, self._params)
-            hosts = [host for (host,) in cursor.fetchall() if host]
-        self._host_domains = {host: registrable_domain(host) for host in hosts}
+        self._params: list[Any] = [team_id, since, until, team_id, since, until, *scope_params]
 
     def ranked_domains(self) -> list[tuple[str, int]]:
         """Every cited registrable domain with the answers that cited it, most cited first."""
-        if not self._host_domains:
-            return []
         with connection.cursor() as cursor:
-            cursor.execute(_DOMAIN_ANSWERS_SQL, [*self._mapping(self._host_domains), *self._params])
-            return _ranked(dict(cursor.fetchall()), len(self._host_domains))
+            cursor.execute(_DOMAIN_ANSWERS_SQL, self._params)
+            counts = dict(cursor.fetchall())
+        return _ranked(counts, len(counts))
 
     def urls_per_domain(self, domains: list[str]) -> dict[str, int]:
-        mapping = {host: domain for host, domain in self._host_domains.items() if domain in set(domains)}
-        if not mapping:
+        if not domains:
             return {}
         with connection.cursor() as cursor:
-            cursor.execute(_DOMAIN_URLS_SQL, [*self._mapping(mapping), *self._params])
+            cursor.execute(_DOMAIN_URLS_SQL, [*self._params, domains])
             return dict(cursor.fetchall())
 
     def top_pages(self) -> list[_CitedPage]:
-        """The most cited pages. URLs that don't parse are skipped, so the query reads a few extra rows
-        to fill the list."""
         with connection.cursor() as cursor:
-            cursor.execute(_PAGES_SQL, [*self._params, MAX_RANKED_PAGES * 2])
-            rows = cursor.fetchall()
-        pages: list[_CitedPage] = []
-        for url, count in rows:
-            try:
-                host = (urlparse(url).hostname or "").lower()
-            except ValueError:
-                continue
-            if host and len(pages) < MAX_RANKED_PAGES:
-                pages.append(_CitedPage(url=url, domain=registrable_domain(host), answers=count))
-        return pages
-
-    @staticmethod
-    def _mapping(host_domains: dict[str, str]) -> list[list[str]]:
-        return [list(host_domains.keys()), list(host_domains.values())]
+            cursor.execute(_PAGES_SQL, [*self._params, MAX_RANKED_PAGES])
+            return [_CitedPage(url=url, domain=domain, answers=count) for url, domain, count in cursor.fetchall()]
 
 
-def _confirmed_competitors(team_id: int) -> dict[str, tuple[str, ...]]:
-    """Confirmed competitors from the brand catalog, by domain, each with its name first and then its aliases."""
+def _confirmed_competitors(team_id: int) -> dict[str, str]:
+    """Confirmed competitors from the brand catalog: their names by domain."""
     rows = (
         AEOBrand.objects.for_team(team_id)
         .filter(kind=BrandKind.COMPETITOR.value, status=BrandStatus.CONFIRMED.value)
         .order_by("domain")
-        .values_list("domain", "name", "aliases")[:MAX_RANKED_COMPETITORS]
+        .values_list("domain", "name")[:MAX_RANKED_COMPETITORS]
     )
-    return {
-        domain: (name, *(alias for alias in (aliases or []) if isinstance(alias, str) and alias.strip()))
-        for domain, name, aliases in rows
-    }
+    return dict(rows)
 
 
-def word_pattern(names: tuple[str, ...]) -> str:
-    """Postgres regex (for `~*`) matching any of the names as whole words. The boundaries are any non-word
-    character or the text's ends, so a name that ends in punctuation (`Yahoo!`) still matches."""
-    return r"(^|\W)(" + "|".join(re.escape(name.strip().lower()) for name in names if name.strip()) + r")(\W|$)"
+def _catalog_brand_ids(team_id: int) -> dict[str, uuid.UUID]:
+    return dict(AEOBrand.objects.for_team(team_id).values_list("domain", "id"))
 
 
 def _catalog_exclusions(team_id: int) -> set[str]:
@@ -351,32 +322,33 @@ def _competitors(
 def _brand_days(
     team_id: int,
     *,
-    brands: list[tuple[str, str | None, bool]],
+    brands: list[tuple[str, tuple[uuid.UUID, ...], bool]],
     timezone_name: str,
     since: dt.datetime,
     until: dt.datetime,
     window_from: dt.date,
-    scope_params: list[str | None],
+    scope: CheckScope,
 ) -> _BrandDays:
     current: defaultdict[str, list[int]] = defaultdict(lambda: [0, 0])
     previous: defaultdict[str, list[int]] = defaultdict(lambda: [0, 0])
     if not brands:
         return _BrandDays(current=current, previous=previous, daily=())
-    # The ORM reads above map a child environment to its parent; raw SQL has to do the same.
-    effective_team_id = resolve_effective_team_id(team_id)
+    pairs = [(brand_id, domain) for domain, brand_ids, _ in brands for brand_id in brand_ids]
     with connection.cursor() as cursor:
         cursor.execute(
             _BRAND_DAYS_SQL,
-            [
-                timezone_name,
-                [domain for domain, _, _ in brands],
-                [pattern for _, pattern, _ in brands],
-                [is_target for _, _, is_target in brands],
-                effective_team_id,
-                since,
-                until,
-                *scope_params,
-            ],
+            {
+                "timezone": timezone_name,
+                # The ORM reads above map a child environment to its parent; raw SQL has to do the same.
+                "team_id": resolve_effective_team_id(team_id),
+                "since": since,
+                "until": until,
+                "brand_ids": [brand_id for brand_id, _ in pairs],
+                "brand_domains": [domain for _, domain in pairs],
+                "domains": [domain for domain, _, _ in brands],
+                "target_domain": next((domain for domain, _, is_target in brands if is_target), None),
+                **named_scope_sql_params(scope),
+            },
         )
         rows = cursor.fetchall()
     daily: list[RankedBrandDay] = []

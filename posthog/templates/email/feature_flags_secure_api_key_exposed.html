@@ -1,16 +1,24 @@
 {% extends "email/base.html" %}
-{% block heading %}Feature Flags Secure API key has been exposed{% endblock %}
+{% block heading %}Legacy feature flags secret key has been revoked{% endblock %}
 {% block section %}
     <p>
-        The <strong>{{ project_name }}</strong> project's Feature Flags Secure API key <strong>{{ mask_value }}</strong> was publicly exposed.
+        The <strong>{{ project_name }}</strong> project's legacy feature flags secret key <strong>{{ mask_value }}</strong> was publicly exposed.
         {% if more_info %}{{ more_info }}{% endif %}
     </p>
-    <p>To protect your project, we recommend taking the following steps:</p>
-    <ol>
-        <li><strong>Rotate the key</strong> to generate a new Feature Flags Secure API key</li>
-        <li><strong>Update your systems</strong> to use the new key</li>
-        <li><strong>Delete the backup key</strong> once all systems are updated</li>
-    </ol>
+    <p>To protect your project, this key has been revoked and can no longer be used to fetch feature flag definitions.</p>
+    <p>
+        If your systems still need this access, create a project secret API key with the <strong>feature_flag:read</strong> scope and update them to use it.
+    </p>
+    {% if signing_secret_replaced %}
+        <p>
+            This key was also your identity verification secret for the support widget. We replaced it, and identity verification requests fail until your server uses the new secret from <a href="{{ conversations_settings_url }}">Conversations settings</a>.
+        </p>
+    {% endif %}
+    {% if grace_window_ended %}
+        <p>
+            This key was still accepted as the previous identity verification secret for the support widget after a recent rotation. We removed it immediately, so requests signed with it now fail. Make sure your server uses the current secret from <a href="{{ conversations_settings_url }}">Conversations settings</a>.
+        </p>
+    {% endif %}
     <div class="mb mt text-center">
         <a class="button" href="{{ url }}">Go to project settings</a>
     </div>

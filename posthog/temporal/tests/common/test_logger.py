@@ -829,7 +829,11 @@ def test_resolve_log_source_dwh_cdp_producer_job():
     assert source_id == "019bdc25-3569-0000-9f32-e7d02775304b"
 
 
-def test_log_messages_renderer_event_level_log_source_override():
+@pytest.mark.parametrize(
+    "instance_override,expected_instance_id",
+    [({}, "abc-run-id"), ({"instance_id": "one-send"}, "one-send")],
+)
+def test_log_messages_renderer_event_level_log_source_override(instance_override, expected_instance_id):
     """Per-event log_source_id (and log_source) overrides feed into the produce message.
 
     CDC extraction relies on this so per-schema log lines can route under each schema
@@ -847,6 +851,7 @@ def test_log_messages_renderer_event_level_log_source_override():
         "workflow_id": "cdc-extraction-019bdc25-3569-0000-9f32-e7d02775304b-2026-05-06T18:40:00Z",
         "workflow_run_id": "abc-run-id",
         "log_source_id": "019df430-79ff-0000-4434-e9fc02f7216b",  # per-schema override
+        **instance_override,
     }
 
     # `LogMessagesRenderer.__call__` ignores the logger arg in this branch; cast to satisfy mypy.
@@ -858,7 +863,7 @@ def test_log_messages_renderer_event_level_log_source_override():
     payload = json.loads(rendered["produce_message"].decode("utf-8"))
     assert payload["log_source"] == "external_data_jobs"
     assert payload["log_source_id"] == "019df430-79ff-0000-4434-e9fc02f7216b"
-    assert payload["instance_id"] == "abc-run-id"
+    assert payload["instance_id"] == expected_instance_id
 
 
 def test_log_messages_renderer_keeps_structured_fields_out_of_the_produce_message():

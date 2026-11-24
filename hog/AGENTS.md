@@ -1,28 +1,31 @@
 # hog
 
-`hog` is the PostHog command line, version 1. Read [README.md](README.md) for what it does and how to run it.
+`hog` is the PostHog command line. Read [README.md](README.md) for what it does and how to run it.
 
 ## Layout
 
-| Path                  | Holds                                                                                                                                                                                     |
-| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/commands/`       | One file per command. `index.ts` is the tree of every command; `legacy.ts` holds the ones posthog-cli still owns                                                                          |
-| `src/core/`           | The shared parts every command uses: command definitions, context and global options, output, agent detection, errors, runtime, the manifest                                              |
-| `src/posthog/`        | The PostHog API client, the pagination helpers every list uses, and credentials                                                                                                           |
-| `src/ci/`             | CI setup. `providers/registry.ts` lists the providers whose OIDC tokens hog exchanges, and each provider has its own folder                                                               |
-| `src/error-tracking/` | Symbol upload: discovery, artifact types under `kinds/`, the container and content hash, releases, git, the upload protocol, and `run.ts`, the inject and upload steps the commands share |
-| `src/setup/`          | `hog setup`: the steps, the state file each folder keeps in `~/.posthog/setup/`, the AGENTS.md note and the product table                                                                 |
-| `src/endpoints/`      | The endpoint YAML files, how they compare with PostHog, and the push and pull plans                                                                                                       |
-| `test/parity/`        | Goldens recorded from posthog-cli and the tests that hold hog to them. Read its README before changing anything that reaches an upload                                                    |
-| `src/cli.ts`          | Turns the command tree into a commander program, runs it, and maps errors to exit codes                                                                                                   |
-| `src/testing.ts`      | `runHog` and a fake runtime, so tests run the real CLI without a process or a network                                                                                                     |
+| Path                  | Holds                                                                                                                                                                                   |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/commands/`       | One file per command. `index.ts` is the tree of every command, and `shortcuts.ts` gives a command in a group a top-level name, as `hog whoami` for `hog auth status`                    |
+| `src/core/`           | The shared parts every command uses: command definitions, context and global options, output, agent detection, errors, runtime, the manifest                                            |
+| `src/posthog/`        | The PostHog API client, the pagination helpers every list uses, and credentials                                                                                                         |
+| `src/ci/`             | CI setup. `providers/registry.ts` lists the providers whose OIDC tokens hog exchanges, and each provider has its own folder                                                             |
+| `src/error-tracking/` | Symbol upload: discovery, releases, git, the upload protocol, `worker.ts`, which starts hog-worker and sends its requests, and `run.ts`, the inject and upload steps the commands share |
+| `src/setup/`          | `hog setup`: the steps, the state file each folder keeps in `~/.posthog/setup/`, the AGENTS.md note and the product table                                                               |
+| `src/endpoints/`      | The endpoint YAML files, how they compare with PostHog, and the push and pull plans                                                                                                     |
+| `src/updates/`        | `hog upgrade` and the update check: the release manifest, how hog was installed, version rules, the daily cache and the setup gate                                                      |
+| `worker/`             | hog-worker, the Rust program that reads, rewrites and writes build output for `hog error-tracking`. The comment at the top of `src/main.rs` describes every request                     |
+| `release/`            | The release scripts the `Release hog` workflow runs (compile, build-worker, package), `install.sh`, `install.ps1` and the npm launcher. README.md, "Releases", has the flow             |
+| `test/parity/`        | Goldens recorded from posthog-cli and the tests that hold hog to them. Read its README before changing anything that reaches an upload                                                  |
+| `src/cli.ts`          | Turns the command tree into a commander program, runs it, and maps errors to exit codes                                                                                                 |
+| `src/testing.ts`      | `runHog` and a fake runtime, so tests run the real CLI without a process or a network                                                                                                   |
 
 Import from another folder with `@/`, which `tsconfig.json` maps to `src/`, as in `import { defineCommand } from '@/core/command'`. Use `./` only inside the same folder.
 
 ## Add a command
 
 1. Write `src/commands/<group>/<name>.ts` with `defineCommand`. Put it in a `defineGroup` when it has siblings.
-2. Add it to the tree in `src/commands/index.ts`, and remove its `defineLegacy` entry from `src/commands/legacy.ts` if posthog-cli has one. A legacy entry can sit inside a group, so a group can be half ported.
+2. Add it to the tree in `src/commands/index.ts`.
 3. Add cases to `src/commands/<group>/<group>.test.ts` with `runHog`.
 
 ```ts
@@ -85,5 +88,9 @@ export default defineCommand({
 - Import heavy dependencies inside `run` with `await import()`. Every command module loads on every call, so a top-level import of a large library slows down all commands.
 - Declare `scopes`. `hog commands` lists them for agents, and a 403 names them in its hint.
 - `hog error-tracking` must upload the same bytes, content hashes and requests as posthog-cli, or re-uploads fail with `content_hash_mismatch`. A change to anything that reaches an upload keeps `test/parity/` green, and a new artifact type or flag adds parity scenarios recorded from posthog-cli.
-- Code under `src/error-tracking/` reads build output with `node:fs` directly, because it walks real folders. Its tests use temporary folders instead of `ctx.runtime` files.
+- hog-worker does the file work of `inject`, `clone`, `upload` and `process`: it reads and rewrites bundles and maps, parses mappings and binaries, and writes each symbol set. hog keeps flags, ignore globs, releases, HTTP and all output. Put a change to what is read from or written to build output in `worker/`, not in TypeScript.
+- A change to a worker request or answer raises `PROTOCOL` in `worker/src/main.rs` and `WORKER_PROTOCOL` in `src/error-tracking/worker.ts` together, and updates the comment at the top of `main.rs`.
+- The crates in `worker/Cargo.toml` that decide a written byte are pinned with `=` to the versions in `cli/Cargo.lock`, and `test/parity/worker-pins.test.ts` fails when they differ.
+- hog starts only the `hog-worker` next to its own binary, and never one from `PATH`. A run from source starts the one `pnpm --filter hog build:worker` builds.
+- Code under `src/error-tracking/` walks real folders with `node:fs` and the worker reads real files, so its tests use temporary folders instead of `ctx.runtime` files.
 - Every string a person reads follows `/writing-user-facing-copy`: sentence case, no em dashes.

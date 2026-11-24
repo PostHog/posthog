@@ -11,6 +11,7 @@ from time import perf_counter
 from types import UnionType
 from typing import (
     Any,
+    ClassVar,
     Generic,
     Literal,
     NamedTuple,
@@ -168,12 +169,16 @@ from posthog.caching.utils import (
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, enqueue_process_query_task, get_query_status
 from posthog.clickhouse.client.limit import (
+    QueryLane,
+    QueueWait,
     app_org_concurrency_slot,
     get_api_team_rate_limiter,
     get_app_dashboard_queries_rate_limiter,
+    get_app_telemetry_queries_rate_limiter,
     get_materialized_endpoints_rate_limiter,
 )
 from posthog.clickhouse.query_tagging import (
+    AccessMethod,
     add_fallback_query_tags,
     get_query_tag_value,
     get_query_tags,
@@ -234,6 +239,7 @@ from posthog.query_cache.failures import (
 from posthog.query_cache.single_flight import (
     QUERY_SINGLE_FLIGHT_COUNTER,
     QUERY_SINGLE_FLIGHT_FLAG,
+    FlightOutcome,
     FlightWait,
     QuerySingleFlight,
     query_single_flight_skipped,
@@ -245,7 +251,7 @@ from posthog.query_scan.trigger import (
     is_analyzable_principal,
     maybe_trigger_query_scan,
 )
-from posthog.schema_helpers import to_dict
+from posthog.schema_helpers import strip_null_defaults, to_dict
 from posthog.scopes.catalog import API_SCOPE_OBJECTS, APIScopeObject
 from posthog.shared_link_user import SharedLinkUser
 from posthog.slo.context import JsonValue, SloSpec, slo_operation, tag_current_slo
@@ -294,6 +300,7 @@ SURVEY_QUERY_EXECUTION_DURATION = Histogram(
 )
 
 API_QUERIES_BUDGET_ENFORCEMENT_FLAG = "api-queries-budget-enforcement"
+DASHBOARD_V2_FLAG = "dashboard-v2"
 
 API_QUERIES_BUDGET_LIMITED_COUNTER = Counter(
     "posthog_api_queries_budget_limited_total",
@@ -318,6 +325,11 @@ def _contains_user_hogql_label() -> str:
 EXTENDED_CACHE_AGE = timedelta(days=1)
 CACHE_ENTRY_FRESHNESS_KEY = "_freshness"
 
+FOLLOWER_RAN_ALONE_ACTIONS: dict[FlightOutcome, str] = {
+    "unavailable": "follower_ran_alone",
+    "timeout": "follower_ran_alone_after_timeout",
+}
+
 QUERY_HASH_VERSION = 1
 
 
@@ -328,6 +340,18 @@ class QueryIdentity:
 
     query_hash: str
     runtime_hash: str
+
+
+@frozen
+class CacheKeyIgnoredField:
+    name: str
+    when_value_in: tuple[object, ...] | None = None
+
+    def strip(self, query: dict[str, Any]) -> None:
+        if self.name not in query:
+            return
+        if self.when_value_in is None or query[self.name] in self.when_value_in:
+            del query[self.name]
 
 
 @frozen
@@ -2045,6 +2069,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     # leaving a `results=[]` placeholder on the returned model.
     serve_raw_cached_results: bool = False
     raw_cached_results_bytes: Optional[bytes] = None
+    # Set by plan_cache_key, so the next run reuses the key instead of building it again.
+    planned_cache_key: Optional[str] = None
+    cache_key_ignored_fields: ClassVar[tuple[CacheKeyIgnoredField, ...]] = ()
 
     def __init__(
         self,
@@ -2103,6 +2130,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         if user is self.user:
             return
         self.user = user
+        # The key reads the user's access restrictions, so a key planned for the previous user no longer applies.
+        self.planned_cache_key = None
         self._on_user_changed()
 
     def _child_runners(self) -> Iterable["QueryRunner"]:
@@ -2261,8 +2290,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         query_json = self.query.model_dump()
         # A query that reads no events table needs no pin, and pure Trino rejects modifiers the caller did not set.
         if self.modifiers.useNewEventsSchema is not None and self._reads_events_route():
-            return with_pinned_events_route(query_json, self.modifiers)
-        return query_json
+            query_json = with_pinned_events_route(query_json, self.modifiers)
+        # Strip after pinning, because the pin goes only into a source whose payload has a `modifiers` key.
+        return strip_null_defaults(self.query, query_json)
 
     def enqueue_async_calculation(
         self,
@@ -2296,6 +2326,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         return enqueue_process_query_task(
             team=self.team,
             user_id=user.id if user else None,
+            # The worker loads the user by id, which restores stored staff rights this request withholds.
+            staff_rights_withheld=isinstance(principal, User) and principal.staff_rights_withheld,
             sharing_configuration_id=sharing_configuration_id,
             insight_id=cache_manager.insight_id,
             dashboard_id=cache_manager.dashboard_id,
@@ -2516,6 +2548,22 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         QUERY_FAILURE_CACHE_COUNTER.labels(action="served_error", kind=failure.kind).inc()
         raise build_failure_exception(failure, with_scan=self._scan_replay_visible(failure, user))
 
+    def _query_lane(self, dashboard_id: Optional[int]) -> QueryLane:
+        """Which per-organization app limits this run takes its slots from."""
+        return QueryLane.ANALYTICS
+
+    def _dashboard_queue_wait(self, dashboard_id: Optional[int], *, is_api_key_access: bool) -> Optional[QueueWait]:
+        """On `dashboard-v2`, a dashboard tile that finds the analytics slots full waits briefly for one instead of failing."""
+        # Shared-link viewers are anonymous, so they fail fast rather than hold a web worker while they wait.
+        if (
+            dashboard_id is None
+            or is_api_key_access
+            or get_query_tag_value("access_method") == AccessMethod.SHARING_TOKEN
+            or not self._team_flag_enabled_locally(DASHBOARD_V2_FLAG)
+        ):
+            return None
+        return QueueWait()
+
     def _call_with_rate_limits(self, *, dashboard_id: Optional[int]) -> tuple[R, float]:
         """Execute calculate() with all rate limiters applied.
 
@@ -2552,16 +2600,41 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         limit=concurrency_limit,
                     )
                 )
-                limiter_stack.enter_context(app_org_concurrency_slot(self.team, task_id=self.query_id))
-                limiter_stack.enter_context(
-                    get_app_dashboard_queries_rate_limiter().run(
-                        org_id=self.team.organization_id,
-                        dashboard_id=dashboard_id,
-                        task_id=self.query_id,
-                        team_id=self.team.id,
-                        is_api=is_api_key_access,
+                if self._query_lane(dashboard_id) == QueryLane.TELEMETRY:
+                    limiter_stack.enter_context(
+                        get_app_telemetry_queries_rate_limiter().run(
+                            org_id=self.team.organization_id,
+                            task_id=self.query_id,
+                            team_id=self.team.id,
+                            is_api=is_api_key_access,
+                        )
                     )
-                )
+                elif queue_wait := self._dashboard_queue_wait(dashboard_id, is_api_key_access=is_api_key_access):
+                    # The dashboard slot comes first here, so a tile waiting for it holds no organization slot.
+                    limiter_stack.enter_context(
+                        get_app_dashboard_queries_rate_limiter().run(
+                            org_id=self.team.organization_id,
+                            dashboard_id=dashboard_id,
+                            task_id=self.query_id,
+                            team_id=self.team.id,
+                            is_api=is_api_key_access,
+                            queue_wait=queue_wait,
+                        )
+                    )
+                    limiter_stack.enter_context(
+                        app_org_concurrency_slot(self.team, task_id=self.query_id, queue_wait=queue_wait)
+                    )
+                else:
+                    limiter_stack.enter_context(app_org_concurrency_slot(self.team, task_id=self.query_id))
+                    limiter_stack.enter_context(
+                        get_app_dashboard_queries_rate_limiter().run(
+                            org_id=self.team.organization_id,
+                            dashboard_id=dashboard_id,
+                            task_id=self.query_id,
+                            team_id=self.team.id,
+                            is_api=is_api_key_access,
+                        )
+                    )
             self._phase = RunPhase(name="calculate", stats=get_active_query_stats())
             query_start_time = perf_counter()
             query_result = self.calculate()
@@ -2587,7 +2660,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         if user is not None:
             self.set_user(user)
         start_time = perf_counter()
-        cache_key = self.get_cache_key()
+        cache_key = self.planned_cache_key if self.planned_cache_key is not None else self.get_cache_key()
         self._phase = RunPhase(name="prepare")
         self._timings_before_run: dict[str, float] = self.timings.to_dict()
         # Resolve per-call state before observability so SLO + analytics agree on the values.
@@ -2732,6 +2805,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     )
                     if not query_run.is_warming:
                         cache_manager.record_read()
+                        self._record_runner_read()
 
                     if execution_mode == ExecutionMode.CALCULATE_ASYNC_ALWAYS:
                         # The forced dispatch skips the result cache, but not the breaker: the
@@ -2810,10 +2884,13 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 self._phase = RunPhase(name="flight_wait")
                 with self.timings.measure("flight_wait"):
                     wait = flight.wait()
-                if wait.outcome != "unavailable":
+                ran_alone_action = FOLLOWER_RAN_ALONE_ACTIONS.get(wait.outcome)
+                if ran_alone_action is None:
                     return self._serve_flight_outcome(wait, cache_manager, query_run=query_run)
-                # The flight cannot be read, so this run goes alone, as it does when acquire hits a storage error.
-                QUERY_SINGLE_FLIGHT_COUNTER.labels(action="follower_ran_alone").inc()
+                # The flight cannot be read, or its leader held the lock past the follower wait, so this run goes
+                # alone, as it does when acquire hits a storage error.
+                self._raise_if_breaker_forbids(cache_manager, query_run.user)
+                QUERY_SINGLE_FLIGHT_COUNTER.labels(action=ran_alone_action).inc()
                 flight = None
 
         try:
@@ -2918,6 +2995,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         phase_times = compute_phase_times(self.timings.to_dict(), before=self._timings_before_run)
         query_executed_props = {
             **query_run.event_properties(self.modifiers),
+            **self._runner_event_properties(),
             "cache_hit": isinstance(results, self.cached_response_type),
             "cache_age_override": self._cache_age_override,
             **self._staleness_event_properties(),
@@ -2955,6 +3033,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             )
             query_failed_props = {
                 **query_run.event_properties(self.modifiers),
+                **self._runner_event_properties(),
                 "calculation_trigger": query_run.trigger,
                 "failed_in": phase.name,
                 "outcome": "refused" if refused else "failed",
@@ -3002,8 +3081,17 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             accumulator_scope() as warnings_accumulator,
             query_stats_scope(retain_ast=query_scan_flag is not None) as query_stats,
         ):
+            if flight is not None:
+                query_stats.query_start_listeners.append(flight.mark_querying)
             survey_query_metric_labels = get_survey_query_metric_labels(self.query)
             query_start = perf_counter()
+
+            def previous_entry() -> Optional[dict[str, Any]]:
+                with self.timings.measure("previous_cache_entry"):
+                    entry = cache_manager.lookup().entry
+                    return entry.as_full_response() if entry else None
+
+            self._prepare_blocking_calculation(dashboard_id=query_run.dashboard_id, previous_entry=previous_entry)
             self._phase = RunPhase(name="rate_limiters", stats=query_stats)
             try:
                 query_result, query_duration_ms = self._call_with_rate_limits(dashboard_id=query_run.dashboard_id)
@@ -3180,6 +3268,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             phase_times = compute_phase_times(self.timings.to_dict(), before=self._timings_before_run)
             query_executed_props = {
                 **query_run.event_properties(self.modifiers),
+                **self._runner_event_properties(),
                 "cache_hit": False,
                 "last_refresh": last_refresh.isoformat(),
                 "cache_write_success": stored,
@@ -3199,6 +3288,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 "query_scan_triggered": scan_skip is None,
                 "query_scan_skipped_reason": scan_skip,
                 **notes_outcome.event_properties(),
+                **self._query_executed_event_properties(),
                 **phase_times,
             }
             report_user_or_team_action(
@@ -3318,6 +3408,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # note: to_dict already strips custom_name from series (see schema_helpers.py)
         query = to_dict(self.query)
         query.pop("tags", None)
+        for ignored_field in self.cache_key_ignored_fields:
+            ignored_field.strip(query)
         # The resolved modifiers key the events route, so requested values that resolve the same share one entry.
         query = strip_events_route_modifiers(query, drop_empty=True)
 
@@ -3341,7 +3433,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             payload["restricted_properties"] = restricted
             # A cache hit skips masking. Bump this when masking expands to new tables or mirror columns
             # so restricted results cached before that change are invalidated.
-            payload["property_access_control_version"] = 2
+            payload["property_access_control_version"] = 3
 
         # Vary the cache key by the events-retention floor: a cache hit returns before the printer applies the floor,
         # so without this a result cached pre-enforcement (or at a longer period) would keep surfacing events past
@@ -3406,6 +3498,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         self._query_identity = self._query_identity_for(payload, variant)
         self._query_for_events = payload["query"]
         return f"{self._cache_key_for(payload)}{variant}"
+
+    def plan_cache_key(self) -> str:
+        """Build the cache key ahead of `run`, which then reuses it. Call it once the runner is fully configured:
+        a filter or override applied afterwards would not reach the key."""
+        self.planned_cache_key = self.get_cache_key()
+        return self.planned_cache_key
 
     def get_cache_key_variant(self) -> str:
         """State outside the cache payload that changes this runner's results, as a key suffix.
@@ -3559,6 +3657,25 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         return False
 
     def _staleness_event_properties(self) -> dict[str, Any]:
+        return {}
+
+    def _runner_event_properties(self) -> dict[str, Any]:
+        return {}
+
+    def _record_runner_read(self) -> None:
+        return None
+
+    def _prepare_blocking_calculation(
+        self, *, dashboard_id: Optional[int], previous_entry: Callable[[], Optional[dict[str, Any]]]
+    ) -> None:
+        """Runs before a blocking calculation that stores its result under this runner's cache key.
+
+        A runner that recomputes only part of a result calls `previous_entry` to read the entry this
+        calculation replaces, with any extra keys that `_cache_entry_with_freshness` stored in it.
+        """
+
+    def _query_executed_event_properties(self) -> dict[str, Any]:
+        """Runner-specific properties for the `query executed` event of a run that computed its result."""
         return {}
 
     def _cache_entry_with_freshness(self, response: dict[str, Any]) -> dict[str, Any]:

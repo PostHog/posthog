@@ -6,6 +6,7 @@ from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
+from products.tasks.backend.agent_run_policy import agent_policy_for_origin
 from products.tasks.backend.facade.profiles import (
     DrivePolicy,
     GithubAccess,
@@ -26,7 +27,7 @@ from products.tasks.backend.presentation.views.api import (
 )
 from products.tasks.backend.temporal.oauth import _oauth_application_for_task
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
-from products.tasks.backend.temporal.process_task.ai_gateway_token import resolve_sandbox_ai_product
+from products.tasks.backend.temporal.process_task.ai_gateway_token import mint_refusal, resolve_sandbox_ai_product
 from products.tasks.backend.temporal.process_task.utils import (
     USER_AUTHORABLE_ORIGIN_PRODUCTS,
     get_pr_authorship_mode,
@@ -117,6 +118,22 @@ class TestTaskProfilesMatchMaster(SimpleTestCase):
         master = resolve_sandbox_ai_product(profile.origin_product, None, internal=not profile.listed)
         self.assertEqual(profile.billing_product, master)
 
+    @parameterized.expand(
+        [(key, profile) for key, profile in PROFILES if profile.billing_product == "background_agents"]
+    )
+    def test_background_agents_profile_can_mint_a_gateway_token(self, _key: str, profile: TaskProfile) -> None:
+        refusal = mint_refusal(
+            profile.billing_product,
+            team_id=1,
+            state=None,
+            model=None,
+            runtime=None,
+            internal=not profile.listed,
+            origin_product=profile.origin_product,
+        )
+        self.assertIsNone(refusal)
+        self.assertIn(profile.origin_product, Task.SERVER_ONLY_ORIGIN_PRODUCTS)
+
     @parameterized.expand(PROFILES)
     def test_bills_compute_matches_master(self, _key: str, profile: TaskProfile) -> None:
         master = is_billable_compute(
@@ -134,7 +151,7 @@ class TestTaskProfilesMatchMaster(SimpleTestCase):
 
     @parameterized.expand(PROFILES)
     def test_personal_mcp_matches_master(self, _key: str, profile: TaskProfile) -> None:
-        self.assertEqual(profile.personal_mcp, include_personal_mcp_for_task(_task(profile)))
+        self.assertEqual(profile.personal_mcp, include_personal_mcp_for_task(_task(profile), None))
 
     @parameterized.expand(PROFILES)
     def test_inherit_user_defaults_matches_master(self, _key: str, profile: TaskProfile) -> None:
@@ -182,3 +199,7 @@ class TestTaskProfilesMatchMaster(SimpleTestCase):
     @parameterized.expand(PROFILES)
     def test_default_sandbox_template_matches_master(self, _key: str, profile: TaskProfile) -> None:
         self.assertEqual(profile.sandbox_templates[0], parse_requested_sandbox_template(None).value)
+
+    @parameterized.expand(PROFILES)
+    def test_agent_policy_matches_master(self, _key: str, profile: TaskProfile) -> None:
+        self.assertEqual(profile.agent_policy, agent_policy_for_origin(profile.origin_product))

@@ -171,21 +171,21 @@ function Template(): JSX.Element {
 export const Default: StoryFn = () => <Template />
 Default.decorators = [
     mswDecorator({
-        get: { '/api/organizations/@current/welcome/current/': FULL_PAYLOAD },
+        get: { '/api/organizations/:organization_id/welcome/current/': FULL_PAYLOAD },
     }),
 ]
 
 export const EmptyOrganization: StoryFn = () => <Template />
 EmptyOrganization.decorators = [
     mswDecorator({
-        get: { '/api/organizations/@current/welcome/current/': EMPTY_PAYLOAD },
+        get: { '/api/organizations/:organization_id/welcome/current/': EMPTY_PAYLOAD },
     }),
 ]
 
 export const NoInviter: StoryFn = () => <Template />
 NoInviter.decorators = [
     mswDecorator({
-        get: { '/api/organizations/@current/welcome/current/': { ...FULL_PAYLOAD, inviter: null } },
+        get: { '/api/organizations/:organization_id/welcome/current/': { ...FULL_PAYLOAD, inviter: null } },
     }),
 ]
 
@@ -204,7 +204,7 @@ Provisioned.decorators = [
     mswDecorator({
         get: {
             '/api/users/@me/': PROVISIONED_USER,
-            '/api/organizations/@current/welcome/current/': { ...FULL_PAYLOAD, inviter: null },
+            '/api/organizations/:organization_id/welcome/current/': { ...FULL_PAYLOAD, inviter: null },
         },
     }),
 ]

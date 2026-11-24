@@ -286,7 +286,17 @@ describe('tileCanvasModel', () => {
         ['past the side of the preview', { x: 400, y: 190 }, false],
     ])('keeps the open preview while the pointer moves %s', (_, pointer, expected) => {
         const apex = { x: 100, y: 100 }
-        const preview = { left: 40, right: 260, top: 200 }
+        const preview = { left: 40, right: 260, top: 200, bottom: 320 }
+
+        expect(isHeadingToRect(pointer, apex, preview, 12)).toBe(expected)
+    })
+
+    it.each([
+        ['straight up toward the preview', { x: 100, y: 50 }, true],
+        ['sideways away from the preview', { x: 10, y: 90 }, false],
+    ])('keeps a preview above the step while the pointer moves %s', (_, pointer, expected) => {
+        const apex = { x: 100, y: 100 }
+        const preview = { left: 40, right: 260, top: -100, bottom: 0 }
 
         expect(isHeadingToRect(pointer, apex, preview, 12)).toBe(expected)
     })

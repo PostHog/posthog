@@ -125,6 +125,25 @@ def evaluation_alert(check: PlatformAlertCheckInput) -> AlertConfiguration | Non
     return legacy_alert(team_id=check.team_id, alert_id=check.legacy_configuration_id)
 
 
+def checked_alert(check: PlatformAlertCheckInput) -> AlertConfiguration | None:
+    """The alert a scheduled check evaluates, built from the platform alert alone, whether or not insight
+    keeps a row for it. None when its insight is gone.
+
+    A copy's alert takes its row's id, because the copy's HogFunctions, its chart and its earlier AI
+    checks are keyed by that id. Its owner and handover time come from the copy, because the AI
+    detector reads the checks from before the handover from the row's history and the later ones
+    from the platform's.
+    """
+    alert = alert_from_platform(check, team_id=check.team_id, enabled=True)
+    if alert is None:
+        return None
+    if check.legacy_configuration_id is not None:
+        alert.id = check.legacy_configuration_id
+    alert.owner = PlatformAlertOwner.PLATFORM if check.owned_by_platform else PlatformAlertOwner.SOURCE
+    alert.owner_changed_at = check.owner_changed_at
+    return alert
+
+
 def investigated_alert(team_id: int, alert_id: UUID) -> AlertConfiguration | None:
     """The alert an investigation names: its insight row, or, for an alert insight keeps no row for,
     one built from the platform alert, whose id it carries. None when both are gone."""
@@ -347,7 +366,12 @@ def _built_alert(
         team=insight.team,
         insight=insight,
         enabled=enabled,
-        threshold=Threshold(team=insight.team, insight=insight, configuration=threshold_config)
+        threshold=Threshold(
+            team=insight.team,
+            insight=insight,
+            name=_threshold_name_of(configuration) or "",
+            configuration=threshold_config,
+        )
         if threshold_config
         else None,
         owner=PlatformAlertOwner.PLATFORM,
@@ -358,6 +382,11 @@ def _built_alert(
 
 def _threshold_of(configuration: PlatformAlertCheckInput | PlatformAlertConfigurationView) -> dict[str, Any] | None:
     return (configuration.source_config.get(SOURCE_CONDITION_KEY) or {}).get("threshold")
+
+
+def _threshold_name_of(configuration: PlatformAlertCheckInput | PlatformAlertConfigurationView) -> str | None:
+    """None for a copy made before copies held the name, whose row's threshold keeps it."""
+    return (configuration.source_config.get(SOURCE_CONDITION_KEY) or {}).get("threshold_name")
 
 
 def _row_settings(configuration: PlatformAlertCheckInput | PlatformAlertConfigurationView) -> dict[str, Any]:
@@ -391,10 +420,26 @@ def moved_alert_settings(*, team_id: int, alert_ids: Collection[UUID]) -> dict[U
         alert_id: MovedAlertSettings(
             fields={**_copied_row_settings(view), "enabled": view.enabled},
             threshold=_threshold_of(view),
+            threshold_name=_threshold_name_of(view),
             schedule_start_time=view.anchor_time,
+            created_by_id=view.created_by_id,
         )
         for alert_id, view in views.items()
     }
+
+
+def show_copy_settings(alerts: Collection[AlertConfiguration]) -> set[UUID]:
+    """Puts the settings each moved alert's copy holds on its insight row, in place, and returns the ids
+    of the alerts that have a copy. The row stops changing once the platform owns the alert, so its own
+    values may be stale. An alert saved afterwards would write the copy's settings to its row."""
+    rows = {alert.id: alert for alert in alerts if alert.platform_owned and not alert.has_no_insight_row}
+    if not rows:
+        return set()
+    team_id = next(iter(rows.values())).team_id
+    settings_by_id = moved_alert_settings(team_id=team_id, alert_ids=list(rows))
+    for alert_id, settings in settings_by_id.items():
+        rows[alert_id].show_copy_settings(settings)
+    return set(settings_by_id)
 
 
 def _copied_row_settings(view: PlatformAlertConfigurationView) -> dict[str, Any]:
@@ -410,7 +455,8 @@ def _copied_row_settings(view: PlatformAlertConfigurationView) -> dict[str, Any]
 
 
 def legacy_alert(*, team_id: int, alert_id: UUID) -> AlertConfiguration | None:
-    return (
+    """An alert's insight row, with its copy's settings when the platform owns it."""
+    alert = (
         AlertConfiguration.objects.select_related("insight", "team", "threshold", "created_by")
         # A firing's card names the insight's tags. Prefetched with the alert, because a reverse
         # many-to-many cannot be selected, and the read would otherwise be its own round trip
@@ -419,3 +465,6 @@ def legacy_alert(*, team_id: int, alert_id: UUID) -> AlertConfiguration | None:
         .filter(team_id=team_id, id=alert_id)
         .first()
     )
+    if alert is not None:
+        show_copy_settings([alert])
+    return alert

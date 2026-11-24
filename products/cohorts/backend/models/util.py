@@ -853,7 +853,14 @@ def insert_static_cohort(person_uuids: Sequence[Optional[uuid.UUID]], cohort_id:
 
 
 def remove_person_from_static_cohort(person_uuid: uuid.UUID, cohort_id: int, *, team_id: int):
-    """Remove a person from a static cohort in ClickHouse.
+    remove_people_from_static_cohort([person_uuid], cohort_id, team_id=team_id)
+
+
+def remove_people_from_static_cohort(
+    person_uuids: Sequence[uuid.UUID], cohort_id: int, *, team_id: int, wait_for_local_replica: bool = False
+):
+    """Remove people from a static cohort in ClickHouse, in one mutation. A delete per person can pass the table's
+    limit on unfinished mutations.
 
     Uses DELETE FROM with mutations_sync=0 and lightweight_deletes_sync=0 to avoid replica
     synchronization issues when some replicas are inactive. In tests, uses synchronous mutations
@@ -874,6 +881,12 @@ def remove_person_from_static_cohort(person_uuid: uuid.UUID, cohort_id: int, *, 
             "mutations_sync": "2",
             "lightweight_deletes_sync": "2",
         }
+    elif wait_for_local_replica:
+        # A person added back right after a queued delete would be lost when the delete ran.
+        ch_settings = {
+            "mutations_sync": "1",
+            "lightweight_deletes_sync": "1",
+        }
     else:
         # Use async mutations in production to avoid replica sync issues
         ch_settings = {
@@ -884,7 +897,7 @@ def remove_person_from_static_cohort(person_uuid: uuid.UUID, cohort_id: int, *, 
     sync_execute(
         DELETE_PERSON_FROM_STATIC_COHORT,
         {
-            "person_id": str(person_uuid),
+            "person_ids": [str(person_uuid) for person_uuid in person_uuids],
             "cohort_id": cohort_id,
             "team_id": team_id,
         },
@@ -1427,7 +1440,8 @@ def insert_cohort_people_into_pg(
     `min_rows` is how many rows the caller just wrote to ClickHouse. Each query can land on a different replica, and
     a replica that has not received the write yet reads as a smaller cohort, so the copy repeats until it has seen them.
     `written_since` is a `_timestamp` from before that write. Only rows at or after it count, because a cohort's
-    existing members can otherwise reach `min_rows` on a replica that has none of the new rows.
+    existing members can otherwise reach `min_rows` on a replica that has none of the new rows. Passing it also
+    clears the removal marks of the members those rows add back, so a repair, which must keep the marks, leaves it out.
     """
     try:
         for wait_seconds in (*STATIC_COHORT_READ_BACK_WAITS_SECONDS, None):
@@ -1447,6 +1461,8 @@ def _copy_static_cohort_rows_to_pg(cohort: Cohort, *, team_id: int, written_sinc
     """Return how many of the copied rows have a `_timestamp` at or after `written_since`."""
     from posthog.helpers.batch_iterators import CursorBatchIterator
 
+    from products.cohorts.backend.static_reconciliation import clear_static_cohort_member_removals_written_after
+
     tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
 
     CH_PAGE_SIZE = 10_000
@@ -1459,7 +1475,7 @@ def _copy_static_cohort_rows_to_pg(cohort: Cohort, *, team_id: int, written_sinc
         nonlocal new_rows_read
         # nosemgrep: clickhouse-fstring-param-audit - table name from constant, values parameterized
         rows = sync_execute(
-            f"SELECT person_id, max(_timestamp) >= %(written_since)s FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND person_id > %(cursor)s GROUP BY person_id ORDER BY person_id LIMIT %(limit)s",
+            f"SELECT person_id, max(_timestamp) >= %(written_since)s, toUnixTimestamp(max(_timestamp)) FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND person_id > %(cursor)s GROUP BY person_id ORDER BY person_id LIMIT %(limit)s",
             {
                 "cohort_id": cohort.pk,
                 "team_id": team_id,
@@ -1476,7 +1492,11 @@ def _copy_static_cohort_rows_to_pg(cohort: Cohort, *, team_id: int, written_sinc
         )
         if not rows:
             return [], cursor
-        new_rows_read += sum(1 for _, is_written_since in rows if is_written_since)
+        new_rows_read += sum(1 for _, is_written_since, _ in rows if is_written_since)
+        if written_since is not None:
+            clear_static_cohort_member_removals_written_after(
+                cohort_id=cohort.pk, written_at={str(person_id): written_at for person_id, _, written_at in rows}
+            )
         items = [str(r[0]) for r in rows]
         return items, items[-1]
 
@@ -1664,6 +1684,51 @@ def delete_cohort_member(team_id: int, cohort_id: int, person_id: int) -> bool:
         "delete_cohort_member",
         lambda: _delete_cohort_member_via_personhog(cohort_id, person_id),
     )
+
+
+_GET_PERSONS_MAX_IDS = 250
+_REMOVE_MEMBERS_CHUNK_SIZE = 10_000
+
+
+def remove_static_cohort_members(team_id: int, cohort_id: int, person_ids: Sequence[int]) -> None:
+    """Remove people from a static cohort, from ClickHouse first and then Postgres.
+
+    Postgres keeps them until ClickHouse no longer does, so a retry after a failure finds them again.
+    """
+    from posthog.personhog_client.client import get_personhog_client, personhog_call
+    from posthog.personhog_client.proto import DeleteCohortMembersByPersonIdsRequest, GetPersonsRequest
+
+    from products.cohorts.backend.models.cohort import Cohort
+
+    if not person_ids or not Cohort.objects.filter(id=cohort_id, team_id=team_id).exists():
+        return
+
+    client = get_personhog_client()
+    if client is None:
+        raise RuntimeError("personhog client not configured")
+
+    def person_uuids() -> list[uuid.UUID]:
+        uuids: list[uuid.UUID] = []
+        for start in range(0, len(person_ids), _GET_PERSONS_MAX_IDS):
+            ids = list(person_ids[start : start + _GET_PERSONS_MAX_IDS])
+            response = client.get_persons(GetPersonsRequest(team_id=team_id, person_ids=ids))
+            uuids.extend(uuid.UUID(person.uuid) for person in response.persons)
+        return uuids
+
+    uuids = personhog_call("get_persons", person_uuids)
+    for start in range(0, len(uuids), _REMOVE_MEMBERS_CHUNK_SIZE):
+        remove_people_from_static_cohort(
+            uuids[start : start + _REMOVE_MEMBERS_CHUNK_SIZE], cohort_id, team_id=team_id, wait_for_local_replica=True
+        )
+
+    def delete_members() -> None:
+        for start in range(0, len(person_ids), _REMOVE_MEMBERS_CHUNK_SIZE):
+            ids = list(person_ids[start : start + _REMOVE_MEMBERS_CHUNK_SIZE])
+            client.delete_cohort_members_by_person_ids(
+                DeleteCohortMembersByPersonIdsRequest(cohort_id=cohort_id, person_ids=ids)
+            )
+
+    personhog_call("delete_cohort_members_by_person_ids", delete_members)
 
 
 _DELETE_BULK_MAX_ITERATIONS = 10_000

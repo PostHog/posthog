@@ -19,7 +19,9 @@ import {
 } from '@posthog/quill-charts'
 
 import { chartStyleCurve } from 'lib/charts/chartStyleAdapter'
+import type { DataColorTheme } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
+import { getColorFromToken } from 'scenes/dataThemeLogic'
 
 import { ChartSettings, GoalLine, YAxisSettings } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
@@ -34,6 +36,7 @@ import { AxisBreakdownSeries, BreakdownSeriesData } from '../seriesBreakdownLogi
 import { type SqlChartProps } from './SqlChart'
 
 export const MAX_SERIES = 200
+export const DEFAULT_SQL_MOVING_AVERAGE_INTERVALS = 3
 
 /** Without a breakdown, rows that share an x value would draw on top of each other in one slot, so they
  *  are summed per x value like the breakdown path does. A bar value chart draws one bar per row, so it keeps them. */
@@ -255,6 +258,39 @@ export function hasValueLabels(
     ySeriesData: SqlLineYSeries[] | null | undefined
 ): boolean {
     return !!chartSettings.showValuesOnSeries || !!ySeriesData?.some(optsIntoValueLabels)
+}
+
+export function withCategoryBarColors(
+    series: Series<SqlLineSeriesMeta>[],
+    labels: string[],
+    visualizationType: ChartDisplayType,
+    chartSettings: ChartSettings,
+    colors: string[],
+    dataTheme: DataColorTheme | null
+): Series<SqlLineSeriesMeta>[] {
+    if (
+        !chartSettings.colorBarsByCategory ||
+        chartSettings.seriesBreakdownColumn ||
+        series.length !== 1 ||
+        ![ChartDisplayType.ActionsBar, ChartDisplayType.ActionsBarValue].includes(visualizationType)
+    ) {
+        return series
+    }
+    const colorByCategory = new Map<string, string | undefined>()
+    const bars = labels.map((value) => {
+        const key = String(value)
+        if (!colorByCategory.has(key)) {
+            const customization = chartSettings.resultCustomizations?.[key]
+            const presetColor =
+                customization?.color && dataTheme ? getColorFromToken(dataTheme, customization.color) : undefined
+            colorByCategory.set(
+                key,
+                customization?.customColor ?? presetColor ?? colors[colorByCategory.size % colors.length]
+            )
+        }
+        return { color: colorByCategory.get(key) }
+    })
+    return [{ ...series[0], bars }]
 }
 
 export function buildSeries(
@@ -492,6 +528,8 @@ function buildValueLabelsConfig(
     return {
         position: chartSettings.valueLabelPosition,
         background: chartSettings.valueLabelBackground,
+        color: chartSettings.valueLabelColor,
+        backgroundColor: chartSettings.valueLabelBackgroundColor,
         fontSize: chartSettings.valueLabelFontSize,
         rotation: chartSettings.valueLabelRotation,
         formatter: (_value, seriesIndex, _dataIndex, context) =>
@@ -510,6 +548,7 @@ export function buildLineChartConfig({
     const leftSeries = seriesForAxis(ySeriesData, 'left')
     const rightSeries = seriesForAxis(ySeriesData, 'right')
     const labelFormatter = buildSqlDateLabelFormatter(xData, timezone)
+    const window = chartSettings.movingAverageIntervals ?? DEFAULT_SQL_MOVING_AVERAGE_INTERVALS
 
     return {
         xAxis: buildXAxisConfig(xData, chartSettings, timezone),
@@ -532,6 +571,14 @@ export function buildLineChartConfig({
         goalLines: schemaGoalLinesToConfigs(goalLines),
         showAxisLines: buildAxisLinesConfig(chartSettings),
         trendLines: buildTrendLineConfigs(ySeriesData),
+        movingAverage:
+            chartSettings.showMovingAverage && Number.isInteger(window) && window >= 2
+                ? ySeriesData?.map((series, index) => ({
+                      seriesKey: getSeriesKey(series, index),
+                      window,
+                      alignment: 'trailing',
+                  }))
+                : undefined,
         legend: buildLegendConfig(chartSettings, legendRenderItem),
         valueLabels: buildValueLabelsConfig(chartSettings, ySeriesData),
         curve: chartStyleCurve(chartSettings.chartStyle),

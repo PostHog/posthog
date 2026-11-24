@@ -137,13 +137,21 @@ def list_entities(client: RESTClient, kind: EntityKind, parent_id: str | None = 
 def entity_ids(client: RESTClient, kind: EntityKind, safe_point: Callable[[], None]) -> list[str]:
     """Every id of one entity kind in the account, sorted so a resumed run walks them in the same order."""
     entity = ENTITIES[kind]
-    parent_ids = entity_ids(client, entity.parent, safe_point) if entity.parent is not None else [None]
+    parent_ids = parent_entity_ids(client, kind, safe_point) if entity.parents else [None]
     ids: list[str] = []
     for parent_id in parent_ids:
         for page in list_entities(client, kind, parent_id):
             ids.extend(str(row[entity.id_field]) for row in page if row.get(entity.id_field))
             safe_point()
     return sorted(set(ids))
+
+
+def parent_entity_ids(client: RESTClient, kind: EntityKind, safe_point: Callable[[], None]) -> list[str]:
+    """The ids of every parent of one entity kind, sorted across parent kinds."""
+    ids: set[str] = set()
+    for parent in ENTITIES[kind].parents:
+        ids.update(entity_ids(client, parent, safe_point))
+    return sorted(ids)
 
 
 def _to_date(value: Any) -> date | None:
@@ -246,7 +254,7 @@ def entity_rows(
     manager: ResumableSourceManager[NaverAdsResumeConfig],
 ) -> Iterator[Rows]:
     entity = ENTITIES[endpoint.entity]
-    if entity.parent is None:
+    if not entity.parents:
         for page in list_entities(client, endpoint.entity):
             if page:
                 yield page
@@ -256,7 +264,7 @@ def entity_rows(
 
     resume = manager.load_state() if manager.can_resume() else None
     resume_after = resume.after_id if resume is not None else None
-    for parent_id in entity_ids(client, entity.parent, manager.safe_point):
+    for parent_id in parent_entity_ids(client, endpoint.entity, manager.safe_point):
         if resume_after is not None and parent_id <= resume_after:
             continue
         # A parent's rows are held until its last page, so the saved parent id never covers a partial parent.

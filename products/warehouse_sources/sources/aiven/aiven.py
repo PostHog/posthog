@@ -198,31 +198,34 @@ def _invoice_lines_resource(
 def _two_level_resource(
     config: AivenEndpointConfig, client_config: ClientConfig, team_id: int, job_id: str
 ) -> Resource:
-    """Generic organization -> intermediate list -> child fan-out (see ``TwoLevelFanOut``).
+    """Generic top parent -> intermediate list -> child fan-out (see ``TwoLevelFanOut``).
 
-    The intermediate list is fetched per organization and carries its ``organization_id`` down; the
-    child endpoint is fetched per intermediate row, binding each ``child_params`` placeholder from
-    that row and stamping the resolved value onto every child row. ``organization_id`` is stamped
-    with ``setdefault`` (a row that already has a real org id keeps it); every other placeholder is
-    set unconditionally, matching the single-parent fan-out convention.
+    The intermediate list is fetched per top parent (organization or project) and carries the parent
+    id down; the child endpoint is fetched per intermediate row, binding each ``child_params``
+    placeholder from that row and stamping the resolved value onto every child row. ``organization_id``
+    is stamped with ``setdefault`` (a row that already has a real org id keeps it); every other field
+    is set unconditionally, matching the single-parent fan-out convention.
     """
     two = config.two_level
     assert two is not None, f"{config.name} is fan_out=two_level but carries no two_level config"
 
+    parent, placeholder = (
+        (_PROJECT_PARENT, "project") if two.top_parent == "project" else (_ORG_PARENT, "organization_id")
+    )
     child_fields = list(dict.fromkeys(two.child_params.values()))
     stamps = [
-        _stamp_parent_field(two.intermediate_name, field_name, placeholder, overwrite=placeholder != "organization_id")
-        for placeholder, field_name in two.child_params.items()
+        _stamp_parent_field(two.intermediate_name, field_name, field_name, overwrite=field_name != "organization_id")
+        for field_name in child_fields
     ]
 
     rest_config: RESTAPIConfig = {
         "client": client_config,
         "resources": [
             {
-                "name": "organizations",
+                "name": parent["name"],
                 "endpoint": {
-                    "path": _ORG_PARENT["path"],
-                    "data_selector": _ORG_PARENT["data_key"],
+                    "path": parent["path"],
+                    "data_selector": parent["data_key"],
                     "paginator": _SINGLE_PAGE(),
                 },
             },
@@ -230,23 +233,21 @@ def _two_level_resource(
                 "name": two.intermediate_name,
                 "endpoint": {
                     "path": two.intermediate_path,
-                    "params": {
-                        "organization_id": {"type": "resolve", "resource": "organizations", "field": "organization_id"}
-                    },
+                    "params": {placeholder: {"type": "resolve", "resource": parent["name"], "field": parent["field"]}},
                     "data_selector": two.intermediate_data_key,
                     "paginator": _SINGLE_PAGE(),
                 },
-                "include_from_parent": ["organization_id"],
-                # Land the org id as a clean column so the child can resolve/inject it.
-                "data_map": _stamp_parent_field("organizations", "organization_id", "organization_id", overwrite=True),
+                "include_from_parent": [parent["field"]],
+                # Land the parent id as a clean column so the child can resolve/inject it.
+                "data_map": _stamp_parent_field(parent["name"], parent["field"], parent["field"], overwrite=True),
             },
             {
                 "name": config.name,
                 "endpoint": {
                     "path": config.path_template,
                     "params": {
-                        placeholder: {"type": "resolve", "resource": two.intermediate_name, "field": field_name}
-                        for placeholder, field_name in two.child_params.items()
+                        child_placeholder: {"type": "resolve", "resource": two.intermediate_name, "field": field_name}
+                        for child_placeholder, field_name in two.child_params.items()
                     },
                     "data_selector": config.data_key,
                     "paginator": _SINGLE_PAGE(),

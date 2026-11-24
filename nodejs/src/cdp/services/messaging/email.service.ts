@@ -13,6 +13,7 @@ import {
     HogFunctionType,
     IntegrationType,
     MessageAssetRow,
+    MinimalAppMetric,
 } from '~/cdp/types'
 import { createAddLogFunction, logEntry } from '~/cdp/utils'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
@@ -50,6 +51,7 @@ import {
     resolveEmailTrackingDistinctId,
 } from './email-tracking.service'
 import { UtmTagging, htmlForSes, tagEmailLinks, utmTagsFor } from './helpers/email-html'
+import { plainTextFromHtml } from './helpers/email-text'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { SES_EMAIL_STATUS_TAG, SES_SENSITIVE_TAG } from './helpers/ses'
 import {
@@ -155,15 +157,15 @@ const emailSendsStoppedForJobOwnershipTotal = new Counter({
 
 const sesSendDurationMs = new Histogram({
     name: 'cdp_ses_send_duration_ms',
-    help: 'Duration of the SES SendEmail call in milliseconds, by whether SES accepted the email (success or error).',
-    labelNames: ['result'],
+    help: 'Duration of the SES SendEmail call in milliseconds, by whether SES accepted the email (success or error) and whether it carried attachment files (with_files).',
+    labelNames: ['result', 'with_files'],
     buckets: [25, 50, 100, 250, 500, 1_000, 2_500, 5_000, 10_000, 30_000],
 })
 
 const emailQueueToSendMs = new Histogram({
     name: 'cdp_email_queue_to_send_ms',
-    help: 'Milliseconds an email waits on the email queue before its handoff to SES. For source="transactional_api" the wait starts when cdp-api created the job, or at its scheduled time for a scheduled send, so it is the time from the API\'s 202 or the scheduled time to SES and includes every throttled or rate-limited retry. For source="workflow" the wait starts at the job\'s scheduled time: when the job joined the email queue, or when a delayed or rescheduled send became due, so a retried send measures only its last wait. priority_class is the email queue lane. team_capped is true when the team sending cap delayed the send, so that alerts can leave out a wait that the cap causes on purpose.',
-    labelNames: ['source', 'priority_class', 'team_capped'],
+    help: 'Milliseconds an email waits on the email queue before its handoff to SES. For source="transactional_api" the wait starts when cdp-api created the job, or at its scheduled time for a scheduled send, so it is the time from the API\'s 202 or the scheduled time to SES and includes every throttled or rate-limited retry. For source="workflow" the wait starts at the job\'s scheduled time: when the job joined the email queue, or when a delayed or rescheduled send became due, so a retried send measures only its last wait. priority_class is the email queue lane. team_capped is true when the team sending cap delayed the send, so that alerts can leave out a wait that the cap causes on purpose. with_files is true for an email that carries attachment files, so plain sends can be read apart from them.',
+    labelNames: ['source', 'priority_class', 'team_capped', 'with_files'],
     buckets: [100, 250, 500, 1_000, 2_500, 5_000, 10_000, 30_000, 60_000, 120_000, 300_000],
 })
 
@@ -403,6 +405,53 @@ function pickReservedRetryDelayMs(retryAfterMs: number | null, refillPerSecond: 
     return Math.floor(parkMs * (1 + Math.random()))
 }
 
+const SENDING_LIMIT_LONG_DELAY_MS = 60 * 60 * 1_000
+
+function sendStepOf(invocation: CyclotronJobInvocationHogFunction): string {
+    return invocation.state.actionId
+        ? `${invocation.state.actionId}:${invocation.state.actionStepCount ?? 0}`
+        : invocation.id
+}
+
+function sendingLimitHoldStartMs(invocation: CyclotronJobInvocationHogFunction): number | null {
+    const stamp = invocation.queueMetadata?.teamCappedAt
+    if (typeof stamp !== 'string') {
+        return null
+    }
+    const separator = stamp.lastIndexOf('@')
+    if (separator < 0 || stamp.slice(0, separator) !== sendStepOf(invocation)) {
+        return null
+    }
+    const heldAtMs = DateTime.fromISO(stamp.slice(separator + 1), { zone: 'utc' }).toMillis()
+    return Number.isFinite(heldAtMs) ? heldAtMs : null
+}
+
+function sentOverAnHourAfterFirstLimitHold(invocation: CyclotronJobInvocationHogFunction): boolean {
+    const heldSinceMs = sendingLimitHoldStartMs(invocation)
+    return heldSinceMs !== null && Date.now() - heldSinceMs > SENDING_LIMIT_LONG_DELAY_MS
+}
+
+function emailMetric(
+    invocation: CyclotronJobInvocationHogFunction,
+    metricName:
+        | 'email_sent'
+        | 'email_failed'
+        | 'email_untracked'
+        | 'email_sending_limit_delayed'
+        | 'email_sending_limit_delayed_over_1h'
+): MinimalAppMetric {
+    const appSourceVersion = resolveEmailSendingAppSourceVersion(invocation)
+    return {
+        team_id: invocation.teamId,
+        app_source_id: invocation.parentRunId ?? invocation.functionId,
+        instance_id: invocation.state.actionId || invocation.id,
+        metric_kind: 'email',
+        metric_name: metricName,
+        count: 1,
+        ...(appSourceVersion ? { app_source_version: appSourceVersion } : {}),
+    }
+}
+
 const teamEmailCapDelayedTotal = new Counter({
     name: 'cdp_team_email_cap_delayed_total',
     help: 'Workflow email sends delayed by the team trust-tier sending cap, or that would have been. `mode=shadow` and `mode=transactional` both mean the send went out anyway.',
@@ -482,6 +531,7 @@ export interface EmailServiceConfig {
     utmLinkScannerTeams?: string
     workflowRunLinkTagTeams?: string
     templateTagsTeams?: string
+    textPartTeams?: string
     attachmentSendDeadlineMs?: number
     ownershipCheckTimeoutMs?: number
 }
@@ -592,6 +642,7 @@ export class EmailService {
     private workflowRunLinkTagTeams: ValueMatcher<number>
     private stillOwnsJob: JobOwnershipCheck = () => Promise.resolve(true)
     private templateTagsTeams: ValueMatcher<number>
+    private textPartTeams: ValueMatcher<number>
 
     constructor(
         private sesConfig: EmailServiceConfig,
@@ -620,6 +671,14 @@ export class EmailService {
         this.recipientTokensService = new RecipientTokensService(encryptionSaltKeys, siteUrl)
         this.workflowRunLinkTagTeams = buildIntegerMatcher(this.sesConfig.workflowRunLinkTagTeams, true)
         this.templateTagsTeams = buildIntegerMatcher(this.sesConfig.templateTagsTeams, true)
+        this.textPartTeams = buildIntegerMatcher(this.sesConfig.textPartTeams, true)
+    }
+
+    private textPart(params: CyclotronInvocationQueueParametersEmailType, teamId: number): string {
+        if (params.text || !params.html || !this.textPartTeams(teamId)) {
+            return params.text ?? ''
+        }
+        return plainTextFromHtml(params.html)
     }
 
     public checkJobOwnershipBeforeSend(stillOwnsJob: JobOwnershipCheck): void {
@@ -744,9 +803,7 @@ export class EmailService {
             // limiter's Valkey is down claimUpTo returns 0, so sends wait (never drop) until it
             // recovers — same fail-closed stance as the global SES gate.
             const workflowRateLimit = parseWorkflowEmailRateLimit(invocation.hogFunction.metadata)
-            const sendStep = invocation.state.actionId
-                ? `${invocation.state.actionId}:${invocation.state.actionStepCount ?? 0}`
-                : invocation.id
+            const sendStep = sendStepOf(invocation)
             let workflowRateClaimed = invocation.queueMetadata?.workflowRateClaimed === sendStep
             if (workflowRateLimit && this.workflowEmailRateLimiter && !isTest && !workflowRateClaimed) {
                 const periodSeconds = workflowRateLimit.period === 'minute' ? 60 : 3600
@@ -801,6 +858,7 @@ export class EmailService {
             const teamBudget = await this.claimTeamSendingBudget(invocation, isTest, capRecipients)
             teamBudgetCharged = teamBudget.charged
             const capDelay = teamBudget.delay
+            const limitHeldSinceMs = sendingLimitHoldStartMs(invocation)
             if (capDelay) {
                 result.finished = false
                 result.parked = true
@@ -809,6 +867,10 @@ export class EmailService {
                 // without them the rescheduled dequeue resumes the Hog VM and drops the send.
                 result.invocation.queueParameters = params
                 result.invocation.queueMetadata = { ...invocation.queueMetadata, teamCapped: true }
+                if (capDelay.label && limitHeldSinceMs === null) {
+                    result.invocation.queueMetadata.teamCappedAt = `${sendStep}@${DateTime.utc().toISO()}`
+                    result.metrics.push(emailMetric(invocation, 'email_sending_limit_delayed'))
+                }
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: capDelay.retryDelayMs })
                 const capRetrySeconds = Math.round(capDelay.retryDelayMs / 1000)
                 addLog(
@@ -991,30 +1053,16 @@ export class EmailService {
         // Test sends (from the editor's "Run test") must not record metrics — keep them out of the
         // workflow's Metrics tab, mirroring the isTest skip the SES webhook applies to delivery/open/click.
         if (!isTest) {
-            const appSourceVersion = resolveEmailSendingAppSourceVersion(invocation)
-            const sendVersion = appSourceVersion ? { app_source_version: appSourceVersion } : {}
-            result.metrics.push({
-                team_id: invocation.teamId,
-                app_source_id: invocation.parentRunId ?? invocation.functionId,
-                instance_id: invocation.state.actionId || invocation.id,
-                metric_kind: 'email',
-                metric_name: success ? 'email_sent' : 'email_failed',
-                count: 1,
-                ...sendVersion,
-            })
+            result.metrics.push(emailMetric(invocation, success ? 'email_sent' : 'email_failed'))
 
             // Untracked sends can never produce opens/clicks, so record them separately: open/click
             // rates are computed against (delivered - untracked) to avoid deflation.
             if (success && !trackingEnabled) {
-                result.metrics.push({
-                    team_id: invocation.teamId,
-                    app_source_id: invocation.parentRunId ?? invocation.functionId,
-                    instance_id: invocation.state.actionId || invocation.id,
-                    metric_kind: 'email',
-                    metric_name: 'email_untracked',
-                    count: 1,
-                    ...sendVersion,
-                })
+                result.metrics.push(emailMetric(invocation, 'email_untracked'))
+            }
+
+            if (success && sentOverAnHourAfterFirstLimitHold(invocation)) {
+                result.metrics.push(emailMetric(invocation, 'email_sending_limit_delayed_over_1h'))
             }
 
             if (success && assetRow) {
@@ -1028,7 +1076,7 @@ export class EmailService {
                     teamId: invocation.teamId,
                     messageId: invocation.id,
                     status: success ? 'sent' : 'failed',
-                    reason: success ? undefined : failureReason,
+                    reason: success ? (trackingEnabled ? undefined : 'untracked') : failureReason,
                     sendingDomain,
                     messageCreatedAt: messageCreatedAtOf(invocation.state.globals.event),
                 })
@@ -1416,6 +1464,7 @@ export class EmailService {
                     const recipient = await this.recipientsManager.get({
                         teamId: invocation.teamId,
                         identifier: email,
+                        anyCase: true,
                     })
                     return recipient ? this.recipientsManager.getEmailTrackingPreference(recipient) : 'NO_PREFERENCE'
                 })
@@ -1538,11 +1587,12 @@ export class EmailService {
         files: LoadedAttachment[] = []
     ): Promise<void> {
         // This can timeout but there is no native timeout so we do our own one
+        const text = this.textPart(params, result.invocation.teamId)
         const mailOptions: SendMailOptions = {
             from: toNodemailerAddress(from.name, from.email),
             to: toNodemailerAddress(params.to.name, params.to.email),
             subject: sanitizeEmailSubject(params.subject),
-            ...(params.text ? { text: params.text } : {}),
+            ...(text ? { text } : {}),
             headers: { [AUTO_SUBMITTED_HEADER.Name!]: AUTO_SUBMITTED_HEADER.Value! },
             ...(params.html
                 ? {
@@ -1624,16 +1674,18 @@ export class EmailService {
                   params.preheader
               )
             : null
-        if (
-            files.length > 0 &&
+        const fitsInMessage = (text: string): boolean =>
             estimateMessageBytes(
                 files.map(({ bytes }) => bytes.byteLength),
-                [html ?? '', params.text ?? ''],
+                [html ?? '', text],
                 sanitizeEmailSubject(params.subject)
-            ) > MESSAGE_MAX_BYTES
-        ) {
+            ) <= MESSAGE_MAX_BYTES
+        if (files.length > 0 && !fitsInMessage(params.text ?? '')) {
             throw new MessageTooLargeError()
         }
+        const candidateText = this.textPart(params, result.invocation.teamId)
+        // The text part made from the html adds to the message, so it goes out only when the message still fits.
+        const text = candidateText === (params.text ?? '') || fitsInMessage(candidateText) ? candidateText : ''
         const htmlBody = html ? { Html: { Data: html, Charset: 'UTF-8' } } : {}
 
         const sendEmailParams: SendEmailCommandInput = {
@@ -1648,7 +1700,7 @@ export class EmailService {
                         Charset: 'UTF-8',
                     },
                     Body: {
-                        ...(params.text ? { Text: { Data: params.text, Charset: 'UTF-8' } } : {}),
+                        ...(text ? { Text: { Data: text, Charset: 'UTF-8' } } : {}),
                         ...htmlBody,
                     },
                 },
@@ -1744,12 +1796,14 @@ export class EmailService {
             sendEmailParams.Destination!.BccAddresses = bccAddresses
         }
 
+        const withFiles = files.length > 0 ? 'true' : 'false'
         if (queueWait) {
             emailQueueToSendMs
                 .labels({
                     source: queueWait.source,
                     priority_class: getEmailQueuePriorityClass(result.invocation.hogFunction.metadata),
                     team_capped: queueWait.teamCapped ? 'true' : 'false',
+                    with_files: withFiles,
                 })
                 .observe(Math.max(0, Date.now() - queueWait.startedAt.toMillis()))
         }
@@ -1767,11 +1821,15 @@ export class EmailService {
             if (!response.MessageId) {
                 throw new Error('No messageId returned from SES')
             }
-            sesSendDurationMs.labels({ result: 'success' }).observe(performance.now() - sendStartedAt)
+            sesSendDurationMs
+                .labels({ result: 'success', with_files: withFiles })
+                .observe(performance.now() - sendStartedAt)
             sesSendResultsTotal.labels({ result: 'success' }).inc()
             return response.MessageId
         } catch (error: unknown) {
-            sesSendDurationMs.labels({ result: 'error' }).observe(performance.now() - sendStartedAt)
+            sesSendDurationMs
+                .labels({ result: 'error', with_files: withFiles })
+                .observe(performance.now() - sendStartedAt)
             sesSendResultsTotal.labels({ result: classifySesSendError(error) }).inc()
             if (deadline?.aborted) {
                 if (!anAttemptSesMayHaveAccepted()) {

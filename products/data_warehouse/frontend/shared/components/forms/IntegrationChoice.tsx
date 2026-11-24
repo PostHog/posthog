@@ -2,16 +2,19 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useRef } from 'react'
 
+import api from 'lib/api'
 import {
     IntegrationChoice,
     IntegrationConfigureProps,
 } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { getIntegrationSetup } from 'lib/components/CyclotronJob/integrations/integrationSetupRegistry'
+import { GitHubInstallRequestsBanner } from 'lib/integrations/GitHubInstallRequestsBanner'
 import { useIntegrationManagementRestriction } from 'lib/integrations/integrationPermissions'
 import { integrationsLogic, OAUTH_INTEGRATION_ID_PARAM } from 'lib/integrations/integrationsLogic'
 import { describeOAuthCallbackError, INTEGRATION_ERROR_PARAM } from 'lib/integrations/oauthCallbackErrors'
 import { getIntegrationNameFromKind } from 'lib/integrations/utils'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 
 import { IntegrationType } from '~/types'
@@ -70,6 +73,7 @@ export function SourceIntegrationChoice({
     ...props
 }: SourceIntegrationChoiceProps): JSX.Element {
     const { saveFormStateBeforeRedirect } = useActions(sourceWizardLogic)
+    const { reportIntegrationConnectClicked } = useActions(eventUsageLogic)
     const { oauthRedirectUrl } = useValues(sourceWizardLogic)
     const { location, searchParams } = useValues(router)
     const { integrations, integrationsLoading } = useValues(integrationsLogic)
@@ -120,13 +124,25 @@ export function SourceIntegrationChoice({
     return (
         <div className="flex flex-col gap-2">
             {oauthError && (
-                <LemonBanner type="error">{describeOAuthCallbackError(String(oauthError), sourceKind)}</LemonBanner>
+                <LemonBanner type="error">{describeOAuthCallbackError(String(oauthError), kind)}</LemonBanner>
             )}
             {blockedFromConnecting && (
                 <LemonBanner type="info">
                     Only project admins can connect a new {getIntegrationNameFromKind(kind)} account. Ask a project
                     admin to connect it, then pick it here.
                 </LemonBanner>
+            )}
+            {/* A GitHub install by someone who isn't an org owner only sends GitHub a request, and the
+                callback lands back here. The banner holds the message for the owner and resumes once
+                they approve. */}
+            {kind === 'github' && (
+                <GitHubInstallRequestsBanner
+                    finishConnectingUrl={api.integrations.authorizeUrl({ kind, next: redirectUrl })}
+                    onFinishConnecting={() => {
+                        reportIntegrationConnectClicked(kind, kind, 'install_approved_banner')
+                        saveFormStateBeforeRedirect()
+                    }}
+                />
             )}
             <IntegrationChoice
                 {...props}

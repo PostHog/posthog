@@ -3,7 +3,7 @@ import { useLayoutEffect, useState } from 'react'
 import { Tooltip } from '@posthog/lemon-ui'
 
 /**
- * Why the report sits where it does on the user's Personalized list, clamped to two lines. A clamped
+ * Why the report sits where it does on the user's personal list, clamped to two lines. A clamped
  * reason shows in full in a tooltip on hover. The tooltip does not open on click, so a tap still opens
  * the report. On touch, the ranking pill's hover card holds the full reason.
  */

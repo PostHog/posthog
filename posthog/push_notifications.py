@@ -22,6 +22,7 @@ import requests
 import structlog
 import posthoganalytics
 
+from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.user_push_token import UserPushToken
 
@@ -88,12 +89,23 @@ def mobile_push_payload_enabled(user: User, data: dict[str, Any] | None) -> bool
     return preference is None or user.notification_settings.get(preference, True) is True
 
 
+def _payload_organization_deactivated(payload: dict[str, Any]) -> bool:
+    project_id = payload.get("project_id") if payload.get("type") == "report" else payload.get("projectId")
+    if isinstance(project_id, str) and project_id.isdigit():
+        project_id = int(project_id)
+    if not isinstance(project_id, int):
+        return False
+    return Team.objects.filter(id=project_id, organization__is_active=False).exists()
+
+
 def mobile_push_delivery_allowed(user: User, data: dict[str, Any] | None) -> bool:
     if not user.is_active or not mobile_push_payload_enabled(user, data):
         return False
 
     # Re-read eligibility on the worker: a queued push can outlive a preference or access change.
     payload = data or {}
+    if _payload_organization_deactivated(payload):
+        return False
     if payload.get("type") == "report":
         if not posthoganalytics.feature_enabled(
             "posthog-code-mobile-push", user.distinct_id or f"user_{user.id}", send_feature_flag_events=False

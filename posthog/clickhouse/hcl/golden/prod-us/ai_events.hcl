@@ -699,6 +699,9 @@ database "posthog" {
     column "lc_estimated_bytes" {
       type = "SimpleAggregateFunction(max, Int64)"
     }
+    column "log_comment" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
     column "query_id" {
       type = "String"
     }
@@ -1088,6 +1091,9 @@ database "posthog" {
     column "lc_estimated_bytes" {
       type = "SimpleAggregateFunction(max, Int64)"
     }
+    column "log_comment" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
     engine "distributed" {
       cluster_name    = "ops"
       remote_database = "posthog"
@@ -1167,6 +1173,15 @@ SELECT
   nullIf(JSONExtractRaw(src.properties, '$ai_input_state'), '') AS input_state,
   nullIf(JSONExtractRaw(src.properties, '$ai_output_state'), '') AS output_state,
   nullIf(JSONExtractRaw(src.properties, '$ai_tools'), '') AS tools,
+  toInt16(
+    least(
+      greatest(
+        toInt16OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt16(30)),
+        30
+      ),
+      365
+    )
+  ) AS retention_days,
   _timestamp,
   _offset,
   _partition
@@ -1338,6 +1353,9 @@ SQL
     column "tools" {
       type = "Nullable(String)"
     }
+    column "retention_days" {
+      type = "Int16"
+    }
     column "_timestamp" {
       type = "Nullable(DateTime)"
     }
@@ -1478,7 +1496,25 @@ SELECT
   lc.precompute_window_end AS lc_precompute_window_end,
   lc.plan_fingerprint AS lc_plan_fingerprint,
   lc.estimated_rows AS lc_estimated_rows,
-  lc.estimated_bytes AS lc_estimated_bytes
+  lc.estimated_bytes AS lc_estimated_bytes,
+  if(
+    ql.is_initial_query AND notEmpty(ql.log_comment),
+    concat(
+      '{',
+      arrayStringConcat(
+        arrayMap(
+          kv -> concat(toJSONString(kv.1), ':', kv.2),
+          arrayFilter(
+            kv -> ((kv.1) NOT IN ('timings', 'query')),
+            JSONExtractKeysAndValuesRaw(ql.log_comment)
+          )
+        ),
+        ','
+      ),
+      '}'
+    ),
+    ''
+  ) AS log_comment
 FROM system.query_log AS ql
 WHERE ql.type != 'QueryStart'
 SQL
@@ -1831,6 +1867,9 @@ SQL
     column "lc_estimated_bytes" {
       type = "SimpleAggregateFunction(max, Int64)"
     }
+    column "log_comment" {
+      type = "SimpleAggregateFunction(max, String)"
+    }
   }
 
   view "custom_metrics" {
@@ -2055,10 +2094,6 @@ SQL
 }
 
 named_collection "msk_cluster" {
-  external = true
-}
-
-named_collection "warpstream_calculated_events" {
   external = true
 }
 

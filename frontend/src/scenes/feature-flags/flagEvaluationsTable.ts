@@ -2,7 +2,7 @@ import { dayjs } from 'lib/dayjs'
 import { componentsToDayJs, dateStringToComponents, dateStringToDayJs } from 'lib/utils/dateFilters'
 
 import { FlagEvaluationsModeEnumApi } from '~/generated/core/api.schemas'
-import { CompareFilter, ResolvedDateRangeResponse } from '~/queries/schema/schema-general'
+import { CompareFilter, EventsQuery, ResolvedDateRangeResponse } from '~/queries/schema/schema-general'
 import type { TeamPublicType, TeamType } from '~/types'
 
 // Not a root table, so the `posthog.` prefix is part of the name. On a self-hosted instance, a team on the
@@ -20,7 +20,8 @@ export function readsFlagEvaluationsTable(team: TeamPublicType | TeamType | null
 
 /** Whether ingestion writes the team's flag calls to flag_evaluations instead of `events`. */
 export function storesFlagCallsOutsideEvents(team: TeamPublicType | TeamType | null): boolean {
-    return team?.flag_evaluations_mode === FLAG_EVALUATIONS_ONLY_MODE
+    // An organization that keeps writing flag calls to events reads flag_evaluations only, but `events` holds the calls.
+    return team?.flag_evaluations_mode === FLAG_EVALUATIONS_ONLY_MODE && !!team.flag_calls_only_in_flag_evaluations
 }
 
 /**
@@ -93,6 +94,32 @@ export function reachesPastFlagEvaluationsRetention(dateFrom: string | null): bo
     const parsed = dateStringToDayJs(dateFrom)
     // A null start and "all" are all time, which reaches further than any retained day.
     return !parsed || parsed.isBefore(flagEvaluationsRetentionStart())
+}
+
+// Mirrors EventsQueryRunner._list_table, which reads flag_evaluations only for a list of nothing but flag calls.
+export function listsOnlyFlagCalls({ source, actionId, actionSteps, event, events }: EventsQuery): boolean {
+    if (source || actionId || actionSteps?.length) {
+        return false
+    }
+    const eventNames = [event, ...(events ?? [])].filter(Boolean)
+    return eventNames.length > 0 && eventNames.every((name) => name === FEATURE_FLAG_CALLED_EVENT)
+}
+
+/** Whether an events list of only flag calls reads flag_evaluations. Mirrors reads_flag_calls_from_flag_evaluations. */
+function listReadsFlagEvaluations(team: TeamPublicType | TeamType | null): boolean {
+    return readsFlagEvaluationsTable(team) || flagCallsOnlyInFlagEvaluations(team)
+}
+
+/** Whether an events list reads flag_evaluations over a range that starts before the table's oldest retained day. */
+export function flagCallsListReachesPastRetention(
+    team: TeamPublicType | TeamType | null,
+    source: EventsQuery
+): boolean {
+    if (!listReadsFlagEvaluations(team) || !listsOnlyFlagCalls(source)) {
+        return false
+    }
+    // The runner reads a missing start as the last 24 hours, which the retention window covers.
+    return !!source.after && reachesPastFlagEvaluationsRetention(source.after)
 }
 
 // Trends sends the compared range it resolved in the team timezone. The Metric display's change pill gets one
