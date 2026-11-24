@@ -3900,7 +3900,7 @@ Note: coinmarketcap.com/api/documentation is a client-rendered zudoku app, but e
 
 ## Commercetools — gaps
 
-Today (17): `carts`, `categories`, `channels`, `customer_groups`, `customers`, `discount_codes`, `inventory`, `messages`, `orders`, `payments`, `product_projections`, `product_types`, `shopping_lists`, `standalone_prices`, `states`, `stores`, `variants`
+Today (21): `cart_discounts`, `carts`, `categories`, `channels`, `customer_groups`, `customers`, `discount_codes`, `inventory`, `messages`, `orders`, `payments`, `product_discounts`, `product_projections`, `product_types`, `products`, `shipping_methods`, `shopping_lists`, `standalone_prices`, `states`, `stores`, `variants`
 
 Diffed against: <https://raw.githubusercontent.com/commercetools/commercetools-api-reference/main/oas/api/openapi.yaml>
 
@@ -3910,10 +3910,10 @@ Diffed against: <https://raw.githubusercontent.com/commercetools/commercetools-a
 - [x] `/{projectKey}/customer-groups` — lookup resolving customerGroup on customers, carts and orders - the standard segmentation dimension (high)
 - [x] `/{projectKey}/channels` — lookup resolving supplyChannel and distributionChannel ids on the inventory and orders we sync (high)
 - [x] `/{projectKey}/stores` — lookup resolving the store on orders and carts; required for any per-store revenue breakdown (high)
-- [ ] `/{projectKey}/shipping-methods` — lookup resolving the shipping method id on orders, plus its zone and rate structure (medium)
-- [ ] `/{projectKey}/products` — full product master data including staged versus current, which product-projections flattens away (medium)
-- [ ] `/{projectKey}/cart-discounts` — resolves the discount ids applied to synced carts and orders; discount_codes alone does not explain the discount (medium)
-- [ ] `/{projectKey}/product-discounts` — explains discounted prices appearing on product projections (medium)
+- [x] `/{projectKey}/shipping-methods` — lookup resolving the shipping method id on orders, plus its zone and rate structure (medium)
+- [x] `/{projectKey}/products` — full product master data including staged versus current, which product-projections flattens away (medium)
+- [x] `/{projectKey}/cart-discounts` — resolves the discount ids applied to synced carts and orders; discount_codes alone does not explain the discount (medium)
+- [x] `/{projectKey}/product-discounts` — explains discounted prices appearing on product projections (medium)
 - [x] `/{projectKey}/standalone-prices` — prices held outside the product, so price analysis on product-projections alone is incomplete (medium)
 - [x] `/{projectKey}/shopping-lists` — wishlist and saved-cart behavior, a common pre-purchase funnel table (medium)
 - [x] `/{projectKey}/variants` — standalone Product Variants on Modular Catalog projects, whose product projections carry no variants (medium)
