@@ -101,7 +101,12 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
         })
 
         this.legacyPluginExecutor = new LegacyPluginExecutorService(deps.postgres, deps.geoipService)
-        this.legacyWebhookService = new LegacyWebhookService(deps.postgres, deps.teamManager, deps.pubSub)
+        this.legacyWebhookService = new LegacyWebhookService(
+            deps.postgres,
+            deps.teamManager,
+            deps.pubSub,
+            config.CDP_SKIP_DEACTIVATED_ORGANIZATIONS
+        )
 
         this.pluginConfigsLoader = new LazyLoader({
             name: 'plugin_config_hog_functions',

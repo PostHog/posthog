@@ -21,9 +21,10 @@ export class LegacyWebhookService {
     constructor(
         private postgres: PostgresRouter,
         private teamManager: TeamManager,
-        pubSub: PubSub
+        pubSub: PubSub,
+        skipDeactivatedOrganizations = false
     ) {
-        this.actionManager = new ActionManager(postgres, pubSub)
+        this.actionManager = new ActionManager(postgres, pubSub, skipDeactivatedOrganizations)
         this.actionMatcher = new ActionMatcher(this.actionManager)
     }
 

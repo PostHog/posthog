@@ -130,8 +130,13 @@ describe('LegacyWebhookService', () => {
         return { events, requests: sentRequests() }
     }
 
-    const startService = async (): Promise<void> => {
-        const started = new LegacyWebhookService(hub.postgres, hub.teamManager, hub.pubSub)
+    const startService = async (skipDeactivatedOrganizations = false): Promise<void> => {
+        const started = new LegacyWebhookService(
+            hub.postgres,
+            hub.teamManager,
+            hub.pubSub,
+            skipDeactivatedOrganizations
+        )
         await started.start()
         service = started
         stopService = () => started.stop()
@@ -159,12 +164,31 @@ describe('LegacyWebhookService', () => {
 
     describe('parseBatch and processEvents', () => {
         it.each([
-            { teamHas: 'zapier but no webhook', features: [ZAPIER], targets: [] },
-            { teamHas: 'a webhook but no zapier', features: [], targets: ['https://hooks.zapier.com/team'] },
-        ])('drops the events of a team with $teamHas', async ({ features, targets }) => {
+            { teamHas: 'zapier but no webhook', features: [ZAPIER], targets: [], deactivated: false },
+            {
+                teamHas: 'a webhook but no zapier',
+                features: [],
+                targets: ['https://hooks.zapier.com/team'],
+                deactivated: false,
+            },
+            {
+                teamHas: 'a webhook and zapier in a deactivated organization',
+                features: [ZAPIER],
+                targets: ['https://hooks.zapier.com/team'],
+                deactivated: true,
+            },
+        ])('drops the events of a team with $teamHas', async ({ features, targets, deactivated }) => {
             await updateOrganizationAvailableFeatures(hub.postgres, organizationId, features)
             await Promise.all(targets.map((target) => createPageviewHook(team.id, target)))
-            await startService()
+            if (deactivated) {
+                await hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    'UPDATE posthog_organization SET is_active = false WHERE id = $1',
+                    [organizationId],
+                    'deactivateOrganization'
+                )
+            }
+            await startService(true)
 
             const { events, requests } = await parseAndSend([pageview(team.id)])
 
