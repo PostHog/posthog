@@ -684,11 +684,13 @@ jobs:
                   # Postgres and ClickHouse are separate stores and `migrate_clickhouse`
                   # never reads Postgres (see the note in ci-clickhouse-multinode-migrations.yml),
                   # so neither migration depends on the other.
+                  # --skip-checks: Django system checks are not needed to apply migrations;
+                  # ci-backend runs them in its dedicated jobs.
                   - name: Run Django migrations
-                    run: python manage.py migrate --noinput
+                    run: python manage.py migrate --noinput --skip-checks
 
                   - name: Run ClickHouse migrations
-                    run: python manage.py migrate_clickhouse
+                    run: python manage.py migrate_clickhouse --skip-checks
 
             - name: Start Rust flags service
               working-directory: rust

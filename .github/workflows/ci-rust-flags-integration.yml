@@ -236,7 +236,8 @@ jobs:
 
             - name: Set up test database schema
               run: |
-                  python manage.py migrate --run-syncdb
+                  # --skip-checks: system checks are not needed to apply migrations (ci-backend runs them).
+                  python manage.py migrate --run-syncdb --skip-checks
               env:
                   DEBUG: '1'
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog'
