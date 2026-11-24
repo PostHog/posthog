@@ -145,7 +145,10 @@ class TestTransactionalPushTemplates(APIBaseTest):
     def test_the_project_tree_links_a_push_to_its_own_page(self, _flag):
         template = self._template()
 
-        assert template.get_file_system_representation().href == f"/transactional/push/{template.id}"
+        unfiled = MessageTemplate.get_file_system_unfiled(self.team).get(id=template.id)
+
+        with self.assertNumQueries(0):
+            assert unfiled.get_file_system_representation().href == f"/transactional/push/{template.id}"
 
     def test_a_transactional_template_cannot_change_between_email_and_push(self, _flag):
         template = self._template()
