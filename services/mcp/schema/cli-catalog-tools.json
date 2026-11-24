@@ -20495,8 +20495,8 @@
     "experiment-launch": {
         "name": "experiment-launch",
         "kind": "http",
-        "requires": [],
-        "hooks": null,
+        "requires": ["hook:experiments/launchExperimentHooks"],
+        "hooks": "experiments/launchExperimentHooks",
         "uiApp": "experiment",
         "request": {
             "method": "POST",
@@ -29954,27 +29954,31 @@
             "validators": []
         }
     },
-    "integrations-email-create": {
-        "name": "integrations-email-create",
+    "integrations-domain-connect-check-retrieve": {
+        "name": "integrations-domain-connect-check-retrieve",
         "kind": "http",
         "requires": [],
         "hooks": null,
         "uiApp": null,
         "request": {
-            "method": "POST",
-            "path": "/api/projects/{project_id}/integrations/",
+            "method": "GET",
+            "path": "/api/projects/{project_id}/integrations/domain-connect/check/",
             "pathParams": [],
             "fallbacks": [],
-            "query": null,
-            "body": [
+            "query": [
                 {
-                    "param": "config",
-                    "key": "config"
+                    "param": "domain",
+                    "key": "domain",
+                    "csv": false
+                },
+                {
+                    "param": "include_email_setup",
+                    "key": "include_email_setup",
+                    "csv": false
                 }
             ],
-            "injectBody": {
-                "kind": "email"
-            },
+            "body": null,
+            "injectBody": {},
             "softDelete": null,
             "transformBody": false
         },
@@ -42860,6 +42864,11 @@
                     "csv": false
                 },
                 {
+                    "param": "source_product",
+                    "key": "source_product",
+                    "csv": false
+                },
+                {
                     "param": "tags",
                     "key": "tags",
                     "csv": false
@@ -45709,6 +45718,11 @@
                 {
                     "param": "search",
                     "key": "search",
+                    "csv": false
+                },
+                {
+                    "param": "source_product",
+                    "key": "source_product",
                     "csv": false
                 },
                 {

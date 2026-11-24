@@ -24,7 +24,7 @@ from posthog.models.instance_setting import get_instance_setting
 from ..db import WRITER_DB
 from ..facade.contracts import NoRunNeededInput
 from ..facade.enums import BaselineMode, NoRunNeededOutcome, RunPurpose, RunStatus
-from ..models import Repo, Run
+from ..models import BaselineApproval, Repo, Run
 from . import (
     app_urls,
     baseline_approvals,
@@ -405,6 +405,45 @@ def publish_for_pull_requests(repo: Repo, pull_requests: set[tuple[int, str]]) -
     }
     for commit_sha, run_type in sorted(commits):
         schedule_publish(repo, commit_sha, run_type)
+
+
+def pull_requests_applying(repo: Repo, approvals: list[BaselineApproval]) -> set[tuple[int, str]]:
+    """The (pull request number, run type) of each current run whose frozen record applied one of the approvals.
+
+    A stack child applies its parent's approval through the overlay without owning it, so only its
+    record links the two.
+    """
+    if not approvals:
+        return set()
+    runs = (
+        Run.objects.using(WRITER_DB)
+        .filter(
+            repo_id=repo.id,
+            run_type__in={approval.run_type for approval in approvals},
+            status=RunStatus.COMPLETED,
+            superseded_by__isnull=True,
+            pr_number__isnull=False,
+            metadata__baseline__candidate_approval_ids__has_any_keys=[str(approval.id) for approval in approvals],
+        )
+        .values_list("pr_number", "run_type")
+        .distinct()
+    )
+    return {(pr_number, run_type) for pr_number, run_type in runs if pr_number is not None}
+
+
+def publish_after_approvals_close(repo: Repo, closed: list[BaselineApproval]) -> None:
+    """Publish again, once the caller's transaction commits, for the current runs that applied a closed approval.
+
+    A stack layer's approval can count through the open approval of the layer below it, so its passing
+    status rests on that approval staying open. Closing an approval without a ledger entry changes no
+    ledger hash, so nothing else publishes those runs again. The reads and posts run after the commit,
+    so none of them runs under the ledger lock.
+    """
+    if not closed or not guards_stale_approvals(repo):
+        return
+    transaction.on_commit(
+        lambda: publish_for_pull_requests(repo, pull_requests_applying(repo, closed)), using=WRITER_DB, robust=True
+    )
 
 
 def publish(repo: Repo, commit_sha: str, run_type: str) -> None:

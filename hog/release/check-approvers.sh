@@ -49,6 +49,7 @@ RELEASE_PATHS=(
     '.github/actions/setup-pnpm'
     '.github/actions/setup-rust'
     '.github/workflows/release-hog.yml'
+    'cli/Cargo.lock'
 )
 
 if [ "${1:-}" = --list-paths ]; then
@@ -115,6 +116,52 @@ name=${REPOSITORY#*/}
 people=""
 numbers=""
 titles=""
+
+# GitHub can land a layer of a stack without marking its pull request merged, which links the squash
+# commit to no pull request. That commit counts as the pull request its subject names as "(#<number>)",
+# the way the merge queue writes it, when the pull request isn't merged and GitHub credits the commit to
+# its author. The subject alone can't move the check onto someone else's pull request, because the
+# commit has to credit that pull request's author. Anything else can't be ruled out.
+# shellcheck disable=SC2016 # GraphQL variables, not shell ones
+named_pr_query='query($owner: String!, $name: String!, $number: Int!) {
+    repository(owner: $owner, name: $name) { pullRequest(number: $number) { title merged author { login __typename } } } }'
+credit_named_pr() {
+    local sha=$1 subject number pull_request author
+    subject=$(git log -1 --format=%s "$sha")
+    if ! [[ "$subject" =~ \(#([0-9]+)\)$ ]]; then
+        echo "::error::Released commit $sha has no merged pull request, and its subject names none, so its authors can't be ruled out"
+        exit 1
+    fi
+    number=${BASH_REMATCH[1]}
+    for attempt in 1 2 3; do
+        if pull_request=$(gh api graphql -f query="$named_pr_query" -F owner="$owner" -F name="$name" -F number="$number" \
+            --jq '.data.repository.pullRequest'); then
+            break
+        fi
+        if [ "$attempt" -eq 3 ]; then
+            echo "::error::GitHub couldn't read #$number, which released commit $sha names"
+            exit 1
+        fi
+        sleep $((attempt * 5))
+    done
+    if ! jq -e '.merged == false' <<<"$pull_request" >/dev/null; then
+        echo "::error::Released commit $sha names #$number, which GitHub shows as merged in another commit or doesn't have, so its authors can't be ruled out"
+        exit 1
+    fi
+    author=$(jq -r 'if .author.__typename == "User" then .author.login else "" end' <<<"$pull_request")
+    if [ -z "$author" ] || ! jq -e --arg key "c$sha" --arg author "$author" \
+        'any(.data.repository[$key].authors.nodes[]; .user.login == $author)' <<<"$response" >/dev/null; then
+        echo "::error::Released commit $sha names #$number, but GitHub doesn't credit the commit to the author of #$number, so its authors can't be ruled out"
+        exit 1
+    fi
+    echo "Released commit $sha has no merged pull request, so it counts as #$number, which its subject names"
+    people+=$(jq -r --arg key "c$sha" --arg n "$number" --arg author "$author" \
+        '$n + "\t" + $author, (.data.repository[$key].authors.nodes[] | $n + "\t" + (.user.login // ""))' <<<"$response")
+    people+=$'\n'
+    titles+="$number"$'\t'$(jq -r '.title' <<<"$pull_request")$'\n'
+    numbers+="$number"$'\n'
+}
+
 for ((i = 0; i < ${#shas[@]}; i += 10)); do
     fields=""
     for sha in "${shas[@]:i:10}"; do
@@ -137,11 +184,11 @@ for ((i = 0; i < ${#shas[@]}; i += 10)); do
     fi
 
     unlinked=$(jq -r '.data.repository | to_entries[] | select([.value.associatedPullRequests.nodes[]? | select(.merged)] | length == 0) | .key | ltrimstr("c")' <<<"$response")
-    if [ -n "$unlinked" ]; then
-        echo "::error::These released commits have no merged pull request, so their authors can't be ruled out:"
-        printf '%s\n' "$unlinked"
-        exit 1
-    fi
+    while read -r sha; do
+        if [ -n "$sha" ]; then
+            credit_named_pr "$sha"
+        fi
+    done <<<"$unlinked"
     crowded=$(jq -r '.data.repository | to_entries[] | select(.value.authors.totalCount > (.value.authors.nodes | length)) | .key | ltrimstr("c")' <<<"$response")
     if [ -n "$crowded" ]; then
         echo "::error::These released commits credit more authors than one query lists, so their authors can't be ruled out:"

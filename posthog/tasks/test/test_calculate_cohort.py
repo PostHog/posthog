@@ -18,12 +18,14 @@ from celery import Task
 from celery.exceptions import Reject, Retry, SoftTimeLimitExceeded
 from dateutil.relativedelta import relativedelta
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 
 from posthog.hogql.errors import QueryError
 
 from posthog.clickhouse.client import sync_execute
 from posthog.errors import CHQueryErrorQueryWasCancelled, InternalCHQueryError
 from posthog.exceptions import ClickHouseAtCapacity
+from posthog.models import Organization, Team
 from posthog.models.person.sql import PERSON_STATIC_COHORT_TABLE, REPLACE_ROW_OFFSET
 from posthog.tasks.calculate_cohort import (
     COHORT_BACKFILL_REFUSAL_OUTCOMES,
@@ -41,6 +43,7 @@ from posthog.tasks.calculate_cohort import (
     calculate_cohort_from_list,
     collect_cohort_query_stats,
     enqueue_cohorts_to_calculate,
+    get_cohort_calculation_candidates_queryset,
     increment_version_and_enqueue_calculate_cohort,
     insert_cohort_from_filters,
     insert_cohort_from_query,
@@ -1033,6 +1036,24 @@ class TestCohortCalculationTasks(APIBaseTest):
         flag_patcher = patch("posthog.tasks.calculate_cohort.is_static_cohort_replace_enabled", return_value=True)
         self.addCleanup(flag_patcher.stop)
         self.mock_replace_flag = flag_patcher.start()
+
+    def test_skips_cohorts_of_deactivated_organizations(self) -> None:
+        deactivated_organization = Organization.objects.create(name="Deactivated", is_active=False)
+        deactivated_team = Team.objects.create(organization=deactivated_organization, name="Deactivated team")
+        stale = timezone.now() - relativedelta(days=3)
+        Cohort.objects.create(team_id=deactivated_team.pk, last_calculation=stale)
+        active_cohort = Cohort.objects.create(team_id=self.team.pk, last_calculation=stale)
+        never_deactivated_organization = Organization.objects.create(name="Never deactivated", is_active=None)
+        never_deactivated_team = Team.objects.create(organization=never_deactivated_organization, name="Null team")
+        never_deactivated_cohort = Cohort.objects.create(team_id=never_deactivated_team.pk, last_calculation=stale)
+
+        candidates = get_cohort_calculation_candidates_queryset()
+        self.assertCountEqual(candidates.values_list("pk", flat=True), [active_cohort.pk, never_deactivated_cohort.pk])
+
+        update_cohort_metrics()
+
+        self.assertEqual(REGISTRY.get_sample_value("cohorts_total"), 2)
+        self.assertEqual(REGISTRY.get_sample_value("cohorts_stale", {"hours": "48"}), 2)
 
     def _backfillable_cohort(self) -> Cohort:
         return Cohort.objects.create(
@@ -4119,18 +4140,21 @@ class TestCohortCalculationTasks(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("query_errored_within_the_hour", {"query": PERSONS_HOGQL_QUERY}, relativedelta(minutes=10), False),
-            ("query_errored_over_an_hour_ago", {"query": PERSONS_HOGQL_QUERY}, relativedelta(hours=2), True),
-            ("filters_errored_over_an_hour_ago", {"filters": PERSON_EMAIL_FILTERS}, relativedelta(hours=2), True),
+            ("query_errored_within_the_hour", {"query": PERSONS_HOGQL_QUERY}, relativedelta(minutes=10), True, False),
+            ("query_errored_over_an_hour_ago", {"query": PERSONS_HOGQL_QUERY}, relativedelta(hours=2), True, True),
+            ("filters_errored_over_an_hour_ago", {"filters": PERSON_EMAIL_FILTERS}, relativedelta(hours=2), True, True),
+            ("organization_deactivated", {"query": PERSONS_HOGQL_QUERY}, relativedelta(hours=2), False, False),
+            ("organization_never_deactivated", {"query": PERSONS_HOGQL_QUERY}, relativedelta(hours=2), None, True),
         ]
     )
     @patch("posthog.tasks.calculate_cohort.insert_cohort_from_filters")
     @patch("posthog.tasks.calculate_cohort.insert_cohort_from_query")
-    def test_reset_stuck_static_cohorts_honors_a_recent_error(
+    def test_reset_stuck_static_cohorts_skips_ineligible_cohorts(
         self,
         _name: str,
         source_fields: dict,
         error_age: relativedelta,
+        organization_is_active: bool | None,
         expect_reset: bool,
         mock_insert_cohort_from_query: MagicMock,
         mock_insert_cohort_from_filters: MagicMock,
@@ -4140,6 +4164,8 @@ class TestCohortCalculationTasks(APIBaseTest):
         mock_population_task = (
             mock_insert_cohort_from_query if "query" in source_fields else mock_insert_cohort_from_filters
         )
+        self.organization.is_active = organization_is_active
+        self.organization.save()
         now = timezone.now()
         cohort = Cohort.objects.create(
             team=self.team,
