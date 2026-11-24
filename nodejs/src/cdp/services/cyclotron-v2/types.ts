@@ -74,7 +74,13 @@ export const CyclotronV2RescheduleOptionsSchema = z.object({
 
 export type CyclotronV2RescheduleOptions = z.infer<typeof CyclotronV2RescheduleOptionsSchema>
 
-export type CyclotronV2DeferOptions = { scheduledAt: Date; state?: Buffer; fileBytes?: number | null }
+export const CyclotronV2DeferOptionsSchema = z.object({
+    scheduledAt: z.date(),
+    state: encodedStateFields.state,
+    fileBytes: encodedStateFields.fileBytes,
+})
+
+export type CyclotronV2DeferOptions = z.infer<typeof CyclotronV2DeferOptionsSchema>
 
 /**
  * Atomic enqueue-and-check-in primitive for fan-out workflows.

@@ -21,6 +21,7 @@ import {
     CYCLOTRON_TRANSITION_CHURN_THRESHOLD,
     CyclotronV2BulkCreateAndCheckInInput,
     CyclotronV2DeferOptions,
+    CyclotronV2DeferOptionsSchema,
     CyclotronV2DequeuedJob,
     CyclotronV2JobInit,
     CyclotronV2JobInitSchema,
@@ -776,7 +777,8 @@ export class CyclotronV2Worker {
                 )
             }),
 
-            defer: releaseWrite('defer', async (db, { scheduledAt, state, fileBytes }: CyclotronV2DeferOptions) => {
+            defer: releaseWrite('defer', async (db, input: CyclotronV2DeferOptions) => {
+                const { scheduledAt, state, fileBytes } = CyclotronV2DeferOptionsSchema.parse(input)
                 const dequeueSeq = row.queue_name === 'email' ? await reserveEmailDequeueSeqOnce(db) : null
                 return db.query(
                     `UPDATE cyclotron_jobs

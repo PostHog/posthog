@@ -4296,6 +4296,25 @@ describe('Cyclotron V2', () => {
                     }
                 }
             )
+
+            it('defer() refuses a negative file size before it takes a turn, and leaves the job unchanged', async () => {
+                const teamId = 6
+                const [id] = await manager.bulkCreateJobs([{ teamId, queueName: EMAIL_QUEUE, fileBytes: 700 }])
+                const worker = createFairWorker({ batchMaxSize: 1 })
+                try {
+                    const [job] = await dequeueOneBatch(worker)
+                    const seqBefore = await readDequeueSeq(id)
+                    const counterBefore = await readTeamCounter(teamId)
+
+                    await expect(job.defer({ scheduledAt: new Date(), fileBytes: -1 })).rejects.toThrow()
+
+                    expect(await queryJob(id)).toMatchObject({ status: 'running', file_bytes: '700' })
+                    expect(await readDequeueSeq(id)).toBe(seqBefore)
+                    expect(await readTeamCounter(teamId)).toBe(counterBefore)
+                } finally {
+                    await worker.disconnect()
+                }
+            })
         })
     })
 
