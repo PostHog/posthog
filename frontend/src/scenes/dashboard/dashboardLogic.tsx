@@ -7383,7 +7383,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
             if (variableDefinition) {
                 const variable = { code_name: variableDefinition.code_name, variableId, value, isNull }
                 const variables = { ...values.currentDashboardSettings.variables }
+                // An absent entry falls back to the dashboard's saved variable, not to the
+                // definition's default, so the pick can only collapse to no entry when there
+                // is no saved value and the choice matches the default.
                 if (
+                    !(variableId in values.savedDashboardSettings.variables) &&
                     dashboardVariableValuesEqual(variable, {
                         value: variableDefinition.default_value,
                         isNull: variableDefinition.isNull,

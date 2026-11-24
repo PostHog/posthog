@@ -5437,6 +5437,32 @@ describe('dashboardLogic', () => {
             expect(logic.values.dashboardSettingsState).toBe('unsavedChanges')
         })
 
+        it('keeps the chosen default as the variable override when the dashboard saved another value', async () => {
+            await mountDashboardWithVariable({ dashboardOverride: { value: 'persisted', isNull: false } })
+
+            await expectLogic(logic, () => {
+                logic.actions.overrideVariableValue(variableId, 'Default org', false)
+            }).toFinishAllListeners()
+
+            expect(logic.values.currentDashboardVariables[variableId]).toEqual(
+                expect.objectContaining({ value: 'Default org', isNull: false })
+            )
+            expect(logic.values.dashboardSettingsState).toBe('unsavedChanges')
+        })
+
+        it('marks the saved value as saved when it is picked again', async () => {
+            await mountDashboardWithVariable({ dashboardOverride: { value: 'persisted', isNull: false } })
+
+            await expectLogic(logic, () => {
+                logic.actions.overrideVariableValue(variableId, 'persisted', false)
+            }).toFinishAllListeners()
+
+            expect(logic.values.currentDashboardVariables[variableId]).toEqual(
+                expect.objectContaining({ value: 'persisted', isNull: false })
+            )
+            expect(logic.values.dashboardSettingsState).toBe('saved')
+        })
+
         it('discards filter and SQL variable changes and restores the saved settings', async () => {
             await mountDashboardWithVariable({ urlValue: 'url-val' })
             router.actions.push('/', {
