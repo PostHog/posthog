@@ -44,16 +44,15 @@ def list_toolbar_web_experiments(*, team_id: int) -> list[WebExperimentConfig]:
 
 
 def create_web_experiment(
-    *, team: Team, project_id: int, user: User, write: WebExperimentWrite, request_context: Mapping[str, Any]
+    *, team: Team, project_id: int, user: User, write: WebExperimentWrite, serializer_context: Mapping[str, Any]
 ) -> WebExperimentConfig:
     """Create a web experiment in the project, with a new inactive feature flag that splits the variants.
 
-    `request_context` is the serializer context of the API request. The flag write and the analytics event
-    read its `request`.
+    The flag write and the analytics event read the API request from `serializer_context`.
     """
     return _to_config(
         web_experiments.create(
-            team=team, project_id=project_id, user=user, write=write, request_context=request_context
+            team=team, project_id=project_id, user=user, write=write, serializer_context=serializer_context
         )
     )
 
@@ -61,18 +60,17 @@ def create_web_experiment(
 def update_web_experiment(
     *,
     team: Team,
-    project_id: int,
     user: User,
     web_experiment_id: int,
     write: WebExperimentWrite,
-    request_context: Mapping[str, Any],
+    serializer_context: Mapping[str, Any],
 ) -> WebExperimentConfig:
     """Set the fields that the write names. New variants also change the variant split of the feature flag."""
-    experiment = web_experiments.get(project_id=project_id, web_experiment_id=web_experiment_id)
+    experiment = web_experiments.get(project_id=team.project_id, web_experiment_id=web_experiment_id)
     if experiment is None:
         raise WebExperimentNotFound(web_experiment_id)
     return _to_config(
-        web_experiments.update(experiment, team=team, user=user, write=write, request_context=request_context)
+        web_experiments.update(experiment, team=team, user=user, write=write, serializer_context=serializer_context)
     )
 
 

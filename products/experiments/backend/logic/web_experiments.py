@@ -23,7 +23,7 @@ from products.feature_flags.backend.facade.filters import replace_variant_distri
 
 
 def _with_relations(queryset: QuerySet[WebExperiment]) -> QuerySet[WebExperiment]:
-    return queryset.select_related("feature_flag", "created_by")
+    return queryset.select_related("feature_flag")
 
 
 def list_page(*, project_id: int, page: PageRequest) -> Page[WebExperiment]:
@@ -54,9 +54,6 @@ def corrected_variants(experiment: WebExperiment) -> dict[str, Any]:
     Returns ALL variants from the feature flag with actual rollout percentages,
     combined with transforms from the experiment variants where available.
     """
-    if not experiment.feature_flag:
-        return experiment.variants or {}
-
     variants_list = experiment.feature_flag.variants
 
     if not variants_list:
@@ -80,12 +77,10 @@ def corrected_variants(experiment: WebExperiment) -> dict[str, Any]:
     return result_variants
 
 
-def _flag_variants(variants: dict[str, Any] | None) -> dict[str, list[dict[str, Any]]]:
-    variant_names = []
-    if isinstance(variants, dict):
-        for variant, transforms in variants.items():
-            variant_names.append({"key": variant, "rollout_percentage": transforms.get("rollout_percentage", 0)})
-    return {"variants": variant_names}
+def _flag_variants(variants: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        {"key": key, "rollout_percentage": variant.get("rollout_percentage", 0)} for key, variant in variants.items()
+    ]
 
 
 def _feature_flag_key(experiment_name: str) -> str:
@@ -95,16 +90,15 @@ def _feature_flag_key(experiment_name: str) -> str:
 
 
 def create(
-    *, team: Team, project_id: int, user: User, write: WebExperimentWrite, request_context: Mapping[str, Any]
+    *, team: Team, project_id: int, user: User, write: WebExperimentWrite, serializer_context: Mapping[str, Any]
 ) -> WebExperiment:
-    """Create the flag, then the experiment in the project's root team, then report the creation."""
     if write.name is None or write.variants is None:
         raise ValueError("A new web experiment needs a name and variants.")
-    request = request_context["request"]
+    request = serializer_context["request"]
 
     filters = {
         "groups": [{"properties": [], "rollout_percentage": 100}],
-        "multivariate": _flag_variants(write.variants),
+        "multivariate": {"variants": _flag_variants(write.variants)},
     }
     feature_flag = create_flag(
         {
@@ -150,13 +144,12 @@ def update(
     team: Team,
     user: User,
     write: WebExperimentWrite,
-    request_context: Mapping[str, Any],
+    serializer_context: Mapping[str, Any],
 ) -> WebExperiment:
-    """Copy the new variant split to the flag, then save every field in the write on the experiment."""
-    if isinstance(write.variants, dict):
+    if write.variants is not None:
         feature_flag = experiment.feature_flag
-        filters = replace_variant_distribution(feature_flag.get_filters(), _flag_variants(write.variants)["variants"])
-        update_flag(feature_flag, {"filters": filters}, team=team, user=user, request=request_context["request"])
+        filters = replace_variant_distribution(feature_flag.get_filters(), _flag_variants(write.variants))
+        update_flag(feature_flag, {"filters": filters}, team=team, user=user, request=serializer_context["request"])
 
     for field in write.fields_set:
         setattr(experiment, field, getattr(write, field))

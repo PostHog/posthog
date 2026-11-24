@@ -11,12 +11,10 @@ from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, ValidationError
-from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
-from rest_framework.views import APIView
 
-from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
+from posthog.api.pagination import DefaultLimitOffsetPagination, FacadeLimitOffsetPagination, facade_page_response
 from posthog.api.routing import PathParameter, TeamAndOrgViewSetMixin
 from posthog.api.utils import get_token
 from posthog.exceptions import generate_exception_response
@@ -148,6 +146,7 @@ class WebExperimentsAPISerializer(serializers.Serializer):
 
     id = serializers.IntegerField(read_only=True)
     name = serializers.CharField(max_length=400)
+    # TODO: a client can set the creation time here. The server should own it, so make this field read-only.
     created_at = serializers.DateTimeField(required=False)
     feature_flag_key = serializers.CharField(read_only=True)
 
@@ -225,20 +224,20 @@ class WebExperimentsAPISerializer(serializers.Serializer):
 
         return attrs
 
+    def to_write(self) -> WebExperimentWrite:
+        data = self.validated_data
+        return WebExperimentWrite(
+            fields_set=frozenset(cast(WebExperimentWriteField, name) for name in data),
+            name=data.get("name"),
+            created_at=data.get("created_at"),
+            variants=data.get("variants"),
+        )
 
-def _to_write(validated_data: dict[str, Any]) -> WebExperimentWrite:
-    return WebExperimentWrite(
-        fields_set=frozenset(cast(WebExperimentWriteField, name) for name in validated_data),
-        name=validated_data.get("name"),
-        created_at=validated_data.get("created_at"),
-        variants=validated_data.get("variants"),
-    )
 
-
-class WebExperimentsPagination(FacadeLimitOffsetPagination):
-    # The project-wide default paginator states no maximum for `limit` in the schema, and this list keeps that schema.
-    def get_schema_operation_parameters(self, view: APIView) -> list[dict[str, Any]]:
-        return LimitOffsetPagination.get_schema_operation_parameters(self, view)
+# The second base gives this list the schema of the project-wide default paginator, which states no maximum
+# for `limit`.
+class WebExperimentsPagination(FacadeLimitOffsetPagination, DefaultLimitOffsetPagination):
+    pass
 
 
 # Codegen routes an endpoint by its x-product. Only the toolbar calls these routes, through its own
@@ -271,14 +270,14 @@ class WebExperimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(self.get_serializer(self.get_object()).data)
 
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        serializer = self.get_serializer(data=request.data)
+        serializer = WebExperimentsAPISerializer(data=request.data, context=self.get_serializer_context())
         serializer.is_valid(raise_exception=True)
         web_experiment = web_experiments_facade.create_web_experiment(
             team=self.team,
             project_id=self.project_id,
             user=cast(User, request.user),
-            write=_to_write(serializer.validated_data),
-            request_context=self.get_serializer_context(),
+            write=serializer.to_write(),
+            serializer_context=serializer.context,
         )
         return Response(self.get_serializer(web_experiment).data, status=status.HTTP_201_CREATED)
 
@@ -290,16 +289,17 @@ class WebExperimentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     def _update(self, request: Request, *, partial: bool) -> Response:
         web_experiment = self.get_object()
-        serializer = self.get_serializer(web_experiment, data=request.data, partial=partial)
+        serializer = WebExperimentsAPISerializer(
+            web_experiment, data=request.data, partial=partial, context=self.get_serializer_context()
+        )
         serializer.is_valid(raise_exception=True)
         try:
             web_experiment = web_experiments_facade.update_web_experiment(
                 team=self.team,
-                project_id=self.team.project_id,
                 user=cast(User, request.user),
                 web_experiment_id=web_experiment.id,
-                write=_to_write(serializer.validated_data),
-                request_context=self.get_serializer_context(),
+                write=serializer.to_write(),
+                serializer_context=serializer.context,
             )
         except WebExperimentNotFound:
             raise NotFound()
