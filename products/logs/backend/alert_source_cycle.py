@@ -14,6 +14,7 @@ logs stack would have said given the same configuration. The lifecycle decision 
 the shared machine configured with this source's policy, not from the logs product.
 """
 
+import os
 import json
 import time
 from collections.abc import Mapping, Sequence
@@ -26,6 +27,9 @@ from uuid import UUID, uuid4
 from django.conf import settings
 
 import structlog
+from pydantic import ValidationError as PydanticValidationError
+
+from posthog.schema import PropertyGroupFilter
 
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.dataclasses import frozen
@@ -108,14 +112,12 @@ from products.logs.backend.alert_group_columns import grouping_problem
 from products.logs.backend.models import LogsAlertConfiguration
 from products.logs.backend.platform_alert_backfill import SETTINGS_FIELDS, platform_upsert_of
 from products.logs.backend.platform_source_config import filters_of, logs_alert_url
-
-# Private to the production activity. Reimplementing it would let this path drift from
-# what the logs stack evaluates. Promoting it to a shared home is the deeper fix.
-from products.logs.backend.temporal.activities import _detect_broken_filter_config
 from products.logs.backend.temporal.batch_slot import LogsBatchAdmission, LogsBatchSlot
-from products.logs.backend.temporal.constants import MAX_ALERT_COHORT_SIZE
 
 logger = structlog.get_logger(__name__)
+
+# Bounds the ClickHouse read and the worker-side materialization of one cohort query.
+MAX_ALERT_COHORT_SIZE = int(os.environ.get("LOGS_ALERTING_MAX_ALERT_COHORT_SIZE", "50"))
 
 # A fleet-wide burst would otherwise return one activity payload over Temporal's ~2 MiB limit,
 # which fails the whole batch rather than truncating it. The bound drops an outcome along with
@@ -201,6 +203,20 @@ class _QuerySubject:
 
 # The snooze lives on the alert row rather than the copy, and no history row states it.
 _LIVE_FIELDS: Final = (*SETTINGS_FIELDS, "snooze_until")
+
+
+def _detect_broken_filter_config(filters: object) -> str | None:
+    """The reason `filters` can never evaluate, or None when the shape is worth a query."""
+    if not isinstance(filters, dict):
+        return f"filters must be a JSON object, got {type(filters).__name__}"
+    filter_group = filters.get("filterGroup")
+    if not filter_group:
+        return None
+    try:
+        PropertyGroupFilter.model_validate(filter_group)
+    except PydanticValidationError as e:
+        return f"Invalid filterGroup shape: {e.errors()[0]['msg']}"
+    return None
 
 
 def _broken_condition(check: PlatformAlertCheckInput) -> str | None:

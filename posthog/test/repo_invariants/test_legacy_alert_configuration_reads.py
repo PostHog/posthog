@@ -88,7 +88,6 @@ READERS: dict[str, str] = {
     "posthog/tasks/alerts/utils.py::_thresholds_drawn_on_chart": (
         "firing chart draws the rows the insight stack owns; moved alerts draw from their copies (G3)"
     ),
-    "products/logs/backend/temporal/activities.py": "legacy logs evaluator",
     "products/logs/backend/alert_creation.py": "alert limit counts rows (A6-A8)",
     "products/alerts/backend/llm_detector_limits.py": "AI cap counts insight-owned rows, then copies (G3)",
     "products/logs/backend/alert_deletion.py": "deletes the row with its copy (G2)",

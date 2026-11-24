@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import asyncio
 import dataclasses
 from typing import Literal
 from uuid import UUID
@@ -7,9 +9,11 @@ from uuid import UUID
 from django.conf import settings
 
 import structlog
+import temporalio.activity
 
 from posthog.dataclasses import frozen
 from posthog.models import Team
+from posthog.sync import database_sync_to_async_pool
 
 from products.alerts_platform.backend.facade.api import list_configurations, owned_copies_by_legacy_id
 from products.alerts_platform.backend.facade.contracts import PlatformAlertConfigurationView, SourceKind
@@ -23,6 +27,9 @@ SOURCE_PRODUCT = "logs"
 SOURCE_TYPE = "alert_state_change"
 
 AlertSignalAction = Literal["firing", "broken"]
+
+# emit_signal reads Postgres and starts a Temporal workflow, so the fan-out stays bounded.
+EMIT_SIGNAL_CONCURRENCY = int(os.environ.get("LOGS_ALERTING_EMIT_SIGNAL_CONCURRENCY", "20"))
 
 # Notification -> (action label, weight). Only FIRE and BROKEN are signalled —
 # both are investigate-now (weight 1.0). RESOLVE (rarely worth investigating) and
@@ -155,6 +162,43 @@ async def emit_alert_state_change_signal(team: Team, na: NotifiedAlert) -> bool:
     except Exception:
         logger.exception("Failed to emit logs alert signal", alert_id=na.alert_id, action=na.action)
         return False
+
+
+def _load_teams_for_signals(team_ids: set[int]) -> dict[int, Team]:
+    # emit_signal reads team.organization for the AI-consent gate.
+    return {team.id: team for team in Team.objects.filter(id__in=team_ids).select_related("organization")}
+
+
+async def emit_notified_alert_signals(notified: list[NotifiedAlert]) -> int:
+    """Emits one signal per notified alert and returns how many went out. Never raises."""
+    if not notified:
+        return 0
+
+    team_ids = {na.team_id for na in notified}
+    teams = await database_sync_to_async_pool(_load_teams_for_signals)(team_ids)
+
+    semaphore = asyncio.Semaphore(EMIT_SIGNAL_CONCURRENCY)
+    completed = 0
+
+    async def _bounded(na: NotifiedAlert) -> bool:
+        nonlocal completed
+        async with semaphore:
+            team = teams.get(na.team_id)
+            if team is None:
+                logger.warning(
+                    "Team missing for logs alert signal; skipping",
+                    team_id=na.team_id,
+                    alert_id=na.alert_id,
+                )
+                return False
+            ok = await emit_alert_state_change_signal(team, na)
+            completed += 1
+            if completed % EMIT_SIGNAL_CONCURRENCY == 0:
+                temporalio.activity.heartbeat()
+            return ok
+
+    results = await asyncio.gather(*(_bounded(na) for na in notified))
+    return sum(1 for ok in results if ok)
 
 
 @frozen

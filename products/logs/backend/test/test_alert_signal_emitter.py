@@ -1,6 +1,8 @@
+import asyncio
 import dataclasses
 
 import pytest
+from posthog.test.base import NonAtomicBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from parameterized import parameterized
@@ -13,6 +15,7 @@ from products.logs.backend.alert_signal_emitter import (
     build_signal_description,
     build_signal_extra,
     emit_alert_state_change_signal,
+    emit_notified_alert_signals,
     signal_action_and_weight,
 )
 from products.logs.backend.alert_state_machine import NotificationAction
@@ -125,3 +128,18 @@ class TestEmitAlertStateChangeSignal:
             ok = await emit_alert_state_change_signal(MagicMock(spec=Team), _notified("broken"))
 
         assert ok is False
+
+
+class TestEmitNotifiedAlertSignals(NonAtomicBaseTest):
+    def test_emits_one_signal_per_notified_alert_of_a_team_that_exists(self):
+        notified = [
+            dataclasses.replace(_notified("firing"), team_id=self.team.id),
+            dataclasses.replace(_notified("broken"), team_id=self.team.id, alert_id="b" * 8),
+            dataclasses.replace(_notified("firing"), team_id=self.team.id + 1000),
+        ]
+
+        with patch("products.logs.backend.alert_signal_emitter.emit_signal", new=AsyncMock()) as mock_emit:
+            count = asyncio.run(emit_notified_alert_signals(notified))
+
+        assert count == 2
+        assert [c.kwargs["team"].id for c in mock_emit.call_args_list] == [self.team.id, self.team.id]

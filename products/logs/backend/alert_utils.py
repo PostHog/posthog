@@ -3,11 +3,8 @@ from __future__ import annotations
 import os
 from datetime import UTC, datetime, timedelta
 
-from django.db.models import Q
-
 import structlog
 
-from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.alerts_platform.backend.facade.scheduling import (
     advance_next_check_at,
     compute_team_shard_offset_seconds,
@@ -22,7 +19,6 @@ __all__ = [
     "SCHEDULE_INTERVAL_SECONDS",
     "advance_next_check_at",
     "compute_shard_offset_seconds",
-    "due_alerts_q",
     "next_allowed_check_at",
 ]
 
@@ -76,13 +72,3 @@ def next_allowed_check_at(
         team_timezone=team_timezone,
     )
     return retry_candidate.replace(second=0, microsecond=0)
-
-
-def due_alerts_q(now: datetime, *, broken_state: str, snoozed_state: str) -> Q:
-    return (
-        Q(enabled=True)
-        & (Q(next_check_at__lte=now) | Q(next_check_at__isnull=True))
-        & ~Q(state=broken_state)
-        & ~Q(state=snoozed_state, snooze_until__gt=now)
-        & ~Q(owner=PlatformAlertOwner.PLATFORM.value)
-    )

@@ -21,18 +21,8 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceKind,
 )
 from products.logs.backend.alert_evaluation_key import WINDOW_MARKER
-from products.logs.backend.alert_state_machine import (
-    AlertCheckOutcome,
-    AlertState,
-    CheckResult,
-    IncidentCloseReason,
-    NotificationAction,
-)
-from products.logs.backend.models import LogsAlertConfiguration
 from products.logs.backend.platform_alert_legacy_events import emit_logs_legacy_events
-from products.logs.backend.temporal import activities
 
-_ACTIVITIES_PRODUCE = "products.logs.backend.temporal.activities.produce_alert_internal_event"
 _PRODUCER = "products.alerts.backend.logic.destinations"
 NOW = datetime(2026, 10, 16, 12, 0, tzinfo=UTC)
 WINDOW_END = NOW - timedelta(seconds=30)
@@ -56,10 +46,6 @@ ANNOUNCEMENT = EvaluationAnnouncement(
 )
 
 
-def _alert() -> LogsAlertConfiguration:
-    return LogsAlertConfiguration(id=ALERT_ID, team_id=7, name="Errors", filters=FILTERS, **CONDITION, **SCHEDULE)
-
-
 # A copy stores its filters nested, and a history row written before the nesting keeps them flat.
 NESTED_SOURCE_CONFIG: Final = {"filters": FILTERS, SOURCE_CONDITION_KEY: CONDITION}
 FLAT_SOURCE_CONFIG: Final = {**FILTERS, SOURCE_CONDITION_KEY: CONDITION}
@@ -80,28 +66,32 @@ def _transition(kind: AlertEventKind, source_config: dict[str, Any] = NESTED_SOU
     )
 
 
-def _failure(notification: NotificationAction) -> AlertCheckOutcome:
-    return AlertCheckOutcome(
-        new_state=AlertState.ERRORED,
-        notification=notification,
-        consecutive_failures=3,
-        update_last_notified_at=True,
-        error_message="query timed out",
-    )
-
-
-def _legacy_emit(event_name: str) -> None:
-    alert = _alert()
-    check = CheckResult(result_count=42, threshold_breached=True)
-    window = {"date_from": WINDOW_END - timedelta(minutes=7), "date_to": WINDOW_END}
-    if event_name == "$logs_alert_errored":
-        activities._emit_alert_errored_event(alert, _failure(NotificationAction.ERROR), NOW)
-    elif event_name == "$logs_alert_auto_disabled":
-        activities._emit_auto_disabled_event(alert, _failure(NotificationAction.BROKEN), NOW)
-    elif event_name == "$logs_alert_incident_closed":
-        activities._emit_incident_closed_event(alert, IncidentCloseReason.RESOLVED, NOW)
-    else:
-        activities._emit_alert_event(alert, event_name, check, NOW, **window)
+_IDENTITY: Final = {"alert_id": str(ALERT_ID), "alert_name": "Errors", "team_id": 7}
+_SCOPE: Final = {"service_names": ["checkout"], "severity_levels": ["error"]}
+_THRESHOLD: Final = {
+    **_IDENTITY,
+    "threshold_count": 10,
+    "threshold_operator": "above",
+    "window_minutes": 5,
+    "result_count": 42,
+    "filters": FILTERS,
+    **_SCOPE,
+    "logs_url_params": (
+        "severityLevels=%5B%22error%22%5D&serviceNames=%5B%22checkout%22%5D&dateRange=%7B%22date_from%22%3A+"
+        "%222026-10-16T11%3A52%3A30%2B00%3A00%22%2C+%22date_to%22%3A+%222026-10-16T11%3A59%3A30%2B00%3A00%22%7D"
+    ),
+    "triggered_at": NOW.isoformat(),
+}
+_FAILURE: Final = {**_IDENTITY, "consecutive_failures": 3, **_SCOPE, "triggered_at": NOW.isoformat()}
+# What the retired logs stack emitted for the same check, which logs destinations still read.
+EXPECTED_PROPERTIES: Final[dict[str, dict[str, Any]]] = {
+    "$logs_alert_firing": _THRESHOLD,
+    "$logs_alert_resolved": _THRESHOLD,
+    "$logs_alert_incident_opened": _THRESHOLD,
+    "$logs_alert_errored": {**_FAILURE, "error_message": "query timed out"},
+    "$logs_alert_auto_disabled": {**_FAILURE, "last_error_message": "query timed out"},
+    "$logs_alert_incident_closed": {**_IDENTITY, "reason": "resolved", "triggered_at": NOW.isoformat()},
+}
 
 
 class TestEmitLogsLegacyEvents(SimpleTestCase):
@@ -150,9 +140,6 @@ class TestEmitLogsLegacyEvents(SimpleTestCase):
         event_name: str,
         source_config: dict[str, Any],
     ) -> None:
-        with patch(_ACTIVITIES_PRODUCE) as legacy:
-            _legacy_emit(event_name)
-
         produce = self._emit(
             LegacyEventEmission(
                 transition=_transition(kind, source_config),
@@ -162,10 +149,7 @@ class TestEmitLogsLegacyEvents(SimpleTestCase):
         )
 
         (call,) = produce.call_args_list
-        assert (call.kwargs["event_name"], call.kwargs["properties"]) == (
-            legacy.call_args.kwargs["event_name"],
-            legacy.call_args.kwargs["properties"],
-        )
+        assert (call.kwargs["event_name"], call.kwargs["properties"]) == (event_name, EXPECTED_PROPERTIES[event_name])
 
     def test_a_retried_emission_reuses_each_event_id_so_a_receiver_can_drop_it(self) -> None:
         emission = LegacyEventEmission(
