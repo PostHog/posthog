@@ -33,28 +33,36 @@ const EMAIL_OUTCOME_TAG: Record<EmailOutcome, { label: string; description: stri
 export function RunStatusCell({ row }: { row: HogInvocationRow }): JSX.Element {
     const succeeded = row.status === 'succeeded'
     const emailOutcome = succeeded ? row.email_outcome : null
-    const showWarningIcon = succeeded && !emailOutcome && row.problem_log_level !== null
-    return (
-        <div className="flex flex-wrap items-center gap-1">
-            {emailOutcome ? (
-                <Tooltip title={EMAIL_OUTCOME_TAG[emailOutcome].description}>
+    const problemLevel = succeeded ? row.problem_log_level : null
+    if (emailOutcome) {
+        const alsoLogged =
+            problemLevel === 'error'
+                ? ' The run also logged an error.'
+                : problemLevel === 'warn'
+                  ? ' The run also logged a warning.'
+                  : ''
+        return (
+            <div className="flex flex-wrap items-center gap-1">
+                <Tooltip title={EMAIL_OUTCOME_TAG[emailOutcome].description + alsoLogged}>
                     <LemonTag type="danger">{EMAIL_OUTCOME_TAG[emailOutcome].label.toUpperCase()}</LemonTag>
                 </Tooltip>
-            ) : (
-                <LemonTag type={tagTypeForStatus(row.status)}>{row.status.toUpperCase()}</LemonTag>
-            )}
-            {showWarningIcon ? (
+            </div>
+        )
+    }
+    return (
+        <div className="flex flex-wrap items-center gap-1">
+            <LemonTag type={tagTypeForStatus(row.status)}>{row.status.toUpperCase()}</LemonTag>
+            {problemLevel ? (
                 <Tooltip
                     title={
-                        row.problem_log_level === 'error'
+                        problemLevel === 'error'
                             ? 'This run finished but logged an error. Expand the row to view it.'
                             : 'This run finished but logged a warning. Expand the row to view it.'
                     }
                 >
                     <IconWarning
-                        className={
-                            row.problem_log_level === 'error' ? 'text-danger text-base' : 'text-warning text-base'
-                        }
+                        aria-label={problemLevel === 'error' ? 'Logged an error' : 'Logged a warning'}
+                        className={problemLevel === 'error' ? 'text-danger text-base' : 'text-warning text-base'}
                     />
                 </Tooltip>
             ) : null}
