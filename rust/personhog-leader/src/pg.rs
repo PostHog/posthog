@@ -1,4 +1,5 @@
-use std::time::Instant;
+use std::io;
+use std::time::{Duration, Instant};
 
 use metrics::{counter, histogram};
 use personhog_common::properties::rewrite_out_of_range_numbers;
@@ -6,8 +7,14 @@ use personhog_common::query_tag;
 use sqlx::pool::PoolConnection;
 use sqlx::postgres::PgPool;
 use sqlx::{Postgres, Row};
+use tokio::time::error::Elapsed;
 
 use crate::cache::{CachedPerson, PersonCacheKey};
+
+pub const STATEMENT_TIMEOUT_MS: u64 = 5_000;
+
+/// Past the statement timeout, so only a query on a socket that never answers reaches it.
+pub const QUERY_DEADLINE: Duration = Duration::from_millis(STATEMENT_TIMEOUT_MS + 1_000);
 
 /// A configured PG fallback: the pool and the table it reads. The table
 /// must be the one the writer maintains (see FALLBACK_TABLE in
@@ -48,6 +55,28 @@ pub async fn acquire_timed(
     histogram!("personhog_leader_fallback_pool_acquire_ms", "caller" => caller)
         .record(start.elapsed().as_secs_f64() * 1000.0);
     conn
+}
+
+/// A connection whose query timed out may sit on a socket that never answers. sqlx pings a
+/// connection it takes back, and that ping would wait on the same socket while it holds the
+/// pool slot, so a timed-out connection leaves the pool instead.
+pub fn release_or_discard<T>(
+    conn: PoolConnection<Postgres>,
+    outcome: Result<Result<T, sqlx::Error>, Elapsed>,
+    caller: &'static str,
+) -> Result<T, sqlx::Error> {
+    match outcome {
+        Ok(result) => result,
+        Err(_) => {
+            counter!("personhog_leader_fallback_query_timeouts_total", "caller" => caller)
+                .increment(1);
+            drop(conn.detach());
+            Err(sqlx::Error::Io(io::Error::new(
+                io::ErrorKind::TimedOut,
+                format!("{caller} got no answer before its deadline"),
+            )))
+        }
+    }
 }
 
 /// Validate a configured table identifier before it is interpolated into
@@ -138,7 +167,7 @@ pub async fn load_person_from_pg(
     // jsonb decode parses the same text under the hood.
     // A tombstoned person must not be re-served on a cache miss; not-found
     // is the truthful answer for a deleted person.
-    let row = sqlx::query(&query_tag!(
+    let sql = query_tag!(
         "load_person",
         format!(
             "SELECT id, team_id, uuid::text, properties::text AS properties, created_at, version, \
@@ -146,13 +175,11 @@ pub async fn load_person_from_pg(
              FROM {table}
              WHERE team_id = $1 AND id = $2 AND is_deleted = false",
         )
-    ))
-    .bind(team_id_i32)
-    .bind(key.person_id)
-    .fetch_optional(&mut *conn)
-    .await?;
+    );
+    let query = sqlx::query(&sql).bind(team_id_i32).bind(key.person_id);
+    let outcome = tokio::time::timeout(QUERY_DEADLINE, query.fetch_optional(&mut *conn)).await;
     // The row is owned; parsing its properties must not hold the pool slot.
-    drop(conn);
+    let row = release_or_discard(conn, outcome, "load_person")?;
 
     histogram!("personhog_leader_pg_fallback_duration_ms")
         .record(start.elapsed().as_secs_f64() * 1000.0);

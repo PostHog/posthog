@@ -1980,10 +1980,10 @@ Diffed against: <https://betterstack.com/docs/uptime/api/getting-started-with-up
 - [x] `GET heartbeat availability summary` — the heartbeat equivalent of the monitor SLA summary (medium)
 - [x] `GET severities and severity groups (/api/v2/urgencies, /api/v2/urgency-groups)` — call-routing severity lookup resolving the severity referenced on incidents (medium)
 - [x] `GET status page resources (/api/v2/status-pages/{id}/resources)` — join table mapping status pages to the monitors and heartbeats they display (medium)
-- [ ] `GET status page reports and report status updates` — published incident reports and their update history - the customer-facing incident record (medium)
-- [ ] `GET status page subscribers (/api/v2/status-pages/{id}/subscribers)` — audience reach per status page (medium)
-- [ ] `GET metadata records (/api/v3/metadata)` — the catalog/metadata store used to attach ownership and context to monitors and incidents (medium)
-- [ ] `GET escalation policy groups and status page groups/sections` — grouping lookups for the policies and status pages already synced (low)
+- [x] `GET status page reports and report status updates` — published incident reports and their update history - the customer-facing incident record (medium)
+- [x] `GET status page subscribers (/api/v2/status-pages/{id}/subscribers)` — audience reach per status page (medium)
+- [x] `GET metadata records (/api/v3/metadata)` — the catalog/metadata store used to attach ownership and context to monitors and incidents (medium)
+- [x] `GET escalation policy groups and status page groups/sections` — grouping lookups for the policies and status pages already synced (low)
 
 Note: The docs are HTML-only with no downloadable OpenAPI; I enumerated the API reference nav across several fetched pages under /docs/uptime/api/. The severities routes are `/api/v2/urgencies` and `/api/v2/urgency-groups` — `/api/v2/severities` is a 404; the product was renamed but the API paths were not. On-call events and the on-call rotation are two separate per-schedule endpoints, so they became two tables. Excluded: the Reporting page, which is an outbound incident log drain (webhook payload schema), not a queryable resource, and the New Relic integrations endpoint (integration config).
 
@@ -5465,13 +5465,13 @@ Diffed against: <https://developers.everflow.io/llms.txt>
 
 - [x] `Categories (GET /networks/categories)` — lookup for offer category ids carried on offers (high)
 - [x] `Affiliate tiers (GET /networks/affiliatetiers)` — lookup for the tier of each affiliate (high)
-- [ ] `Labels (GET /networks/labels)` — lookup for label ids used on offers and affiliates (medium)
+- [x] `Labels (GET /networks/labels)` — lookup for label ids used on offers and affiliates (medium)
 - [x] `Affiliate users (GET /networks/affiliates/{affiliateId}/users)` — users per affiliate, fan-out per affiliate we sync (medium)
 - [ ] `Advertiser users (GET /networks/advertisers/{advertiserId}/users)` — users per advertiser, fan-out per advertiser we sync (low)
 - [x] `Partner invoices (POST /networks/billings/affiliates/invoicestable)` — affiliate payouts and billing status for finance reporting (high)
-- [ ] `Reporting adjustments (POST /networks/reportingadjustments/table)` — manual changes to conversion payout and revenue, needed to reconcile reports (medium)
-- [ ] `Creatives (POST /networks/creativestable)` — creative assets per offer for performance breakdowns (medium)
-- [ ] `Traffic sources (GET /networks/trafficsource)` — lookup for traffic sources on clicks and conversions (medium)
+- [x] `Reporting adjustments (POST /networks/reportingadjustments/table)` — manual changes to conversion payout and revenue, needed to reconcile reports (medium)
+- [x] `Creatives (POST /networks/creativestable)` — creative assets per offer for performance breakdowns (medium)
+- [x] `Traffic sources (GET /networks/trafficsource)` — lookup for traffic sources on clicks and conversions (medium)
 - [ ] `Offer groups (GET /networks/offergroups)` — grouping of offers for offer-level reports (low)
 
 Note: Read the Everflow llms.txt and the per-endpoint OpenAPI pages for the paths. Many list calls are POST table queries with paging in the body, so they need a request body. Excluded create, update, delete, bulk edit, webhooks, tracking links and click streams.
@@ -8732,10 +8732,10 @@ Diffed against: <https://raw.githubusercontent.com/getlago/lago-openapi/main/ope
 - [x] `GET /payment_requests and GET /payment_receipts` — dunning requests and receipts for collections reporting (medium)
 - [x] `GET /billing_entities` — lookup for the billing entity that owns each invoice in multi-entity setups (medium)
 - [x] `GET /analytics/mrr, /analytics/gross_revenue, /analytics/invoice_collection, /analytics/overdue_balance, /analytics/invoiced_usage` — Lago's headline pre-computed revenue metrics (medium)
-- [ ] `GET /subscriptions/{external_id}/lifetime_usage` — lifetime usage per subscription for commitment and threshold tracking (medium)
-- [ ] `GET /activity_logs` — state-change history across customers, subscriptions and invoices (medium)
-- [ ] `GET /customers/{external_customer_id}/current_usage and /past_usage` — in-period usage before invoicing, needed for revenue forecasting (medium)
-- [ ] `GET /features and /plans/{code}/entitlements` — entitlement and feature grants per plan and subscription (low)
+- [x] `GET /subscriptions/{external_id}/lifetime_usage` — lifetime usage per subscription for commitment and threshold tracking (medium)
+- [x] `GET /activity_logs` — state-change history across customers, subscriptions and invoices (medium)
+- [x] `GET /customers/{external_customer_id}/current_usage and /past_usage` — in-period usage before invoicing, needed for revenue forecasting (medium)
+- [x] `GET /features and /plans/{code}/entitlements` — entitlement and feature grants per plan and subscription (low)
 
 ## LambdaLabs — gaps
 
@@ -11860,10 +11860,10 @@ Diffed against: <https://appfire.atlassian.net/wiki/spaces/FD/pages/1802600473>
 - [x] `Team Membership (GET /v3/customer/core/team_membership)` — connect users to teams for engineering activity analysis by team (high)
 - [x] `DORA Metrics (GET /dora/build-release/change/lead_time/; GET /dora/build-release/deployment/frequency/; GET /dora/build-release/incident/change_failure_rate/; GET /dora/build-release/incident/time_to_restore/)` — measure deployment frequency, change failure rate, recovery time, and change lead time (high)
 - [x] `Ticket Metrics (GET /ticket-delivery/metrics/)` — track Flow velocity, cycle time, queue time, backflow rate, and jitter (high)
-- [ ] `Pull Request Events (GET /v3/customer/core/pull_request_events/)` — analyze review approvals and pull request state changes over time (medium)
+- [x] `Pull Request Events (GET /v3/customer/core/pull_request_events/)` — analyze review approvals and pull request state changes over time (medium)
 - [x] `Ticket Events (GET /v3/customer/core/ticket_events/)` — measure time in ticket states and identify workflow bottlenecks (medium)
 - [x] `Pull Request Comments (GET /v3/customer/core/pull_request_comments/)` — analyze reviewer participation, discussion depth, and response times (medium)
-- [ ] `Ticket Comments (GET /v3/customer/core/ticket_comments)` — analyze collaboration and discussion volume on issue tracker tickets (medium)
+- [x] `Ticket Comments (GET /v3/customer/core/ticket_comments)` — analyze collaboration and discussion volume on issue tracker tickets (medium)
 
 Note: Parsed Customer API reference pages from the official page tree and their current Appfire markdown versions. Parsed live Swagger specifications at /dora/docs?format=openapi and /ticket-delivery/docs?format=openapi for the metric operations. Metric tables need date windows and Metrics API permission; core resources use the workspace host. Excluded integration configuration, targets, write operations, and duplicate metric versions.
 

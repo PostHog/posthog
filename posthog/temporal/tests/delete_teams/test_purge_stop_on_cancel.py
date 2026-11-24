@@ -64,6 +64,8 @@ async def test_a_cancelled_purge_sends_no_batch_after_the_cancel(
     with (
         patch("posthog.personhog_client.client.get_personhog_client", return_value=client),
         patch.object(team_util, purge, recording_purge),
+        # The persons purge reads its batch cap from an instance setting, and this test has no database.
+        patch.object(team_util, "get_instance_setting", return_value=2),
     ):
         run = asyncio.create_task(env.run(activity_fn, TeamDataActivityInputs(team_ids=[1], user_id=7)))
         assert await asyncio.to_thread(first_batch_sent.wait, WAIT_SECONDS)

@@ -14314,6 +14314,34 @@ export namespace Schemas {
     }
 
     /**
+     * * `searching_metrics` - Searching Metrics
+     * * `reading_labels` - Reading Labels
+     * * `reading_label_values` - Reading Label Values
+     * * `running_query` - Running Query
+     * * `checking_panels` - Checking Panels
+     * * `exploring_logs` - Exploring Logs
+     * * `exploring_traces` - Exploring Traces
+     * * `reading_dashboard` - Reading Dashboard
+     * * `thinking` - Thinking
+     * * `working` - Working
+     */
+    export type AgentActivityKindEnum = typeof AgentActivityKindEnum[keyof typeof AgentActivityKindEnum];
+
+
+    export const AgentActivityKindEnum = {
+      SearchingMetrics: 'searching_metrics',
+      ReadingLabels: 'reading_labels',
+      ReadingLabelValues: 'reading_label_values',
+      RunningQuery: 'running_query',
+      CheckingPanels: 'checking_panels',
+      ExploringLogs: 'exploring_logs',
+      ExploringTraces: 'exploring_traces',
+      ReadingDashboard: 'reading_dashboard',
+      Thinking: 'thinking',
+      Working: 'working',
+    } as const;
+
+    /**
      * A check a scout run answers: re-probe the report's claim and record one verdict.
      *
      * The kind for a claim no single number settles. A resolved error-tracking report is the usual
@@ -33803,17 +33831,39 @@ export namespace Schemas {
       Parquet: 'parquet',
     } as const;
 
-    export interface CreateTableFromUpload {
-      /** Id returned by upload_file for the stored file. */
-      upload_id: string;
-      /** Sanitized filename returned by upload_file. */
-      filename: string;
+    export interface CreateTableFromFile {
+      /**
+         * Notebook short ID and cell ID separated by a slash. On create, associates the new table with that cell. On replace, requires the table to have been created for that cell.
+         * @pattern ^[A-Za-z0-9_-]{1,12}/[^\u0000-\u001f\u007f]{1,128}$
+         */
+      notebook_cell?: string;
       /** How the uploaded file is read: 'csv', 'json', or 'parquet'.
        *
        * * `csv` - csv
        * * `json` - json
        * * `parquet` - parquet */
       file_format: UploadedFileFormatEnum;
+      file: Blob;
+      /** Name the resulting table is queried by in HogQL. */
+      table_name: string;
+    }
+
+    export interface CreateTableFromUpload {
+      /**
+         * Notebook short ID and cell ID separated by a slash. On create, associates the new table with that cell. On replace, requires the table to have been created for that cell.
+         * @pattern ^[A-Za-z0-9_-]{1,12}/[^\u0000-\u001f\u007f]{1,128}$
+         */
+      notebook_cell?: string;
+      /** How the uploaded file is read: 'csv', 'json', or 'parquet'.
+       *
+       * * `csv` - csv
+       * * `json` - json
+       * * `parquet` - parquet */
+      file_format: UploadedFileFormatEnum;
+      /** Id returned by upload_file for the stored file. */
+      upload_id: string;
+      /** Sanitized filename returned by upload_file. */
+      filename: string;
       /** Name the resulting table is queried by in HogQL. */
       table_name: string;
     }
@@ -35601,6 +35651,36 @@ export namespace Schemas {
       state: PanelProgressStateEnum;
     }
 
+    export interface DashboardImportAgentActivity {
+      /** What the agent does now, from its latest tool call. 'thinking' is the time between tool calls.
+       *
+       * * `searching_metrics` - Searching Metrics
+       * * `reading_labels` - Reading Labels
+       * * `reading_label_values` - Reading Label Values
+       * * `running_query` - Running Query
+       * * `checking_panels` - Checking Panels
+       * * `exploring_logs` - Exploring Logs
+       * * `exploring_traces` - Exploring Traces
+       * * `reading_dashboard` - Reading Dashboard
+       * * `thinking` - Thinking
+       * * `working` - Working */
+      kind: AgentActivityKindEnum;
+      /** Seconds since the action started. */
+      seconds: number;
+      /** Seconds since the agent's last logged activity. A high value can mean that the agent is stuck. */
+      idle_seconds: number;
+      /**
+         * The search term, metric name or attribute key that the action works on, when it has one.
+         * @nullable
+         */
+      subject: string | null;
+      /**
+         * Number of panels that a 'checking_panels' action checks.
+         * @nullable
+         */
+      panel_count: number | null;
+    }
+
     export interface DashboardImportSummary {
       /** Number of panels in the input. */
       total: number;
@@ -35674,6 +35754,8 @@ export namespace Schemas {
       phase: DashboardImportPhaseEnum | null;
       /** Where each panel is, while the import runs. */
       panel_progress: DashboardImportPanelProgress[];
+      /** The agent's latest action, while the phase is 'matching'. Null otherwise. */
+      agent_activity: DashboardImportAgentActivity | null;
       /**
          * How many pictures of the dashboard the import compares with the screenshot, at most. Null when the import does not check the layout.
          * @nullable
@@ -66609,6 +66691,21 @@ export namespace Schemas {
       scan_id: string | null;
     }
 
+    export interface InlineUpload {
+      /**
+         * Notebook short ID and cell ID separated by a slash. On create, associates the new table with that cell. On replace, requires the table to have been created for that cell.
+         * @pattern ^[A-Za-z0-9_-]{1,12}/[^\u0000-\u001f\u007f]{1,128}$
+         */
+      notebook_cell?: string;
+      /** How the uploaded file is read: 'csv', 'json', or 'parquet'.
+       *
+       * * `csv` - csv
+       * * `json` - json
+       * * `parquet` - parquet */
+      file_format: UploadedFileFormatEnum;
+      file: Blob;
+    }
+
     export interface InsightBulkDeleteRequest {
       /**
          * Insight IDs to soft-delete (or restore). At most 1000 ids per request. Soft-deleted insights can be brought back via the bulk_restore endpoint.
@@ -77672,6 +77769,8 @@ export namespace Schemas {
          * @nullable
          */
       result_id?: string | null;
+      /** How the run returned its rows. */
+      delivery?: string;
       /**
          * Error message when status is 'error'.
          * @nullable
@@ -77699,6 +77798,17 @@ export namespace Schemas {
       Hogql: 'hogql',
       Python: 'python',
     } as const;
+
+    export interface NotebookSQLV2PageResponse {
+      /** Column names in result order. */
+      columns: string[];
+      /** Column name and type pairs in result order. */
+      types: string[][];
+      /** Rows of cell values in column order. */
+      rows: unknown[][];
+      /** Whether another page follows these rows. */
+      has_more: boolean;
+    }
 
     /**
      * * `hogql` - hogql
@@ -112279,6 +112389,8 @@ export namespace Schemas {
       implementation: SpendAmount;
       /** Full usage of scout runs that authored this report. Shared with all other output of those runs. */
       shared_scout_runs: SpendAmount;
+      /** Whether a scout run authored this report directly. Such a report has no generation usage of its own. */
+      scout_authored: boolean;
     }
 
     /**
@@ -118322,6 +118434,208 @@ export namespace Schemas {
       scheduled_at?: string | null;
     }
 
+    export interface SentryConnectionRequest {
+      /**
+         * Sentry auth token with the `org:read` and `project:read` scopes. PostHog uses it for this request only and doesn't store it.
+         * @maxLength 1024
+         */
+      auth_token: string;
+      /**
+         * Base URL of the Sentry instance. It must use `https://`. Defaults to `https://sentry.io`. Use your own URL for self-hosted Sentry.
+         * @maxLength 2048
+         */
+      base_url?: string;
+    }
+
+    export interface SentryMigrationApplyRequest {
+      /**
+         * Sentry auth token with the `org:read` and `project:read` scopes. PostHog uses it for this request only and doesn't store it.
+         * @maxLength 1024
+         */
+      auth_token: string;
+      /**
+         * Base URL of the Sentry instance. It must use `https://`. Defaults to `https://sentry.io`. Use your own URL for self-hosted Sentry.
+         * @maxLength 2048
+         */
+      base_url?: string;
+      /**
+         * Slug of the Sentry organization.
+         * @maxLength 255
+         */
+      organization_slug: string;
+      /**
+         * Slug of the Sentry project to import from.
+         * @maxLength 255
+         */
+      project_slug: string;
+      /**
+         * Region URL Sentry reports for the organization, as returned by the projects action. PostHog uses it only when it is on the same host as `base_url`.
+         * @maxLength 2048
+         * @nullable
+         */
+      region_url?: string | null;
+      /**
+         * IDs of the preview items to import.
+         * @maxItems 1000
+         * @items.maxLength 255
+         */
+      item_ids: string[];
+    }
+
+    export interface SentryMigrationApplyResponse {
+      /** Number of suppression rules the import created. */
+      suppression_rules_created: number;
+      /** Number of automatic suppression rules the import turned on. */
+      built_in_filters_enabled: number;
+      /** True when the import set the project rate limit. */
+      rate_limit_updated: boolean;
+    }
+
+    export interface SentryMigrationBuiltInFilter {
+      /** Key of the automatic suppression rule, as the built-in filters endpoint lists it. */
+      key: string;
+      /** Name of the automatic suppression rule in PostHog settings. */
+      name: string;
+      /** What the automatic suppression rule drops. */
+      description: string;
+      /** Short points on what the PostHog rule adds to the Sentry filter, or does differently. */
+      compared_with_sentry: string[];
+    }
+
+    /**
+     * * `rate_limit` - Rate limit
+     * * `error_message` - Error message filter
+     * * `release` - Release filter
+     * * `inbound_filter` - Inbound filter
+     */
+    export type SentryMigrationCategoryEnum = typeof SentryMigrationCategoryEnum[keyof typeof SentryMigrationCategoryEnum];
+
+
+    export const SentryMigrationCategoryEnum = {
+      RateLimit: 'rate_limit',
+      ErrorMessage: 'error_message',
+      Release: 'release',
+      InboundFilter: 'inbound_filter',
+    } as const;
+
+    /**
+     * * `good` - Good
+     * * `partial` - Partial
+     * * `unsupported` - Unsupported
+     */
+    export type SentryMigrationFitEnum = typeof SentryMigrationFitEnum[keyof typeof SentryMigrationFitEnum];
+
+
+    export const SentryMigrationFitEnum = {
+      Good: 'good',
+      Partial: 'partial',
+      Unsupported: 'unsupported',
+    } as const;
+
+    export interface SentryMigrationRateLimit {
+      /** Maximum number of exception events per bucket for the project. */
+      value: number;
+      /** Bucket window of the rate limit, in minutes. */
+      bucket_size_minutes: number;
+    }
+
+    export interface SentryMigrationItem {
+      /** Stable ID of the item. Send it in `item_ids` to import the item. */
+      id: string;
+      /** Kind of Sentry setting the item comes from.
+       *
+       * * `rate_limit` - Rate limit
+       * * `error_message` - Error message filter
+       * * `release` - Release filter
+       * * `inbound_filter` - Inbound filter */
+      category: SentryMigrationCategoryEnum;
+      /** Name of the setting in Sentry. */
+      sentry_setting: string;
+      /** Value of the setting in Sentry, such as the filter pattern. */
+      sentry_value: string;
+      /** How closely PostHog reproduces the setting. `good` matches the same events, `partial` is an approximation explained in `note`, and `unsupported` can't be imported.
+       *
+       * * `good` - Good
+       * * `partial` - Partial
+       * * `unsupported` - Unsupported */
+      fit: SentryMigrationFitEnum;
+      /**
+         * Explains how the PostHog version differs from Sentry.
+         * @nullable
+         */
+      note: string | null;
+      /** Filters of the suppression rule that the import creates. Null when the item isn't a suppression rule. */
+      suppression_rule_filters: PropertyGroupFilterValue | null;
+      /** Project rate limit that the import sets. Null when the item isn't a rate limit. */
+      rate_limit: SentryMigrationRateLimit | null;
+      /** Automatic suppression rule that the import turns on. Null when the item isn't covered by an automatic rule. */
+      built_in_filter: SentryMigrationBuiltInFilter | null;
+      /** True when the project already has a suppression rule with the same filters, the same automatic rule turned on, or the same rate limit. */
+      already_in_posthog: boolean;
+      /** True for a rate limit when the Sentry project has other client keys. Sentry applied the limit to one key, and the PostHog project rate limit also covers exceptions sent with the others. */
+      limits_other_client_keys: boolean;
+    }
+
+    export interface SentryMigrationPreviewResponse {
+      /** Sentry settings and the PostHog settings they become. */
+      items: SentryMigrationItem[];
+    }
+
+    export interface SentryProject {
+      /** Slug of the Sentry organization. */
+      organization_slug: string;
+      /** Display name of the Sentry organization. */
+      organization_name: string;
+      /** Slug of the Sentry project. */
+      project_slug: string;
+      /** Display name of the Sentry project. */
+      project_name: string;
+      /**
+         * Sentry platform of the project, such as `javascript`.
+         * @nullable
+         */
+      platform: string | null;
+      /**
+         * Region URL of the organization. Send it back with the preview and apply actions.
+         * @nullable
+         */
+      region_url: string | null;
+    }
+
+    export interface SentryProjectListResponse {
+      /** Sentry projects the token can read. */
+      projects: SentryProject[];
+    }
+
+    export interface SentryProjectRequest {
+      /**
+         * Sentry auth token with the `org:read` and `project:read` scopes. PostHog uses it for this request only and doesn't store it.
+         * @maxLength 1024
+         */
+      auth_token: string;
+      /**
+         * Base URL of the Sentry instance. It must use `https://`. Defaults to `https://sentry.io`. Use your own URL for self-hosted Sentry.
+         * @maxLength 2048
+         */
+      base_url?: string;
+      /**
+         * Slug of the Sentry organization.
+         * @maxLength 255
+         */
+      organization_slug: string;
+      /**
+         * Slug of the Sentry project to import from.
+         * @maxLength 255
+         */
+      project_slug: string;
+      /**
+         * Region URL Sentry reports for the organization, as returned by the projects action. PostHog uses it only when it is on the same host as `base_url`.
+         * @maxLength 2048
+         * @nullable
+         */
+      region_url?: string | null;
+    }
+
     export interface ServiceAccountAccessUpdate {
       /** Gateway server to share or stop sharing. */
       gateway_server_id: string;
@@ -120545,6 +120859,13 @@ export namespace Schemas {
          * @nullable
          */
       autostart_enabled?: boolean | null;
+      /** Lowest report priority that agents open PRs for, from P0 (highest) to P4 (every priority). Reads as P2 for a project that never set autostart_enabled and still stores the P4 default. Setting autostart_enabled on such a project stores P2, and choosing P4 here also sets autostart_enabled to true.
+       *
+       * * `P0` - P0
+       * * `P1` - P1
+       * * `P2` - P2
+       * * `P3` - P3
+       * * `P4` - P4 */
       default_autostart_priority?: AutonomyPriorityEnum;
       /**
          * Default Slack channel for this team's signal inbox notifications, in the same `channel_id|#channel-name` shape PostHog uses elsewhere (only the channel id is required). Null means no team-level default; per-user channels still apply.
@@ -126716,13 +127037,6 @@ export namespace Schemas {
       coverage: TopicCoverage;
     }
 
-    export interface TopicDefinition {
-      /** Short name of the subject. */
-      title: string;
-      /** One sentence on what the topic covers. */
-      description: string;
-    }
-
     /**
      * Topic key to `false` (opted out) or `true` (opted in), for every topic the recipient chose. A topic without a choice is not listed.
      */
@@ -128323,16 +128637,21 @@ export namespace Schemas {
     }
 
     export interface UploadedFile {
-      /** Id returned by upload_file for the stored file. */
-      upload_id: string;
-      /** Sanitized filename returned by upload_file. */
-      filename: string;
+      /**
+         * Notebook short ID and cell ID separated by a slash. On create, associates the new table with that cell. On replace, requires the table to have been created for that cell.
+         * @pattern ^[A-Za-z0-9_-]{1,12}/[^\u0000-\u001f\u007f]{1,128}$
+         */
+      notebook_cell?: string;
       /** How the uploaded file is read: 'csv', 'json', or 'parquet'.
        *
        * * `csv` - csv
        * * `json` - json
        * * `parquet` - parquet */
       file_format: UploadedFileFormatEnum;
+      /** Id returned by upload_file for the stored file. */
+      upload_id: string;
+      /** Sanitized filename returned by upload_file. */
+      filename: string;
     }
 
     export interface UploadedMediaCreated {
@@ -128468,11 +128787,6 @@ export namespace Schemas {
          * @nullable
          */
       topics: TopicCluster[] | null;
-      /**
-         * The whole topic list that the next scan keeps, including topics with no sessions in this scan. Null until grouped.
-         * @nullable
-         */
-      topic_definitions: TopicDefinition[] | null;
       /** What the sampled sessions were about, by kind. Null until grouped. */
       topic_sessions: TopicSessionCounts | null;
       /**
@@ -128520,6 +128834,8 @@ export namespace Schemas {
       created_at: string;
       /** The scan result, one key per section. */
       payload: UsageSnapshotPayload;
+      /** How many of the scan's topics the payload leaves out for this reader. A topic is left out when its sessions read a table or view the reader is denied, or read data the scan could not trace to tables. */
+      hidden_topics: number;
     }
 
     export interface UsageSnapshotSummary {
@@ -143683,6 +143999,7 @@ export namespace Schemas {
     event?: string;
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
@@ -148268,6 +148585,27 @@ export namespace Schemas {
      * If any value is provided for this parameter, return notebooks created by the logged in user.
      */
     user?: string;
+    };
+
+    export type NotebooksSqlV2RunsRetrieveParams = {
+    /**
+     * Only return the run if it belongs to this cell.
+     */
+    node_id?: string;
+    };
+
+    export type NotebooksSqlV2RunsPageRetrieveParams = {
+    /**
+     * Rows per page.
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Number of rows to skip in the stored result frame.
+     * @minimum 0
+     */
+    offset?: number;
     };
 
     export type NotebooksWidgetSnapshotFrameParams = {
@@ -153457,7 +153795,7 @@ export namespace Schemas {
 
     export type WarehouseTablesListParams = {
     /**
-     * Include table columns. Disable for lightweight table existence or name lookups.
+     * Include table columns. Disable for lightweight table lookups.
      */
     include_columns?: boolean;
     /**
@@ -153476,6 +153814,13 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
+    };
+
+    export type WarehouseTablesRetrieveParams = {
+    /**
+     * Include table columns. Disable for lightweight table lookups.
+     */
+    include_columns?: boolean;
     };
 
     /**

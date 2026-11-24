@@ -267,7 +267,7 @@ def _backup(directory: Path, checkout: Path, before: Path) -> str:
 
 def _rebuild() -> None:
     reset()
-    subprocess.run([sys.executable, "manage.py", "migrate_clickhouse"], check=True)
+    subprocess.run([sys.executable, "manage.py", "migrate_clickhouse", "--skip-checks"], check=True)
 
 
 def main() -> None:
