@@ -6797,7 +6797,7 @@ database "posthog" {
     column "channel_type" {
       type = "LowCardinality(String)"
     }
-    column "hosts" {
+    column "session_hosts" {
       type = "Array(String)"
     }
     column "persons_uniq_state" {

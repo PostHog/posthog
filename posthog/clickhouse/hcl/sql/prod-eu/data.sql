@@ -1746,7 +1746,7 @@ CREATE TABLE posthog.web_bounces_dimensional_preaggregated (
   mat_metadata_backend Nullable(String),
   mat_metadata_loggedIn Nullable(Bool),
   channel_type LowCardinality(String),
-  hosts Array(String),
+  session_hosts Array(String),
   persons_uniq_state AggregateFunction(uniq, UUID),
   sessions_uniq_state AggregateFunction(uniq, String),
   pageviews_count_state AggregateFunction(sum, Int64),

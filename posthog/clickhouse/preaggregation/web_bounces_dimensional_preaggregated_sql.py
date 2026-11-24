@@ -62,8 +62,8 @@ CREATE TABLE IF NOT EXISTS {table_name}
     mat_metadata_loggedIn Nullable(Bool),
     channel_type LowCardinality(String),
     -- Every host the session viewed, sorted, with '' for events without $host. A host filter matches a session
-    -- when any of its hosts matches, as the live query does per event. `host` is one of them.
-    hosts Array(String),
+    -- when any of these hosts matches, as the live query does per event. `host` holds only one of them.
+    session_hosts Array(String),
 
     -- Aggregate states for bounce-rate and session-duration metrics.
     persons_uniq_state AggregateFunction(uniq, UUID),
@@ -147,7 +147,7 @@ ORDER BY (
     mat_metadata_backend,
     mat_metadata_loggedIn,
     channel_type,
-    hosts
+    session_hosts
 )
 TTL toDateTime(expires_at)
 SETTINGS index_granularity=8192, ttl_only_drop_parts = 1, allow_nullable_key = 1
