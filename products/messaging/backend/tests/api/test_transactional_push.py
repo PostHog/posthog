@@ -152,6 +152,7 @@ class TestTransactionalPushTemplates(APIBaseTest):
 
         with self.assertNumQueries(0):
             assert unfiled.get_file_system_representation().href == f"/transactional/push/{template.id}"
+
     def _pak_client(self, scopes: list[str]) -> APIClient:
         raw_token = generate_random_token_personal()
         PersonalAPIKey.objects.create(
