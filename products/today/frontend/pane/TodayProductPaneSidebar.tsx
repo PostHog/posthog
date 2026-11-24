@@ -5,10 +5,10 @@ import { SidebarSearchList } from '~/layout/today/sidebar/SidebarSearchList'
 import { SidebarSection } from '~/layout/today/sidebar/SidebarSection'
 import type { TodayPaneGroup, TodayPaneProduct, TodayProductPaneKey } from '~/layout/today/todayPaneProducts'
 import { TodayPinnedRecentSections } from '~/layout/today/TodayPinnedRecentSections'
+import { TodayRecentRow } from '~/layout/today/TodayRecentRow'
 import { recentRowKey } from '~/layout/today/todayRecents'
 
 import { TodayPaneProductRow } from '../TodayPaneProductRow'
-import { TodayPinnableRecentRow } from '../TodayPinnableRecentRow'
 import { todayProductPaneLogic } from './todayProductPaneLogic'
 
 export function TodayProductPaneSidebar({ pane }: { pane: TodayProductPaneKey }): JSX.Element {
@@ -35,11 +35,10 @@ export function TodayProductPaneSidebar({ pane }: { pane: TodayProductPaneKey })
             />
         ))
     const renderRecent = (recent: { type: string; name: string; href: string }, dataAttr: string): JSX.Element => (
-        <TodayPinnableRecentRow
+        <TodayRecentRow
             recent={recent}
-            icon={iconForType(config.recentIcons[recent.type])}
-            description={config.recentDescriptions[recent.type]}
-            meta={config.recentTypeLabels?.[recent.type]}
+            icon={iconForType(config.recentTypeInfo[recent.type].iconType)}
+            typeCopy={config.recentTypeInfo[recent.type]}
             active={activeRow === recentRowKey(recent.href)}
             dataAttr={dataAttr}
         />

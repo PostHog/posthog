@@ -4,11 +4,9 @@ import React, { useEffect, useRef } from 'react'
 
 import { IconArrowLeft } from '@posthog/icons'
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
-import { Button } from '@posthog/quill'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
-import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -287,19 +285,7 @@ export function InboxScene(): JSX.Element {
 
     const tabUnlocked = onboardingMode !== 'takeover' && onboardingMode !== 'pending'
     const headerActions = !tabUnlocked ? undefined : activeTab === 'scouts' ? (
-        <>
-            {scoutsInAutomate && (
-                <Button
-                    variant="outline"
-                    nativeButton={false}
-                    render={<LinkPrimitive to={urls.inbox('reports')} />}
-                    data-attr="scouts-see-inbox-reports"
-                >
-                    See all reports in Inbox
-                </Button>
-            )}
-            <ScoutsRosterActions />
-        </>
+        <ScoutsRosterActions />
     ) : activeTab === 'reports' ? (
         <div className="hidden @2xl/inbox:contents">
             <InboxTriageButton />

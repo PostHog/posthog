@@ -29,6 +29,12 @@ export type TodayRecentPane = 'people' | 'monitor' | 'release' | 'automate' | 'd
  */
 export const TODAY_RECENT_KEY = 'todayRecent'
 
+/** How Pinned and Recents name one type of record: after the record's name, and in its hover card. */
+export interface TodayRecentTypeCopy {
+    label: string
+    description: string
+}
+
 export const TODAY_RECENTS_LIMIT = 10
 
 interface TodayRecentByPane {

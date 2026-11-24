@@ -56,3 +56,51 @@
         transform: translateY(-0.375rem);
     }
 }
+
+// A row with a hover action makes room for it only while the row is hovered or focused, so the name keeps the
+// full width until then. The room opens with a padding transition: the name's truncation and the meta glide over
+// together, while the action fades in. Animating padding lays out this one row per frame, which is cheap, and
+// it is the only way to move the truncation point smoothly.
+.SidebarRow {
+    --sidebar-row-reveal: 160ms cubic-bezier(0.645, 0.045, 0.355, 1);
+}
+
+.SidebarRow--hasAction {
+    .SidebarRow__option {
+        transition: padding-inline-end var(--sidebar-row-reveal);
+    }
+
+    // The action is 1.25rem wide at 0.25rem from the edge, so 2rem leaves it a 0.5rem gap from the name or meta.
+    &:hover,
+    &:focus-within,
+    &.SidebarRow--actionVisible {
+        .SidebarRow__option {
+            padding-inline-end: 2rem;
+        }
+    }
+
+    &:not(.SidebarRow--actionVisible) {
+        .SidebarRow__action {
+            opacity: 0;
+            transition:
+                opacity var(--sidebar-row-reveal),
+                transform var(--sidebar-row-reveal);
+            transform: translateX(0.25rem);
+        }
+
+        &:hover,
+        &:focus-within {
+            .SidebarRow__action {
+                opacity: 1;
+                transform: none;
+            }
+        }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .SidebarRow__option,
+        .SidebarRow__action {
+            transition: none;
+        }
+    }
+}

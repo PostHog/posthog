@@ -39,11 +39,22 @@ export const MONITOR_PANE: TodayProductPaneConfig = {
     lead: { id: 'tools', rowDataAttr: 'monitor-sidebar-tool', specs: monitorToolSpecs },
     sections: [{ id: 'products', label: 'AI', rowDataAttr: 'monitor-sidebar-product', specs: monitorAiProductSpecs }],
     recentTypes: TODAY_MONITOR_RECENT_TYPES,
-    recentIcons: { error_tracking_issue: 'error_tracking', logs_view: 'logs', trace: 'tracing' },
-    recentDescriptions: {
-        error_tracking_issue: 'An error tracking issue. Open it to see its stack trace, events, and affected users.',
-        logs_view: 'A saved logs view. Open it to see the logs that match its filters.',
-        trace: 'A trace. Open it to see its spans, timings, and errors.',
+    recentTypeInfo: {
+        error_tracking_issue: {
+            iconType: 'error_tracking',
+            label: 'Issue',
+            description: 'An error tracking issue. Open it to see its stack trace, events, and affected users.',
+        },
+        logs_view: {
+            iconType: 'logs',
+            label: 'Logs view',
+            description: 'A saved logs view. Open it to see the logs that match its filters.',
+        },
+        trace: {
+            iconType: 'tracing',
+            label: 'Trace',
+            description: 'A trace. Open it to see its spans, timings, and errors.',
+        },
     },
 }
 

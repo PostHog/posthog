@@ -59,17 +59,27 @@ export const DATA_PANE: TodayProductPaneConfig = {
         { id: 'setup', label: 'Setup', rowDataAttr: 'data-sidebar-setup', specs: dataSetupSpecs },
     ],
     recentTypes: TODAY_DATA_RECENT_TYPES,
-    recentIcons: {
-        event_definition: 'event_definition',
-        property_definition: 'property_definition',
-        data_source: 'data_source',
-        data_model: 'data_modeling',
-    },
-    recentDescriptions: {
-        event_definition: 'An event definition. Open it to see its description, properties, and where it is used.',
-        property_definition: 'A property definition. Open it to see its type, description, and where it is used.',
-        data_source: 'A data source. Open it to see its tables, syncs, and settings.',
-        data_model: 'A table or view in your warehouse. Open it to see its columns, lineage, and data quality.',
+    recentTypeInfo: {
+        event_definition: {
+            iconType: 'event_definition',
+            label: 'Event',
+            description: 'An event definition. Open it to see its description, properties, and where it is used.',
+        },
+        property_definition: {
+            iconType: 'property_definition',
+            label: 'Property',
+            description: 'A property definition. Open it to see its type, description, and where it is used.',
+        },
+        data_source: {
+            iconType: 'data_source',
+            label: 'Source',
+            description: 'A data source. Open it to see its tables, syncs, and settings.',
+        },
+        data_model: {
+            iconType: 'data_modeling',
+            label: 'Table',
+            description: 'A table or view in your warehouse. Open it to see its columns, lineage, and data quality.',
+        },
     },
 }
 

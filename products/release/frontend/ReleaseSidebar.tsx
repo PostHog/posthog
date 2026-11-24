@@ -22,7 +22,13 @@ import { FileSystemEntry, FileSystemIconType } from '~/queries/schema/schema-gen
 import { releaseLogic } from './releaseLogic'
 import { releaseSidebarEntryName, STAGE_COLOR_VARS } from './releaseUtils'
 
-const RELEASE_TYPES = ['feature_flag', 'experiment', 'early_access_feature', 'release']
+const RELEASE_TYPE_LABELS: Record<string, string> = {
+    feature_flag: 'Flag',
+    experiment: 'Experiment',
+    early_access_feature: 'Early access',
+    release: 'Release',
+}
+const RELEASE_TYPES = Object.keys(RELEASE_TYPE_LABELS)
 const RECENTS_LIMIT = 6
 
 export function ReleaseSidebar(): JSX.Element {
@@ -135,6 +141,7 @@ export function ReleaseSidebar(): JSX.Element {
             key={`${kind}:${entry.id}`}
             value={`${kind}:${entry.id}`}
             label={entryName(entry)}
+            meta={RELEASE_TYPE_LABELS[entry.type ?? '']}
             icon={
                 entry.type === 'release' ? (
                     <IconFlag />

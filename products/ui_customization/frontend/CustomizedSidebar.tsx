@@ -32,6 +32,7 @@ const SidebarAgentListener = lazyWithRetry(() =>
 export interface SidebarNavigationItem {
     value: string
     label: string
+    meta?: string
     icon?: JSX.Element | null
     to: string
     active: boolean
