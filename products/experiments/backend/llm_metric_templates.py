@@ -85,7 +85,7 @@ _TEMPLATE_METADATA: dict[str, dict[str, str]] = {
     },
 }
 
-TEMPLATE_NAMES = tuple(_TEMPLATES)
+TEMPLATE_NAMES: tuple[str, ...] = tuple(_TEMPLATES)
 
 
 def build_template(name: str, prompt_name: str) -> LLMMetric:

@@ -33,6 +33,7 @@ from posthog.models.team.team import Team
 
 from products.actions.backend.facade.api import get_action
 from products.actions.backend.facade.contracts import ActionNotFound
+from products.experiments.backend.facade.enums import EXPERIMENT_EXPOSURE_EVENT
 from products.experiments.backend.warehouse_native_sources import warehouse_native_exposure_config
 
 logger = logging.getLogger(__name__)
@@ -44,9 +45,6 @@ logger = logging.getLogger(__name__)
 # explicitly name `$feature_flag_called` too.
 DEFAULT_EXPOSURE_EVENT = "$feature_flag_called"
 
-# The dedicated exposure event that replaces $feature_flag_called as the default,
-# gated per team by the flag below while it rolls out.
-EXPERIMENT_EXPOSURE_EVENT = "$experiment_exposure"
 EXPERIMENT_EXPOSURE_EVENT_FLAG = "experiment-exposure-event"
 
 # The start of $experiment_exposure ingestion. Experiments started before this timestamp ran
@@ -62,7 +60,7 @@ RULE_ID_PROPERTY = "$feature_flag_rule_id"
 RULE_VARIANT_KEY_PROPERTY = "$feature_flag_variant_key"
 
 
-def resolve_default_exposure_event(team: Team, start_date: Optional[datetime]) -> str:
+def resolve_team_default_exposure_event(team_id: int, start_date: Optional[datetime]) -> str:
     """
     Returns the event to count exposures on when the experiment doesn't configure a custom one.
 
@@ -84,15 +82,19 @@ def resolve_default_exposure_event(team: Team, start_date: Optional[datetime]) -
     try:
         enabled = posthoganalytics.feature_enabled(
             EXPERIMENT_EXPOSURE_EVENT_FLAG,
-            str(team.id),
-            groups={"project": str(team.id)},
-            group_properties={"project": {"id": str(team.id)}},
+            str(team_id),
+            groups={"project": str(team_id)},
+            group_properties={"project": {"id": str(team_id)}},
             only_evaluate_locally=True,
             send_feature_flag_events=False,
         )
     except Exception:
         return DEFAULT_EXPOSURE_EVENT
     return EXPERIMENT_EXPOSURE_EVENT if enabled else DEFAULT_EXPOSURE_EVENT
+
+
+def resolve_default_exposure_event(team: Team, start_date: Optional[datetime]) -> str:
+    return resolve_team_default_exposure_event(team.id, start_date)
 
 
 def exposure_event_names(event: str, *, read_copies: bool = True) -> list[str]:
