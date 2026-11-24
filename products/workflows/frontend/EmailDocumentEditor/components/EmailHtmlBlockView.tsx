@@ -14,6 +14,7 @@ import { isFullHtmlDocument, oldEditorCss } from '../renderEmailHtml'
 
 // Past the usual 600px and 640px phone breakpoints, so the desktop layout shows even in a narrow editor.
 const MIN_DESKTOP_WIDTH = 660
+const MIN_HEIGHT = 60
 
 // The email gives a fragment the page's font and no margin. A full document keeps whatever it sets.
 function previewDocument(html: string, editor: NodeViewProps['editor'], sentAsWritten: boolean): string {
@@ -34,7 +35,7 @@ export function EmailHtmlBlockView({ node, selected, updateAttributes, editor }:
     const { sentAsWritten } = useEmailEditorContext()
     const [editing, setEditing] = useState(false)
     const [draft, setDraft] = useState<string>(node.attrs.html)
-    const [height, setHeight] = useState(60)
+    const [height, setHeight] = useState(MIN_HEIGHT)
     const iframeRef = useRef<HTMLIFrameElement>(null)
     const style = (node.attrs.emailStyle ?? {}) as EmailBlockStyle
     const padding = style.padding
@@ -61,26 +62,40 @@ export function EmailHtmlBlockView({ node, selected, updateAttributes, editor }:
         if (!iframe || !root) {
             return
         }
-        // Back to the smallest width first, so a wider email that was edited to be narrower shrinks again.
-        iframe.style.minWidth = sentAsWritten ? `${MIN_DESKTOP_WIDTH}px` : ''
+        // A document never reports less than the frame's own size, so it's measured in a small frame first. Otherwise the
+        // frame couldn't shrink again, and an email as tall as its window would grow with every measurement.
+        iframe.style.height = `${MIN_HEIGHT}px`
+        iframe.style.minWidth = ''
         if (sentAsWritten) {
+            // Both, because the app caps the width at the canvas and only the min width gets past that.
+            iframe.style.width = `${MIN_DESKTOP_WIDTH}px`
+            iframe.style.minWidth = `${MIN_DESKTOP_WIDTH}px`
             iframe.style.minWidth = `${Math.max(MIN_DESKTOP_WIDTH, root.scrollWidth)}px`
+            iframe.style.width = ''
         }
-        // The document's own height: its scroll height never drops below the frame's, so a short block kept the default.
-        setHeight(Math.max(20, Math.ceil(root.getBoundingClientRect().height)))
+        const measured = Math.max(20, Math.ceil(root.getBoundingClientRect().height))
+        iframe.style.height = `${measured}px`
+        setHeight(measured)
     }
     const measureRef = useRef(measure)
     measureRef.current = measure
 
-    // The email reflows when the editor gets wider or narrower, or when a block next to it puts it in the page's body.
+    // Html sent as written reflows with the editor's width, such as when the style panel opens.
     const hasHtml = !!node.attrs.html
     useEffect(() => {
-        const iframe = iframeRef.current
-        if (!iframe) {
+        measureRef.current()
+        const canvas = iframeRef.current?.closest('.ProseMirror')
+        if (!sentAsWritten || !canvas) {
             return
         }
-        const observer = new ResizeObserver(() => measureRef.current())
-        observer.observe(iframe)
+        let width = canvas.clientWidth
+        const observer = new ResizeObserver(() => {
+            if (canvas.clientWidth !== width) {
+                width = canvas.clientWidth
+                measureRef.current()
+            }
+        })
+        observer.observe(canvas)
         return () => observer.disconnect()
     }, [hasHtml, sentAsWritten])
 

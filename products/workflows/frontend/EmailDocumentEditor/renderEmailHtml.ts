@@ -977,7 +977,7 @@ export function oldEditorInlineHtml(nodes: JSONContent[] | undefined, page: Emai
     return renderInline(nodes, { page, contentWidth: page.bodyWidth })
 }
 
-/** An email that is only one HTML block is the author's own document, so no page style applies. Null for other emails. */
+/** The html of an email that goes out exactly as written, so no page style applies. Null for every other email. */
 export function htmlSentAsWritten(doc: JSONContent): string | null {
     const nodes = withoutTrailingEmptyParagraphs(doc.content ?? [])
     const html = String(nodes[0]?.attrs?.html ?? '')
