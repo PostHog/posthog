@@ -1405,6 +1405,8 @@ TOOLBAR_OAUTH_SCOPES = [
     "heatmap:read",
     "heatmap:write",
     "element:read",
+    "event_definition:read",
+    "event_definition:write",
     "uploaded_media:write",
     "field_note:read",
     "field_note:write",

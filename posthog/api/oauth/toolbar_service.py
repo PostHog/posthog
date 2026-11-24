@@ -30,7 +30,9 @@ from posthog.models.oauth import (
     OIDC_SIGNING_KEY_MISSING_MESSAGE,
     OAuthAccessToken,
     OAuthApplication,
+    OAuthGrant,
     is_loopback_host,
+    oauth_scope_tokens_expression,
     oidc_signing_key_configured,
     revoke_application_sessions,
 )
@@ -62,18 +64,30 @@ def _sync_scope_ceiling(application: OAuthApplication) -> None:
     application.optional_scopes = []
     application.save(update_fields=["scopes", "optional_scopes"])
 
-    # A refresh keeps a `*` token as `*` even under an explicit ceiling, so the new
-    # ceiling alone does not end those sessions. The toolbar never asks for `*`, so
-    # these tokens come only from a request made outside the toolbar flow. Revoking
-    # every session of the app makes the toolbar sign in again under the ceiling.
-    has_wildcard_tokens = OAuthAccessToken.with_scope(WILDCARD_SCOPE).filter(application=application).exists()
-    if has_wildcard_tokens:
+    # A refresh keeps a `*` token as `*` even under an explicit ceiling, and a code
+    # exchange mints the scopes its grant already holds, so the new ceiling alone does
+    # not end either. The toolbar never asks for `*`, so these come only from a request
+    # made outside the toolbar flow. Revoking every session and grant of the app makes
+    # the toolbar sign in again under the ceiling.
+    has_wildcard_sessions = _has_wildcard_tokens_or_grants(application)
+    if has_wildcard_sessions:
         revoke_application_sessions(application)
 
     logger.info(
         "toolbar_oauth_scope_ceiling_updated",
         organization_id=application.organization_id,
-        revoked_wildcard_sessions=has_wildcard_tokens,
+        revoked_wildcard_sessions=has_wildcard_sessions,
+    )
+
+
+def _has_wildcard_tokens_or_grants(application: OAuthApplication) -> bool:
+    if OAuthAccessToken.with_scope(WILDCARD_SCOPE).filter(application=application).exists():
+        return True
+
+    return (
+        OAuthGrant.objects.alias(scope_tokens=oauth_scope_tokens_expression())
+        .filter(application=application, scope_tokens__contains=[WILDCARD_SCOPE])
+        .exists()
     )
 
 

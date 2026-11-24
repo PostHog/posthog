@@ -30,10 +30,14 @@ from posthog.api.oauth.toolbar_service import (
     toolbar_oauth_state_cache,
 )
 from posthog.models import Organization, Team, User
-from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthRefreshToken
 
 TOOLBAR_RESOURCE_SCOPES = [scope for scope in settings.TOOLBAR_OAUTH_SCOPES if ":" in scope]
+SCREENSHOT_FOR_EVENT_SCOPES = {"event_definition:read", "event_definition:write"}
 PKCE_CODE_VERIFIER = "toolbar-test-code-verifier-" + "x" * 40
+PKCE_CODE_CHALLENGE = (
+    base64.urlsafe_b64encode(hashlib.sha256(PKCE_CODE_VERIFIER.encode()).digest()).rstrip(b"=").decode()
+)
 
 
 class TestToolbarOAuthPrimitives(APIBaseTest):
@@ -620,6 +624,7 @@ class TestToolbarOAuthScopeCeiling(ToolbarOAuthAuthorizeMixin, APIBaseTest):
         if existing_scopes is not None:
             assert app.pk == existing.pk
         assert app.scopes == TOOLBAR_RESOURCE_SCOPES
+        assert SCREENSHOT_FOR_EVENT_SCOPES <= set(app.scopes)
         assert app.optional_scopes == []
 
     @parameterized.expand(
@@ -629,12 +634,9 @@ class TestToolbarOAuthScopeCeiling(ToolbarOAuthAuthorizeMixin, APIBaseTest):
         ]
     )
     def test_authorization_code_flow_grants_only_toolbar_scopes(self, _name, scope_override):
-        code_challenge = (
-            base64.urlsafe_b64encode(hashlib.sha256(PKCE_CODE_VERIFIER.encode()).digest()).rstrip(b"=").decode()
-        )
         response = self.client.get(
             "/toolbar_oauth/authorize/",
-            {"redirect": "https://example.com/page", "code_challenge": code_challenge},
+            {"redirect": "https://example.com/page", "code_challenge": PKCE_CODE_CHALLENGE},
         )
         assert response.status_code == 302, response.content
 
@@ -660,6 +662,7 @@ class TestToolbarOAuthScopeCeiling(ToolbarOAuthAuthorizeMixin, APIBaseTest):
         granted_scopes = set(response.json()["scope"].split())
         assert granted_scopes <= set(settings.TOOLBAR_OAUTH_SCOPES)
         assert granted_scopes - {"openid"} == set(TOOLBAR_RESOURCE_SCOPES)
+        assert SCREENSHOT_FOR_EVENT_SCOPES <= granted_scopes
 
     def test_refresh_narrows_a_toolbar_token_minted_before_the_ceiling(self):
         app = self._create_app_without_ceiling([], [])
@@ -681,6 +684,35 @@ class TestToolbarOAuthScopeCeiling(ToolbarOAuthAuthorizeMixin, APIBaseTest):
         assert response.status_code == 400, response.content
         assert response.json()["error"] == "invalid_grant"
         assert not OAuthAccessToken.objects.filter(token="pha_toolbar_ceiling_access").exists()
+
+    def test_wildcard_grant_cannot_be_exchanged_after_the_ceiling_is_synced(self):
+        app = self._create_app_without_ceiling([], [])
+        redirect_uri = f"{settings.SITE_URL}{CALLBACK_PATH}"
+        grant = OAuthGrant.objects.create(
+            application=app,
+            user=self.user,
+            code="toolbar_wildcard_code",
+            code_challenge=PKCE_CODE_CHALLENGE,
+            code_challenge_method="S256",
+            redirect_uri=redirect_uri,
+            scope="*",
+            scoped_teams=[self.team.id],
+            expires=timezone.now() + timedelta(minutes=5),
+        )
+
+        get_or_create_toolbar_oauth_application(user=self.user)
+        response = self._post_token(
+            {
+                "grant_type": "authorization_code",
+                "client_id": app.client_id,
+                "code": grant.code,
+                "redirect_uri": redirect_uri,
+                "code_verifier": PKCE_CODE_VERIFIER,
+            }
+        )
+
+        assert response.status_code == 400, response.content
+        assert response.json()["error"] == "invalid_grant"
 
 
 class TestNormalizeAndValidateAppUrl(APIBaseTest):
