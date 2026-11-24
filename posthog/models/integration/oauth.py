@@ -127,6 +127,12 @@ def _is_stripe_mode_mismatch(kind: str, res: requests.Response) -> bool:
     return "authorization code only supports returning" in description
 
 
+# (connect, read) seconds for an Atlassian token refresh. Atlassian rotates the refresh token on
+# every exchange, so a response we stop waiting for can hold the only copy of the new token. A
+# connect timeout loses nothing because Atlassian never got the request, so only the read timeout
+# is longer than the default of 10 seconds. That gives a slow token endpoint more time to answer.
+JIRA_REFRESH_TIMEOUT = (10, 30)
+
 # `config` key: how many times Stripe answered a refresh of the stored refresh token with a
 # rejection. Stripe saves the answer to an idempotent request for 24 hours and replays it for the
 # same key, so a key that stays the same also repeats a rejection that has stopped being true.
@@ -1776,7 +1782,7 @@ class OauthIntegration:
                     "refresh_token": refresh_token,
                     "grant_type": "refresh_token",
                 },
-                timeout=10,
+                timeout=JIRA_REFRESH_TIMEOUT if kind == "jira" else 10,
                 allow_redirects=False,
             )
 

@@ -41,6 +41,19 @@ REFRESH_BACKOFF_MAX_SECONDS = 3600
 
 REFRESH_TERMINAL_FAILURE_COUNT = 5
 
+# Providers that rotate the refresh token on every exchange and still accept the previous token for
+# a short reuse interval. A refresh that times out or gets a 5xx may have rotated the token without
+# our receiving the new one. A retry with the stored token inside the interval gets a valid pair
+# back, and after it the stored token is dead until the customer reconnects. So for these kinds the
+# sweep retries on every run, instead of backing off, until this many seconds after the first such
+# failure. Atlassian documents a 10 minute reuse interval for rotating refresh tokens:
+# https://developer.atlassian.com/cloud/jira/platform/oauth-2-3lo-apps/
+# The value leaves one sweep interval (60 seconds) of margin, so the last retry starts in time.
+REFRESH_TOKEN_REUSE_WINDOW_SECONDS: dict[str, int] = {"jira": 9 * 60}
+
+# `config` key: when the first refresh failure that could have lost a rotated token happened.
+CONFIG_REUSE_WINDOW_STARTED_AT = "refresh_reuse_window_started_at"
+
 # `config` key flagging a grant that only the legacy fallback credentials can refresh.
 CONFIG_LEGACY_OAUTH_CLIENT = "oauth_uses_legacy_client"
 
@@ -132,18 +145,34 @@ def refresh_failure_patch(
     and retrying can't make an undecryptable token readable or an edited key file valid. Other reasons (invalid_client, 5xx, network, rate_limited)
     never go terminal - a platform-side credential fix must let the fleet self-recover.
 
+    For a kind in `REFRESH_TOKEN_REUSE_WINDOW_SECONDS`, a network or 5xx failure schedules the next
+    attempt for the next sweep, without backoff, while the provider's reuse window can still be open.
+
     Also returns "first"/"retry" for the metric's `attempt` label - a spike in first failures means
     connections are newly breaking, regardless of retry noise.
     """
     config = integration.config
+    now = int(time.time())
     count = int(config.get("refresh_failure_count") or 0)
     attempt = "first" if count == 0 else "retry"
-    count += 1
-    changes: dict[str, object] = {
-        "refresh_failure_count": count,
-        "refresh_next_attempt_at": int(time.time())
-        + min(REFRESH_BACKOFF_BASE_SECONDS * 2 ** (count - 1), REFRESH_BACKOFF_MAX_SECONDS),
-    }
+    changes: dict[str, object] = {}
+    reuse_window = REFRESH_TOKEN_REUSE_WINDOW_SECONDS.get(integration.kind)
+    if reuse_window and reason in (REFRESH_FAILURE_REASON_NETWORK, REFRESH_FAILURE_REASON_HTTP_5XX):
+        window_started_at = int(config.get(CONFIG_REUSE_WINDOW_STARTED_AT) or now)
+        changes[CONFIG_REUSE_WINDOW_STARTED_AT] = window_started_at
+        in_reuse_window = now - window_started_at < reuse_window
+    else:
+        in_reuse_window = False
+    if in_reuse_window:
+        # Retries inside the window do not raise the count, so the backoff after the window
+        # starts from its first step and not from the cap.
+        count = max(count, 1)
+        next_attempt_at = now
+    else:
+        count += 1
+        next_attempt_at = now + min(REFRESH_BACKOFF_BASE_SECONDS * 2 ** (count - 1), REFRESH_BACKOFF_MAX_SECONDS)
+    changes["refresh_failure_count"] = count
+    changes["refresh_next_attempt_at"] = next_attempt_at
     removed: tuple[str, ...] = ()
     if reason in (REFRESH_FAILURE_REASON_UNREADABLE_SECRET, REFRESH_FAILURE_REASON_INVALID_TOKEN_URI):
         removed = ("refresh_invalid_grant_count",)
@@ -169,6 +198,7 @@ REFRESH_SUCCESS_PATCH = IntegrationPatch(
         "refresh_invalid_grant_count",
         "refresh_next_attempt_at",
         "refresh_terminal",
+        CONFIG_REUSE_WINDOW_STARTED_AT,
     )
 )
 

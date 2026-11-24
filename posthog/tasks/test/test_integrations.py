@@ -1,14 +1,17 @@
+import json
 import time
 from datetime import timedelta
-from typing import Optional
+from typing import Any, Optional
 
 import pytest
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.db import OperationalError, connection
 from django.utils import timezone
 
+import requests
 from parameterized import parameterized
 
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted
@@ -106,6 +109,67 @@ class TestIntegrationsTasks(APIBaseTest):
             ((eligible.id, self.team.id),),
             ((backoff_elapsed.id, self.team.id),),
         ]
+
+    @parameterized.expand(
+        [
+            (
+                "recovers_the_rotated_token_inside_the_reuse_window",
+                [
+                    requests.Timeout("read timed out"),
+                    (503, {"error": "server_error"}),
+                    requests.Timeout("read timed out"),
+                    (200, {"access_token": "NEW_ACCESS", "refresh_token": "ROTATED", "expires_in": 3600}),
+                ],
+                [0, 1, 2, 3],
+                "",
+                "ROTATED",
+            ),
+            (
+                "backs_off_once_the_reuse_window_closes",
+                [requests.Timeout("read timed out")] * 11,
+                [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 13],
+                "TOKEN_REFRESH_FAILED",
+                "REFRESH",
+            ),
+        ]
+    )
+    def test_jira_refresh_retries_a_lost_rotation_on_every_sweep_inside_the_reuse_window(
+        self,
+        _name: str,
+        responses: list,
+        expected_attempt_minutes: list[int],
+        expected_errors: str,
+        expected_refresh_token: str,
+    ) -> None:
+        attempt_minutes: list[int] = []
+        start = 1795442400  # 2026-11-23T14:00:00Z
+
+        def atlassian_token_endpoint(*args: Any, **kwargs: Any) -> MagicMock:
+            attempt_minutes.append(int(time.time() - start) // 60)
+            answer = responses[len(attempt_minutes) - 1]
+            if isinstance(answer, Exception):
+                raise answer
+            status_code, body = answer
+            res = MagicMock(status_code=status_code, text=json.dumps(body))
+            res.json.return_value = body
+            return res
+
+        with (
+            time_machine.travel(start, tick=False) as traveller,
+            self.settings(ATLASSIAN_APP_CLIENT_ID="atlassian-client-id", ATLASSIAN_APP_CLIENT_SECRET="secret"),
+            patch("posthog.models.integration.oauth.reload_integrations_on_workers"),
+            patch("posthog.models.integration.oauth.requests.post", side_effect=atlassian_token_endpoint),
+            patch("posthog.tasks.integrations.refresh_integration.delay", side_effect=refresh_integration),
+        ):
+            integration = self.create_integration("jira", config={"refreshed_at": int(time.time()) - 3600})
+            for _ in range(15):
+                refresh_integrations()
+                traveller.shift(timedelta(minutes=1))
+
+        assert attempt_minutes == expected_attempt_minutes
+        integration.refresh_from_db()
+        assert integration.errors == expected_errors
+        assert integration.refresh_token == expected_refresh_token
 
     def test_refresh_integration_without_team_does_nothing(self) -> None:
         # A task that a sweep enqueued before the team id existed cannot read a row.

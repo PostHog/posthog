@@ -1043,6 +1043,7 @@ class TestOauthIntegrationModel(BaseTest):
                 "refresh_invalid_grant_count": 5,
                 "refresh_next_attempt_at": 1704117600,
                 "refresh_terminal": True,
+                "refresh_reuse_window_started_at": 1704117600,
             },
         )
 
@@ -1054,6 +1055,7 @@ class TestOauthIntegrationModel(BaseTest):
         assert "refresh_invalid_grant_count" not in integration.config
         assert "refresh_next_attempt_at" not in integration.config
         assert "refresh_terminal" not in integration.config
+        assert "refresh_reuse_window_started_at" not in integration.config
 
     @patch("posthog.models.integration.oauth.reload_integrations_on_workers")
     @patch("posthog.models.integration.oauth.requests.post")
