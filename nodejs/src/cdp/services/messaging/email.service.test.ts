@@ -3215,7 +3215,9 @@ describe('EmailService', () => {
 
             const failedOnceDelivered = {
                 finished: true,
-                error: expect.stringMatching(/^Failed to send email via SES: An earlier attempt reached SES/),
+                error: expect.stringMatching(
+                    /^Failed to send email via SES: An earlier attempt reached SES and did not get its answer \(.*(ECONNRESET|socket hang up).*\)\./
+                ),
                 delivered: 1,
                 sesMayHaveSentResults: 1,
             }
@@ -3272,6 +3274,7 @@ describe('EmailService', () => {
                     const transport = sesClientFor(ses).config.requestHandler
                     let attempts = 0
                     emailService.sesV2Client = sesClientFor(ses, {
+                        maxAttempts: 3,
                         requestHandler: {
                             handle: (request: any, options: any) =>
                                 ++attempts === 1

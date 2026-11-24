@@ -291,7 +291,8 @@ diagnosticsChannel.subscribe('http.client.request.created', (message) =>
 
 class SesMayHaveSentError extends Error {
     constructor(readonly earlierAttemptError: unknown) {
-        const reason = earlierAttemptError instanceof Error ? ` (${earlierAttemptError.message})` : ''
+        const message = (earlierAttemptError as { message?: unknown } | undefined)?.message
+        const reason = typeof message === 'string' ? ` (${message})` : ''
         super(
             `An earlier attempt reached SES and did not get its answer${reason}. SES may have sent the email, so it is not sent again.`
         )
