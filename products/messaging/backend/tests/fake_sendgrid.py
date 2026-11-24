@@ -44,6 +44,7 @@ ALL_READ_SCOPES = [
     "templates.versions.read",
     "marketing.read",
     "whitelabel.read",
+    "user.username.read",
 ]
 FULL_KEY = "SG.full-read-key"
 EU_KEY = "SG.eu-subuser-key"
@@ -73,6 +74,7 @@ _PATH_SCOPES = (
     (r"/v3/templates/[^/]+/versions/[^/]+", "templates.versions.read"),
     (r"/v3/marketing/.*", "marketing.read"),
     (r"/v3/whitelabel/domains", "whitelabel.read"),
+    (r"/v3/user/username", "user.username.read"),
 )
 _SUPPRESSION_LISTS = {
     "/v3/suppression/bounces": "bounces",
@@ -375,6 +377,8 @@ class _Handler(BaseHTTPRequestHandler):
             return 200, {"custom_fields": custom, "reserved_fields": [], "_metadata": {}}, {}
         if match := re.fullmatch(r"/v3/marketing/contacts/exports/([^/]+)", path):
             return self._export_status(match.group(1))
+        if path == "/v3/user/username":
+            return 200, {"username": f"{key[3:]}-user", "user_id": sorted(_SCOPES_BY_KEY).index(key) + 1}, {}
         if path == "/v3/verified_senders":
             return self._senders(account, query)
         if path == "/v3/whitelabel/domains":

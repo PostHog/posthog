@@ -651,10 +651,9 @@ class TestSendGridContacts(ClickhouseTestMixin, BaseTest):
             patcher.start()
         self.people = PeopleImportRecorder(self)
 
-    def _start(self) -> ProviderImportRun:
-        run = runs.start_run(
-            self.team.id, "sendgrid", [*OPT_OUT_STEPS, "contacts", "new_people"], FULL_KEY, self.user.id
-        )
+    def _start(self, api_key: str = FULL_KEY) -> ProviderImportRun:
+        steps = [*OPT_OUT_STEPS, "contacts", "new_people"]
+        run = runs.start_run(self.team.id, "sendgrid", steps, api_key, self.user.id)
         for step in OPT_OUT_STEPS:
             runs.run_step(self.team.id, run.id, step, attempt=1)
         return run
@@ -686,7 +685,7 @@ class TestSendGridContacts(ClickhouseTestMixin, BaseTest):
         runs.run_step(self.team.id, run.id, "contacts", attempt=1)
 
         assert self._cohorts(run) == {
-            "SendGrid contacts": {
+            "SendGrid contacts (full-read-key-user)": {
                 "members": [
                     "ada@example.com",
                     "gone@example.com",
@@ -734,6 +733,23 @@ class TestSendGridContacts(ClickhouseTestMixin, BaseTest):
         ]
         downloads = [r for r in self.state.requests if r["path"] == "/__exports"]
         assert [(r["authorization"], r["query"]) for r in downloads] == [("", {"signature": "secret", "part": "0"})] * 4
+
+    def test_a_second_account_fills_a_cohort_of_its_own(self) -> None:
+        self.state.second_account.update(
+            contacts=[{"id": "s1", "email": "second@example.com", "first_name": "", "last_name": "", "list_ids": []}],
+            contact_count={"contact_count": 1},
+        )
+        first = self._start()
+        runs.run_step(self.team.id, first.id, "contacts", attempt=1)
+        runs.finish_run(self.team.id, first.id)
+        second = self._start(SECOND_ACCOUNT_KEY)
+        runs.run_step(self.team.id, second.id, "contacts", attempt=1)
+
+        assert list(self._cohorts(second)) == ["SendGrid contacts (second-account-key-user)"]
+        first.refresh_from_db()
+        assert {plan["cohort_id"] for plan in first.progress["contacts"]["people_imports"]}.isdisjoint(
+            plan["cohort_id"] for plan in second.progress["contacts"]["people_imports"]
+        )
 
     def test_someone_who_leaves_after_the_opt_out_steps_is_not_mailable(self) -> None:
         run = self._start()
