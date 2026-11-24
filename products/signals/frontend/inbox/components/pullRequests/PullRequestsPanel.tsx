@@ -41,6 +41,59 @@ function pullRequestStateMeta(pr: PRBrowserItemApi): { label: string; color: str
     return { label: 'Open', color: 'text-success' }
 }
 
+function PullRequestRowAction({
+    prUrl,
+    reportStatus,
+    isMonitoring,
+    disabledReason,
+    onMonitor,
+}: {
+    prUrl: string
+    reportStatus: SignalReportStatus | null
+    isMonitoring: boolean
+    disabledReason: string | undefined
+    onMonitor: (url: string) => void
+}): JSX.Element {
+    if (reportStatus === SignalReportStatus.FAILED || reportStatus === SignalReportStatus.PENDING_INPUT) {
+        return (
+            <div className="flex items-center gap-1">
+                <SignalReportStatusBadge status={reportStatus} />
+                <LemonButton
+                    size="xsmall"
+                    type="secondary"
+                    loading={isMonitoring}
+                    disabled={isMonitoring && !disabledReason}
+                    disabledReason={disabledReason}
+                    data-attr="inbox-pr-retry"
+                    onClick={() => onMonitor(prUrl)}
+                >
+                    Retry
+                </LemonButton>
+            </div>
+        )
+    }
+    if (reportStatus) {
+        return (
+            <span className="mt-0.5">
+                <SignalReportStatusBadge status={reportStatus} />
+            </span>
+        )
+    }
+    return (
+        <LemonButton
+            size="xsmall"
+            type="secondary"
+            loading={isMonitoring}
+            disabled={isMonitoring && !disabledReason}
+            disabledReason={disabledReason}
+            data-attr="inbox-pr-monitor"
+            onClick={() => onMonitor(prUrl)}
+        >
+            Monitor
+        </LemonButton>
+    )
+}
+
 function PullRequestRow({ pr }: { pr: PRBrowserItemApi }): JSX.Element {
     const { monitoringUrls } = useValues(pullRequestsLogic)
     const { monitorPR } = useActions(pullRequestsLogic)
@@ -50,8 +103,6 @@ function PullRequestRow({ pr }: { pr: PRBrowserItemApi }): JSX.Element {
         pr.monitoring_disabled_reason ??
         (pr.state === 'closed' ? 'Closed pull requests cannot be monitored' : undefined)
     const reportStatus = pr.report ? (pr.report.status as SignalReportStatus) : null
-    const canRetryReport =
-        reportStatus === SignalReportStatus.FAILED || reportStatus === SignalReportStatus.PENDING_INPUT
     const reportId = pr.report && reportStatus !== SignalReportStatus.FAILED ? pr.report.id : null
 
     const summary = (
@@ -95,38 +146,13 @@ function PullRequestRow({ pr }: { pr: PRBrowserItemApi }): JSX.Element {
             )}
 
             <div className="flex shrink-0 items-center gap-0.5">
-                {canRetryReport && reportStatus ? (
-                    <div className="flex items-center gap-1">
-                        <SignalReportStatusBadge status={reportStatus} />
-                        <LemonButton
-                            size="xsmall"
-                            type="secondary"
-                            loading={isMonitoring}
-                            disabled={isMonitoring && !disabledReason}
-                            disabledReason={disabledReason}
-                            data-attr="inbox-pr-retry"
-                            onClick={() => monitorPR(pr.url)}
-                        >
-                            Retry
-                        </LemonButton>
-                    </div>
-                ) : reportStatus ? (
-                    <span className="mt-0.5">
-                        <SignalReportStatusBadge status={reportStatus} />
-                    </span>
-                ) : (
-                    <LemonButton
-                        size="xsmall"
-                        type="secondary"
-                        loading={isMonitoring}
-                        disabled={isMonitoring && !disabledReason}
-                        disabledReason={disabledReason}
-                        data-attr="inbox-pr-monitor"
-                        onClick={() => monitorPR(pr.url)}
-                    >
-                        Monitor
-                    </LemonButton>
-                )}
+                <PullRequestRowAction
+                    prUrl={pr.url}
+                    reportStatus={reportStatus}
+                    isMonitoring={isMonitoring}
+                    disabledReason={disabledReason}
+                    onMonitor={monitorPR}
+                />
                 <LemonButton
                     icon={<IconExternal />}
                     size="xsmall"

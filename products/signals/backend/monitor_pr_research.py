@@ -3,8 +3,6 @@ import asyncio
 from dataclasses import replace
 from uuid import UUID
 
-from pydantic import JsonValue
-
 from posthog.egress.limiter.policies import Priority
 from posthog.sync import database_sync_to_async_pool
 
@@ -45,22 +43,17 @@ branch, and return the requested head_sha in inspected_commit.
 Read the relevant code and existing instrumentation. Use read-only PostHog tools to discover
 actual events and properties, run queries, and verify the metric against this project's data.
 
-Choose ONE primary metric that best measures the intended impact. The optional note is the
-person's preferred focus; honor it when measurable, otherwise explain the limitation. When no
-note is supplied, infer the best metric yourself. Explain why this metric measures the change,
-the relevant audience, observed baseline, expected direction, and a defensible target and window.
-Do not invent event names, observed values, baselines, or evidence of causation. Merge is the
-monitoring start, not proof of deployment; disclose rollout and attribution limitations.
+Choose ONE primary metric that best measures the intended impact, grounded in observed baseline data.
+Do not invent event names, observed values, baselines, or evidence of causation.
 
-Return a concise report plus one query-backed primary metric and one metric_threshold check.
+Return one query-backed primary metric and one metric_threshold check.
 Use a live InsightVizNode wrapping TrendsQuery with a relative date_from and empty date_to,
 one output series, no breakdown or compare. The check references the metric by metric_id,
 includes monitoring with reference_period_minutes, threshold_scaling (linear only for additive
 counts/sums, fixed for rates/averages), and baseline_period_minutes when baseline_value is set.
 Set soak_hours to the full post-merge observation window. Use comparison lte, gte, or between.
-Monitoring will wait for merge if the PR is still open. Do not claim monitoring already ran.
 If the project lacks the data or instrumentation for a meaningful metric, return null metric
-and check with unavailable_reason explaining what is needed; never fabricate a runnable check.
+and check with unavailable set to true; never fabricate a runnable check.
 
 Return only JSON matching the supplied schema.
 """
@@ -118,7 +111,6 @@ async def research_pull_request(inputs: MonitorPRInput) -> None:
                 "number": pr.number,
                 "head_sha": pr.head_sha,
                 "diff": diff,
-                "note": inputs.note,
                 "project_id": inputs.team_id,
             }
         )
@@ -126,7 +118,7 @@ async def research_pull_request(inputs: MonitorPRInput) -> None:
         + json.dumps(PRMonitoringOutput.model_json_schema())
     )
 
-    def associate(run_id: UUID) -> dict[str, JsonValue]:
+    def associate(run_id: UUID) -> None:
         task_id = get_task_id_for_run(run_id, inputs.team_id)
         if task_id is None:
             raise ValueError("The PR research task was not created in this project")
@@ -138,13 +130,9 @@ async def research_pull_request(inputs: MonitorPRInput) -> None:
             product=SIGNALS_PRODUCT,
             type=TASK_RUN_TYPE_RESEARCH,
         )
-        return {
-            "initial_prompt_override": prompt,
-            **({"pending_user_message": prompt} if context.runtime == "pi" else {}),
-        }
 
     session, output = await MultiTurnSession.start(
-        prompt=f"Research post-merge impact for {pr.repository}#{pr.number}.",
+        prompt=prompt,
         context=context,
         model=PRMonitoringOutput,
         profile=PR_MONITORING,

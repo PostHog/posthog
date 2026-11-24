@@ -183,18 +183,6 @@ def _reviewer_change(parsed: dict[str, Any], user_uuid: str | None) -> ReviewerC
     return "others"
 
 
-def _is_restricted_inbox_note(artefact_type: str, content: str | None) -> bool:
-    if artefact_type != INBOX_NOTE:
-        return False
-    try:
-        parsed = json.loads(content or "")
-    except ValueError:
-        return True
-    return not isinstance(parsed, dict) or bool(
-        {"analytics_query_context", "required_read_scopes", "restricted_to_user_id"} & parsed.keys()
-    )
-
-
 def _artefact_fields(artefact_type: str, content: str | None, user_uuid: str | None) -> dict[str, Any]:
     """The verdict, reason and note of a dismissal, the text of a note, or the direction of a reviewer
     correction. A row that does not parse has none."""
@@ -255,11 +243,8 @@ def user_inbox(team_id: int, user_id: int, start: datetime.datetime, end: dateti
             "task_id",
             "actor_kind",
             "created_by__uuid",
-        )[: MAX_INBOX_ROWS_PER_PERSON * 2]
+        )[:MAX_INBOX_ROWS_PER_PERSON]
     )
-    visible_artefacts = [row for row in artefacts if not _is_restricted_inbox_note(row[2], row[4])][
-        :MAX_INBOX_ROWS_PER_PERSON
-    ]
     return InboxActivity(
         actions=tuple(
             InboxAction(
@@ -282,7 +267,7 @@ def user_inbox(team_id: int, user_id: int, start: datetime.datetime, end: dateti
                 by_agent=bool(task_id) or actor_kind not in (None, SignalActorKind.USER),
                 **_artefact_fields(artefact_type, content, str(user_uuid) if user_uuid else None),
             )
-            for report_id, title, artefact_type, created_at, content, task_id, actor_kind, user_uuid in visible_artefacts
+            for report_id, title, artefact_type, created_at, content, task_id, actor_kind, user_uuid in artefacts
         ),
     )
 

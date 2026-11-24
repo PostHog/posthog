@@ -224,14 +224,13 @@ def _load_repo_sync_progress(progress_key: str) -> tuple[int, list[dict]]:
     return 1, []
 
 
-def _sync_signals_repository_cache_paced(github: GitHubIntegration, integration_id: int) -> None:
-    if not github.repository_cache_is_stale():
-        return
-    cached_repositories = github._get_stored_repository_list()
-    progress_key = f"signals:github-repo-sync-progress:{integration_id}"
+def _fetch_signals_repositories_paced(
+    github: GitHubIntegration, progress_key: str, lease_key: str, lease_token: str
+) -> list[dict]:
     page, accumulated = _load_repo_sync_progress(progress_key)
     while True:
         github._wait_for_budget()
+        cache.set(lease_key, lease_token, timeout=300)
         try:
             repos, has_more = github.list_repositories(page=page, per_page=100, priority=Priority.BATCH)
         except (GitHubEgressBudgetExhausted, GitHubRateLimitError):
@@ -240,15 +239,33 @@ def _sync_signals_repository_cache_paced(github: GitHubIntegration, integration_
             raise
         accumulated.extend(repos)
         if not has_more or not repos:
-            break
+            cache.delete(progress_key)
+            return accumulated
         page += 1
-    cache.delete(progress_key)
-    github._store_repository_cache(accumulated if accumulated != cached_repositories else None, timezone.now())
+
+
+def _sync_signals_repository_cache_paced(github: GitHubIntegration, integration_id: int) -> None:
+    lease_key = f"signals:github-repo-sync-lease:{integration_id}"
+    lease_token = f"{time.monotonic_ns()}"
+    if not cache.add(lease_key, lease_token, timeout=300):
+        return
+    try:
+        if not github.repository_cache_is_stale():
+            return
+        cached_repositories = github._get_stored_repository_list()
+        accumulated = _fetch_signals_repositories_paced(
+            github, f"signals:github-repo-sync-progress:{integration_id}", lease_key, lease_token
+        )
+        github._store_repository_cache(accumulated if accumulated != cached_repositories else None, timezone.now())
+    finally:
+        if cache.get(lease_key) == lease_token:
+            cache.delete(lease_key)
 
 
 @shared_task(
     bind=True,
     ignore_result=True,
+    queue=CeleryQueue.LONG_RUNNING.value,
     autoretry_for=(GitHubIntegrationError, OperationalError),
     retry_backoff=True,
     max_retries=5,

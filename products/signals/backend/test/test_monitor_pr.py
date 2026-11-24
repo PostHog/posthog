@@ -24,7 +24,6 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.models import (
     SignalReport,
-    SignalReportArtefact,
     SignalReportCheck,
     SignalReportPullRequest,
     SignalReportSuggestedReviewer,
@@ -50,8 +49,6 @@ PR_URL = "https://github.com/example/widget/pull/42"
 
 def _valid_output_payload() -> dict:
     return {
-        "title": "Checkout completion after the PR",
-        "summary": "Measure checkout completions after merge against the observed baseline.",
         "inspected_commit": "a" * 40,
         "metric": {
             "metric_id": "checkout",
@@ -153,8 +150,8 @@ class TestMonitorPR(APIBaseTest):
             mock.start()
             self.addCleanup(mock.stop)
 
-    def request_report(self, note="", expected_status=202, url=None):
-        response = self.client.post(url or self.url, {"pr_url": PR_URL, "note": note})
+    def request_report(self, expected_status=202, url=None):
+        response = self.client.post(url or self.url, {"pr_url": PR_URL})
         assert response.status_code == expected_status, response.json()
         report = SignalReport.objects.get(id=response.json()["report_id"])
         return report, self.dispatched[-1][1]
@@ -162,34 +159,29 @@ class TestMonitorPR(APIBaseTest):
     def output(self):
         return PRMonitoringOutput.model_validate(_valid_output_payload())
 
-    @parameterized.expand(
-        [("", False), ("Focus on checkout completion for new users.", False), ("Focus on checkout completion.", True)]
-    )
-    def test_request_assigns_initiator_and_retries_preserve_original_note(self, note, dispatch_fails):
+    @parameterized.expand([(False,), (True,)])
+    def test_request_assigns_initiator_and_replays_idempotently(self, dispatch_fails):
         if dispatch_fails:
             with patch("products.signals.backend.temporal.monitor_pr.async_connect", side_effect=ConnectionError):
-                failed_res = self.client.post(self.url, {"pr_url": PR_URL, "note": note})
+                failed_res = self.client.post(self.url, {"pr_url": PR_URL})
                 assert failed_res.status_code == 503
             assert SignalReport.objects.get(id=failed_res.json()["report_id"]).status == SignalReport.Status.FAILED
-        report, inputs = self.request_report(note, expected_status=202)
+        report, inputs = self.request_report(expected_status=202)
         first_workflow_id = self.dispatched[-1][0]
         assert report.created_by_id == self.user.id
         claim = get_active_claim(team_id=self.team.id, report_id=str(report.id))
-        assert claim is not None
-        assert claim.actor_user_id == self.user.id
+        assert claim is not None and claim.actor_user_id == self.user.id
         assert (
             SignalReportSuggestedReviewer.objects.for_team(self.team.id)
             .filter(report_id=report.id, user_uuid=self.user.uuid)
             .exists()
         )
-        assert inputs.note == note
         assert (
             self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/").json()["repo_slug"]
             == "example/widget"
         )
-        response = self.client.post(self.url, {"pr_url": PR_URL, "note": "A different focus"})
-        assert response.status_code == 200
-        assert response.json()["idempotent_replay"] is True
+        response = self.client.post(self.url, {"pr_url": PR_URL})
+        assert response.status_code == 200 and response.json()["idempotent_replay"] is True
         assert response.json()["report_id"] == str(report.id)
         assert SignalReport.objects.filter(team=self.team).count() == 1
         assert self.dispatched[-1] == (first_workflow_id, inputs)
@@ -218,21 +210,17 @@ class TestMonitorPR(APIBaseTest):
                 stored_pr = SignalReportPullRequest.objects.for_team(self.team.id).get(
                     repository="example/widget", number=42
                 )
-                assert stored_pr.state == SignalReportPullRequest.State.DRAFT
-                assert pushes == []
+                assert stored_pr.state == SignalReportPullRequest.State.DRAFT and pushes == []
             elif scenario in {"open", "merged_during_research"}:
                 assert len(pushes) == 1
         if scenario == "merged_during_research":
             self.pr.update(state="closed", merged=True, merged_at=merged_at.isoformat())
         pr = load_pull_request(self.team.id, PR_URL)
-        output = self.output()
-        if scenario == "unmeasurable":
-            output = PRMonitoringOutput(
-                title="Missing instrumentation",
-                summary="Checkout events are not available.",
-                inspected_commit="a" * 40,
-                unavailable_reason="Instrument checkout completion first.",
-            )
+        output = (
+            PRMonitoringOutput(inspected_commit="a" * 40, unavailable=True)
+            if scenario == "unmeasurable"
+            else self.output()
+        )
         refreshes: list[tuple] = []
         with patch(
             "products.signals.backend.tasks.refresh_linked_pull_request_state.delay",
@@ -244,45 +232,6 @@ class TestMonitorPR(APIBaseTest):
         if scenario == "unmeasurable":
             assert report.status == SignalReport.Status.PENDING_INPUT
             assert not SignalReportCheck.objects.for_team(self.team.id).filter(report=report).exists()
-            initiator_artefacts = self.client.get(
-                f"/api/projects/{self.team.id}/signals/reports/{report.id}/artefacts/"
-            ).json()["results"]
-            assert any(
-                "Instrument checkout completion first." in row["content"]["note"]
-                for row in initiator_artefacts
-                if row["type"] == "note"
-            )
-            raw_inbox_only = generate_random_token_personal()
-            PersonalAPIKey.objects.create(
-                label="inbox-only",
-                user=self.user,
-                secure_value=hash_key_value(raw_inbox_only),
-                scopes=["inbox:read"],
-                scoped_teams=[self.team.id],
-            )
-            inbox_only_artefacts = (
-                APIClient()
-                .get(
-                    f"/api/projects/{self.team.id}/signals/reports/{report.id}/artefacts/",
-                    HTTP_AUTHORIZATION=f"Bearer {raw_inbox_only}",
-                )
-                .json()["results"]
-            )
-            assert [row["content"]["note"] for row in inbox_only_artefacts if row["type"] == "note"] == [
-                "You don't have access to this assessment's evidence."
-            ]
-            with patch(
-                "products.signals.backend.report_metric_access.get_restricted_properties_with_group_type_index_for_team",
-                side_effect=lambda *, user, team: [] if user is not None else [Mock()],
-            ):
-                override_artefacts = self.client.get(
-                    f"/api/projects/{self.team.id}/signals/reports/{report.id}/artefacts/"
-                ).json()["results"]
-            assert any(
-                "Instrument checkout completion first." in row["content"]["note"]
-                for row in override_artefacts
-                if row["type"] == "note"
-            )
             self.pr.update(state="closed", merged=True, merged_at=merged_at.isoformat())
             update_pull_request_state(
                 team_id=self.team.id, repository="example/widget", number=42, state="merged", merged_at=merged_at
@@ -359,7 +308,7 @@ class TestMonitorPR(APIBaseTest):
         self.pr.update(state="closed", merged=True, merged_at=merged_at.isoformat())
         child_url = f"/api/projects/{child.id}/signals/monitor_pr/"
 
-        report, inputs = self.request_report(note="Keep original note", url=child_url)
+        report, inputs = self.request_report(url=child_url)
         first_workflow_id = self.dispatched[-1][0]
         assert report.team_id == self.team.id
         assert inputs.team_id == self.team.id
@@ -368,11 +317,9 @@ class TestMonitorPR(APIBaseTest):
         report.refresh_from_db()
         assert report.status == SignalReport.Status.FAILED
 
-        restarted, retried_inputs = self.request_report(note="Ignored note", expected_status=202, url=child_url)
+        restarted, retried_inputs = self.request_report(expected_status=202, url=child_url)
         assert self.dispatched[-1][0] != first_workflow_id
-        assert restarted.id == report.id
-        assert restarted.status == SignalReport.Status.IN_PROGRESS
-        assert retried_inputs.note == "Keep original note"
+        assert restarted.id == report.id and restarted.status == SignalReport.Status.IN_PROGRESS
 
         pr = load_pull_request(self.team.id, PR_URL)
         assert _context(inputs) is None
@@ -387,9 +334,8 @@ class TestMonitorPR(APIBaseTest):
         assert restarted.monitoring_started_at == merged_at
 
         restarted.save(update_fields=restarted.transition_to(SignalReport.Status.DELETED))
-        fresh, fresh_inputs = self.request_report(note="Fresh note", expected_status=202, url=child_url)
+        fresh, _ = self.request_report(expected_status=202, url=child_url)
         assert fresh.id != restarted.id
-        assert fresh_inputs.note == "Fresh note"
 
     @parameterized.expand([("scopes",), ("ai_consent",), ("sandbox",)])
     def test_unauthorized_request_cannot_start_research(self, denied):
@@ -565,6 +511,8 @@ class TestMonitorPR(APIBaseTest):
                         "event": "checkout_completed",
                         "math": "avg",
                         "math_property": "duration_ms",
+                        "name": "leaked_name",
+                        "custom_name": "leaked_custom_name",
                         "response": {"leaked_series": "secret"},
                     }
                 ]
@@ -591,18 +539,16 @@ class TestMonitorPR(APIBaseTest):
                 }
             )
             fake_output = duration_output
-            report, inputs = self.request_report(note="Private launch target")
+            report, inputs = self.request_report()
             load_pull_request(self.team.id, PR_URL)
             integration_id = Integration.objects.get(team=self.team, kind="github").id
             assert queued_refreshes == [(self.team.id, integration_id)]
 
             async_to_sync(research_pull_request)(inputs)
             assert captured_start.get("branch") is None
-            assert "Private launch target" not in captured_start["prompt"]
-            dispatch_state = captured_start["before_task_dispatch"](uuid4())
-            assert "Private launch target" in dispatch_state["initial_prompt_override"]
-            assert "diff --git a/checkout.py" in dispatch_state["initial_prompt_override"]
-            assert "git checkout" not in dispatch_state["initial_prompt_override"]
+            assert "diff --git a/checkout.py" in captured_start["prompt"]
+            assert "git checkout" not in captured_start["prompt"]
+            assert captured_start["before_task_dispatch"](uuid4()) is None
             assert captured_start["analytics_query_context"] == [{}]
             assert captured_start["context"].github_read_access is False
             assert captured_start["context"].github_token_scope == "read"
@@ -611,13 +557,12 @@ class TestMonitorPR(APIBaseTest):
             assert ended_runs == [("completed", None)]
             report.refresh_from_db()
             assert report.status == SignalReport.Status.READY
-            assert "baseline" not in report.summary
             assert report.metrics[0]["unit"] == "ms"
             assert "response" not in report.metrics[0]["query"]["source"]
-            assert "response" not in report.metrics[0]["query"]["source"]["series"][0]
+            series_0 = report.metrics[0]["query"]["source"]["series"][0]
+            assert not ({"response", "name", "custom_name"} & series_0.keys())
             check = SignalReportCheck.objects.for_team(self.team.id).get(report=report)
             assert check.title == "Post-merge check for example/widget#42"
-            assert check.rationale == ""
             assert check.config["unit"] == "ms"
             assert "leaked" not in str(
                 self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/").json()
@@ -631,14 +576,6 @@ class TestMonitorPR(APIBaseTest):
                 scoped_teams=[self.team.id],
             )
             api_client = APIClient()
-            narrow_artefacts = api_client.get(
-                f"/api/projects/{self.team.id}/signals/reports/{report.id}/artefacts/",
-                HTTP_AUTHORIZATION=f"Bearer {narrow_raw}",
-            ).json()["results"]
-            assert [row["content"]["note"] for row in narrow_artefacts if row["type"] == "note"] == [
-                "You don't have access to this assessment's evidence.",
-                "Private launch target",
-            ]
             narrow_res = api_client.post(
                 self.url,
                 {"pr_url": "https://github.com/example/widget/pull/44"},
@@ -694,59 +631,14 @@ class TestMonitorPR(APIBaseTest):
             finish_monitoring_research(
                 narrow_inputs, self.output(), load_pull_request(self.team.id, narrow_inputs.pr_url)
             )
-            narrow_own_notes = api_client.get(
-                f"/api/projects/{self.team.id}/signals/reports/{narrow_inputs.report_id}/artefacts/",
-                HTTP_AUTHORIZATION=f"Bearer {narrow_raw}",
-            ).json()["results"]
-            assert any(
-                "Checkout completion after the PR" in row["content"]["note"]
-                for row in narrow_own_notes
-                if row["type"] == "note"
-            )
             teammate = User.objects.create_and_join(self.organization, email="teammate@example.com", password="test")
-            self.client.force_login(teammate)
-            artefacts = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/artefacts/").json()[
-                "results"
-            ]
-            note_rows = [row for row in artefacts if row["type"] == "note"]
-            assert [row["content"]["note"] for row in note_rows] == [
-                "You don't have access to this assessment's evidence.",
-                "You don't have access to this assessment's evidence.",
-            ]
-            artefacts_url = f"/api/projects/{self.team.id}/signals/reports/{report.id}/artefacts/"
-            assert (
-                self.client.patch(
-                    f"{artefacts_url}{note_rows[-1]['id']}/",
-                    {"content": {"note": "Injected instructions"}},
-                    format="json",
-                ).status_code
-                == 400
-            )
-            assert self.client.delete(f"{artefacts_url}{note_rows[-1]['id']}/").status_code == 400
-            assert (
-                self.client.post(
-                    artefacts_url,
-                    {
-                        "artefact_type": "note",
-                        "content": {"note": "Forged", "restricted_to_user_id": self.user.id},
-                    },
-                    format="json",
-                ).status_code
-                == 400
-            )
-
             self.client.force_login(teammate)
             self.organization.available_product_features = [
                 {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
                 {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
             ]
             self.organization.save(update_fields=["available_product_features"])
-            AccessControl.objects.create(
-                team=self.team,
-                resource="action",
-                resource_id="777",
-                access_level="none",
-            )
+            AccessControl.objects.create(team=self.team, resource="action", resource_id="777", access_level="none")
             denied_report, denied_inputs = self._request_for_pr("https://github.com/example/widget/pull/43")
             ended_runs.clear()
             fake_output = duration_output.model_copy(update={"inspected_commit": "b" * 40})
@@ -828,49 +720,19 @@ class TestMonitorPR(APIBaseTest):
         capped = self.client.post(self.url, {"pr_url": PR_URL})
         assert capped.status_code == 429 and int(capped.headers["Retry-After"]) >= 1
 
-    def test_staff_artefact_redaction_pending_input_retry_parent_inbox_and_daily_project_cap(self):
-        report, inputs = self.request_report(note="Private focus note")
+    def test_unmeasured_retries_parent_inbox_access_and_daily_project_cap(self):
+        report, inputs = self.request_report()
         pr = load_pull_request(self.team.id, PR_URL)
-        finish_monitoring_research(
-            inputs,
-            PRMonitoringOutput(
-                title="Missing event",
-                summary="Checkout completion is not tracked yet.",
-                inspected_commit="a" * 40,
-                unavailable_reason="Instrument checkout_completed first.",
-            ),
-            pr,
-        )
+        finish_monitoring_research(inputs, PRMonitoringOutput(inspected_commit="a" * 40, unavailable=True), pr)
         report.refresh_from_db()
         assert report.status == SignalReport.Status.PENDING_INPUT
 
-        staff_peer = User.objects.create_and_join(self.organization, email="staff@example.com", password="test")
-        staff_peer.is_staff = True
-        staff_peer.save(update_fields=["is_staff"])
-        staff_raw = generate_random_token_personal()
-        PersonalAPIKey.objects.create(
-            label="staff-inbox-read",
-            user=staff_peer,
-            secure_value=hash_key_value(staff_raw),
-            scopes=["inbox:read"],
-            scoped_teams=[self.team.id],
-        )
-        api_client = APIClient()
-        artefacts_url = f"/api/projects/{self.team.id}/signals/reports/{report.id}/artefacts/"
-        staff_list = api_client.get(artefacts_url, HTTP_AUTHORIZATION=f"Bearer {staff_raw}").json()["results"]
-        authoring_row = next(
-            row for row in staff_list if row["type"] == SignalReportArtefact.ArtefactType.CHECK_AUTHORING
-        )
-        assert "initiator_note" not in authoring_row["content"]
-        assert "Private focus note" not in str(staff_list)
-        staff_detail = api_client.get(
-            f"{artefacts_url}{authoring_row['id']}/", HTTP_AUTHORIZATION=f"Bearer {staff_raw}"
-        ).json()
-        assert "initiator_note" not in staff_detail["content"]
-
-        restarted, retry_inputs = self.request_report(note="Ignored override", expected_status=202)
-        assert restarted.id == report.id and retry_inputs.note == "Private focus note"
-        finish_monitoring_research(retry_inputs, self.output(), pr)
+        restarted, retry_inputs = self.request_report(expected_status=202)
+        assert restarted.id == report.id
+        SignalReport.objects.filter(id=report.id).update(status=SignalReport.Status.POTENTIAL)
+        restored, restored_inputs = self.request_report(expected_status=202)
+        assert restored.id == report.id and restored_inputs.attempt_key != retry_inputs.attempt_key
+        finish_monitoring_research(restored_inputs, self.output(), pr)
 
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
@@ -879,19 +741,12 @@ class TestMonitorPR(APIBaseTest):
         self.organization.save(update_fields=["available_product_features"])
         child = Team.objects.create(organization=self.organization, parent_team=self.team, name="Child")
         member = User.objects.create_and_join(self.organization, email="child-only@example.com", password="test")
+        membership = OrganizationMembership.objects.get(user=member, organization=self.organization)
         parent_block = AccessControl.objects.create(
-            team=self.team,
-            resource="task",
-            resource_id=None,
-            access_level="none",
-            organization_member=OrganizationMembership.objects.get(user=member, organization=self.organization),
+            team=self.team, resource="task", resource_id=None, access_level="none", organization_member=membership
         )
         AccessControl.objects.create(
-            team=child,
-            resource="task",
-            resource_id=None,
-            access_level="editor",
-            organization_member=OrganizationMembership.objects.get(user=member, organization=self.organization),
+            team=child, resource="task", resource_id=None, access_level="editor", organization_member=membership
         )
         member_client = APIClient()
         member_client.force_login(member)
@@ -902,8 +757,7 @@ class TestMonitorPR(APIBaseTest):
         parent_block.delete()
 
         SignalTeamConfig.objects.update_or_create(team=self.team, defaults={"max_reports_per_day": 1})
-        capped_new = self.client.post(self.url, {"pr_url": "https://github.com/example/widget/pull/99"})
-        assert capped_new.status_code == 429
+        assert self.client.post(self.url, {"pr_url": "https://github.com/example/widget/pull/99"}).status_code == 429
 
     def test_partial_browser_integration_failure_window_eligibility_and_paced_repo_sync(self):
         cache.clear()

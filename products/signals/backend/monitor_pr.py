@@ -35,7 +35,6 @@ from posthog.models.integration import GitHubIntegration
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.signals.backend.artefact_schemas import (
     CheckAuthoringStatus,
-    NoteArtefact,
     ReviewerProposal,
     ReviewerState,
     SuggestedReviewerEntry,
@@ -45,7 +44,7 @@ from products.signals.backend.daily_limit import check_daily_report_admission, t
 from products.signals.backend.github_actor import GITHUB_LOGIN_PATTERN
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalReportCheck
 from products.signals.backend.pull_requests import apply_report_completion, link_pull_request
-from products.signals.backend.quota import SelfDrivingAdmission, prepare_self_driving_admission, self_driving_quota_gate
+from products.signals.backend.quota import SelfDrivingAdmission, prepare_self_driving_admission
 from products.signals.backend.report_access import may_read_reports
 from products.signals.backend.report_assignments import MAX_PR_NUMBER, PullRequestDetails, create_claim
 from products.signals.backend.report_check_authoring import create_checks_from_specs
@@ -66,7 +65,6 @@ from products.signals.backend.report_lifecycle import effective_report_status
 from products.signals.backend.report_metric_access import ReportMetricAccessPolicy
 from products.signals.backend.report_metrics import ReportMetric
 from products.signals.backend.report_urls import build_bare_report_url
-from products.signals.backend.task_profiles import pr_monitoring_data_scopes
 from products.signals.backend.trial.policy import TrialRefused
 from products.signals.backend.trial.reports import prepare_report_pass
 from products.tasks.backend.facade.repo_selection_types import RepoSelectionResult
@@ -75,6 +73,7 @@ logger = structlog.get_logger(__name__)
 RECENT_PR_LIMIT = 50
 PR_RESEARCH_DAILY_ATTEMPT_LIMIT = 5
 MAX_PROMPT_DIFF_CHARS = 100_000
+_STRIPPED_QUERY_KEYS = frozenset({"response", "name", "custom_name", "formulas"})
 
 
 @frozen
@@ -83,7 +82,6 @@ class MonitorPRInput:
     report_id: str
     user_id: int
     pr_url: str
-    note: str = ""
     attempt_key: int = 0
     token_scopes: tuple[str, ...] | None = None
 
@@ -387,21 +385,6 @@ def _browser_pr_from_search_item(
     )
 
 
-def _integration_prs(
-    *,
-    team_id: int,
-    integration: _RegisteredGitHubInstallation,
-    user_id: int,
-    login: str,
-    reports: dict[str, PRReport],
-) -> list[BrowserPR]:
-    return [
-        pr
-        for item in _fetch_recent_items(team_id=team_id, integration=integration, login=login)
-        if (pr := _browser_pr_from_search_item(item=item, integration=integration, user_id=user_id, reports=reports))
-    ]
-
-
 def _collect_authored_prs(
     *,
     team_id: int,
@@ -414,19 +397,20 @@ def _collect_authored_prs(
     failures: list[Exception] = []
     for integration in eligible:
         try:
-            results.extend(
-                _integration_prs(
-                    team_id=team_id, integration=integration, user_id=user_id, login=login, reports=reports
-                )
-            )
+            items = _fetch_recent_items(team_id=team_id, integration=integration, login=login)
         except (EgressBudgetExhausted, GitHubIntegrationError, GitHubRateLimitError) as error:
             logger.warning(
-                "signals_pr_browser_integration_failed",
-                team_id=team_id,
-                integration_id=integration.id,
-                exc_info=True,
+                "signals_pr_browser_integration_failed", team_id=team_id, integration_id=integration.id, exc_info=True
             )
             failures.append(error)
+            continue
+        results.extend(
+            pr
+            for item in items
+            if (
+                pr := _browser_pr_from_search_item(item=item, integration=integration, user_id=user_id, reports=reports)
+            )
+        )
     if failures and len(failures) == len(eligible):
         raise failures[0]
     return results
@@ -535,24 +519,6 @@ def monitor_pr_workflow_id(team_id: int, report_id: str, attempt: int) -> str:
     return f"signals-monitor-pr-{team_id}-{report_id}-{attempt}"
 
 
-def _stored_initiator_note(report: SignalReport) -> str:
-    raw = (
-        SignalReportArtefact.objects.filter(
-            team_id=report.team_id,
-            report_id=report.id,
-            type=SignalReportArtefact.ArtefactType.CHECK_AUTHORING,
-        )
-        .order_by("created_at", "id")
-        .values_list("content", flat=True)
-        .first()
-    )
-    if not isinstance(raw, str):
-        return ""
-    with suppress(ValueError):
-        return CheckAuthoringStatus.model_validate_json(raw).initiator_note or ""
-    return ""
-
-
 def _lock_user_pr_monitoring(team_id: int, user_id: int) -> None:
     with connection.cursor() as cursor:
         cursor.execute(
@@ -565,7 +531,7 @@ def _can_restart_pr_monitoring(report: SignalReport) -> bool:
     if report.status == SignalReport.Status.FAILED:
         return True
     return (
-        report.status == SignalReport.Status.PENDING_INPUT
+        report.status in {SignalReport.Status.PENDING_INPUT, SignalReport.Status.POTENTIAL}
         and bool(report.scout_idempotency_key and report.scout_idempotency_key.startswith("monitor-pr:"))
         and not report.metrics
         and not SignalReportCheck.objects.for_team(report.team_id).filter(report=report).exists()
@@ -593,16 +559,13 @@ def _bind_pr_monitoring_pass(
         raise PRMonitoringLimitExceeded("This project has reached its self-driving usage limit.") from None
 
 
-def _append_pending_check_authoring(
-    team_id: int, report_id: UUID, actor: ArtefactAttribution, *, initiator_note: str = ""
-) -> None:
+def _append_pending_check_authoring(team_id: int, report_id: UUID, actor: ArtefactAttribution) -> None:
     SignalReportArtefact.append_status(
         team_id=team_id,
         report_id=str(report_id),
         content=CheckAuthoringStatus(
             status="failed",
             reason="PR monitoring research has not produced a measurement yet.",
-            initiator_note=initiator_note or None,
         ),
         attribution=actor,
     )
@@ -617,7 +580,6 @@ def _restart_failed_report(
     run_started_at: datetime,
     admission: SelfDrivingAdmission,
 ) -> SignalReport:
-    frozen_note = _stored_initiator_note(report)
     _bind_pr_monitoring_pass(team=team, report_id=report.id, run_started_at=run_started_at, admission=admission)
     report.status = SignalReport.Status.IN_PROGRESS
     report.error = None
@@ -632,7 +594,7 @@ def _restart_failed_report(
         claim_id=str(active_claim.claim_id) if active_claim else None,
         notify_reviewers=False,
     )
-    _append_pending_check_authoring(team.id, report.id, actor, initiator_note=frozen_note)
+    _append_pending_check_authoring(team.id, report.id, actor)
     return report
 
 
@@ -641,7 +603,6 @@ def prepare_monitoring(
     team: Team,
     user: User,
     pr: MonitoredPullRequest,
-    note: str,
     admission: SelfDrivingAdmission | None = None,
 ) -> tuple[SignalReport, bool]:
     admission = admission or prepare_self_driving_admission(team)
@@ -659,7 +620,7 @@ def prepare_monitoring(
         )
         if existing is not None and not _can_restart_pr_monitoring(existing):
             return existing, False
-        _enforce_pr_research_limits(team, user, existing, check_quota=False)
+        _enforce_pr_research_limits(team, user, existing)
         run_started_at = timezone.now()
         if existing is not None:
             return (
@@ -711,17 +672,10 @@ def prepare_monitoring(
             reviewer_proposal=ReviewerProposal(expected_state=ReviewerState(), source="pr_monitoring"),
             reevaluate_autostart=False,
         )
-        if note:
-            SignalReportArtefact.add_log(
-                team_id=team.id,
-                report_id=str(report.id),
-                content=NoteArtefact(note=note, analytics_query_context=[], restricted_to_user_id=user.id),
-                attribution=actor,
-            )
         link_pull_request(
             report=report, details=pr.details(), actor=actor, claim_id=str(claim.claim_id), notify_reviewers=False
         )
-        _append_pending_check_authoring(team.id, report.id, actor, initiator_note=note)
+        _append_pending_check_authoring(team.id, report.id, actor)
         distinct_id = user.distinct_id or str(user.uuid)
         transaction.on_commit(
             lambda: posthoganalytics.capture(
@@ -731,16 +685,13 @@ def prepare_monitoring(
                     "team_id": team.id,
                     "report_id": str(report.id),
                     "pr_state": pr.state,
-                    "has_note": bool(note),
                 },
             )
         )
     return report, True
 
 
-def _enforce_pr_research_limits(
-    team: Team, user: User, report: SignalReport | None, *, check_quota: bool = True
-) -> None:
+def _enforce_pr_research_limits(team: Team, user: User, report: SignalReport | None) -> None:
     from products.signals.backend.scout_harness.tools.report_author import (  # noqa: PLC0415 -- scout_harness imports temporal, which imports monitor_pr
         USER_REPORT_DAILY_LIMIT,
         UserReportAuthor,
@@ -768,10 +719,6 @@ def _enforce_pr_research_limits(
         raise PRMonitoringLimitExceeded(
             "You've reached today's limit for PR research attempts.", retry_after=retry_after
         )
-    if check_quota:
-        gate = self_driving_quota_gate(team)
-        if gate.limited and gate.enforced:
-            raise PRMonitoringLimitExceeded("This project has reached its self-driving usage limit.")
 
 
 def request_pr_monitoring(
@@ -779,7 +726,6 @@ def request_pr_monitoring(
     team: Team,
     user: User,
     pr_url: str,
-    note: str = "",
     token_scopes: Sequence[str] | None = None,
 ) -> PRMonitoringRequestResult:
     from products.signals.backend.temporal.monitor_pr import (
@@ -797,7 +743,7 @@ def request_pr_monitoring(
     )
     started = False
     if report is None or _can_restart_pr_monitoring(report):
-        _enforce_pr_research_limits(team, user, report, check_quota=False)
+        _enforce_pr_research_limits(team, user, report)
         admission = prepare_self_driving_admission(team)
         if admission.gate.limited and admission.gate.enforced:
             raise PRMonitoringLimitExceeded("This project has reached its self-driving usage limit.")
@@ -805,7 +751,7 @@ def request_pr_monitoring(
             pr = load_pull_request(team.id, pr_url)
         except (EgressBudgetExhausted, GitHubIntegrationError) as error:
             raise PRMonitoringUnavailable("GitHub is temporarily unavailable. Try again shortly.") from error
-        report, started = prepare_monitoring(team=team, user=user, pr=pr, note=note, admission=admission)
+        report, started = prepare_monitoring(team=team, user=user, pr=pr, admission=admission)
 
     if report_has_active_pr_monitoring_pass(report):
         inputs = MonitorPRInput(
@@ -813,7 +759,6 @@ def request_pr_monitoring(
             report_id=str(report.id),
             user_id=user.id,
             pr_url=pr_url,
-            note=_stored_initiator_note(report),
             attempt_key=attempt_key(report),
             token_scopes=tuple(token_scopes) if token_scopes is not None else None,
         )
@@ -837,8 +782,7 @@ def request_pr_monitoring(
 class PRMonitoringCheck(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    title: str = Field(min_length=1, max_length=200)
-    rationale: str = Field(default="", max_length=2000)
+    title: str = Field(default="Post-merge check", min_length=1, max_length=200)
     kind: Literal["metric_threshold"] = "metric_threshold"
     config: MetricThresholdConfig
     soak_hours: int = Field(default=24, ge=1, le=720)
@@ -850,21 +794,19 @@ class PRMonitoringCheck(BaseModel):
 
 class PRMonitoringOutput(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    title: str = Field(min_length=1, max_length=200)
-    summary: str = Field(min_length=1, max_length=20000)
     inspected_commit: str
     metric: ReportMetric | None = None
     check: PRMonitoringCheck | None = None
-    unavailable_reason: str | None = Field(default=None, min_length=1, max_length=2000)
+    unavailable: bool = False
 
     @model_validator(mode="after")
     def coherent_measurement(self) -> "PRMonitoringOutput":
-        if self.unavailable_reason:
+        if self.unavailable:
             if self.metric is not None or self.check is not None:
                 raise ValueError("An unavailable measurement must not include a metric or check")
             return self
         if self.metric is None or self.check is None:
-            raise ValueError("Provide a primary metric and monitoring check, or explain why measurement is unavailable")
+            raise ValueError("Provide a primary metric and monitoring check, or set unavailable to true")
         if self.metric.role != "primary":
             raise ValueError("Provide one primary metric and a new metric_threshold check")
         self.check.as_spec()
@@ -908,40 +850,13 @@ def _reconcile_researched_pr(report: SignalReport, pr: MonitoredPullRequest, act
         )
 
 
-def _record_research_note(
-    report: SignalReport,
-    inputs: MonitorPRInput,
-    output: PRMonitoringOutput,
-    actor: ArtefactAttribution,
-) -> None:
-    sections = [f"**{output.title}**", output.summary]
-    if output.metric is not None and output.check is not None:
-        detail = f"**Measurement:** {output.metric.title}: {output.check.title}"
-        if output.check.rationale:
-            detail = f"{detail}\n\n{output.check.rationale}"
-        sections.append(detail)
-    if output.unavailable_reason:
-        sections.append(output.unavailable_reason)
-    SignalReportArtefact.add_log(
-        team_id=report.team_id,
-        report_id=str(report.id),
-        content=NoteArtefact(
-            note="\n\n".join(sections),
-            analytics_query_context=[_strip_embedded_query_responses(output.metric.query)]
-            if output.metric is not None
-            else [],
-            required_read_scopes=list(pr_monitoring_data_scopes(inputs.token_scopes)),
-            restricted_to_user_id=inputs.user_id,
-        ),
-        attribution=actor,
-    )
-
-
-def _strip_embedded_query_responses(value: object) -> Any:
+def _strip_embedded_query_metadata(value: object) -> Any:
     if isinstance(value, Mapping):
-        return {key: _strip_embedded_query_responses(item) for key, item in value.items() if key != "response"}
+        return {
+            key: _strip_embedded_query_metadata(item) for key, item in value.items() if key not in _STRIPPED_QUERY_KEYS
+        }
     if isinstance(value, list):
-        return [_strip_embedded_query_responses(item) for item in value]
+        return [_strip_embedded_query_metadata(item) for item in value]
     return value
 
 
@@ -956,12 +871,11 @@ def _sanitized_measurement(output: PRMonitoringOutput, pr: MonitoredPullRequest)
         role="primary",
         value_format=output.metric.value_format,
         unit=safe_unit,
-        query=_strip_embedded_query_responses(output.metric.query),
+        query=_strip_embedded_query_metadata(output.metric.query),
     )
     check = output.check.model_copy(
         update={
             "title": f"Post-merge check for {pr.repository}#{pr.number}",
-            "rationale": "",
             "config": output.check.config.model_copy(update={"metric_id": "primary_metric", "unit": safe_unit}),
         }
     )
@@ -994,8 +908,7 @@ def finish_monitoring_research(inputs: MonitorPRInput, output: PRMonitoringOutpu
             return
         initiator = require_pr_monitoring_initiator(report.team, inputs.user_id)
         actor = ArtefactAttribution.system()
-        if output.unavailable_reason:
-            _record_research_note(report, inputs, output, actor)
+        if output.unavailable:
             report.save(
                 update_fields=report.transition_to(
                     SignalReport.Status.PENDING_INPUT,
@@ -1007,7 +920,6 @@ def finish_monitoring_research(inputs: MonitorPRInput, output: PRMonitoringOutpu
             raise ValueError("Monitoring is no longer enabled for this project")
         metric_payload, check_spec = _sanitized_measurement(output, pr)
         _assert_initiator_may_read_metric(report, initiator, inputs, metric_payload)
-        _record_research_note(report, inputs, output, actor)
         report.metrics = [metric_payload]
         report.save(
             update_fields=[
@@ -1028,7 +940,6 @@ def finish_monitoring_research(inputs: MonitorPRInput, output: PRMonitoringOutpu
             content=CheckAuthoringStatus(
                 status="succeeded",
                 reason="PR monitoring measurement created.",
-                initiator_note=_stored_initiator_note(report) or None,
             ),
             attribution=actor,
         )

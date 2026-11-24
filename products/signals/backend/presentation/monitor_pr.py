@@ -41,13 +41,6 @@ class MonitorPRRequestSerializer(serializers.Serializer):
         max_length=500,
         help_text="GitHub pull request URL for a branch in a repository connected to this project's GitHub integration. Open, draft, and merged PRs within the last 90 days are supported.",
     )
-    note = serializers.CharField(
-        required=False,
-        allow_blank=True,
-        default="",
-        max_length=4000,
-        help_text="Optional context about what the person wants monitored, such as a conversion, error rate, or affected audience. Omit when the research agent should identify the key metric from the PR and project data.",
-    )
 
 
 @extend_schema_serializer(many=False)
@@ -59,7 +52,7 @@ class MonitorPRResponseSerializer(serializers.Serializer):
         help_text="Current report status. Research runs asynchronously; monitoring starts after research and PR merge.",
     )
     idempotent_replay = serializers.BooleanField(
-        help_text="True when this person already requested monitoring for this PR in this project. The original note is retained."
+        help_text="True when this person already requested monitoring for this PR in this project."
     )
 
 
@@ -157,7 +150,6 @@ class MonitorPRViewSet(_BasePRViewSet):
                 team=self.team,
                 user=cast(User, request.user),
                 pr_url=request.validated_data["pr_url"],
-                note=request.validated_data["note"],
                 token_scopes=tuple(scopes) if scopes is not None else None,
             )
         except InvalidPullRequest as error:

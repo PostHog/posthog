@@ -168,9 +168,6 @@ const inboxMonitorPr = (): ToolBase<ReturnType<typeof InboxMonitorPrSchema>, Sch
         if (params.pr_url !== undefined) {
             body['pr_url'] = params.pr_url
         }
-        if (params.note !== undefined) {
-            body['note'] = params.note
-        }
         const result = await context.api.request<Schemas.MonitorPRResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/monitor_pr/`,

@@ -180,6 +180,7 @@ class TestReportMetricAccessPolicy(APIBaseTest):
             "countIf(properties.status = 'ok')",
             "count(*)",
             "countIf(properties.status = 'ok') / count(*)",
+            "sum(properties.amount) AS total_amount",
         ):
             with self.subTest(safe_math=safe_math):
                 safe = self._metric(
@@ -190,6 +191,7 @@ class TestReportMetricAccessPolicy(APIBaseTest):
 
         for bad_math in (
             "countIf(person_id IN COHORT 12)",
+            "countIf(person_id IN COHORT 12) AS cohort_count",
             "countIf(distinct_id IN COHORT 12)",
             "countIf(matchesAction(12))",
             "countIf(person.cohorts = 12)",
@@ -204,12 +206,6 @@ class TestReportMetricAccessPolicy(APIBaseTest):
                 )
                 assert not policy.may_read_query(unsafe)
                 assert not query_filter_shape_allows_read(cast(dict[str, object], unsafe["query"]))
-
-    def test_may_read_research_note_fails_closed_on_resource_or_object_revocation(self) -> None:
-        scopes = ["query:read", "event_definition:read", "insight:read"]
-        assert self._policy(scopes).may_read_research_note(scopes)
-        assert not self._policy(scopes, allowed={"insight": {123}}).may_read_research_note(scopes)
-        assert not self._policy(scopes, blocked={"insight": {123}}).may_read_research_note(scopes)
 
     def test_rejects_property_groups_over_the_depth_limit(self) -> None:
         property_filter: dict[str, object] = {"type": "event", "key": "$browser", "value": "Chrome"}

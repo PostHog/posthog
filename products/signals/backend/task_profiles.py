@@ -117,9 +117,6 @@ PR_MONITORING_DATA_SCOPES: tuple[str, ...] = (
     "property_definition:read",
     "action:read",
     "cohort:read",
-    "insight:read",
-    "experiment:read",
-    "feature_flag:read",
 )
 PR_MONITORING_RUNTIME_SCOPES: tuple[str, ...] = ("user:read", "task:read", "internal_run:write")
 PR_MONITORING_MCP_SCOPES: list[str] = [*PR_MONITORING_DATA_SCOPES, *PR_MONITORING_RUNTIME_SCOPES]

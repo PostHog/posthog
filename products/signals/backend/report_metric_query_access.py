@@ -101,9 +101,12 @@ def _hogql_expr_allows_read(expression: object, *, allowed_calls: frozenset[str]
     from posthog.hogql.parser import parse_expr  # noqa: PLC0415 — keeps the query parser off startup
 
     try:
-        pending: list[tuple[ast.AST, int]] = [(parse_expr(expression), 0)]
+        parsed: ast.AST = parse_expr(expression)
     except (BaseHogQLError, SyntaxError, ValueError, RecursionError):
         return False
+    if allow_distinct and isinstance(parsed, ast.Alias):
+        parsed = parsed.expr
+    pending: list[tuple[ast.AST, int]] = [(parsed, 0)]
 
     # Shared snapshots cannot carry access to resources hidden behind subqueries or function calls.
     while pending:

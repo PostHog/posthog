@@ -211,16 +211,6 @@ class TestMonitoringSignals(NonAtomicBaseTest):
                     }
                 ),
             )
-        SignalReportArtefact.add_log(
-            team_id=self.team.id,
-            report_id=str(self.report.id),
-            content=NoteArtefact(
-                note=f"{'x' * 1200} {value}",
-                analytics_query_context=[{}],
-                restricted_to_user_id=self.user.id,
-            ),
-            attribution=ArtefactAttribution.from_user(self.user.id),
-        )
         self.emit()
         signal = self.emitted()[0].signal
         payload = MonitoringUnresolvedSignalExtra.model_validate(signal.extra)

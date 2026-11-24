@@ -819,11 +819,6 @@ class NoteArtefact(BaseModel):
         exclude_if=lambda value: value is None,
         description="Frozen source queries that gate access to the note's evidence.",
     )
-    required_read_scopes: list[str] | None = Field(
-        default=None,
-        exclude_if=lambda value: value is None,
-        description="Read scopes required to view research prose.",
-    )
     restricted_to_user_id: int | None = Field(
         default=None,
         exclude_if=lambda value: value is None,
@@ -846,11 +841,6 @@ class NoteArtefact(BaseModel):
 class CheckAuthoringStatus(BaseModel):
     status: Literal["succeeded", "failed"]
     reason: str = Field(min_length=1)
-    initiator_note: str | None = Field(
-        default=None,
-        exclude_if=lambda value: value is None,
-        description="Immutable focus note captured when PR monitoring was first requested.",
-    )
 
 
 class ScoutNoteLeft(BaseModel):

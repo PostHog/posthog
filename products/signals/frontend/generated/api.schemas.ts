@@ -1158,11 +1158,6 @@ export interface MonitorPRRequestApi {
      * @maxLength 500
      */
     pr_url: string
-    /**
-     * Optional context about what the person wants monitored, such as a conversion, error rate, or affected audience. Omit when the research agent should identify the key metric from the PR and project data.
-     * @maxLength 4000
-     */
-    note?: string
 }
 
 /**
@@ -1213,7 +1208,7 @@ export interface MonitorPRResponseApi {
      * * `deleted` - Deleted
      * * `suppressed` - Suppressed */
     status: SignalReportStatusEnumApi
-    /** True when this person already requested monitoring for this PR in this project. The original note is retained. */
+    /** True when this person already requested monitoring for this PR in this project. */
     idempotent_replay: boolean
 }
 
