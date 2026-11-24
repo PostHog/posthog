@@ -219,7 +219,7 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
         destinationRowSeries: [
             null as { labels: string[]; series: { id: string; values: number[] }[]; total: number[] } | null,
             {
-                loadDestinationRowSeries: async () => {
+                loadDestinationRowSeries: async (_, breakpoint) => {
                     const destinations = values.destinations ?? []
                     if (destinations.length === 0) {
                         return { labels: [], series: [], total: [] }
@@ -264,7 +264,11 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
                                   timezone
                               )
                             : Promise.resolve({ labels: [], interval, timezone, series: [] }),
-                    ])
+                    ]).catch((error) => {
+                        breakpoint()
+                        throw error
+                    })
+                    breakpoint()
                     return {
                         labels:
                             answers.find((a) => a.response.labels.length > 0)?.response.labels ?? total.labels ?? [],

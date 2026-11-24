@@ -24,6 +24,8 @@ import { HogQLQueryString, hogql } from 'lib/utils/hogql'
 import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
 
+import type { HogQLQueryResponse } from '~/queries/schema/schema-general'
+
 import type { TeamPublicType, TeamType } from '../../../types'
 
 const DEFAULT_INTERVAL = 'day'
@@ -98,6 +100,21 @@ const concurrencyRetryWaitMs = (error: unknown): number | undefined => {
     return waitMs > 0 && waitMs <= CONCURRENCY_RETRY_MAX_WAIT_MS ? waitMs : undefined
 }
 
+const queryAppMetrics = (query: HogQLQueryString): Promise<HogQLQueryResponse> =>
+    retryWithBackoff(
+        () =>
+            api.queryHogQL(
+                query,
+                { scene: 'HogFunction', productKey: 'pipeline_destinations' },
+                { refresh: 'force_blocking' }
+            ),
+        {
+            maxAttempts: 2,
+            shouldRetry: (error) => concurrencyRetryWaitMs(error) !== undefined,
+            getDelayMs: concurrencyRetryWaitMs,
+        }
+    )
+
 const appSourceIdPrefixPattern = (prefix: string): string => {
     // Escape LIKE wildcards so the prefix matches literally.
     return prefix.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_') + '%'
@@ -152,19 +169,7 @@ export const loadAppMetricsTotals = async (
 ORDER BY total DESC LIMIT ${request.limit}`) as HogQLQueryString
     }
 
-    const response = await retryWithBackoff(
-        () =>
-            api.queryHogQL(
-                query,
-                { scene: 'HogFunction', productKey: 'pipeline_destinations' },
-                { refresh: 'force_blocking' }
-            ),
-        {
-            maxAttempts: 2,
-            shouldRetry: (error) => concurrencyRetryWaitMs(error) !== undefined,
-            getDelayMs: concurrencyRetryWaitMs,
-        }
-    )
+    const response = await queryAppMetrics(query)
 
     const res: AppMetricsTotalsResponse = {}
 
@@ -281,11 +286,7 @@ export const loadAppMetricsTimeSeries = async (
         ORDER BY breakdown
         `) as HogQLQueryString
 
-    const response = await api.queryHogQL(
-        query,
-        { scene: 'HogFunction', productKey: 'pipeline_destinations' },
-        { refresh: 'force_blocking' }
-    )
+    const response = await queryAppMetrics(query)
 
     return {
         labels: (response.results?.[0]?.[0] as string[] | undefined) ?? [],
@@ -441,7 +442,12 @@ export const appMetricsLogic = kea<appMetricsLogicType>([
                         dateTo: dateRange.dateTo.toISOString(),
                     }
 
-                    const result = await loadAppMetricsTimeSeries(params, values.currentTeam?.timezone ?? 'UTC')
+                    const result = await loadAppMetricsTimeSeries(params, values.currentTeam?.timezone ?? 'UTC').catch(
+                        (error) => {
+                            breakpoint()
+                            throw error
+                        }
+                    )
                     await breakpoint(10)
 
                     return result
@@ -460,7 +466,12 @@ export const appMetricsLogic = kea<appMetricsLogicType>([
                         dateTo: dateRange.dateTo.subtract(dateRange.diffMs).toISOString(),
                     }
 
-                    const result = await loadAppMetricsTimeSeries(params, values.currentTeam?.timezone ?? 'UTC')
+                    const result = await loadAppMetricsTimeSeries(params, values.currentTeam?.timezone ?? 'UTC').catch(
+                        (error) => {
+                            breakpoint()
+                            throw error
+                        }
+                    )
                     await breakpoint(10)
 
                     return result

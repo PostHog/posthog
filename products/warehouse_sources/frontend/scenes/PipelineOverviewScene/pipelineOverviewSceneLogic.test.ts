@@ -28,6 +28,15 @@ const api = jest.requireMock('products/data_warehouse/frontend/generated/api')
 const wsApi = jest.requireMock('products/warehouse_sources/frontend/generated/api')
 const metrics = jest.requireMock('lib/components/AppMetrics/appMetricsLogic')
 
+type Settle = { resolve: (value: unknown) => void; reject: (error: unknown) => void }
+
+const response = (label: string): Record<string, unknown> => ({
+    labels: [label],
+    interval: 'day',
+    timezone: 'UTC',
+    series: [],
+})
+
 const issue = (overrides: Record<string, any> = {}): Record<string, any> => ({
     id: 'issue-1',
     name: 'charges',
@@ -313,6 +322,33 @@ describe('pipelineOverviewSceneLogic', () => {
         expect(logic.values.syncingTableCount).toEqual(3)
         expect(wsApi.externalDataSourcesList).toHaveBeenNthCalledWith(1, expect.anything(), { limit: 100, offset: 0 })
         expect(wsApi.externalDataSourcesList).toHaveBeenNthCalledWith(2, expect.anything(), { limit: 100, offset: 2 })
+    })
+
+    it.each([
+        { outcome: 'succeeds', settle: (load: Settle): void => load.resolve(response('first')) },
+        { outcome: 'fails', settle: (load: Settle): void => load.reject(new ApiError('Too many queries', 429)) },
+    ])('keeps the newer window when an older destination load $outcome last', async ({ settle }) => {
+        logic.unmount()
+        wsApi.externalDataDestinationsList.mockResolvedValue({
+            results: [{ id: 'pg', name: 'Analytics Postgres', type: 'Postgres' }],
+        })
+        let firstLoad: Settle | undefined
+        metrics.loadAppMetricsTimeSeries
+            .mockImplementationOnce(() => new Promise((resolve, reject) => (firstLoad = { resolve, reject })))
+            .mockResolvedValue(response('newer'))
+
+        initKeaTests()
+        logic = pipelineOverviewSceneLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadDestinationRowSeries'])
+        await expectLogic(logic, () => logic.actions.setWindow(30)).toDispatchActions([
+            'loadDestinationRowSeriesSuccess',
+        ])
+        settle(firstLoad!)
+        await expectLogic(logic).toFinishAllListeners()
+
+        await expectLogic(logic).toNotHaveDispatchedActions(['loadDestinationRowSeriesFailure'])
+        expect(logic.values.destinationRowSeries?.labels).toEqual(['newer'])
     })
 
     it('gives the warehouse whatever the other destinations did not take', async () => {
