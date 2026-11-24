@@ -210,8 +210,12 @@ MIDDLEWARE = [
     "posthog.middleware.OAuthCorsPreflightMiddleware",  # Must precede CorsMiddleware — echoes custom headers on OAuth preflights
     "corsheaders.middleware.CorsMiddleware",
     "posthog.csp_middleware.CSPMiddleware",
-    # Below WhiteNoise, which serves the files that exist, and below CSPMiddleware, so that the 404
-    # gets its policy. Above the middleware that loads the session and the user from the database.
+    # Above every middleware that can answer without calling the view, so those responses get the
+    # header too. A view that allows framing still opts out with xframe_options_exempt.
+    "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    # Below WhiteNoise, which serves the files that exist, and below CSPMiddleware and
+    # XFrameOptionsMiddleware, so that the 404 gets their headers. Above the middleware that loads
+    # the session and the user from the database.
     "posthog.middleware.MissingStaticFileMiddleware",
     "django.middleware.common.CommonMiddleware",
     # Below CorsMiddleware so responses get CORS headers; above auth/CSRF and URL
@@ -240,7 +244,6 @@ MIDDLEWARE = [
     "posthog.middleware.ImpersonationReadOnlyMiddleware",
     "posthog.middleware.ImpersonationBlockedPathsMiddleware",
     "posthog.middleware.NewEventsSchemaCookieMiddleware",
-    "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "posthog.middleware.CsvNeverCacheMiddleware",
     "axes.middleware.AxesMiddleware",
     "posthog.middleware.AutoProjectMiddleware",

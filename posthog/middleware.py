@@ -1475,11 +1475,7 @@ class MissingStaticFileMiddleware:
 
     def __call__(self, request: HttpRequest) -> HttpResponse:
         if request.path_info.startswith(settings.STATIC_URL):
-            # CSPMiddleware sits above this middleware and gives this response its policy.
-            # XFrameOptionsMiddleware sits below it, so this response sets that header itself.
-            response = HttpResponseNotFound(content_type="text/plain")
-            response.headers["X-Frame-Options"] = settings.X_FRAME_OPTIONS
-            return response
+            return HttpResponseNotFound(content_type="text/plain")
         return self.get_response(request)
 
 
