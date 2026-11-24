@@ -2457,6 +2457,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             self._run_temporal_side_effect(update_schedule)
 
         if trigger_refresh:
+            request_manual_runs([updated_instance.id], updated_instance.team_id)
             self._run_temporal_side_effect(
                 lambda: trigger_external_data_workflow(updated_instance, buffer_one=import_cancelled)
             )
