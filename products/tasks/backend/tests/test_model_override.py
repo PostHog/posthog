@@ -6,7 +6,12 @@ from parameterized import parameterized
 
 from posthog.llm.gateway_client import GatewayNotConfiguredError
 
-from products.tasks.backend.logic.model_override import ModelOverride, ModelOverrideAttribution, classify_model_override
+from products.tasks.backend.logic.model_override import (
+    ModelOverride,
+    ModelOverrideAttribution,
+    classify_model_override,
+    may_request_model_override,
+)
 from products.tasks.backend.logic.services.model_catalogue import ModelChoice
 
 ATTRIBUTION = ModelOverrideAttribution(ai_product="posthog_ai", properties={})
@@ -30,10 +35,10 @@ def _fake_client(content: str) -> MagicMock:
     return client
 
 
-def _request_sent_for(content: str) -> dict:
+def _request_sent_for(content: str, attribution: ModelOverrideAttribution = ATTRIBUTION) -> dict:
     fake_client = _fake_client(content)
     with patch(BUILD_CLIENT, return_value=fake_client):
-        classify_model_override("use fable for this", CHOICES, ATTRIBUTION)
+        classify_model_override("use fable for this", CHOICES, attribution)
     return fake_client.chat.completions.create.call_args.kwargs
 
 
@@ -129,3 +134,24 @@ class TestClassifyModelOverride(SimpleTestCase):
 
         assert "max_tokens" not in request
         assert request["max_completion_tokens"] > 0
+
+    @parameterized.expand([(False, None), (True, {"X-PostHog-Privacy-Mode": "true"})])
+    def test_privacy_mode_asks_the_gateway_not_to_record_the_message(self, privacy_mode: bool, headers) -> None:
+        attribution = ModelOverrideAttribution(ai_product="posthog_ai", properties={}, privacy_mode=privacy_mode)
+
+        assert _request_sent_for(NO_OVERRIDE_REPLY, attribution).get("extra_headers") == headers
+
+    @parameterized.expand(
+        [
+            ("nickname", "use fable for this one", True),
+            ("runtime_qualifier", "run it on codex sol", True),
+            ("effort_only", "do this with max effort", True),
+            ("case_and_punctuation", "Opus, please: why is checkout slow?", True),
+            ("names_nothing", "why does the retry never stop?", False),
+            ("model_not_on_offer", "use sonnet and fix the flaky test", False),
+        ]
+    )
+    def test_word_check_skips_messages_that_name_nothing_on_offer(
+        self, _name: str, message: str, expected: bool
+    ) -> None:
+        assert may_request_model_override(message, CHOICES) is expected
