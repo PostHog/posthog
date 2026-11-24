@@ -136,7 +136,8 @@ class FlagEvaluationsColumns:
 
 class EventsWithFlagCallsTable(LazyTable):
     """`events` with its keyed flag calls read from `posthog.flag_evaluations` instead, since the coverage start. On
-    mode 2 the printer's coverage floor sets that start, and events holds no older keyed flag call.
+    mode 2 the flag_evaluations branch has no cutoff of its own. The ClickHouse printer's coverage floor drops rows
+    older than the coverage start, and events holds no older keyed flag call.
 
     Its `fields` is the events table's own dict, so every name binds as it does on `events`.
     """

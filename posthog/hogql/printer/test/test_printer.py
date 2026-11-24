@@ -1,6 +1,6 @@
 import json
 from collections.abc import Callable, Mapping
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal, Optional, cast
 from uuid import UUID
 
@@ -245,8 +245,8 @@ class TestPrinter(BaseTest):
         assert f"toIntervalMonth({months})" in sql
         assert f"greater({floored_column}, minus(now" in sql
 
-    @parameterized.expand([("applied", True, True), ("deletion_path", False, False)])
-    def test_flag_evaluations_coverage_floor(self, _name: str, apply_events_retention_floor: bool, floored: bool):
+    @parameterized.expand([("applied", True), ("deletion_path", False)])
+    def test_flag_evaluations_coverage_floor(self, _name: str, apply_events_retention_floor: bool):
         context = HogQLContext(
             team_id=self.team.pk, enable_select_queries=True, apply_events_retention_floor=apply_events_retention_floor
         )
@@ -256,7 +256,16 @@ class TestPrinter(BaseTest):
         ):
             sql = self._select("select count() from posthog.flag_evaluations", context=context)
         floor = "greaterOrEquals(flag_evaluations.timestamp, toDateTime64('2026-08-25 00:00:00.000000', 6, 'UTC'))"
-        assert (floor in sql) == floored
+        assert (floor in sql) == apply_events_retention_floor
+
+    def test_flag_calls_now_is_fixed_until_the_reads_are_cleared(self):
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        with time_machine.travel(datetime(2026, 11, 24, 23, 59, tzinfo=UTC), tick=False) as traveller:
+            first = context.flag_calls_now()
+            traveller.shift(timedelta(minutes=2))
+            assert context.flag_calls_now() == first
+            context.clear_reads()
+            assert context.flag_calls_now() > first
 
     @override_settings(EVENTS_DATA_RETENTION_ENFORCED=False)
     def test_events_retention_floor_not_applied_when_disabled(self):
