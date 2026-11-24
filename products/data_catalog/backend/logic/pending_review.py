@@ -2,7 +2,8 @@ from collections.abc import Callable
 from datetime import datetime
 from enum import StrEnum
 
-from django.db.models import Model, QuerySet
+from django.db.models import Expression, F, Model, QuerySet
+from django.db.models.functions import Coalesce
 
 import structlog
 
@@ -23,6 +24,7 @@ from .relationships import relationships_for_team
 logger = structlog.get_logger(__name__)
 
 DEFAULT_SAMPLE_SIZE = 5
+CREATED_AT = F("created_at")
 
 
 class PendingKind(StrEnum):
@@ -64,6 +66,7 @@ def _group[ModelT: Model](
     sample_name: Callable[[ModelT], str],
     sample_size: int,
     new_since: datetime | None,
+    entered_review: Expression | F = CREATED_AT,
 ) -> PendingGroup:
     oldest_first = proposed.order_by("created_at")[:sample_size]
     return PendingGroup(
@@ -71,7 +74,9 @@ def _group[ModelT: Model](
         noun=noun,
         count=proposed.count(),
         sample_names=[sample_name(item) for item in oldest_first],
-        new_count=proposed.filter(created_at__gte=new_since).count() if new_since else 0,
+        new_count=proposed.alias(entered_review=entered_review).filter(entered_review__gte=new_since).count()
+        if new_since
+        else 0,
     )
 
 
@@ -83,6 +88,7 @@ def _metrics_group(proposed: QuerySet[Metric], sample_size: int, new_since: date
         lambda metric: metric.display_name or metric.name,
         sample_size,
         new_since,
+        entered_review=Coalesce("proposed_at", "created_at"),
     )
 
 

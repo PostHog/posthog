@@ -16,11 +16,14 @@ from parameterized import parameterized
 from temporalio.client import Schedule, ScheduleActionStartWorkflow
 
 from posthog.constants import AvailableFeature
+from posthog.email import inline_css
 from posthog.models import Organization, OrganizationMembership, Team
 from posthog.models.organization_notification_lock import OrganizationMemberNotificationLock
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.data_catalog.backend.facade.contracts import DigestRow, DigestSource
+from products.data_catalog.backend.facade.enums import MetricStatus
+from products.data_catalog.backend.logic.metrics import update_metric
 from products.data_catalog.backend.logic.pending_review import PendingGroup, PendingKind, TeamPendingReview
 from products.data_catalog.backend.models import Metric
 from products.data_catalog.backend.temporal.schedule import create_data_catalog_weekly_digest_schedule
@@ -50,6 +53,7 @@ from products.data_catalog.backend.temporal.weekly_digest.types import (
 from products.data_catalog.backend.temporal.weekly_digest.workflows import DataCatalogWeeklyDigestWorkflow
 
 _ACTIVITIES = "products.data_catalog.backend.temporal.weekly_digest.activities"
+GMAIL_CLIP_BYTES = 102_000
 
 
 def _review(team: Team, certifications: int = 3, new_certifications: int = 1) -> TeamPendingReview:
@@ -135,6 +139,36 @@ class TestEmailContext(SimpleTestCase):
 
         assert "attacker.com" not in html_body
         assert html_body.count("attacker.\u200bcom") == 3
+
+    def test_a_project_with_new_items_is_never_cut_by_the_project_cap(self) -> None:
+        old_backlogs = [
+            _pending_metrics(team_id=index, count=100, sample_names=[]) for index in range(MAX_PROJECT_SECTIONS)
+        ]
+        small_new = ProjectDigest(
+            team_id=99,
+            team_name="Small",
+            rows=[DigestRow(noun="metric", count=1, new_count=1, sample_names=[], path="/data-catalog")],
+        )
+
+        context = build_template_context(Organization(name="Acme"), [*old_backlogs, small_new])
+
+        assert context["project_sections"][0]["team_name"] == "Small"
+        assert context["omitted_project_count"] == 1
+
+    def test_the_largest_email_stays_under_the_size_gmail_clips_at(self) -> None:
+        nouns = ["metric", "relationship", "certification", "certification suggestion", "model suggestion"]
+        rows = [
+            DigestRow(noun=noun, count=50, new_count=5, sample_names=["n" * 80] * 5, path="/data-catalog?tab=metrics")
+            for noun in nouns
+        ]
+        projects = [
+            ProjectDigest(team_id=index, team_name="p" * 60, rows=rows) for index in range(MAX_PROJECT_SECTIONS + 1)
+        ]
+        context = build_template_context(Organization(name="Acme"), projects)
+
+        html_body = inline_css(get_template("email/data_catalog_weekly_digest.html").render(context))
+
+        assert len(html_body.encode()) < GMAIL_CLIP_BYTES
 
     def test_lists_the_busiest_projects_and_counts_the_rest(self) -> None:
         counts = range(1, MAX_PROJECT_SECTIONS + 2)
@@ -282,9 +316,8 @@ class TestBuildAndSendForOrg(APIBaseTest):
         assert counts.sent == expected_sent
         assert counts.skipped_nothing_new == 1 - expected_sent
 
-    def test_a_project_with_only_suggestions_gets_the_email(self) -> None:
-        Metric.objects.unscoped().filter(team=self.team).delete()
-        source = DigestSource(
+    def _model_suggestion_source(self) -> DigestSource:
+        return DigestSource(
             name="suggestions",
             rows=lambda team, user, new_since: [
                 DigestRow(
@@ -294,7 +327,10 @@ class TestBuildAndSendForOrg(APIBaseTest):
             teams_with_rows=lambda teams: {self.team.id},
         )
 
-        with patch(f"{_ACTIVITIES}.load_digest_sources", return_value=(source,)):
+    def test_a_project_with_only_suggestions_gets_the_email(self) -> None:
+        Metric.objects.unscoped().filter(team=self.team).delete()
+
+        with patch(f"{_ACTIVITIES}.load_digest_sources", return_value=(self._model_suggestion_source(),)):
             counts = _build_and_send_for_org(str(self.organization.id))
 
         assert counts.sent == 1
@@ -303,6 +339,31 @@ class TestBuildAndSendForOrg(APIBaseTest):
             f"{settings.SITE_URL}/project/{self.team.id}/models"
             "?tab=models&utm_source=data_catalog_weekly_digest&utm_medium=email"
         )
+
+    def test_someone_without_catalog_access_still_gets_the_suggestions_they_can_act_on(self) -> None:
+        AccessControl.objects.create(team=self.team, resource="data_catalog", access_level="none")
+        self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL, "name": "access"}]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        with patch(f"{_ACTIVITIES}.load_digest_sources", return_value=(self._model_suggestion_source(),)):
+            counts = _build_and_send_for_org(str(self.organization.id))
+
+        assert counts.sent == 1
+        sections = self.mock_email_class.call_args.kwargs["template_context"]["project_sections"]
+        assert [row["noun"] for row in sections[0]["rows"]] == ["model suggestion"]
+
+    def test_a_metric_that_returns_to_review_this_week_counts_as_new(self) -> None:
+        Metric.objects.unscoped().filter(team=self.team).update(
+            created_at=timezone.now() - timedelta(days=30), status=MetricStatus.APPROVED
+        )
+        metric = Metric.objects.unscoped().get(team=self.team)
+
+        update_metric(metric, team=self.team, user=self.user, description="Counts a different thing now")
+        counts = _build_and_send_for_org(str(self.organization.id))
+
+        assert counts.sent == 1
 
     @parameterized.expand([("rows", True, False), ("teams_with_rows", False, True)])
     def test_a_failing_source_keeps_the_catalog_rows(self, _name: str, rows_fail: bool, teams_fail: bool) -> None:

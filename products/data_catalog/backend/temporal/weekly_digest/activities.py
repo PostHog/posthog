@@ -148,7 +148,8 @@ def _send_digest_for_user(
     test: bool = False,
 ) -> DigestOutcome:
     """`test=True` bypasses the notification opt-in and forces a unique campaign key so dedupe
-    never blocks delivery. Project access and catalog access are always enforced.
+    never blocks delivery. Project access is always enforced, catalog rows need catalog access, and each
+    source enforces the access its own rows need.
     """
     if not test and not should_send_notification(
         user, NotificationSetting.DATA_CATALOG_WEEKLY_DIGEST.value, locks=locks
@@ -157,10 +158,8 @@ def _send_digest_for_user(
 
     user_perms = UserPermissions(user)
 
-    def has_access(team: Team) -> bool:
-        if user_perms.team(team).effective_membership_level_for_parent_membership(org, membership) is None:
-            return False
-        return UserAccessControl(user=user, team=team).check_access_level_for_resource("data_catalog", "viewer")
+    def has_project_access(team: Team) -> bool:
+        return user_perms.team(team).effective_membership_level_for_parent_membership(org, membership) is not None
 
     source_team_ids = source_team_ids or {}
     candidate_team_ids = set(reviews).union(*source_team_ids.values())
@@ -168,7 +167,7 @@ def _send_digest_for_user(
     projects = [
         project
         for team_id in sorted(candidate_team_ids)
-        if has_access(teams_by_id[team_id])
+        if has_project_access(teams_by_id[team_id])
         and (project := _project_digest(teams_by_id[team_id], user, reviews.get(team_id), source_team_ids, new_since))
     ]
     if not projects:
@@ -218,7 +217,12 @@ def _project_digest(
     new_since: datetime,
 ) -> ProjectDigest | None:
     user_access_control = UserAccessControl(user=user, team=team)
-    rows = pending_rows(groups_visible_to(review, team, user, user_access_control, new_since)) if review else []
+    can_read_catalog = user_access_control.check_access_level_for_resource("data_catalog", "viewer")
+    rows = (
+        pending_rows(groups_visible_to(review, team, user, user_access_control, new_since))
+        if review and can_read_catalog
+        else []
+    )
     for source in load_digest_sources():
         if team.id in source_team_ids.get(source.name, ()):
             rows += _source_rows(source, team, user, new_since)

@@ -2,6 +2,7 @@ import html
 from urllib.parse import parse_qsl, urlencode
 
 from django.conf import settings
+from django.utils.text import Truncator
 
 from posthog.helpers.email_utils import sanitize_display_name, sanitize_email_string
 from posthog.models.organization import Organization
@@ -17,6 +18,8 @@ SETTINGS_ANCHOR = "data-catalog-weekly-digest"
 MAX_PROJECT_SECTIONS = 10
 
 TEAM_NAME_FALLBACK = "Your project"
+
+SAMPLE_NAME_MAX_CHARS = 60
 
 ORGANIZATION_NAME_FALLBACK = "your organization"
 
@@ -76,13 +79,14 @@ def _build_row(team_id: int, row: DigestRow) -> dict:
         "new_count": row.new_count,
         "sample_names": sample_names,
         "omitted_count": row.count - len(sample_names),
+        "samples": _samples_text(sample_names, row.count - len(sample_names)),
         "review_url": app_url(team_id, row.path),
     }
 
 
 def build_template_context(organization: Organization, projects: list[ProjectDigest]) -> dict:
-    """The busiest projects first, capped so the email stays under the size mail clients clip at."""
-    busiest_first = sorted(projects, key=lambda project: project.total, reverse=True)
+    """Projects with new items first, then the busiest, capped so the email stays under the size mail clients clip at."""
+    busiest_first = sorted(projects, key=lambda project: (project.new_total > 0, project.total), reverse=True)
     shown = busiest_first[:MAX_PROJECT_SECTIONS]
     return {
         "organization": organization,
@@ -93,6 +97,13 @@ def build_template_context(organization: Organization, projects: list[ProjectDig
         "omitted_project_count": len(busiest_first) - len(shown),
         "settings_url": settings_url(),
     }
+
+
+def _samples_text(names: list[str], omitted_count: int) -> str:
+    parts = [", ".join(Truncator(name).chars(SAMPLE_NAME_MAX_CHARS) for name in names)] if names else []
+    if omitted_count:
+        parts.append(f"and {omitted_count} more")
+    return " ".join(parts)
 
 
 def _defanged(text: str) -> str:
