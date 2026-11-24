@@ -4,8 +4,9 @@
 # ///
 """Run the pinned hoglint with this script's arguments.
 
-turbo-discover.js and trunk-impacted-targets.js run `hoglint_run.py watched --out <file> --map <file>`
-with `uv run --no-project` from the repo root, so they need uv and nothing from the Python project.
+turbo-discover.js and trunk-impacted-targets.js run
+`hoglint_run.py watched --level isolated --out <file> --map <file>` with `uv run --no-project` from
+the repo root, so they need uv and nothing from the Python project.
 One process writes both answers: each product's Isolated verdict and watched files (JSON), and the
 file-level import map ({file: [files that import it]}).
 

@@ -581,7 +581,8 @@ function runHoglint(repoRoot) {
     try {
         execFileSync(
             'uv',
-            ['run', '--no-project', HOGLINT_RUN_SCRIPT, 'watched', '--out', watchedFile, '--map', mapFile],
+            // No level has `claimed_by`, so hoglint needs the level named.
+            ['run', '--no-project', HOGLINT_RUN_SCRIPT, 'watched', '--level', 'isolated', '--out', watchedFile, '--map', mapFile],
             { ...TURBO_EXEC_OPTS, cwd: repoRoot, timeout: HOGLINT_TIMEOUT_MS }
         )
         return { graph: readImportGraph(mapFile), watched: parseWatchedAnswer(fs.readFileSync(watchedFile, 'utf-8')) }
