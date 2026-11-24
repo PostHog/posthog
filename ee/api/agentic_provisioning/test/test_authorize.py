@@ -147,7 +147,7 @@ class TestAgenticAuthorize(AuthorizeTestBase):
         partner = self._make_skip_consent_partner()
         self._restrict_team_access(self.team)
         self.organization.available_product_features = [
-            *self.organization.available_product_features,
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
             MEMBERS_CAN_CREATE_PROJECTS_FEATURE,
             projects_feature,
         ]
