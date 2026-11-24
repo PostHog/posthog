@@ -564,6 +564,7 @@ class IssueSummaryUnavailableReason(LabeledStrEnum):
     RESTRICTED = "restricted"
     DISABLED = "disabled"
     AI_NOT_APPROVED = "ai_not_approved"
+    SETTING_OFF = "setting_off"
 
 
 @dataclass(frozen=True)
@@ -572,6 +573,27 @@ class IssueSummaryRead:
     summary: ErrorTrackingIssueSummary | None
     # Set only when the status is unavailable.
     reason: IssueSummaryUnavailableReason | None
+
+
+class IssueSummarizeOutcome(LabeledStrEnum):
+    READY = "ready"
+    DISABLED = "disabled"
+    RESTRICTED = "restricted"
+    SETTING_OFF = "setting_off"
+    AI_NOT_APPROVED = "ai_not_approved"
+    OUT_OF_CREDITS = "out_of_credits"
+    RATE_LIMITED = "rate_limited"
+    IN_PROGRESS = "in_progress"
+    ISSUE_MISSING = "issue_missing"
+    NO_EXCEPTION = "no_exception"
+    FAILED = "failed"
+
+
+@dataclass(frozen=True)
+class IssueSummarize:
+    outcome: IssueSummarizeOutcome
+    # Set only when the outcome is ready.
+    summary: ErrorTrackingIssueSummary | None
 
 
 class SentryMigrationCategory(LabeledStrEnum):

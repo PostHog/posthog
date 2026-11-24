@@ -904,6 +904,44 @@ class ExperimentRef:
     created_by_id: int | None
 
 
+class WebExperimentNotFound(Exception):
+    """Raised when the project has no web experiment with the id."""
+
+
+@frozen
+class WebExperimentConfig:
+    """A web experiment, as the web experiments API and the toolbar show it.
+
+    `variants` holds every variant of the feature flag with the rollout percentage that the flag stores, plus
+    the transforms that the experiment stores for that variant. When the flag has no variants, it holds the
+    variants that the experiment stores.
+    """
+
+    id: int
+    name: str
+    created_at: datetime
+    # The stored key of the flag. A soft-deleted flag keeps its tombstone suffix here.
+    feature_flag_key: str
+    variants: dict[str, Any]
+
+
+WebExperimentWriteField = Literal["name", "created_at", "variants"]
+
+
+@frozen
+class WebExperimentWrite:
+    """The fields of a web experiment that a create or an update sets.
+
+    `fields_set` names the fields that the caller sent. An update sets only those fields. A create needs a
+    name and variants, and does not read `created_at`.
+    """
+
+    fields_set: frozenset[WebExperimentWriteField]
+    name: str | None = None
+    created_at: datetime | None = None
+    variants: dict[str, Any] | None = None
+
+
 @frozen
 class MetricCalculationKeys:
     """The calculation key of each metric on an experiment. Result rows and the stored metric

@@ -8,6 +8,7 @@ import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 
 import type { DashboardImportSourceEnumApi } from 'products/metrics/frontend/generated/api.schemas'
 
+import { DashboardImportFailedFooter } from './DashboardImportFailedFooter'
 import { metricsDashboardImportLogic } from './metricsDashboardImportLogic'
 import { DashboardImportInput } from './steps/DashboardImportInput'
 import { DashboardImportProgress } from './steps/DashboardImportProgress'
@@ -21,7 +22,7 @@ const TITLES: Record<DashboardImportSourceEnumApi, string> = {
 export function MetricsDashboardImportModal(): JSX.Element {
     const { isModalOpen, step, source, starting, importDisabledReason, currentImport } =
         useValues(metricsDashboardImportLogic)
-    const { closeImportModal, startImport, resetImport, backToInput, openImportedDashboard } =
+    const { closeImportModal, startImport, resetImport, openImportedDashboard } =
         useActions(metricsDashboardImportLogic)
     const { dataProcessingAccepted } = useValues(aiConsentLogic)
 
@@ -87,14 +88,7 @@ export function MetricsDashboardImportModal(): JSX.Element {
                 </LemonButton>
             </>
         ) : (
-            <>
-                <LemonButton type="secondary" onClick={closeImportModal}>
-                    Close
-                </LemonButton>
-                <LemonButton type="primary" onClick={backToInput} data-attr="metrics-dashboard-import-retry">
-                    Try again
-                </LemonButton>
-            </>
+            <DashboardImportFailedFooter />
         )
 
     return (

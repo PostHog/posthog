@@ -10,7 +10,7 @@ import type {
 } from 'products/review_hog/frontend/generated/api.schemas'
 
 import { FLASH_FOR_OPTIONS, canTakeFromOtherProject, projectName } from './repositoryChoices'
-import { RepositoryDeepReviewSwitch } from './RepositoryDeepReviewSwitch'
+import { RepositoryMoreMenu } from './RepositoryMoreMenu'
 import { RepositoryReviewsSelect } from './RepositoryReviewsSelect'
 import { reviewHogProjectSettingsLogic } from './reviewHogProjectSettingsLogic'
 import { reviewHogRepositoriesLogic } from './reviewHogRepositoriesLogic'
@@ -139,7 +139,7 @@ export function RepositoryProjectCell({
                             {controlsOnStatusLine && (
                                 <>
                                     <RepositoryReviewsSelect entry={entry} />
-                                    <RepositoryDeepReviewSwitch entry={entry} />
+                                    <RepositoryMoreMenu entry={entry} />
                                 </>
                             )}
                             {canInclude ? (
@@ -185,7 +185,7 @@ export function RepositoryProjectCell({
                                 Exception
                             </LemonTag>
                             <RepositoryReviewsSelect entry={entry} />
-                            <RepositoryDeepReviewSwitch entry={entry} />
+                            <RepositoryMoreMenu entry={entry} />
                         </span>
                     }
                     removeException={canEdit ? { projectFlashFor, onRemove: () => clearException(entry) } : undefined}
