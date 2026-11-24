@@ -5783,7 +5783,14 @@ class TestHogFlowAPI(APIBaseTest):
                 403,
             ),
             ("group_read_cannot_run_a_hogql_filter", ["hog_flow:read", "group:read"], HOGQL_PROP, 0, 403),
-            ("both_scopes_can_run_a_hogql_filter", ["hog_flow:read", "group:read", "person:read"], HOGQL_PROP, 0, 200),
+            ("hogql_filter_needs_query_read", ["hog_flow:read", "group:read", "person:read"], HOGQL_PROP, 0, 403),
+            (
+                "all_scopes_can_run_a_hogql_filter",
+                ["hog_flow:read", "group:read", "person:read", "query:read"],
+                HOGQL_PROP,
+                0,
+                200,
+            ),
             (
                 "group_read_cannot_size_persons_with_a_blank_index",
                 ["hog_flow:read", "group:read"],

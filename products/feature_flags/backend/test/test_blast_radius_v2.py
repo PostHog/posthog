@@ -157,10 +157,24 @@ class TestBlastRadiusDataScopes(SimpleTestCase):
             ("person_count", [], None, ["person:read"]),
             ("plain_group_filters", [{"type": "group", "key": "industry"}], 0, ["group:read"]),
             ("no_filters", None, 0, ["group:read"]),
-            ("hogql_filter_can_read_persons", [{"type": "hogql", "key": "1"}], 0, ["person:read", "group:read"]),
+            ("hogql_group_filter", [{"type": "hogql", "key": "1"}], 0, ["person:read", "group:read", "query:read"]),
+            ("hogql_person_filter", [{"type": "hogql", "key": "1"}], None, ["person:read", "query:read"]),
+            ("warehouse_filter", [{"type": "data_warehouse", "key": "a"}], None, ["person:read", "query:read"]),
             ("cohort_filter_can_read_persons", [{"type": "cohort", "value": 1}], 0, ["person:read", "group:read"]),
-            ("nested_filters_are_not_classified", {"type": "AND", "values": []}, 0, ["person:read", "group:read"]),
-            ("malformed_filter", ["group"], 0, ["person:read", "group:read"]),
+            (
+                "nested_hogql_filter",
+                {"type": "AND", "values": [{"type": "OR", "values": [{"type": "hogql", "key": "1"}]}]},
+                None,
+                ["person:read", "query:read"],
+            ),
+            (
+                "nested_plain_group_filters",
+                {"type": "AND", "values": [{"type": "group", "key": "a"}]},
+                0,
+                ["group:read"],
+            ),
+            ("json_string_filters", '[{"type": "hogql", "key": "1"}]', None, ["person:read", "query:read"]),
+            ("malformed_filter", ["group"], 0, ["person:read", "group:read", "query:read"]),
         ]
     )
     def test_scopes_follow_what_the_filters_can_read(self, _name, properties, group_type_index, expected):

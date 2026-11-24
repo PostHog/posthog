@@ -40,6 +40,7 @@ from posthog.helpers.impersonation import is_impersonated
 from posthog.hogql_queries.legacy_compatibility.clean_properties import clean_property
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
+from posthog.models.property.property import QUERY_SCOPED_PROPERTY_TYPES
 from posthog.permissions import scopes_caller_lacks
 from posthog.security.url_validation import has_ambiguous_authority
 from posthog.utils import load_data_from_request
@@ -271,12 +272,11 @@ def parse_actor_property_filters(raw_properties: Optional[str]) -> list[dict]:
 
 
 def require_query_read_for_hogql_filters(request: request.Request, properties: list[dict]) -> None:
-    """A HogQL filter can read any table the query can, so a scoped token also needs query:read to send one."""
-    if not any(isinstance(prop, dict) and prop.get("type") == "hogql" for prop in properties):
+    if not any(isinstance(prop, dict) and prop.get("type") in QUERY_SCOPED_PROPERTY_TYPES for prop in properties):
         return
     missing = scopes_caller_lacks(request, ["query:read"])
     if missing:
-        raise InsufficientScope(missing, detail="HogQL property filters also need: query:read.")
+        raise InsufficientScope(missing, detail="HogQL and data warehouse property filters also need: query:read.")
 
 
 INSIGHT_KINDS = {

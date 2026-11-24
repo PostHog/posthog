@@ -43,10 +43,8 @@ from posthog.models.person.util import (
     get_person_by_id,
     get_person_by_uuid,
 )
-from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team_revenue_analytics_config import TeamRevenueAnalyticsConfig
-from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.personhog_client.fake_client import fake_personhog_client, get_active_fake
 from posthog.test.persons import add_distinct_id, create_person, delete_person
 
@@ -2794,8 +2792,7 @@ class TestPersonBatchRestrictedProperties(ClickhouseTestMixin, APIBaseTest):
         ]
     )
     def test_hogql_property_filter_needs_query_read_scope(self, _name, scopes, expected_status) -> None:
-        key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="persons", user=self.user, secure_value=hash_key_value(key), scopes=scopes)
+        key = self.create_personal_api_key_with_scopes(scopes)
         filters = json.dumps([{"type": "hogql", "key": "1 = 1"}])
 
         response = self.client.get(

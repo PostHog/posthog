@@ -1,3 +1,4 @@
+import json
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime
@@ -26,6 +27,7 @@ from posthog.dataclasses import frozen
 from posthog.errors import ExposedCHQueryError, InternalCHQueryError, look_up_clickhouse_error_code_meta
 from posthog.models.property import GroupTypeIndex, Property, PropertyGroup, PropertyValidationError
 from posthog.models.property.parse import parse_properties_for_team
+from posthog.models.property.property import QUERY_SCOPED_PROPERTY_TYPES
 from posthog.models.property.relative_date import relative_date_parse_for_feature_flag_matching
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -73,15 +75,34 @@ def blast_radius_data_scopes(properties: object, is_group: bool) -> list[str]:
 
     A person count needs person:read. A group count needs only group:read when every filter is a plain group
     property. Any other filter, such as a HogQL expression or a cohort, can read persons through a subquery, so
-    the count also needs person:read. A filter shape this function cannot classify counts as that other kind.
+    the count also needs person:read. A HogQL or data warehouse filter can read any table, so it also needs
+    query:read. A filter shape this function cannot classify counts as one that needs every scope.
     """
+    if isinstance(properties, str):
+        try:
+            properties = json.loads(properties)
+        except json.JSONDecodeError:
+            return ["person:read", "group:read", "query:read"]
+    leaves = list(_raw_property_leaves(properties)) if properties is not None else []
     if not is_group:
-        return ["person:read"]
-    plain_group_filters = properties is None or (
-        isinstance(properties, list)
-        and all(isinstance(prop, dict) and prop.get("type") == "group" and "values" not in prop for prop in properties)
-    )
-    return ["group:read"] if plain_group_filters else ["person:read", "group:read"]
+        scopes = ["person:read"]
+    elif all(isinstance(prop, dict) and prop.get("type") == "group" for prop in leaves):
+        scopes = ["group:read"]
+    else:
+        scopes = ["person:read", "group:read"]
+    if any(not isinstance(prop, dict) or prop.get("type") in QUERY_SCOPED_PROPERTY_TYPES for prop in leaves):
+        scopes.append("query:read")
+    return scopes
+
+
+def _raw_property_leaves(properties: object) -> Iterator[object]:
+    if isinstance(properties, list):
+        for prop in properties:
+            yield from _raw_property_leaves(prop)
+    elif isinstance(properties, dict) and properties.get("type") in ("AND", "OR") and "values" in properties:
+        yield from _raw_property_leaves(properties["values"])
+    else:
+        yield properties
 
 
 def sampled_person_blast_radius(

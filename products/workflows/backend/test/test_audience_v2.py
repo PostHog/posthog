@@ -1,3 +1,5 @@
+from contextlib import nullcontext
+
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
 from unittest.mock import patch
@@ -403,18 +405,9 @@ class TestAudienceCountsHonorPropertyAccess(ClickhouseTestMixin, BaseTest):
     )
     def test_audience_size_refuses_a_filter_the_user_cannot_read(self, _name, properties, refused):
         filters = {"properties": properties}
-        if refused:
-            with pytest.raises(ValidationError):
-                self._size(self.restricted_member, filters)
-        else:
+        with pytest.raises(ValidationError) if refused else nullcontext():
             self._size(self.restricted_member, filters)
         self._size(self.other_member, filters)
-
-    def test_audience_size_refuses_a_cohort_that_filters_on_the_restricted_property(self):
-        cohort = Cohort.objects.create(team=self.team, groups=[{"properties": [EMAIL_FILTER]}])
-
-        with pytest.raises(ValidationError):
-            self._size(self.restricted_member, {"properties": [{"key": "id", "type": "cohort", "value": cohort.pk}]})
 
     def test_audience_size_refuses_a_test_account_filter_on_the_restricted_property(self):
         self.team.test_account_filters = [EMAIL_FILTER]
@@ -423,28 +416,22 @@ class TestAudienceCountsHonorPropertyAccess(ClickhouseTestMixin, BaseTest):
         with pytest.raises(ValidationError):
             self._size(self.restricted_member, {"properties": [], "filter_test_accounts": True})
 
-    def test_audience_size_allows_a_static_cohort(self):
-        cohort = Cohort.objects.create(team=self.team, is_static=True)
+    @parameterized.expand(
+        [
+            ("dynamic_cohort", False, "cohort", True),
+            ("precalculated_cohort", False, "precalculated-cohort", True),
+            ("dynamic_cohort_labeled_static", False, "static-cohort", True),
+            ("static_cohort", True, "cohort", False),
+        ]
+    )
+    def test_audience_size_checks_cohorts_by_what_they_read(self, _name, is_static, filter_type, refused):
+        cohort = Cohort.objects.create(
+            team=self.team, is_static=is_static, groups=[] if is_static else [{"properties": [EMAIL_FILTER]}]
+        )
+        filters = {"properties": [{"key": "id", "type": filter_type, "value": cohort.pk}]}
 
-        self._size(self.restricted_member, {"properties": [{"key": "id", "type": "cohort", "value": cohort.pk}]})
-
-    def test_audience_size_refuses_a_precalculated_cohort(self):
-        cohort = Cohort.objects.create(team=self.team, groups=[{"properties": [EMAIL_FILTER]}])
-
-        with pytest.raises(ValidationError):
-            self._size(
-                self.restricted_member,
-                {"properties": [{"key": "id", "type": "precalculated-cohort", "value": cohort.pk}]},
-            )
-
-    def test_audience_size_refuses_a_dynamic_cohort_labeled_static(self):
-        cohort = Cohort.objects.create(team=self.team, groups=[{"properties": [EMAIL_FILTER]}])
-
-        with pytest.raises(ValidationError):
-            self._size(
-                self.restricted_member,
-                {"properties": [{"key": "id", "type": "static-cohort", "value": cohort.pk}]},
-            )
+        with pytest.raises(ValidationError) if refused else nullcontext():
+            self._size(self.restricted_member, filters)
 
     def test_refusal_lifts_once_the_rule_is_removed(self):
         filters = {"properties": [EMAIL_FILTER]}

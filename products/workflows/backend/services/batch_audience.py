@@ -21,14 +21,16 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.access_control.backend.facade import api as access_control_api
-from products.cohorts.backend.facade.api import get_cohort_ref
 from products.feature_flags.backend.user_blast_radius import (
     PERSON_BATCH_SIZE as GROUP_AUDIENCE_PAGE_SIZE,
     get_user_blast_radius_persons,
     replace_proxy_properties,
     unevaluable_filters_as_validation_errors,
 )
-from products.workflows.backend.services.batch_audience_cohorts import reject_excluded_cohort_without_members
+from products.workflows.backend.services.batch_audience_cohorts import (
+    is_static_cohort,
+    reject_excluded_cohort_without_members,
+)
 
 EMAIL_DEDUPE_KEY = "email"
 SUPPORTED_DEDUPE_KEYS = (EMAIL_DEDUPE_KEY,)
@@ -125,14 +127,6 @@ def reject_unusable_audience_conditions(team: Team, filters: dict) -> None:
         raise exceptions.ValidationError(BATCH_FLAG_CONDITION_REJECTION)
 
 
-def _is_static_cohort(team: Team, cohort_id: Any) -> bool:
-    try:
-        cohort = get_cohort_ref(team_id=team.pk, cohort_id=int(cohort_id))
-    except (TypeError, ValueError):
-        return False
-    return cohort is not None and cohort.is_static
-
-
 def reject_audience_reading_restricted_properties(team: Team, filters: dict, user: Optional[User]) -> None:
     """
     Refuse an audience whose preview would count different people than the send reaches.
@@ -143,36 +137,27 @@ def reject_audience_reading_restricted_properties(team: Team, filters: dict, use
     the keys of, such as HogQL or an event filter, could read any property, so it counts as a mismatch. A
     static cohort reads only stored membership, so it never counts as one.
     """
-    user_names = access_control_api.split_restricted_property_names(
+    diff = access_control_api.split_restricted_property_names(
         access_control_api.get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team.pk)
+        ^ access_control_api.get_restricted_properties_with_group_type_index_for_team(user=None, team_id=team.pk)
     )
-    send_names = access_control_api.split_restricted_property_names(
-        access_control_api.get_restricted_properties_with_group_type_index_for_team(user=None, team_id=team.pk)
-    )
-    person_diff = user_names.person ^ send_names.person
-    group_diff = {
-        index: user_names.group.get(index, frozenset()) ^ send_names.group.get(index, frozenset())
-        for index in user_names.group.keys() | send_names.group.keys()
-    }
-    if not person_diff and not any(group_diff.values()) and not user_names.event ^ send_names.event:
+    if not diff.person and not diff.event and not any(diff.group.values()):
         return
 
     # The counts and the send read the same expanded filter, which includes the team's test account filters.
     with unevaluable_filters_as_validation_errors():
-        prop_group = expand_cohort_properties(replace_proxy_properties(team, filters or {}), team)
+        prop_group = replace_proxy_properties(team, filters or {})
     for prop in prop_group.flat:
-        if prop.type == "static-cohort" and _is_static_cohort(team, prop.value):
+        if prop.type == "static-cohort" and is_static_cohort(team.project_id, prop.value):
             # A static cohort reads stored membership, which no property rule masks. The caller sets the filter
             # type, so the stored cohort decides. A precalculated cohort can be recalculated inline from its
             # filters, so it is not exempt.
             continue
-        if prop.type == "person" and not key_read_overlaps_restriction(str(prop.key), person_diff):
+        if prop.type == "person" and not key_read_overlaps_restriction(str(prop.key), diff.person):
             continue
         if prop.type == "group" and (
             prop.key == "$group_key"
-            or not key_read_overlaps_restriction(
-                str(prop.key), group_diff.get(prop.group_type_index, frozenset()) | group_diff.get(None, frozenset())
-            )
+            or not key_read_overlaps_restriction(str(prop.key), diff.group_property_names(prop.group_type_index))
         ):
             continue
         raise exceptions.ValidationError(RESTRICTED_AUDIENCE_PROPERTY)

@@ -46,10 +46,8 @@ from posthog.models.async_deletion.async_deletion import AsyncDeletion, Deletion
 from posthog.models.event.new_events_schema import use_new_events_schema
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.person.util import get_person_by_id
-from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.property import BehavioralPropertyType, Property
 from posthog.models.team.team import Team
-from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.redis import get_client as get_redis_client
 from posthog.tasks.calculate_cohort import (
     calculate_cohort_ch,
@@ -3242,8 +3240,7 @@ email@example.org,
     )
     def test_hogql_property_filter_needs_query_read_scope(self, _name: str, scopes: list[str], expected_status: int):
         cohort = Cohort.objects.create(team=self.team, is_static=True)
-        key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="cohorts", user=self.user, secure_value=hash_key_value(key), scopes=scopes)
+        key = self.create_personal_api_key_with_scopes(scopes)
         properties = json.dumps([{"type": "hogql", "key": "1 = 1"}])
 
         response = self.client.get(
