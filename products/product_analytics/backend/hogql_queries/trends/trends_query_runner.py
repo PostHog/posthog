@@ -107,10 +107,7 @@ from products.product_analytics.backend.hogql_queries.trends.trends_actors_query
     ActorsDateWindow,
     TrendsActorsQueryBuilder,
 )
-from products.product_analytics.backend.hogql_queries.trends.trends_query_builder import (
-    MAX_SHARED_BREAKDOWN_VALUES_LENGTH,
-    TrendsQueryBuilder,
-)
+from products.product_analytics.backend.hogql_queries.trends.trends_query_builder import TrendsQueryBuilder
 from products.product_analytics.backend.hogql_queries.trends.utils import is_groups_math
 from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by_name
 
@@ -157,7 +154,7 @@ class _ResultSeriesBreakdown:
 
 @frozen
 class _BreakdownRanking:
-    values: list[str] | list[list[str]]
+    value_hashes: list[int]
     event_counts: dict[str, int]
     other_values_count: int
     other_event_count: int
@@ -316,7 +313,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         with self.timings.measure("trends_to_query"):
             for series in self.series:
                 ranking = shared_breakdown_values.for_series(series) if shared_breakdown_values is not None else None
-                query = self._series_query_builder(series, ranking.values if ranking else None).build_query()
+                query = self._series_query_builder(series, ranking.value_hashes if ranking else None).build_query()
 
                 # Get around the default 100 limit, bump to the max 10000.
                 # This is useful for the world map view and other cases with a lot of breakdowns.
@@ -327,7 +324,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         return queries
 
     def _series_query_builder(
-        self, series: SeriesWithExtras, shared_breakdown_values: list[str] | list[list[str]] | None = None
+        self, series: SeriesWithExtras, shared_breakdown_value_hashes: list[int] | None = None
     ) -> TrendsQueryBuilder:
         if not series.is_previous_period_series:
             query_date_range = self.query_date_range
@@ -344,7 +341,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
-            shared_breakdown_values=shared_breakdown_values,
+            shared_breakdown_value_hashes=shared_breakdown_value_hashes,
         )
 
     @cached_property
@@ -404,12 +401,6 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                 )
 
         assert rankings[0] is not None
-        # Every series query repeats the values, so long values fall back to a ranking per series.
-        for ranking in rankings:
-            if ranking is not None and sum(len(_breakdown_ranking_key(value)) for value in ranking.values) > (
-                MAX_SHARED_BREAKDOWN_VALUES_LENGTH
-            ):
-                return None
         return _SharedBreakdownValues(current_period=rankings[0], previous_period=rankings[1])
 
     def _event_count_query_builder(self, series: SeriesWithExtras) -> TrendsQueryBuilder:
@@ -458,7 +449,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         values_count = int(rows[0][2]) if rows else 0
         all_values_event_count = int(rows[0][3]) if rows else 0
         return _BreakdownRanking(
-            values=[row[0] for row in rows],
+            value_hashes=[int(row[4]) for row in rows],
             event_counts=event_counts,
             other_values_count=values_count - len(rows),
             other_event_count=all_values_event_count - sum(event_counts.values()),

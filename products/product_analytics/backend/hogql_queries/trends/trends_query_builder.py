@@ -37,9 +37,8 @@ from products.web_analytics.backend.hogql_queries.first_pageview_attribution imp
     first_pageview_aware_properties_to_expr,
 )
 
-# A series query holds the shared breakdown values as constants, so a longer list makes the query text too large.
-MAX_SHARED_BREAKDOWN_VALUES = 1_000
-MAX_SHARED_BREAKDOWN_VALUES_LENGTH = 50_000
+# A series query holds one 64-bit hash per shared breakdown value as a constant. The limit bounds that query text.
+MAX_SHARED_BREAKDOWN_VALUES = 10_000
 
 
 class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
@@ -50,7 +49,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
     timings: HogQLTimings
     modifiers: HogQLQueryModifiers
     limit_context: LimitContext
-    shared_breakdown_values: list[str] | list[list[str]] | None
+    shared_breakdown_value_hashes: list[int] | None
 
     def __init__(
         self,
@@ -61,7 +60,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         timings: HogQLTimings,
         modifiers: HogQLQueryModifiers,
         limit_context: LimitContext = LimitContext.QUERY,
-        shared_breakdown_values: list[str] | list[list[str]] | None = None,
+        shared_breakdown_value_hashes: list[int] | None = None,
     ):
         self.query = trends_query
         self.team = team
@@ -70,7 +69,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         self.timings = timings
         self.modifiers = modifiers
         self.limit_context = limit_context
-        self.shared_breakdown_values = shared_breakdown_values
+        self.shared_breakdown_value_hashes = shared_breakdown_value_hashes
 
     def build_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         events_query = self._base_events_query()
@@ -155,7 +154,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 parse_expr(
                     "breakdown_rank <= {breakdown_limit}", placeholders={"breakdown_limit": breakdown_limit_expr}
                 )
-                if self.shared_breakdown_values is None
+                if self.shared_breakdown_value_hashes is None
                 else ast.Not(expr=is_other_breakdown_expr)
             )
             is_cumulative = self._trends_display.display_type == ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE
@@ -1035,23 +1034,24 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         )
 
     def _is_other_breakdown_expr(self, is_other_by_rank: ast.Expr, breakdown_value: ast.Expr) -> ast.Expr:
-        if self.shared_breakdown_values is None:
+        if self.shared_breakdown_value_hashes is None:
             return is_other_by_rank
 
+        # A hash has a fixed size, so the query text does not grow with the length of the values. Both queries hash
+        # with `_breakdown_value_hash_expr`, and a collision of 64-bit hashes only shows one more row.
         return parse_expr(
-            "{breakdown_value} NOT IN {shared_breakdown_values}",
+            "{breakdown_value_hash} NOT IN {shared_breakdown_value_hashes}",
             placeholders={
-                "breakdown_value": breakdown_value,
-                "shared_breakdown_values": ast.Array(
-                    exprs=[
-                        ast.Array(exprs=[ast.Constant(value=part) for part in value])
-                        if isinstance(value, list)
-                        else ast.Constant(value=value)
-                        for value in self.shared_breakdown_values
-                    ]
+                "breakdown_value_hash": self._breakdown_value_hash_expr(breakdown_value),
+                "shared_breakdown_value_hashes": ast.Array(
+                    exprs=[ast.Constant(value=value_hash) for value_hash in self.shared_breakdown_value_hashes]
                 ),
             },
         )
+
+    @staticmethod
+    def _breakdown_value_hash_expr(breakdown_value: ast.Expr) -> ast.Expr:
+        return ast.Call(name="cityHash64", args=[breakdown_value])
 
     @property
     def can_share_breakdown_values(self) -> bool:
@@ -1086,7 +1086,8 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                     breakdown_value,
                     total,
                     count() OVER () AS values_count,
-                    sum(total) OVER () AS all_values_total
+                    sum(total) OVER () AS all_values_total,
+                    {breakdown_value_hash} AS breakdown_value_hash
                 FROM (
                     SELECT breakdown_value, sum(total) AS total
                     FROM {totals}
@@ -1098,6 +1099,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 """,
                 placeholders={
                     "totals": ast.SelectSetQuery.create_from_queries(totals_queries, "UNION ALL"),
+                    "breakdown_value_hash": self._breakdown_value_hash_expr(ast.Field(chain=["breakdown_value"])),
                     "breakdown_filter": self._breakdown_outer_query_filter(self.breakdown),
                     "breakdown_order": self._breakdown_query_order_by(self.breakdown),
                     "breakdown_limit": ast.Constant(value=self._get_breakdown_limit()),

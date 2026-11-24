@@ -47,7 +47,7 @@
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      if(ifNull(notIn(breakdown_value, ['London', 'Paris']), 1), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+                      if(ifNull(notIn(cityHash64(breakdown_value), [15802005934875159175, 3507369097141014428]), 1), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -95,7 +95,7 @@
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      if(ifNull(notIn(breakdown_value, ['London', 'Paris']), 1), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+                      if(ifNull(notIn(cityHash64(breakdown_value), [15802005934875159175, 3507369097141014428]), 1), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -144,7 +144,8 @@
   SELECT breakdown_value AS breakdown_value,
          total AS total,
          count() OVER () AS values_count,
-         sum(total) OVER () AS all_values_total
+         sum(total) OVER () AS all_values_total,
+         cityHash64(breakdown_value) AS breakdown_value_hash
   FROM
     (SELECT breakdown_value AS breakdown_value,
             sum(total) AS total
@@ -198,7 +199,7 @@
 # name: TestFormula.test_breakdown_aggregated[new_events_schema.1]
   '''
   SELECT sum(total) AS total,
-         if(ifNull(notIn(breakdown_value, ['London', 'Paris']), 1), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+         if(ifNull(notIn(cityHash64(breakdown_value), [15802005934875159175, 3507369097141014428]), 1), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT count AS total,
                      breakdown_value AS breakdown_value,
@@ -240,7 +241,7 @@
 # name: TestFormula.test_breakdown_aggregated[new_events_schema.2]
   '''
   SELECT avg(total) AS total,
-         if(ifNull(notIn(breakdown_value, ['London', 'Paris']), 1), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+         if(ifNull(notIn(cityHash64(breakdown_value), [15802005934875159175, 3507369097141014428]), 1), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT count AS total,
                      breakdown_value AS breakdown_value,
@@ -284,7 +285,8 @@
   SELECT breakdown_value AS breakdown_value,
          total AS total,
          count() OVER () AS values_count,
-         sum(total) OVER () AS all_values_total
+         sum(total) OVER () AS all_values_total,
+         cityHash64(breakdown_value) AS breakdown_value_hash
   FROM
     (SELECT breakdown_value AS breakdown_value,
             sum(total) AS total
@@ -551,7 +553,7 @@
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      if(ifNull(notIn(breakdown_value, ['some_val : London', 'some_val : Paris']), 1), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+                      if(ifNull(notIn(cityHash64(breakdown_value), [12145315239369086538, 1289017501600763082]), 1), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -599,7 +601,7 @@
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      if(ifNull(notIn(breakdown_value, ['some_val : London', 'some_val : Paris']), 1), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+                      if(ifNull(notIn(cityHash64(breakdown_value), [12145315239369086538, 1289017501600763082]), 1), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -648,7 +650,8 @@
   SELECT breakdown_value AS breakdown_value,
          total AS total,
          count() OVER () AS values_count,
-         sum(total) OVER () AS all_values_total
+         sum(total) OVER () AS all_values_total,
+         cityHash64(breakdown_value) AS breakdown_value_hash
   FROM
     (SELECT breakdown_value AS breakdown_value,
             sum(total) AS total
@@ -703,7 +706,7 @@
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      if(ifNull(notIn(breakdown_value, ['London', 'Paris']), 1), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+                      if(ifNull(notIn(cityHash64(breakdown_value), [15802005934875159175, 3507369097141014428]), 1), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -751,7 +754,7 @@
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      if(ifNull(notIn(breakdown_value, ['London', 'Paris']), 1), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+                      if(ifNull(notIn(cityHash64(breakdown_value), [15802005934875159175, 3507369097141014428]), 1), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -800,7 +803,8 @@
   SELECT breakdown_value AS breakdown_value,
          total AS total,
          count() OVER () AS values_count,
-         sum(total) OVER () AS all_values_total
+         sum(total) OVER () AS all_values_total,
+         cityHash64(breakdown_value) AS breakdown_value_hash
   FROM
     (SELECT breakdown_value AS breakdown_value,
             sum(total) AS total
@@ -855,7 +859,7 @@
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      if(ifNull(notIn(breakdown_value, ['London', 'Paris', 'Belo Horizonte', '$$_posthog_breakdown_null_$$']), 1), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+                      if(ifNull(notIn(cityHash64(breakdown_value), [15802005934875159175, 3507369097141014428, 15010945323047289263, 12356178675687749048]), 1), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -903,7 +907,7 @@
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      if(ifNull(notIn(breakdown_value, ['London', 'Paris', 'Belo Horizonte', '$$_posthog_breakdown_null_$$']), 1), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+                      if(ifNull(notIn(cityHash64(breakdown_value), [15802005934875159175, 3507369097141014428, 15010945323047289263, 12356178675687749048]), 1), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -952,7 +956,8 @@
   SELECT breakdown_value AS breakdown_value,
          total AS total,
          count() OVER () AS values_count,
-         sum(total) OVER () AS all_values_total
+         sum(total) OVER () AS all_values_total,
+         cityHash64(breakdown_value) AS breakdown_value_hash
   FROM
     (SELECT breakdown_value AS breakdown_value,
             sum(total) AS total

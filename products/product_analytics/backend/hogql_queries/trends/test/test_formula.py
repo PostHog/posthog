@@ -837,22 +837,6 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
             [("Rome", 10, 6, None), ("$$_posthog_breakdown_other_$$", 1000, 2, 1)],
         )
 
-        with patch(
-            "products.product_analytics.backend.hogql_queries.trends.trends_query_runner.MAX_SHARED_BREAKDOWN_VALUES_LENGTH",
-            len('"Rome"') - 1,
-        ):
-            response = self._run(
-                {
-                    "series": [
-                        {"kind": "EventsNode", "event": "purchase", "math": "sum", "math_property": "amount"},
-                        {"kind": "EventsNode", "event": "purchase"},
-                    ],
-                    "breakdownFilter": {"breakdown": "shop", "breakdown_limit": 1},
-                    "trendsFilter": {"formula": "A / B", "display": "ActionsTable"},
-                }
-            )
-        self.assertEqual([series.get("breakdown_event_count") for series in response], [None] * len(response))
-
     @parameterized.expand(
         [
             (
