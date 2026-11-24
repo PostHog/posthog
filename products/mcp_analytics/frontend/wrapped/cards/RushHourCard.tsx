@@ -14,7 +14,6 @@ export function RushHourCard({ card }: { card: MCPWrappedRushHourCardApi }): JSX
         <WrappedCard cardKey="rush_hour" kicker="Rush hour" hoggie={card.night_shift ? NIGHT_SHIFT_HOGGIE : undefined}>
             <h2 className="MCPWrapped__rise m-0 text-4xl font-bold leading-tight">
                 {formatHour(card.weekday, card.hour)}
-                <span className="align-super text-2xl opacity-60">*</span>
             </h2>
             <p className="MCPWrapped__rise m-0 text-base">
                 <strong className="block">{rushHourLine(card.weekday, card.hour, card.night_shift)}</strong>
@@ -49,9 +48,7 @@ export function RushHourCard({ card }: { card: MCPWrappedRushHourCardApi }): JSX
                     </span>
                 ))}
             </div>
-            <p className="MCPWrapped__rise m-0 text-right text-xs opacity-75">
-                * Times in {formatTimezone(card.timezone)}
-            </p>
+            <p className="MCPWrapped__rise m-0 text-xs opacity-75">* Times in {formatTimezone(card.timezone)}</p>
         </WrappedCard>
     )
 }
