@@ -1,6 +1,7 @@
 package app_test
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
@@ -12,11 +13,14 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
 
 	"github.com/PostHog/posthog/products/tasks/services/egress-proxy/internal/app"
+	"github.com/PostHog/posthog/products/tasks/services/egress-proxy/internal/telemetry"
 )
 
 type runtimeMessage struct {
@@ -39,6 +43,135 @@ func (w runtimeWriter) Write(data []byte) (int, error) {
 		}
 	}
 	return len(data), nil
+}
+
+type stalledAuditOutput struct {
+	bytes.Buffer
+	resume chan struct{}
+}
+
+func (w *stalledAuditOutput) Write(data []byte) (int, error) {
+	<-w.resume
+	return w.Buffer.Write(data)
+}
+
+func TestRunRecoversAfterAuditSaturation(t *testing.T) {
+	f := newProxyFixture(t)
+	f.config.AuditCapacity = 2
+	config, err := json.Marshal(f.config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := writeTestFile(t, "proxy.json", config)
+	output := &stalledAuditOutput{resume: make(chan struct{})}
+	resume := sync.OnceFunc(func() { close(output.resume) })
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	messages := make(chan runtimeMessage, 2)
+	finished := make(chan struct{})
+	var runErr error
+	go func() {
+		runErr = app.Run(ctx, "proxy", path, nil, output, runtimeWriter{messages})
+		close(finished)
+	}()
+	t.Cleanup(func() {
+		resume()
+		cancel()
+		select {
+		case <-finished:
+			if runErr != nil {
+				t.Error(runErr)
+			}
+		case <-time.After(10 * time.Second):
+			t.Error("service did not stop")
+		}
+	})
+	var address runtimeMessage
+	select {
+	case address = <-messages:
+	case <-finished:
+		t.Fatalf("startup failed: %v", runErr)
+	case <-ctx.Done():
+		t.Fatal("service did not start")
+	}
+	endpoint, err := url.Parse("https://" + address.Listen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.registration.Authority = "localhost:" + endpoint.Port()
+	public := "https://" + f.registration.Authority + "/v1/probe"
+	admin := "http://" + address.Admin
+	adminClient := &http.Client{Timeout: time.Second}
+	client := f.client(t, &f.relayCert)
+	token := f.capability(t, f.signer, "initial")
+	requestStatus(t, client, public, token, http.StatusNoContent)
+	requestStatus(t, client, public, token, http.StatusServiceUnavailable)
+	for _, route := range []string{"/livez", "/readyz"} {
+		requestStatus(t, adminClient, admin+route, "", http.StatusNoContent)
+	}
+	metrics := func() string {
+		t.Helper()
+		response, err := adminClient.Get(admin + "/metrics")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer response.Body.Close()
+		data, err := io.ReadAll(response.Body)
+		if err != nil || response.StatusCode != http.StatusOK {
+			t.Fatalf("metrics response: status=%d error=%v", response.StatusCode, err)
+		}
+		return string(data)
+	}
+	before := metrics()
+	for _, metric := range []string{
+		"egress_audit_pending_events 2\n", "egress_audit_rejected_total 1\n", "egress_audit_export_failed 0\n",
+		"egress_requests_total{outcome=\"allowed\"} 1\n", "egress_requests_total{outcome=\"audit_unavailable\"} 1\n",
+	} {
+		if !strings.Contains(before, metric) {
+			t.Fatalf("missing metric %q in %s", metric, before)
+		}
+	}
+	resume()
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for !strings.Contains(metrics(), "egress_audit_pending_events 0\n") {
+		select {
+		case <-ctx.Done():
+			t.Fatal("audit output did not drain")
+		case <-ticker.C:
+		}
+	}
+	requestStatus(t, client, public, token, http.StatusNoContent)
+	cancel()
+	select {
+	case <-finished:
+		if runErr != nil {
+			t.Fatal(runErr)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("service did not drain")
+	}
+	decoder := json.NewDecoder(&output.Buffer)
+	pairs := make(map[string][]string)
+	for {
+		var event telemetry.Event
+		if err := decoder.Decode(&event); errors.Is(err, io.EOF) {
+			break
+		} else if err != nil {
+			t.Fatal(err)
+		}
+		if event.Status != http.StatusNoContent || event.RunID != f.registration.RunID || event.ExecutionID != f.registration.ExecutionID {
+			t.Fatalf("unexpected audit event: %+v", event)
+		}
+		pairs[event.RequestID] = append(pairs[event.RequestID], event.Phase)
+	}
+	if len(pairs) != 2 {
+		t.Fatalf("audit contains %d requests, want 2", len(pairs))
+	}
+	for id, phases := range pairs {
+		if strings.Join(phases, ",") != "admission,completion" {
+			t.Fatalf("request %s phases = %v", id, phases)
+		}
+	}
 }
 
 func TestRunSeparatesAdministrationAndStopsListeners(t *testing.T) {
@@ -196,8 +329,10 @@ func TestProxyMainHandlesBrokenAuditPipe(t *testing.T) {
 		t.Fatal(err)
 	}
 	public := "https://localhost:" + endpoint.Port()
+	f.registration.Authority = "localhost:" + endpoint.Port()
 	client := f.client(t, &f.relayCert)
-	requestStatus(t, client, public+"/v1/probe", "", http.StatusUnauthorized)
+	token := f.capability(t, f.signer, "initial")
+	requestStatus(t, client, public+"/v1/probe", token, http.StatusNoContent)
 	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
 	for {
@@ -218,7 +353,7 @@ func TestProxyMainHandlesBrokenAuditPipe(t *testing.T) {
 		}
 		break
 	}
-	requestStatus(t, client, public+"/v1/probe", "", http.StatusServiceUnavailable)
+	requestStatus(t, client, public+"/v1/probe", token, http.StatusServiceUnavailable)
 	requestStatus(t, http.DefaultClient, "http://"+address.Admin+"/livez", "", http.StatusServiceUnavailable)
 	if err := command.Process.Signal(syscall.SIGTERM); err != nil {
 		t.Fatal(err)
