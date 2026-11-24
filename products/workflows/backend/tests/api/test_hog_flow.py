@@ -5643,8 +5643,8 @@ class TestHogFlowAPI(APIBaseTest):
             )
 
             assert response.status_code == 200, response.json()
-            mock_v1.assert_called_once()
-            mock_v2.assert_called_once()
+            mock_v1.assert_called_once_with(self.team, {"properties": []}, 0, user=self.user)
+            mock_v2.assert_called_once_with(self.team, {"properties": []}, user=self.user)
 
     @override_settings(
         HOGFLOW_BATCH_TRIGGER_LIMIT=5000,

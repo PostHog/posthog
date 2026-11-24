@@ -17,7 +17,9 @@ from posthog.models.property import GroupTypeIndex, PropertyGroup
 from posthog.models.property.parse import expand_cohort_properties, parse_property_group_data
 from posthog.models.property.property import Property, PropertyValidationError
 from posthog.models.team.team import Team
+from posthog.models.user import User
 
+from products.access_control.backend.facade import api as access_control_api
 from products.feature_flags.backend.user_blast_radius import (
     PERSON_BATCH_SIZE as GROUP_AUDIENCE_PAGE_SIZE,
     get_user_blast_radius_persons,
@@ -28,6 +30,14 @@ from products.workflows.backend.services.batch_audience_cohorts import reject_ex
 
 EMAIL_DEDUPE_KEY = "email"
 SUPPORTED_DEDUPE_KEYS = (EMAIL_DEDUPE_KEY,)
+
+
+def can_read_email(user: Optional[User], team_id: int) -> bool:
+    """Email dedupe and the audience cards both group people by email, so they need to read it."""
+    restrictions = access_control_api.get_restricted_properties_with_group_type_index_for_team(
+        user=user, team_id=team_id
+    )
+    return EMAIL_DEDUPE_KEY not in access_control_api.split_restricted_property_names(restrictions).person
 
 
 def person_audience_page_size() -> int:

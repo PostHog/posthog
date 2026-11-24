@@ -28,7 +28,12 @@ from products.workflows.backend.services.account_audience import (
     get_account_group_type_name as _get_account_group_type_name,
 )
 from products.workflows.backend.services.audience_v2 import get_dedupe_audience_count_v2, get_person_audience_count_v2
-from products.workflows.backend.services.batch_audience import audience_page_size, get_batch_audience_person_ids
+from products.workflows.backend.services.batch_audience import (
+    EMAIL_DEDUPE_KEY,
+    audience_page_size,
+    can_read_email,
+    get_batch_audience_person_ids,
+)
 from products.workflows.backend.services.batch_audience_cohorts import (
     find_realtime_behavioral_cohort,
     realtime_audience_cohort,
@@ -145,6 +150,10 @@ def get_audience_size(
         )
     if group_type_index is None:
         applied_dedupe_key = dedupe_key
+    if applied_dedupe_key == EMAIL_DEDUPE_KEY and not can_read_email(user, team.pk):
+        # The deduped count refuses a user who cannot read email. The person count is never smaller than the
+        # deduped count, so a launch that checks it against the audience limit stays on the safe side.
+        applied_dedupe_key = None
     count = _cached_count_audience if use_cached_counts else _count_audience
     blast_radius = count(team, filters, group_type_index, applied_dedupe_key, user)
 

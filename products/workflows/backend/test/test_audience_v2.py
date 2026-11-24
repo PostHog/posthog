@@ -365,6 +365,22 @@ class TestAudienceCountsHonorPropertyAccess(ClickhouseTestMixin, BaseTest):
         allowed = get_dedupe_audience_count_v2(self.team, self.filters, EMAIL_DEDUPE_KEY, user=self.other_member)
         assert allowed.affected == 1
 
+    def test_audience_size_falls_back_to_the_person_count_without_email_access(self):
+        def size(user: User):
+            return get_audience_size(
+                team_id=self.team.pk,
+                filters={"properties": []},
+                group_type_index=None,
+                dedupe_key=EMAIL_DEDUPE_KEY,
+                sends_email=True,
+                user=user,
+            )
+
+        restricted = size(self.restricted_member)
+        assert (restricted.affected, restricted.dedupe_key) == (2, None)
+        allowed = size(self.other_member)
+        assert (allowed.affected, allowed.dedupe_key) == (2, EMAIL_DEDUPE_KEY)
+
     def test_cached_counts_are_kept_per_user(self):
         def size(user: User) -> int:
             return get_audience_size(

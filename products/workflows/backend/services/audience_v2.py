@@ -13,7 +13,6 @@ from posthog.models.property import PropertyGroup
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.access_control.backend.facade import api as access_control_api
 from products.feature_flags.backend.person_sampling import (
     count_matching_persons,
     count_settings,
@@ -29,6 +28,7 @@ from products.feature_flags.backend.user_blast_radius import (
 from products.workflows.backend.services.batch_audience import (
     EMAIL_DEDUPE_KEY,
     SUPPORTED_DEDUPE_KEYS,
+    can_read_email,
     email_dedupe_group_expr,
 )
 from products.workflows.backend.services.batch_audience_cohorts import reject_excluded_cohort_without_members
@@ -67,8 +67,7 @@ def get_dedupe_audience_count_v2(
     if dedupe_key != EMAIL_DEDUPE_KEY:
         raise ValueError(f"Unsupported dedupe_key: {dedupe_key!r} (supported: {SUPPORTED_DEDUPE_KEYS})")
 
-    restricted = access_control_api.get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team.pk)
-    if "email" in access_control_api.split_restricted_property_names(restricted).person:
+    if not can_read_email(user, team.pk):
         # A masked email makes every person their own dedupe group, so the count would be the person count.
         raise ValidationError({"dedupe_key": "Sizing a deduplicated audience needs access to the email property."})
 

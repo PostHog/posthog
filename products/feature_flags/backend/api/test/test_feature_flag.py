@@ -9799,9 +9799,8 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
             ]
         }
 
-        result = get_user_blast_radius(self.team, condition, 0, user=self.user)
-
-        assert result.affected == 0
+        assert get_user_blast_radius(self.team, condition, 0).affected == 1
+        assert get_user_blast_radius(self.team, condition, 0, user=self.user).affected == 0
 
     def test_access_controls_action_keeps_its_api_key_scope(self):
         flag = FeatureFlag.objects.create(team=self.team, key="scoped", created_by=self.user)
@@ -9822,16 +9821,25 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("person_needs_person_read", ["feature_flag:read"], None, 403),
-            ("person_with_person_read", ["feature_flag:read", "person:read"], None, 200),
-            ("group_needs_group_read", ["feature_flag:read", "person:read"], 0, 403),
-            ("group_with_group_read", ["feature_flag:read", "group:read"], 0, 200),
+            ("person_needs_person_read", ["feature_flag:read"], [], None, 403),
+            ("person_with_person_read", ["feature_flag:read", "person:read"], [], None, 200),
+            ("group_needs_group_read", ["feature_flag:read", "person:read"], [], 0, 403),
+            ("group_with_group_read", ["feature_flag:read", "group:read"], [], 0, 200),
+            (
+                "group_read_cannot_run_a_hogql_filter",
+                ["feature_flag:read", "group:read"],
+                [{"type": "hogql", "key": "1", "group_type_index": 0}],
+                0,
+                403,
+            ),
         ]
     )
-    def test_user_blast_radius_requires_person_or_group_scope(self, _name, scopes, group_type_index, expected_status):
+    def test_user_blast_radius_requires_person_or_group_scope(
+        self, _name, scopes, properties, group_type_index, expected_status
+    ):
         key = generate_random_token_personal()
         PersonalAPIKey.objects.create(label="X", user=self.user, scopes=scopes, secure_value=hash_key_value(key))
-        body: dict = {"condition": {"properties": []}}
+        body: dict = {"condition": {"properties": properties}}
         if group_type_index is not None:
             body["group_type_index"] = group_type_index
 
