@@ -4,7 +4,7 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import SavedQuery
 from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.errors import BaseHogQLError, CompilationBudgetExceededError
-from posthog.hogql.printer import print_prepared_ast
+from posthog.hogql.printer.clickhouse import ClickHousePrinter
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.visitor import TraversingVisitor
 
@@ -122,22 +122,14 @@ def query_bindings(team: Team, query: str, database: Database) -> QueryBindings:
     first = resolved
     while isinstance(first, ast.SelectSetQuery):
         first = first.initial_select_query
+    # ClickHouse names an unaliased expression after its printed text, and the printer keeps only the last hidden
+    # alias of a name, so a rename can change an output column name while every reference still binds the same.
     columns = (
-        tuple(_output_name(column, context) for column in first.select) if isinstance(first, ast.SelectQuery) else ()
+        tuple(ClickHousePrinter(context=context, stack=[first]).select_column_names(first))
+        if isinstance(first, ast.SelectQuery)
+        else ()
     )
     return QueryBindings(references=references, columns=columns)
-
-
-def _output_name(column: ast.Expr, context: HogQLContext) -> str:
-    # An unaliased expression is named after its text, so renaming a table it reads renames the column. The
-    # resolver leaves some of these, such as arithmetic, out of a query's columns.
-    if isinstance(column, ast.Alias):
-        return column.alias
-    if isinstance(column.type, ast.FieldAliasType):
-        return column.type.alias
-    if isinstance(column.type, ast.FieldType | ast.ExpressionFieldType):
-        return column.type.name
-    return print_prepared_ast(node=column, context=context, dialect="hogql")
 
 
 def binding_change(team: Team, before: QueryBindings, after_query: str, renamed_database: Database) -> str | None:
@@ -150,9 +142,9 @@ def binding_change(team: Team, before: QueryBindings, after_query: str, renamed_
         return DOES_NOT_RESOLVE
     if after.references != before.references:
         return READS_ANOTHER_TABLE
-    for old, new in zip(before.columns, after.columns):
+    for position, (old, new) in enumerate(zip(before.columns, after.columns), start=1):
         if old != new:
-            return f"The rename would change its output column {old} to {new}. Give that column an alias first."
+            return f"The rename would change the name of its output column {position}. Give that column an alias first."
     if len(after.columns) != len(before.columns):
         return READS_ANOTHER_TABLE
     return None

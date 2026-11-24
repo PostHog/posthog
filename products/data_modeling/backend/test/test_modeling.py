@@ -201,8 +201,11 @@ class TestRenameModelReferences(BaseTest):
             ("marts.fees", DataWarehouseSavedQuery.Origin.DATA_WAREHOUSE),
             ("marts.fees.archive", DataWarehouseSavedQuery.Origin.DATA_WAREHOUSE),
             ("held", None),
+            ("vault", None),
         ]:
-            body = "select * from revenue" if name == "wrapper" else "select 1 as id"
+            body = {"wrapper": "select * from revenue", "vault": "select 'vault-literal-7319' as id"}.get(
+                name, "select 1 as id"
+            )
             DataWarehouseSavedQuery.objects.create(
                 team=self.team,
                 name=name,
@@ -459,15 +462,31 @@ class TestRenameModelReferences(BaseTest):
                 "an_expression_named_by_its_text",
                 "income",
                 "select toString(revenue.id), revenue.id from revenue",
-                "The rename would change its output column toString(revenue.id) to toString(income.id). "
-                "Give that column an alias first.",
+                "The rename would change the name of its output column 1. Give that column an alias first.",
             ),
             (
                 "unaliased_arithmetic_over_the_joined_model",
                 "income",
-                "select revenue.id + 1 from costs join revenue on 1 = 1",
-                "The rename would change its output column plus(revenue.id, 1) to plus(income.id, 1). "
-                "Give that column an alias first.",
+                "select revenue.id, revenue.id + 1 from costs join revenue on 1 = 1",
+                "The rename would change the name of its output column 2. Give that column an alias first.",
+            ),
+            (
+                "an_unaliased_scalar_subquery_that_reads_another_model",
+                "income",
+                "select (select revenue.id from revenue cross join vault limit 1) from costs",
+                "The rename would change the name of its output column 1. Give that column an alias first.",
+            ),
+            (
+                "joined_stars_that_export_the_same_column_name",
+                "income",
+                "select revenue.*, costs.* from costs join revenue on 1 = 1",
+                "The rename would change the name of its output column 1. Give that column an alias first.",
+            ),
+            (
+                "joined_stars_that_export_different_column_names",
+                "income",
+                "select revenue.*, costs.id as cost_id from costs join revenue on 1 = 1",
+                None,
             ),
             (
                 "aliased_arithmetic_over_the_joined_model",
