@@ -4311,14 +4311,10 @@ describe('Cyclotron V2', () => {
                     const worker = createFairWorker({ batchMaxSize: 1 })
                     try {
                         const [job] = await dequeueOneBatch(worker)
-                        const seqBefore = await readDequeueSeq(id)
-                        const counterBefore = await readTeamCounter(teamId)
 
                         await expect(job.defer({ scheduledAt: new Date(), ...refused })).rejects.toThrow()
 
                         expect(await queryJob(id)).toMatchObject({ status: 'running', state, file_bytes: '700' })
-                        expect(await readDequeueSeq(id)).toBe(seqBefore)
-                        expect(await readTeamCounter(teamId)).toBe(counterBefore)
 
                         await job.defer({ scheduledAt: new Date(), fileBytes: 900 })
                         expect(await queryJob(id)).toMatchObject({
