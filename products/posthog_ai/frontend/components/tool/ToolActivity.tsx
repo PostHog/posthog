@@ -4,6 +4,7 @@ import { IconLock, IconWarning, IconWrench } from '@posthog/icons'
 
 import type { ToolCallMessage } from 'products/posthog_ai/frontend/types/toolTypes'
 
+import { useNoDataAccess } from '../../hooks/useNoDataAccess'
 import { Activity } from '../ActivityPrimitives'
 import type { ActivityStatus } from '../activityTypes'
 import { VirtualizedThread } from '../VirtualizedThread'
@@ -44,7 +45,8 @@ export function ToolActivity({
 }: ToolActivityProps): JSX.Element {
     const pauseFollowing = VirtualizedThread.usePauseFollowing()
     const { isLoading, isFailed, wasCancelled } = resolveToolCallStatus(message.status, !!turnCancelled, !!turnComplete)
-    const blockedByDataAccess = !isLoading && isDataAccessBlock(message)
+    const noDataAccess = useNoDataAccess()
+    const blockedByDataAccess = noDataAccess && !isLoading && isDataAccessBlock(message)
     const status: ActivityStatus = isFailed || blockedByDataAccess ? 'failed' : isLoading ? 'in_progress' : 'completed'
     // A finished call is the common case, so it carries no label; only exceptions get a word.
     const statusLabel = blockedByDataAccess

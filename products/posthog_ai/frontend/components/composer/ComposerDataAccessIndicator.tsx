@@ -1,14 +1,12 @@
-import { useValues } from 'kea'
-
 import { IconLock } from '@posthog/icons'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill-primitives'
 
-import { organizationLogic } from 'scenes/organizationLogic'
+import { useNoDataAccess } from '../../hooks/useNoDataAccess'
 
 export function ComposerDataAccessIndicator(): JSX.Element | null {
-    const { currentOrganization } = useValues(organizationLogic)
+    const noDataAccess = useNoDataAccess()
 
-    if (currentOrganization?.ai_data_access !== 'metadata_only') {
+    if (!noDataAccess) {
         return null
     }
 

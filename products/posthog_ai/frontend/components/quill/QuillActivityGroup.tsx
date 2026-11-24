@@ -1,10 +1,12 @@
-import { IconWrench } from '@posthog/icons'
+import { IconLock, IconWrench } from '@posthog/icons'
 import { Button, cn } from '@posthog/quill-primitives'
 
+import { useNoDataAccess } from '../../hooks/useNoDataAccess'
 import type { ToolInvocation } from '../../types/streamTypes'
 import { resolveToolCall } from '../../utils/toolResolver'
 import { summarizeToolRun } from '../../utils/toolRunSummary'
 import { ActivityGroupRows } from '../ActivityGroupRows'
+import { isDataAccessBlock } from '../tool/toolContentUtils'
 import { lookupToolRenderer } from '../tool/toolRegistry'
 import { type ActivityGroupProps, useActivityGroup } from '../useActivityGroup'
 import { ThreadMarker } from './ThreadMarker'
@@ -35,7 +37,11 @@ export function QuillActivityGroup(props: ActivityGroupProps): JSX.Element {
     const thinking = running && group.items.at(-1)?.type === 'assistant_thought'
     const current = calls.findLast(isRunning) ?? calls.at(-1)
     const lead = current ? describeCall(current) : undefined
-    const failedCount = calls.filter((call) => call.status === 'failed').length
+    const noDataAccess = useNoDataAccess()
+    const blockedCount = noDataAccess
+        ? calls.filter((call) => isDataAccessBlock({ error: call.error, rawOutput: call.output })).length
+        : 0
+    const failedCount = calls.filter((call) => call.status === 'failed').length - blockedCount
 
     return (
         <ThreadMarker
@@ -99,6 +105,12 @@ export function QuillActivityGroup(props: ActivityGroupProps): JSX.Element {
                     <span className="truncate" data-attr="thread-activity-toggle">
                         {summarizeToolRun(calls)}
                     </span>
+                    {blockedCount > 0 && (
+                        <span className="flex shrink-0 items-center gap-1" data-attr="thread-activity-blocked">
+                            <IconLock />
+                            {blockedCount} blocked
+                        </span>
+                    )}
                     {failedCount > 0 && (
                         <span className="shrink-0 text-(--destructive-foreground)">{failedCount} failed</span>
                     )}

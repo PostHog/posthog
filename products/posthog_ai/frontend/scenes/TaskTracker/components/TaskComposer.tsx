@@ -362,7 +362,6 @@ export function TaskComposer({
                                         <AttachedContextPicker />
                                         {modelPicker}
                                         {modePicker}
-                                        <ComposerDataAccessIndicator />
                                     </Composer.Footer>
                                 </Composer.Frame>
                             )}

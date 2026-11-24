@@ -37,6 +37,16 @@ describe('toolContentUtils', () => {
                 { rawOutput: 'The execute_sql tool is not available in metadata-only mode.', content: [] },
                 true,
             ],
+            [
+                'a refusal inside an MCP error result',
+                {
+                    rawOutput: {
+                        content: [{ type: 'text', text: '{"detail":"Not available in metadata-only mode."}' }],
+                        isError: true,
+                    },
+                },
+                true,
+            ],
             ['an unrelated failure', { error: { message: 'Request timed out' }, content: [] }, false],
         ])('detects %s', (_name, message, expected) => {
             expect(isDataAccessBlock(message as Parameters<typeof isDataAccessBlock>[0])).toBe(expected)

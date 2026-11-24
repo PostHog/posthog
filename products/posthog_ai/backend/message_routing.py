@@ -351,7 +351,7 @@ class SandboxSession(BaseSandboxService):
                 team_id=self.team.id,
                 user_id=self.user.pk,
                 create_pr=False,
-                posthog_mcp_scopes="metadata_only" if team_requires_metadata_only(self.team.pk) else "full",
+                posthog_mcp_scopes="full",
             )
         except Exception:
             self.conversation.task_id = None
@@ -500,7 +500,7 @@ class SandboxSession(BaseSandboxService):
             team_id=self.team.id,
             user_id=self.user.pk,
             create_pr=False,
-            posthog_mcp_scopes="metadata_only" if team_requires_metadata_only(self.team.pk) else "full",
+            posthog_mcp_scopes="full",
         )
 
         return SandboxRouteResult(

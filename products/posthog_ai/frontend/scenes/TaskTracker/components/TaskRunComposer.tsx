@@ -39,6 +39,7 @@ import { ComposerAttachments, useComposerAttachmentPaste } from '../../../compon
 import { ComposerCodexBillingIndicator } from '../../../components/composer/ComposerCodexBillingIndicator'
 import { ComposerCodexBillingPickers } from '../../../components/composer/ComposerCodexBillingPickers'
 import { ComposerCommandMenu } from '../../../components/composer/ComposerCommandMenu'
+import { ComposerDataAccessIndicator } from '../../../components/composer/ComposerDataAccessIndicator'
 import {
     ComposerModelEffortPickers,
     type ComposerModelEffortPickersProps,
@@ -349,6 +350,7 @@ export function TaskRunComposer({
                         singleRow
                         meta={
                             <>
+                                <ComposerDataAccessIndicator />
                                 {codexBillingEnabled &&
                                     !isPiTask &&
                                     getRuntimeAdapterForModel(catalogue, selectedModel) === 'codex' && (

@@ -4,6 +4,7 @@ import type { Meta, StoryObj } from '@storybook/react'
 import { useActions } from 'kea'
 import { useEffect } from 'react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 import { Composer } from './Composer'
@@ -23,6 +24,7 @@ const meta: Meta<typeof ComposerDataAccessIndicator> = {
     title: 'Products/PostHog AI/Composer data access',
     component: ComposerDataAccessIndicator,
     parameters: {
+        featureFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.PHAI_SANDBOX_MODE],
         testOptions: { snapshotBrowsers: [] },
     },
     decorators: [

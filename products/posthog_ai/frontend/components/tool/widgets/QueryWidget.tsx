@@ -1,9 +1,6 @@
-import { useValues } from 'kea'
-
 import { IconLock } from '@posthog/icons'
 
-import { organizationLogic } from 'scenes/organizationLogic'
-
+import { useNoDataAccess } from '../../../hooks/useNoDataAccess'
 import { DataToolRow } from '../DataToolRow'
 import { GenericMcpToolRenderer } from '../GenericMcpToolRenderer'
 import type { ToolRendererProps } from '../toolRegistry'
@@ -17,7 +14,7 @@ import { VisualizationWidget, getQueryOpenTarget } from './VisualizationWidget'
  */
 export function QueryWidget(props: ToolRendererProps): JSX.Element {
     const { message } = props
-    const { currentOrganization } = useValues(organizationLogic)
+    const noDataAccess = useNoDataAccess()
     const result = message.status === 'completed' ? extractQueryResult(message) : null
 
     if (!result) {
@@ -35,7 +32,7 @@ export function QueryWidget(props: ToolRendererProps): JSX.Element {
                 openUrl={target.url}
                 openTooltip={target.tooltip}
                 footerNote={
-                    currentOrganization?.ai_data_access === 'metadata_only' ? (
+                    noDataAccess ? (
                         <div
                             className="flex items-center gap-1 text-xs text-muted"
                             data-attr="query-widget-data-access-note"

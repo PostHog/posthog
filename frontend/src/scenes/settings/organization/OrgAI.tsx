@@ -1,12 +1,10 @@
 import { useActions, useValues } from 'kea'
 
-import { IconInfo } from '@posthog/icons'
 import { LemonSwitch } from '@posthog/lemon-ui'
 
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { QuillSettingSwitch } from 'scenes/settings/components/QuillSettingSwitch'
 
@@ -76,7 +74,7 @@ export function OrganizationAI(): JSX.Element {
     }
 
     return (
-        <div className="max-w-160 flex flex-col gap-2">
+        <div className="max-w-160">
             <LemonSwitch
                 label="Enable PostHog features that use third-party AI services"
                 data-attr="organization-ai-enabled"
@@ -86,24 +84,6 @@ export function OrganizationAI(): JSX.Element {
                 loading={currentOrganizationLoading}
                 bordered
             />
-            {posthogAiV2 && (
-                <LemonSwitch
-                    label={
-                        <span>
-                            {NO_DATA_ACCESS_LABEL}{' '}
-                            <Tooltip title={NO_DATA_ACCESS_HELP}>
-                                <IconInfo className="mr-1" />
-                            </Tooltip>
-                        </span>
-                    }
-                    data-attr="organization-ai-no-data-access"
-                    onChange={handleNoDataAccessChange}
-                    checked={noDataAccess}
-                    disabledReason={noDataAccessDisabledReason}
-                    loading={currentOrganizationLoading}
-                    bordered
-                />
-            )}
         </div>
     )
 }
