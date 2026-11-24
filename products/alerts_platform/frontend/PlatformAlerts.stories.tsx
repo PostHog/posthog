@@ -136,6 +136,23 @@ const GROUPED_CONFIGURATION: PlatformAlertConfigurationApi = {
     ],
 }
 
+const SOURCE_KIND_OVERRIDES: Partial<PlatformAlertConfigurationApi>[] = [
+    { name: 'Stripe sync failing', source_kind: 'warehouse_source', check_interval_minutes: 120 },
+    { name: 'S3 export failing', source_kind: 'warehouse_destination', recurrence_unit: 'week' },
+    { name: 'p95 latency above 500 ms', source_kind: 'metrics', recurrence_unit: 'month' },
+    { name: 'Checkout spans erroring', source_kind: 'traces', check_interval_minutes: 15 },
+    { name: 'New issues in checkout', source_kind: 'error_tracking', check_interval_minutes: 60 },
+]
+
+const SOURCE_KIND_CONFIGURATIONS: PlatformAlertConfigurationApi[] = SOURCE_KIND_OVERRIDES.map((overrides, index) => ({
+    ...CONFIGURATION,
+    id: `0192a5b0-0000-7000-8000-00000000060${index + 1}`,
+    source_config: {},
+    legacy_configuration_id: null,
+    alerts: [],
+    ...overrides,
+}))
+
 const ROUTED_CONFIGURATION: PlatformAlertConfigurationApi = {
     ...CONFIGURATION,
     id: '0192a5b0-0000-7000-8000-000000000004',
@@ -222,10 +239,15 @@ const meta: Meta = {
         mswDecorator({
             get: {
                 '/api/projects/:team_id/platform_alerts/': {
-                    count: 3,
+                    count: 3 + SOURCE_KIND_CONFIGURATIONS.length,
                     next: null,
                     previous: null,
-                    results: [CONFIGURATION, DISABLED_CONFIGURATION, GROUPED_CONFIGURATION],
+                    results: [
+                        CONFIGURATION,
+                        DISABLED_CONFIGURATION,
+                        GROUPED_CONFIGURATION,
+                        ...SOURCE_KIND_CONFIGURATIONS,
+                    ],
                 },
                 [`/api/projects/:team_id/platform_alerts/${CONFIGURATION.id}/`]: CONFIGURATION,
                 [`/api/projects/:team_id/platform_alerts/${GROUPED_CONFIGURATION.id}/`]: GROUPED_CONFIGURATION,
@@ -249,6 +271,17 @@ type Story = StoryObj<{}>
 
 export const List: Story = {
     parameters: { pageUrl: urls.platformAlerts() },
+}
+
+export const ListIntervalTooltipOpen: Story = {
+    parameters: { pageUrl: urls.platformAlerts() },
+    play: async ({ canvasElement }) => {
+        const name = await within(canvasElement).findByText(DISABLED_CONFIGURATION.name)
+        const interval = within(name.closest('tr') as HTMLElement).getByText('1d')
+        interval.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' }))
+        interval.dispatchEvent(new MouseEvent('mouseenter'))
+        await within(document.body).findByText('Every day at 09:00')
+    },
 }
 
 export const Detail: Story = {
