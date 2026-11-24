@@ -821,9 +821,9 @@ def update_organization_configuration(
 def mute_organization_configuration(
     *, organization_id: UUID, source_kind: SourceKind, configuration_id: UUID, until: datetime | None
 ) -> PlatformAlertConfigurationView | None:
-    """Mutes one of an organization's alerts until `until`, or clears the mute when it is None. The
-    alert keeps being checked, and its notifications are held. None when the organization has no
-    such alert.
+    """Mutes one of an organization's alerts until `until`, or clears the mute when it is None. It is
+    the platform API's whole-alert snooze: an open firing ends, and the next check waits for the
+    mute to end. None when the organization has no such alert.
 
     Raises `InvalidPlatformAlertEdit` for an `until` in the past or more than 30 days ahead.
     """

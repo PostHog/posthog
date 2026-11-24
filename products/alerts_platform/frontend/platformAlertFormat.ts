@@ -51,6 +51,11 @@ export const SOURCE_KINDS: Record<PlatformAlertConfigurationSourceKindEnumApi, S
         label: 'Error tracking',
         alertUrl: () => urls.errorTracking(),
     },
+    // The project API never serves billing alerts. The entry keeps this map exhaustive.
+    [PlatformAlertConfigurationSourceKindEnumApi.Billing]: {
+        label: 'Billing',
+        alertUrl: () => urls.organizationBilling(),
+    },
 }
 
 export function sourceAlertUrl(configuration: PlatformAlertConfigurationApi): string | null {
