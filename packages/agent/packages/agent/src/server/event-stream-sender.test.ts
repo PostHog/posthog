@@ -609,7 +609,7 @@ describe("TaskRunEventStreamSender", () => {
     });
     await sender.stop();
 
-    expect(JSON.parse(requestBodies[1].split("\n")[0]).event).toEqual({
+    expect(parseLines(requestBodies[1])[0].event).toEqual({
       type: "permission_request",
       requestId: "request-1",
       options: [{ kind: "reject_once", optionId: "reject", name: "Reject" }],

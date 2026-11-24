@@ -1310,7 +1310,8 @@ describe("AgentServer HTTP Mode", () => {
 
   describe("turn completion", () => {
     function stubSessionCleanup(testServer: unknown): {
-      session: unknown;
+      session: Record<string, unknown>;
+      recordEventStreamLoss(loss: EventStreamLoss): void;
       cleanupSession: (options?: {
         completeEventStream?: boolean;
       }) => Promise<void>;
@@ -1320,7 +1321,8 @@ describe("AgentServer HTTP Mode", () => {
       };
     } {
       const cleanupServer = testServer as {
-        session: unknown;
+        session: Record<string, unknown>;
+        recordEventStreamLoss(loss: EventStreamLoss): void;
         eventStreamSender: {
           enqueue: ReturnType<typeof vi.fn>;
           stop: ReturnType<typeof vi.fn>;
@@ -1363,12 +1365,7 @@ describe("AgentServer HTTP Mode", () => {
     });
 
     it("records event ingest losses raised while terminal cleanup stops ingest", async () => {
-      const testServer = stubSessionCleanup(createServer()) as ReturnType<
-        typeof stubSessionCleanup
-      > & {
-        session: { telemetry?: unknown };
-        recordEventStreamLoss(loss: EventStreamLoss): void;
-      };
+      const testServer = stubSessionCleanup(createServer());
       const recorded: StoredNotification[] = [];
       let telemetryShutDown = false;
       testServer.session.telemetry = {

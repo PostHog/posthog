@@ -1,5 +1,6 @@
 import { Buffer } from "node:buffer";
 import { POSTHOG_NOTIFICATIONS } from "../acp-extensions";
+import { text, toolContent } from "../utils/acp-content";
 import type { Logger } from "../utils/logger";
 import {
   createNodeStreamingUpload,
@@ -120,7 +121,7 @@ function serializeWithTruncatedStrings(
 ): string {
   return JSON.stringify(event, (_key, value: unknown) => {
     if (isMediaBlock(value)) {
-      return { type: "text", text: OMITTED_MEDIA_TEXT };
+      return text(OMITTED_MEDIA_TEXT);
     }
     if (typeof value !== "string" || value.length <= maxStringChars) {
       return value;
@@ -132,11 +133,14 @@ function serializeWithTruncatedStrings(
 
 function isMediaBlock(value: unknown): boolean {
   const block = asRecord(value);
-  if (block?.type === "image" || block?.type === "audio") {
+  if (!block) {
+    return false;
+  }
+  if (block.type === "image" || block.type === "audio") {
     return true;
   }
   return (
-    block?.type === "resource" && asRecord(block.resource)?.blob !== undefined
+    block.type === "resource" && asRecord(block.resource)?.blob !== undefined
   );
 }
 
@@ -154,12 +158,7 @@ function rejectOnlyPermissionRequest(
       toolCallId: toolCall?.toolCallId,
       title: toolCall?.title,
       kind: toolCall?.kind,
-      content: [
-        {
-          type: "content",
-          content: { type: "text", text: OVERSIZED_PERMISSION_TEXT },
-        },
-      ],
+      content: toolContent().text(OVERSIZED_PERMISSION_TEXT).build(),
     },
   };
 }
@@ -379,12 +378,7 @@ export class TaskRunEventStreamSender {
       if (this.flushPromise === flushPromise) {
         this.flushPromise = null;
       }
-      if (
-        !this.stopped &&
-        this.bufferedEvents.length < this.maxBufferedEvents
-      ) {
-        this.bufferPendingGapEvent();
-      }
+      this.bufferPendingGapEvent();
       if (!this.stopped && this.hasUnwrittenBufferedEvents()) {
         this.scheduleFlush(0);
       }
@@ -854,10 +848,7 @@ export class TaskRunEventStreamSender {
       return trimmedEvent;
     }
 
-    const truncatedEvent =
-      trimmedEvent.type === "permission_request"
-        ? this.fitWithinMaxEventBytes(rejectOnlyPermissionRequest(trimmedEvent))
-        : this.truncateOversizedEvent(trimmedEvent);
+    const truncatedEvent = this.truncateOversizedEvent(trimmedEvent);
     if (!truncatedEvent) {
       this.config.logger.warn("Dropped oversized task run event", {
         eventBytes: trimmedEventBytes,
@@ -875,15 +866,15 @@ export class TaskRunEventStreamSender {
     return truncatedEvent;
   }
 
-  private fitWithinMaxEventBytes(
-    event: Record<string, unknown>,
-  ): Record<string, unknown> | null {
-    return this.envelopeBytes(event) <= this.maxEventBytes ? event : null;
-  }
-
   private truncateOversizedEvent(
     event: Record<string, unknown>,
   ): Record<string, unknown> | null {
+    if (event.type === "permission_request") {
+      const rejectOnlyEvent = rejectOnlyPermissionRequest(event);
+      return this.envelopeBytes(rejectOnlyEvent) <= this.maxEventBytes
+        ? rejectOnlyEvent
+        : null;
+    }
     const envelopeOverheadBytes = this.envelopeBytes({}) - "{}".length;
     for (
       let maxStringChars = Math.floor(this.maxEventBytes / 2);
@@ -920,6 +911,9 @@ export class TaskRunEventStreamSender {
   private bufferPendingGapEvent(): void {
     const droppedCount = this.droppedEventCount;
     if (droppedCount === 0) {
+      return;
+    }
+    if (!this.stopped && this.bufferedEvents.length >= this.maxBufferedEvents) {
       return;
     }
 
