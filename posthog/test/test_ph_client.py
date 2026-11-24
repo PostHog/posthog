@@ -1,3 +1,4 @@
+from copy import deepcopy
 from typing import Any
 
 from unittest.mock import MagicMock, patch
@@ -5,35 +6,124 @@ from unittest.mock import MagicMock, patch
 from django.conf import settings
 from django.test import SimpleTestCase, override_settings
 
+import responses
 import posthoganalytics
 from parameterized import parameterized
 
 from posthog.clickhouse.query_tagging import tags_context
 from posthog.ph_client import (
+    PH_US_API_KEY,
+    PH_US_HOST,
+    SYNC_SEND_MAX_RETRIES,
+    SYNC_SEND_TIMEOUT_SECONDS,
     ScopedCapture,
     default_before_send,
     get_client,
     ph_scoped_capture,
     self_hosted_capture_reaches_posthog,
 )
+from posthog.tasks.ai_observability_usage_report import get_ph_client as get_ai_observability_usage_report_client
 
 
-class TestAILaneOptIn(SimpleTestCase):
-    def test_get_client_opts_into_ai_lane(self):
+class TestFullAICaptureOptIn(SimpleTestCase):
+    def test_get_client_opts_into_full_ai_capture(self):
         for region in ("US", "EU"):
             client = get_client(region, send=False, enable_local_evaluation=False)
-            self.assertTrue(client._use_ai_lane)
-            self.assertTrue(client._enable_multimodal_capture)
+            self.assertTrue(client.enable_full_ai_capture)
 
-    def test_module_attribute_opts_default_client_into_ai_lane(self):
-        self.assertTrue(posthoganalytics._use_ai_lane)
-        self.assertTrue(posthoganalytics._enable_multimodal_capture)
+    def test_module_attribute_opts_default_client_into_full_ai_capture(self):
+        self.assertTrue(posthoganalytics.enable_full_ai_capture)
         client = posthoganalytics.setup()
-        self.assertTrue(client._use_ai_lane)
-        self.assertTrue(client._enable_multimodal_capture)
+        self.assertTrue(client.enable_full_ai_capture)
+
+
+class TestSyncSendAttempts(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "client_built_with_the_shared_setting",
+                lambda: posthoganalytics.Posthog(
+                    PH_US_API_KEY,
+                    sync_mode=True,
+                    max_retries=SYNC_SEND_MAX_RETRIES,
+                    timeout=SYNC_SEND_TIMEOUT_SECONDS,
+                ),
+            ),
+            ("ai_observability_usage_report_client", get_ai_observability_usage_report_client),
+        ]
+    )
+    @responses.activate
+    def test_a_failed_sync_send_is_retried_once_on_the_short_timeout(self, _name: str, build_client: Any) -> None:
+        responses.post(f"{PH_US_HOST}/i/v1/analytics/events", status=503, json={"error": "unavailable"})
+
+        with patch("posthoganalytics.capture_send.time.sleep"):
+            event_uuid = build_client().capture("usage report sent", distinct_id="org-1")
+
+        self.assertIsNone(event_uuid)
+        self.assertEqual(
+            [call.request.req_kwargs["timeout"] for call in responses.calls],
+            [SYNC_SEND_TIMEOUT_SECONDS, SYNC_SEND_TIMEOUT_SECONDS],
+        )
 
 
 class TestPrivateScoutCapture(SimpleTestCase):
+    @parameterized.expand([("default", None), ("US", "US"), ("EU", "EU")])
+    def test_sql_query_filters_are_not_captured(self, _name: str, region: str | None) -> None:
+        query: dict[str, Any] = {
+            "kind": "DataVisualizationNode",
+            "source": {
+                "kind": "HogQLQuery",
+                "query": "SELECT count() FROM events WHERE {filters}",
+                "filters": {"properties": [{"key": "email", "value": ["private@example.com"]}]},
+            },
+        }
+        original = deepcopy(query)
+        client = (
+            get_client(region, send=False, disabled=False, enable_local_evaluation=False)
+            if region
+            else posthoganalytics.Client(
+                "test-key",
+                send=False,
+                enable_local_evaluation=False,
+                before_send=default_before_send(private_scout_capture=False, self_hosted=False),
+            )
+        )
+        assert client is not None
+        messages = []
+        before_send = client.before_send
+
+        def record(message):
+            result = before_send(message)
+            if result is not None:
+                messages.append(result)
+            return result
+
+        client.before_send = record
+        try:
+            for event, query_key, event_query in (
+                ("query executed", "query", query),
+                ("query execution failed", "query", query),
+                ("query duplicate found", "query_json", query["source"]),
+                ("$exception", "query", query),
+                ("$exception", "query_json", query["source"]),
+            ):
+                captured = client.capture(event, distinct_id="synthetic", properties={query_key: event_query})
+                if event == "$exception":
+                    self.assertIsNone(captured)
+                    continue
+                assert captured is not None
+                captured_query = messages[-1]["properties"][query_key]
+                captured_source = captured_query.get("source", captured_query)
+                self.assertNotIn("filters", captured_source)
+                self.assertEqual(captured_source["query"], query["source"]["query"])
+            self.assertEqual(query, original)
+            with tags_context(query=query):
+                self.assertIsNone(client.capture("$exception", distinct_id="synthetic"))
+            with tags_context(query=None):
+                self.assertIsNotNone(client.capture("$exception", distinct_id="synthetic"))
+        finally:
+            client.shutdown()
+
     def test_module_filter_matches_deployment_setting(self) -> None:
         with patch.multiple(
             posthoganalytics,

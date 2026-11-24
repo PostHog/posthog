@@ -1,74 +1,76 @@
 import { useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 
-import { IconLightBulb } from '@posthog/icons'
-import {
-    Button,
-    Heading,
-    Item,
-    ItemActions,
-    ItemContent,
-    ItemDescription,
-    ItemGroup,
-    ItemMedia,
-    ItemTitle,
-} from '@posthog/quill'
+import { IconChevronRight } from '@posthog/icons'
+import { Button, Heading, Item, ItemActions, ItemContent, ItemGroup, Text } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
-import { PROPOSED_TABLES_FILTER, TABLES_FILTER_PARAM } from './catalogTableRows'
+import { PROPOSED_TABLES_FILTER, SUGGESTED_METRICS_FILTER, TABLES_FILTER_PARAM } from './catalogTableRows'
 import { certificationsLogic } from './certificationsLogic'
 import { metricsLogic } from './metricsLogic'
 import { relationshipsLogic } from './relationshipsLogic'
 
 const HEADING_ID = 'data-catalog-to-review-heading'
 
-export interface ReviewItem {
-    key: string
+interface ReviewLink {
     count: number
-    title: string
-    description: string
-    href?: string
-    onReview?: () => void
+    noun: string
+    href: string
+    dataAttr: string
 }
 
 export interface CatalogToReviewListProps {
-    suggestionsItem?: ReviewItem
+    suggestionsBanner?: JSX.Element
+    suggestedMetricCount?: number
 }
 
-export function CatalogToReviewList({ suggestionsItem }: CatalogToReviewListProps): JSX.Element | null {
+function reviewUrl(tab: 'tables' | 'relationships' | 'metrics', filter: string = PROPOSED_TABLES_FILTER): string {
+    return combineUrl(urls.dataCatalog(tab), { [TABLES_FILTER_PARAM]: filter }).url
+}
+
+function ReviewRow({ label, links }: { label: string; links: ReviewLink[] }): JSX.Element | null {
+    const linksToShow = links.filter(({ count }) => count > 0)
+    if (linksToShow.length === 0) {
+        return null
+    }
+    return (
+        <Item variant="outline" size="sm" className="flex-wrap">
+            <ItemContent>
+                <Text size="sm" className="text-secondary">
+                    {label}
+                </Text>
+            </ItemContent>
+            <ItemActions className="flex-wrap">
+                {linksToShow.map(({ count, noun, href, dataAttr }) => (
+                    <Button
+                        key={dataAttr}
+                        variant="outline"
+                        size="sm"
+                        render={<LinkPrimitive to={href} />}
+                        data-attr={dataAttr}
+                    >
+                        {pluralize(count, noun)}
+                        <IconChevronRight />
+                    </Button>
+                ))}
+            </ItemActions>
+        </Item>
+    )
+}
+
+export function CatalogToReviewList({
+    suggestionsBanner,
+    suggestedMetricCount = 0,
+}: CatalogToReviewListProps): JSX.Element | null {
     const { proposedCount: proposedMetrics } = useValues(metricsLogic)
     const { proposedCount: proposedCertifications } = useValues(certificationsLogic)
     const { pendingCount: proposedJoins } = useValues(relationshipsLogic)
 
-    const items: ReviewItem[] = [
-        {
-            key: 'certifications',
-            count: proposedCertifications,
-            title: pluralize(proposedCertifications, 'proposed certification'),
-            description: 'Tables and views waiting for someone to mark them as trusted.',
-            href: combineUrl(urls.dataCatalog('tables'), { [TABLES_FILTER_PARAM]: PROPOSED_TABLES_FILTER }).url,
-        },
-        ...(suggestionsItem ? [suggestionsItem] : []),
-        {
-            key: 'relationships',
-            count: proposedJoins,
-            title: pluralize(proposedJoins, 'proposed join'),
-            description: 'Joins between tables waiting for someone to accept or reject them.',
-            href: combineUrl(urls.dataCatalog('relationships'), { [TABLES_FILTER_PARAM]: PROPOSED_TABLES_FILTER }).url,
-        },
-        {
-            key: 'metrics',
-            count: proposedMetrics,
-            title: pluralize(proposedMetrics, 'proposed metric'),
-            description: 'Metric definitions waiting for approval.',
-            href: combineUrl(urls.dataCatalog('metrics'), { [TABLES_FILTER_PARAM]: PROPOSED_TABLES_FILTER }).url,
-        },
-    ].filter(({ count }) => count > 0)
-
-    if (items.length === 0) {
+    const reviewCount = proposedMetrics + suggestedMetricCount + proposedCertifications + proposedJoins
+    if (!suggestionsBanner && reviewCount === 0) {
         return null
     }
 
@@ -77,29 +79,48 @@ export function CatalogToReviewList({ suggestionsItem }: CatalogToReviewListProp
             <Heading size="base" render={<h3 id={HEADING_ID} className="m-0" />}>
                 To review
             </Heading>
-            <ItemGroup className="grid gap-2 @min-[48rem]/main-content:grid-cols-3">
-                {items.map(({ key, title, description, href, onReview }) => (
-                    <Item key={key} variant="outline" size="sm" render={<div role="listitem" />}>
-                        <ItemMedia variant="icon">
-                            <IconLightBulb />
-                        </ItemMedia>
-                        <ItemContent>
-                            <ItemTitle>{title}</ItemTitle>
-                            <ItemDescription>{description}</ItemDescription>
-                        </ItemContent>
-                        <ItemActions>
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                render={href ? <LinkPrimitive to={href} /> : undefined}
-                                onClick={onReview}
-                                data-attr={`data-catalog-review-${key}`}
-                            >
-                                Review
-                            </Button>
-                        </ItemActions>
-                    </Item>
-                ))}
+            {/* pinned: autocapture reads the data-attr values of the rows, so each one keeps its spelling */}
+            <ItemGroup combined role={undefined}>
+                {suggestionsBanner}
+                <ReviewRow
+                    label="Metrics to approve"
+                    links={[
+                        {
+                            count: proposedMetrics,
+                            noun: 'metric',
+                            href: reviewUrl('metrics'),
+                            dataAttr: 'data-catalog-review-metrics',
+                        },
+                    ]}
+                />
+                <ReviewRow
+                    label="Suggested metrics (extracted by usage patterns)"
+                    links={[
+                        {
+                            count: suggestedMetricCount,
+                            noun: 'metric',
+                            href: reviewUrl('metrics', SUGGESTED_METRICS_FILTER),
+                            dataAttr: 'data-catalog-review-suggested-metrics',
+                        },
+                    ]}
+                />
+                <ReviewRow
+                    label="Relationships waiting for approval"
+                    links={[
+                        {
+                            count: proposedCertifications,
+                            noun: 'certification',
+                            href: reviewUrl('tables'),
+                            dataAttr: 'data-catalog-review-certifications',
+                        },
+                        {
+                            count: proposedJoins,
+                            noun: 'join',
+                            href: reviewUrl('relationships'),
+                            dataAttr: 'data-catalog-review-relationships',
+                        },
+                    ]}
+                />
             </ItemGroup>
         </section>
     )

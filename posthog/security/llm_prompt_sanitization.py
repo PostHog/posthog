@@ -25,8 +25,9 @@ _LLM_MARKER_RE = re.compile(
     r"system|user|assistant|human|insight_data|user_context|subscription_title|core_memory"
     # AI subscription prompt framing tags. Strip them so that a crafted event name or prompt can't
     # escape the `<user_prompt>` / `<event_names>` / `<project_context>` / `<plan_intent>` /
-    # `<query_results>` envelope and inject instruction-shaped content into the LLM context.
-    r"|user_prompt|event_names|project_context|plan_intent|query_results"
+    # `<query_results>` / `<coverage>` / `<items_to_fix>` envelope and inject instruction-shaped
+    # content into the LLM context.
+    r"|user_prompt|event_names|project_context|plan_intent|query_results|coverage|items_to_fix"
     r")\b[^>]*>?",
     re.IGNORECASE,
 )
@@ -52,7 +53,7 @@ def _is_invisible(c: str) -> bool:
     return c in _EXTRA_INVISIBLES
 
 
-def _strip_invisible(value: str) -> str:
+def strip_invisible(value: str) -> str:
     return "".join(c for c in value if not _is_invisible(c))
 
 
@@ -67,7 +68,7 @@ def sanitize_user_text(
 ) -> str:
     if not value:
         return none_placeholder
-    cleaned = _strip_invisible(value)
+    cleaned = strip_invisible(value)
     previous = ""
     while previous != cleaned:
         previous = cleaned
@@ -104,7 +105,7 @@ def strip_llm_framing_markers(value: str | None, max_len: int) -> str:
     short single-line values (names, labels) but destructive to a formatted block like a table."""
     if not value:
         return ""
-    cleaned = _strip_invisible(value)
+    cleaned = strip_invisible(value)
     previous = ""
     while previous != cleaned:
         previous = cleaned

@@ -3,7 +3,11 @@ from datetime import UTC, date, datetime, time, timedelta
 from uuid import uuid4
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from parameterized import parameterized
 
 from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery, Edge, Node, NodeType
@@ -29,6 +33,12 @@ DAILY_COUNT_COLUMNS = {
     "day": {"hogql": "DateTimeDatabaseField", "clickhouse": "DateTime64(6, 'UTC')"},
     "c": {"hogql": "IntegerDatabaseField", "clickhouse": "UInt64"},
 }
+STAGE_SPANS = (
+    "warehouse_suggestions.run_team.read_team_reads",
+    "warehouse_suggestions.run_team.build_context",
+    "warehouse_suggestions.run_team.evaluate_candidates",
+    "warehouse_suggestions.run_team.apply_run",
+)
 FULL_ROLLUP = RollupDays(days_with_data=RULES.window_days, recent_days_with_data=RULES.lifecycle.expire_after_days)
 
 
@@ -75,16 +85,24 @@ class TestRunTeam(ClickhouseTestMixin, BaseTest):
                     user_id=1 + (day + request) % 6,
                     scene=SCENES[request],
                     read_alone=True,
-                    duration_ms=30_000,
+                    duration_ms=180_000,
                 )
                 for day in range(1, 31)
                 for request in range(2)
             ],
         )
 
-        result = run_team(self.team.pk, run_id="run-1", today=TODAY, rollup_days=FULL_ROLLUP, now=NOW)
+        exporter = InMemorySpanExporter()
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+
+        with patch("products.warehouse_suggestions.backend.logic.job.tracer", provider.get_tracer(__name__)):
+            result = run_team(self.team.pk, run_id="run-1", today=TODAY, rollup_days=FULL_ROLLUP, now=NOW)
 
         assert result.status == TeamRunStatus.PROCESSED
+        assert {
+            span.name: (span.attributes or {}).get("team_id") for span in exporter.get_finished_spans()
+        } == dict.fromkeys(STAGE_SPANS, self.team.pk)
         assert sorted(
             WarehouseSuggestion.objects.for_team(self.team.pk).values_list("kind", "subject_id", "status")
         ) == sorted(

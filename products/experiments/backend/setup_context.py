@@ -65,9 +65,16 @@ from products.experiments.backend.metric_utils import (
     filter_metric_group_ids_by_event,
     resolve_action_events,
 )
-from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
+from products.experiments.backend.models.experiment import (
+    Experiment,
+    ExperimentSavedMetric,
+    ExperimentToSavedMetric,
+    get_experiment_rule,
+)
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.variant_distribution import is_evenly_distributed
+from products.feature_flags.backend.facade.config import ConfigFormatError
+from products.feature_flags.backend.facade.rules import ExperimentRuleError
 
 logger = logging.getLogger(__name__)
 
@@ -128,11 +135,6 @@ SDK_PROFILE_WINDOW_DAYS: Final = 7
 SDK_ANY_EVENT_WINDOW_DAYS: Final = 1
 TARGET_WINDOW_DAYS: Final = 14
 SDK_PROFILE_MAX_LIBS: Final = 10
-# The event properties that the SDK profile's queries read. Keep it in step with `_compute_sdk_profile` and
-# `_libs_on_any_event`: `build_project_setup_facts` skips the profile for a reader denied one of them.
-SDK_PROFILE_PROPERTIES: Final[frozenset[str]] = frozenset(
-    {"$feature_flag", "$feature_flag_response", "$lib", "locally_evaluated", "$device_id", "$is_identified"}
-)
 TARGET_SURFACE_MAX_LIBS: Final = 5
 DEFAULT_LIST_LIMIT: Final = 10
 MAX_LIST_LIMIT: Final = 25
@@ -423,29 +425,6 @@ class ExperimentSetupContext:
 
 # A skipped section never runs a provider, so the observer never hears about it.
 SectionObserver = Callable[[str, SetupContextSectionStatus, float], None]
-
-
-@frozen
-class ProjectSetupFacts:
-    """The sections of the setup context that describe the project as it is, without a planned experiment."""
-
-    team_defaults: SetupContextSection[TeamDefaults]
-    sdk_profile: SetupContextSection[SdkProfile]
-
-
-def build_project_setup_facts(
-    team: Team, *, can_query_events: bool, denied_event_properties: frozenset[str]
-) -> ProjectSetupFacts:
-    """The team's experiment defaults and its SDK profile. The SDK profile queries events across the project without
-    the reader and is cached for every reader, so it is skipped for a reader who may not query events or is denied a
-    property it reads."""
-    may_read_sdk_profile = can_query_events and not (denied_event_properties & SDK_PROFILE_PROPERTIES)
-    return ProjectSetupFacts(
-        team_defaults=_run_section("team_defaults", team, lambda: get_team_defaults(team)),
-        sdk_profile=_run_section("sdk_profile", team, lambda: get_sdk_profile(team))
-        if may_read_sdk_profile
-        else SetupContextSection(status=SetupContextSectionStatus.SKIPPED),
-    )
 
 
 def build_setup_context(
@@ -1266,9 +1245,23 @@ def get_previous_experiments(experiments: QuerySet[Experiment], *, limit: int) -
     for experiment in rows:
         flag = experiment.feature_flag
         flag_filters = flag.filters or {}
-        variant_rollouts = [variant.get("rollout_percentage") or 0 for variant in flag.variants]
-        serving_single_variant = _serving_single_variant(flag.variants, launched=experiment.start_date is not None)
-        groups = flag_filters.get("groups") or []
+        if experiment.is_rule_linked:
+            # The rule holds what a v1 flag keeps flag-wide. A rule that cannot be read lists no split.
+            try:
+                rule = get_experiment_rule(experiment)
+            except (ExperimentRuleError, ConfigFormatError):
+                rule = None
+            flag_variants = rule.variants if rule is not None else []
+            rollout_percentage = rule.rollout_percentage if rule is not None else None
+            group_aggregation = rule is not None and rule.assign_variant_by is not None
+        else:
+            flag_variants = flag.variants
+            groups = flag_filters.get("groups") or []
+            # A release group without a rollout percentage serves everyone who matches it.
+            rollout_percentage = _group_rollout(groups[0]) if groups else None
+            group_aggregation = flag_filters.get("aggregation_group_type_index") is not None
+        variant_rollouts = [variant.get("rollout_percentage") or 0 for variant in flag_variants]
+        serving_single_variant = _serving_single_variant(flag_variants, launched=experiment.start_date is not None)
         exposure_criteria = experiment.exposure_criteria if isinstance(experiment.exposure_criteria, dict) else {}
         custom_exposure = _custom_exposure(experiment, exposure_criteria)
         links = _saved_metric_links(experiment)
@@ -1297,14 +1290,13 @@ def get_previous_experiments(experiments: QuerySet[Experiment], *, limit: int) -
                     else is_evenly_distributed(variant_rollouts)
                 ),
                 serving_single_variant=serving_single_variant,
-                # A release group without a rollout percentage serves everyone who matches it.
-                rollout_percentage=(_group_rollout(groups[0]) if groups else None),
+                rollout_percentage=rollout_percentage,
                 multiple_variant_handling=_multiple_variant_handling(exposure_criteria),
                 multiple_variant_handling_set=bool(exposure_criteria.get("multiple_variant_handling")),
                 ensure_experience_continuity=bool(flag.ensure_experience_continuity),
                 bucketing_identifier=flag.bucketing_identifier or "distinct_id",
                 evaluation_runtime=flag.evaluation_runtime or "all",
-                group_aggregation=flag_filters.get("aggregation_group_type_index") is not None,
+                group_aggregation=group_aggregation,
                 custom_exposure_event=custom_exposure.event,
                 custom_exposure_action_id=custom_exposure.action_id,
                 exposure_property_filters=custom_exposure.property_filters,

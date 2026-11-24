@@ -42,12 +42,7 @@ export function SelfDrivingTrialUsage(): JSX.Element | null {
     }
 
     const exhausted = trial.grant_status === 'exhausted'
-    const banner = exhausted
-        ? { title: 'Trial limit reached', scoutCount: `${trial.enabled_scouts}` }
-        : {
-              title: 'Your Self-driving free trial',
-              scoutCount: `${trial.enabled_scouts} of ${trial.scout_limit}`,
-          }
+    const title = exhausted ? 'Trial limit reached' : 'Your Self-driving free trial'
     const continuation = {
         continue_paid: {
             message: 'New work continues under your existing paid Self-driving limit.',
@@ -74,12 +69,12 @@ export function SelfDrivingTrialUsage(): JSX.Element | null {
 
     const content = (
         <div className="flex flex-col gap-2 min-w-0 font-normal">
-            <strong className="text-sm font-semibold">{banner.title}</strong>
+            <strong className="text-sm font-semibold">{title}</strong>
             <p className="m-0 text-sm">
                 <span>{`${trial.reports_delivered} of ${trial.report_limit} reports delivered`}</span>
                 {!!trial.reports_in_progress && <span>{` · ${trial.reports_in_progress} in progress`}</span>}
                 {' · '}
-                <span>{`${banner.scoutCount} scouts enabled`}</span>
+                <span>{`${trial.enabled_scouts} scouts enabled`}</span>
             </p>
             <LemonProgress
                 percent={(100 * trial.used_microusd) / trial.allowance_microusd}

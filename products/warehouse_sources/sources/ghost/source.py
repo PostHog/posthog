@@ -14,7 +14,12 @@ from products.warehouse_sources.sources.ghost.ghost import (
     ghost_source,
     probe_credentials,
 )
-from products.warehouse_sources.sources.ghost.settings import API_VERSION, ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.sources.ghost.settings import (
+    API_VERSION,
+    CUSTOM_FIELDS_UNSUPPORTED_ERROR,
+    ENDPOINTS,
+    INCREMENTAL_FIELDS,
+)
 from products.warehouse_sources.sources.sdk import (
     CanonicalDescriptions,
     DataWarehouseSourceCategory,
@@ -103,6 +108,7 @@ class GhostSource(ResumableSource[GhostSourceConfig, GhostResumeConfig], Validat
             "403 Client Error": PERMISSION_ERROR,
             KEY_ERROR: KEY_ERROR,
             DOMAIN_ERROR: DOMAIN_ERROR,
+            CUSTOM_FIELDS_UNSUPPORTED_ERROR: CUSTOM_FIELDS_UNSUPPORTED_ERROR,
         }
 
     def validate_credentials(

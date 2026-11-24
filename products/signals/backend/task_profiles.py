@@ -3,7 +3,9 @@ from dataclasses import replace
 from posthog.temporal.oauth import SCOUT_GRANTABLE_WRITE_SCOPES, resolve_scopes, scout_scope_posture
 
 from products.tasks.backend.facade.profiles import (
+    AgentPolicy,
     DrivePolicy,
+    EndsRun,
     GithubAccess,
     GithubResolution,
     NetworkAccess,
@@ -178,12 +180,15 @@ SCOUT_SUGGESTIONS = replace(
     network=NetworkPolicy(levels=(NetworkAccess.TRUSTED,)),
     mcp_agent="scout",
     mcp_scopes="read_only",
+    done_on_turn_close=True,
+    agent_policy=AgentPolicy(ends_run=EndsRun.CALLER),
 )
 
 SCOUT_TRIAL_JUDGE = replace(
     SCOUT_SUGGESTIONS,
     key="signals.scout_trial_judge",
     network=NetworkPolicy(levels=(NetworkAccess.CUSTOM,)),
+    done_on_turn_close=False,
 )
 
 SCOUT_PROFILES = {

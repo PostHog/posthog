@@ -23,17 +23,7 @@ import { generateKafkaPersonUpdateMessage, sanitizeJsonbValue, unparsePersonPart
 import { logger } from '~/common/utils/logger'
 import { NoRowsUpdatedError, sanitizeSqlIdentifier } from '~/common/utils/utils'
 import { Properties } from '~/plugin-scaffold'
-import {
-    InternalPerson,
-    PersonDistinctId,
-    PersonUpdateFields,
-    PropertiesLastOperation,
-    PropertiesLastUpdatedAt,
-    RawPerson,
-    Team,
-    TeamId,
-    ValueMatcher,
-} from '~/types'
+import { InternalPerson, PersonDistinctId, PersonUpdateFields, RawPerson, Team, TeamId, ValueMatcher } from '~/types'
 
 import {
     DistinctIdConflictError,
@@ -62,8 +52,6 @@ const PERSON_COLUMN_NAMES = [
     'created_at',
     'team_id',
     'properties',
-    'properties_last_updated_at',
-    'properties_last_operation',
     'is_user_id',
     'version',
     'is_identified',
@@ -274,8 +262,6 @@ export class PostgresPersonRepository
                 posthog_person.created_at,
                 posthog_person.team_id,
                 posthog_person.properties,
-                posthog_person.properties_last_updated_at,
-                posthog_person.properties_last_operation,
                 posthog_person.is_user_id,
                 posthog_person.version,
                 posthog_person.is_identified,
@@ -372,8 +358,6 @@ export class PostgresPersonRepository
                 posthog_person.created_at,
                 posthog_person.team_id,
                 posthog_person.properties,
-                posthog_person.properties_last_updated_at,
-                posthog_person.properties_last_operation,
                 posthog_person.is_user_id,
                 posthog_person.version,
                 posthog_person.is_identified,
@@ -426,8 +410,6 @@ export class PostgresPersonRepository
                 posthog_person.created_at,
                 posthog_person.team_id,
                 posthog_person.properties,
-                posthog_person.properties_last_updated_at,
-                posthog_person.properties_last_operation,
                 posthog_person.is_user_id,
                 posthog_person.version,
                 posthog_person.is_identified,
@@ -492,8 +474,6 @@ export class PostgresPersonRepository
                 posthog_person.created_at,
                 posthog_person.team_id,
                 posthog_person.properties,
-                posthog_person.properties_last_updated_at,
-                posthog_person.properties_last_operation,
                 posthog_person.is_user_id,
                 posthog_person.version,
                 posthog_person.is_identified,
@@ -669,8 +649,6 @@ export class PostgresPersonRepository
     async createPerson(
         createdAt: DateTime,
         properties: Properties,
-        propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
-        propertiesLastOperation: PropertiesLastOperation,
         teamId: number,
         isUserId: number | null,
         isIdentified: boolean,
@@ -687,8 +665,6 @@ export class PostgresPersonRepository
                 this.createPerson(
                     createdAt,
                     properties,
-                    propertiesLastUpdatedAt,
-                    propertiesLastOperation,
                     teamId,
                     isUserId,
                     isIdentified,
@@ -715,24 +691,12 @@ export class PostgresPersonRepository
         try {
             // Sanitize and measure JSON field sizes
             const sanitizedProperties = sanitizeJsonbValue(properties)
-            const sanitizedPropertiesLastUpdatedAt = sanitizeJsonbValue(propertiesLastUpdatedAt)
-            const sanitizedPropertiesLastOperation = sanitizeJsonbValue(propertiesLastOperation)
 
             // Record JSON field sizes (using string length as approximation)
             if (typeof sanitizedProperties === 'string') {
                 personJsonFieldSizeHistogram
                     .labels({ operation: 'createPerson', field: 'properties' })
                     .observe(sanitizedProperties.length)
-            }
-            if (typeof sanitizedPropertiesLastUpdatedAt === 'string') {
-                personJsonFieldSizeHistogram
-                    .labels({ operation: 'createPerson', field: 'properties_last_updated_at' })
-                    .observe(sanitizedPropertiesLastUpdatedAt.length)
-            }
-            if (typeof sanitizedPropertiesLastOperation === 'string') {
-                personJsonFieldSizeHistogram
-                    .labels({ operation: 'createPerson', field: 'properties_last_operation' })
-                    .observe(sanitizedPropertiesLastOperation.length)
             }
 
             // For new persons, set last_seen_at to the hour-rounded createdAt
@@ -741,8 +705,6 @@ export class PostgresPersonRepository
             const personParams = [
                 createdAt.toISO(),
                 sanitizedProperties,
-                sanitizedPropertiesLastUpdatedAt,
-                sanitizedPropertiesLastOperation,
                 teamId,
                 isUserId,
                 isIdentified,
@@ -759,16 +721,13 @@ export class PostgresPersonRepository
             const query = `
                 WITH inserted_person AS (
                     INSERT INTO posthog_person (
-                        created_at, properties, properties_last_updated_at, properties_last_operation,
-                        team_id, is_user_id, is_identified, uuid, version, last_seen_at
+                        created_at, properties, team_id, is_user_id, is_identified, uuid, version, last_seen_at
                     )
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                     ON CONFLICT (team_id, uuid) DO UPDATE SET
                         is_deleted = false,
                         version = COALESCE(posthog_person.version, 0) + 1,
                         properties = EXCLUDED.properties,
-                        properties_last_updated_at = EXCLUDED.properties_last_updated_at,
-                        properties_last_operation = EXCLUDED.properties_last_operation,
                         created_at = EXCLUDED.created_at,
                         is_user_id = EXCLUDED.is_user_id,
                         is_identified = EXCLUDED.is_identified,
@@ -779,9 +738,9 @@ export class PostgresPersonRepository
                 inserted_distinct_ids AS (
                     -- NOTE: Keep this in sync with the posthog_persondistinctid INSERT in addDistinctId
                     INSERT INTO posthog_persondistinctid (distinct_id, person_id, team_id, version)
-                    SELECT d.distinct_id, ip.id, $5, d.version
+                    SELECT d.distinct_id, ip.id, $3, d.version
                     FROM inserted_person ip
-                    CROSS JOIN unnest($11::text[], $12::bigint[]) AS d(distinct_id, version)
+                    CROSS JOIN unnest($9::text[], $10::bigint[]) AS d(distinct_id, version)
                     ON CONFLICT (team_id, distinct_id) DO UPDATE SET
                         person_id = EXCLUDED.person_id,
                         version = COALESCE(posthog_persondistinctid.version, 0) + 1,
@@ -853,9 +812,7 @@ export class PostgresPersonRepository
                     UPDATE posthog_person
                     SET is_deleted = true,
                         version = COALESCE(version, 0) + 1,
-                        properties = '{}'::jsonb,
-                        properties_last_updated_at = '{}'::jsonb,
-                        properties_last_operation = '{}'::jsonb
+                        properties = '{}'::jsonb
                     WHERE team_id = $2 AND id = $3 AND is_deleted = false`,
                     [distinctIdRows.map((row) => row.id), teamId, person.id],
                     'undoInsertPerson'
@@ -956,9 +913,7 @@ export class PostgresPersonRepository
                 `UPDATE posthog_person p
                  SET is_deleted = true,
                      version = COALESCE(version, 0) + 1,
-                     properties = '{}'::jsonb,
-                     properties_last_updated_at = '{}'::jsonb,
-                     properties_last_operation = '{}'::jsonb
+                     properties = '{}'::jsonb
                  WHERE team_id = $1 AND id = ANY($2::bigint[]) AND is_deleted = false
                    AND NOT EXISTS (
                        SELECT 1 FROM posthog_persondistinctid d
@@ -1469,7 +1424,7 @@ export class PostgresPersonRepository
         const updateKeys = Object.keys(unparsedUpdate)
         for (let i = 0; i < updateKeys.length; i++) {
             const key = updateKeys[i]
-            if (key === 'properties' || key === 'properties_last_updated_at' || key === 'properties_last_operation') {
+            if (key === 'properties') {
                 const sanitizedValue = values[i] // Already sanitized in the map above
                 if (typeof sanitizedValue === 'string') {
                     personJsonFieldSizeHistogram
@@ -1568,18 +1523,14 @@ export class PostgresPersonRepository
                 `
                 UPDATE posthog_person SET
                     properties = $1,
-                    properties_last_updated_at = $2,
-                    properties_last_operation = $3,
-                    is_identified = $4,
-                    last_seen_at = $5,
+                    is_identified = $2,
+                    last_seen_at = $3,
                     version = COALESCE(version, 0)::numeric + 1
-                WHERE team_id = $6 AND uuid = $7 AND version = $8 AND is_deleted = false
+                WHERE team_id = $4 AND uuid = $5 AND version = $6 AND is_deleted = false
                 RETURNING ${PERSON_COLUMNS}
                 `,
                 [
                     JSON.stringify(finalProperties),
-                    JSON.stringify(personUpdate.properties_last_updated_at),
-                    JSON.stringify(personUpdate.properties_last_operation),
                     personUpdate.is_identified,
                     personUpdate.last_seen_at?.toISO() ?? null,
                     personUpdate.team_id,

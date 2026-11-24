@@ -40,13 +40,7 @@ class EmailDomainApiTestCase(APIBaseTest):
         self.reload_workers = self.enterContext(
             patch("posthog.models.integration.email.reload_integrations_on_workers")
         )
-        self.report_user_action = self.enterContext(patch("posthog.api.integration.report_user_action"))
-        self.feature_flags = self.enterContext(
-            patch(
-                "posthoganalytics.feature_enabled",
-                side_effect=lambda key, *args, **kwargs: key == "workflows-email-domain-wizard",
-            )
-        )
+        self.analytics_capture = self.enterContext(patch("posthoganalytics.capture"))
 
     def create_sender(self, email: str, *, team: Team | None = None) -> int:
         response = self.client.post(
@@ -84,17 +78,21 @@ class EmailDomainApiTestCase(APIBaseTest):
 
     def publish(self, records: list[dict[str, Any]], *kinds: str) -> None:
         for record in records:
-            if record["kind"] in kinds:
+            if record["kind"] in kinds and record["status"] != "verified":
                 self.world.publish_record(record)
 
     def is_verified(self, integration_id: int) -> bool:
         return Integration.objects.get(id=integration_id).config["verified"]
 
-    def verified_events(self) -> list[Any]:
-        return [call for call in self.report_user_action.call_args_list if call.args[1] == "email domain verified"]
+    def verified_events(self) -> list[dict[str, Any]]:
+        return [
+            call.kwargs["properties"]
+            for call in self.analytics_capture.call_args_list
+            if call.kwargs.get("event") == "email domain verified"
+        ]
 
     def verified_event_methods(self) -> list[str]:
-        return [call.args[2]["method"] for call in self.verified_events()]
+        return [properties["method"] for properties in self.verified_events()]
 
 
 def record_statuses(body: dict[str, Any]) -> dict[str, list[str]]:

@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
@@ -5,6 +7,8 @@ from unittest.mock import patch
 from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import _preload_active_external_data_schemas
 from posthog.hogql.database.direct_clickhouse_table import DirectClickHouseTable
 from posthog.hogql.database.direct_mysql_table import DirectMySQLTable
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
@@ -16,7 +20,9 @@ from posthog.hogql.database.models import (
     StructDatabaseField,
 )
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
-from posthog.hogql.errors import QueryError
+from posthog.hogql.errors import ExposedHogQLError, QueryError
+
+from posthog.models import Organization, Team
 
 from products.data_warehouse.backend.direct_mysql import DIRECT_MYSQL_SCHEMA_OPTION, DIRECT_MYSQL_TABLE_OPTION
 from products.data_warehouse.backend.direct_postgres import (
@@ -129,6 +135,7 @@ class TestTable(BaseTest):
             columns={"id": {"clickhouse": "String", "hogql": "StringDatabaseField"}},
         )
 
+        _preload_active_external_data_schemas([table])
         definition = table.hogql_definition()
 
         assert isinstance(definition, DirectPostgresTable)
@@ -239,6 +246,7 @@ class TestTable(BaseTest):
             columns={"id": {"clickhouse": "String", "hogql": "StringDatabaseField"}},
         )
 
+        _preload_active_external_data_schemas([table])
         definition = table.hogql_definition()
 
         assert isinstance(definition, DirectMySQLTable)
@@ -300,6 +308,7 @@ class TestTable(BaseTest):
             columns={"id": {"clickhouse": "String", "hogql": "StringDatabaseField"}},
         )
 
+        _preload_active_external_data_schemas([table])
         definition = table.hogql_definition()
 
         assert isinstance(definition, DirectSnowflakeTable)
@@ -402,6 +411,44 @@ class TestTable(BaseTest):
             sync_execute_results.return_value = [["id", "Int64"]]
             columns = table.get_columns()
             assert columns == {"id": {"clickhouse": "Int64", "hogql": "IntegerDatabaseField", "valid": True}}
+
+    @parameterized.expand(
+        [
+            ("get_columns", lambda table: table.get_columns()),
+            ("get_count", lambda table: table.get_count()),
+            ("get_max_value_for_column", lambda table: table.get_max_value_for_column("id")),
+            ("get_function_call", lambda table: table.get_function_call()),
+            (
+                "hogql_definition",
+                lambda table: table.hogql_definition().to_printed_clickhouse(HogQLContext(team_id=table.team_id)),
+            ),
+        ]
+    )
+    def test_a_credential_of_another_team_is_never_used(
+        self, _name: str, read: Callable[[DataWarehouseTable], object]
+    ) -> None:
+        other_team = Team.objects.create(organization=Organization.objects.create(name="other_org"))
+        credential = DataWarehouseCredential.objects.create(
+            access_key="other_key", access_secret="other_secret", team=other_team
+        )
+        created = DataWarehouseTable.objects.create(
+            name="test_table",
+            url_pattern="https://bucket.s3.amazonaws.com/data/*.parquet",
+            credential=credential,
+            format="Parquet",
+            team=self.team,
+            columns={"id": {"clickhouse": "Int64", "hogql": "IntegerDatabaseField", "valid": True}},
+        )
+        table = DataWarehouseTable.objects.get(pk=created.pk)
+
+        with patch("products.warehouse_sources.backend.models.table.sync_execute") as sync_execute:
+            try:
+                result = read(table)
+            except ExposedHogQLError:
+                result = None
+
+        assert result is None
+        sync_execute.assert_not_called()
 
     def test_get_columns_with_nullable(self):
         credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)

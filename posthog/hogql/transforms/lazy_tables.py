@@ -1,4 +1,5 @@
 import dataclasses
+from functools import partial
 from typing import Optional, cast
 
 from posthog.hogql import ast
@@ -9,8 +10,14 @@ from posthog.hogql.database.lazy_join_tags import DATA_WAREHOUSE, DATA_WAREHOUSE
 from posthog.hogql.database.models import LazyJoinToAdd, LazyTableToAdd, UnexpandedScan
 from posthog.hogql.database.schema.events_with_flag_calls import EventsWithFlagCallsTable
 from posthog.hogql.errors import ResolutionError
+from posthog.hogql.join_sources import JoinSources
 from posthog.hogql.resolver import ResolverFactory, resolve_types
 from posthog.hogql.resolver_utils import get_long_table_name
+from posthog.hogql.transforms.cross_join import local_cross_join_predicates
+from posthog.hogql.transforms.flag_calls_in_lazy_joins import (
+    read_flag_calls_in_lazy_join,
+    refuse_flag_calls_in_wrapped_lazy_join,
+)
 from posthog.hogql.transforms.grouped_clauses import (
     GroupedClauseTracker,
     before_grouping,
@@ -41,6 +48,29 @@ def _unexpanded_scan(join: ast.JoinExpr, table_type: ast.Type) -> UnexpandedScan
     return UnexpandedScan(scan, tuple(types))
 
 
+class _JoinFilterTaker(TraversingVisitor):
+    def visit_field(self, node: ast.Field):
+        # The inherited visit follows the field's type into shared CTE types, which takes exponential time.
+        pass
+
+    def visit_join_expr(self, node: ast.JoinExpr):
+        table = _lazy_table_of(node.type) if node.type is not None else None
+        if isinstance(table, ast.LazyTable):
+            table.take_join_filter(node)
+        super().visit_join_expr(node)
+
+
+def take_join_filters(node: ast.AST, context: HogQLContext) -> None:
+    """Removes the join-constraint predicates that a lazy table already holds a copy of in its `filter`.
+
+    The predicates stay in the tree until this runs, so every check on the resolved tree reads them. This runs after
+    those checks and before the property swapper, because the swapper handles the held copy once, in lazy table
+    resolution. This mutates the nodes.
+    """
+    if context.holds_join_filters:
+        _JoinFilterTaker().visit(node)
+
+
 # This mutates the nodes
 def resolve_lazy_tables(
     node: _T_AST,
@@ -49,6 +79,7 @@ def resolve_lazy_tables(
     context: HogQLContext,
     resolver_factory: ResolverFactory | None = None,
 ):
+    take_join_filters(node, context)
     LazyTableResolver(stack=stack, context=context, dialect=dialect, resolver_factory=resolver_factory).visit(node)
 
 
@@ -361,6 +392,23 @@ class LazyTableResolver(TraversingVisitor):
         # factory (e.g. BoundedResolver) applies to subqueries built mid-transform
         self.resolver_factory = resolver_factory
 
+    def _resolve_join_subquery(
+        self, select_type: ast.SelectQueryType, subquery: ast.SelectQuery, *, join_sources: JoinSources | None = None
+    ) -> ast.SelectQuery:
+        # The resolver copies `subquery`. A copy made here would have no source in `join_sources`. The swap then
+        # refuses the subquery on mode 2.
+        return cast(
+            ast.SelectQuery,
+            resolve_types(
+                subquery,
+                self.context,
+                self.dialect,
+                [select_type],
+                resolver_factory=self.resolver_factory,
+                join_sources=join_sources,
+            ),
+        )
+
     def _find_tables_needing_lazy_preresolution(
         self, node: ast.SelectQuery, select_type: ast.SelectQueryType
     ) -> list[str]:
@@ -411,8 +459,17 @@ class LazyTableResolver(TraversingVisitor):
             # A SAMPLE clause applies to the table, not to the subquery that replaces it.
             select_from=ast.JoinExpr(
                 table=ast.Field(chain=list(join_ptr.table.chain)),
+                # The resolver would otherwise read a fresh table from the database, without the filter that it copied
+                # from the join.
+                table_schema=cast(ast.Table, _lazy_table_of(original_table_type)),
                 alias=table_alias,
                 sample=clone_expr(join_ptr.sample, clear_types=True) if join_ptr.sample is not None else None,
+            ),
+            # Identity-key joins wrap their source; keep direct event/date filters inside that read.
+            where=(
+                local_cross_join_predicates(node.where, table_alias)
+                if self.context.modifiers.optimizeCrossJoins and join_ptr.join_type == "ALL INNER JOIN"
+                else None
             ),
         )
         subquery = cast(
@@ -420,6 +477,8 @@ class LazyTableResolver(TraversingVisitor):
             resolve_types(subquery, self.context, self.dialect, [], resolver_factory=self.resolver_factory),
         )
         assert subquery.type is not None
+        # The filter that the table copied from its join may read a CTE of the enclosing query.
+        subquery.type.ctes = {**(select_type.ctes or {}), **(subquery.type.ctes or {})}
         columns = [cast(ast.Alias, column) for column in subquery.select]
         for column in columns:
             export = collector.exports[column.alias]
@@ -842,6 +901,13 @@ class LazyTableResolver(TraversingVisitor):
         # This must happen BEFORE we add lazy joins to avoid forward reference issues.
         tables_to_wrap = self._find_tables_needing_lazy_preresolution(node, select_type)
         wrapped_table_types = [select_type.tables[table_alias] for table_alias in tables_to_wrap]
+        joins_in_wrappers = {
+            name
+            for name, join_scope in joins_to_add.items()
+            if any(_hops_to_table(join_scope.lazy_join_type, wrapped) is not None for wrapped in wrapped_table_types)
+        }
+        for name in joins_in_wrappers:
+            refuse_flag_calls_in_wrapped_lazy_join(joins_to_add[name], node, original_select_type, self.context)
         unexpanded_scans: dict[str, UnexpandedScan] = {}
         for table_alias in tables_to_wrap:
             wrapped_scan = self._wrap_table_for_lazy_resolution(node, table_alias, select_type)
@@ -849,11 +915,7 @@ class LazyTableResolver(TraversingVisitor):
                 unexpanded_scans[table_alias] = wrapped_scan
 
         # Remove lazy joins that are now resolved inside wrapped subqueries
-        joins_to_add = {
-            k: v
-            for k, v in joins_to_add.items()
-            if not any(_hops_to_table(v.lazy_join_type, wrapped) is not None for wrapped in wrapped_table_types)
-        }
+        joins_to_add = {k: v for k, v in joins_to_add.items() if k not in joins_in_wrappers}
 
         # For all the collected tables, create the subqueries, and add them to the table.
         for table_name, table_to_add in tables_to_add.items():
@@ -865,6 +927,7 @@ class LazyTableResolver(TraversingVisitor):
                     subquery, self.context, self.dialect, [select_type], resolver_factory=self.resolver_factory
                 ),
             )
+            take_join_filters(subquery, self.context)
             if self.context.property_swapper is not None:
                 subquery = PropertySwapper(
                     timezone=self.context.property_swapper.timezone,
@@ -925,6 +988,17 @@ class LazyTableResolver(TraversingVisitor):
             if len(overrides) != 0:
                 FieldChainReplacer(overrides).visit(join_to_add)
 
+            # The swap already ran on the query before this join existed. The outer fields still read the join's
+            # LazyJoinType here. The hook reads which of them filter the join's `event` from that type.
+            read_flag_calls_in_lazy_join(
+                join_to_add,
+                join_scope,
+                node,
+                original_select_type,
+                self.context,
+                partial(self._resolve_join_subquery, select_type),
+            )
+
             join_to_add = cast(ast.JoinExpr, clone_expr(join_to_add, clear_locations=True, clear_types=True))
             join_to_add = cast(
                 ast.JoinExpr,
@@ -932,6 +1006,7 @@ class LazyTableResolver(TraversingVisitor):
                     join_to_add, self.context, self.dialect, [select_type], resolver_factory=self.resolver_factory
                 ),
             )
+            take_join_filters(join_to_add, self.context)
             if self.context.property_swapper is not None:
                 join_to_add = PropertySwapper(
                     timezone=self.context.property_swapper.timezone,

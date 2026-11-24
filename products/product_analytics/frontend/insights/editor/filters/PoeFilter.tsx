@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonDisabledArea, LemonLabel, LemonSwitch } from '@posthog/lemon-ui'
 
 import { QuillChartOptionSwitch } from 'lib/components/ChartOptions/QuillChartOptionSwitch'
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { InsightLogicProps } from '~/types'

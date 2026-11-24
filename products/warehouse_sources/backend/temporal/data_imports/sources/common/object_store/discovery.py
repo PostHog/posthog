@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     csv_column_types_from_metadata,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.errors import (
+    NO_IMPORTABLE_FILES_ERROR,
     NO_TABLE_FILES_ERROR,
     TOO_MANY_FILES_ERROR,
     ObjectStorageError,
@@ -372,6 +373,68 @@ def group_tables(
     return tables
 
 
+def explain_no_tables(objects: Iterable[StoredObject], options: DiscoveryOptions, pattern: str | None = None) -> str:
+    """Why `group_tables` found no table in this listing, as a next step the user can take."""
+    files = [stored for stored in objects if stored.path.rsplit("/", 1)[-1]]
+    if not files:
+        return (
+            f"{NO_IMPORTABLE_FILES_ERROR} because the folder in your files URL is empty or doesn't exist. "
+            "Check the bucket and folder path in the URL."
+        )
+    no_glob_match = (
+        f"{NO_IMPORTABLE_FILES_ERROR} because no file matches the wildcards in your files URL. "
+        "Fix the pattern, or remove it to import the whole folder."
+    )
+    if options.file_format == "delta":
+        # With Delta tables present, only the glob can have left them all out.
+        if pattern and _delta_roots(files):
+            return no_glob_match
+        return (
+            f"{NO_IMPORTABLE_FILES_ERROR} because no folder here holds a Delta table's {DELTA_LOG_DIRECTORY} folder. "
+            "Choose the format your files use under File format."
+        )
+    visible = [stored for stored in files if not _is_hidden(stored.path)]
+    if pattern and visible:
+        glob = compile_clickhouse_glob(pattern)
+        visible = [stored for stored in visible if glob.matches(stored.path)]
+        if not visible:
+            return no_glob_match
+    if visible and options.file_format == "infer" and all(infer_file_format(s.path) is None for s in visible):
+        *others, last = EXTENSION_FORMATS
+        extensions = f"{', '.join(others)} or {last}"
+        return (
+            f"{NO_IMPORTABLE_FILES_ERROR} because no file name ends in {extensions}. "
+            "Choose the format your files use under File format."
+        )
+    return (
+        f"{NO_IMPORTABLE_FILES_ERROR} at your files URL, though PostHog can read the bucket. "
+        "Check the URL and the file format."
+    )
+
+
+def _check_object_count(objects: list[StoredObject], max_objects: int, listing_prefix: str) -> None:
+    if len(objects) > max_objects:
+        raise ObjectStorageError(
+            f"{TOO_MANY_FILES_ERROR} ({max_objects:,} files) in '{listing_prefix or '/'}'. Point the URL at a "
+            "narrower folder, or use a pattern that matches fewer files."
+        )
+
+
+def list_table_objects(store: ObjectStore, path: str, max_objects: int = MAX_TABLE_OBJECTS) -> list[StoredObject]:
+    """List the folder or file of a table, and refuse a table with more files than a sync reads."""
+    objects = store.list_objects(path, max_objects + 1)
+    _check_object_count(objects, max_objects, path)
+    return objects
+
+
+def list_glob_objects(store: ObjectStore, pattern: str, max_objects: int = MAX_TABLE_OBJECTS) -> list[StoredObject]:
+    """List the keys under the literal prefix of a glob, and refuse a table with more files than a sync reads."""
+    key_prefix = glob_key_prefix(pattern)
+    objects = store.list_key_prefix(key_prefix, max_objects + 1)
+    _check_object_count(objects, max_objects, key_prefix)
+    return objects
+
+
 def resolve_table_files(
     store: ObjectStore,
     table: TableDefinition,
@@ -386,18 +449,8 @@ def resolve_table_files(
     if table.kind != "files":
         return table
     if table.scope == "glob":
-        listing_prefix = glob_key_prefix(table.pattern or "")
-        objects = store.list_key_prefix(listing_prefix, max_objects + 1)
-    else:
-        listing_prefix = table.path
-        objects = store.list_objects(listing_prefix, max_objects + 1)
-    if len(objects) > max_objects:
-        raise ObjectStorageError(
-            f"{TOO_MANY_FILES_ERROR} ({max_objects:,} files) in '{listing_prefix or '/'}'. Point the URL at a "
-            "narrower folder, or use a pattern that matches fewer files."
-        )
-    if table.scope == "glob":
-        return _resolve_glob_files(objects, table)
+        return _resolve_glob_files(list_glob_objects(store, table.pattern or "", max_objects), table)
+    objects = list_table_objects(store, table.path, max_objects)
     options = DiscoveryOptions(
         file_format=table.source_format,
         allow_double_quotes=table.csv.allow_double_quotes,

@@ -5,22 +5,24 @@ import { LemonBanner, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 
-import { messageTemplatesLogic } from '../../TemplateLibrary/messageTemplatesLogic'
+import { transactionalTemplatesLogic } from '../transactionalTemplatesLogic'
 import { transactionalEmailMetricsLogic } from './transactionalEmailMetricsLogic'
 import { TransactionalEmailResultsStats } from './TransactionalEmailResultsStats'
 
 export function TransactionalEmailResults(): JSX.Element {
-    const { resultsQuery, results, resultsLoading, resultsFailed, canLoadResults, templatesFailed } =
-        useValues(transactionalEmailMetricsLogic)
-    const { setResultsQuery, loadResults, loadTemplates } = useActions(transactionalEmailMetricsLogic)
-    const { transactionalTemplates, templatesLoading } = useValues(messageTemplatesLogic)
-
-    const emailOptions = transactionalTemplates
-        .filter((template) => template.transactional_hog_flow_id)
-        .map((template) => ({
-            value: template.transactional_hog_flow_id as string,
-            label: template.name || 'Unnamed email',
-        }))
+    const {
+        resultsQuery,
+        resultsEmailOptions,
+        results,
+        resultsLoading,
+        resultsFailed,
+        canLoadResults,
+        codeEmailsFailed,
+        codeEmailsLoading,
+    } = useValues(transactionalEmailMetricsLogic)
+    const { setResultsQuery, loadResults, loadCodeEmails } = useActions(transactionalEmailMetricsLogic)
+    const { transactionalTemplatesFailed, transactionalTemplatesLoading } = useValues(transactionalTemplatesLogic)
+    const { loadTransactionalTemplates } = useActions(transactionalTemplatesLogic)
 
     return (
         <div className="flex flex-col gap-3">
@@ -31,7 +33,9 @@ export function TransactionalEmailResults(): JSX.Element {
                     placeholder="Choose an email"
                     value={resultsQuery.workflowId}
                     onChange={(workflowId) => setResultsQuery({ workflowId })}
-                    options={emailOptions}
+                    options={resultsEmailOptions}
+                    truncateText={{ maxWidthClass: 'max-w-60' }}
+                    loading={resultsEmailOptions.length === 0 && (codeEmailsLoading || transactionalTemplatesLoading)}
                     data-attr="transactional-email-results-email"
                 />
                 <span>how many did</span>
@@ -70,18 +74,26 @@ export function TransactionalEmailResults(): JSX.Element {
                     data-attr="transactional-email-results-revenue"
                 />
             </div>
-            {templatesFailed && !templatesLoading ? (
+            {codeEmailsFailed || transactionalTemplatesFailed ? (
                 <LemonBanner
                     type="error"
                     action={{
                         children: 'Try again',
-                        onClick: () => loadTemplates(),
+                        onClick: () => {
+                            if (codeEmailsFailed) {
+                                loadCodeEmails()
+                            }
+                            if (transactionalTemplatesFailed) {
+                                loadTransactionalTemplates()
+                            }
+                        },
                         'data-attr': 'transactional-email-results-templates-retry',
                     }}
                 >
-                    Your emails couldn't load, so there's nothing to pick yet. Check your connection and try again.
+                    Some of your emails couldn't load, so the list may be missing them. Try again.
                 </LemonBanner>
-            ) : !canLoadResults ? (
+            ) : null}
+            {!canLoadResults ? (
                 <p className="text-secondary text-sm m-0">
                     Choose an email and the event that counts as a conversion, such as a signup or a purchase.
                 </p>

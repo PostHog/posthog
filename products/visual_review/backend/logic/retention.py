@@ -21,8 +21,8 @@ from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 
 from ..db import READER_DB, WRITER_DB
-from ..facade.enums import RunStatus
-from ..models import Artifact, QuarantinedIdentifier, Repo, Run, RunSnapshot
+from ..facade.enums import BaselineApprovalState, RunStatus
+from ..models import Artifact, BaselineApproval, BaselineEntry, QuarantinedIdentifier, Repo, Run, RunSnapshot
 from ..storage import ArtifactStorage, StoryIndexStorage
 from . import artifact_store, run_queries, story_index
 
@@ -114,6 +114,15 @@ WHERE a.id = ANY(%(artifact_ids)s::uuid[])
       WHERE s.team_id = a.team_id AND r.repo_id = a.repo_id AND s.baseline_hash = a.content_hash
   )
   AND NOT EXISTS (SELECT 1 FROM visual_review_artifact t WHERE t.thumbnail_id = a.id)
+  AND NOT EXISTS (
+      SELECT 1 FROM visual_review_baselineentry e
+      WHERE e.team_id = a.team_id AND e.repo_id = a.repo_id AND e.content_hash = a.content_hash
+  )
+  AND NOT EXISTS (
+      SELECT 1 FROM visual_review_baselineapproval p
+      WHERE p.team_id = a.team_id AND p.repo_id = a.repo_id AND p.state = %(open_state)s
+        AND a.content_hash IN (p.content_hash, p.ledger_base_hash, p.effective_base_hash)
+  )
 RETURNING a.id, a.storage_path
 """
 
@@ -189,6 +198,47 @@ class RetentionSweep:
             .values_list("id", flat=True)[:limit]
         )
 
+    def _open_approvals(self) -> QuerySet[BaselineApproval]:
+        return (
+            BaselineApproval.objects.for_team(self.team_id, canonical=True)
+            .using(WRITER_DB)
+            .filter(repo_id=self.repo.id, state=BaselineApprovalState.OPEN)
+        )
+
+    def _verdict_open_to_approvals(self) -> Q:
+        # A conflicting landing republishes the status from the newest run of each pull request that owns
+        # or applies an open approval. Without that run the status stays green after the approval goes stale.
+        # Superseded runs own no status, so they stay out of the rule. Keeping them would also fill the
+        # bounded batch of the superseded pass with runs that the delete step skips.
+        open_approvals = self._open_approvals()
+        keep = Q(
+            Exists(open_approvals.filter(pr_number=OuterRef("pr_number"), run_type=OuterRef("run_type"))),
+            superseded_by__isnull=True,
+        )
+        open_approval_ids = [str(approval_id) for approval_id in open_approvals.values_list("id", flat=True)]
+        if open_approval_ids:
+            # A subquery, because a negated JSON key lookup also matches rows without the key.
+            applying_runs = self._runs().filter(
+                metadata__baseline__candidate_approval_ids__has_any_keys=open_approval_ids,
+                superseded_by__isnull=True,
+            )
+            keep |= Q(id__in=applying_runs.values("id"))
+        return keep
+
+    def _run_open_to_approvals(self, run_id: UUID) -> bool:
+        # The per-run form of _verdict_open_to_approvals. It looks at one run, so it does not
+        # read every open approval of the repo for each run in a sweep batch.
+        run = self._runs().filter(id=run_id).only("pr_number", "run_type", "superseded_by_id", "metadata").first()
+        if run is None or run.superseded_by_id is not None:
+            return False
+        open_approvals = self._open_approvals()
+        if run.pr_number is not None and open_approvals.filter(pr_number=run.pr_number, run_type=run.run_type).exists():
+            return True
+        candidate_ids = ((run.metadata or {}).get("baseline") or {}).get("candidate_approval_ids")
+        if not candidate_ids:
+            return False
+        return open_approvals.filter(id__in=candidate_ids).exists()
+
     def _quiet_branch_run_ids(self, limit: int, *, quiet_days: int, branches: Q) -> list[UUID]:
         quiet_cutoff = self.now - timedelta(days=quiet_days)
         recent_run_on_branch = self._runs().filter(branch=OuterRef("branch"), created_at__gte=quiet_cutoff)
@@ -215,6 +265,7 @@ class RetentionSweep:
             .filter(branches, superseded_by__isnull=True, created_at__lt=quiet_cutoff)
             .exclude(_PROTECTED_HISTORY)
             .exclude(self._source_of_active_quarantine())
+            .exclude(self._verdict_open_to_approvals())
             .filter(~Exists(recent_run_on_branch), ~Exists(superseded_run_in_group), Exists(newer_completed_run))
             .order_by("created_at")
             .values_list("id", flat=True)[:limit]
@@ -252,11 +303,14 @@ class RetentionSweep:
             if self._out_of_time():
                 break
             with transaction.atomic(using=WRITER_DB):
-                # A quarantine can name the run after the candidate query read it.
-                # Its insert takes a key-share lock on the run row, so locking the
-                # row first makes the check and the delete see the same quarantines.
+                # A quarantine or an approval can name the run after the candidate query
+                # read it. A quarantine insert takes a key-share lock on the run row, and
+                # finalize locks the row before it writes approvals, so locking the row
+                # first makes the check and the delete see the same rows.
                 list(self._runs().select_for_update().filter(id=run_id).values_list("id", flat=True))
                 if self._runs().filter(self._source_of_active_quarantine(), id=run_id).exists():
+                    continue
+                if self._run_open_to_approvals(run_id):
                     continue
                 self._splice_out_of_chain(run_id)
                 _total, per_model = self._runs().filter(id=run_id).delete()
@@ -285,6 +339,10 @@ class RetentionSweep:
 
     def _unreferenced_artifact_ids(self, limit: int) -> list[UUID]:
         snapshots = self._snapshots()
+        ledger_entries = (
+            BaselineEntry.objects.for_team(self.team_id, canonical=True).using(WRITER_DB).filter(repo_id=self.repo.id)
+        )
+        open_approvals = self._open_approvals()
         return list(
             self._artifacts()
             .filter(created_at__lt=self.now - timedelta(days=ARTIFACT_ORPHAN_GRACE_DAYS))
@@ -301,6 +359,18 @@ class RetentionSweep:
                 # That artifact's delete leaves the thumbnail unreferenced, and
                 # the next sweep collects it.
                 ~Exists(self._artifacts().filter(thumbnail_id=OuterRef("id"))),
+                # Ledger entries and open approvals name the baselines of runs that do not exist
+                # yet, so these images can outlive every run that rendered them. An entry's
+                # previous hash is the hash of an older entry, or, after a re-seed, a baseline
+                # that was dropped on purpose, so it holds nothing.
+                ~Exists(ledger_entries.filter(content_hash=OuterRef("content_hash"))),
+                ~Exists(
+                    open_approvals.filter(
+                        Q(content_hash=OuterRef("content_hash"))
+                        | Q(ledger_base_hash=OuterRef("content_hash"))
+                        | Q(effective_base_hash=OuterRef("content_hash"))
+                    )
+                ),
             )
             .values_list("id", flat=True)[:limit]
         )
@@ -310,7 +380,11 @@ class RetentionSweep:
             artifact_store.lock_artifact_registry(self.repo.id)
             cursor.execute(
                 _DELETE_ARTIFACTS_SQL,
-                {"artifact_ids": [str(artifact_id) for artifact_id in artifact_ids], "team_id": self.team_id},
+                {
+                    "artifact_ids": [str(artifact_id) for artifact_id in artifact_ids],
+                    "team_id": self.team_id,
+                    "open_state": BaselineApprovalState.OPEN.value,
+                },
             )
             return [(row[0], row[1]) for row in cursor.fetchall()]
 

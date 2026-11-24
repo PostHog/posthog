@@ -24,6 +24,9 @@ import type {
     UserBasicType,
 } from '../../../../../frontend/src/types'
 import { resolveDefaultEmailSender } from '../../Channels/defaultEmailSender'
+import type { SandboxSenderSurface } from '../../Channels/sandboxSender'
+import { sandboxSenderLogic } from '../../Channels/sandboxSenderLogic'
+import type { WorkflowEmailSandboxStatusApi } from '../../generated/api.schemas'
 import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
 import type { MessageCategory } from '../../OptOuts/optOutCategoriesLogic'
 import { EXIT_NODE_ID, TRIGGER_NODE_ID, WorkflowLogicProps, workflowLogic } from '../workflowLogic'
@@ -31,6 +34,12 @@ import { getEdgeId } from './edgeId'
 import { getTeamUtmDefaults, newEmailUtmConfig, utmKeysFollowingSavedDefault } from './steps/components/utmDefaults'
 import type { UtmTagValues } from './steps/components/UtmTagFields'
 import type { UtmTagKey } from './steps/components/UtmTagFields'
+import {
+    hasOwnSender,
+    needsSandboxSender,
+    sandboxSenderAllowed,
+    toSandboxAction,
+} from './steps/email/emailStepVariants'
 import { getHogFlowStep } from './steps/HogFlowSteps'
 import { CyclotronInputType } from './steps/types'
 import type { DropzoneNode, HogFlow, HogFlowAction, HogFlowActionEdge, HogFlowActionNode } from './types'
@@ -223,9 +232,12 @@ export interface hogFlowEditorLogicValues {
     integrations: IntegrationType[] | null // integrationsLogic
     categories: MessageCategory[] // optOutCategoriesLogic
     categoriesLoading: boolean // optOutCategoriesLogic
+    canAdoptSandbox: boolean // sandboxSenderLogic
+    sandboxStatus: WorkflowEmailSandboxStatusApi | null // sandboxSenderLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     edgesByActionId: Record<string, HogFlowEdge[]> // workflowLogic
     hogFunctionTemplatesById: Record<string, HogFunctionTemplateType> // workflowLogic
+    isViewOnly: boolean // workflowLogic
     workflow: HogFlow // workflowLogic
     dropzoneNodes: DropzoneNode[]
     edges: HogFlowActionEdge[]
@@ -249,6 +261,9 @@ export interface hogFlowEditorLogicActions {
     loadCategories: () => {
         value: true
     } // optOutCategoriesLogic
+    provisionSandboxSender: (surface: SandboxSenderSurface) => {
+        surface: SandboxSenderSurface
+    } // sandboxSenderLogic
     loadWorkflowSuccess: (
         originalWorkflow:
             | HogFlow
@@ -299,7 +314,16 @@ export interface hogFlowEditorLogicActions {
                                     filters: {
                                         actions?: any[] | undefined
                                         events?: any[] | undefined
-                                        properties?: any[] | undefined
+                                        properties?:
+                                            | {
+                                                  type: 'AND' | 'OR'
+                                                  values: {
+                                                      type: 'AND' | 'OR'
+                                                      values: any[]
+                                                  }[]
+                                              }
+                                            | any[]
+                                            | undefined
                                     }
                                     name?: string | undefined
                                 }[]
@@ -474,6 +498,60 @@ export interface hogFlowEditorLogicActions {
                                 | null
                                 | undefined
                             type: 'delay'
+                            updated_at?: number | undefined
+                        }
+                      | {
+                            config: {
+                                inputs: {
+                                    email: {
+                                        templating?: 'hog' | 'liquid' | undefined
+                                        value: {
+                                            design?: any
+                                            html?: string | undefined
+                                            preheader?: string | undefined
+                                            subject?: string | undefined
+                                            text?: string | undefined
+                                            to?:
+                                                | {
+                                                      email: string
+                                                      name?: string | undefined
+                                                  }
+                                                | undefined
+                                        }
+                                    }
+                                }
+                                message_category_id?: string | null | undefined
+                                message_category_type?: 'marketing' | 'transactional' | null | undefined
+                            }
+                            created_at?: number | undefined
+                            description: string
+                            filters?:
+                                | {
+                                      actions?: any[] | undefined
+                                      events?: any[] | undefined
+                                      properties?: any[] | undefined
+                                  }
+                                | null
+                                | undefined
+                            id: string
+                            name: string
+                            on_error?: 'abort' | 'continue' | null | undefined
+                            output_variable?:
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }[]
+                                | null
+                                | undefined
+                            type: 'email_sandbox'
                             updated_at?: number | undefined
                         }
                       | {
@@ -752,6 +830,7 @@ export interface hogFlowEditorLogicActions {
                                 >
                                 message_category_id?: string | null | undefined
                                 message_category_type?: 'marketing' | 'transactional' | undefined
+                                sensitive?: boolean | undefined
                                 skip_frequency_cap?: boolean | undefined
                                 template_id: 'template-email'
                                 template_uuid?: string | undefined
@@ -948,7 +1027,7 @@ export interface hogFlowEditorLogicActions {
                         }
                       | undefined
                   created_at: string
-                  created_by?: UserBasicType | null | undefined
+                  created_by?: UserBasicType | null
                   description?: string | undefined
                   edges: {
                       from: string
@@ -1189,7 +1268,16 @@ export interface hogFlowEditorLogicActions {
                                     filters: {
                                         actions?: any[] | undefined
                                         events?: any[] | undefined
-                                        properties?: any[] | undefined
+                                        properties?:
+                                            | {
+                                                  type: 'AND' | 'OR'
+                                                  values: {
+                                                      type: 'AND' | 'OR'
+                                                      values: any[]
+                                                  }[]
+                                              }
+                                            | any[]
+                                            | undefined
                                     }
                                     name?: string | undefined
                                 }[]
@@ -1364,6 +1452,60 @@ export interface hogFlowEditorLogicActions {
                                 | null
                                 | undefined
                             type: 'delay'
+                            updated_at?: number | undefined
+                        }
+                      | {
+                            config: {
+                                inputs: {
+                                    email: {
+                                        templating?: 'hog' | 'liquid' | undefined
+                                        value: {
+                                            design?: any
+                                            html?: string | undefined
+                                            preheader?: string | undefined
+                                            subject?: string | undefined
+                                            text?: string | undefined
+                                            to?:
+                                                | {
+                                                      email: string
+                                                      name?: string | undefined
+                                                  }
+                                                | undefined
+                                        }
+                                    }
+                                }
+                                message_category_id?: string | null | undefined
+                                message_category_type?: 'marketing' | 'transactional' | null | undefined
+                            }
+                            created_at?: number | undefined
+                            description: string
+                            filters?:
+                                | {
+                                      actions?: any[] | undefined
+                                      events?: any[] | undefined
+                                      properties?: any[] | undefined
+                                  }
+                                | null
+                                | undefined
+                            id: string
+                            name: string
+                            on_error?: 'abort' | 'continue' | null | undefined
+                            output_variable?:
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }[]
+                                | null
+                                | undefined
+                            type: 'email_sandbox'
                             updated_at?: number | undefined
                         }
                       | {
@@ -1642,6 +1784,7 @@ export interface hogFlowEditorLogicActions {
                                 >
                                 message_category_id?: string | null | undefined
                                 message_category_type?: 'marketing' | 'transactional' | undefined
+                                sensitive?: boolean | undefined
                                 skip_frequency_cap?: boolean | undefined
                                 template_id: 'template-email'
                                 template_uuid?: string | undefined
@@ -1838,7 +1981,7 @@ export interface hogFlowEditorLogicActions {
                         }
                       | undefined
                   created_at: string
-                  created_by?: UserBasicType | null | undefined
+                  created_by?: UserBasicType | null
                   description?: string | undefined
                   edges: {
                       from: string
@@ -2108,6 +2251,9 @@ export interface hogFlowEditorLogicActions {
     resetFlowFromHogFlow: (hogFlow: HogFlow) => {
         hogFlow: HogFlow
     }
+    selectTrigger: () => {
+        value: true
+    }
     setDropzoneNodes: (dropzoneNodes: DropzoneNode[]) => {
         dropzoneNodes: DropzoneNode[]
     }
@@ -2157,7 +2303,8 @@ export interface hogFlowEditorLogicMeta {
         selectedNode: (
             nodes: HogFlowActionNode[],
             selectedNodeId: string | null,
-            workflow: HogFlow
+            workflow: HogFlow,
+            isViewOnly: boolean
         ) => HogFlowActionNode | null
         selectedNodeCanBeDeleted: (
             selectedNode: HogFlowActionNode | null,
@@ -2178,6 +2325,32 @@ export type hogFlowEditorLogicType = MakeLogicType<
     hogFlowEditorLogicMeta
 >
 
+function withSandboxSenderOnInsert(
+    action: HogFlowAction,
+    values: Pick<
+        hogFlowEditorLogicValues,
+        'integrations' | 'workflow' | 'canAdoptSandbox' | 'sandboxStatus' | 'currentTeam'
+    >,
+    editingTemplate: boolean,
+    provisionSandboxSender: () => void
+): HogFlowAction {
+    if (
+        hasOwnSender(values.integrations) !== false ||
+        !sandboxSenderAllowed(values.workflow, editingTemplate) ||
+        !needsSandboxSender(action, values.canAdoptSandbox, getTeamUtmDefaults(values.currentTeam?.workflows_config))
+    ) {
+        return action
+    }
+    if (values.sandboxStatus?.integration_id === null) {
+        provisionSandboxSender()
+    }
+    return toSandboxAction(action)
+}
+
+function isDeletableStep(action: HogFlowAction, isViewOnly: boolean): boolean {
+    return !isViewOnly && !['trigger', 'exit'].includes(action.type)
+}
+
 export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
     props({} as WorkflowLogicProps),
     path((key) => ['scenes', 'hogflows', 'hogFlowEditorLogic', key]),
@@ -2185,19 +2358,23 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
     connect(() => ({
         values: [
             workflowLogic,
-            ['workflow', 'edgesByActionId', 'hogFunctionTemplatesById'],
+            ['workflow', 'edgesByActionId', 'hogFunctionTemplatesById', 'isViewOnly'],
             optOutCategoriesLogic(),
             ['categories', 'categoriesLoading'],
             integrationsLogic,
             ['integrations'],
             teamLogic,
             ['currentTeam'],
+            sandboxSenderLogic,
+            ['canAdoptSandbox', 'sandboxStatus'],
         ],
         actions: [
             workflowLogic,
             ['setWorkflowInfo', 'setWorkflowAction', 'setWorkflowActionEdges', 'loadWorkflowSuccess'],
             optOutCategoriesLogic(),
             ['loadCategories'],
+            sandboxSenderLogic,
+            ['provisionSandboxSender'],
         ],
     })),
     actions({
@@ -2210,6 +2387,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         setNodesRaw: (nodes: HogFlowActionNode[]) => ({ nodes }),
         setEdges: (edges: HogFlowActionEdge[]) => ({ edges }),
         setSelectedNodeId: (selectedNodeId: string | null) => ({ selectedNodeId }),
+        selectTrigger: true,
         resetFlowFromHogFlow: (hogFlow: HogFlow) => ({ hogFlow }),
         onDragOver: (event: DragEvent) => ({ event }),
         onDrop: (event?: DragEvent, targetEdge?: HogFlowEdge, joinEdges?: HogFlowEdge[]) => ({
@@ -2331,11 +2509,12 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             },
         ],
         selectedNode: [
-            (s) => [s.nodes, s.selectedNodeId, s.workflow],
+            (s) => [s.nodes, s.selectedNodeId, s.workflow, s.isViewOnly],
             (
                 nodes: HogFlowActionNode[],
                 selectedNodeId: string | null,
-                workflow: HogFlow
+                workflow: HogFlow,
+                isViewOnly: boolean
             ): HogFlowActionNode | null => {
                 const node = nodes.find((node) => node.id === selectedNodeId)
                 if (node || !selectedNodeId) {
@@ -2349,7 +2528,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                           type: 'action',
                           data: action,
                           position: { x: 0, y: 0 },
-                          deletable: !['trigger', 'exit'].includes(action.type),
+                          deletable: isDeletableStep(action, isViewOnly),
                           selectable: true,
                           draggable: false,
                           connectable: false,
@@ -2383,7 +2562,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             },
         ],
     }),
-    listeners(({ values, actions }) => {
+    listeners(({ values, actions, props }) => {
         return {
             resetFlowFromHogFlow: ({ hogFlow }) => {
                 try {
@@ -2411,7 +2590,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                             type: 'action',
                             data: migratedAction,
                             position: { x: 0, y: 0 },
-                            deletable: !['trigger', 'exit'].includes(migratedAction.type),
+                            deletable: isDeletableStep(migratedAction, values.isViewOnly),
                             selectable: true,
                             draggable: false,
                             connectable: false,
@@ -2570,7 +2749,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                         })
                         const dynamicInputs = (partialNewAction as CreateActionType).getDefaultInputs?.()
                         if (dynamicInputs && 'inputs' in config) {
-                            config = { ...config, inputs: { ...config.inputs, ...dynamicInputs } }
+                            config = { ...config, inputs: { ...config.inputs, ...dynamicInputs } } as typeof config
                         }
                     }
                     // Seed the step's inputs with the template defaults at creation time. The input renderer
@@ -2601,6 +2780,26 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     }
 
                     if (!isHogFlowActionNode && 'template_id' in config && config.template_id === 'template-email') {
+                        // The API sets templating from the template only on save, so a new step that moves to the
+                        // test sender first would lose it. A copy keeps its own, as a saved step without one runs as
+                        // Hog. The schema type says boolean, but this template names the engine.
+                        const schemaTemplating: unknown = values.hogFunctionTemplatesById[
+                            config.template_id
+                        ]?.inputs_schema?.find((schema) => schema.key === 'email')?.templating
+                        if (
+                            !values.isCopyingNode &&
+                            config.inputs?.email &&
+                            !config.inputs.email.templating &&
+                            (schemaTemplating === 'liquid' || schemaTemplating === 'hog')
+                        ) {
+                            config = {
+                                ...config,
+                                inputs: {
+                                    ...config.inputs,
+                                    email: { ...config.inputs.email, templating: schemaTemplating },
+                                },
+                            }
+                        }
                         const emailInput = config.inputs?.email
                         const team = values.currentTeam
                         const sender = resolveDefaultEmailSender(
@@ -2628,7 +2827,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                         }
                     }
 
-                    const newAction = {
+                    let newAction = {
                         id: isHogFlowActionNode
                             ? (values.nodeToBeAdded as HogFlowActionNode).id
                             : `action_${partialNewAction.type}_${uuid()}`,
@@ -2645,6 +2844,12 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                             ? { on_error: (partialNewAction as CreateActionType).on_error }
                             : {}),
                     } as HogFlowAction
+
+                    if (!isHogFlowActionNode) {
+                        newAction = withSandboxSenderOnInsert(newAction, values, !!props.editTemplateId, () =>
+                            actions.provisionSandboxSender('inserted_step')
+                        )
+                    }
 
                     const step = getHogFlowStep(newAction, values.hogFunctionTemplatesById)
 
@@ -2765,6 +2970,11 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 }
                 actions.onDrop()
                 actions.stopCopyingNode()
+            },
+            selectTrigger: () => {
+                // Workflows created through the API or MCP can give the trigger any id, not only TRIGGER_NODE_ID.
+                const trigger = values.workflow.actions.find((action) => action.type === 'trigger')
+                actions.setSelectedNodeId(trigger?.id ?? null)
             },
             startMovingNode: () => {
                 actions.showDropzones()

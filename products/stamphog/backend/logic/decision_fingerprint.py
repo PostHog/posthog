@@ -13,8 +13,9 @@ import functools
 from collections.abc import Collection
 from typing import Any
 
+from products.stamphog.backend.logic.attestation_policy import attestation_check_names
 from products.stamphog.backend.logic.engine_pregate import engine_source_files, owners_package_files
-from products.stamphog.backend.temporal.constants import STAMPHOG_TRUSTED_REACTOR_BOTS
+from products.stamphog.backend.temporal.constants import STAMPHOG_POLICY_ENTRYPOINT, STAMPHOG_TRUSTED_REACTOR_BOTS
 
 DECISION_FINGERPRINT_OUTPUT_KEY = "decision_fingerprint"
 
@@ -23,8 +24,9 @@ DECISION_FINGERPRINT_OUTPUT_KEY = "decision_fingerprint"
 WITHHELD_RUN_OUTPUT_KEY = "withheld_run_id"
 REUSED_FROM_RUN_OUTPUT_KEY = "reused_from_run_id"
 
-# Mirrors CHECK_NAME in packages/pr-approval-agent/migration_risk.py. The engine reads no other
-# check run, so a CI check that finishes between two reads must not count as a changed input.
+# Mirrors CHECK_NAME in packages/pr-approval-agent/migration_risk.py. Apart from it, the engine reads
+# only the checks the policy names as attestations, so any other CI check that finishes between two
+# reads must not count as a changed input.
 MIGRATION_RISK_CHECK_NAME = "Migration risk"
 
 # PR fields left out of the hash because they move without changing what the engine decides on:
@@ -104,6 +106,9 @@ def decision_fingerprint(
     the silent trigger on purpose: the trigger only tells the reviewer why it was asked.
     """
     pr = context.get("pr") or {}
+    read_checks = {MIGRATION_RISK_CHECK_NAME} | attestation_check_names(
+        (context.get("policy_files") or {}).get(STAMPHOG_POLICY_ENTRYPOINT)
+    )
     canonical = {
         "engine": engine_digest,
         "head_sha": head_sha,
@@ -119,7 +124,7 @@ def decision_fingerprint(
         "check_runs": [
             check_run
             for check_run in context.get("check_runs") or []
-            if isinstance(check_run, dict) and check_run.get("name") == MIGRATION_RISK_CHECK_NAME
+            if isinstance(check_run, dict) and check_run.get("name") in read_checks
         ],
         # The engine keeps only the trusted reviewer bots' reactions, so nobody else's reaction is an input.
         "pr_reactions": [

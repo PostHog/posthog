@@ -18,7 +18,8 @@ from posthog.event_usage import EventSource, get_event_source
 from posthog.models import User
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
-from posthog.scopes import GRANTABLE_API_SCOPE_OBJECTS, APIScopeObjectOrNotSupported
+from posthog.scopes.catalog import APIScopeObjectOrNotSupported
+from posthog.scopes.exposure import GRANTABLE_API_SCOPE_OBJECTS
 from posthog.synthetic_user import SyntheticUser
 
 from products.access_control.backend.facade import api as access_control_api
@@ -29,7 +30,7 @@ from products.access_control.backend.facade.enums import (
     SCOPE_OBJECT_CHOICES,
 )
 from products.access_control.backend.facade.object_names import display_model, resolve_object_names
-from products.access_control.backend.facade.subject_access_control import SubjectAccessControl
+from products.access_control.backend.facade.subject_access_control import SubjectAccessControl, seeded_member_subjects
 from products.access_control.backend.facade.user_access_control import (
     ACCESS_CONTROL_LEVELS_RESOURCE,
     ACCESS_CONTROL_MAX_OBJECTS_PER_RESOURCE,
@@ -539,17 +540,16 @@ class AccessControlViewSetMixin(_GenericViewSet):
 
         target = _access_target(self, self.get_object())
 
-        org_memberships = (
-            OrganizationMembership.objects.filter(organization=team.organization, user__is_active=True)
-            .select_related("user")
-            .prefetch_related("role_memberships__role")
+        memberships = list(
+            OrganizationMembership.objects.filter(organization=team.organization, user__is_active=True).select_related(
+                "user"
+            )
         )
 
         users_with_access = []
 
-        for membership in org_memberships:
+        for membership, user_uac in zip(memberships, seeded_member_subjects(team, memberships), strict=True):
             user = membership.user
-            user_uac = UserAccessControl(user=user, team=team)
 
             # Check if user has access to the project first
             project_access = user_uac.check_access_level_for_object(team, required_level="member")
@@ -575,7 +575,9 @@ class AccessControlViewSetMixin(_GenericViewSet):
                     "access_level": access_level,
                     "access_source": access_source.value,
                     "organization_membership_id": membership.id,
-                    "organization_membership_level": OrganizationMembership.Level(membership.level).name.lower(),
+                    "organization_membership_level": OrganizationMembership.Level(
+                        membership.effective_level
+                    ).name.lower(),
                 }
             )
 

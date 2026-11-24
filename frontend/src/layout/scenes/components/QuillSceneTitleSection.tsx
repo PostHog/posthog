@@ -25,11 +25,13 @@ import { SceneTitleSettingsButton } from './SceneTitleSettingsButton'
 export function QuillSceneTitleSection({
     name,
     nameSuffix,
+    nameAction,
     description,
     resourceType,
     markdown = false,
     isLoading = false,
     onNameChange,
+    nameError,
     onDescriptionChange,
     canEdit = false,
     forceEdit = false,
@@ -121,12 +123,18 @@ export function QuillSceneTitleSection({
                 }
                 title={
                     <>
-                        {staticName && nameSuffixes}
+                        {staticName && (
+                            <>
+                                {nameAction}
+                                {nameSuffixes}
+                            </>
+                        )}
                         {name !== null && !titleInPhoneHeader && !staticName && (
                             <QuillSceneName
                                 name={name}
                                 isLoading={isLoading}
                                 onChange={onNameChange}
+                                error={nameError}
                                 canEdit={canEdit}
                                 forceEdit={forceEdit}
                                 renameDebounceMs={renameDebounceMs}
@@ -136,6 +144,7 @@ export function QuillSceneTitleSection({
                                 fieldSuffix={descriptionIgnoresForceEdit && descriptionToggle}
                                 suffix={
                                     <>
+                                        {nameAction}
                                         {nameSuffixes}
                                         {descriptionToggle}
                                     </>

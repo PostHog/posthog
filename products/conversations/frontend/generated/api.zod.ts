@@ -9,6 +9,28 @@
  */
 import * as zod from 'zod'
 
+export const conversationsIntercomImportsCreateBodyRegionDefault = `us`
+export const conversationsIntercomImportsCreateBodyAccessTokenMax = 500
+
+export const ConversationsIntercomImportsCreateBody = /* @__PURE__ */ zod.object({
+    region: zod
+        .enum(['us', 'eu', 'au'])
+        .default(conversationsIntercomImportsCreateBodyRegionDefault)
+        .describe(
+            'Region where the Intercom workspace is hosted: us, eu, or au.\n\n\* `us` - United States\n\* `eu` - Europe\n\* `au` - Australia'
+        ),
+    access_token: zod
+        .string()
+        .max(conversationsIntercomImportsCreateBodyAccessTokenMax)
+        .describe('Intercom access token with permission to read conversations and contacts.'),
+    default_email_channel_id: zod
+        .uuid()
+        .nullish()
+        .describe(
+            'Optional support email channel to attach imported tickets to, so agents can reply by email. Omit or null to import tickets without an email channel.'
+        ),
+})
+
 export const conversationsMacrosCreateBodyNameMax = 200
 
 export const conversationsMacrosCreateBodyShortcutMax = 50
@@ -74,6 +96,23 @@ export const ConversationsMacrosPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             "Who can see and use the macro. 'shared' is everyone in the project, the default. 'personal' is only the person who created it.\n\n\* `shared` - Everyone in the project\n\* `personal` - Only the creator"
+        ),
+})
+
+export const conversationsPylonImportsCreateBodyApiTokenMax = 500
+
+export const ConversationsPylonImportsCreateBody = /* @__PURE__ */ zod.object({
+    api_token: zod
+        .string()
+        .max(conversationsPylonImportsCreateBodyApiTokenMax)
+        .describe(
+            'Pylon API token whose role can read issues, messages, and contacts. The region (US or EU) is detected from the token.'
+        ),
+    default_email_channel_id: zod
+        .uuid()
+        .nullish()
+        .describe(
+            'Optional support email channel to attach imported tickets to, so agents can reply by email. Omit or null to import tickets without an email channel.'
         ),
 })
 
@@ -266,7 +305,9 @@ export const ConversationsTicketsNotesCreateBody = /* @__PURE__ */ zod
         rich_content: zod
             .unknown()
             .optional()
-            .describe('Optional TipTap rich content JSON for the note. Omit it to show the markdown message.'),
+            .describe(
+                'Optional TipTap rich content JSON for the note. Omit it to show the markdown message. Each image src must be the url of an image uploaded to this project.'
+            ),
     })
     .describe('Payload for adding a private note to a ticket. It has no privacy field: the note is always private.')
 
@@ -289,7 +330,7 @@ export const ConversationsTicketsNotesPartialUpdateBody = /* @__PURE__ */ zod
             .unknown()
             .optional()
             .describe(
-                'Optional TipTap rich content JSON. Omit or pass null to clear previous rich content so the thread falls back to the markdown message.'
+                'Optional TipTap rich content JSON. Omit or pass null to clear previous rich content so the thread falls back to the markdown message. Each image src must be the url of an image uploaded to this project.'
             ),
     })
     .describe('Payload for updating a private note on a ticket.')
@@ -318,7 +359,12 @@ export const ConversationsTicketsReplyCreateBody = /* @__PURE__ */ zod
             .describe(
                 "If true, store as an internal note (not sent to the customer). If false, the reply is delivered to the customer over the ticket's channel."
             ),
-        rich_content: zod.unknown().optional().describe('Optional TipTap rich content JSON for formatted messages.'),
+        rich_content: zod
+            .unknown()
+            .optional()
+            .describe(
+                'Optional TipTap rich content JSON for formatted messages. When set, channels deliver this instead of message. Images need it: add a node {\"type\": \"image\", \"attrs\": {\"src\": <url>, \"alt\": <text>}} to the \"doc\" content. Each src must be the url of an image uploaded to this project, or the request fails with a 400.'
+            ),
     })
     .describe('Payload for posting a reply or internal note to a ticket.')
 
@@ -428,7 +474,12 @@ export const ConversationsTicketsComposeCreateBody = /* @__PURE__ */ zod.object(
             "ID of the support email channel to send from. Omit it to send from the team's default support channel."
         ),
     message: zod.string().max(conversationsTicketsComposeCreateBodyMessageMax).describe('Message content in markdown.'),
-    rich_content: zod.unknown().optional().describe('TipTap rich content JSON for formatted messages.'),
+    rich_content: zod
+        .unknown()
+        .optional()
+        .describe(
+            'TipTap rich content JSON for formatted messages. Each image src must be the url of an image uploaded to this project.'
+        ),
     tags: zod
         .array(zod.string().max(conversationsTicketsComposeCreateBodyTagsItemMax))
         .max(conversationsTicketsComposeCreateBodyTagsMax)

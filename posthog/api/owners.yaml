@@ -1,6 +1,8 @@
 version: 1
 owners: []
 rules:
+    - match: ['/cli_catalog.py', '/test/test_cli_catalog.py']
+      owners: team-context-and-mcp
     - match: ['/cohort.py', '/test/test_cohort.py']
       owners: team-feature-flags
     - match: '/comments.py'
@@ -8,21 +10,21 @@ rules:
     - match: '/documentation.py'
       owners: team-devex
     - match: '/test/dashboards/'
-      owners: team-product-analytics
+      owners: team-dashboards-and-charts
     - match: ['/element.py', '/event.py', '/event_definition.py']
-      owners: team-product-analytics
+      owners: team-analytics
     - match: ['/livestream.py', '/test/test_livestream.py']
-      owners: team-web-analytics
+      owners: team-analytics
     - match: '/mixins.py'
       owners: team-devex
     - match: '/oauth/'
       owners: team-growth
     - match: ['/person.py', '/test/test_person.py', '/test/test_person_personhog.py']
-      owners: team-product-analytics
+      owners: team-analytics
     - match: ['/proxy_record.py', '/proxy_record_diagnostics.py', '/resource_transfer.py']
       owners: team-platform-features
     - match: '/schema_property_group.py'
-      owners: team-product-analytics
+      owners: team-analytics
     - match: ['/test/test_proxy_record.py', '/test/test_proxy_record_diagnostics.py']
       owners: team-platform-features
     - match:

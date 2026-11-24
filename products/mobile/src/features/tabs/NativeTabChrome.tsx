@@ -1,6 +1,7 @@
 import { Stack, useRouter } from 'expo-router'
 import { type ReactElement, useCallback, useMemo, useRef } from 'react'
 import type { ChatSheetEntry } from '@/features/chat/chatSheetEvents'
+import { liveNativeFilterButton } from '@/features/live/LiveFilterButton'
 import { nativeIcons } from '@/ui/icons/nativeIcons'
 import { useOverlayDismiss } from '@/ui/overlayDismiss'
 import { useColors } from '@/ui/theme'
@@ -39,6 +40,7 @@ export function NativeTabChrome({ slot, onMore }: { slot: TabHeaderSlot | null; 
     const editing = !!slot?.editing
     const hasFilter = !!slot?.filter
     const activeFilter = slot?.filter?.active ?? false
+    const filterCount = slot?.filter?.count
     const leading = useMemo(
         () =>
             dismiss ? (
@@ -66,18 +68,20 @@ export function NativeTabChrome({ slot, onMore }: { slot: TabHeaderSlot | null; 
                         />,
                     ]
                   : [
-                        ...(hasFilter
-                            ? [
-                                  <Stack.Toolbar.Button
-                                      iconRenderingMode="template"
-                                      key="filter"
-                                      icon={nativeIcons.filter}
-                                      accessibilityLabel="Filter and sort"
-                                      selected={activeFilter}
-                                      onPress={filter}
-                                  />,
-                              ]
-                            : []),
+                        ...(filterCount !== undefined
+                            ? [liveNativeFilterButton({ count: filterCount, onPress: filter })]
+                            : hasFilter
+                              ? [
+                                    <Stack.Toolbar.Button
+                                        iconRenderingMode="template"
+                                        key="filter"
+                                        icon={nativeIcons.filter}
+                                        accessibilityLabel="Filter and sort"
+                                        selected={activeFilter}
+                                        onPress={filter}
+                                    />,
+                                ]
+                              : []),
                         <Stack.Toolbar.Button
                             iconRenderingMode="template"
                             key="compose"
@@ -95,7 +99,7 @@ export function NativeTabChrome({ slot, onMore }: { slot: TabHeaderSlot | null; 
                             onPress={more}
                         />,
                     ],
-        [dismiss, editing, hasFilter, activeFilter, done, filter, compose, more]
+        [dismiss, editing, hasFilter, activeFilter, done, filter, compose, more, filterCount]
     )
     return (
         <>

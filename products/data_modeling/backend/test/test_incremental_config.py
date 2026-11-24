@@ -6,9 +6,8 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from products.data_modeling.backend.facade.contracts import IncrementalConfig, IncrementalState
 from products.data_modeling.backend.logic.incremental import (
-    IncrementalConfig,
-    IncrementalState,
     clear_incremental_state,
     definition_fingerprint,
     deserialize_watermark,

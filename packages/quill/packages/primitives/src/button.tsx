@@ -6,7 +6,7 @@ import * as React from 'react'
 
 import { cn } from './lib/utils'
 import { Spinner } from './spinner'
-import { hasTooltipContent, withTooltip } from './with-tooltip'
+import { hasTooltipContent, withDisabledReason, withTooltip } from './with-tooltip'
 
 const buttonVariants = cva(
     'quill-button group/button inline-flex shrink-0 items-center justify-center whitespace-nowrap',
@@ -171,10 +171,11 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
                 {loading && <Spinner className="quill-button__spinner" />}
             </ButtonPrimitive>
         )
-        return withTooltip(button, hasDisabledReason ? disabledReason : tooltip, {
-            target: 'self',
-            delay: size?.startsWith('icon') ? 0 : undefined,
-        })
+        const delay = size?.startsWith('icon') ? 0 : undefined
+        // Both helpers render the same tree, so the button keeps its ancestors when a reason appears or clears.
+        return hasDisabledReason
+            ? withDisabledReason(button, disabledReason, { target: 'self', delay })
+            : withTooltip(button, tooltip, { target: 'self', delay })
     }
 )
 Button.displayName = 'Button'

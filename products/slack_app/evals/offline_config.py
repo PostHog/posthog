@@ -14,14 +14,24 @@ _SCORERS: dict[str, dict[str, OfflineScorer]] = {
         "followup_routing": OfflineScorer(kind="boolean", version=UUID("01a1557c-d1ca-7c68-96eb-5406fd8dde02")),
         "no_unasked_wake": OfflineScorer(kind="boolean", version=UUID("01a1557c-dd52-78d0-a1f1-1854076c09ac")),
     },
-    "interview_sentiment": {
-        "interview_sentiment": OfflineScorer(kind="boolean", version=UUID("01a1783a-9ee4-73a5-bbdf-fe91e943eb96")),
-        "no_unasked_invite": OfflineScorer(kind="boolean", version=UUID("01a1783a-9ee4-73a5-bbdf-fe92235d3e9c")),
+    "message_sentiment": {
+        "message_sentiment": OfflineScorer(kind="boolean", version=UUID("01a2091d-1c56-7629-8b6a-d250303e4101")),
+        "happy_detected": OfflineScorer(kind="boolean", version=UUID("01a2091d-33f8-7924-9d9f-96eeed5131b6")),
+        "neutral_detected": OfflineScorer(kind="boolean", version=UUID("01a2091d-3a54-7d05-896a-d44e0c05da64")),
+        "confused_detected": OfflineScorer(kind="boolean", version=UUID("01a2091d-4133-7a6c-82fb-8eb9749ca846")),
+        "not_happy_detected": OfflineScorer(kind="boolean", version=UUID("01a2091d-47c7-7b59-963e-6fb3c63b8c92")),
+        "frustrated_detected": OfflineScorer(kind="boolean", version=UUID("01a2091d-4eee-72d7-a522-bc895ccbb508")),
+        "unhappy_detected": OfflineScorer(kind="boolean", version=UUID("01a2091d-2010-7932-927d-d6265b1f5ac7")),
+        "no_unasked_reaction": OfflineScorer(kind="boolean", version=UUID("01a2091d-26bf-73fe-b957-cb178c844481")),
+        "no_unasked_gif": OfflineScorer(kind="boolean", version=UUID("01a2091d-2d54-7f16-8a58-cee8d6f96b1f")),
     },
     "model_classifier": {
         "exit_code_zero": OfflineScorer(kind="boolean", version=UUID("01a1557c-e620-710d-82d2-de63990000f1")),
         "model_override_match": OfflineScorer(kind="boolean", version=UUID("01a1557c-ee78-7412-9b90-2ecf80591aa0")),
         "no_unasked_override": OfflineScorer(kind="boolean", version=UUID("01a1557c-fd45-7a93-8852-b64bcf13eeb8")),
+    },
+    "needs_repo": {
+        "needs_repo": OfflineScorer(kind="boolean", version=UUID("01a1cb12-ad4f-7cb7-ab46-c1ed42db9cc7")),
     },
     "posthog_first": {
         "docs_searched": OfflineScorer(kind="boolean", version=UUID("01a1557d-0f40-7999-9f55-d969442fe434")),

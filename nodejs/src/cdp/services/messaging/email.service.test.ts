@@ -1,9 +1,12 @@
+import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { DateTime } from 'luxon'
 import { KafkaConsumer, Message, Metadata, TopicPartitionOffset } from 'node-rdkafka'
 import { randomUUID } from 'node:crypto'
 import { register } from 'prom-client'
+import supertest from 'supertest'
+import { v5 as uuidv5 } from 'uuid'
 
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import {
@@ -19,10 +22,12 @@ import { FakePostHog, startFakePostHog } from '~/cdp/_tests/fake-posthog'
 import { FakeSes, FakeSesAttachment, FakeSesFault, startFakeSes } from '~/cdp/_tests/fake-ses'
 import { createExampleInvocation, insertIntegration } from '~/cdp/_tests/fixtures'
 import { postgresThatDropsConnections } from '~/cdp/_tests/postgres-that-drops-connections'
+import { CdpApi } from '~/cdp/cdp-api'
 import { getDefaultCdpConfig } from '~/cdp/config'
 import { EMAIL_STATUS_OUTPUT } from '~/cdp/outputs/outputs'
 import {
     CdpProducerName,
+    MSK_CDP_INTAKE_PRODUCER,
     WAREHOUSE_PRODUCER,
     WARPSTREAM_CYCLOTRON_PRODUCER,
     WARPSTREAM_INGESTION_PRODUCER,
@@ -32,10 +37,11 @@ import {
     CyclotronInvocationQueueParametersEmailSchema,
     CyclotronInvocationQueueParametersEmailType,
 } from '~/cdp/schema/cyclotron'
+import { v2JobToInvocation } from '~/cdp/services/cyclotron-v2/job-codec'
 import { CyclotronV2DequeuedJob } from '~/cdp/services/cyclotron-v2/types'
 import { TRANSACTIONAL_EMAIL_EVENT } from '~/cdp/services/hogflows/hogflow-sensitivity'
-import { v2JobToInvocation } from '~/cdp/services/job-queue/job-queue-postgres-v2'
-import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
+import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '~/cdp/types'
+import { setupExpressApp } from '~/common/api/router'
 import { KAFKA_EMAIL_STATUS } from '~/common/config/kafka-topics'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { MESSAGE_ASSETS_OUTPUT } from '~/common/outputs'
@@ -45,8 +51,11 @@ import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
+import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
+import { FakeSes as TrackingFakeSes } from '~/tests/helpers/fake-ses'
 import { ensureKafkaTopics } from '~/tests/helpers/kafka'
+import { pinDate } from '~/tests/helpers/pin-date'
 import { createRecordingIngestionOutputs } from '~/tests/helpers/recording-ingestion-outputs'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { INVALID_TEAM_ID_KEYS } from '~/tests/helpers/team'
@@ -58,7 +67,7 @@ import { MAX_PENDING_EMAIL_REPORTS, WorkflowsActivationReporter } from '../monit
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
 import { AttachmentStore } from './attachment-store'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
-import { EmailStatusService } from './email-status.service'
+import { EmailStatus, EmailStatusService } from './email-status.service'
 import { EmailSuppressionService, emailSuppressionConfigFromEnv } from './email-suppression.service'
 import {
     EmailService,
@@ -70,10 +79,11 @@ import {
     teamEmailCapBucket,
 } from './email.service'
 import { MailDevAPI, mailDevWebUrl } from './helpers/maildev'
-import { EmailTrackingCodeSigner } from './helpers/tracking-code'
+import { SesWebhookHandler } from './helpers/ses'
+import { EmailTrackingCodeSigner, MESSAGE_CREATED_HEADER_NAME } from './helpers/tracking-code'
 import { InFlightRegistry } from './in-flight-registry'
 import { MessageAssetsService } from './message-assets.service'
-import { MESSAGE_MAX_BYTES } from './message-estimate'
+import { MESSAGE_MAX_BYTES, estimateMessageBytes } from './message-estimate'
 import { RecipientTokensService } from './recipient-tokens.service'
 
 async function metricValue(name: string, labels: Record<string, string>, metricName = name): Promise<number> {
@@ -86,6 +96,19 @@ async function metricValue(name: string, labels: Record<string, string>, metricN
             Object.entries(labels).every(([key, labelValue]) => value.labels[key] === labelValue)
     )
     return sample?.value ?? 0
+}
+
+async function metricTotal(name: string, labels: Record<string, string>, metricName: string): Promise<number> {
+    const metric = await register.getSingleMetric(name)!.get()
+    const values: { labels: Partial<Record<string, string | number>>; value: number; metricName?: string }[] =
+        metric.values
+    return values
+        .filter(
+            (value) =>
+                value.metricName === metricName &&
+                Object.entries(labels).every(([key, labelValue]) => value.labels[key] === labelValue)
+        )
+        .reduce((total, value) => total + value.value, 0)
 }
 
 describe('sanitizeEmailSubject', () => {
@@ -340,6 +363,7 @@ describe('EmailService', () => {
         mockFetch.mockClear()
     })
     afterEach(async () => {
+        jest.useRealTimers()
         await analytics.close()
         await ses.close()
         await closeHub(hub)
@@ -745,6 +769,7 @@ describe('EmailService', () => {
 
                 expect(result.error).toBeUndefined()
                 expect(result.finished).toBe(false)
+                expect(result.parked).toBe(true)
                 expect(result.invocation.queueScheduledAt).toBeDefined()
                 const scheduledMs = result.invocation.queueScheduledAt!.toMillis()
                 expect(scheduledMs).toBeGreaterThanOrEqual(now + 500)
@@ -829,6 +854,30 @@ describe('EmailService', () => {
             it.each([
                 ['workflow', 'bulk', 'false', 'its rescheduled time', (): void => {}, 5_000, 60_000],
                 ['transactional_api', 'fast', 'false', 'its creation', transactionalSend, 60_000, Infinity],
+                [
+                    'transactional_api',
+                    'fast',
+                    'false',
+                    'its scheduled time when it was scheduled',
+                    (): void => {
+                        transactionalSend()
+                        invocation.state.scheduledAt = DateTime.utc().minus({ seconds: 30 }).toISO()!
+                    },
+                    30_000,
+                    60_000,
+                ],
+                [
+                    'transactional_api',
+                    'fast',
+                    'false',
+                    'its acceptance',
+                    (): void => {
+                        transactionalSend()
+                        invocation.state.acceptedAt = DateTime.utc().minus({ seconds: 120 }).toISO()
+                    },
+                    120_000,
+                    Infinity,
+                ],
                 // Alerts leave out a wait that the team sending cap causes on purpose.
                 [
                     'transactional_api',
@@ -851,7 +900,12 @@ describe('EmailService', () => {
                     invocation.queueDueAt = DateTime.utc().minus({ seconds: 5 })
                     invocation.queueScheduledAt = undefined
                     const name = 'cdp_email_queue_to_send_ms'
-                    const labels = { source, priority_class: priorityClass, team_capped: teamCapped }
+                    const labels = {
+                        source,
+                        priority_class: priorityClass,
+                        team_capped: teamCapped,
+                        with_files: 'false',
+                    }
                     const countBefore = await metricValue(name, labels, `${name}_count`)
                     const sumBefore = await metricValue(name, labels, `${name}_sum`)
 
@@ -1138,7 +1192,7 @@ describe('EmailService', () => {
                 // The reschedule must carry the email payload forward, same as the workflow limit.
                 expect(result.invocation.queueParameters).toEqual(invocation.queueParameters)
                 // The flag labels the eventual send's queue wait, so alerts can leave out the cap delay.
-                expect(result.invocation.queueMetadata).toEqual({ ...invocation.queueMetadata, teamCapped: true })
+                expect(result.invocation.queueMetadata).toMatchObject({ ...invocation.queueMetadata, teamCapped: true })
                 const scheduledMs = result.invocation.queueScheduledAt!.toMillis()
                 expect(scheduledMs).toBeGreaterThanOrEqual(drainedAt + minMs)
                 expect(scheduledMs).toBeLessThanOrEqual(after + maxMs)
@@ -1220,6 +1274,140 @@ describe('EmailService', () => {
                 const messages = result.logs.map((log) => log.message).join(' ')
                 expect(messages).not.toContain('reached its email sending limit')
                 expect(messages).toContain("Could not check this project's email sending limit")
+            })
+
+            describe('per-project delay metrics', () => {
+                const metricNames = (result: CyclotronJobInvocationResult): string[] =>
+                    result.metrics.map((metric) => metric.metric_name)
+
+                it('counts an email once however many times the limit delays it', async () => {
+                    const cappedService = createCappedService(10)
+                    await drainTeamCap(team.id, 10)
+
+                    const versioned = {
+                        ...invocation,
+                        state: { ...invocation.state, renderedWorkflowVersion: 3 },
+                    }
+                    const first = await cappedService.executeSendEmail(versioned)
+                    const second = await cappedService.executeSendEmail(first.invocation)
+
+                    expect(first.metrics).toEqual([
+                        expect.objectContaining({
+                            metric_name: 'email_sending_limit_delayed',
+                            app_source_version: { id: invocation.functionId, version: 3 },
+                        }),
+                    ])
+                    expect(metricNames(second)).toEqual([])
+                })
+
+                it('counts a later email step the limit holds, even with an earlier hold carried over', async () => {
+                    const cappedService = createCappedService(10)
+                    await drainTeamCap(team.id, 10)
+                    const firstStep = await cappedService.executeSendEmail({
+                        ...invocation,
+                        state: { ...invocation.state, actionId: 'email-1' },
+                    })
+
+                    const laterStep = await cappedService.executeSendEmail({
+                        ...invocation,
+                        state: { ...invocation.state, actionId: 'email-2' },
+                        queueMetadata: firstStep.invocation.queueMetadata,
+                    })
+
+                    expect(metricNames(laterStep)).toEqual(['email_sending_limit_delayed'])
+                })
+
+                it('does not count a wait on an unreachable limiter as a limit delay', async () => {
+                    const cappedService = createCappedService(
+                        200,
+                        new RateLimiterService(unreachableValkey, { name: 'unreachable' })
+                    )
+
+                    const result = await cappedService.executeSendEmail(invocation)
+
+                    expect(result.finished).toBe(false)
+                    expect(metricNames(result)).toEqual([])
+                })
+
+                describe('when a held email is sent', () => {
+                    const heldVersion = { version: 3 }
+
+                    const holdThenSend = async (
+                        minutesHeld: number,
+                        sesFault: FakeSesFault | null = null
+                    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> => {
+                        const heldAt = Date.now()
+                        jest.spyOn(Date, 'now').mockReturnValue(heldAt)
+                        await drainTeamCap(team.id, 10)
+                        const held = await createCappedService(10).executeSendEmail(versionedInvocation())
+                        const refilledLimiter = createRateLimiter('team-email-cap-refilled')
+                        jest.spyOn(Date, 'now').mockReturnValue(heldAt + minutesHeld * 60_000)
+                        ses.failWith(sesFault)
+                        return await createCappedService(200, refilledLimiter).executeSendEmail(held.invocation)
+                    }
+
+                    const versionedInvocation = (): CyclotronJobInvocationHogFunction => ({
+                        ...invocation,
+                        state: { ...invocation.state, renderedWorkflowVersion: heldVersion.version },
+                    })
+
+                    it.each<[string, number, boolean, FakeSesFault | null]>([
+                        ['more than an hour earlier', 61, true, null],
+                        ['exactly an hour earlier', 60, false, null],
+                        ['less than an hour earlier', 59, false, null],
+                        [
+                            'more than an hour earlier, unless SES rejects it',
+                            61,
+                            false,
+                            { status: 400, type: 'MessageRejected', message: 'Rejected' },
+                        ],
+                    ])('marks a send the limit first held %s', async (_name, minutesHeld, overAnHour, sesFault) => {
+                        const result = await holdThenSend(minutesHeld, sesFault)
+
+                        expect(result.finished).toBe(true)
+                        expect(
+                            result.metrics.filter((m) => m.metric_name === 'email_sending_limit_delayed_over_1h')
+                        ).toEqual(
+                            overAnHour
+                                ? [
+                                      expect.objectContaining({
+                                          app_source_version: {
+                                              id: invocation.functionId,
+                                              version: heldVersion.version,
+                                          },
+                                      }),
+                                  ]
+                                : []
+                        )
+                    })
+
+                    it.each([
+                        ['before the hour, retried after it', 59],
+                        ['after the hour', 61],
+                    ])('marks only the send SES accepts when it throttles %s', async (_name, minutesHeld) => {
+                        const throttled = await holdThenSend(minutesHeld, {
+                            status: 429,
+                            type: 'TooManyRequestsException',
+                            message: 'Too many requests',
+                        })
+                        jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 2 * 60_000)
+                        ses.failWith(null)
+                        const sent = await createCappedService(
+                            200,
+                            createRateLimiter('team-email-cap-retry')
+                        ).executeSendEmail(throttled.invocation)
+
+                        expect(throttled.finished).toBe(false)
+                        expect(metricNames(throttled)).not.toContain('email_sending_limit_delayed_over_1h')
+                        expect(sent.finished).toBe(true)
+                        expect(metricNames(sent)).toEqual(
+                            expect.arrayContaining(['email_sent', 'email_sending_limit_delayed_over_1h'])
+                        )
+                        expect(
+                            metricNames(sent).filter((name) => name === 'email_sending_limit_delayed_over_1h')
+                        ).toHaveLength(1)
+                    })
+                })
             })
 
             it('sends while the team has budget left', async () => {
@@ -1315,6 +1503,120 @@ describe('EmailService', () => {
                 )
             })
         })
+
+        describe('team sending budget', () => {
+            let limiter: RateLimiterService
+
+            beforeEach(() => {
+                limiter = createRateLimiter('team-email-budget-test')
+            })
+
+            const budgetedService = (mode: 'shadow' | 'enforce', dailyCap: number): EmailService =>
+                createService(
+                    { teamEmailCapMode: mode, teamEmailTierDailyCaps: [dailyCap] },
+                    { teamEmailRateLimiter: limiter, workflowEmailRateLimiter: limiter }
+                )
+
+            it('shadow mode charges its sends to the budget that enforce mode reads', async () => {
+                await budgetedService('shadow', 3).executeSendEmail(invocation)
+
+                expect(await sendsLeftInTheTeamBudget(budgetedService('enforce', 3))).toBe(2)
+            })
+
+            it('shadow mode sends past an empty budget', async () => {
+                expect(await sendsLeftInTheTeamBudget(budgetedService('enforce', 2))).toBe(2)
+
+                const result = await budgetedService('shadow', 2).executeSendEmail(invocation)
+
+                expect(result.error).toBeUndefined()
+                expect(result.finished).toBe(true)
+                expect(deliveredTo(ses, 'test@example.com')).toHaveLength(1)
+            })
+
+            it.each([
+                { name: 'charges every to, cc and bcc copy', dailyCap: 4, left: 1 },
+                { name: 'charges the whole budget, and sends, when the copies outnumber it', dailyCap: 2, left: 0 },
+            ])('$name', async ({ dailyCap, left }) => {
+                invocation.queueParameters = createEmailParams({ cc: 'cc@example.com', bcc: 'bcc@example.com' })
+                const sender = budgetedService('enforce', dailyCap)
+
+                const result = await sender.executeSendEmail(invocation)
+
+                expect(result.error).toBeUndefined()
+                expect(result.finished).toBe(true)
+                expect(deliveredTo(ses, 'test@example.com')).toHaveLength(1)
+                expect(await sendsLeftInTheTeamBudget(sender)).toBe(left)
+            })
+
+            const setSuspendedAt = async (suspendedAt: 'now()' | 'NULL'): Promise<void> => {
+                await hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    `INSERT INTO workflows_teamworkflowsconfig
+                        (team_id, capture_workflows_engagement_events, email_tracking_consent_mode,
+                         email_sending_suspended_at, email_sending_suspension_reason)
+                     VALUES ($1, false, 'off', ${suspendedAt}, 'testing the budget')
+                     ON CONFLICT (team_id) DO UPDATE SET email_sending_suspended_at = ${suspendedAt}`,
+                    [team.id],
+                    'test-set-email-sending-suspension'
+                )
+            }
+
+            it.each<{
+                gate: string
+                skipMetric: string
+                hold: () => Promise<void> | void
+                release: () => Promise<void> | void
+            }>([
+                {
+                    gate: 'team suspension',
+                    skipMetric: 'email_suspended',
+                    hold: () => setSuspendedAt('now()'),
+                    release: () => setSuspendedAt('NULL'),
+                },
+                {
+                    gate: 'workflow pause',
+                    skipMetric: 'email_paused',
+                    hold: () => {
+                        invocation.hogFunction.metadata!.email_sending_paused_at = '2026-01-01T00:00:00Z'
+                    },
+                    release: () => {
+                        delete invocation.hogFunction.metadata!.email_sending_paused_at
+                    },
+                },
+                {
+                    gate: 'suppression list',
+                    skipMetric: 'email_suppressed',
+                    hold: () =>
+                        new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()).recordHardBounces(
+                            team.id,
+                            ['test@example.com']
+                        ),
+                    release: () => {
+                        invocation.queueParameters = createEmailParams({
+                            to: { email: 'deliverable@example.com', name: 'Deliverable' },
+                        })
+                    },
+                },
+            ])(
+                'a send the $gate skips spends neither the workflow pacing nor the team budget',
+                async ({ skipMetric, hold, release }) => {
+                    invocation.hogFunction.metadata = { email_sending_rate_limit: { count: 1, period: 'hour' } }
+                    await hold()
+
+                    const skipped = await budgetedService('enforce', 2).executeSendEmail(invocation)
+                    await release()
+                    const sender = budgetedService('enforce', 2)
+                    const sent = await sender.executeSendEmail(invocation)
+
+                    expect(skipped.error).toBeUndefined()
+                    expect(skipped.metrics.map((metric) => metric.metric_name)).toEqual([skipMetric])
+                    expect(sent.error).toBeUndefined()
+                    expect(sent.finished).toBe(true)
+                    expect(ses.sent).toHaveLength(1)
+                    expect(await sendsLeftInTheTeamBudget(sender)).toBe(1)
+                }
+            )
+        })
     })
     describe('native email sending with maildev', () => {
         let invocation: CyclotronJobInvocationHogFunction
@@ -1342,6 +1644,14 @@ describe('EmailService', () => {
             } as any
             invocation.queueParameters = createEmailParams({ from: { integrationId: 1 } })
             await mailDevAPI.clearEmails()
+        })
+        it('should send html-only content with a text part made from the html', async () => {
+            invocation.queueParameters = createEmailParams({ html: '<p>Your code is <b>482913</b></p>', text: '' })
+            const result = await createService({ textPartTeams: String(team.id) }).executeSendEmail(invocation)
+            expect(result.error).toBeUndefined()
+            await waitForExpect(async () => expect(mailDevAPI.getEmails()).resolves.toHaveLength(1))
+            const [email] = await mailDevAPI.getEmails()
+            expect(email.text).toBe('Your code is 482913')
         })
         it.each([
             ['a plain recipient name', 'Test User'],
@@ -1377,6 +1687,333 @@ describe('EmailService', () => {
                 /^<body>Hi! <a href="http:\/\/localhost:8010\/public\/m\/redirect\?ph_id=[A-Za-z0-9._-]+&ph_sig=[A-Za-z0-9_-]+&target=https%3A%2F%2Fexample\.com">Click me<\/a><img src="http:\/\/localhost:8010\/public\/m\/pixel\?ph_id=[A-Za-z0-9._-]+" style="display: none;" \/><\/body>$/
             )
         })
+        it.each([
+            {
+                case: 'keeps the defaults',
+                sensitive: true,
+                tracking: { captureEngagement: true },
+                links: ['tracked https://example.com/a', 'https://example.com/b'],
+                pixel: true,
+            },
+            {
+                case: 'turns clicks off',
+                sensitive: true,
+                tracking: { captureEngagement: true, clicks: false },
+                links: ['https://example.com/a', 'https://example.com/b'],
+                pixel: true,
+            },
+            {
+                case: 'turns opens off',
+                sensitive: true,
+                tracking: { captureEngagement: true, opens: false },
+                links: ['https://example.com/a', 'https://example.com/b'],
+                pixel: false,
+            },
+            {
+                case: 'turns clicks on',
+                sensitive: true,
+                tracking: { captureEngagement: true, clicks: true },
+                links: ['tracked https://example.com/a', 'https://example.com/b'],
+                pixel: true,
+            },
+            {
+                case: 'turns opens off and clicks on',
+                sensitive: true,
+                tracking: { captureEngagement: true, opens: false, clicks: true },
+                links: ['https://example.com/a', 'https://example.com/b'],
+                pixel: false,
+            },
+            {
+                case: "keeps the defaults on a template's workflow that isn't sensitive",
+                sensitive: false,
+                tracking: { captureEngagement: true },
+                links: ['tracked https://example.com/a', 'https://example.com/b'],
+                pixel: true,
+            },
+            {
+                case: "turns clicks on, on a template's workflow that isn't sensitive",
+                sensitive: false,
+                tracking: { captureEngagement: true, clicks: true },
+                links: ['tracked https://example.com/a', 'https://example.com/b'],
+                pixel: true,
+            },
+        ] as const)('delivers a code send that $case', async ({ sensitive, tracking, links, pixel }) => {
+            invocation.hogFunction.metadata = { message_category_type: 'transactional', sensitive }
+            invocation.queueParameters = createEmailParams({
+                html: '<body><a href="https://example.com/a">a</a><a href="https://example.com/b" data-ph-no-track>b</a></body>',
+            })
+            invocation.state.send = { tracking }
+
+            const result = await service.executeSendEmail(invocation)
+
+            expect(result.error).toBeUndefined()
+            await waitForExpect(async () => expect(mailDevAPI.getEmails()).resolves.toHaveLength(1))
+            const [email] = await mailDevAPI.getEmails()
+            const cdpApp = setupExpressApp()
+            cdpApp.use(
+                '/',
+                new CdpApi(hub, createCdpConsumerDeps(hub), {
+                    hogQueue: createMockJobQueue(),
+                    hogflowQueue: createMockJobQueue(),
+                }).router()
+            )
+            const server = cdpApp.listen(0, () => {})
+            try {
+                const delivered = await Promise.all(
+                    [...email.html.matchAll(/<a href="([^"]*)"/g)].map(async ([, href]) => {
+                        const { pathname, search } = new URL(href)
+                        if (pathname !== '/public/m/redirect') {
+                            return href
+                        }
+                        const clicked = await supertest(cdpApp).get(`${pathname}${search}`)
+                        return clicked.status === 302 ? `tracked ${clicked.headers.location}` : `unusable ${href}`
+                    })
+                )
+                expect(delivered).toEqual(links)
+            } finally {
+                server.close()
+            }
+            expect(email.html.includes('/public/m/pixel')).toBe(pixel)
+        })
+    })
+    describe('native email sending through SES tracking', () => {
+        const fakeSes = new TrackingFakeSes({
+            'posthog-messaging': { opens: true, clicks: true },
+            'posthog-messaging-untracked': { opens: false, clicks: false },
+        })
+        const savedCredentials = { id: process.env.AWS_ACCESS_KEY_ID, secret: process.env.AWS_SECRET_ACCESS_KEY }
+        let sesEndpoint: string
+        let invocation: CyclotronJobInvocationHogFunction
+
+        beforeAll(async () => {
+            process.env.AWS_ACCESS_KEY_ID = 'fake-ses-key'
+            process.env.AWS_SECRET_ACCESS_KEY = 'fake-ses-secret'
+            sesEndpoint = await fakeSes.start()
+        })
+        afterAll(async () => {
+            await fakeSes.stop()
+            for (const [name, value] of [
+                ['AWS_ACCESS_KEY_ID', savedCredentials.id],
+                ['AWS_SECRET_ACCESS_KEY', savedCredentials.secret],
+            ] as const) {
+                if (value === undefined) {
+                    delete process.env[name]
+                } else {
+                    process.env[name] = value
+                }
+            }
+        })
+        beforeEach(async () => {
+            fakeSes.deliveries.length = 0
+            fakeSes.opened = 0
+            fakeSes.clickEvents.length = 0
+            service = createService({
+                sesEndpoint,
+                sesTrackedConfigurationSet: 'posthog-messaging',
+                sesUntrackedConfigurationSet: 'posthog-messaging-untracked',
+            })
+            await insertIntegration(hub.postgres, team.id, {
+                id: getIntegrationId(1),
+                kind: 'email',
+                config: {
+                    email: 'test@posthog.com',
+                    name: 'Test User',
+                    domain: 'posthog.com',
+                    verified: true,
+                    provider: 'ses',
+                },
+            })
+            invocation = createExampleInvocation({ team_id: team.id, id: 'function-1' })
+            invocation.id = 'invocation-1'
+            invocation.state.vmState = { stack: [] } as any
+        })
+
+        const untracked = ['https://example.com/a', 'https://example.com/b']
+        const clicksTracked = ['tracked https://example.com/a', 'https://example.com/b']
+        it.each<{
+            case: string
+            sensitive: boolean
+            step?: { template_uuid?: string; template_key?: string }
+            send: { sensitive?: boolean; tracking?: { opens?: false; clicks?: boolean } } | undefined
+            links: string[]
+            opens: boolean
+            subject: boolean
+        }>([
+            {
+                case: "a code send that keeps the defaults on a template's workflow that isn't sensitive",
+                sensitive: false,
+                send: {},
+                links: clicksTracked,
+                opens: true,
+                subject: true,
+            },
+            {
+                case: 'a code send that turns clicks on',
+                sensitive: false,
+                send: { tracking: { clicks: true } },
+                links: clicksTracked,
+                opens: true,
+                subject: true,
+            },
+            {
+                case: "a code send that turns clicks off on a template's workflow that isn't sensitive",
+                sensitive: false,
+                send: { tracking: { clicks: false } },
+                links: untracked,
+                opens: true,
+                subject: true,
+            },
+            {
+                case: 'a sensitive code send that keeps the defaults',
+                sensitive: true,
+                send: {},
+                links: clicksTracked,
+                opens: true,
+                subject: false,
+            },
+            {
+                case: 'a sensitive code send that turns clicks on',
+                sensitive: true,
+                send: { tracking: { clicks: true } },
+                links: clicksTracked,
+                opens: true,
+                subject: false,
+            },
+            {
+                case: 'a code send marked not sensitive on a key without a template',
+                sensitive: true,
+                step: { template_key: 'welcome' },
+                send: { sensitive: false },
+                links: clicksTracked,
+                opens: true,
+                subject: true,
+            },
+            {
+                case: 'a code send marked not sensitive on a template that is',
+                sensitive: true,
+                step: { template_uuid: 'template-1' },
+                send: { sensitive: false },
+                links: clicksTracked,
+                opens: true,
+                subject: false,
+            },
+            {
+                case: "a code send marked sensitive on a template's workflow that isn't sensitive",
+                sensitive: false,
+                send: { sensitive: true },
+                links: clicksTracked,
+                opens: true,
+                subject: false,
+            },
+            {
+                case: "a code send marked sensitive that turns clicks on, on a template's workflow that isn't sensitive",
+                sensitive: false,
+                send: { sensitive: true, tracking: { clicks: true } },
+                links: clicksTracked,
+                opens: true,
+                subject: false,
+            },
+            {
+                case: 'a code send marked not sensitive that turns opens off',
+                sensitive: true,
+                send: { sensitive: false, tracking: { opens: false } },
+                links: untracked,
+                opens: false,
+                subject: true,
+            },
+            {
+                case: 'a code send that turns opens off',
+                sensitive: false,
+                send: { tracking: { opens: false } },
+                links: untracked,
+                opens: false,
+                subject: true,
+            },
+            {
+                case: 'a template send',
+                sensitive: false,
+                send: undefined,
+                links: clicksTracked,
+                opens: true,
+                subject: true,
+            },
+            {
+                case: 'a sensitive template send',
+                sensitive: true,
+                send: undefined,
+                links: clicksTracked,
+                opens: true,
+                subject: false,
+            },
+            {
+                case: 'a sensitive code send that turns clicks off',
+                sensitive: true,
+                send: { tracking: { clicks: false } },
+                links: untracked,
+                opens: true,
+                subject: false,
+            },
+        ])(
+            'delivers $case with the links and opens SES tracks',
+            async ({ sensitive, step, send, links, opens, subject }) => {
+                await hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    `INSERT INTO workflows_teamworkflowsconfig
+                        (team_id, capture_workflows_engagement_events, email_tracking_consent_mode,
+                         email_sending_suspension_reason, ses_tenant_sending_status, email_sending_tier)
+                     VALUES ($1, true, 'off', '', '', 0)`,
+                    [team.id],
+                    'test-set-engagement-capture'
+                )
+                invocation.hogFunction.metadata = { message_category_type: 'transactional', sensitive, ...step }
+                invocation.queueParameters = createEmailParams({
+                    from: { integrationId: 1 },
+                    html: '<body><a href="https://example.com/a">a</a><a href="https://example.com/b" data-ph-no-track>b</a></body>',
+                })
+                invocation.state.send = send && { ...send, tracking: { captureEngagement: true, ...send.tracking } }
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(result.error).toBeUndefined()
+                expect(fakeSes.deliveries).toHaveLength(1)
+                const [{ html }] = fakeSes.deliveries
+                const delivered = await Promise.all(
+                    [...html.matchAll(/<a\b[^>]*\bhref="([^"]*)"/g)].map(async ([, href]) => {
+                        if (!href.startsWith(sesEndpoint)) {
+                            return href
+                        }
+                        const clicked = await supertest(sesEndpoint).get(new URL(href).pathname)
+                        return clicked.status === 302 ? `tracked ${clicked.headers.location}` : `unusable ${href}`
+                    })
+                )
+                const images = [...html.matchAll(/<img\b[^>]*\bsrc="([^"]*)"/g)].map(([, src]) => src)
+                for (const src of images) {
+                    await supertest(sesEndpoint).get(new URL(src).pathname)
+                }
+                expect(delivered).toEqual(links)
+                expect(images).toEqual(opens ? [`${sesEndpoint}/I0/open.gif`] : [])
+                expect(fakeSes.opened).toBe(opens ? 1 : 0)
+                expect(
+                    result.capturedPostHogEvents
+                        .filter(({ event }) => event === '$workflows_email_sent')
+                        .map(({ properties }) => properties.$email_subject)
+                ).toEqual([subject ? 'Test Subject' : undefined])
+                const reported = await new SesWebhookHandler(
+                    new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL)
+                ).handleWebhook({ body: fakeSes.clickEvents, headers: {} })
+                expect(
+                    (reported.metrics ?? [])
+                        .filter(({ metricName }) => metricName === 'email_link_clicked')
+                        .map(({ properties }) => [properties?.$email_subject, properties?.$link_url])
+                ).toEqual(
+                    links
+                        .filter((link) => link.startsWith('tracked '))
+                        .map(() =>
+                            subject ? ['Test Subject', 'https://example.com/a'] : [undefined, 'https://example.com']
+                        )
+                )
+            }
+        )
     })
     describe('native email sending with ses', () => {
         let invocation: CyclotronJobInvocationHogFunction
@@ -1444,10 +2081,54 @@ describe('EmailService', () => {
                 TRANSACTIONAL_EMAIL_EVENT,
                 { ph_id: expect.stringMatching(/^[A-Za-z0-9_-]+$/), ph_email_status: 'true' },
             ],
+            [
+                'a transactional email from a template',
+                { template_uuid: '0190e3a1-aaaa-7000-8000-00000000abcd' },
+                TRANSACTIONAL_EMAIL_EVENT,
+                {
+                    ph_id: expect.stringMatching(/^[A-Za-z0-9_-]+$/),
+                    ph_email_status: 'true',
+                    ph_template_id: '0190e3a1-aaaa-7000-8000-00000000abcd',
+                },
+            ],
+            [
+                'a code send by key',
+                { template_key: 'welcome_v2' },
+                TRANSACTIONAL_EMAIL_EVENT,
+                {
+                    ph_id: expect.stringMatching(/^[A-Za-z0-9_-]+$/),
+                    ph_email_status: 'true',
+                    ph_template_key: 'welcome_v2',
+                },
+            ],
+            [
+                'a code send by a key longer than an SES tag allows',
+                { template_key: 'k'.repeat(257) },
+                TRANSACTIONAL_EMAIL_EVENT,
+                { ph_id: expect.stringMatching(/^[A-Za-z0-9_-]+$/), ph_email_status: 'true' },
+            ],
+            [
+                'a transactional email whose template id SES would reject',
+                { template_uuid: 'not a tag value' },
+                TRANSACTIONAL_EMAIL_EVENT,
+                { ph_id: expect.stringMatching(/^[A-Za-z0-9_-]+$/), ph_email_status: 'true' },
+            ],
+            [
+                'a transactional email whose template id has a dot',
+                { template_uuid: 'template.v2' },
+                TRANSACTIONAL_EMAIL_EVENT,
+                { ph_id: expect.stringMatching(/^[A-Za-z0-9_-]+$/), ph_email_status: 'true' },
+            ],
+            [
+                'a workflow email made from a template',
+                { template_uuid: '0190e3a1-aaaa-7000-8000-00000000abcd' },
+                '$pageview',
+                { ph_id: expect.stringMatching(/^[A-Za-z0-9_-]+$/) },
+            ],
         ])('should send an email if verified, for %s', async (_name, extraMetadata, triggerEvent, expectedTags) => {
             invocation.hogFunction.metadata = { message_category_type: 'transactional', ...extraMetadata }
             invocation.state.globals.event.event = triggerEvent
-            const result = await service.executeSendEmail(invocation)
+            const result = await createService({ templateTagsTeams: String(team.id) }).executeSendEmail(invocation)
             expect(result.error).toBeUndefined()
             expect(result.emailSendResult).toEqual({ status: 'accepted' })
             // The SES tag carries the short unsigned code (no dot); the signed code (with distinct_id)
@@ -1465,6 +2146,44 @@ describe('EmailService', () => {
                     from: '"Test User" <test@posthog-test.com>',
                 }),
             ])
+        })
+
+        it('names the template the email was rendered with, after its step moves to another template', async () => {
+            await captureEngagementEvents()
+            invocation.hogFunction.metadata = { message_category_type: 'transactional', template_uuid: 'template-2' }
+            invocation.state.globals.event.event = TRANSACTIONAL_EMAIL_EVENT
+            invocation.queueParameters = createEmailParams({
+                from: { integrationId: 1 },
+                template: { template_uuid: 'template-1' },
+            })
+
+            const result = await createService({ templateTagsTeams: String(team.id) }).executeSendEmail(invocation)
+
+            expect(result.error).toBeUndefined()
+            expect(ses.sent[0].tags).toMatchObject({ ph_template_id: 'template-1' })
+            expect(result.capturedPostHogEvents[0].properties.$email_template_id).toEqual('template-1')
+        })
+
+        it('sends a transactional email without template tags for a team outside the template tags allowlist', async () => {
+            await captureEngagementEvents()
+            invocation.hogFunction.metadata = {
+                message_category_type: 'transactional',
+                template_uuid: '0190e3a1-aaaa-7000-8000-00000000abcd',
+                template_key: 'welcome_v2',
+            }
+            invocation.state.globals.event.event = TRANSACTIONAL_EMAIL_EVENT
+
+            const result = await createService({ templateTagsTeams: String(team.id + 1) }).executeSendEmail(invocation)
+
+            expect(result.error).toBeUndefined()
+            expect(ses.sent[0].tags).toEqual({
+                ph_id: expect.stringMatching(/^[A-Za-z0-9_-]+$/),
+                ph_email_status: 'true',
+            })
+            expect(result.capturedPostHogEvents[0].properties).toMatchObject({
+                $email_template_id: '0190e3a1-aaaa-7000-8000-00000000abcd',
+                $email_template_key: 'welcome_v2',
+            })
         })
 
         const sesAccepts = (): void => {}
@@ -1490,6 +2209,26 @@ describe('EmailService', () => {
             sesAccepts()
             jest.spyOn(service['emailSuppressionService'], 'isSuppressed').mockResolvedValue(true)
         }
+        const sesAcceptsTracked = (): void => {
+            sesAccepts()
+            invocation.hogFunction.metadata = { message_category_type: 'transactional' }
+        }
+        const trackingOff = (): void => {
+            sesAccepts()
+            invocation.hogFunction.metadata = { message_category_type: 'transactional', tracking_enabled: false }
+        }
+        const sesRejectsTrackingOff = (): void => {
+            sesRejects()
+            invocation.hogFunction.metadata = { message_category_type: 'transactional', tracking_enabled: false }
+        }
+        const codeSendTracked = (): void => {
+            sesAcceptsTracked()
+            invocation.state.send = { tracking: { captureEngagement: true, clicks: false } }
+        }
+        const codeSendOpensOff = (): void => {
+            sesAcceptsTracked()
+            invocation.state.send = { tracking: { captureEngagement: true, opens: false } }
+        }
         describe('attachments', () => {
             let bucket: BucketProxy
             let pdf: StoredFile
@@ -1511,10 +2250,14 @@ describe('EmailService', () => {
                 teamDailyCap,
                 teamConfigDb,
                 attachmentSendDeadlineMs,
+                ownershipCheckTimeoutMs,
+                textPartTeams,
             }: {
                 teamDailyCap?: number
                 teamConfigDb?: PostgresRouter
                 attachmentSendDeadlineMs?: number
+                ownershipCheckTimeoutMs?: number
+                textPartTeams?: string
             } = {}): EmailService =>
                 createService(
                     {
@@ -1522,6 +2265,8 @@ describe('EmailService', () => {
                             ? { teamEmailCapMode: 'enforce', teamEmailTierDailyCaps: [teamDailyCap] }
                             : {}),
                         attachmentSendDeadlineMs,
+                        ownershipCheckTimeoutMs,
+                        textPartTeams,
                     },
                     {
                         workflowEmailRateLimiter: createRateLimiter('workflow-email-test'),
@@ -1675,6 +2420,7 @@ describe('EmailService', () => {
                             [WARPSTREAM_INGESTION_PRODUCER]: statusProducer,
                             [WARPSTREAM_CYCLOTRON_PRODUCER]: statusProducer,
                             [WAREHOUSE_PRODUCER]: statusProducer,
+                            [MSK_CDP_INTAKE_PRODUCER]: statusProducer,
                         }),
                         cdpConfig
                     ),
@@ -1754,6 +2500,54 @@ describe('EmailService', () => {
                 ])
             })
 
+            it.each([
+                ['with files that SES accepts', (): StoredFile[] => [pdf], sesAccepts, 'success', 'true', 'false'],
+                ['without files that SES accepts', (): StoredFile[] => [], sesAccepts, 'success', 'false', 'true'],
+                ['with files that SES rejects', (): StoredFile[] => [pdf], sesRejects, 'error', 'true', 'false'],
+                ['without files that SES rejects', (): StoredFile[] => [], sesRejects, 'error', 'false', 'true'],
+            ])(
+                'times a send %s apart from the other kind',
+                async (_case, files, sesAnswer, sesResult, counted, untouched) => {
+                    invocation.queue = 'email'
+                    invocation.queueDueAt = DateTime.utc().minus({ seconds: 5 })
+                    send(files())
+                    sesAnswer()
+                    const latencyCounts = async (withFiles: string): Promise<number[]> => [
+                        await metricTotal(
+                            'cdp_ses_send_duration_ms',
+                            { result: sesResult, with_files: withFiles },
+                            'cdp_ses_send_duration_ms_count'
+                        ),
+                        await metricTotal(
+                            'cdp_ses_send_duration_ms',
+                            { with_files: withFiles },
+                            'cdp_ses_send_duration_ms_count'
+                        ),
+                        await metricTotal(
+                            'cdp_email_queue_to_send_ms',
+                            { with_files: withFiles },
+                            'cdp_email_queue_to_send_ms_count'
+                        ),
+                    ]
+                    const allSeries = async (): Promise<number[]> => [
+                        await metricTotal('cdp_ses_send_duration_ms', {}, 'cdp_ses_send_duration_ms_count'),
+                        await metricTotal('cdp_email_queue_to_send_ms', {}, 'cdp_email_queue_to_send_ms_count'),
+                    ]
+                    const countedBefore = await latencyCounts(counted)
+                    const untouchedBefore = await latencyCounts(untouched)
+                    const allSeriesBefore = await allSeries()
+
+                    const result = await sender().executeSendEmail(invocation)
+
+                    expect(result.error).toEqual(
+                        sesResult === 'error' ? expect.stringContaining('SES error') : undefined
+                    )
+                    expect(await latencyCounts(counted)).toEqual(countedBefore.map((count) => count + 1))
+                    expect(await latencyCounts(untouched)).toEqual(untouchedBefore)
+                    expect(await allSeries()).toEqual(allSeriesBefore.map((count) => count + 1))
+                }
+            )
+
             describe('team budget across load retries', () => {
                 it.each([
                     ['charged it', false],
@@ -1778,6 +2572,83 @@ describe('EmailService', () => {
                     expect(result.finished).toBe(true)
                     expect(deliveredTo(ses, recipient)).toHaveLength(1)
                     expect(await sendsLeftInTheTeamBudget(emailService)).toBe(1)
+                })
+
+                it('charges it and the workflow limit once, waits before each retry, and sends once the ownership check failed on each of its retries', async () => {
+                    const emailService = sender({ teamDailyCap: 2 })
+                    invocation.hogFunction.metadata = { email_sending_rate_limit: { count: 1, period: 'hour' } }
+                    emailService.checkJobOwnershipBeforeSend((checked) =>
+                        checked.id === invocation.id
+                            ? Promise.reject(new Error('Connection terminated unexpectedly'))
+                            : Promise.resolve(true)
+                    )
+
+                    const stopped: boolean[] = []
+                    let result = await emailService.executeSendEmail(invocation)
+                    while (!result.finished && stopped.length < 10) {
+                        stopped.push(
+                            deliveredTo(ses, recipient).length === 0 &&
+                                result.invocation.queueScheduledAt!.toMillis() > Date.now()
+                        )
+                        result = await emailService.executeSendEmail(result.invocation)
+                    }
+
+                    expect(stopped).toEqual([true, true, true, true, true])
+                    expect(result.finished).toBe(true)
+                    expect(deliveredTo(ses, recipient)).toHaveLength(1)
+                    expect(await sendsLeftInTheTeamBudget(emailService)).toBe(1)
+                })
+
+                it('sends nothing when the ownership check answers that the job is lost after it failed on each of its retries', async () => {
+                    const emailService = sender()
+                    let jobLost = false
+                    emailService.checkJobOwnershipBeforeSend(() =>
+                        jobLost
+                            ? Promise.resolve(false)
+                            : Promise.reject(new Error('Connection terminated unexpectedly'))
+                    )
+                    let result = await emailService.executeSendEmail(invocation)
+                    for (let retry = 1; retry < 5; retry++) {
+                        result = await emailService.executeSendEmail(result.invocation)
+                    }
+                    jobLost = true
+
+                    result = await emailService.executeSendEmail(result.invocation)
+
+                    expect(result.finished).toBe(false)
+                    expect(deliveredTo(ses, recipient)).toEqual([])
+                })
+
+                it('claims the workflow limit again when the flow loops back to an email whose earlier pass kept its pacing token', async () => {
+                    const emailService = sender()
+                    let ownsJob = false
+                    emailService.checkJobOwnershipBeforeSend(() => Promise.resolve(ownsJob))
+                    invocation.hogFunction.metadata = { email_sending_rate_limit: { count: 1, period: 'hour' } }
+                    invocation.state.actionId = 'email-step'
+                    invocation.state.actionStepCount = 2
+                    const stopped = await emailService.executeSendEmail(invocation)
+                    ownsJob = true
+                    stopped.invocation.state.actionStepCount = 3
+
+                    const result = await emailService.executeSendEmail(stopped.invocation)
+
+                    expect(stopped.finished).toBe(false)
+                    expect(result.finished).toBe(false)
+                    expect(deliveredTo(ses, recipient)).toHaveLength(0)
+                })
+
+                it('claims the workflow limit for an email that carries the pacing marker of another email step', async () => {
+                    const emailService = sender()
+                    invocation.hogFunction.metadata = { email_sending_rate_limit: { count: 1, period: 'hour' } }
+                    const paid = await emailService.executeSendEmail(invocation)
+                    invocation.id = new UUIDT().toString()
+                    invocation.queueMetadata = { workflowRateClaimed: 'another-email-step:3' }
+
+                    const result = await emailService.executeSendEmail(invocation)
+
+                    expect(paid.finished).toBe(true)
+                    expect(result.finished).toBe(false)
+                    expect(deliveredTo(ses, recipient)).toHaveLength(1)
                 })
 
                 it('keeps a retry that pacing denies queued with its budget paid, and sends it once pacing lets it', async () => {
@@ -1820,6 +2691,41 @@ describe('EmailService', () => {
                 }
             )
 
+            const longHtml = `<p>${'x'.repeat(200_000)}</p>`
+            // Leaves room for the html and half of its text part, so the message fits only without the text part.
+            const fileBytesThatLeaveNoRoomForText = Math.floor(
+                (((MESSAGE_MAX_BYTES - estimateMessageBytes([], [longHtml, 'x'.repeat(100_000)])) * 76) / 78) * 0.75
+            )
+
+            it.each([
+                ['with a text part when it fits beside them', 0, '<p>Hello</p>', 'Hello'],
+                [
+                    'without a text part when one would carry it past the size limit',
+                    fileBytesThatLeaveNoRoomForText,
+                    longHtml,
+                    undefined,
+                ],
+            ])('sends html-only content with files %s', async (_name, fileBytes, html, expectedText) => {
+                const file = fileBytes
+                    ? await uploadAttachment(team.id, { filename: 'large.pdf' }, Buffer.alloc(fileBytes, 1))
+                    : pdf
+                invocation.queueParameters = createEmailParams({
+                    from: { integrationId: 1 },
+                    to: { email: recipient, name: 'Test User' },
+                    attachments: [file.metadata],
+                    html,
+                    text: '',
+                })
+
+                const result = await sender({ textPartTeams: String(team.id) }).executeSendEmail(invocation)
+
+                expect(result.error).toBeUndefined()
+                // A projection, so a failure does not print the file bytes.
+                expect(
+                    ses.sent.map(({ text, attachments }) => ({ text, files: attachments.map((a) => a.filename) }))
+                ).toEqual([{ text: expectedText, files: [file.metadata.filename] }])
+            })
+
             it.each([
                 ['was never uploaded', () => Promise.resolve(attachmentFile())],
                 ['belongs to another team', async () => await uploadAttachment(team.id + 1, { filename: 'a.pdf' })],
@@ -1858,6 +2764,60 @@ describe('EmailService', () => {
             })
             const sent = { finished: true, error: undefined, retryLater: false }
             const retriedLoad = { finished: false, error: undefined, retryLater: true }
+
+            it.each([
+                ['fails', 'with files', () => Promise.reject(new Error('Connection terminated unexpectedly'))],
+                ['does not answer before the send deadline', 'with files', () => new Promise<boolean>(() => undefined)],
+                ['fails', 'without files', () => Promise.reject(new Error('Connection terminated unexpectedly'))],
+                ['does not answer in time', 'without files', () => new Promise<boolean>(() => undefined)],
+            ])(
+                'when the check that this worker still holds the job %s, a send %s sends nothing and keeps the send for a retry',
+                async (_name, withFiles, stillOwnsJob) => {
+                    const emailService = sender({ attachmentSendDeadlineMs: 1_000, ownershipCheckTimeoutMs: 1_000 })
+                    emailService.checkJobOwnershipBeforeSend(stillOwnsJob)
+                    const files = withFiles === 'with files' ? [pdf] : []
+                    send(files)
+
+                    const result = await emailService.executeSendEmail(invocation)
+
+                    expect({ finished: result.finished, error: result.error }).toEqual({
+                        finished: false,
+                        error: undefined,
+                    })
+                    expect(result.invocation.queueParameters).toMatchObject({
+                        attachments: files.map((file) => file.metadata),
+                    })
+                    expect(deliveredTo(ses, recipient)).toEqual([])
+                }
+            )
+
+            it.each([
+                ['fast', 0],
+                ['slow', 2_000],
+            ])(
+                'sends a send with %s downloads at the retry cap when its ownership check stops answering, within the send deadline',
+                async (_speed, downloadDelayMs) => {
+                    const emailService = sender({ attachmentSendDeadlineMs: 3_000, ownershipCheckTimeoutMs: 2_000 })
+                    let checkAnswers = true
+                    emailService.checkJobOwnershipBeforeSend(() =>
+                        checkAnswers
+                            ? Promise.reject(new Error('Connection terminated unexpectedly'))
+                            : new Promise<boolean>(() => undefined)
+                    )
+                    send([pdf])
+                    let result = await emailService.executeSendEmail(invocation)
+                    for (let retry = 1; retry < 5; retry++) {
+                        result = await emailService.executeSendEmail(result.invocation)
+                    }
+                    checkAnswers = false
+                    bucket.downloadDelayMs = downloadDelayMs
+
+                    result = await emailService.executeSendEmail(result.invocation)
+
+                    expect(outcomeOf(result)).toEqual(sent)
+                    expect(deliveredTo(ses, recipient)).toHaveLength(1)
+                }
+            )
 
             it('when a flow sends its next email inline after the email before abandoned a download mid-body, it loads its files and sends', async () => {
                 const emailService = sender({ attachmentSendDeadlineMs: 2_000 })
@@ -2090,8 +3050,24 @@ describe('EmailService', () => {
             })
         })
 
-        it.each([
-            ['a transactional email that SES accepts', TRANSACTIONAL_EMAIL_EVENT, false, sesAccepts, 'sent', ''],
+        type StatusCase = [string, string, boolean, () => void, EmailStatus | null, string | null]
+        const statusCases: StatusCase[] = [
+            [
+                'a transactional email that SES accepts with tracking on',
+                TRANSACTIONAL_EMAIL_EVENT,
+                false,
+                sesAcceptsTracked,
+                'sent',
+                '',
+            ],
+            [
+                'a transactional email that SES accepts with open and click tracking off',
+                TRANSACTIONAL_EMAIL_EVENT,
+                false,
+                trackingOff,
+                'sent',
+                'untracked',
+            ],
             [
                 'a transactional email that SES rejects',
                 TRANSACTIONAL_EMAIL_EVENT,
@@ -2099,6 +3075,30 @@ describe('EmailService', () => {
                 sesRejects,
                 'failed',
                 'provider_error',
+            ],
+            [
+                'a transactional email that SES rejects with tracking off',
+                TRANSACTIONAL_EMAIL_EVENT,
+                false,
+                sesRejectsTrackingOff,
+                'failed',
+                'provider_error',
+            ],
+            [
+                'a code send that SES accepts with opens on and clicks off',
+                TRANSACTIONAL_EMAIL_EVENT,
+                false,
+                codeSendTracked,
+                'sent',
+                '',
+            ],
+            [
+                'a code send that SES accepts with opens off',
+                TRANSACTIONAL_EMAIL_EVENT,
+                false,
+                codeSendOpensOff,
+                'sent',
+                'untracked',
             ],
             [
                 'a transactional email skipped for a suspended team',
@@ -2144,12 +3144,27 @@ describe('EmailService', () => {
             ['a workflow email that SES accepts', '$pageview', false, sesAccepts, null, null],
             ['a workflow email that SES rejects', '$pageview', false, sesRejects, null, null],
             ['a skipped workflow email', '$pageview', false, recipientSuppressed, null, null],
-        ])('records the status of %s', async (_name, triggerEvent, isTest, setup, status, reason) => {
+        ]
+        const statusTriggerTime = '2026-01-02T03:04:05.678Z'
+        const statusIdKinds: [string, string, string][] = [
+            ['a UUIDT id', new UUIDT(Date.UTC(2026, 0, 1, 12, 0, 0, 250)).toString(), '2026-01-01 12:00:00.250000'],
+            ['a keyed id', uuidv5('a-key', '6ba7b811-9dad-11d1-80b4-00c04fd430c8'), '2026-01-02 03:04:05.678000'],
+        ]
+
+        it.each(
+            statusCases.flatMap(([name, ...rest]) =>
+                statusIdKinds.map(
+                    ([kind, id, createdAt]) => [`${name}, under ${kind}`, ...rest, id, createdAt] as const
+                )
+            )
+        )('records the status of %s', async (_name, triggerEvent, isTest, setup, status, reason, id, createdAt) => {
+            pinDate(Date.parse(statusTriggerTime) + 60 * 60 * 1000)
             const kafka = createRecordingIngestionOutputs([EMAIL_STATUS_OUTPUT])
             const emailStatusService = new EmailStatusService(kafka.outputs, { EMAIL_STATUS_ENABLED: true })
-            service['emailStatusService'] = emailStatusService
-            invocation.id = new UUIDT().toString()
+            service = createService({}, {}, { emailStatusService })
+            invocation.id = id
             invocation.state.globals.event.event = triggerEvent
+            invocation.state.globals.event.timestamp = statusTriggerTime
             setup()
 
             await service.executeSendEmail(invocation, isTest)
@@ -2162,14 +3177,62 @@ describe('EmailService', () => {
                     ? [
                           expect.objectContaining({
                               team_id: team.id,
-                              message_id: invocation.id,
+                              message_id: id,
                               status,
                               reason,
                               sending_domain: sendingDomain,
+                              created_at: createdAt,
                           }),
                       ]
                     : []
             )
+        })
+
+        const skipGates = {
+            'a suspended team': () =>
+                hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    `INSERT INTO workflows_teamworkflowsconfig
+                        (team_id, capture_workflows_engagement_events, email_tracking_consent_mode,
+                         email_sending_suspended_at, email_sending_suspension_reason)
+                     VALUES ($1, false, 'off', now(), 'testing the skip outcome')
+                     ON CONFLICT (team_id) DO UPDATE SET email_sending_suspended_at = now()`,
+                    [team.id],
+                    'test-suspend-email-sending'
+                ),
+            'a paused workflow': () => workflowPaused(),
+            'a missing recipient': () => recipientMissing(),
+            'a suppressed recipient': () =>
+                new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()).recordHardBounces(team.id, [
+                    'test@example.com',
+                ]),
+        }
+
+        it.each([
+            ['a suspended team', 'warn'],
+            ['a paused workflow', 'error'],
+            ['a missing recipient', 'warn'],
+            ['a suppressed recipient', 'info'],
+        ] as const)('logs the skip for %s at %s level', async (gate, logLevel) => {
+            await skipGates[gate]()
+
+            const result = await service.executeSendEmail(invocation)
+
+            const skipLog = result.logs.find((log) => log.message === result.emailSendResult?.reason)
+            expect(skipLog?.level).toBe(logLevel)
+        })
+
+        it.each([
+            ['a suspended team', false],
+            ['a paused workflow', true],
+            ['a missing recipient', true],
+            ['a suppressed recipient', false],
+        ] as const)('%s sets the skipped flag to %s', async (gate, skipped) => {
+            await skipGates[gate]()
+
+            const result = await service.executeSendEmail(invocation)
+
+            expect(result.skipped ?? false).toBe(skipped)
         })
 
         it('records a send-time metric for normal sends but not for test sends', async () => {
@@ -2802,30 +3865,64 @@ describe('EmailService', () => {
             [
                 'text only',
                 { html: '', text: 'Hello, this is a plain text email.' },
-                { text: 'Hello, this is a plain text email.', html: undefined },
+                'another team',
+                { text: 'Hello, this is a plain text email.', html: undefined, charsets: { text: 'UTF-8' } },
             ],
             [
                 'html only, no text',
                 { html: '<p>Hello</p>', text: undefined },
-                { text: undefined, html: expect.any(String) },
+                'this team',
+                { text: 'Hello', html: expect.any(String), charsets: { text: 'UTF-8' } },
             ],
             [
                 'html only, empty text',
-                { html: '<p>Hello</p>', text: '' },
-                { text: undefined, html: expect.any(String) },
+                { html: '<p>Your code is <b>482913</b></p><a href="https://example.com/help">Help</a>', text: '' },
+                'this team',
+                {
+                    text: 'Your code is 482913\n\nHelp (https://example.com/help)',
+                    html: expect.any(String),
+                    charsets: { text: 'UTF-8' },
+                },
             ],
-        ])('sends only the parts that have content: %s', async (_name, content, expectedParts) => {
+            [
+                'html and text, from a team on the text part list',
+                { html: '<p>Hello</p>', text: 'Your own text' },
+                'this team',
+                { text: 'Your own text', html: expect.any(String), charsets: { text: 'UTF-8' } },
+            ],
+            [
+                'html only, from a team not on the text part list',
+                { html: '<p>Hello</p>', text: undefined },
+                'another team',
+                { text: undefined, html: expect.any(String), charsets: { text: undefined } },
+            ],
+            [
+                'html only, with every team on the text part list',
+                { html: '<p>Hello</p>', text: undefined },
+                'every team',
+                { text: 'Hello', html: expect.any(String), charsets: { text: 'UTF-8' } },
+            ],
+            [
+                'html only, with the default text part list',
+                { html: '<p>Hello</p>', text: undefined },
+                'default',
+                { text: undefined, html: expect.any(String), charsets: { text: undefined } },
+            ],
+        ])('sends a part for each kind of content: %s', async (_name, content, listed, expectedParts) => {
             invocation.hogFunction.metadata = { message_category_type: 'transactional' }
             invocation.queueParameters = CyclotronInvocationQueueParametersEmailSchema.parse(
                 createEmailParams({ from: { integrationId: 1 }, ...content })
             )
-            const result = await service.executeSendEmail(invocation)
+            const textPartTeams = {
+                'this team': String(team.id),
+                'another team': String(team.id + 1),
+                'every team': '*',
+                default: hub.CDP_EMAIL_TEXT_PART_TEAMS,
+            }[listed]
+            const result = await createService({ textPartTeams }).executeSendEmail(invocation)
             expect(result.error).toBeUndefined()
             const [sent] = ses.sent
             expect(sent).toMatchObject(expectedParts)
-            if (content.text) {
-                expect(sent.charsets.text).toEqual('UTF-8')
-            }
         })
 
         it('should not include preheader span if not in params', async () => {
@@ -2993,6 +4090,39 @@ describe('EmailService', () => {
             expect(sent.tags.ph_id).not.toEqual(trackingCode)
         })
 
+        it.each([
+            [
+                'carries the signed creation time of a keyed send',
+                uuidv5('a-key', '6ba7b811-9dad-11d1-80b4-00c04fd430c8'),
+                true,
+            ],
+            ['carries no creation time for a send whose id holds its time', undefined, false],
+        ])('%s, leaving the tracking code as long as before', async (_desc, keyedId, carriesTime) => {
+            invocation.hogFunction.metadata = { message_category_type: 'transactional' }
+            invocation.state.globals.event.event = TRANSACTIONAL_EMAIL_EVENT
+            invocation.state.globals.event.timestamp = '2026-01-02T03:04:05.678Z'
+            if (keyedId) {
+                invocation.id = keyedId
+            }
+
+            const result = await service.executeSendEmail(invocation)
+
+            expect(result.error).toBeUndefined()
+            const signer = new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL)
+            const headers = ses.sent[0].headers
+            expect(signer.verifyMessageCreatedHeaderValue(invocation.id, headers[MESSAGE_CREATED_HEADER_NAME])).toEqual(
+                carriesTime ? Date.UTC(2026, 0, 2, 3, 4, 5, 678) : undefined
+            )
+            expect(headers[MESSAGE_CREATED_HEADER_NAME] !== undefined).toBe(carriesTime)
+            // The tracking code keeps master's v2 layout, so its header grows by nothing and older pods still parse it.
+            const [payload] = headers['X-PostHog-Tracking-Code'].split('.')
+            expect(Buffer.from(payload, 'base64url').toString('utf8')).toMatch(/^v2:[^:]+:/)
+            expect(signer.parse(headers['X-PostHog-Tracking-Code'])).toMatchObject({
+                invocationId: invocation.id,
+                format: 'signed',
+            })
+        })
+
         describe('per-send tracking gate (tracking_enabled)', () => {
             // Would be tracked if the gate regressed: has an anchor to rewrite and a </body> to pixel.
             const trackableHtml = '<body>Hi! <a href="https://example.com">Click me</a></body>'
@@ -3117,14 +4247,28 @@ describe('EmailService', () => {
                 )
             })
 
-            it.each([
+            const STALE_HREF = 'https://app.posthog-test.com/?ref=email&ph_workflow_run=earlier-run'
+            const TAGGED_HREF = 'https://app.posthog-test.com/?ref=email&amp;ph_workflow_run=invocation-1'
+            const STRIPPED_HREF = 'https://app.posthog-test.com/?ref=email'
+            const CLEAN_HREF = 'https://app.posthog-test.com/pricing'
+
+            it.each<{
+                case: string
+                trackingEnabled: boolean
+                allowlisted: boolean
+                isTest: boolean
+                sensitive: boolean
+                send?: { sensitive: boolean }
+                teamOptedOut?: boolean
+                href: string
+            }>([
                 {
                     case: 'tags the links of a tracked send',
                     trackingEnabled: true,
                     allowlisted: true,
                     isTest: false,
                     sensitive: false,
-                    tagged: true,
+                    href: TAGGED_HREF,
                 },
                 {
                     case: 'leaves the links of a team off the allowlist',
@@ -3132,7 +4276,16 @@ describe('EmailService', () => {
                     allowlisted: false,
                     isTest: false,
                     sensitive: false,
-                    tagged: false,
+                    href: STALE_HREF,
+                },
+                {
+                    case: 'drops the run ids of earlier sends from the links of a team that turned link tagging off',
+                    trackingEnabled: true,
+                    allowlisted: true,
+                    isTest: false,
+                    sensitive: false,
+                    teamOptedOut: true,
+                    href: STRIPPED_HREF,
                 },
                 {
                     case: 'leaves the links of an untracked send',
@@ -3140,7 +4293,7 @@ describe('EmailService', () => {
                     allowlisted: true,
                     isTest: false,
                     sensitive: false,
-                    tagged: false,
+                    href: STALE_HREF,
                 },
                 {
                     case: 'leaves the links of a test send',
@@ -3148,7 +4301,7 @@ describe('EmailService', () => {
                     allowlisted: true,
                     isTest: true,
                     sensitive: false,
-                    tagged: false,
+                    href: STALE_HREF,
                 },
                 {
                     case: 'leaves the links of a sensitive email',
@@ -3156,24 +4309,103 @@ describe('EmailService', () => {
                     allowlisted: true,
                     isTest: false,
                     sensitive: true,
-                    tagged: false,
+                    href: STALE_HREF,
+                },
+                {
+                    case: "leaves the links of a code send marked sensitive on a workflow that isn't sensitive",
+                    trackingEnabled: true,
+                    allowlisted: true,
+                    isTest: false,
+                    sensitive: false,
+                    send: { sensitive: true },
+                    href: STALE_HREF,
+                },
+                {
+                    case: 'tags the links of a code send marked not sensitive on a sensitive workflow',
+                    trackingEnabled: true,
+                    allowlisted: true,
+                    isTest: false,
+                    sensitive: true,
+                    send: { sensitive: false },
+                    href: TAGGED_HREF,
                 },
             ])(
                 '$case with the workflow run id',
-                async ({ trackingEnabled, allowlisted, isTest, sensitive, tagged }) => {
+                async ({ trackingEnabled, allowlisted, isTest, sensitive, send, teamOptedOut, href }) => {
+                    if (teamOptedOut) {
+                        await hub.postgres.query(
+                            PostgresUse.COMMON_WRITE,
+                            `INSERT INTO workflows_teamworkflowsconfig
+                                (team_id, capture_workflows_engagement_events, email_tracking_consent_mode,
+                                 email_sending_suspension_reason, email_workflow_run_link_tag_enabled)
+                             VALUES ($1, false, 'off', '', false)`,
+                            [team.id],
+                            'test-opt-out-of-workflow-run-link-tag'
+                        )
+                    }
                     const taggingService = createService({
                         workflowRunLinkTagTeams: allowlisted ? String(team.id) : '',
                     })
                     invocation.hogFunction.metadata = { tracking_enabled: trackingEnabled, sensitive }
+                    invocation.state.send = send && { ...send, tracking: { captureEngagement: true } }
                     invocation.queueParameters = createEmailParams({
                         from: { integrationId: 1 },
-                        html: '<a href="https://app.posthog-test.com/">a</a><a href="https://example.com/">b</a>',
+                        html: `<a href="${STALE_HREF}">a</a><a href="${CLEAN_HREF}">b</a><a href="https://example.com/">c</a>`,
                     })
                     const result = await taggingService.executeSendEmail(invocation, isTest)
                     expect(result.error).toBeUndefined()
-                    const sentHtml = ses.sent[0].html!
-                    expect(sentHtml.match(/ph_workflow_run=[^"&]*/g) ?? []).toEqual(
-                        tagged ? ['ph_workflow_run=invocation-1'] : []
+                    expect([...ses.sent[0].html!.matchAll(/href="([^"]*)"/g)].map(([, sent]) => sent)).toEqual([
+                        href,
+                        href === TAGGED_HREF ? `${CLEAN_HREF}?ph_workflow_run=invocation-1` : CLEAN_HREF,
+                        'https://example.com/',
+                    ])
+                }
+            )
+
+            it('sends without any run id when the link tag lookup fails', async () => {
+                const teamConfigDb = await postgresThatDropsConnections(hub.DATABASE_URL, () => true)
+                const taggingService = createService(
+                    { workflowRunLinkTagTeams: String(team.id) },
+                    {},
+                    { teamConfigDb: teamConfigDb.postgres }
+                )
+                // Transactional sends skip the consent read, so the failure reaches the tag lookup.
+                invocation.hogFunction.metadata = {
+                    tracking_enabled: true,
+                    sensitive: false,
+                    message_category_type: 'transactional',
+                }
+                invocation.queueParameters = createEmailParams({
+                    from: { integrationId: 1 },
+                    html: `<a href="${STALE_HREF}">a</a><a href="${CLEAN_HREF}">b</a>`,
+                })
+
+                const result = await taggingService.executeSendEmail(invocation).finally(() => teamConfigDb.close())
+
+                expect(result.error).toBeUndefined()
+                expect(ses.sent).toHaveLength(1)
+                expect([...ses.sent[0].html!.matchAll(/href="([^"]*)"/g)].map(([, sent]) => sent)).toEqual([
+                    STRIPPED_HREF,
+                    CLEAN_HREF,
+                ])
+            })
+
+            it.each([
+                ['a double-quoted', `"https://app.posthog-test.com/dl?sig=a>b"`],
+                ['a single-quoted', `'https://app.posthog-test.com/dl?sig=a>b'`],
+            ])(
+                'sends a marked link with %s href holding a > as written, and the next opt-out to SES',
+                async (_quoting, href) => {
+                    const taggingService = createService({ workflowRunLinkTagTeams: String(team.id) })
+                    invocation.hogFunction.metadata = { tracking_enabled: true, sensitive: false }
+                    invocation.queueParameters = createEmailParams({
+                        from: { integrationId: 1 },
+                        html: `<a href=${href} data-ph-no-utm>a</a><a href="https://example.com/" data-ph-no-track>b</a>`,
+                    })
+                    const result = await taggingService.executeSendEmail(invocation)
+                    expect(result.error).toBeUndefined()
+                    expect(ses.sent[0].html).toEqual(
+                        `<a href=${href} data-ph-no-utm ses:tags="phl:0">a</a><a href="https://example.com/" data-ph-no-track ses:no-track>b</a>`
                     )
                 }
             )
@@ -3250,9 +4482,8 @@ describe('EmailService', () => {
                     const sentHtml = ses.sent[0].html
                     if (expectTracked) {
                         // SES sends tag each anchor and let SES report the click, instead of
-                        // rewriting the href to a redirect URL. The open pixel is unchanged.
+                        // rewriting the href to a redirect URL.
                         expect(sentHtml).toContain('ses:tags="phl:')
-                        expect(sentHtml).toContain('ph_id=')
                     } else {
                         expect(sentHtml).toEqual(trackableHtml)
                     }
@@ -3266,7 +4497,6 @@ describe('EmailService', () => {
                 expect(result.error).toBeUndefined()
                 const sentHtml = ses.sent[0].html
                 expect(sentHtml).toContain('ses:tags="phl:')
-                expect(sentHtml).toContain('ph_id=')
             })
 
             it('the step-level toggle wins over consent: tracking_enabled false is untracked even for opted-in recipients', async () => {
@@ -3343,14 +4573,41 @@ describe('EmailService', () => {
             expect(result.emailSendResult).toEqual({ status: 'failed', reason: result.error })
         })
 
-        it.each([
-            ['an ordinary template', {}, 'Test Subject', undefined, false],
-            ['a sensitive template', { sensitive: true }, undefined, undefined, false],
-            ['a workflow step', {}, 'Test Subject', 3, false],
-            ['a transactional email', {}, 'Test Subject', undefined, true],
+        it.each<
+            [string, Record<string, unknown>, string | undefined, number | undefined, boolean, Record<string, string>]
+        >([
+            ['an ordinary template', {}, 'Test Subject', undefined, false, {}],
+            ['a sensitive template', { sensitive: true }, undefined, undefined, false, {}],
+            ['a workflow step', {}, 'Test Subject', 3, false, {}],
+            ['a workflow email made from a template', { template_uuid: 'template-1' }, 'Test Subject', 3, false, {}],
+            ['a transactional email saved without a name', {}, 'Test Subject', undefined, true, {}],
+            [
+                'a transactional email from a template',
+                { template_uuid: 'template-1' },
+                'Test Subject',
+                undefined,
+                true,
+                { $email_template_id: 'template-1' },
+            ],
+            [
+                'a code send by key',
+                { template_key: 'welcome' },
+                'Test Subject',
+                undefined,
+                true,
+                { $email_template_key: 'welcome' },
+            ],
+            [
+                'a transactional step saved with names of the wrong type',
+                { template_uuid: 7, template_key: true },
+                'Test Subject',
+                undefined,
+                true,
+                {},
+            ],
         ])(
             'should capture a $workflows_email_sent PostHog event and version the email_sent metric on success, for %s',
-            async (_name, extraMetadata, subject, workflowVersion, transactional) => {
+            async (_name, extraMetadata, subject, workflowVersion, transactional, identity) => {
                 await captureEngagementEvents()
                 invocation.hogFunction.metadata = { ...invocation.hogFunction.metadata, ...extraMetadata }
                 invocation.state.renderedWorkflowVersion = workflowVersion
@@ -3383,6 +4640,13 @@ describe('EmailService', () => {
                 ).toEqual(
                     workflowVersion === undefined ? undefined : { id: invocation.functionId, version: workflowVersion }
                 )
+                expect(
+                    Object.fromEntries(
+                        Object.entries(result.capturedPostHogEvents[0].properties).filter(([key]) =>
+                            key.startsWith('$email_template_')
+                        )
+                    )
+                ).toStrictEqual(identity)
             }
         )
 

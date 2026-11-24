@@ -484,17 +484,16 @@ class TestGenerateChangeSummary:
         complete.choices[0].finish_reason = "stop"
         client.chat.completions.create.side_effect = [truncated, complete]
 
-        result = generate_change_summary([], [_make_state(1, "Traffic", "100 views")], slack_formatting=True)
+        result = generate_change_summary([], [_make_state(1, "Traffic", "100 views")])
 
-        assert result == "• Traffic is stable."
+        assert result == "- Traffic is stable."
         assert [call.kwargs["max_completion_tokens"] for call in client.chat.completions.create.call_args_list] == [
             4096,
             8192,
         ]
 
-    @parameterized.expand([(False,), (True,)])
     @patch("products.subscriptions.backend.temporal.llm_change_summary._get_openai_client")
-    def test_returns_content_with_correct_params(self, slack_formatting, mock_get_client):
+    def test_returns_content_with_correct_params(self, mock_get_client):
         mock_client = mock_get_client.return_value
         content = '{"findings":[{"items":[{"kind":"name","text":"Pageviews"},{"kind":"text","text":" increased by "},{"kind":"value","text":"50%"},{"kind":"text","text":" on "},{"kind":"time","text":"Tuesday"}]}]}'
         mock_client.chat.completions.create.return_value = _mock_openai_response(content, 100, 20)
@@ -502,7 +501,7 @@ class TestGenerateChangeSummary:
         previous = [_make_state(1, "Pageviews", "avg 100/day")]
         current = [_make_state(1, "Pageviews", "avg 150/day", timestamp="2025-04-15T10:00:00Z")]
 
-        result = generate_change_summary(previous, current, team=None, slack_formatting=slack_formatting)
+        result = generate_change_summary(previous, current, team=None)
 
         assert "Pageviews" in result
         mock_client.chat.completions.create.assert_called_once()
@@ -513,29 +512,23 @@ class TestGenerateChangeSummary:
         system_prompt = call_kwargs.kwargs["messages"][0]["content"]
         assert "Format this delivery for Slack" not in system_prompt
         assert "remove filler, stock phrases, inflated claims, and duplicate observations" in system_prompt
-        generate_change_summary(previous, current, team=None, slack_formatting=not slack_formatting)
-        assert mock_client.chat.completions.create.call_args.kwargs["messages"] == call_kwargs.kwargs["messages"]
+        assert result == "- `Pageviews` increased by `50%` on _Tuesday_"
         assert call_kwargs.kwargs["response_format"]["type"] == "json_schema"
-        if not slack_formatting:
-            assert result == "- **Pageviews** increased by **50%** on _Tuesday_"
-        if slack_formatting:
-            assert result == "• *Pageviews* increased by *50%* on _Tuesday_"
-            assert call_kwargs.kwargs["response_format"]["type"] == "json_schema"
-            schema = call_kwargs.kwargs["response_format"]["json_schema"]["schema"]
-            pending = [schema]
-            while pending:
-                node = pending.pop()
-                if isinstance(node, dict):
-                    if node.get("type") == "object":
-                        assert set(node["required"]) == set(node["properties"])
-                        assert node["additionalProperties"] is False
-                    pending.extend(node.values())
-                elif isinstance(node, list):
-                    pending.extend(node)
-            assert "Use kind=value for each measured" in system_prompt
-            user_prompt = call_kwargs.kwargs["messages"][1]["content"]
-            assert "Do not use markdown formatting" not in user_prompt
-            assert "Start each bullet with •" not in user_prompt
+        schema = call_kwargs.kwargs["response_format"]["json_schema"]["schema"]
+        pending = [schema]
+        while pending:
+            node = pending.pop()
+            if isinstance(node, dict):
+                if node.get("type") == "object":
+                    assert set(node["required"]) == set(node["properties"])
+                    assert node["additionalProperties"] is False
+                pending.extend(node.values())
+            elif isinstance(node, list):
+                pending.extend(node)
+        assert "Use kind=value for each measured" in system_prompt
+        user_prompt = call_kwargs.kwargs["messages"][1]["content"]
+        assert "Do not use markdown formatting" not in user_prompt
+        assert "Start each bullet with •" not in user_prompt
 
     @patch("products.subscriptions.backend.temporal.llm_change_summary._get_openai_client")
     def test_uses_initial_prompt_when_no_previous_states(self, mock_get_client):

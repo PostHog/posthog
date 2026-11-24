@@ -5,9 +5,11 @@ from unittest.mock import patch
 
 from posthog.models import Organization, OrganizationMembership
 from posthog.models.integration import Integration
+from posthog.models.user_integration import UserIntegration
 
 from products.slack_app.backend.logic.onboarding.actions import CONTINUE_ACTION_ID, SKIP_ACTION_ID
 from products.slack_app.backend.logic.onboarding.card import plan_onboarding
+from products.slack_app.backend.logic.onboarding.github_step import GithubStep
 from products.slack_app.backend.logic.onboarding.step import OnboardingContext, OnboardingStep, read_action_value
 from products.slack_app.backend.logic.onboarding.steps import ONBOARDING_STEPS
 from products.slack_app.backend.services.workspace_integrations import (
@@ -119,3 +121,32 @@ def test_the_planned_steps_depend_on_the_role(role: str, expected: list[str], or
         plan = plan_onboarding(integration, SLACK_USER_ID)
 
     assert plan.post is not None and plan.post.planned == expected
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "expired, done, button_text", [(False, True, "Connect GitHub"), (True, False, "Reconnect GitHub")]
+)
+def test_an_expired_personal_github_is_not_done_and_asks_to_reconnect(
+    expired: bool, done: bool, button_text: str, org_team_user, link_user
+) -> None:
+    _, team, user = org_team_user
+    link_user(user)
+    integration = _install(team)
+    UserIntegration.objects.create(
+        user=user,
+        kind="github",
+        integration_id="gh-1",
+        config={"user_refresh_token_expires_at": 1} if expired else {},
+        sensitive_config={"user_access_token": "at", "user_refresh_token": "rt"},
+    )
+    ctx = OnboardingContext(integration=integration, slack_user_id=SLACK_USER_ID)
+
+    with patch(f"{GITHUB_STEP}.has_team_github", return_value=True):
+        is_done = GithubStep().is_done(ctx)
+        connect = GithubStep().render(ctx)[1]["elements"][0]
+
+    assert is_done is done
+    assert connect["text"]["text"] == button_text
+    if expired:
+        assert connect["url"].endswith(f"/project/{team.id}/settings/user-personal-integrations")

@@ -9,6 +9,7 @@ from django.utils import timezone
 import dagster
 
 from posthog.dags.common import JobOwners
+from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.oauth import (
     OAuthAccessToken,
     OAuthApplication,
@@ -169,6 +170,7 @@ def stale_oauth_applications(now: datetime) -> QuerySet:
             is_verified=False,
             is_provisioning_partner=False,
             _provisioning_config={},
+            can_manage_ema_issuer=False,
         )
         .exclude(Exists(OAuthAccessToken.objects.filter(application=app, expires__gte=cutoff)))
         # An unrevoked refresh token can still mint access tokens, whatever its age.
@@ -184,6 +186,7 @@ def stale_oauth_applications(now: datetime) -> QuerySet:
         .exclude(Exists(OAuthDeviceGrant.objects.filter(client_id=OuterRef("client_id"), expires__gte=cutoff)))
         .exclude(Exists(OrganizationProvisioning.objects.filter(application=app)))
         .exclude(Exists(TeamProvisioningConfig.objects.filter(application=app)))
+        .exclude(Exists(IdentityProviderConfig.objects.filter(id_jag_registered_by_application=app)))
     )
 
 

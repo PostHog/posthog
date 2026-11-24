@@ -6,11 +6,13 @@
                 "backend/facade/**",
                 "backend/presentation/**",
                 "backend/routes.py",
+                "backend/webhook_consumers.py",
                 "backend/tasks/**",
                 "backend/models.py",
                 "backend/migrations/**",
                 "backend/scopes.py",
-                "backend/apps.py"
+                "backend/apps.py",
+                "backend/admin.py"
             ],
             "outputs": [],
             "cache": true

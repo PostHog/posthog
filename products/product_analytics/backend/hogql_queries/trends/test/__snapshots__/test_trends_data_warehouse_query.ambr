@@ -48,28 +48,6 @@
 # ---
 # name: TestTrendsDataWarehouseQuery.test_trends_breakdown_on_view
   '''
-  SELECT posthog_test_test_table_1.id AS id,
-         toTimeZone(posthog_test_test_table_1.created, 'UTC') AS created,
-         posthog_test_test_table_1.prop_1 AS prop_2,
-         1 AS boolfield
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `prop_1` String, `prop_2` String, `created` DateTime64(3, \'UTC\')') AS posthog_test_test_table_1
-  LIMIT 0 SETTINGS format_csv_allow_double_quotes=1,
-                   readonly=2,
-                   max_execution_time=60,
-                   allow_experimental_object_type=1,
-                   max_ast_elements=4000000,
-                   max_expanded_ast_elements=4000000,
-                   max_bytes_before_external_group_by=0,
-                   transform_null_in=1,
-                   optimize_min_equality_disjunction_chain_length=4294967295,
-                   optimize_rewrite_aggregate_function_with_if=0,
-                   optimize_min_inequality_conjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
-  '''
-# ---
-# name: TestTrendsDataWarehouseQuery.test_trends_breakdown_on_view.1
-  '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
@@ -121,28 +99,6 @@
   '''
 # ---
 # name: TestTrendsDataWarehouseQuery.test_trends_breakdown_on_view_with_date_timestamp
-  '''
-  SELECT posthog_test_test_table_1.id AS id,
-         toDate(toTimeZone(posthog_test_test_table_1.created, 'UTC')) AS timestamp,
-         posthog_test_test_table_1.prop_1 AS prop_2,
-         1 AS boolfield
-  FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.hogql.datawarehouse.trendquery/posthog_test_test_table_1/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `prop_1` String, `prop_2` String, `created` DateTime64(3, \'UTC\')') AS posthog_test_test_table_1
-  LIMIT 0 SETTINGS format_csv_allow_double_quotes=1,
-                   readonly=2,
-                   max_execution_time=60,
-                   allow_experimental_object_type=1,
-                   max_ast_elements=4000000,
-                   max_expanded_ast_elements=4000000,
-                   max_bytes_before_external_group_by=0,
-                   transform_null_in=1,
-                   optimize_min_equality_disjunction_chain_length=4294967295,
-                   optimize_rewrite_aggregate_function_with_if=0,
-                   optimize_min_inequality_conjunction_chain_length=4294967295,
-                   allow_experimental_join_condition=1,
-                   use_hive_partitioning=0
-  '''
-# ---
-# name: TestTrendsDataWarehouseQuery.test_trends_breakdown_on_view_with_date_timestamp.1
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,

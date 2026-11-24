@@ -32,7 +32,8 @@ from products.warehouse_sources.sources.singular.singular import (
     CREATE_MAX_ATTEMPTS,
     QUOTA_ERROR,
     REPORT_FAILED_ERROR,
-    REPORT_POLL_MAX_ATTEMPTS,
+    REPORT_POLL_BUDGET_SECONDS,
+    REPORT_POLL_INTERVAL_SECONDS,
     REQUEST_ERROR,
     SingularNonRetryableError,
     SingularReportQuery,
@@ -251,7 +252,7 @@ class TestDailyReport:
 
         error = _raised(result, SingularRetryableError)
         assert "still STARTED" in str(error)
-        assert _poll_count(result) == REPORT_POLL_MAX_ATTEMPTS
+        assert _poll_count(result) == REPORT_POLL_BUDGET_SECONDS // REPORT_POLL_INTERVAL_SECONDS + 1
 
     def test_failed_report_is_non_retryable_and_keeps_singulars_reason(self):
         script, _ = _script(poll_statuses=["FAILED"])
@@ -339,7 +340,7 @@ class TestDailyReport:
         assert not error_message_matches(str(error), SingularSource().get_non_retryable_errors())
 
 
-@mock.patch(f"{_MODULE}.time.sleep")
+@mock.patch("time.sleep")
 @mock.patch(f"{_MODULE}.make_tracked_session")
 @pytest.mark.usefixtures("_frozen_clock")
 def test_polls_until_done_and_reaches_a_safe_point_on_each_wait(mock_session, sleep):

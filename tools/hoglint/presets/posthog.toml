@@ -1,0 +1,1280 @@
+# PostHog preset: fields, assignments, zones, exports, registries, rules and levels.
+# Nothing here is built into hoglint core. The repo root hoglint.toml extends it next to the
+# Django and PostHog packs (`hoglint:django`, `hoglint:posthog`) and adds discovery, `[django]`,
+# providers, the ledger and outputs.
+schema = 1
+
+# Also in the PostHog pack's pack.toml: rules here name `drives`, and a config may extend this preset alone.
+[vocabulary]
+edge_kinds = ["drives"]
+sections   = ["posthog"]  # the PostHog pack (hoglint:posthog): drives
+
+# These decorators make a dataclass: its fields are slots of the class's `__init__`. The house
+# `frozen` always makes it frozen; the others do when they pass `frozen=True`.
+[discovery]
+dataclass_decorators        = ["dataclasses.dataclass", "posthog.dataclasses.frozen", "pydantic.dataclasses.dataclass"]
+frozen_dataclass_decorators = ["posthog.dataclasses.frozen"]
+# A pydantic model's annotated class attributes are its fields, as a dataclass's are.
+dataclass_bases             = ["pydantic.BaseModel", "pydantic.main.BaseModel"]
+# A string is a path edge only where the code holds a path: a patch target; the first argument of
+# a loader or of one of these, or an element of a list there; a value of a lazy map; any string of
+# a file that hands a computed value to one of those; anywhere in a settings module (the Django
+# pack names them from `[django] settings`). Elsewhere a string is text, also when it names a
+# module. These take a dotted path: an import or a run by name, a URL include, a team extension, a
+# Celery task sent by name, `python -m`, and the patch targets of `monkeypatch.setattr`,
+# `patch.dict`, `patch.multiple` and two local patch helpers.
+path_callees = [
+  "import_string", "include", "TeamExtensionDescriptor", "send_task", "subprocess.Popen", "subprocess.run",
+  "run_module", "importorskip", "register_assert_rewrite", "set_forkserver_preload",
+  "setattr", "patch.dict", "patch.multiple", "_patch", "mock_patch",
+]
+# Uses of these names are reference edges: facade-no-state reads where a facade opens a transaction
+# or leaves the team scope.
+reference_names = ["django.db.transaction.atomic", "posthog.models.scoping.unscoped"]
+# Migration packages: their files get the `migration` context. `posthog/rbac/migrations` holds
+# frozen data migrations run by hand. ClickHouse (`posthog/clickhouse/migrations`) and async
+# migrations stay prod, labelled as history below.
+migrations = [
+  "ee/migrations/**", "posthog/migrations/**", "posthog/session/migrations/**", "products/*/backend/migrations/**",
+  "posthog/rbac/migrations/**",
+]
+
+# The cross-package relation, named once: a first-party destination in another package.
+# A third-party end reads no package, so it is no crossing.
+[conditions]
+crosses-package = "src.package != dst.package and dst.external == none"
+# A use whose import public-surface reports: a product module past its export, in another package,
+# that no allowance of public-surface lets through. model-crossings leaves it there: one rule
+# owns each coupling.
+public-surface-reports = "surface.tier == 'product' and surface.package != src.package and src.history != true and not (surface.exported or (src.wiring == 'registration' and surface.wiring == 'location') or (surface.permanent == true and src.tier == 'core'))"
+# A facade's own code, its fixtures left out.
+facade-code = "src.zone == 'facade' and src.zone != 'fixtures'"
+# A capability submodule hands out wiring and holds no body: a module the `capability` zone
+# names, or any facade module that is no contracts, data or fixtures module and hands out a name
+# from where core runs a product's code.
+capability-module = "src.zone == 'capability' or (src.zone == 'facade' and src.zone not in ['contracts', 'data-api', 'fixtures'] and src.handout_zones in ['wiring', 'tasks', 'models', 'migrations'])"
+# The settings keys request-path does not follow: what they name is not the per-request
+# pipeline (middleware, authentication, permissions, throttling, sessions, token validation). Every
+# other settings entry is followed, so a key this list lacks adds rows and never hides one.
+setting-registers-apps = "edge.setting in ['INSTALLED_APPS', 'CELERY_IMPORTS', 'SHELL_PLUS_POST_IMPORTS']"  # registers apps, task modules and shell imports
+setting-mounts-views   = "edge.setting in ['ROOT_URLCONF', 'WSGI_APPLICATION', 'ASGI_APPLICATION']"  # mounts every view; the URL conf and the app entry points
+setting-static-files   = "edge.setting == 'STATICFILES_FINDERS'"
+setting-api-schema     = "edge.setting == 'SPECTACULAR_SETTINGS' or edge.setting startswith 'SPECTACULAR_SETTINGS.'"  # builds the API schema, not a request
+setting-logging        = "edge.setting == 'LOGGING' or edge.setting startswith 'LOGGING.'"
+setting-caches         = "edge.setting == 'CACHES' or edge.setting startswith 'CACHES.'"
+setting-login-flow     = "edge.setting in ['SOCIAL_AUTH_PIPELINE', 'AXES_LOCKOUT_CALLABLE']"  # a login flow behind a URL, not the per-request pipeline
+# What a facade hands out that is defined in a product file outside the facade: the facade
+# only passes the name on, so the file that defines it is what code outside reads.
+handed-out-origin = "dst.tier == 'product' and dst.zone != 'facade'"
+# A facade module that hands names out to code outside: `facade/testing.py` only to its tests.
+surface-hands-out = "surface.zone == 'facade' and (surface.zone != 'fixtures' or 'test' in edge.context) and surface.exported"
+via-hands-out     = "via.zone == 'facade' and (via.zone != 'fixtures' or 'test' in edge.context) and via.exported"
+# A registration point that only puts a hand-out into a list, tuple, set or dict literal registers
+# it; any other use, or one the facts cannot tell, reads it.
+only-registers = "src.wiring == 'registration' and edge.listed == '1'"
+# The warehouse sources tree: a package per vendor, the SDK they share and the tree's conftest (its
+# members, `source_vendor`), under the tree's own package.
+in-sources-tree = "dst.path startswith 'products/warehouse_sources/sources/'"
+sources-member  = "src.source_vendor != none"
+# What a facade may not do, on a model use or a reference by `[discovery] reference_names`.
+# A write or a row lock reads the Django pack's shape of the use, the shape of the local it flows
+# into (`flow_shape`) and the instance writes on its value (`instance_write`); leaving the team
+# scope reads the chain as written (`chain`).
+facade-writes            = "edge.shape in ['write', 'lock'] or edge.flow_shape startswith 'write' or edge.flow_shape == 'lock' or edge.instance_write != none"
+facade-opens-transaction = "dst.symbol == 'django.db.transaction.atomic'"
+facade-leaves-team-scope = "edge.chain startswith '.objects.unscoped()' or edge.chain == '.all_teams' or edge.chain startswith '.all_teams.' or dst.symbol == 'posthog.models.scoping.unscoped'"
+
+# ── Fields ─────────────────────────────────────────────────────
+# required_on is the field's domain: inside it a missing value is unknown, outside it a known none.
+
+[fields]
+package   = { type = "id", required_on = ["**"] }
+tier      = { type = "enum", values = ["core", "product", "leaf", "tool"], required_on = ["**"] }
+role      = { type = "enum", values = ["foundation", "feature"], required_on = ["products/*/**"] }
+zone      = { type = "zone" }
+owners    = { type = "set" }
+stage     = { type = "enum", values = ["proto-product"] }
+django    = { type = "ordered", values = ["settings", "framework", "orm"] }
+testcode  = { type = "bool" }
+# Read by own-database only, which is off for now.
+# database  = { type = "string", on = "symbol", required_on = "kind == 'model'" }
+# Frozen history outside the `migration` context: migration files nobody rewrites.
+history   = { type = "bool" }
+# Django settings modules: they must name product paths (installed apps, middleware, loggers).
+settings  = { type = "bool" }
+# The wiring channel (products/architecture.md, "Wiring couplings"): a product's wiring locations,
+# and the core registration points that name them to register them.
+wiring    = { type = "enum", values = ["location", "registration"] }
+# Interfaces the old boundary config (tach.toml, `isolation:permanent-interface`) declares permanent:
+# core reaches them past the facade by design, and the contract-check inputs watch them.
+permanent = { type = "bool" }
+# The core models a contract may name.
+may_cross = { type = "bool", on = "symbol" }
+# A core module the request pipeline starts from that no setting names: the class every API view inherits.
+request_seed = { type = "bool" }
+# The member of the warehouse sources tree a module belongs to: a vendor, `sdk` or `conftest`.
+source_vendor = { type = "string" }
+# A product's AppConfig module: Django imports it at setup in every process.
+app_config = { type = "bool" }
+# Code under posthog/temporal/ that core owns: the worker platform, the cross-product
+# orchestrators and the workflows whose domain is core. Anything else there is product code.
+temporal_home    = { type = "bool" }
+# The folder right under posthog/temporal/ a file sits in, or `(top level)` for a module there.
+temporal_subtree = { type = "string" }
+# A wiring location core runs by a name it reads at run time (a Celery task, a Temporal workflow, a
+# Max tool), a channel no producer reads: the contract-check inputs watch it while it exists.
+runs_by_name = { type = "bool" }
+
+# Owners of a finding come from `owners`; cycles and compare's new pairs are between packages.
+[roles]
+owner = "owners"
+group = "package"
+
+# ── Products ───────────────────────────────────────────────────
+
+[[assign]]
+match = "products/{product}/**"
+set   = { package = "{product}", tier = "product", role = "feature" }
+
+# Foundation products others build on. They never depend on feature products.
+[[assign]]
+match    = ["products/access_control/**", "products/notifications/**", "products/event_definitions/**"]
+set      = { role = "foundation" }
+override = true
+
+# Product code that still lives outside products/ keeps its product id.
+[[assign]]
+match    = "posthog/temporal/ai_observability/**"
+set      = { package = "ai_observability", tier = "product", role = "feature" }
+override = true
+
+# The namespace package all products sit in: core's loader imports it to find them. It gets a tier and
+# no package: a layout row on a product folder without __init__.py reads its group from the folder,
+# because the package above it reads none.
+[[assign]]
+match = "products/__init__.py"
+set   = { tier = "core" }
+
+# ── Core, named core packages, leaves ──────────────────────────
+
+[[assign]]
+match = ["posthog/**", "ee/**", "common/**"]
+set   = { package = "core", tier = "core" }
+
+[[assign]]
+match    = "posthog/{infra}/**"
+only     = { infra = ["egress", "ingress", "kafka_client", "personhog_client"] }
+set      = { package = "{infra}", zone = "infrastructure" }
+override = true
+
+[[assign]]
+match    = "posthog/clickhouse/client/**"
+set      = { package = "clickhouse_client", zone = "infrastructure" }
+override = true
+
+[[assign]]
+match = ["common/**", "posthog/db_backends/**", "posthog/redis.py", "posthog/cache_utils.py"]
+set   = { zone = "infrastructure" }
+
+[[assign]]
+match    = "ee/billing/**"
+set      = { package = "billing", stage = "proto-product" }
+override = true
+
+[[assign]]
+match    = "posthog/session_recordings/**"
+set      = { package = "session_recordings", stage = "proto-product" }
+override = true
+
+[[assign]]
+match    = "ee/hogai/**"
+set      = { package = "hogai", stage = "proto-product" }
+override = true
+
+[[assign]]
+match = ["posthog/egress/**", "posthog/kafka_client/**"]
+set   = { django = "framework" }
+
+# Core wires products in through registration.
+[[assign]]
+match = [
+  "posthog/api/__init__.py", "posthog/api/rest_router.py", "posthog/urls.py", "posthog/ee_urls.py",
+  "posthog/product_urls.py", "posthog/products.py", "posthog/apps.py", "posthog/settings/**",
+]
+set = { zone = "composition" }
+
+[[assign]]
+match = ["posthog/settings/**", "ee/settings.py"]
+set   = { settings = true }
+
+[[assign]]
+match = "posthog/api/routing.py"
+set   = { request_seed = true }
+
+[[assign]]
+match = [
+  "products/*/backend/temporal/**", "products/*/backend/hogql_queries/**", "products/*/backend/max_tools.py",
+  "products/*/backend/max_tools/**", "products/*/backend/tasks.py", "products/*/backend/tasks/**",
+  "posthog/temporal/ai_observability/**",
+]
+set = { wiring = "location" }
+
+# Query runners are not here: core runs them by the query's kind, which `drives` reads.
+[[assign]]
+match = [
+  "products/*/backend/temporal/**", "products/*/backend/max_tools.py", "products/*/backend/max_tools/**",
+  "products/*/backend/tasks.py", "products/*/backend/tasks/**",
+]
+set = { runs_by_name = true }
+
+[[assign]]
+match = "products/*/backend/apps.py"
+set   = { app_config = true }
+
+[[assign]]
+match = [
+  "posthog/management/commands/start_temporal_worker.py", "posthog/management/commands/execute_temporal_workflow.py",
+  "posthog/management/commands/start_temporal_workflow.py", "posthog/temporal/schedule.py",
+  "posthog/temporal/common/worker.py", "posthog/temporal/ai/__init__.py", "posthog/temporal/health_checks/registry.py",
+  "posthog/hogql_queries/query_runner.py", "posthog/tasks/scheduled.py", "posthog/apps.py",
+  "ee/hogai/core/agent_modes/presets/**",
+]
+set = { wiring = "registration" }
+
+[[assign]]
+match = [
+  "products/error_tracking/backend/sql.py", "products/error_tracking/backend/sql/**",
+  "products/error_tracking/backend/embedding.py", "products/error_tracking/backend/embedding/**",
+  "products/error_tracking/backend/indexed_embedding.py", "products/error_tracking/backend/indexed_embedding/**",
+  "products/batch_exports/backend/sql.py", "products/batch_exports/backend/sql/**",
+  "products/warehouse_sources/backend/models/**",
+  "products/warehouse_sources/backend/temporal/data_imports/sources/common/**",
+  "products/warehouse_sources/backend/temporal/data_imports/sources/generated_configs/postgres.py",
+  "products/warehouse_sources/backend/temporal/data_imports/sources/google_search_console/**",
+  "products/warehouse_sources/backend/temporal/data_imports/sources/mysql/**",
+  "products/warehouse_sources/backend/temporal/data_imports/sources/postgres/**",
+  "products/warehouse_sources/backend/temporal/data_imports/sources/redshift/**",
+  "products/warehouse_sources/backend/temporal/data_imports/sources/salesforce/**",
+  "products/warehouse_sources/backend/temporal/data_imports/sources/snowflake/**",
+  "products/warehouse_sources/backend/temporal/data_imports/sources/stripe/**",
+]
+# warehouse_sources keeps its REST source framework out of its own contract-check inputs, and no code
+# outside the product reads it: it is no interface. A reader outside would be a public-surface row.
+except_paths = ["products/warehouse_sources/backend/temporal/data_imports/sources/common/rest_source/**"]
+set = { permanent = true }
+
+# Where core keeps Temporal code: the loose platform modules, the core-platform subtrees, the
+# cross-product orchestrators, and their tests. A subtree this list does not place in core is
+# product code waiting to move: `temporal-placement` holds it.
+[[assign]]
+match = "posthog/temporal/{subtree}/**"
+set   = { temporal_subtree = "{subtree}" }
+
+[[assign]]
+match = "posthog/temporal/*"
+set   = { temporal_subtree = "(top level)" }
+
+[[assign]]
+match = [
+  "posthog/temporal/__init__.py", "posthog/temporal/codec_server.py", "posthog/temporal/conftest.py",
+  "posthog/temporal/oauth.py", "posthog/temporal/schedule.py", "posthog/temporal/utils.py",
+  "posthog/temporal/common/**", "posthog/temporal/backfill_group_type_created_at/**", "posthog/temporal/backfill_materialized_property/**",
+  "posthog/temporal/delete_persons/**", "posthog/temporal/dlq_replay/**", "posthog/temporal/ingestion_acceptance_test/**",
+  "posthog/temporal/sync_events_retention/**", "posthog/temporal/delete_teams/**", "posthog/temporal/health_checks/**",
+  "posthog/temporal/usage_report/**", "posthog/temporal/weekly_digest/**", "posthog/temporal/tests/__init__.py",
+  "posthog/temporal/tests/conftest.py", "posthog/temporal/tests/test_asyncify.py", "posthog/temporal/tests/test_clickhouse.py",
+  "posthog/temporal/tests/test_codec_server.py", "posthog/temporal/tests/test_encryption_codec.py", "posthog/temporal/tests/test_oauth.py",
+  "posthog/temporal/tests/test_schedule.py", "posthog/temporal/tests/test_shutdown.py", "posthog/temporal/tests/test_slo_interceptor.py",
+  "posthog/temporal/tests/common/**", "posthog/temporal/tests/backfill_group_type_created_at/**", "posthog/temporal/tests/backfill_materialized_property/**",
+  "posthog/temporal/tests/delete_persons/**", "posthog/temporal/tests/dlq_replay/**", "posthog/temporal/tests/ingestion_acceptance_test/**",
+  "posthog/temporal/tests/sync_events_retention/**", "posthog/temporal/tests/delete_teams/**", "posthog/temporal/tests/health_checks/**",
+  "posthog/temporal/tests/usage_report/**", "posthog/temporal/tests/weekly_digest/**", "posthog/temporal/tests/utils/**",
+]
+set   = { temporal_home = true }
+
+# Every package under packages/ is a leaf.
+[[assign]]
+match = "packages/{pkg}/**"
+set   = { package = "{pkg}", tier = "leaf" }
+
+[[assign]]
+match = "products/warehouse_sources/sources/{vendor}/**"
+set   = { source_vendor = "{vendor}" }
+
+[[assign]]
+match = "products/warehouse_sources/sources/conftest.py"
+set   = { source_vendor = "conftest" }
+
+# ClickHouse migrations are frozen history, but no Django migrations: they keep the prod context.
+[[assign]]
+match = "posthog/clickhouse/migrations/**"
+set   = { history = true }
+
+# A production module named like a test (the ingestion acceptance workflow discovers its test
+# cases with it) is no test code.
+[[assign]]
+match        = ["**/tests/**", "**/test/**", "**/test_*.py", "**/conftest.py"]
+except_paths = ["posthog/temporal/ingestion_acceptance_test/test_cases_discovery.py"]
+set          = { testcode = true }
+
+# The core models a contract may name: read once, by the contract policy's
+# `allow_symbols`, for both of its reporters, so the verdict does not depend on how deep a model sits.
+[[assign]]
+symbols = { names = [
+  "posthog.models.organization.Organization", "posthog.models.organization.OrganizationMembership",
+  "posthog.models.project.Project", "posthog.models.team.team.Team", "posthog.models.user.User",
+] }
+set     = { may_cross = true }
+
+# Test support and dev tooling outside a test path: it never ships, so it may import test code, and a
+# dev command is no entrypoint thin-commands guards.
+# `facade/testing.py` is the fixture surface architecture.md names.
+[[assign]]
+match = [
+  "products/*/backend/facade/testing.py",
+  "products/warehouse_sources/backend/facade/_access_control_base.py",
+  "products/warehouse_sources/sources/sdk/testing.py",
+  "posthog/management/commands/setup_test_environment.py",
+  "posthog/management/commands/reset_test_clickhouse_db.py",
+  "products/signals/eval/**",
+  "posthog/hogql/scripts/**",
+  # Dev seeders, demo and smoke commands, each by name: a new one needs a reviewed line here.
+  "products/aeo/backend/management/commands/seed_aeo_prompts.py",
+  "products/customer_analytics/backend/management/commands/seed_customer_analytics_accounts.py",
+  "products/engineering_analytics/backend/management/commands/seed_engineering_analytics.py",
+  "products/knowledge_writer/backend/management/commands/knowledge_writer_pr_smoke.py",
+  "products/mcp_analytics/backend/management/commands/seed_mcp_sessions.py",
+  "products/signals/backend/management/commands/seed_inbox_data.py",
+  "products/signals/backend/management/commands/seed_refund_test_data.py",
+  "products/tasks/backend/management/commands/bake_dev_stack_image.py",
+  "products/tasks/backend/management/commands/demo_mts_example.py",
+  "products/visual_review/backend/management/commands/seed_dummy_runs.py",
+  "products/visual_review/backend/management/commands/seed_snapshot_history.py",
+  "products/web_analytics/backend/management/commands/generate_aeo_content.py",
+]
+set   = { testcode = true }
+
+# Every first-party folder no other assignment claims is its own package; services/ and tools/
+# hold separate deployables, one package per second-level folder. The folders are named,
+# so a file in a new top folder reads unknown and a cross-package rule cannot pass it silently.
+[[assign]]
+match = "{top}/**"
+only  = { top = ["bin", "frontend", "livestream", "nodejs", "rust"] }
+set   = { package = "{top}", tier = "tool" }
+
+[[assign]]
+match = "services/{name}/**"
+set   = { package = "services-{name}", tier = "tool" }
+
+[[assign]]
+match = "services/*"
+set   = { package = "services", tier = "tool" }
+
+[[assign]]
+match = "tools/{name}/**"
+set   = { package = "tools-{name}", tier = "tool" }
+
+[[assign]]
+match = "tools/*"
+set   = { package = "tools", tier = "tool" }
+
+[[assign]]
+match = "*"
+set   = { package = "root", tier = "tool" }
+
+# ── Zones inside a product ─────────────────────────────────────
+# A product file no zone path matches lands in the default private zone `internal`.
+
+[zones]
+within         = "products/{product}"
+default        = "internal"
+composition    = {}
+infrastructure = {}
+backend        = { paths = ["backend/**"] }
+facade         = { parent = "backend", paths = ["backend/facade/**"] }
+contracts      = { parent = "facade", paths = ["backend/facade/contracts.py", "backend/facade/enums.py"] }
+# A capability submodule hands out wiring and holds no body. These names always are one; `api*.py`
+# holds the data capabilities and never is one. Both apply at the top of the facade only.
+capability     = { parent = "facade", paths = [
+  "backend/facade/dags.py", "backend/facade/hogql.py", "backend/facade/max_tools.py", "backend/facade/models.py",
+  "backend/facade/queries.py", "backend/facade/tasks.py", "backend/facade/temporal.py",
+] }
+data-api       = { parent = "facade", paths = ["backend/facade/api*.py"] }
+fixtures       = { parent = "facade", paths = ["backend/facade/testing.py"] }
+# Where core runs a product's code: what a facade module hands out from here makes it a capability.
+wiring         = { parent = "backend", paths = ["backend/hogql_queries/**", "backend/max_tools.py", "backend/temporal/**", "backend/tasks.py"] }
+presentation   = { parent = "backend", paths = ["backend/presentation/**", "backend/routes.py"] }
+# Viewsets that have not moved to presentation/ yet.
+api            = { parent = "backend", paths = ["backend/api/**", "backend/api.py"] }
+logic          = { parent = "backend", paths = ["backend/logic.py", "backend/logic/**"] }
+models         = { parent = "backend", paths = ["backend/models.py", "backend/models/**"] }
+migrations     = { parent = "backend", paths = ["backend/migrations/**"] }
+tasks          = { parent = "backend", paths = ["backend/tasks/**"] }
+commands       = { parent = "backend", paths = ["backend/management/commands/**"] }
+tests          = { paths = ["**/tests/**", "**/test/**", "**/test_*.py"], override = true }
+
+# ── Kinds and shapes ───────────────────────────────────────────
+# `model` reads the Django pack's model index, which already handles abstract and proxy models.
+# It is `expected`: zero models means the pack read nothing, so every rule about models goes incomplete.
+
+[kinds]
+model    = { decl = "model", abstract = false, expected = true }
+manager  = { subclass_of = ["django.db.models.manager.BaseManager", "django.db.models.manager.Manager", "django.db.models.Manager"] }
+queryset = { subclass_of = ["django.db.models.query.QuerySet", "django.db.models.QuerySet"] }
+command  = { subclass_of = ["django.core.management.base.BaseCommand"] }
+# Contract types besides frozen dataclasses and enums: core's query syntax tree, and pydantic models.
+hogql_ast = { subclass_of = ["posthog.hogql.base.AST"] }
+pydantic  = { subclass_of = ["pydantic.BaseModel", "pydantic.main.BaseModel", "pydantic.RootModel", "pydantic.root_model.RootModel"] }
+
+# What may cross a product's facade, said once. export-shape walks what a facade module hands out
+# under this policy; facade-signature reports each slot of a public facade function under it
+# (`shape = "contract"`). Signatures are part of a contract: an unannotated slot is unknown, and the
+# slots of what a facade hands out from elsewhere count as the facade's.
+[shapes.contract]
+data            = ["frozen-dataclass", "enum"]
+allow           = ["protocol", "hogql_ast", "exception", "pydantic"]
+deny            = ["model", "manager", "queryset", "command"]
+# Pass whatever their kind, and nothing inside them is read.
+allow_symbols   = "may_cross == true"
+# Core's own types (its syntax tree, its Protocols) are core's contract: a facade may hand them out as
+# they stand. Their methods and attributes are not judged here, a field is reported only for a denied
+# kind, and a class that implements an abstract base core owns is an allowed behavior class.
+owned_elsewhere = "tier == 'core'"
+behavior        = "abc"
+# A slot typed with one of these says nothing: it is unknown.
+unknown_types   = ["typing.Any", "builtins.dict", "typing.Dict", "builtins.object"]
+# A mapping with type arguments is typed. An unknown type that is no mapping (`Any`, `object`) as a
+# mapping's argument is an opaque payload: allowed in a parameter or a field, never in a return value.
+mappings        = ["builtins.dict", "typing.Dict", "typing.Mapping", "typing.MutableMapping", "collections.abc.Mapping", "collections.abc.MutableMapping"]
+opaque_payload  = "except-return"
+signatures      = true
+
+# Registration modules and presentation adapters hand out classes, never ORM types.
+[shapes.registration]
+allow   = ["class"]
+deny    = ["model", "manager", "queryset"]
+
+# A core package's toolkit: classes and functions with their signatures, never an ORM type. Its
+# public modules read this policy, not `contract`: that one reads a class core defines as owned
+# elsewhere and would judge nothing inside the core package's own classes.
+[shapes.toolkit]
+allow   = ["class"]
+deny    = ["model", "manager", "queryset", "command"]
+
+# ── Exports: the only public surface of a product ──────────────
+
+[exports.facade]
+within   = "products/{product}"
+paths    = ["backend/facade/**"]
+audience = "*"
+shape    = "contract"
+
+[exports.registration]
+within   = "products/{product}"
+paths    = ["backend/routes.py", "backend/webhook_consumers.py", "backend/data_freshness.py", "backend/scopes.py"]
+audience = "src.zone == 'composition' or src.registry != none"
+shape    = "registration"
+
+# Presentation adapters by base class, with an audience.
+[exports.presentation-adapter]
+within      = "products/{product}"
+paths       = ["backend/presentation/**"]
+subclass_of = [
+  "products.access_control.backend.presentation.access_control.AccessControlViewSetMixin",
+  "products.access_control.backend.presentation.access_control.UserAccessControlSerializerMixin",
+  "products.access_control.backend.presentation.access_control_settings.AccessControlSettingsViewSetMixin",
+  "products.access_control.backend.presentation.access_control_organization_members.OrganizationMemberProjectAccessViewSetMixin",
+  "products.access_control.backend.presentation.role.RestrictedMemberVisibilityMixin",
+]
+audience    = "src.zone == 'presentation' or src.tier == 'core'"
+shape       = "registration"
+
+# The same five mixins by name, for viewsets that have not moved to presentation/ yet. By name, so
+# a class that inherits a mixin gets no door to them.
+[exports.access-control-mixins]
+within   = "products/{product}"
+paths    = ["backend/presentation/**"]
+symbols  = [
+  "products.access_control.backend.presentation.access_control.AccessControlViewSetMixin",
+  "products.access_control.backend.presentation.access_control.UserAccessControlSerializerMixin",
+  "products.access_control.backend.presentation.access_control_settings.AccessControlSettingsViewSetMixin",
+  "products.access_control.backend.presentation.access_control_organization_members.OrganizationMemberProjectAccessViewSetMixin",
+  "products.access_control.backend.presentation.role.RestrictedMemberVisibilityMixin",
+]
+audience = "src.zone == 'api'"
+shape    = "registration"
+
+# Public modules of core packages (D112), fitted to how code uses them. core-package-surface holds
+# code outside the package to them; tests may import any module. egress: each vendor's package
+# init, transport and clients, GitHub's pacing, and the shared limiter's policies and outbound
+# facade.
+[exports.egress]
+within   = "posthog/egress"
+paths    = [
+  "*/__init__.py", "*/transport.py", "*/client.py", "*/async_client.py", "github/limiter.py",
+  "limiter/policies.py", "limiter/outbound.py",
+]
+audience = "*"
+shape    = "toolkit"
+
+# ingress: the consumer contracts, the view builder, the signature schemes, each provider and the
+# statement-timeout helper webhook consumers read.
+[exports.ingress]
+within   = "posthog/ingress"
+paths    = ["contracts.py", "views.py", "verify/schemes.py", "*/provider.py", "dispatch/database.py"]
+audience = "*"
+shape    = "toolkit"
+
+# ── Registries: core finds product code by file convention ─────
+
+[registries.routes]
+loader    = "posthog.products.load_product_modules"
+module    = "products/{product}/backend/routes.py"
+attribute = "register_routes"
+lifecycle = "setup"
+
+[registries.data_freshness]
+loader    = "posthog.products.load_product_modules"
+module    = "products/{product}/backend/data_freshness.py"
+attribute = "DATA_SOURCES"
+lifecycle = "on-demand"
+
+[registries.scopes]
+loader    = "posthog.products.load_product_modules"
+module    = "products/{product}/backend/scopes.py"
+attribute = "SCOPE_DOCS"
+lifecycle = "on-demand"
+
+[registries.webhook_consumers]
+loader    = "posthog.products.load_product_modules"
+module    = "products/{product}/backend/webhook_consumers.py"
+attribute = "WEBHOOK_CONSUMERS"
+shape     = "abc:posthog.ingress.contracts.WebhookConsumer"
+lifecycle = "first-request"
+
+[registries.health_checks]
+loader    = "posthog.products.load_product_modules"
+module    = "products/{product}/backend/health_checks.py"
+attribute = "HEALTH_CHECKS"
+shape     = "abc:posthog.temporal.health_checks.framework.HealthCheckRegistration"
+lifecycle = "worker-start"
+
+# The Temporal worker, the scheduler and the log pipeline read each product's `TEMPORAL`
+# declaration: the workflows and activities it binds to task queues, its schedule reconcilers,
+# interceptors and log-source resolvers.
+[registries.temporal]
+loader    = "posthog.products.load_product_modules"
+module    = "products/{product}/backend/facade/temporal.py"
+attribute = "TEMPORAL"
+shape     = "abc:posthog.temporal.common.registration.TemporalRegistration"
+lifecycle = "worker-start"
+
+[registries.integration_usages]
+loader    = "posthog.products.load_product_modules"
+module    = "products/{product}/backend/integration_usages.py"
+attribute = "integration_usages"
+lifecycle = "on-demand"
+
+[registries.integration_hooks]
+loader    = "posthog.products.load_product_modules"
+module    = "products/{product}/backend/integration_hooks.py"
+attribute = "after_integration_saved"
+lifecycle = "on-demand"
+
+[registries.today_highlights]
+loader    = "posthog.products.load_product_modules"
+module    = "products/{product}/backend/facade/today_highlights.py"
+attribute = "HIGHLIGHT_SOURCES"
+lifecycle = "on-demand"
+
+# The admin console imports each installed app's `console` module by name when it first lists its
+# pages; the module registers its panels and tools on the `console` registry it imports.
+[registries.admin_console]
+loader    = "posthog.admin.console.registry.ConsoleRegistry.discover"
+module    = "products/{product}/backend/console.py"
+attribute = "console"
+lifecycle = "on-demand"
+
+# ── Identities: ledger columns per rule family ─────────────────
+
+[identities]
+crossing                 = ["dst.symbol", "src.module", "edge.label"]
+relation                 = ["dst.symbol", "edge.declaring_model", "edge.field", "edge.accessor"]
+migration-pair           = ["edge.child", "edge.parent"]
+facade-slot              = ["src.module", "edge.callable", "edge.slot", "dst.symbol"]
+receiver-sender          = ["dst.symbol", "src.package", "src.module"]
+location-module-trigger  = ["edge.location", "src.module", "edge.label"]
+package-module           = ["src.package", "src.module"]
+package-file             = ["package", "subject"]
+temporal-file            = ["temporal_subtree", "subject"]
+
+# ── The public surface ─────────────────────────────────────────
+
+[rules.public-surface]
+primitive     = "entrypoint"
+doc           = "Other packages name a product only through an export whose audience includes them. A later use of an imported name is judged once, at its import. Migrations are frozen history and are not judged; Django settings may name product paths as strings; a core registration point may name a wiring location; core production code may name a declared permanent interface. A test's patch target is wiring-watched's, not this rule's."
+why           = "Code outside a product must use the product only through its facade. A name from inside the product makes a coupling that the owners of the product cannot see."
+ways          = [
+  { safety = "safe", text = "If the facade of the product exports the same object, import it from the facade." },
+  { safety = "care", text = "If the code belongs to the product, move it into the product." },
+  { safety = "person", text = "If the facade must export a new name, stop and tell the person. The owners of the product decide what its facade exports." },
+]
+example       = { finding = "from products.billing.backend.logic.invoices import charge", fixed = "from products.billing.backend.facade.api import charge" }
+kinds         = ["import", "reference", "dotted-path"]
+contexts      = { exclude = ["migration"] }
+select        = "crosses-package and dst.tier == 'product' and src.history != true and not (edge.kind == 'dotted-path' and 'test' in edge.context)"
+endpoint      = "surface"
+uses_at_import = true
+allow         = "dst.exported or (src.settings == true and edge.kind == 'dotted-path') or (src.wiring == 'registration' and dst.wiring == 'location') or (dst.permanent == true and src.tier == 'core' and 'test' not in edge.context)"
+on_unresolved = "finding"
+identity      = ["dst.symbol", "src.module", "edge.kind"]
+growth_key    = ["dst.symbol", "edge.kind", "src.package"]
+# A crossing reports and never blocks: the fix usually needs the target team's facade work,
+# so CI shows each one and no ledger line holds it.
+report        = "advisory"
+ledger        = false
+
+# The public modules of core packages block, apart from public-surface: an import of another
+# module is a new leak, and the caller fixes it in its own code.
+[rules.core-package-surface]
+primitive      = "entrypoint"
+doc            = "Other packages import posthog.egress and posthog.ingress only through their public modules; tests may import any module. A later use of an imported name is judged once, at its import. Migrations are frozen history and are not judged."
+why            = "The module is inside posthog.egress or posthog.ingress and is not one of the package's public modules. Its owners change it freely, and code that calls it can skip the pacing and recording that the public modules do."
+ways           = [
+  { safety = "safe", text = "Import it from one of the package's public modules. posthog.egress: each vendor package (posthog.egress.<vendor>) and its transport, client and async_client modules, posthog.egress.github.limiter, posthog.egress.limiter.policies and posthog.egress.limiter.outbound. posthog.ingress: contracts, views, verify.schemes, each <provider>.provider and dispatch.database." },
+  { safety = "person", text = "If the name you need is not there, ask the package's owners to add it." },
+]
+example        = { finding = "from posthog.egress.slack.observability import record_slack_api_response", fixed = "from posthog.egress.slack import SlackWebClient" }
+kinds          = ["import", "reference", "dotted-path"]
+contexts       = { exclude = ["migration"] }
+select         = "crosses-package and dst.tier == 'core' and dst.door and src.history != true and 'test' not in edge.context"
+endpoint       = "surface"
+uses_at_import = true
+allow          = "dst.exported"
+on_unresolved  = "finding"
+identity       = ["dst.symbol", "src.module", "edge.kind"]
+growth_key     = ["dst.symbol", "edge.kind", "src.package"]
+
+[rules.export-shape]
+primitive  = "export"
+from       = "src.zone != 'fixtures'"
+slots_reported_by = ["facade-signature"]
+doc        = "An export hands out only its shape policy: no model, manager, queryset or command, also not inside a field, a base or a re-export. A model or an unknown type in a slot whose row facade-signature reads (a public callable of a facade module, or the copy a facade holds of a function or a data shape's fields it hands out) is facade-signature's to report; every other slot is judged here, also a member of a class handed out from outside the facade."
+why        = "A facade exports only contract types: frozen dataclasses, enums and the allowed core types. A model, manager, queryset, command or other class in a facade gives other products the internals of this product."
+ways       = [
+  { safety = "care", text = "Define a frozen dataclass in the contracts module of the facade. Convert the object to that dataclass in the facade." },
+  { safety = "care", text = "If hoglint cannot tell the type, give the name a type annotation that hoglint can read. Do not use Any or object." },
+  { safety = "person", text = "If the object is a core model of the identity root that callers hold on a hot path, stop and tell the person. Only a person can add a model to the list of core models." },
+]
+example    = { finding = "from products.billing.backend.models import Invoice as Invoice  # in backend/facade/api.py", fixed = "from products.billing.backend.facade.contracts import InvoiceRow  # a frozen dataclass" }
+identity   = "module-symbol"
+growth_key = ["dst.symbol", "edge.label", "src.package"]
+
+[rules.facade-signature]
+primitive  = "signature"
+doc        = "A public facade function neither accepts nor returns a model, manager, queryset or command. Any, object and a bare dict are unknown; a mapping with type arguments is typed, and Any or object as a mapping's argument is an opaque payload in a parameter or a field, never in a return value."
+why        = "A public facade function must not take or return a model, manager, queryset or command. Other products then depend on the database layer of this product."
+ways       = [
+  { safety = "care", text = "If the callee reads a few values, pass the values or a contract type (a frozen dataclass in contracts.py)." },
+  { safety = "care", text = "If the callee loads or changes the record and does I/O anyway, pass the id." },
+  { safety = "note", text = "Do not type the value as Any or object. hoglint reads Any and object as unknown, and the rule reports them." },
+  { safety = "person", text = "If the caller holds the model on a hot path and the model belongs to the identity root, stop and tell the person. Only a person can add a model to the list of core models." },
+]
+example    = { finding = "def get_invoice(team_id: int, invoice_id: int) -> Invoice: ...", fixed = "def get_invoice(team_id: int, invoice_id: int) -> InvoiceRow: ..." }
+select     = "facade-code"
+# The policy writes the rest of the selection, `deny`, `unless` and the unknown types.
+shape      = "contract"
+on_unknown = "finding"
+identity   = "facade-slot"
+growth_key = ["dst.symbol", "src.package"]
+
+[rules.facade-logic]
+primitive  = "edge"
+doc        = "A capability submodule of a facade holds no body: each top-level definition there is a re-export or a stub, so the wiring lives where core runs it."
+why        = "Core runs the code of a capability module. The code must live in the internals of the product, where core runs it, not in the facade."
+ways       = [
+  { safety = "care", text = "Move the body into the internals of the product, for example backend/logic/. Re-export the name in the capability module." },
+  { safety = "person", text = "If the function must stay in the facade, stop and tell the person." },
+]
+example    = { finding = "def start(team_id: int) -> None: run_job(team_id)  # in backend/facade/workers.py", fixed = "from products.billing.backend.logic.workers import start as start  # in backend/facade/workers.py" }
+kinds      = ["declares"]
+from       = "capability-module"
+select     = "edge.body == '1' and src.scope == none and dst.name not in ['__getattr__', '__dir__']"
+identity   = ["dst.symbol", "src.module"]
+growth_key = ["dst.symbol", "src.package"]
+
+[rules.facade-no-state]
+primitive  = "edge"
+doc        = "A facade changes no state. In facade code, a write (create, save, update, delete and their bulk and async forms, also through a local the use flows into), a transaction or a row lock (`transaction.atomic`, `select_for_update`) or a read that leaves the team scope (`objects.unscoped()`, the `all_teams` manager, the `unscoped()` context) is a finding. A read by id, by team or by the caller's filters is allowed. Not seen: a decision on what the database returned that leads to no write; a definition carried in a read's filter; a write on a value that came from a parameter, a helper, a loop or a related manager; a scope-leaving call later in a chain or on a local."
+why        = "A facade calls the internals of its product and maps the result to contract types. A write, a lock or a transaction in the facade puts the rules that change the data of the product into the facade. A read that leaves the team scope there skips the scope that the internals keep."
+ways       = [
+  { safety = "care", text = "Move the whole operation into the internals of the product, for example backend/logic/: its checks, its transaction or lock, and its write. In the facade, call that function and map its result to a contract type." },
+  { safety = "note", text = "Do not move only the ORM line into a helper. The facade then keeps the checks around the write, and the operation is still in the facade." },
+  { safety = "person", text = "If the operation must stay in the facade, stop and tell the person." },
+]
+example    = { finding = "Invoice.objects.for_team(team_id).filter(id=invoice_id).update(paid=True)  # in backend/facade/api.py", fixed = "return _to_row(invoices.mark_paid(team_id, invoice_id))  # backend/logic/invoices.py checks, locks and writes" }
+kinds      = ["reference"]
+from       = "facade-code and src.testcode != true"
+select     = "(dst.kind == 'model' and edge.shape != none) or (edge.resolution in ['resolved', 'external'] and dst.symbol in ['django.db.transaction.atomic', 'posthog.models.scoping.unscoped'])"
+deny       = "facade-writes or facade-opens-transaction or facade-leaves-team-scope"
+contexts   = { exclude = ["test", "migration"] }
+requires   = ["django.uses"]
+identity   = "module-symbol"
+counted    = true
+growth_key = ["dst.symbol", "edge.label", "src.package"]
+
+# ── Layers inside a product ────────────────────────────────────
+
+[rules.presentation-uses-facade]
+primitive  = "edge"
+doc        = "Presentation reaches product code through a facade, its own product's presentation or another product's exported adapter; an import is judged where it lands."
+why        = "Views and serializers use product code only through a facade, the presentation of their own product, or an adapter that another product exports."
+ways       = [
+  { safety = "safe", text = "If the facade exports the name, import it from the facade." },
+  { safety = "care", text = "Add a facade function that returns what the view needs. Call it from the view." },
+  { safety = "person", text = "If the facade belongs to another team, stop and tell the person. The owners of that product decide what its facade exports." },
+]
+example    = { finding = "from products.billing.backend.logic.invoices import charge  # in a view", fixed = "from products.billing.backend.facade.api import charge" }
+view       = "zones"
+from       = "src.zone == 'presentation'"
+endpoint   = "surface"
+deny       = "dst.tier == 'product' and (dst.zone not in ['facade', 'presentation', 'tests'] or (dst.zone == 'presentation' and crosses-package and not dst.exported))"
+identity   = "module-pair"
+growth_key = ["dst.module", "src.package"]
+
+[rules.facade-no-drf]
+primitive  = "edge"
+doc        = "A facade stays framework-free: no DRF, no django.http, no presentation. The viewsets and serializers under backend/api/ that have not moved to presentation/ yet count as presentation."
+why        = "Other products import the facade. A facade that imports a web framework or views gives them that framework too."
+ways       = [
+  { safety = "care", text = "Move the code that needs DRF or django.http to the presentation package." },
+  { safety = "care", text = "If the facade needs the data of a serializer, define a contract type for that data." },
+]
+example    = { finding = "from rest_framework import serializers  # in backend/facade/api.py", fixed = "from products.billing.backend.facade.contracts import InvoiceRow" }
+view       = "zones"
+from       = "facade-code"
+deny       = "dst.external == 'rest_framework' or dst.module startswith 'django.http' or dst.zone in ['presentation', 'api']"
+identity   = "module-pair"
+growth_key = ["dst.module", "src.package"]
+
+[rules.contracts-no-django]
+primitive     = "reach"
+doc           = "Importing a contract module runs no Django: no module-level import, direct or through a chain, reaches it. An import inside a function body does not run on import."
+why           = "A contracts module must import without Django. Other products and tools import contracts where Django is not set up."
+ways          = [
+  { safety = "care", text = "Break the chain at its first step. Move that import into the function that uses it, or under TYPE_CHECKING if only a type needs it." },
+  { safety = "care", text = "Move the code that needs Django out of the contracts module." },
+]
+example       = { finding = "from products.billing.backend.events import INVOICE_PAID  # in contracts.py; events imports Django", fixed = "INVOICE_PAID = \"invoice_paid\"  # a constant in contracts.py" }
+view          = "file-imports"
+from          = "src.zone == 'contracts'"
+deny          = "dst.external == 'django'"
+contexts      = { exclude = ["type_only", "test", "function_local"] }
+on_unresolved = "incomplete"
+identity      = "module-pair"
+growth_key    = ["src.module"]
+
+[rules.thin-commands]
+primitive  = "edge"
+doc        = "A management command reaches its own product through the facade. Dev seeders named as test code are out."
+why        = "A management command is an entry point. An entry point uses its product through the facade, so the command stays thin."
+ways       = [
+  { safety = "safe", text = "If the facade exports the name, import it from the facade." },
+  { safety = "care", text = "Add a facade function for the operation. Call it from the command." },
+  { safety = "person", text = "If the command is a dev seeder or a one-off backfill, stop and tell the person." },
+]
+example    = { finding = "from products.billing.backend.logic.invoices import recount  # in a management command", fixed = "from products.billing.backend.facade.api import recount" }
+view       = "zones"
+from       = "src.zone == 'commands' and src.testcode != true"
+deny       = "dst.package == src.package and dst.zone in ['models', 'logic', 'tasks']"
+# An import through the product's own facade is what the rule asks for, wherever the name is defined.
+unless     = "surface.zone == 'facade'"
+identity   = "module-pair"
+growth_key = ["dst.module", "src.package"]
+
+[rules.prod-imports-test]
+primitive  = "edge"
+doc        = "Production code never imports test code; test support and dev tooling that never ship count as test code."
+why        = "Test code does not ship. A production import of test code fails in production, or loads test code there."
+ways       = [
+  { safety = "care", text = "Move the shared code out of the test tree. Import it from its new place in the test and in the production code." },
+  { safety = "person", text = "If the module is dev tooling that never ships, stop and tell the person. The preset marks dev tooling as test code." },
+]
+example    = { finding = "from products.billing.backend.tests.factories import make_invoice  # in production code", fixed = "from products.billing.backend.logic.samples import make_invoice" }
+kinds      = ["import", "dotted-path"]
+contexts   = { exclude = ["test"] }
+from       = "src.testcode != true"
+deny       = "dst.testcode == true"
+identity   = "module-pair"
+growth_key = ["dst.module", "src.package"]
+
+# The rules of three import-linter contracts. A rule reads every import, in tests, under
+# TYPE_CHECKING and inside functions too, as import-linter does.
+
+[rules.sources-vendors-use-sdk]
+primitive  = "edge"
+doc        = "A warehouse source vendor takes shared code only from the sources SDK: no core, ee, common or product module outside the sources tree. The SDK may import core and products, its testing module common, the tree's conftest products."
+why        = "Each vendor uses only the SDK. Then a change outside the sources tree does not break a vendor, and the test selector runs only the tests of the vendor."
+ways       = [
+  { safety = "care", text = "Use the function of the SDK. If the SDK has none, add it to the SDK and import it from there." },
+  { safety = "person", text = "If the SDK must expose core or product code, stop and tell the person. The owners of the SDK decide." },
+]
+example    = { finding = "from posthog.models.team import Team  # in sources/stripe/source.py", fixed = "from products.warehouse_sources.sources.sdk.teams import team_settings" }
+kinds      = ["import"]
+contexts   = { exclude = [] }
+from       = "sources-member"
+endpoint   = "surface"
+deny       = "dst.tier in ['core', 'product'] and not in-sources-tree"
+unless     = "(src.source_vendor == 'sdk' and not (dst.path startswith 'ee/' or dst.path startswith 'common/')) or (src.module == 'products.warehouse_sources.sources.sdk.testing' and dst.path startswith 'common/') or (src.source_vendor == 'conftest' and dst.path startswith 'products/')"
+identity   = "module-pair"
+growth_key = ["dst.module", "src.package"]
+
+[rules.sources-vendors-independent]
+primitive  = "reach"
+doc        = "Warehouse source vendors, the SDK and the tree's conftest do not import each other, directly or through other modules of the sources tree. An import of the SDK is no path: the vendors share it."
+why        = "Vendors must not import each other, directly or through other modules of the sources tree. The test selector runs only the tests of a vendor when only that vendor changes."
+ways       = [
+  { safety = "care", text = "Move the shared code into the SDK. Import it from the SDK in both vendors." },
+]
+example    = { finding = "from products.warehouse_sources.sources.hubspot.helpers import paginate  # in sources/stripe/", fixed = "from products.warehouse_sources.sources.sdk.paging import paginate" }
+view       = "file-imports"
+from       = "sources-member"
+select     = "in-sources-tree and dst.source_vendor != 'sdk'"
+deny       = "dst.source_vendor != none and src.source_vendor != dst.source_vendor"
+contexts   = { exclude = [] }
+identity   = "module-pair"
+growth_key = ["dst.module", "src.package"]
+
+[rules.webhook-consumers-use-facade]
+primitive  = "edge"
+doc        = "A product's webhook consumers module imports product backend code only through a facade, its own or another product's."
+why        = "Core loads webhook consumers by name. A consumer must use product code only through a facade, so a change inside the product does not break it."
+ways       = [
+  { safety = "safe", text = "If a facade exports the name, import it from the facade." },
+  { safety = "care", text = "Export the name from the facade of its own product. Import it from there." },
+]
+example    = { finding = "from products.billing.backend.logic.limits import LIMIT  # in webhook_consumers.py", fixed = "from products.billing.backend.facade.api import LIMIT" }
+kinds      = ["import"]
+contexts   = { exclude = [] }
+from       = "src.registry == 'webhook_consumers'"
+endpoint   = "surface"
+deny       = "dst.zone == 'backend' and dst.zone != 'facade'"
+identity   = "module-pair"
+growth_key = ["dst.module", "src.package"]
+
+# ── Model crossings, relations, signals, drives ────────────────
+
+[rules.model-crossings]
+primitive    = "use-shape"
+doc          = "Outside its package, a model appears only in allowed shapes: a type, a cast, value rows, a signal sender, the team-extension registry. Judged at the origin, so a re-export hides nothing. A use that came in past the export, where public-surface reports its import, is that rule's (one rule owns each coupling)."
+why          = "Outside its product, a model may appear only as a type, a cast, value rows, a signal sender or in the team-extension registry. A query or a write from outside the product depends on the tables of that product."
+ways         = [
+  { safety = "care", text = "If the code reads a few values, call a facade function that returns them as values or as a contract type." },
+  { safety = "care", text = "If the code changes the record, call a facade function that makes the change. Pass the id." },
+  { safety = "person", text = "If no facade function fits, stop and tell the person. The owners of the product decide what its facade offers." },
+]
+example      = { finding = "Invoice.objects.filter(team_id=team_id).count()  # outside the billing product", fixed = "billing_api.count_invoices(team_id)" }
+kinds        = ["reference"]
+select       = "dst.kind == 'model' and dst.tier == 'product' and crosses-package and edge.shape != none and not public-surface-reports"
+endpoint     = "origin"
+allow_shapes = [
+  "annotation", "exception", "nested-class-attr", "_meta", "scalar-chain", "subquery", "sender",
+  "passed-as-class(cast)", "passed-as-class(get_or_create_team_extension)",
+]
+contexts     = { exclude = ["test", "migration"] }
+flow         = "def-use"
+requires     = ["django.uses"]
+identity     = "crossing"
+counted      = true
+growth_key   = ["dst.symbol", "edge.label", "src.package"]
+# Reports and never blocks, as public-surface does.
+report       = "advisory"
+ledger       = false
+
+[rules.get-model]
+primitive  = "edge"
+doc        = "apps.get_model naming another package's model is counted."
+why        = "A model label in a string hides a dependency on the model of another product. The rule counts each one, so a new one shows in review."
+ways       = [
+  { safety = "care", text = "Use a facade function of the product that owns the model." },
+  { safety = "person", text = "If the code must load the model by its label, stop and tell the person." },
+]
+example    = { finding = "apps.get_model(\"billing\", \"Invoice\")  # outside the billing product", fixed = "billing_api.count_invoices(team_id)" }
+kinds      = ["model-label"]
+select     = "edge.shape == 'get_model' and dst.tier == 'product' and crosses-package"
+contexts   = { exclude = ["test", "migration"] }
+# A label held in a variable, or one no model answers for, is an item, not a finding.
+on_unresolved = "incomplete"
+identity   = "crossing"
+counted    = true
+growth_key = ["dst.symbol", "edge.label", "src.package"]
+# Reports and never blocks, as public-surface does.
+report     = "advisory"
+ledger     = false
+
+[rules.reverse-accessor]
+primitive     = "edge"
+doc           = "A relation into another package is sealed: hidden, with no explicit query name. Owner by defining module. A third-party app is no package."
+why           = "A relation into another package must be sealed: related_name='+' and no related_query_name. An open relation gives the other package an accessor into the tables of this one."
+ways          = [
+  { safety = "care", text = "If no code uses the accessor, set related_name='+' on the field and make the migration." },
+  { safety = "care", text = "If code uses the accessor, replace each use with a query from the side that owns the relation. Then seal the field." },
+]
+example       = { finding = "team = models.ForeignKey(\"posthog.Team\", on_delete=models.CASCADE)", fixed = "team = models.ForeignKey(\"posthog.Team\", on_delete=models.CASCADE, related_name=\"+\")" }
+kinds         = ["reverse-accessor"]
+select        = "crosses-package"
+on_unresolved = "block"
+identity      = "relation"
+growth_key    = ["dst.symbol"]
+
+[rules.receiver-direction]
+primitive  = "edge"
+doc        = "A product never listens to another product's sender. The ledger keeps the sender. A receiver in a test is no wiring."
+why        = "A product must not listen to the signals of another product. The sender cannot see its listeners, so a change there can break this product with no failed test."
+ways       = [
+  { safety = "care", text = "Register a callback through a hook that the other product exports." },
+  { safety = "person", text = "If the other product has no hook, stop and tell the person. Its owners decide whether to add one." },
+]
+example    = { finding = "@receiver(post_save, sender=Invoice)  # in another product", fixed = "billing_api.register_paid_hook(on_invoice_paid)" }
+kinds      = ["signal"]
+select     = "crosses-package and dst.tier == 'product'"
+contexts   = { exclude = ["test"] }
+# A receiver whose sender hoglint cannot place (a variable, a call, no sender on a signal that does
+# not resolve) is an item, not a finding. With no sender on a signal it can place, the signal's module
+# is the sender.
+on_unresolved = "incomplete"
+identity   = "receiver-sender"
+counted    = true
+growth_key = ["dst.symbol", "src.package"]
+
+[rules.installs]
+primitive     = "edge"
+doc           = "A product registers a callback into another package's hook: the approved way to send behavior across a boundary, so a list and not debt. wiring-watched checks that the callback's module is watched; an install whose hook cannot be resolved is incomplete."
+why           = "A callback that crosses a package must go through a hook that hoglint can find. Then wiring-watched can check that the module of the callback is watched."
+ways          = [
+  { safety = "safe", text = "Call the hook through its module-level name: import the function and call it." },
+]
+example       = { finding = "self.registry.register_paid_hook(callback)", fixed = "from products.billing.backend.facade.hooks import register_paid_hook" }
+kinds         = ["installs"]
+select        = "crosses-package"
+deny          = "false"
+contexts      = { exclude = ["test"] }
+on_unresolved = "incomplete"
+ledger        = false
+
+[rules.drives]
+primitive     = "edge"
+doc           = "A test outside a product that executes the product's wiring is recorded."
+why           = "A test outside a product that runs the wiring of the product is recorded. A change to that wiring then runs the test."
+ways          = [
+  { safety = "care", text = "Move the test into the tests of the product." },
+  { safety = "person", text = "If the test must stay outside the product, stop and tell the person." },
+]
+kinds         = ["drives"]
+contexts      = { include = ["test"] }
+select        = "crosses-package and edge.execution != 'none'"
+resolve_calls = "bare-name"
+identity      = "location-module-trigger"
+counted       = true
+growth_key    = ["edge.location", "edge.label", "src.package"]
+
+# A path string in a settings module is followed whatever function holds it; an import inside a
+# function is not.
+[rules.request-path]
+primitive     = "reach"
+doc           = "A product module that core's request pipeline reaches by module-level imports is a watched file: wiring-watched checks it. The search starts at the modules settings name, except under the keys that are not the per-request pipeline, and at the view base class, and goes on through product code. A list, not debt."
+why           = "A product file that the request pipeline of core imports is a watched file, and wiring-watched checks it. This rule makes a list and never blocks."
+ways          = [
+  { safety = "safe", text = "No action is needed here. If wiring-watched reports the file, add the file to the contract-check inputs." },
+]
+kinds         = ["import", "dotted-path"]
+from          = "src.settings == true or src.request_seed == true"
+select        = "(src.settings == true and edge.kind == 'dotted-path' and not (setting-registers-apps or setting-mounts-views or setting-static-files or setting-api-schema or setting-logging or setting-caches or setting-login-flow)) or (src.settings != true and edge.kind == 'import' and 'function_local' not in edge.context)"
+deny          = "dst.tier == 'product'"
+through_denied = true
+contexts      = { exclude = ["type_only", "test"] }
+on_unresolved = "incomplete"
+identity      = "module-pair"
+growth_key    = ["dst.module"]
+report        = "advisory"
+ledger        = false
+
+# The covers after the first four are where core runs a product's code with no import a rule
+# follows: its models and migrations, a module a registry loads by name, a declared permanent
+# interface, a wiring location run by name, a module settings name under any key, and what the
+# AppConfig module imports at setup: at module level and in the body of `ready()` (the Django pack's
+# `app_setup` attr), not in a function `ready()` defines or hands on; and the `admin` module the
+# admin app's autodiscovery imports by name, with what it imports at module level (the pack's
+# `autodiscovered` attr), as for the AppConfig module. A location run by name is one row, watched
+# by any one watched file in it, as the product lint reads it.
+# A `connect` in a hook's own body (the Django pack's `hook` attr) is no receiver of its own: the
+# hook's callers are, by their `installs` edges.
+[rules.wiring-watched]
+primitive  = "coverage"
+doc        = "Every wiring location another package drives, every product module the request pipeline reaches, every receiver or hook callback outside tests, and every module outside tests patch is in the contract-check inputs; so are a product's models and migrations, the modules a registry loads by name, its permanent interfaces, each wiring location run by name (one watched file in it watches it), the modules settings name, the product modules its AppConfig module imports at setup (at module level or in the body of `ready()`), and its admin module that Django's admin autodiscovery imports, with the product modules that admin module imports at module level."
+why        = "Core or another package runs this file without an import that turbo can see. When the file changes, the full test suite must run."
+ways       = [
+  { safety = "safe", text = "Add the file to the inputs of backend:contract-check in the turbo.json of the product. This can only run more tests, never fewer." },
+]
+example    = { finding = "\"inputs\": [\"backend/facade/**\"]  # backend/admin.py is not watched", fixed = "\"inputs\": [\"backend/facade/**\", \"backend/admin.py\"]" }
+covers     = [
+  { cover = "rules.drives.dst.path", why = "a test outside the product runs this wiring" },
+  { cover = "rules.request-path.dst.path", why = "the request pipeline of core imports this file" },
+  { cover = "edge.kind in ['signal', 'installs'] and 'test' not in edge.context and crosses-package and edge.hook == none: src", why = "this file holds a receiver or a hook callback" },
+  { cover = "edge.kind == 'dotted-path' and edge.context == 'test' and crosses-package: surface", why = "a test outside the product patches this module" },
+  { cover = "zone in ['models', 'migrations']: module", why = "this file holds models or migrations of the product" },
+  { cover = "registry != none and tier == 'product': module", why = "a registry loads this module by name" },
+  { cover = "permanent == true and testcode != true: module", why = "this module is a declared permanent interface" },
+  { cover = "runs_by_name == true and testcode != true: location", why = "core runs this location by name, and one watched file in it is enough" },
+  { cover = "edge.kind == 'dotted-path' and src.settings == true and dst.tier == 'product': surface", why = "Django settings name this module" },
+  { cover = "edge.kind == 'import' and src.app_config == true and dst.package == src.package and ('function_local' not in edge.context or edge.app_setup == 'ready') and 'type_only' not in edge.context: surface", why = "the AppConfig module of the product imports this module at setup" },
+  { cover = "edge.kind == 'loads' and edge.shape == 'admin' and dst.tier == 'product': dst", why = "the admin autodiscovery of Django imports this module" },
+  { cover = "edge.kind == 'import' and edge.autodiscovered == 'admin' and dst.package == src.package and 'type_only' not in edge.context: surface", why = "the admin module of the product imports this module" },
+  { cover = "registry == 'temporal' and tier == 'product': registered", why = "core loads a declaration by name, and this file defines what it registers" },
+]
+inputs     = { adapter = "turbo", task = "backend:contract-check" }
+identity   = "entity"
+growth_key = ["subject"]
+
+# What the Isolated level reads of code outside the product: a product file that core, a tool or
+# another product reaches past the export is watched, as a request-path file is; a product's own
+# code and tests do not count. turbo-discover cascades into a
+# product's dependents only when its contract-check is affected, so another product's reader misses
+# a change to an unwatched file as surely as core does. A list: public-surface holds the crossing as
+# debt. A facade re-export does not end the reach: the file that defines what a
+# facade module hands out is watched too, with every module on the name's path to it (`: chain`),
+# read at the module the code names or at one the name passes through on its way there. A facade
+# that defines the name itself ends it. When the module the code names belongs to the reader, that
+# module's own import is the crossing, and the covers judge that import.
+[rules.reached-watched]
+primitive  = "coverage"
+doc        = "Every product file that code outside the product (core, tools or another product; production or test) reaches past the product's export is in the contract-check inputs, so a change there runs the full suite. So is the product file that defines a name a facade module only passes on, with every module on the name's path to it, when such code reads the name, outside type checking, through that facade module or through a module that took it from one; a registration point that only puts the name into a literal does not read it. A facade that defines the name itself is the end. When the module the code names belongs to the reader, that module's own import is the crossing, and the covers judge that import. The Isolated level reads it; public-surface holds the crossing as debt, so this is a list."
+why        = "Code outside the product reaches this file past the facade. When the file changes, the tests of that code must run."
+ways       = [
+  { safety = "safe", text = "Add the file to the inputs of backend:contract-check in the turbo.json of the product. This can only run more tests, never fewer." },
+  { safety = "care", text = "Make the outside code use the facade. Then the file needs no watch." },
+]
+example    = { finding = "\"inputs\": [\"backend/facade/**\"]  # core imports backend/logic/invoices.py", fixed = "\"inputs\": [\"backend/facade/**\", \"backend/logic/invoices.py\"]" }
+covers     = [
+  { cover = "edge.kind in ['import', 'reference', 'dotted-path'] and crosses-package and dst.tier == 'product' and not dst.exported: surface", why = "code outside the product imports this file past the facade" },
+  { cover = "edge.kind in ['import', 'reference', 'dotted-path'] and 'type_only' not in edge.context and crosses-package and surface.package != src.package and surface-hands-out and handed-out-origin and not only-registers: chain", why = "code outside the product reads a name that this file defines, through a facade" },
+  { cover = "edge.kind in ['import', 'reference', 'dotted-path'] and 'type_only' not in edge.context and crosses-package and surface.package != src.package and via-hands-out and handed-out-origin and not only-registers: chain", why = "code outside the product reads a name that this file defines, through a module that took it from a facade" },
+]
+inputs     = { adapter = "turbo", task = "backend:contract-check" }
+identity   = "entity"
+report     = "advisory"
+ledger     = false
+
+[rules.dynamic-imports]
+primitive     = "edge"
+doc           = "A computed import outside a declared registry loader is unknown: rules that need it go incomplete."
+why           = "Rules that read the import graph cannot judge a computed import. hoglint does not follow this channel."
+ways          = [
+  { safety = "safe", text = "If the set of modules is fixed, import each module by its name." },
+  { safety = "person", text = "If core loads modules by a pattern, stop and tell the person. A registry loader in the preset declares the pattern." },
+]
+example       = { finding = "importlib.import_module(f\"products.{name}.backend.facade.api\")", fixed = "from products.billing.backend.facade import api as billing_api" }
+kinds         = ["dynamic-import"]
+from          = "src.registry_loader == none"
+deny          = "false"
+on_unresolved = "incomplete"
+ledger        = false
+
+# ── Package graph (replaces tach depends_on) ───────────────────
+
+[rules.no-new-package-cycles]
+primitive  = "cycle"
+doc        = "No new dependency may close a cycle between products. A sealed FK still points one way."
+why        = "Products must not form a cycle. A cycle makes the products one unit for tests and for change."
+ways       = [
+  { safety = "care", text = "Remove the new dependency. Call a hook that the other product exports instead. If it has none, ask the owners of that product to add one, or move the shared code to the product that owns it." },
+  { safety = "person", text = "If the dependency is correct, stop and tell the person." },
+]
+view       = "packages"
+kinds      = ["import", "reference", "dotted-path", "model-label", "relation"]
+select     = "src.tier == 'product' and dst.tier == 'product'"
+# A migration's historical model labels name models as they were, not today's packages.
+contexts   = { exclude = ["test", "type_only", "migration"] }
+on_unresolved = "incomplete"
+identity   = "package-pair"
+growth_key = ["src.package", "dst.package"]
+
+[rules.foundation-direction]
+primitive  = "edge"
+doc        = "Foundation products never depend on feature products."
+why        = "A foundation product must not depend on a feature product. Feature products depend on foundations, not the reverse."
+ways       = [
+  { safety = "care", text = "Invert the dependency. Let the feature product register a callback through a hook of the foundation product." },
+  { safety = "person", text = "If a product has the wrong role, stop and tell the person. Roles are policy." },
+]
+view       = "packages"
+from       = "src.role == 'foundation'"
+deny       = "dst.role == 'feature'"
+contexts   = { exclude = ["test", "type_only"] }
+on_unresolved = "incomplete"
+identity   = "package-pair"
+growth_key = ["src.package", "dst.package"]
+
+[rules.infrastructure-direction]
+primitive  = "edge"
+doc        = "Infrastructure never depends on a product or a proto-product."
+why        = "Infrastructure must not depend on a product or a proto-product. Many products use the infrastructure, so it must not know them."
+ways       = [
+  { safety = "care", text = "Move the product code out of the infrastructure module, or let the product register a callback." },
+  { safety = "person", text = "If the module is not infrastructure, stop and tell the person." },
+]
+kinds      = ["import", "reference", "dotted-path"]
+from       = "src.zone == 'infrastructure'"
+deny       = "dst.tier == 'product' or dst.stage == 'proto-product'"
+contexts   = { exclude = ["test", "type_only"] }
+identity   = "package-pair"
+growth_key = ["src.package", "dst.package"]
+
+[rules.no-product-lists-in-core]
+primitive  = "edge"
+doc        = "A core registration point (the modules the preset marks with `wiring = \"registration\"`: the Temporal worker and schedules, the query runner, the Celery schedule, the Max presets) lists products by name: each product module it names is a row. Core calling a product's facade anywhere else is allowed. Migrations are frozen history and are not judged; Django settings may name product paths as strings; core production code may name a declared permanent interface. Not caught: a new hard-coded product list in a core module the preset does not mark as a registration point."
+why        = "Products register themselves. A core registration point must not list products by name."
+ways       = [
+  { safety = "care", text = "Register the object from the product, through its AppConfig or a registry entry. Remove the line from core." },
+  { safety = "person", text = "If no registry exists for this kind of object, stop and tell the person." },
+]
+kinds      = ["import", "dotted-path"]
+from       = "src.tier == 'core' and src.wiring == 'registration' and src.registry == none and src.history != true"
+deny       = "dst.tier == 'product'"
+unless     = "(src.zone == 'composition' and dst.exported) or (src.settings == true and edge.kind == 'dotted-path') or dst.permanent == true"
+contexts   = { exclude = ["test", "type_only", "migration"] }
+identity   = "module-pair"
+growth_key = ["dst.module", "src.package"]
+
+[rules.leaves-stay-leaves]
+primitive     = "edge"
+doc           = "A leaf package (packages/*) ships alone: no app code, no Django, no DRF."
+why           = "A leaf package (packages/*) ships alone. It must install and import without the app."
+ways          = [
+  { safety = "care", text = "Remove the import. Pass the value in as an argument, or move the code that needs the app out of the leaf package." },
+]
+example       = { finding = "from django.conf import settings  # in packages/owners_yaml", fixed = "def load(path: str) -> Owners: ...  # the caller passes the setting in" }
+kinds         = ["import"]
+from          = "src.tier == 'leaf'"
+deny          = "dst.tier in ['core', 'product'] or dst.external in ['django', 'rest_framework']"
+contexts      = { exclude = ["test"] }
+on_unresolved = "block"
+identity      = "module-pair"
+growth_key    = ["src.module", "dst.module"]
+
+[rules.orm-independent]
+primitive  = "signature"
+doc        = "Framework-level core packages use Django, never its models. A slot with no usable type is incomplete, not a finding: the rule is about models, not loose types."
+why        = "Framework-level core packages use Django but not its models. Then they work for any app."
+ways       = [
+  { safety = "care", text = "Pass the values that the function needs, such as an id or a few fields, not the model." },
+]
+example    = { finding = "def send_for_team(team: Team) -> None: ...", fixed = "def send_for_team(team_id: int, api_token: str) -> None: ..." }
+select     = "src.django == 'framework'"
+deny       = "dst.kind in ['model', 'manager', 'queryset'] or dst.symbol == 'django.apps.apps.get_model'"
+contexts   = { exclude = ["test"] }
+on_unknown = "incomplete"
+identity   = "facade-slot"
+growth_key = ["dst.symbol", "src.package"]
+
+# ── Django invariants ──────────────────────────────────────────
+
+[rules.migration-database]
+primitive     = "edge"
+doc           = "A migration of the repo depends only on migrations that run on the same databases. The Django test stays the authority: a third-party app's migrations are not read, and a dependency list hoglint cannot read (computed or augmented) is incomplete."
+why           = "A migration must depend only on migrations that run on the same databases. Otherwise the setup of a database fails."
+ways          = [
+  { safety = "care", text = "Remove the dependency, or move the migration to the app whose database it uses." },
+  { safety = "person", text = "If the dependency is correct, stop and tell the person. The Django migration test decides." },
+]
+kinds         = ["migration-parent"]
+require       = "edge.child_databases subset_of edge.parent_databases"
+on_unresolved = "incomplete"
+identity      = "migration-pair"
+growth_key    = ["edge.child", "edge.parent"]
+
+# Off for now: own-database has no producer and its policy was never decided.
+# [rules.own-database]
+# primitive  = "layout"
+# doc        = "A product model has its own database route. Incomplete until the pack sets `database` on models."
+# on         = "symbol"
+# select     = "kind == 'model' and tier == 'product' and database != none"
+# require    = "database != 'default'"
+# identity   = "package-file"
+# growth_key = ["package"]
+
+# ── Layout ─────────────────────────────────────────────────────
+
+[rules.product-code-at-home]
+primitive  = "layout"
+doc        = "Product code lives under products/; counted per package, so a new file outside fails."
+why        = "Product code lives under products/<product>/. Then the product owns its files and its tests."
+ways       = [
+  { safety = "care", text = "Move the file to products/<product>/backend/. Update its imports." },
+  { safety = "person", text = "If the file is core code, stop and tell the person. The preset sets which files belong to a product." },
+]
+example    = { finding = "posthog/temporal/billing/workflows.py", fixed = "products/billing/backend/temporal/workflows.py" }
+select     = "tier == 'product' and not path startswith 'products/'"
+identity   = "package-file"
+growth_key = ["package"]
+
+[rules.temporal-placement]
+primitive  = "layout"
+doc        = "Code under posthog/temporal/ sits where core keeps its own Temporal code: the worker platform, the cross-product orchestrators and the workflows whose domain is core. Every other file is a row, counted per folder right under posthog/temporal/, so a new file in a product-shaped folder or a new folder fails; product Temporal code goes to products/<product>/backend/temporal/. Code already labelled a product's is product-code-at-home's."
+why        = "posthog/temporal/ holds only core Temporal code: the worker platform, the cross-product orchestrators and the core workflows."
+ways       = [
+  { safety = "care", text = "Move the file to products/<product>/backend/temporal/." },
+  { safety = "person", text = "If the workflow is core, stop and tell the person. The preset lists the Temporal homes of core." },
+]
+example    = { finding = "posthog/temporal/alerts/checks.py", fixed = "products/alerts/backend/temporal/checks.py" }
+select     = "path startswith 'posthog/temporal/' and temporal_home != true and tier != 'product'"
+identity   = "temporal-file"
+growth_key = ["temporal_subtree"]
+
+[rules.has-facade]
+primitive = "layout"
+doc       = "A product has a facade: a contracts module or package, and an api module that defines a function. The Isolated level asks for it; a list, not debt."
+why       = "The Isolated level needs a facade: a contracts module and an api module that defines a function."
+ways      = [
+  { safety = "care", text = "Add backend/facade/contracts.py and backend/facade/api.py to the product." },
+]
+within    = "products/{product}"
+files     = ["backend/facade/{contracts.py,contracts}", "backend/facade/api.py: function"]
+identity  = "entity"
+report    = "advisory"
+ledger    = false
+
+[rules.health-checks-no-dags]
+primitive = "reach"
+doc       = "Health checks never import posthog.dags. The runtime probe stays the authority; this is an early warning."
+why       = "Health checks run in processes without Dagster. An import of posthog.dags fails there."
+ways      = [
+  { safety = "care", text = "Remove the import, or move it into the function that needs it." },
+]
+example   = { finding = "from posthog.dags.backfill import run  # at module level in health_checks.py", fixed = "def check() -> bool: ...  # imports posthog.dags inside, if at all" }
+view      = "file-imports"
+from      = "src.registry == 'health_checks'"
+deny      = "dst.module startswith 'posthog.dags'"
+report    = "advisory"
+ledger    = false
+
+# Reviewed exceptions to these rules live in hoglint.exceptions.toml.
+
+# ── Levels ─────────────────────────────────────────────────────
+# Isolated is specified apart from lint acceptance. Only what can make the skip miss tests
+# blocks, ledgered or not: an unwatched file that code outside the product reaches past the export,
+# the product's own presentation past its facade, and unwatched wiring. The product also needs its
+# facade. Every other finding is a lint matter only.
+
+[levels.isolated]
+doc          = "turbo may skip the full Django suite when only this product changes."
+group_by     = "package"
+# A product with code under products/, where its facade and its package.json live.
+select       = "tier == 'product' and path startswith 'products/'"
+requires     = ["reached-watched", "wiring-watched", "presentation-uses-facade", "has-facade"]
+strict       = ["reached-watched", "wiring-watched", "presentation-uses-facade", "has-facade"]
+# Presentation that reaches another product past its door is lint only.
+within_group = ["presentation-uses-facade"]
+# A product whose own turbo.json narrows its contract-check inputs claims the level: if it fails
+# the level, check fails, and no ledger line accepts it. An unsound skip is never debt.
+claimed_by   = { adapter = "turbo", task = "backend:contract-check" }

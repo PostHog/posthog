@@ -5,7 +5,7 @@ import { IconPlus, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import { Button, Input } from '@posthog/quill'
 
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { objectsEqual } from 'lib/utils/objects'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
@@ -135,7 +135,7 @@ export function TrendsFormula({ insightProps }: EditorFilterProps): JSX.Element 
 
     if (quillSurface) {
         return (
-            <div className="mt-2 flex flex-col gap-2">
+            <div className="flex flex-col gap-2">
                 {localValues.map((value, index) => (
                     <div key={index} className="flex flex-wrap items-center gap-2">
                         <Input

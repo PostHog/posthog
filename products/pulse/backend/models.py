@@ -204,7 +204,8 @@ class ResourceLink(PulseModel):
         ResourceType.DASHBOARD: "dashboard",
         ResourceType.ANNOTATION: "annotation",
         ResourceType.EXPERIMENT: "experiment",
-        ResourceType.ALERT: "alert",
+        # Left out, so an alert link keeps only its cached columns: an alert can have no insight row
+        # for the `alert` FK to point at.
         ResourceType.SUBSCRIPTION: "subscription",
     }
 

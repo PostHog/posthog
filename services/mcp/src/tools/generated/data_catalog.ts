@@ -634,9 +634,6 @@ const dataCatalogRelationshipPropose = (): ToolBase<
         if (params.configuration !== undefined) {
             body['configuration'] = params.configuration
         }
-        if (params.confidence !== undefined) {
-            body['confidence'] = params.confidence
-        }
         if (params.reasoning !== undefined) {
             body['reasoning'] = params.reasoning
         }
@@ -793,6 +790,7 @@ const metricList = (): ToolBase<
                     'is_drifted',
                     'unit',
                     'definition_kind',
+                    'match_reason',
                 ])
             ),
         } as typeof result

@@ -42,9 +42,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.int
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_events import (
+    WebhookEvent,
+    WebhookEvents,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.naming import normalize_repository
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.settings import (
+    COLLABORATOR_ONLY_ENDPOINTS,
+    COLLABORATOR_ONLY_GRANT,
     ENDPOINT_REQUIRED_PERMISSION,
     GITHUB_ENDPOINTS,
     GRANT_DENIAL_PREFIX,
@@ -816,7 +822,14 @@ def _is_endpoint_permission_denial(message: str) -> bool:
     return any(marker in lowered for marker in _PERMISSION_DENIED_MARKERS)
 
 
-def _grant_hint(required_permission: str | None) -> str:
+def _grant_hint(required_permission: str | None, endpoint: str | None = None) -> str:
+    if endpoint is not None and endpoint in COLLABORATOR_ONLY_ENDPOINTS:
+        return (
+            " GitHub limits this table to admins and collaborators of the repository. A fine-grained "
+            f'token or app installation also needs "{COLLABORATOR_ONLY_GRANT}" for it, even from an admin '
+            "account. To sync it, connect with a personal access token from an account with one of "
+            "those roles, give a fine-grained token that permission, then sync again."
+        )
     names = GRANT_NAMES.get(required_permission) if required_permission is not None else None
     if names is None:
         # No mapped grant, so the denial may be an account access-level gate (collaborators needs
@@ -979,6 +992,7 @@ def _fetch_page(
     skip_on_not_found: bool = False,
     repository: str | None = None,
     required_permission: str | None = None,
+    endpoint: str | None = None,
 ) -> requests.Response:
     # One gated + recorded GET through the shared egress client. The App path bills the shared
     # per-installation budget at BATCH (deferrable bulk); the PAT path (installation_id None) skips the
@@ -1053,7 +1067,7 @@ def _fetch_page(
         # get_non_retryable_errors keys GRANT_DENIAL_PREFIX and the permission markers to None, so
         # curated copy never replaces it. The URL stays in the log line rather than in what the
         # user reads.
-        grant_hint = _grant_hint(required_permission)
+        grant_hint = _grant_hint(required_permission, endpoint)
         logger.error(
             f"Github API error: status=403, body={response.text}, grant_hint={grant_hint.strip()}, url={page_url}"
         )
@@ -1662,6 +1676,7 @@ def get_rows(
                 skip_on_not_found=skip_on_not_found,
                 repository=repository,
                 required_permission=ENDPOINT_REQUIRED_PERMISSION.get(endpoint),
+                endpoint=endpoint,
             )
         except GithubEmptyRepositoryError:
             logger.debug(f"Github: repository has no commits (empty repository), syncing zero rows: url={url}")
@@ -1799,6 +1814,41 @@ def _make_webhook_dedupe_transformer(primary_key: str, version_keys: list[str]) 
     return transform
 
 
+def _github_time(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError:
+            return None
+    return None
+
+
+def webhook_events(endpoint: str) -> WebhookEvents | None:
+    """The events of an endpoint that ranks its webhook rows by `version_keys`.
+
+    The change time is the first of the version keys that is set, as the keys run newest first. GitHub
+    sends no event id in the body, so a redelivery is matched by its content.
+    """
+    endpoint_config = GITHUB_ENDPOINTS.get(endpoint)
+    if endpoint_config is None or not endpoint_config.version_keys:
+        return None
+    # The reconciliation poll that follows the drain yields rows without the event columns.
+    if endpoint == "workflow_runs" or endpoint_config.webhook_reconcile_lookback_days is not None:
+        return None
+    primary_keys = tuple(_normalize_primary_key(endpoint_config.primary_key))
+    time_keys = endpoint_config.version_keys
+
+    def read(staged: dict[str, Any]) -> WebhookEvent | None:
+        if any(staged.get(key) is None for key in primary_keys):
+            return None
+        time = next((t for t in (_github_time(staged.get(key)) for key in time_keys) if t is not None), None)
+        return WebhookEvent(row=staged, time=time, rank=_STATUS_STAGE.get(staged.get("status") or "", 0))
+
+    return WebhookEvents(read=read)
+
+
 async def _chain_webhook_items_with_reconciliation(
     webhook_items: AsyncIterator[pa.Table],
     make_reconcile_rows: Callable[[], Iterator[Any]],
@@ -1910,6 +1960,7 @@ def github_source(
     db_incremental_field_last_value: Optional[Any] = None,
     incremental_field: str | None = None,
     webhook_source_manager: Optional[WebhookSourceManager] = None,
+    events: WebhookEvents | None = None,
     egress_identity: GithubEgressIdentity | None = None,
     response_name: str | None = None,
     api_version: str = GITHUB_DEFAULT_API_VERSION,
@@ -1983,7 +2034,7 @@ def github_source(
                 if endpoint_config.version_keys
                 else None
             )
-            webhook_items = webhook_source_manager.get_items(table_transformer=transformer)
+            webhook_items = webhook_source_manager.get_items(table_transformer=transformer, events=events)
             if endpoint == "workflow_runs":
                 # The poll runs after the drain, so its completed row lands after the queued
                 # webhook row of the same run and wins the merge.

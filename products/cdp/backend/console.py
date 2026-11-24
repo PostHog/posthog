@@ -37,6 +37,7 @@ from products.cdp.backend.presentation.hog_invocations.rerun import RERUN_MAX_WI
 from products.cdp.backend.services.invocation_replay import (
     DEFAULT_LATEST_PER_PERSON_TEMPLATE_IDS,
     SKIP_REASON_LABELS,
+    WORKFLOWS_TEMPLATE_KEY,
     ReplayCriteria,
     ReplayOverlapError,
     ReplayPlan,
@@ -57,7 +58,13 @@ FILTER_GROUPS = (
     ),
     FieldGroup(
         title="Scope",
-        field_names=("team_ids", "template_ids", "exclude_template_ids", "latest_per_person_template_ids"),
+        field_names=(
+            "include_workflows",
+            "team_ids",
+            "template_ids",
+            "exclude_template_ids",
+            "latest_per_person_template_ids",
+        ),
     ),
     FieldGroup(
         title="Safety checks",
@@ -102,6 +109,9 @@ def _result_summary(result: dict[str, Any]) -> str:
 
 
 class ReplayFiltersForm(forms.Form):
+    # Only the rendered form sends this. A link written by hand leaves it out, and then a field it does not
+    # name keeps its default, so a missing safety check stays on instead of reading as an unticked box.
+    filters_submitted = forms.CharField(widget=forms.HiddenInput, required=False, initial="1")
     window_start = forms.DateTimeField(help_text="UTC, inclusive. For example 2026-10-22 11:30:00.")
     window_end = forms.DateTimeField(
         help_text=f"UTC, exclusive. At most {RERUN_MAX_WINDOW_DAYS} days after the start, because older runs are deleted."
@@ -115,13 +125,24 @@ class ReplayFiltersForm(forms.Form):
         required=False,
         help_text="Comma-separated, for example http_4xx. Set this or the error text, or both.",
     )
+    include_workflows = forms.BooleanField(
+        required=False,
+        label="Include workflows",
+        help_text=(
+            "Also replay workflow runs that stopped on a failed step. Each run continues from that step, "
+            "so steps that already ran are not sent again."
+        ),
+    )
     team_ids = forms.CharField(
         required=False, label="Team IDs", help_text="Comma-separated. Leave empty for every team."
     )
     template_ids = forms.CharField(
         required=False,
         label="Template IDs",
-        help_text="Comma-separated. Leave empty for every template, custom functions included.",
+        help_text=(
+            "Comma-separated. Leave empty for every template, custom functions included. "
+            "A workflow matches when one of its steps uses the template."
+        ),
     )
     exclude_template_ids = forms.CharField(
         required=False,
@@ -150,6 +171,17 @@ class ReplayFiltersForm(forms.Form):
         label="Skip functions that already failed this way before the window",
         help_text="Looks at the day before the window. Those failures have a cause of their own, like a revoked key.",
     )
+
+    @classmethod
+    def from_query(cls, query: QueryDict) -> "ReplayFiltersForm":
+        if query.get("filters_submitted"):
+            return cls(query)
+        data = query.copy()
+        for name, field in cls.base_fields.items():
+            if name in data or field.initial in (None, "", False):
+                continue
+            data[name] = "on" if field.initial is True else field.initial
+        return cls(data)
 
     def clean_team_ids(self) -> list[int]:
         try:
@@ -189,6 +221,7 @@ class ReplayFiltersForm(forms.Form):
             require_success_since_window=bool(data.get("require_success_since_window")),
             skip_already_rerun=bool(data.get("skip_already_rerun")),
             skip_failing_before_window=bool(data.get("skip_failing_before_window")),
+            include_workflows=bool(data.get("include_workflows")),
         )
 
 
@@ -230,6 +263,21 @@ def _team_cell(team_id: int, team_name: str) -> Cell:
     )
 
 
+def _targets_label(plan: ReplayPlan) -> str:
+    return "Destinations and workflows" if plan.criteria.include_workflows else "Destinations"
+
+
+def _admin_url(function_kind: str, function_id: str) -> str:
+    view = "admin:workflows_hogflow_change" if function_kind == "hog_flow" else "admin:cdp_hogfunction_change"
+    return reverse(view, args=[function_id])
+
+
+def _template_cell(template_id: str) -> Cell:
+    if template_id == WORKFLOWS_TEMPLATE_KEY:
+        return Cell(text="Workflows")
+    return Cell(text=template_id or "Custom function", mono=bool(template_id))
+
+
 def _window_notice(plan: ReplayPlan) -> Notice:
     criteria = plan.criteria
     parts = [f"{criteria.window_start:%Y-%m-%d %H:%M:%S} to {criteria.window_end:%Y-%m-%d %H:%M:%S} UTC"]
@@ -251,7 +299,7 @@ def _plan_tables(plan: ReplayPlan) -> list[Block]:
                 rows=tuple(
                     Row(
                         cells=(
-                            Cell(text=template_id or "Custom function", mono=bool(template_id)),
+                            _template_cell(template_id),
                             Cell(text=f"{count:,}"),
                         )
                     )
@@ -279,7 +327,7 @@ def _teams_table(plan: ReplayPlan) -> Table:
     return Table(
         title="Teams",
         scrolls=True,
-        columns=("Team", "Organization", "Destinations", "Runs to replay"),
+        columns=("Team", "Organization", _targets_label(plan), "Runs to replay"),
         numeric_columns=(2, 3),
         rows=tuple(
             Row(
@@ -297,9 +345,15 @@ def _teams_table(plan: ReplayPlan) -> Table:
 
 def _destinations_table(plan: ReplayPlan) -> Table:
     return Table(
-        title="Destinations",
+        title=_targets_label(plan),
         scrolls=True,
-        columns=("Team", "Destination", "Template", "Runs to replay", "Not replayed"),
+        columns=(
+            "Team",
+            "Destination or workflow" if plan.criteria.include_workflows else "Destination",
+            "Template",
+            "Runs to replay",
+            "Not replayed",
+        ),
         numeric_columns=(3,),
         rows=tuple(
             Row(
@@ -307,10 +361,12 @@ def _destinations_table(plan: ReplayPlan) -> Table:
                     _team_cell(function.team_id, function.team_name),
                     Cell(
                         text=function.function_name or "No name",
-                        href=reverse("admin:cdp_hogfunction_change", args=[function.function_id]),
+                        href=_admin_url(function.function_kind, function.function_id),
                         detail=function.function_id,
                     ),
-                    Cell(text=function.template_id or "Custom function", mono=bool(function.template_id)),
+                    Cell(text="Workflow")
+                    if function.function_kind == "hog_flow"
+                    else _template_cell(function.template_id),
                     Cell(text=f"{len(function.invocation_ids):,}", muted=not function.invocation_ids),
                     Cell(
                         text="\n".join(
@@ -379,7 +435,15 @@ class ReplayStatus:
         return Table(
             title="Requests sent",
             scrolls=True,
-            columns=("Team", "Destination", "Runs", "HTTP status", "Rerun job or error"),
+            columns=(
+                "Team",
+                "Destination or workflow"
+                if any(result.get("function_kind") == "hog_flow" for result in self.results)
+                else "Destination",
+                "Runs",
+                "HTTP status",
+                "Rerun job or error",
+            ),
             numeric_columns=(2, 3),
             empty_text="No requests sent yet.",
             rows=tuple(
@@ -391,7 +455,7 @@ class ReplayStatus:
                         ),
                         Cell(
                             text=result["function_id"],
-                            href=reverse("admin:cdp_hogfunction_change", args=[result["function_id"]]),
+                            href=_admin_url(result.get("function_kind", "hog_function"), result["function_id"]),
                             mono=True,
                         ),
                         Cell(text=f"{result['invocation_count']:,}"),
@@ -415,15 +479,15 @@ class ReplayStatus:
 @console.register_tool
 class ReplayFailedRunsTool(ConsoleTool):
     key = TOOL_KEY
-    title = "Replay failed destination runs"
+    title = "Replay failed CDP runs"
     owner = WORKFLOWS
     group = "Incidents"
-    description = "Send failed destination runs from an incident window again, across teams. You review the runs first."
+    description = "Send failed destination and workflow runs from an incident window again, across teams. You review the runs first."
 
     def _filters_form(self, request: HttpRequest) -> ReplayFiltersForm | None:
         if "window_start" not in request.GET:
             return None
-        return ReplayFiltersForm(request.GET)
+        return ReplayFiltersForm.from_query(request.GET)
 
     def _send(self, request: HttpRequest, form: forms.Form | None) -> HttpResponse | None:
         assert form is not None
@@ -489,8 +553,13 @@ class ReplayFailedRunsTool(ConsoleTool):
         runs, destinations, teams = (request.GET.get(name, "") for name in ("runs", "destinations", "teams"))
         description = ""
         if runs.isdigit() and destinations.isdigit() and teams.isdigit():
+            targets = (
+                _count(int(destinations), "destination or workflow", "destinations and workflows")
+                if request.GET.get("include_workflows")
+                else _count(int(destinations), "destination")
+            )
             description = (
-                f"This queues {_count(int(runs), 'run')} for {_count(int(destinations), 'destination')} "
+                f"This queues {_count(int(runs), 'run')} for {targets} "
                 f"in {_count(int(teams), 'team')}. Type {runs} to confirm."
             )
         return [
@@ -537,7 +606,7 @@ class ReplayFailedRunsTool(ConsoleTool):
         blocks: list[Block] = [
             Notice(
                 text=(
-                    "The next page shows how many destinations, teams and runs this covers. "
+                    "The next page shows how many destinations, workflows, teams and runs this covers. "
                     "Nothing is sent until you confirm on the details page."
                 )
             )
@@ -554,7 +623,7 @@ class ReplayFailedRunsTool(ConsoleTool):
             _window_notice(plan),
             Stats(
                 items=(
-                    Stat(label="Destinations", value=f"{len(plan.replayable_functions):,}"),
+                    Stat(label=_targets_label(plan), value=f"{len(plan.replayable_functions):,}"),
                     Stat(label="Teams", value=f"{plan.team_count:,}"),
                     Stat(label="Runs to replay", value=f"{plan.invocation_count:,}"),
                 )

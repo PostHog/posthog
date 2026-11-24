@@ -26,14 +26,16 @@ class MetabaseEndpointConfig:
     # The response is a JSON object mapping a key to a list of rows rather than a list of rows.
     grouped_by_key: bool = False
     incremental_fields: list[IncrementalField] = field(default_factory=list)
-    # Read by the shared fan-out helper; Metabase list endpoints take no page-size param.
+    # Read by the shared fan-out helper.
     default_incremental_field: Optional[str] = None
+    # Non-zero pages the list with Metabase's `limit`/`offset` query params. Zero sends neither, which
+    # makes Metabase return the whole collection in one response.
     page_size: int = 0
 
 
-# Metabase list endpoints return the full collection in a single response — there is no pagination
-# and no server-side timestamp filter, so every schema except the month-windowed query log is
-# full-refresh only. The stream set mirrors
+# Metabase list endpoints return the full collection in a single response unless `limit`/`offset`
+# are sent, and none has a server-side timestamp filter, so every schema except the month-windowed
+# query log is full-refresh only. The stream set mirrors
 # the canonical Metabase connector (cards, dashboards, collections, databases, users, snippets), plus
 # the data-model, permissions, and query-log tables.
 METABASE_ENDPOINTS: dict[str, MetabaseEndpointConfig] = {
@@ -85,6 +87,60 @@ METABASE_ENDPOINTS: dict[str, MetabaseEndpointConfig] = {
                 "field_type": IncrementalFieldType.DateTime,
             }
         ],
+    ),
+    # Fetched with the `/api/revision?entity=...&id=...` form: the `/api/revision/{entity}/{id}` path only
+    # exists on recent Metabase versions. Revision rows carry no model id, so the parent id is copied in.
+    "card_revisions": MetabaseEndpointConfig(
+        name="card_revisions",
+        path="/api/revision?entity=card&id={id}",
+        primary_keys=["card_id", "id"],
+        partition_key="timestamp",
+        fanout=DependentEndpointConfig(
+            parent_name="cards",
+            resolve_param="id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "card_id"},
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
+    ),
+    "dashboard_revisions": MetabaseEndpointConfig(
+        name="dashboard_revisions",
+        path="/api/revision?entity=dashboard&id={id}",
+        primary_keys=["dashboard_id", "id"],
+        partition_key="timestamp",
+        fanout=DependentEndpointConfig(
+            parent_name="dashboards",
+            resolve_param="id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "dashboard_id"},
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
+    ),
+    # Item ids are unique per model only (a card and a dashboard can share an id). The "root" collection
+    # is listed with that string id, and its path /api/collection/root/items is valid.
+    "collection_items": MetabaseEndpointConfig(
+        name="collection_items",
+        path="/api/collection/{id}/items",
+        primary_keys=["collection_id", "model", "id"],
+        data_selector="data",
+        fanout=DependentEndpointConfig(
+            parent_name="collections",
+            resolve_param="id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "collection_id"},
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
+    ),
+    # Superuser (or monitoring permission) only. Returns {"total", "limit", "offset", "data"}, newest first.
+    "task_history": MetabaseEndpointConfig(
+        name="task_history",
+        path="/api/task",
+        partition_key="started_at",
+        data_selector="data",
+        page_size=1000,
     ),
 }
 

@@ -22,6 +22,7 @@
          AND "posthog_filesystem"."type" = 'session_recording_playlist'
          AND NOT ("posthog_filesystem"."shortcut"
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  ORDER BY "posthog_filesystem"."id" ASC
   '''
 # ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.1
@@ -47,6 +48,7 @@
          AND "posthog_filesystem"."type" = 'session_recording_playlist'
          AND NOT ("posthog_filesystem"."shortcut"
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  ORDER BY "posthog_filesystem"."id" ASC
   '''
 # ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.10
@@ -101,6 +103,7 @@
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_data_processing_locked",
          "posthog_organization"."is_ai_training_opted_in",
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
@@ -239,6 +242,7 @@
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_data_processing_locked",
          "posthog_organization"."is_ai_training_opted_in",
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
@@ -293,6 +297,7 @@
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_data_processing_locked",
          "posthog_organization"."is_ai_training_opted_in",
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
@@ -569,8 +574,7 @@
                                                                       5 /* ... */)
          AND NOT ("posthog_sessionrecordingplaylistitem"."deleted"
                   AND "posthog_sessionrecordingplaylistitem"."deleted" IS NOT NULL)
-         AND NOT ("posthog_sessionrecording"."start_time" < '2024-12-02 12:00:00+00:00'::timestamptz
-                  AND "posthog_sessionrecording"."start_time" IS NOT NULL))
+         AND NOT ((COALESCE("posthog_sessionrecording"."start_time", "posthog_sessionrecordingplaylistitem"."created_at") + (COALESCE("posthog_sessionrecording"."retention_period_days", 30) * '1 day 0:00:00'::interval)) < '2025-01-01 12:00:00+00:00'::timestamptz))
   GROUP BY 1
   '''
 # ---
@@ -589,8 +593,7 @@
                                                                       5 /* ... */)
          AND NOT ("posthog_sessionrecordingplaylistitem"."deleted"
                   AND "posthog_sessionrecordingplaylistitem"."deleted" IS NOT NULL)
-         AND NOT ("posthog_sessionrecording"."start_time" < '2024-12-02 12:00:00+00:00'::timestamptz
-                  AND "posthog_sessionrecording"."start_time" IS NOT NULL))
+         AND NOT ((COALESCE("posthog_sessionrecording"."start_time", "posthog_sessionrecordingplaylistitem"."created_at") + (COALESCE("posthog_sessionrecording"."retention_period_days", 30) * '1 day 0:00:00'::interval)) < '2025-01-01 12:00:00+00:00'::timestamptz))
   '''
 # ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.17
@@ -645,6 +648,7 @@
          AND "posthog_filesystem"."type" = 'session_recording_playlist'
          AND NOT ("posthog_filesystem"."shortcut"
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  ORDER BY "posthog_filesystem"."id" ASC
   '''
 # ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.20
@@ -675,7 +679,8 @@
 # ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.22
   '''
-  SELECT "feature_flags_organizationfeatureflagsconfig"."flag_evaluations_mode" AS "flag_evaluations_mode"
+  SELECT "feature_flags_organizationfeatureflagsconfig"."flag_evaluations_mode" AS "flag_evaluations_mode",
+         "feature_flags_organizationfeatureflagsconfig"."keep_writing_flag_calls_to_events" AS "keep_writing_flag_calls_to_events"
   FROM "feature_flags_organizationfeatureflagsconfig"
   WHERE "feature_flags_organizationfeatureflagsconfig"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
   ORDER BY "feature_flags_organizationfeatureflagsconfig"."organization_id" ASC
@@ -932,6 +937,7 @@
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_data_processing_locked",
          "posthog_organization"."is_ai_training_opted_in",
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
@@ -1042,6 +1048,7 @@
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_data_processing_locked",
          "posthog_organization"."is_ai_training_opted_in",
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
@@ -1180,6 +1187,7 @@
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_data_processing_locked",
          "posthog_organization"."is_ai_training_opted_in",
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
@@ -1234,6 +1242,7 @@
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_data_processing_locked",
          "posthog_organization"."is_ai_training_opted_in",
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
@@ -1506,8 +1515,7 @@
                                                                       5 /* ... */)
          AND NOT ("posthog_sessionrecordingplaylistitem"."deleted"
                   AND "posthog_sessionrecordingplaylistitem"."deleted" IS NOT NULL)
-         AND NOT ("posthog_sessionrecording"."start_time" < '2024-12-02 12:00:00+00:00'::timestamptz
-                  AND "posthog_sessionrecording"."start_time" IS NOT NULL))
+         AND NOT ((COALESCE("posthog_sessionrecording"."start_time", "posthog_sessionrecordingplaylistitem"."created_at") + (COALESCE("posthog_sessionrecording"."retention_period_days", 30) * '1 day 0:00:00'::interval)) < '2025-01-01 12:00:00+00:00'::timestamptz))
   GROUP BY 1
   '''
 # ---
@@ -1526,8 +1534,7 @@
                                                                       5 /* ... */)
          AND NOT ("posthog_sessionrecordingplaylistitem"."deleted"
                   AND "posthog_sessionrecordingplaylistitem"."deleted" IS NOT NULL)
-         AND NOT ("posthog_sessionrecording"."start_time" < '2024-12-02 12:00:00+00:00'::timestamptz
-                  AND "posthog_sessionrecording"."start_time" IS NOT NULL))
+         AND NOT ((COALESCE("posthog_sessionrecording"."start_time", "posthog_sessionrecordingplaylistitem"."created_at") + (COALESCE("posthog_sessionrecording"."retention_period_days", 30) * '1 day 0:00:00'::interval)) < '2025-01-01 12:00:00+00:00'::timestamptz))
   '''
 # ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.38
@@ -1651,6 +1658,7 @@
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_data_processing_locked",
          "posthog_organization"."is_ai_training_opted_in",
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
@@ -1743,6 +1751,7 @@
          "posthog_organization"."session_cookie_age",
          "posthog_organization"."is_member_join_email_enabled",
          "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_data_processing_locked",
          "posthog_organization"."is_ai_training_opted_in",
          "posthog_organization"."is_ai_training_locked",
          "posthog_organization"."is_ai_training_cta_shown",
@@ -2019,8 +2028,7 @@
                                                                       5 /* ... */)
          AND NOT ("posthog_sessionrecordingplaylistitem"."deleted"
                   AND "posthog_sessionrecordingplaylistitem"."deleted" IS NOT NULL)
-         AND NOT ("posthog_sessionrecording"."start_time" < '2024-12-02 12:00:00+00:00'::timestamptz
-                  AND "posthog_sessionrecording"."start_time" IS NOT NULL))
+         AND NOT ((COALESCE("posthog_sessionrecording"."start_time", "posthog_sessionrecordingplaylistitem"."created_at") + (COALESCE("posthog_sessionrecording"."retention_period_days", 30) * '1 day 0:00:00'::interval)) < '2025-01-01 12:00:00+00:00'::timestamptz))
   GROUP BY 1
   '''
 # ---
@@ -2039,7 +2047,6 @@
                                                                       5 /* ... */)
          AND NOT ("posthog_sessionrecordingplaylistitem"."deleted"
                   AND "posthog_sessionrecordingplaylistitem"."deleted" IS NOT NULL)
-         AND NOT ("posthog_sessionrecording"."start_time" < '2024-12-02 12:00:00+00:00'::timestamptz
-                  AND "posthog_sessionrecording"."start_time" IS NOT NULL))
+         AND NOT ((COALESCE("posthog_sessionrecording"."start_time", "posthog_sessionrecordingplaylistitem"."created_at") + (COALESCE("posthog_sessionrecording"."retention_period_days", 30) * '1 day 0:00:00'::interval)) < '2025-01-01 12:00:00+00:00'::timestamptz))
   '''
 # ---

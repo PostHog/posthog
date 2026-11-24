@@ -2,17 +2,20 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 
 import { IconCopy, IconPullRequest } from '@posthog/icons'
-import { LemonButton, LemonMenuOverlay, lemonToast } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenuOverlay, LemonSelect, lemonToast } from '@posthog/lemon-ui'
 
 import type { AgentPromptDestination } from 'lib/components/AgentPromptButton'
+import { GitHubRepositoryPicker } from 'lib/integrations/GitHubIntegrationHelpers'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
+import { fullNameOrEmail } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
-import type { ReportTaskEntry } from '../../logics/inboxReportDetailLogic'
+import { type ReportTaskEntry, TERMINAL_RUN_STATUSES } from '../../logics/inboxReportDetailLogic'
 import { reportGithubAccessLogic } from '../../logics/reportGithubAccessLogic'
 import { SignalReport } from '../../types'
 import { buildReportImplementationPrompt } from './buildReportImplementationPrompt'
@@ -22,7 +25,6 @@ import { ReportGithubConnection } from './ReportGithubConnection'
 interface ImplementButtonProps {
     report: SignalReport
     surface?: 'detail_pane' | 'triage_mode'
-    position?: 'body' | 'header'
     implementationDisabledReason?: string | null
     reportTaskToOpen?: ReportTaskEntry | null
     openChoicesFromLink?: boolean
@@ -32,21 +34,28 @@ interface ImplementButtonProps {
 export function ImplementButton({
     report,
     surface = 'detail_pane',
-    position = 'body',
     implementationDisabledReason,
     reportTaskToOpen,
     openChoicesFromLink = false,
     onChoicesOpenedFromLink,
 }: ImplementButtonProps): JSX.Element {
     const { isCreatingPr, isDiscussing, createPrDisabledReason } = useValues(inboxTaskKickoffLogic)
+    const { user } = useValues(userLogic)
     const {
         disabledReason: githubDisabledReason,
         repairNeeded,
         connectionOpen,
         failed: githubCheckFailed,
         loading: githubCheckLoading,
+        repositoryRequired,
+        repositorySelectionRequests,
+        repositoryIntegrationId,
+        selectedRepository,
+        githubIntegrations,
     } = useValues(reportGithubAccessLogic({ report, surface }))
-    const { retryAccess, setConnectionOpen } = useActions(reportGithubAccessLogic({ report, surface }))
+    const { retryAccess, setConnectionOpen, setSelectedRepository, setSelectedIntegrationId } = useActions(
+        reportGithubAccessLogic({ report, surface })
+    )
     const { implementReport, openReportTask } = useActions(inboxTaskKickoffLogic)
     const [instructions, setInstructions] = useState('')
     const [choicesOpen, setChoicesOpen] = useState(false)
@@ -58,6 +67,11 @@ export function ImplementButton({
             onChoicesOpenedFromLink?.()
         }
     }, [openChoicesFromLink, onChoicesOpenedFromLink])
+    useEffect(() => {
+        if (repositorySelectionRequests > 0) {
+            setChoicesOpen(true)
+        }
+    }, [repositorySelectionRequests])
     const reportUrl = `${window.location.origin}${addProjectIdIfMissing(urls.inboxReport('reports', report.id))}`
 
     const disabledReason =
@@ -65,13 +79,17 @@ export function ImplementButton({
         (repairNeeded ? null : githubDisabledReason) ??
         (isDiscussing ? 'Wait for the discussion task to start.' : undefined) ??
         implementationDisabledReason
+    const repositoryMissing = repositoryRequired && !selectedRepository
 
     const captureButtonClick = (buttonAction: 'implement' | 'view_task'): void => {
         captureInboxReportAction({
             report,
             actionType: 'implementation_button_clicked',
             surface,
-            extra: { button_action: buttonAction, button_position: position },
+            extra: {
+                button_action: buttonAction,
+                ...(surface === 'detail_pane' ? { button_position: 'header' } : {}),
+            },
         })
     }
 
@@ -93,11 +111,21 @@ export function ImplementButton({
             lemonToast.error(githubDisabledReason)
             return
         }
+        if (repositoryMissing) {
+            setChoicesOpen(true)
+            return
+        }
         const openedFromLink = choicesOpenedFromLink.current
         // The claim can need a dialog first, which the open choices would sit on top of.
         setChoicesOpen(false)
         choicesOpenedFromLink.current = false
-        implementReport(report, note.trim() || undefined, surface, openedFromLink)
+        implementReport(
+            report,
+            note.trim() || undefined,
+            surface,
+            openedFromLink,
+            repositoryRequired ? selectedRepository : undefined
+        )
     }
 
     const runImplementationPrompt = (agentKey: AgentPromptDestination, run: (prompt: string) => void): void => {
@@ -114,6 +142,16 @@ export function ImplementButton({
     if (reportTaskToOpen?.task.latest_run) {
         const task = reportTaskToOpen.task
         const run = task.latest_run!
+        const running = !TERMINAL_RUN_STATUSES.includes(run.status)
+        const starter =
+            task.created_by && (task.created_by.uuid === user?.uuid ? 'You' : fullNameOrEmail(task.created_by))
+        // The sidebar looks like a new chat, so say this opens a run that already exists.
+        const tooltip = [
+            starter && `${starter} started this implementation.`,
+            'Opens the existing run in the PostHog AI sidebar. It does not start a new one.',
+        ]
+            .filter(Boolean)
+            .join(' ')
         return (
             <LemonButton
                 type="primary"
@@ -125,10 +163,10 @@ export function ImplementButton({
                     captureButtonClick('view_task')
                     openReportTask(report, task.id, run.id)
                 }}
-                tooltip="Open this task in the PostHog AI sidebar"
+                tooltip={tooltip}
                 data-attr="inbox-report-open-task"
             >
-                View task
+                {running ? 'View running implementation' : 'View implementation'}
             </LemonButton>
         )
     }
@@ -160,7 +198,46 @@ export function ImplementButton({
                         placement: 'bottom-end',
                         closeOnClickInside: false,
                         overlay: (
-                            <div className="flex w-128 max-w-full flex-col gap-2 p-2">
+                            <div className="flex w-128 max-w-[calc(100vw-2rem)] flex-col gap-2 p-2">
+                                {repositoryRequired && (
+                                    <div className="flex flex-col gap-2">
+                                        <span className="text-xs font-semibold text-tertiary">
+                                            Select a repository to implement this report
+                                        </span>
+                                        {githubIntegrations.length > 1 && (
+                                            <LemonSelect
+                                                value={repositoryIntegrationId}
+                                                options={githubIntegrations.map((integration) => ({
+                                                    value: integration.id,
+                                                    label: integration.display_name,
+                                                }))}
+                                                onChange={(id) => id != null && setSelectedIntegrationId(id)}
+                                                disabledReason={isCreatingPr ? 'Starting implementation' : undefined}
+                                                aria-label="GitHub account"
+                                            />
+                                        )}
+                                        {repositoryIntegrationId !== null ? (
+                                            <GitHubRepositoryPicker
+                                                integrationId={repositoryIntegrationId}
+                                                value={selectedRepository}
+                                                valueKey="full_name"
+                                                onChange={setSelectedRepository}
+                                                selectOnlyOption
+                                            />
+                                        ) : (
+                                            <LemonButton
+                                                type="secondary"
+                                                onClick={() => {
+                                                    setChoicesOpen(false)
+                                                    setConnectionOpen(true)
+                                                }}
+                                                data-attr="inbox-report-select-repository-connect"
+                                            >
+                                                Connect GitHub
+                                            </LemonButton>
+                                        )}
+                                    </div>
+                                )}
                                 <span className="text-xs font-semibold text-tertiary">
                                     Add instructions for the PostHog agent
                                 </span>
@@ -235,7 +312,10 @@ export function ImplementButton({
                                         icon={<IconPullRequest />}
                                         onClick={() => submit(instructions)}
                                         loading={isCreatingPr}
-                                        disabledReason={disabledReason}
+                                        disabledReason={
+                                            disabledReason ??
+                                            (repositoryMissing ? 'Select a repository to continue.' : null)
+                                        }
                                         data-attr="inbox-report-create-pr-submit"
                                     >
                                         Implement with PostHog
@@ -246,7 +326,7 @@ export function ImplementButton({
                     },
                 }}
             >
-                Implement
+                {repositoryMissing ? 'Select repository' : 'Implement'}
             </LemonButton>
             <ReportGithubConnection report={report} surface={surface} />
         </>

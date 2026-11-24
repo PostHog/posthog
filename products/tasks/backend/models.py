@@ -4,7 +4,7 @@ import copy
 import json
 import uuid
 from collections.abc import Callable, Iterable
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 
 from django.db.models.signals import post_delete, post_save, pre_delete
@@ -22,7 +22,7 @@ from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.contrib.postgres.indexes import GinIndex, OpClass
 from django.core.exceptions import ValidationError
-from django.db import connection, models, transaction
+from django.db import DatabaseError, connection, models, transaction
 from django.db.models.fields.json import KeyTransform
 from django.utils import timezone as django_timezone
 
@@ -33,8 +33,10 @@ from posthog.event_usage import groups
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
 from posthog.integrations import IntegrationManager
 from posthog.integrations.lifecycle import sdk_runs_hooks
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.github_integration_base import INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration
+from posthog.models.scoping.manager import EnvironmentScopedManager
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.tagged_items_relation import Taggable
 from posthog.models.team.team import Team
@@ -48,6 +50,7 @@ from products.tasks.backend.constants import (
     DEFAULT_TRUSTED_DOMAINS,
     GITHUB_PR_URL_PREFIX,
     PR_LOOP_ENABLED_STATE_KEY,
+    STOPPED_BEFORE_TURN_CLOSED_STATE_KEY,
     is_same_run_resume_state,
 )
 from products.tasks.backend.dev_stack_image_models import (
@@ -78,13 +81,14 @@ from products.tasks.backend.logic.stream.redis_stream import publish_task_run_st
 from products.tasks.backend.metrics import (
     observe_task_run_created,
     observe_task_run_dispatch_callback,
+    observe_task_run_refused_beside_live_run,
     observe_task_run_started_beside_live_run,
     observe_task_run_terminal,
 )
 from products.tasks.backend.pr_urls import read_pr_urls
 from products.tasks.backend.redis import dedicated_stream_configured, run_uses_dedicated_stream
 from products.tasks.backend.run_options import RunSettings, apply_run_options, run_options_record, validate_run_options
-from products.tasks.backend.storage import append_jsonl_object
+from products.tasks.backend.storage import TaskRunLog, append_jsonl_object, read_run_log
 from products.tasks.backend.task_sources import apply_task_source, idempotency_key_startswith_q
 
 logger = structlog.get_logger(__name__)
@@ -99,6 +103,21 @@ def execute_after_commit(callback: Callable[[], object]) -> None:
         callback()
     else:
         transaction.on_commit(callback)
+
+
+LIVE_RUN_STALE_AFTER = timedelta(hours=24)
+
+
+def fail_stale_live_runs(run_ids: list[uuid.UUID], stale_before: datetime) -> None:
+    from products.tasks.backend.facade.api import claim_and_fail_stale_run  # noqa: PLC0415 -- the facade imports models
+
+    for run_id in run_ids:
+        claim_and_fail_stale_run(
+            run_id,
+            "This run stopped responding, so a new run replaced it.",
+            error_type="stale_live_run",
+            not_updated_since=stale_before,
+        )
 
 
 def log_run_started_beside_live_run(task_run: "TaskRun", live_run_ids: list[uuid.UUID]) -> None:
@@ -129,6 +148,7 @@ TASK_RUN_SUMMARY_STATE_KEY = "task_summary"
 PRIOR_RUN_SUMMARY_STATE_KEY = "prior_run_summary"
 TASK_RUN_TAGS_STATE_KEY = "task_tags"
 TASK_RUN_FINISH_REPORT_STATE_KEY = "finish_report_saved"
+ENDED_BY_STALE_SWEEP_STATE_KEY = "ended_by_stale_sweep"
 PRIOR_RUN_TAGS_STATE_KEY = "prior_run_tags"
 
 # Stage `Task.create_run` stamps on a person-started signals run, so it resolves a mintable
@@ -168,8 +188,22 @@ def stamp_pending_user_message_id(state: dict[str, Any], *, refresh: bool = Fals
     state["pending_user_message_id"] = str(uuid.uuid4())
 
 
+def _parse_entry_timestamp(value: Any) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None else None
+
+
 PENDING_FOLLOWUP_MESSAGES_STATE_KEY = "pending_followup_messages"
 MAX_PENDING_FOLLOWUP_MESSAGES = 20
+MEMORY_READ_METHOD = "_posthog/memory_read"
+MAX_MEMORY_READ_FIELD_CHARS = 200
+MAX_MEMORY_READS_PER_APPEND = 50
+MAX_MEMORY_READ_CLOCK_SKEW = timedelta(minutes=5)
 MAX_PENDING_FOLLOWUP_CONTENT_CHARS = 10_000
 MAX_PENDING_FOLLOWUP_MESSAGE_ID_CHARS = 128
 
@@ -226,6 +260,11 @@ class TaskOwnershipChangedError(RuntimeError):
 
 class InvalidTaskOriginError(ValueError):
     pass
+
+
+class TaskRunAlreadyLiveError(ValueError):
+    def __init__(self) -> None:
+        super().__init__("This task already has a run in progress. Wait for it to finish or cancel it first.")
 
 
 class Channel(TeamScopedRootMixin):
@@ -597,6 +636,14 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         help_text="User-scoped GitHub integration used for user-authored task runs",
         related_name="+",
     )
+    # GitHub tasks keep `github_integration`. A task in any other provider's repository stores its
+    # connection id here, so the provider comes from the integration kind. A plain id rather than a
+    # foreign key, so a run reads an id of a deleted connection as unusable.
+    repository_integration_id = models.BigIntegerField(
+        null=True,
+        blank=True,
+        help_text="Source-control integration for a repository outside GitHub, such as a GitLab project",
+    )
 
     repository = models.CharField(
         max_length=255, null=True, blank=True
@@ -638,6 +685,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
     status_changed_by = models.CharField(max_length=64, null=True, blank=True)
     head_branch = models.CharField(max_length=255, null=True, blank=True)
     pr_urls = ArrayField(models.CharField(max_length=512), default=list, db_default=[], blank=True)
+    merged_pr_urls = ArrayField(models.CharField(max_length=512), default=list, db_default=[], blank=True)
+    closed_pr_urls = ArrayField(models.CharField(max_length=512), default=list, db_default=[], blank=True)
 
     # DEPRECATED - do not use
     signal_report = models.ForeignKey(
@@ -762,7 +811,9 @@ class Task(Taggable, DeletedMetaFields, models.Model):
 
         if self.repository:
             parts = self.repository.split("/")
-            if len(parts) != 2 or not parts[0] or not parts[1]:
+            # GitLab projects can sit in nested groups, such as group/subgroup/project.
+            max_parts = None if self.repository_integration_id is not None else 2
+            if len(parts) < 2 or (max_parts is not None and len(parts) > max_parts) or not all(parts):
                 raise ValidationError({"repository": "Format for repository is organization/repo"})
 
             self.repository = self.repository.lower()
@@ -785,6 +836,14 @@ class Task(Taggable, DeletedMetaFields, models.Model):
     def github_access_limit(self) -> GithubAccess | None:
         value = (self.options or {}).get("github_access")
         return GithubAccess(value) if value else None
+
+    @staticmethod
+    def is_user_origin(origin_product: str | None) -> bool:
+        return not origin_product or origin_product in (
+            Task.OriginProduct.USER_CREATED.value,
+            Task.OriginProduct.IMAGE_BUILDER.value,
+            Task.OriginProduct.SPACE_SETUP.value,
+        )
 
     @property
     def stored_profile(self) -> TaskProfile | None:
@@ -963,6 +1022,15 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         return f"{prefix}-{self.task_number}"
 
     @property
+    def status_label(self) -> str | None:
+        if self.status is None:
+            return None
+        label = self.get_status_display()
+        if self.status_reason in (None, Task.StatusReason.TURN_CLOSED):
+            return label
+        return f"{label} ({self.get_status_reason_display().lower()})"
+
+    @property
     def latest_run(self) -> Optional["TaskRun"]:
         runs = [run for run in self.runs.all() if run.team_id == self.team_id]
         if runs:
@@ -1030,21 +1098,46 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             state["initial_permission_mode"] = permission_mode
         state["ai_defaults_source"] = resolved.source
 
-    def live_cloud_run_ids(self, exclude_run_id: uuid.UUID) -> list[uuid.UUID]:
-        live_runs = (
-            self.runs.filter(
-                team_id=self.team_id,
-                environment=TaskRun.Environment.CLOUD,
-                status__in=[TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS],
-            )
-            .exclude(id=exclude_run_id)
-            .values_list("id", "state")
+    def _cloud_run_ids_holding_the_task(
+        self, runs: models.QuerySet["TaskRun"], exclude_run_id: uuid.UUID | None
+    ) -> list[uuid.UUID]:
+        unfinished = runs.filter(
+            team_id=self.team_id,
+            environment=TaskRun.Environment.CLOUD,
+            status__in=[TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS],
         )
+        if exclude_run_id is not None:
+            unfinished = unfinished.exclude(id=exclude_run_id)
         return [
             run_id
-            for run_id, state in live_runs
-            if not (state or {}).get("await_user_message") and not (state or {}).get("cancel_requested_at")
+            for run_id, state in unfinished.values_list("id", "state")
+            if not (state or {}).get("cancel_requested_at")
+            and (not (state or {}).get("await_user_message") or (state or {}).get("warm_activation_started"))
         ]
+
+    def live_cloud_run_ids(self, exclude_run_id: uuid.UUID | None = None) -> list[uuid.UUID]:
+        return self._cloud_run_ids_holding_the_task(
+            self.runs.filter(updated_at__gte=django_timezone.now() - LIVE_RUN_STALE_AFTER), exclude_run_id
+        )
+
+    def refuse_run_beside_live_run(self, *, source: str, exclude_run_id: uuid.UUID | None = None) -> None:
+        live_run_ids = self.live_cloud_run_ids(exclude_run_id)
+        if live_run_ids:
+            observe_task_run_refused_beside_live_run(profile=self.profile or "none", source=source)
+            logger.info(
+                "task_run_refused_beside_live_run",
+                task_id=str(self.id),
+                team_id=self.team_id,
+                live_run_ids=[str(run_id) for run_id in live_run_ids],
+                source=source,
+            )
+            raise TaskRunAlreadyLiveError()
+        stale_before = django_timezone.now() - LIVE_RUN_STALE_AFTER
+        stale_run_ids = self._cloud_run_ids_holding_the_task(
+            self.runs.filter(updated_at__lt=stale_before), exclude_run_id
+        )
+        if stale_run_ids:
+            execute_after_commit(lambda: fail_stale_live_runs(stale_run_ids, stale_before))
 
     def observe_run_started_beside_live_runs(self, task_run: "TaskRun") -> None:
         live_run_ids = self.live_cloud_run_ids(exclude_run_id=task_run.id)
@@ -1110,7 +1203,9 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         dedicated_stream = (extra_state or {}).get("use_dedicated_stream")
         if dedicated_stream is None:
             dedicated_stream = dedicated_stream_configured()
+        from products.tasks.backend.task_done import check_wake, warm_done_mode
 
+        warm_done_mode(self)
         with transaction.atomic():
             if trial_admission is not None:
                 trial_admission.lock_report(self.signal_report_source_id)
@@ -1121,6 +1216,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             )
             if task.created_by_id != expected_created_by_id or task.ownership_version != expected_ownership_version:
                 raise TaskOwnershipChangedError("Task ownership changed before the run was created")
+            check_wake(task, source="create_run")
 
             if (
                 effective_environment == TaskRun.Environment.CLOUD
@@ -1129,6 +1225,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 raise InvalidTaskOriginError(
                     "This task uses an unsupported origin. Start it locally or create a new task to run it in the cloud."
                 )
+            if effective_environment == TaskRun.Environment.CLOUD and scheduled_at is None:
+                task.refuse_run_beside_live_run(source="create_run")
 
             state: dict = {} if task.runtime == Task.Runtime.PI else {"mode": mode}
             if extra_state:
@@ -1271,9 +1369,6 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 state=state,
                 branch=branch,
             )
-            if effective_environment == TaskRun.Environment.CLOUD and scheduled_at is None:
-                task.observe_run_started_beside_live_runs(task_run)
-
             if (
                 task.origin_product == Task.OriginProduct.SIGNAL_REPORT
                 and effective_environment == TaskRun.Environment.CLOUD
@@ -1316,6 +1411,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                         "model": state.get("model"),
                         "runtime_adapter": state.get("runtime_adapter"),
                         "reasoning_effort": state.get("reasoning_effort"),
+                        # Read after commit, so a Slack thread mapping saved in the same transaction is visible.
+                        "slack_session_id": task_run._slack_session_id(),
                     },
                 )
 
@@ -2222,11 +2319,6 @@ class TaskSession(TeamScopedRootMixin, UUIDModel):
             task=task,
         )
 
-    def read_jsonl(self) -> str:
-        if self.object_storage_key is None:
-            return ""
-        return object_storage.read(self.object_storage_key, missing_ok=True) or ""
-
     def tag_object(self) -> None:
         if self.object_storage_key is None:
             return
@@ -2678,6 +2770,11 @@ class TaskRun(models.Model):
         LOCAL = "local", "Local"
         CLOUD = "cloud", "Cloud"
 
+    class AgentStatus(models.TextChoices):
+        STARTING = "starting", "Starting"
+        READY = "ready", "Ready"
+        BUSY = "busy", "Busy"
+
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="runs")
@@ -2771,6 +2868,8 @@ class TaskRun(models.Model):
     # The requested start time for a deferred run. It remains populated after dispatch so the
     # actual queue/start timestamps can be compared with the requested time.
     scheduled_at = models.DateTimeField(null=True, blank=True)
+    last_heartbeat_at = models.DateTimeField(null=True, blank=True)
+    agent_status = models.CharField(max_length=20, choices=AgentStatus, null=True, blank=True)
 
     class Meta:
         db_table = "posthog_task_run"
@@ -2920,9 +3019,11 @@ class TaskRun(models.Model):
         "sandbox_connect_token",
         "sandbox_backend",
         "failure_error_type",
+        ENDED_BY_STALE_SWEEP_STATE_KEY,
         "cancel_requested_at",
         # A resumed run's turns must be able to replace the previous execution's finish report.
         TASK_RUN_FINISH_REPORT_STATE_KEY,
+        STOPPED_BEFORE_TURN_CLOSED_STATE_KEY,
     )
 
     def restore_cloud_resume_state(self, prior_state: dict[str, Any]) -> None:
@@ -2934,6 +3035,30 @@ class TaskRun(models.Model):
             else:
                 state.pop(key, None)
         self.state = state
+
+    @classmethod
+    def revoke_agent_egress_registrations(
+        cls,
+        run_id: str | uuid.UUID,
+        *,
+        reason: str,
+        sandbox_id: str | None = None,
+    ) -> int:
+        with transaction.atomic():
+            run = cls.objects.select_for_update().filter(id=run_id).only("id", "team_id").first()
+            if run is None:
+                return 0
+            registrations = AgentEgressRegistration.objects.for_team(run.team_id).filter(
+                task_run_id=run.id, revoked=False
+            )
+            if sandbox_id is not None:
+                registrations = registrations.filter(sandbox_id=sandbox_id)
+            return registrations.update(
+                revoked=True,
+                revoked_at=django_timezone.now(),
+                revoked_by="tasks-worker",
+                revocation_reason=reason,
+            )
 
     def prepare_for_cloud_resume(self) -> None:
         """
@@ -2972,17 +3097,19 @@ class TaskRun(models.Model):
             prior_snapshot_mount_path=prior_snapshot_mount_path,
         )
 
-        self.save(
-            update_fields=[
-                "status",
-                "environment",
-                "queued_at",
-                "completed_at",
-                "error_message",
-                "state",
-                "updated_at",
-            ]
-        )
+        with transaction.atomic():
+            self.revoke_agent_egress_registrations(self.id, reason="cloud_resume")
+            self.save(
+                update_fields=[
+                    "status",
+                    "environment",
+                    "queued_at",
+                    "completed_at",
+                    "error_message",
+                    "state",
+                    "updated_at",
+                ]
+            )
         self.publish_stream_state_event()
 
     @classmethod
@@ -3000,7 +3127,10 @@ class TaskRun(models.Model):
         with transaction.atomic():
             locked_task_run = cls.objects.select_for_update().get(id=run_id)
             state = dict(locked_task_run.state or {})
+            previous_sandbox = (state.get("sandbox_id"), state.get("sandbox_backend", "modal"))
             mutator(state)
+            if previous_sandbox != (state.get("sandbox_id"), state.get("sandbox_backend", "modal")):
+                cls.revoke_agent_egress_registrations(run_id, reason="sandbox_changed")
             locked_task_run.state = state
             locked_task_run.save(update_fields=["state", "updated_at"])
             return state
@@ -3088,6 +3218,47 @@ class TaskRun(models.Model):
             return persisted
         return self.get_workflow_id(self.task_id, self.id)
 
+    @staticmethod
+    def write_liveness(
+        run_id: uuid.UUID | str,
+        team_id: int,
+        *,
+        heartbeat_at: datetime | None = None,
+        agent_status: "TaskRun.AgentStatus | None" = None,
+    ) -> bool:
+        updates: dict[str, Any] = {}
+        if heartbeat_at is not None:
+            updates["last_heartbeat_at"] = heartbeat_at
+        if agent_status is not None:
+            updates["agent_status"] = agent_status
+        try:
+            written = (
+                TaskRun.objects.filter(id=run_id, team_id=team_id)
+                .exclude(status__in=(TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED))
+                .update(**updates)
+            )
+        except DatabaseError:
+            logger.warning("task_run.liveness_write_failed", task_run_id=str(run_id), exc_info=True)
+            return False
+        return bool(written)
+
+    def set_agent_status(self, agent_status: "TaskRun.AgentStatus") -> None:
+        if TaskRun.write_liveness(self.pk, self.team_id, agent_status=agent_status):
+            self.agent_status = agent_status
+
+    def record_heartbeat(self) -> None:
+        heartbeat_at = django_timezone.now()
+        if TaskRun.write_liveness(
+            self.pk, self.team_id, heartbeat_at=heartbeat_at, agent_status=TaskRun.AgentStatus.BUSY
+        ):
+            self.last_heartbeat_at = heartbeat_at
+            self.agent_status = TaskRun.AgentStatus.BUSY
+
+    def record_client_heartbeat(self) -> None:
+        heartbeat_at = django_timezone.now()
+        TaskRun.objects.filter(pk=self.pk, team_id=self.team_id).update(last_heartbeat_at=heartbeat_at)
+        self.last_heartbeat_at = heartbeat_at
+
     def heartbeat_workflow(self, agent_active: bool = False, *, force: bool = False) -> None:
         if not agent_active:
             return
@@ -3111,6 +3282,8 @@ class TaskRun(models.Model):
         except Exception as e:
             logger.warning("task_run.heartbeat_failed", task_run_id=str(self.id), error=str(e))
 
+        self.record_heartbeat()
+
     def signal_agent_turn_completed(self, *, succeeded: bool = False) -> None:
         import asyncio
 
@@ -3130,12 +3303,16 @@ class TaskRun(models.Model):
         except Exception as e:
             logger.warning("task_run.turn_completed_signal_failed", task_run_id=str(self.id), error=str(e))
 
+        self.set_agent_status(TaskRun.AgentStatus.READY)
+
     def signal_agent_boot_milestone(
         self, milestone: Literal["agent_command_dispatched", "agent_activity_observed"]
     ) -> bool:
         import asyncio
 
         from posthog.temporal.common.client import sync_connect
+
+        self.set_agent_status(TaskRun.AgentStatus.BUSY)
 
         try:
             client = sync_connect()
@@ -3170,11 +3347,17 @@ class TaskRun(models.Model):
             asyncio.run(handle.signal(ProcessTaskWorkflow.client_activity))
         except Exception as e:
             logger.warning("task_run.client_activity_signal_failed", task_run_id=str(self.id), error=str(e))
+            return
+        self.record_client_heartbeat()
 
     @property
     def log_url(self) -> str:
         """Generate the S3 path for this run's logs."""
         return f"{self.get_task_s3_prefix()}/run_{self.id}.jsonl"
+
+    @property
+    def log(self) -> TaskRunLog:
+        return TaskRunLog(key=self.log_url)
 
     def get_task_s3_prefix(self) -> str:
         """Base prefix for task-scoped objects in S3."""
@@ -3273,24 +3456,16 @@ class TaskRun(models.Model):
         update = params.get("update", {}) if isinstance(params, dict) else {}
         return update.get("sessionUpdate") == "agent_message_chunk" if isinstance(update, dict) else False
 
-    # Default S3 retention for a freshly-created run log. Live runs auto-expire after a month;
-    # callers that must preserve a log indefinitely pass `ttl_days=None` so it is never tagged for
-    # expiry — user history must not silently vanish after 30 days.
-    DEFAULT_LOG_TTL_DAYS = 30
-
     def append_log(
         self,
         entries: list[dict],
         *,
-        ttl_days: int | None = DEFAULT_LOG_TTL_DAYS,
         lock_attempts: int = 3,
         batch_id: str | None = None,
+        sent_by_run_sandbox: bool = False,
     ):
         """Append log entries to S3 storage.
 
-        `ttl_days` tags a newly-created log file for expiry; pass `None` to write a log that is
-        never auto-expired. The tag is only applied on
-        first write — re-tagging an existing log would not change a TTL already in flight.
         `lock_attempts` is how often to wait for the per-log append lock before raising
         TaskRunLogAppendUnserialized; a caller that retries the append itself passes 1.
         """
@@ -3298,26 +3473,10 @@ class TaskRun(models.Model):
         if not entries:
             return
 
-        is_new_file = append_jsonl_object(self.log_url, entries, lock_attempts=lock_attempts, batch_id=batch_id)
+        append_jsonl_object(self.log_url, entries, lock_attempts=lock_attempts, batch_id=batch_id)
 
         self._mirror_logs_to_posthog_logs(entries)
-
-        if is_new_file and ttl_days is not None:
-            try:
-                object_storage.tag(
-                    self.log_url,
-                    {
-                        "ttl_days": str(ttl_days),
-                        "team_id": str(self.team_id),
-                    },
-                )
-            except Exception as e:
-                logger.warning(
-                    "task_run.failed_to_tag_logs",
-                    task_run_id=str(self.id),
-                    log_url=self.log_url,
-                    error=str(e),
-                )
+        self._capture_memory_reads(entries, sent_by_run_sandbox)
 
     @property
     def has_pending_followup_messages(self) -> bool:
@@ -3368,6 +3527,50 @@ class TaskRun(models.Model):
                 state.pop(PENDING_FOLLOWUP_MESSAGES_STATE_KEY, None)
 
         self.state = TaskRun.mutate_state_atomic(self.id, _mutator)
+
+    def _capture_memory_reads(self, entries: list[dict], sent_by_run_sandbox: bool) -> None:
+        if not sent_by_run_sandbox:
+            return
+        try:
+            latest_timestamp = django_timezone.now() + MAX_MEMORY_READ_CLOCK_SKEW
+            reads: dict[tuple[str, str, str], tuple[dict[str, Any], datetime | None]] = {}
+            for entry in entries:
+                notification = entry.get("notification")
+                if not isinstance(notification, dict) or notification.get("method") != MEMORY_READ_METHOD:
+                    continue
+                params = notification.get("params")
+                if not isinstance(params, dict):
+                    continue
+                slug, file, tool, tool_call_id = (params.get(key) for key in ("slug", "file", "tool", "toolCallId"))
+                if not (
+                    isinstance(slug, str)
+                    and isinstance(file, str)
+                    and isinstance(tool, str)
+                    and isinstance(tool_call_id, str)
+                ):
+                    continue
+                agent_id = params.get("agentId")
+                properties = {
+                    "slug": slug[:MAX_MEMORY_READ_FIELD_CHARS],
+                    "file": file[:MAX_MEMORY_READ_FIELD_CHARS],
+                    "tool": tool[:MAX_MEMORY_READ_FIELD_CHARS],
+                    "agent_id": agent_id[:MAX_MEMORY_READ_FIELD_CHARS] if isinstance(agent_id, str) else None,
+                }
+                timestamp = _parse_entry_timestamp(entry.get("timestamp"))
+                if timestamp is not None and not self.created_at <= timestamp <= latest_timestamp:
+                    timestamp = None
+                reads.setdefault((tool_call_id, slug, file), (properties, timestamp))
+                if len(reads) >= MAX_MEMORY_READS_PER_APPEND:
+                    break
+            for (tool_call_id, slug, file), (properties, timestamp) in reads.items():
+                self.capture_event(
+                    "agent_memory_read",
+                    properties,
+                    event_uuid=str(uuid.uuid5(self.id, f"{tool_call_id}:{slug}:{file}")),
+                    timestamp=timestamp,
+                )
+        except Exception as e:
+            logger.warning("task_run.capture_memory_reads_failed", task_run_id=str(self.id), error=str(e))
 
     def _mirror_logs_to_posthog_logs(self, entries: list[dict]) -> None:
         """Mirror persisted entries into the PostHog Logs product via stdout (dogfooding).
@@ -3516,8 +3719,13 @@ class TaskRun(models.Model):
             return None
         from products.slack_app.backend.analytics import slack_session_id  # noqa: PLC0415
 
-        thread = self.task.slack_thread_mappings.values_list("slack_workspace_id", "channel", "thread_ts").first()
-        return slack_session_id(*thread) if thread else None
+        try:
+            thread = self.task.slack_thread_mappings.values_list("slack_workspace_id", "channel", "thread_ts").first()
+            return slack_session_id(*thread) if thread else None
+        except Exception:
+            # task_run_created reads this in a commit callback, where a raise would fail the caller after the run exists.
+            logger.warning("task_run.slack_session_id_lookup_failed", run_id=str(self.id), exc_info=True)
+            return None
 
     def capture_event(
         self,
@@ -3525,6 +3733,7 @@ class TaskRun(models.Model):
         properties: dict | None = None,
         event_uuid: str | None = None,
         distinct_id_override: str | None = None,
+        timestamp: datetime | None = None,
     ) -> bool:
         """Capture an analytics event for this run. Returns False when it never reached capture.
 
@@ -3554,10 +3763,12 @@ class TaskRun(models.Model):
                 "event": event,
                 "properties": all_properties,
                 "groups": groups(team=self.team),
-                "send_feature_flags": event != "task_run_created",
+                "send_feature_flags": event not in {"task_run_created", "agent_memory_read"},
             }
             if event_uuid:
                 capture_kwargs["uuid"] = event_uuid
+            if timestamp:
+                capture_kwargs["timestamp"] = timestamp
             posthoganalytics.capture(**capture_kwargs)
         except Exception as e:
             logger.warning("task_run.capture_event_failed", analytics_event=event, error=str(e))
@@ -3580,10 +3791,10 @@ class TaskRun(models.Model):
             return round((self.completed_at - self.created_at).total_seconds(), 1)
         return 0.0
 
-    def _save_terminal_status(self, update_fields: list[str]) -> bool:
-        """Save a terminal status and return whether this write moved the row out of a live status.
-
-        Reads the status under the row lock that the run PATCH and the status activity also take,
+    def _save_terminal_status(
+        self, update_fields: list[str], *, expected_status: str | None = None
+    ) -> Literal["moved", "repeated", "refused"]:
+        """Reads the status under the row lock that the run PATCH and the status activity also take,
         so a concurrent terminal write cannot make two writers each report the transition.
         """
         with transaction.atomic():
@@ -3592,10 +3803,30 @@ class TaskRun(models.Model):
             stored_status = (
                 TaskRun.objects.select_for_update().filter(pk=self.pk).values_list("status", flat=True).first()
             )
+            if stored_status is None:
+                return "refused"
+            if expected_status is None:
+                refused = stored_status != self.status and stored_status in {
+                    self.Status.COMPLETED,
+                    self.Status.FAILED,
+                    self.Status.CANCELLED,
+                }
+            else:
+                refused = stored_status != expected_status
+            if refused:
+                logger.info(
+                    "task_run.terminal_overwrite_skipped",
+                    task_run_id=str(self.id),
+                    stored_status=stored_status,
+                    expected_status=expected_status,
+                    new_status=self.status,
+                )
+                self.refresh_from_db(fields=update_fields)
+                return "refused"
             self.save(update_fields=update_fields)
-        return stored_status not in {self.Status.COMPLETED, self.Status.FAILED, self.Status.CANCELLED}
+        return "repeated" if stored_status == self.status else "moved"
 
-    def mark_completed(self, *, notify: bool = True, analytics_properties: dict | None = None) -> None:
+    def mark_completed(self, *, notify: bool = True, analytics_properties: dict | None = None) -> bool:
         """Mark the progress as completed.
 
         ``notify=False`` skips the push notification — for janitor-style finalization of a run
@@ -3605,18 +3836,21 @@ class TaskRun(models.Model):
         """
         self.status = self.Status.COMPLETED
         self.completed_at = django_timezone.now()
-        if self._save_terminal_status(["status", "completed_at"]):
+        write = self._save_terminal_status(["status", "completed_at"])
+        if write == "refused":
+            return False
+        if write == "moved":
             observe_task_run_terminal(self, error_type=None, termination_reason=None)
         self.publish_stream_state_event()
         self.capture_event(
             "task_run_completed",
             {"duration_seconds": self._duration_seconds(), **(analytics_properties or {})},
         )
-        if not notify:
-            return
-        from products.tasks.backend.push_dispatcher import notify_task_run_completed
+        if notify:
+            from products.tasks.backend.push_dispatcher import notify_task_run_completed
 
-        notify_task_run_completed(self)
+            notify_task_run_completed(self)
+        return True
 
     def track_structured_result(self):
         """Track a structured result event with properties from the run output."""
@@ -3632,12 +3866,15 @@ class TaskRun(models.Model):
                 error=str(e),
             )
 
-    def mark_failed(self, error: str, error_type: str | None = None) -> None:
+    def mark_failed(self, error: str, error_type: str | None = None, *, expected_status: str | None = None) -> bool:
         """Mark the progress as failed with an error message."""
         self.status = self.Status.FAILED
         self.error_message = error
         self.completed_at = django_timezone.now()
-        if self._save_terminal_status(["status", "error_message", "completed_at"]):
+        write = self._save_terminal_status(["status", "error_message", "completed_at"], expected_status=expected_status)
+        if write == "refused":
+            return False
+        if write == "moved":
             observe_task_run_terminal(self, error_type=error_type, termination_reason=None)
         self.publish_stream_state_event()
         self.capture_event(
@@ -3652,6 +3889,7 @@ class TaskRun(models.Model):
         from products.tasks.backend.push_dispatcher import notify_task_run_failed
 
         notify_task_run_failed(self)
+        return True
 
     def build_stream_state_event(self) -> dict[str, Any]:
         # Workflow tasks are team-readable, but their summaries can contain private trigger context.
@@ -3770,7 +4008,7 @@ class TaskRun(models.Model):
     def _log_tail_is_conversation_cleared(self) -> bool:
         # Reads the whole object because S3 offers no cheap tail read; clears are rare
         # and the subsequent append re-reads it anyway.
-        content = object_storage.read(self.log_url, missing_ok=True) or ""
+        content = read_run_log(self.log)
         last_line = content.strip().rsplit("\n", 1)[-1]
         if not last_line:
             return False
@@ -3883,6 +4121,35 @@ class TaskRun(models.Model):
 
     def delete(self, *args, **kwargs):
         raise Exception("Cannot delete TaskRun. Task runs are immutable records.")
+
+
+class AgentEgressRegistration(models.Model):
+    execution_id = models.UUIDField(unique=True, editable=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    task_run = models.ForeignKey(TaskRun, on_delete=models.CASCADE, related_name="egress_registrations")
+    sandbox_id = models.CharField(max_length=255, null=True)
+    region = models.CharField(max_length=32)
+    actor_id = models.PositiveBigIntegerField()
+    actor_epoch = models.PositiveBigIntegerField()
+    task_ownership_version = models.TextField(null=True)
+    authority = models.CharField(max_length=259)
+    relay_key_sha256 = models.CharField(max_length=43)
+    lease_expires_at = models.DateTimeField()
+    revoked = models.BooleanField(default=False)
+    created_at = models.DateTimeField(null=True)
+    revoked_at = models.DateTimeField(null=True)
+    revoked_by = models.CharField(max_length=64, null=True)
+    revocation_reason = models.CharField(max_length=64, null=True)
+
+    objects = EnvironmentScopedManager()
+
+    class Meta:
+        db_table = "posthog_agent_egress_registration"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["task_run"], condition=models.Q(revoked=False), name="agent_egress_active_run_unique"
+            ),
+        ]
 
 
 class TaskStatusChange(TeamScopedRootMixin, UUIDModel):
@@ -4322,17 +4589,6 @@ class SandboxSnapshot(UUIDModel):
         self.save(update_fields=["status"])
 
     @classmethod
-    def get_latest_snapshot_for_integration(cls, integration_id: int) -> Optional["SandboxSnapshot"]:
-        return (
-            cls.objects.filter(
-                integration_id=integration_id,
-                status=cls.Status.COMPLETE,
-            )
-            .order_by("-created_at")
-            .first()
-        )
-
-    @classmethod
     def get_latest_snapshot_with_repos(
         cls, integration_id: int, required_repos: list[str]
     ) -> Optional["SandboxSnapshot"]:
@@ -4365,8 +4621,10 @@ class SandboxSnapshot(UUIDModel):
         super().delete(*args, **kwargs)
 
 
-class SandboxEnvironment(UUIDModel):
+class SandboxEnvironment(ModelActivityMixin, UUIDModel):
     """Configuration for sandbox execution environments including network access and secrets."""
+
+    activity_logging_on_delete = True
 
     class NetworkAccessLevel(models.TextChoices):
         TRUSTED = "trusted", "Trusted"
@@ -4495,8 +4753,10 @@ class SandboxEnvironment(UUIDModel):
         )
 
 
-class SandboxCustomImage(TeamScopedRootMixin):
+class SandboxCustomImage(ModelActivityMixin, TeamScopedRootMixin):
     """User-defined custom base image for cloud task sandboxes, layered on the VM sandbox base."""
+
+    activity_logging_on_delete = True
 
     class Status(models.TextChoices):
         DRAFT = "draft", "Draft"
@@ -4576,6 +4836,14 @@ class SandboxCustomImage(TeamScopedRootMixin):
     @property
     def is_ready(self) -> bool:
         return self.status == self.Status.READY and bool(self.modal_image_name)
+
+    @property
+    def has_usable_build(self) -> bool:
+        return bool(self.modal_image_name) and self.status in (
+            self.Status.READY,
+            self.Status.SCANNING,
+            self.Status.BUILDING,
+        )
 
     def is_accessible_to_user(self, user_id: int | None) -> bool:
         if not self.private:

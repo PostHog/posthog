@@ -68,3 +68,10 @@ ACTIVITY_SUMMARY_MCP_BUFFER_ENABLED: bool = get_from_env(
 )
 # The buffer needs a TTL-aware eviction policy (`volatile-ttl` or `noeviction`). Unset uses `REDIS_URL`.
 ACTIVITY_SUMMARY_MCP_BUFFER_REDIS_URL: str = os.getenv("ACTIVITY_SUMMARY_MCP_BUFFER_REDIS_URL", "")
+
+# Lets the daily report-pointer sweep set `expires_at` on `report:` scratchpad entries whose report
+# is missing or deleted. Off by default: the sweep then only logs the counts it would expire, so the
+# counts can be checked before the sweep changes any entry.
+SIGNALS_EXPIRE_DANGLING_REPORT_POINTERS: bool = get_from_env(
+    "SIGNALS_EXPIRE_DANGLING_REPORT_POINTERS", False, type_cast=str_to_bool
+)

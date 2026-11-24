@@ -3,9 +3,9 @@ import './InsightsTable.scss'
 import { useActions, useValues } from 'kea'
 import { ReactNode } from 'react'
 
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { percentage } from 'lib/utils/numbers'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { getResultSeries } from 'scenes/insights/utils/resultSeries'
@@ -379,6 +379,7 @@ export function InsightsTable({
             useURLForSorting={!editMode}
             rowRibbonColor={isLegend ? (item) => seriesRowColor(item, getTrendsColor(item)) : undefined}
             firstColumnSticky
+            stickyHeader
             pinnedColumns={pinnedColumns}
             maxHeaderWidth="20rem"
             // Allow vertical scrolling so long tables inside constrained

@@ -7,7 +7,15 @@ import { readJson } from '@/testing'
 // hog against it and compare the recordings. Server-side ids are derived from the request (UUIDv5),
 // so both CLIs see the same ids.
 
-export type Scenario = 'fresh' | 'post-only' | 'hash-mismatch' | 'release-mismatch' | 'check-403' | 'start-500-once'
+// `no-sdk` is a PostHog that predates `sdk` on event_definitions/typescript/: it ignores the query.
+export type Scenario =
+    | 'fresh'
+    | 'post-only'
+    | 'hash-mismatch'
+    | 'release-mismatch'
+    | 'check-403'
+    | 'start-500-once'
+    | 'no-sdk'
 
 const ReleaseBody = z.looseObject({
     hash_id: z.string(),
@@ -130,6 +138,11 @@ export function startFakeServer(scenario: Scenario): FakeServer {
             const base = `http://127.0.0.1:${server.port}`
             let match: RegExpMatchArray | null
 
+            // hog reads event definitions through /api/environments/ and posthog-cli through /api/projects/.
+            if ((match = path.match(/^\/api\/(?:projects|environments)\/\d+\/event_definitions\/(\w+)$/))) {
+                const sdk = scenario === 'no-sdk' ? null : url.searchParams.get('sdk')
+                return respond(json(200, eventDefinitions(match[1]!, sdk, scenario !== 'no-sdk')))
+            }
             if ((match = path.match(/^\/api\/projects\/\d+\/error_tracking\/releases\/hash\/(.+)$/))) {
                 const release = releases.get(match[1]!)
                 return respond(
@@ -259,12 +272,29 @@ export function startFakeServer(scenario: Scenario): FakeServer {
     }
 }
 
+// Non-ASCII names and no final newline, so a CLI that re-encodes or reformats the module fails.
+function eventDefinitions(
+    language: string,
+    sdk: string | null,
+    namesSdk: boolean
+): { content: string; event_count: number; schema_hash: string; sdk?: string } {
+    const variant = sdk ? `${language}-${sdk}` : language
+    return {
+        content: `/**\n * GENERATED FILE - DO NOT EDIT\n * Language: ${variant}\n */\nexport type EventName = "sign up" | "café ☕"\n// end`,
+        event_count: 2,
+        schema_hash: `hash-${variant}`,
+        ...(language === 'typescript' && namesSdk ? { sdk: sdk ?? 'posthog-js' } : {}),
+    }
+}
+
 async function storeObject(request: Request, url: URL, entry: RecordedRequest): Promise<Response> {
     if (request.method === 'PUT') {
         const body = new Uint8Array(await request.arrayBuffer())
         entry.upload = { sha512: createHash('sha512').update(body).digest('hex'), length: body.length }
-        // A presigned PUT signs the content length, so a different length fails like it does on S3.
-        if (Number(url.searchParams.get('length')) !== body.length) {
+        // A presigned PUT signs the content length, so a different length, or a chunked body that
+        // states none, fails like it does on S3.
+        const signed = Number(url.searchParams.get('length'))
+        if (signed !== body.length || Number(request.headers.get('content-length')) !== signed) {
             return new Response('<Error>SignatureDoesNotMatch</Error>', { status: 403 })
         }
         return new Response(null, { status: 200 })

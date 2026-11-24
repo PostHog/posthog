@@ -10,7 +10,6 @@ import { teamLogic as globalTeamLogic } from 'scenes/teamLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivationTaskStatus } from '~/types'
 
-import type { AvailableSetupTaskIdsEnumApi } from '../../../generated/core/api.schemas'
 import { PRODUCTS_WITH_SETUP } from './productSetupRegistry'
 import type { SetupHighlight } from './types'
 
@@ -38,16 +37,16 @@ export interface globalSetupLogicActions {
         value: true
     }
     clearOptimisticTaskStatuses: (taskIds: SetupTaskId[]) => {
-        taskIds: AvailableSetupTaskIdsEnumApi[]
+        taskIds: SetupTaskId[]
     }
     closeGlobalSetup: () => {
         value: true
     }
     markTaskAsCompleted: (taskIdOrIds: SetupTaskId | SetupTaskId[]) => {
-        taskIdOrIds: AvailableSetupTaskIdsEnumApi | AvailableSetupTaskIdsEnumApi[]
+        taskIdOrIds: SetupTaskId | SetupTaskId[]
     }
     markTaskAsSkipped: (taskIdOrIds: SetupTaskId | SetupTaskId[]) => {
-        taskIdOrIds: AvailableSetupTaskIdsEnumApi | AvailableSetupTaskIdsEnumApi[]
+        taskIdOrIds: SetupTaskId | SetupTaskId[]
     }
     openGlobalSetup: () => {
         value: true
@@ -66,10 +65,10 @@ export interface globalSetupLogicActions {
         productKey: ProductKey
     }
     unmarkTaskAsCompleted: (taskIdOrIds: SetupTaskId | SetupTaskId[]) => {
-        taskIdOrIds: AvailableSetupTaskIdsEnumApi | AvailableSetupTaskIdsEnumApi[]
+        taskIdOrIds: SetupTaskId | SetupTaskId[]
     }
     unmarkTaskAsSkipped: (taskIdOrIds: SetupTaskId | SetupTaskId[]) => {
-        taskIdOrIds: AvailableSetupTaskIdsEnumApi | AvailableSetupTaskIdsEnumApi[]
+        taskIdOrIds: SetupTaskId | SetupTaskId[]
     }
 }
 

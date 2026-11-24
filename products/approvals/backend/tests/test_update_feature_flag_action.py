@@ -22,7 +22,7 @@ from products.approvals.backend.policies import PolicyEngine
 from products.approvals.backend.services import ChangeRequestService
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.facade.testing import create_experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 SINGLE_DICT_PATHS = {"holdout"}
@@ -51,6 +51,9 @@ def _build_filters_for_path(path_spec: tuple, rollout_percentage: int) -> dict[s
     """Build a filters dict with the rollout_percentage at the specified path."""
     array_path, field_name = path_spec[:-1], path_spec[-1]
     item = {"properties": [], field_name: rollout_percentage}
+    if array_path[-1:] == ("variants",):
+        # FeatureFlag.save() refuses a variant without a string key.
+        item["key"] = "control"
 
     # holdout is a single dict, not a list of dicts
     if array_path and array_path[0] in SINGLE_DICT_PATHS:
@@ -715,7 +718,7 @@ class TestCheckStaleness(APIBaseTest):
     def test_staleness_by_owner(self, _name, recorded, owned_now, expected_stale):
         flag = self._create_flag()
         if owned_now:
-            Experiment.objects.create(team=self.team, name="exp", feature_flag=flag)
+            create_experiment(team_id=self.team.id, name="exp", feature_flag_id=flag.id)
 
         intent = {"preconditions": {"version": flag.version}}
         context = {"instance": flag, "recorded_owner_kind": recorded}

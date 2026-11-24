@@ -220,7 +220,7 @@ Write a scratchpad entry whenever you observe something a future run should know
 
 - key `pattern:replay_vision:roster` — _"3 live scanners: 'Rage monitor' (monitor, ~120 obs/day, yes_rate ~0.08 steady), 'Frustration' (scorer, mean ~2.1/5), 'Session themes' (summarizer, emits_signals=true). 'Old test' dead since 05-20. Recheck rates, not levels."_
 - key `noise:replay_vision:old-test-scanner` — _"Scanner 'Old test' (scanner_id abc…) abandoned, ~0 obs since 2026-05-20. Ignore in roster reads."_
-- key `dedupe:replay_vision:frustration-score-regression` — _"Reported scorer regression on 'Frustration' 2026-06-13 (mean 2.1→3.4/5 over the week, 210 sessions). Skip unless it recovers and re-steps."_
+- key `dedupe:replay_vision:frustration-score-regression` — _"Reported scorer regression on 'Frustration' 2026-06-13 (mean 2.1→3.4/5 over the week, 210 sessions). Skip unless it recovers and re-steps."_ Set `expires_at` about two weeks past the last read that confirmed it: a scanner back at its level that long that steps again is a new episode.
 - key `addressed:replay_vision:scanner-health-bundle` — _"Filed watch-gap bundle 2026-06-08 (2 enabled scanners silent on quota exhaustion). Don't re-report unless the silent set changes."_
 - key `report:replay_vision:frustration:score-regression` — the `report_id` of a report you authored for a scanner's aggregate shift, so the next run edits it (`append_evidence` with the fresh window) instead of duplicating.
 - key `reviewer:replay_vision:<area>` — a resolved owner (bare lowercase GitHub login) for a scanner / replay surface, so reports route to a human faster.

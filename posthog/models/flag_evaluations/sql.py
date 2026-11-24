@@ -1,4 +1,6 @@
+import json
 from collections.abc import Iterable
+from pathlib import Path
 
 from django.conf import settings
 
@@ -49,8 +51,11 @@ FLAG_EVALUATIONS_RETENTION_DAYS = 90
 # the timezone and the time of day. A 92-day TTL keeps every UTC day that such a range covers.
 # This value sets the TTL only when the table is created. Changing the TTL of an existing table takes a
 # migration, such as 0362_flag_evaluations_ttl_92_days.
-# The Node fork step mirrors this value in fork-flag-evaluations-step.ts. Change both together.
-FLAG_EVALUATIONS_TTL_DAYS = 92
+# crosslang/flag_evaluations.json is the source of this value. Node and Rust mirror it.
+# crosslang/README.md lists the mirrors.
+FLAG_EVALUATIONS_TTL_DAYS: int = json.loads(
+    (Path(__file__).parent / "crosslang" / "flag_evaluations.json").read_text()
+)["ttl_days"]
 
 # The only event this table stores. posthog/models/deletion_targets.py uses it to skip this table
 # for deletion requests that name other events, so a producer writing a second event name here has
@@ -190,6 +195,9 @@ def _single_line(pieces: Iterable[str]) -> str:
     return "".join(f"\n    , {' '.join(piece.split())}" for piece in pieces)
 
 
+# A read of one key skips most of a bucketed map. A part gets the bucketed layout at its first merge.
+FLAG_EVALUATIONS_MAP_SERIALIZATION_SETTINGS = "map_serialization_version = 'with_buckets', max_buckets_in_map = 32"
+
 # Property-group maps with the events tables' key filters. On cloud, HogQL reads custom event and
 # person properties on events from the same maps instead of the JSON. They are MATERIALIZED, unlike
 # the typed columns above, because no writer sets them. Property removal copies rows without them,
@@ -254,7 +262,7 @@ ENGINE = {FLAG_EVALUATIONS_DATA_TABLE_ENGINE()}
 PARTITION BY toYYYYMM(timestamp)
 ORDER BY {FLAG_EVALUATIONS_ORDER_BY}
 {ttl_period("timestamp", FLAG_EVALUATIONS_TTL_DAYS, unit="DAY")}
-SETTINGS ttl_only_drop_parts = 1, materialize_ttl_recalculate_only = 1
+SETTINGS ttl_only_drop_parts = 1, materialize_ttl_recalculate_only = 1, {FLAG_EVALUATIONS_MAP_SERIALIZATION_SETTINGS}
 """
 )
 

@@ -65,6 +65,8 @@ class _ParentSpec:
     fan_out: FanOut = "none"
     opt_fields: list[str] = dataclasses.field(default_factory=list)
     organizations_only: bool = False
+    # Emit each parent row once per `is_archived` value, so the child binds `{is_archived}` too.
+    archived_states: bool = False
 
 
 _PARENTS: dict[FanOut, _ParentSpec] = {
@@ -95,7 +97,13 @@ _PARENTS: dict[FanOut, _ParentSpec] = {
         path="/portfolios?workspace={workspace_gid}&owner=me",
         fan_out="workspace",
     ),
+    "workspace_archived_states": _ParentSpec(
+        name="workspaces", param="workspace_gid", path="/workspaces", archived_states=True
+    ),
 }
+
+ARCHIVED_PARAM = "is_archived"
+ARCHIVED_STATES = ("false", "true")
 
 
 def _resolve(spec: _ParentSpec) -> dict[str, Any]:
@@ -119,6 +127,8 @@ def _parent_chain(fan_out: FanOut) -> list[str | EndpointResource]:
         # `/organizations/{gid}/...` is only valid for organization workspaces; returning [] drops
         # the row so the child fan-out never requests it.
         resource["data_map"] = lambda workspace: workspace if workspace.get("is_organization") else []
+    if spec.archived_states:
+        resource["data_map"] = lambda row: [{**row, ARCHIVED_PARAM: state} for state in ARCHIVED_STATES]
 
     return [*_parent_chain(spec.fan_out), resource]
 
@@ -133,6 +143,8 @@ def _build_resources(config: AsanaEndpointConfig) -> list[str | EndpointResource
     if config.fan_out != "none":
         spec = _PARENTS[config.fan_out]
         target_params[spec.param] = _resolve(spec)
+        if spec.archived_states:
+            target_params[ARCHIVED_PARAM] = {"type": "resolve", "resource": spec.name, "field": ARCHIVED_PARAM}
 
     target = _resource(config.name, config.path, target_params, paginated=config.paginated)
     if config.parent_fields:

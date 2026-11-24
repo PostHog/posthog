@@ -1,7 +1,11 @@
 import { EventType, eventWithTime, fullSnapshotEvent, IncrementalSource } from 'posthog-js/rrweb-types'
 
 import { transformEventToWeb } from '../mobile'
-import { SCREENSHOT_ATTRIBUTE } from '../mobile/transformer/transformers'
+import {
+    makeScreenshotDocumentNode,
+    SCREEN_CHROME_PARENT_IDS,
+    SCREENSHOT_ATTRIBUTE,
+} from '../mobile/transformer/transformers'
 import { noOpTelemetry, ReplayTelemetry } from '../telemetry'
 import {
     EncodedRecordingSnapshot,
@@ -12,7 +16,7 @@ import {
 import { isObject } from '../utils'
 import { CHROME_EXTENSION_DENY_LIST, stripChromeExtensionDataFromNode } from './chrome-extension-stripping'
 import { chunkMutationSnapshot } from './chunk-large-mutations'
-import { decompressEvent } from './decompress'
+import { ExpansionBudget, ExpansionBudgetExceededError, decompressEvent } from './decompress'
 import { extractDimensionsFromMobileSnapshot, ViewportResolution } from './patch-meta-event'
 import { keyForSource, SourceKey } from './source-key'
 import { throttleCapture } from './throttle-capturing'
@@ -59,51 +63,129 @@ function extractImgNodeFromMobileIncremental(snapshot: RecordingSnapshot): any |
     return undefined
 }
 
-function isLikelyMobileScreenshot(snapshot: RecordingSnapshot): boolean {
-    return extractImgNodeFromMobileIncremental(snapshot) !== undefined
+// An Android screenshot update transforms to a remove and an add of the same img and nothing else
+function isScreenshotOnlyUpdate(snapshot: RecordingSnapshot): boolean {
+    const data: any = (snapshot as any).data
+    return (
+        data.adds.length === 1 &&
+        !data.texts?.length &&
+        !data.attributes?.length &&
+        // an undecodable `removes` is still a string here; the decoding guard in processSnapshot drops it later
+        Array.isArray(data.removes ?? []) &&
+        (data.removes ?? []).every((removal: any) => isObject(removal) && removal.id === data.adds[0].node.id)
+    )
 }
 
-function createMinimalFullSnapshot(windowId: number | undefined, timestamp: number, imgNode?: any): RecordingSnapshot {
-    const bodyChildNodes = imgNode ? [imgNode] : []
+// Flutter and iOS send every screenshot as a full snapshot. After transformEventToWeb its body holds the
+// screenshot img and the empty keyboard, navigation bar and status bar containers, as does the synthetic
+// Android full. Any other node, or one of those containers with content, means the frame is not just a
+// screenshot.
+function extractImgNodeFromScreenshotOnlyFull(fullSnapshot: fullSnapshotEvent): any | undefined {
+    // this runs on every full snapshot, web ones included, so a malformed node must not throw
+    const isElement = (node: unknown, tagName: string): boolean =>
+        isObject(node) && node.type === 2 && node.tagName === tagName
+    const findChild = (parent: any, tagName: string): any =>
+        Array.isArray(parent?.childNodes)
+            ? parent.childNodes.find((node: unknown) => isElement(node, tagName))
+            : undefined
+    const bodyNode = findChild(findChild(fullSnapshot.data.node, 'html'), 'body')
+    if (!Array.isArray(bodyNode?.childNodes)) {
+        return undefined
+    }
 
-    const htmlNode = {
-        type: 2,
-        tagName: 'html',
-        attributes: {
-            'data-rrweb-id': 'minimal-html',
+    let imgNode: any
+    for (const child of bodyNode.childNodes) {
+        if (!isObject(child)) {
+            return undefined
+        }
+        if (isObject(child.attributes) && child.attributes[SCREENSHOT_ATTRIBUTE]) {
+            if (imgNode) {
+                return undefined
+            }
+            imgNode = child
+        } else if (
+            !SCREEN_CHROME_PARENT_IDS.has(child.id as number) ||
+            (child.childNodes as unknown[] | undefined)?.length
+        ) {
+            return undefined
+        }
+    }
+    return imgNode
+}
+
+// Seeking replays from the nearest full snapshot, so a long run of src swaps keeps a real full snapshot
+// every this many frames. Each one rebuilds the document, which is one WebKit flash per interval.
+const SCREENSHOT_MUTATIONS_PER_FULL_SNAPSHOT = 30
+
+// rrweb keeps the img from the previous frame when only its src changes, so a same id and size frame is
+// pushed as a src swap of it. Anything else becomes the window's new screenshot, or clears it when undefined.
+function swapOrRememberScreenshot(
+    context: ProcessSnapshotContext,
+    windowId: number,
+    timestamp: number,
+    imgNode: any | undefined
+): boolean {
+    const previous = context.screenshotByWindow[windowId]
+    if (
+        imgNode &&
+        previous &&
+        previous.swaps < SCREENSHOT_MUTATIONS_PER_FULL_SNAPSHOT &&
+        // without dimensions the swap would write the string "undefined" into width and height
+        imgNode.attributes.width != null &&
+        imgNode.attributes.height != null &&
+        previous.imgNode.id === imgNode.id &&
+        previous.imgNode.attributes.width === imgNode.attributes.width &&
+        previous.imgNode.attributes.height === imgNode.attributes.height
+    ) {
+        const mutation = createScreenshotMutation(windowId, timestamp, imgNode)
+        context.result.push(mutation)
+        context.sourceResult.push(mutation)
+        context.previousTimestamp = timestamp
+        previous.swaps += 1
+        return true
+    }
+    context.screenshotByWindow[windowId] = imgNode ? { imgNode, swaps: 0 } : undefined
+    return false
+}
+
+function createScreenshotMutation(windowId: number, timestamp: number, imgNode: any): RecordingSnapshot {
+    const { src, width, height, style } = imgNode.attributes
+    return {
+        type: EventType.IncrementalSnapshot,
+        timestamp,
+        windowId,
+        data: {
+            source: IncrementalSource.Mutation,
+            texts: [],
+            attributes: [
+                {
+                    id: imgNode.id,
+                    // rrweb ignores attribute values that are not strings
+                    attributes: {
+                        src,
+                        width: String(width),
+                        height: String(height),
+                        style,
+                        [SCREENSHOT_ATTRIBUTE]: 'true',
+                    },
+                },
+            ],
+            removes: [],
+            adds: [],
         },
-        childNodes: [
-            {
-                type: 2,
-                tagName: 'head',
-                attributes: {
-                    'data-rrweb-id': 'minimal-head',
-                },
-                childNodes: [],
-            },
-            {
-                type: 2,
-                tagName: 'body',
-                attributes: {
-                    'data-rrweb-id': 5,
-                },
-                childNodes: bodyChildNodes,
-            },
-        ],
-    }
-    const documentNode = {
-        type: 0,
-        childNodes: [htmlNode],
-    }
+    } as RecordingSnapshot
+}
+
+function createMinimalFullSnapshot(windowId: number, timestamp: number, imgNode?: any): RecordingSnapshot {
     return {
         type: EventType.FullSnapshot,
         timestamp,
         windowId,
         data: {
-            node: documentNode,
+            node: makeScreenshotDocumentNode(imgNode, timestamp),
             initialOffset: { top: 0, left: 0 },
         },
-    } as unknown as RecordingSnapshot
+    }
 }
 
 export async function processAllSnapshots(
@@ -128,6 +210,7 @@ export async function processAllSnapshots(
         previousTimestamp: null,
         seenHashes: new Set<number>(),
         sourceHadViewportGap: false,
+        screenshotByWindow: {},
     }
 
     // Reset each pass: any source with a gap was left uncached, so it re-processes below and
@@ -162,6 +245,8 @@ export async function processAllSnapshots(
         context.sourceHadViewportGap = false
         const sortedSnapshots = sourceSnapshots.sort((a, b) => a.timestamp - b.timestamp)
         context.seenHashes = new Set<number>()
+        // each source keeps a real full snapshot so seeking into it never depends on another source
+        context.screenshotByWindow = {}
         const pushPatchedMeta = createPushPatchedMeta(
             context,
             sourceKey,
@@ -216,6 +301,9 @@ type ProcessSnapshotContext = {
     seenHashes: Set<number>
     // Set when a meta patch failed because no viewport was available for the current source
     sourceHadViewportGap: boolean
+    // The screenshot img each window last rendered in this source, and the src swaps pushed since. Rebuilding
+    // the document for every frame flashes white in WebKit until the new img decodes.
+    screenshotByWindow: Record<number, { imgNode: any; swaps: number } | undefined>
 }
 
 function createPushPatchedMeta(
@@ -307,16 +395,23 @@ function processSnapshot(
         context.seenHashes = new Set<number>()
     }
 
-    if (snapshot.type === EventType.Meta) {
-        context.hasSeenMeta = true
-    }
-
     const windowId = snapshot.windowId
     const hasSeenFullForWindow = !!context.seenFullByWindow[windowId]
 
-    if (snapshot.type === EventType.IncrementalSnapshot && isLikelyMobileScreenshot(snapshot)) {
+    if (snapshot.type === EventType.Meta) {
+        context.hasSeenMeta = true
+        context.screenshotByWindow[windowId] = undefined
+    }
+
+    const imgNode = extractImgNodeFromMobileIncremental(snapshot)
+    if (imgNode) {
+        // an update that also changes something besides the screenshot can't be followed by a src swap
+        const swapCandidate = isScreenshotOnlyUpdate(snapshot) ? imgNode : undefined
+        if (swapOrRememberScreenshot(context, windowId, snapshot.timestamp, swapCandidate)) {
+            return
+        }
+
         const syntheticTimestamp = Math.max(0, snapshot.timestamp - 1)
-        const imgNode = extractImgNodeFromMobileIncremental(snapshot)
         const syntheticFull = createMinimalFullSnapshot(snapshot.windowId, syntheticTimestamp, imgNode)
 
         if (!hasSeenFullForWindow) {
@@ -327,6 +422,13 @@ function processSnapshot(
 
         context.result.push(syntheticFull)
         context.sourceResult.push(syntheticFull)
+    } else if (
+        snapshot.type === EventType.IncrementalSnapshot &&
+        (snapshot.data as any)?.source === IncrementalSource.Mutation
+    ) {
+        // Anything else that changes the page, like the keyboard opening, isn't in the screenshot img, so the
+        // next frame has to rebuild the document instead of only swapping the img src.
+        context.screenshotByWindow[windowId] = undefined
     }
 
     // Like the FullSnapshot guard below: decompressEvent fails open, so a Mutation or StyleSheetRule
@@ -369,6 +471,17 @@ function processSnapshot(
                     feature: 'session-recording-full-snapshot-decoding',
                 })
             })
+            return
+        }
+
+        if (
+            swapOrRememberScreenshot(
+                context,
+                windowId,
+                snapshot.timestamp,
+                extractImgNodeFromScreenshotOnlyFull(fullSnapshot)
+            )
+        ) {
             return
         }
 
@@ -432,8 +545,13 @@ export function hasAnyWireframes(snapshotData: Record<string, any>[]): boolean {
     })
 }
 
-function coerceToEventWithTime(d: unknown, sessionRecordingId: string, telemetry: ReplayTelemetry): eventWithTime {
-    const currentEvent = decompressEvent(d, sessionRecordingId, telemetry)
+function coerceToEventWithTime(
+    d: unknown,
+    sessionRecordingId: string,
+    telemetry: ReplayTelemetry,
+    budget?: ExpansionBudget
+): eventWithTime {
+    const currentEvent = decompressEvent(d, sessionRecordingId, telemetry, budget)
     return transformEventToWeb(currentEvent, telemetry) ?? (currentEvent as eventWithTime)
 }
 
@@ -441,7 +559,8 @@ export const parseJsonSnapshots = (
     items: (RecordingSnapshot | EncodedRecordingSnapshot | string)[],
     sessionId: string,
     telemetry: ReplayTelemetry = noOpTelemetry,
-    registerWindowId?: RegisterWindowIdCallback
+    registerWindowId?: RegisterWindowIdCallback,
+    budget?: ExpansionBudget
 ): RecordingSnapshot[] => {
     const registerFn: RegisterWindowIdCallback = registerWindowId || createWindowIdRegistry()
 
@@ -471,7 +590,7 @@ export const parseJsonSnapshots = (
             }
 
             if (isRecordingSnapshot(snapshotLine)) {
-                const snap = coerceToEventWithTime(snapshotLine, sessionId, telemetry)
+                const snap = coerceToEventWithTime(snapshotLine, sessionId, telemetry, budget)
                 const baseSnapshot: RecordingSnapshot = {
                     windowId: snapshotLine.windowId,
                     ...snap,
@@ -485,7 +604,7 @@ export const parseJsonSnapshots = (
             ) {
                 const rawWindowId: string = snapshotLine['windowId']
                 const windowId = registerFn(rawWindowId)
-                const snap = coerceToEventWithTime(snapshotLine, sessionId, telemetry)
+                const snap = coerceToEventWithTime(snapshotLine, sessionId, telemetry, budget)
                 const baseSnapshot: RecordingSnapshot = {
                     windowId,
                     ...snap,
@@ -499,7 +618,7 @@ export const parseJsonSnapshots = (
                 const windowId = registerFn(rawWindowId.toString())
 
                 for (const d of snapshotData) {
-                    const snap = coerceToEventWithTime(d, sessionId, telemetry)
+                    const snap = coerceToEventWithTime(d, sessionId, telemetry, budget)
                     const baseSnapshot: RecordingSnapshot = {
                         windowId,
                         ...snap,
@@ -508,7 +627,10 @@ export const parseJsonSnapshots = (
                     parsedLines.push(...chunkedSnapshots)
                 }
             }
-        } catch {
+        } catch (e) {
+            if (e instanceof ExpansionBudgetExceededError) {
+                throw e
+            }
             if (typeof l === 'string') {
                 unparseableLines.push(l)
             }

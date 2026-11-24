@@ -1,8 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconClock, IconCopy, IconDownload, IconEllipsis, IconShare, IconTrash } from '@posthog/icons'
+import { IconApps, IconClock, IconCopy, IconDownload, IconEllipsis, IconShare, IconTrash } from '@posthog/icons'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     DropdownMenu,
@@ -17,13 +19,16 @@ import { urls } from 'scenes/urls'
 import { notebooksModel } from '~/models/notebooksModel'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { notebookExportLogic } from 'products/notebooks/frontend/notebookExportLogic'
+
 import { NotebookLogicProps, notebookLogic } from './Notebook/notebookLogic'
 
 export function NotebookMenu({ shortId, inPanel }: NotebookLogicProps & { inPanel?: boolean }): JSX.Element {
-    const { notebook, showHistory, isLocalOnly } = useValues(notebookLogic({ shortId }))
-    const { openShareModal, duplicateNotebook, downloadMarkdown, copyMarkdown, setShowHistory } = useActions(
-        notebookLogic({ shortId })
-    )
+    const { preparePrint, prepareImage } = useActions(notebookExportLogic({ shortId }))
+    const { notebook, showHistory, isLocalOnly, canEditNotebook } = useValues(notebookLogic({ shortId }))
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { openShareModal, duplicateNotebook, downloadMarkdown, copyMarkdown, setShowHistory, saveNotebookNow } =
+        useActions(notebookLogic({ shortId }))
     const sharingDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.SharingConfiguration,
         AccessControlLevel.Viewer
@@ -32,12 +37,30 @@ export function NotebookMenu({ shortId, inPanel }: NotebookLogicProps & { inPane
     return (
         <DropdownMenu>
             <DropdownMenuTrigger asChild>
-                <ButtonPrimitive iconOnly>
+                <ButtonPrimitive iconOnly aria-label="Notebook options">
                     <IconEllipsis className="text-tertiary size-3 group-hover:text-primary z-10" />
                 </ButtonPrimitive>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="center" side="bottom">
                 <DropdownMenuGroup>
+                    {featureFlags[FEATURE_FLAGS.NOTEBOOK_APP_BUILDER] &&
+                        canEditNotebook &&
+                        !isLocalOnly &&
+                        !notebook?.is_template && (
+                            <DropdownMenuItem asChild>
+                                <ButtonPrimitive
+                                    onClick={() => {
+                                        saveNotebookNow()
+                                        router.actions.push(urls.notebook(shortId), { view: 'builder' })
+                                    }}
+                                    menuItem
+                                    data-attr="notebook-open-app-builder"
+                                >
+                                    <IconApps />
+                                    App builder
+                                </ButtonPrimitive>
+                            </DropdownMenuItem>
+                        )}
                     <DropdownMenuItem asChild>
                         <ButtonPrimitive onClick={() => duplicateNotebook()} menuItem>
                             <IconCopy />
@@ -54,6 +77,18 @@ export function NotebookMenu({ shortId, inPanel }: NotebookLogicProps & { inPane
                         <ButtonPrimitive onClick={() => copyMarkdown()} menuItem>
                             <IconCopy />
                             Copy markdown
+                        </ButtonPrimitive>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                        <ButtonPrimitive onClick={prepareImage} menuItem data-attr="notebook-export-png">
+                            <IconDownload />
+                            Download PNG
+                        </ButtonPrimitive>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                        <ButtonPrimitive onClick={preparePrint} menuItem data-attr="notebook-print-pdf">
+                            <IconDownload />
+                            Print / save PDF
                         </ButtonPrimitive>
                     </DropdownMenuItem>
                     <DropdownMenuItem asChild>

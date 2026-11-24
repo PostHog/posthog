@@ -2,6 +2,7 @@ import jwt from 'jsonwebtoken'
 
 export enum PosthogJwtAudience {
     RECORDING_API = 'posthog:recording_api',
+    RECORDING_API_STAFF = 'posthog:recording_api:staff',
     // Must match PosthogJwtAudience.REPLAY_BLOCKS in posthog/jwt.py exactly.
     REPLAY_BLOCKS = 'posthog:replay:blocks',
     SUBSCRIPTION_PREFERENCES = 'posthog:messaging:subscription_preferences',
@@ -11,7 +12,10 @@ export enum PosthogJwtAudience {
     WORKFLOWS_MANUAL_RUN = 'posthog:workflows:manual_run',
     WORKFLOWS_STEP_RESUME = 'posthog:workflows:step_resume',
     WORKFLOWS_SEND_TRANSACTIONAL_EMAIL = 'posthog:workflows:send_transactional_email',
+    WORKFLOWS_MANAGE_TRANSACTIONAL_EMAIL = 'posthog:workflows:manage_transactional_email',
     WORKFLOWS_RESUME_BATCH = 'posthog:workflows:resume_batch',
+    WORKFLOWS_SANDBOX_EMAIL_TEST = 'posthog:workflows:sandbox_email_test',
+    WORKFLOWS_SCHEDULED_RUNS = 'posthog:workflows:scheduled_runs',
     CUSTOMER_TASKS_CREATE = 'posthog:customer-tasks:create',
     TASKS_CREATE = 'posthog:tasks:create',
     WORKFLOW_SCOUT_RUN = 'posthog:workflows:scout_run',

@@ -1,5 +1,3 @@
-import { MOCK_TEAM_ID } from 'lib/api.mock'
-
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
@@ -18,7 +16,6 @@ import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { sceneLogic } from '../../../frontend/src/scenes/sceneLogic'
 import { aiObservabilitySharedLogic } from './aiObservabilitySharedLogic'
-import { DisplayOption, aiObservabilityTraceLogic } from './aiObservabilityTraceLogic'
 import { llmSessionTitleLazyLoaderLogic } from './llmSessionTitleLazyLoaderLogic'
 import { aiObservabilityDashboardLogic } from './tabs/aiObservabilityDashboardLogic'
 import { aiObservabilityGenerationsLogic } from './tabs/aiObservabilityGenerationsLogic'
@@ -44,7 +41,6 @@ describe('LLM analytics URL split', () => {
         expect(urls.aiObservabilityReviews()).toBe('/ai-observability/reviews')
         expect(urls.aiObservabilityTrace('trace-1')).toBe('/ai-observability/traces/trace-1')
         expect(urls.aiObservabilityDatasets()).toBe('/ai-evals/evaluations/offline/experiments?tab=datasets')
-        expect(urls.aiObservabilityTags()).toBe('/ai-evals/taggers')
         expect(urls.aiObservabilityEvaluations()).toBe('/ai-evals/evaluations')
         expect(urls.aiObservabilityScorers()).toBe('/ai-evals/evaluations/scorers')
         expect(urls.aiObservabilityPrompts()).toBe('/prompt-management/prompts')
@@ -65,7 +61,7 @@ describe('LLM analytics URL split', () => {
         expect(redirectUrl('/llm-analytics/datasets/:id', { id: 'dataset-1' }, { item: 'item-1' })).toBe(
             '/ai-evals/evaluations/offline/datasets/dataset-1?item=item-1'
         )
-        expect(redirectUrl('/llm-analytics/tags/:id', { id: 'tagger-1' })).toBe('/ai-evals/taggers/tagger-1')
+        expect(redirectUrl('/ai-evals/taggers/:id', { id: 'tagger-1' })).toBe('/ai-evals/evaluations')
         expect(redirectUrl('/llm-analytics/evaluations/:id', { id: 'evaluation-1' })).toBe(
             '/ai-evals/evaluations/evaluation-1'
         )
@@ -769,39 +765,5 @@ describe('AI observability persisted preferences', () => {
         expect(secondLogic.values.selectedDashboardId).toBe(42)
 
         secondLogic.unmount()
-    })
-
-    it('persists trace display preferences across remount', () => {
-        const firstLogic = aiObservabilityTraceLogic()
-        firstLogic.mount()
-        firstLogic.actions.setIsRenderingMarkdown(false)
-        firstLogic.actions.setIsRenderingXml(true)
-        firstLogic.actions.setDisplayOption(DisplayOption.TextView)
-        firstLogic.actions.setTraceReviewPanelExpanded(true)
-        firstLogic.unmount()
-
-        const secondLogic = aiObservabilityTraceLogic()
-        secondLogic.mount()
-
-        expect(secondLogic.values.isRenderingMarkdown).toBe(false)
-        expect(secondLogic.values.isRenderingXml).toBe(true)
-        expect(secondLogic.values.displayOption).toBe(DisplayOption.TextView)
-        expect(secondLogic.values.isTraceReviewPanelExpanded).toBe(true)
-
-        secondLogic.unmount()
-    })
-
-    it('scopes explicit storage keys to the current team', () => {
-        const logic = aiObservabilityTraceLogic()
-        logic.mount()
-        logic.actions.setIsRenderingMarkdown(false)
-
-        const storageKey = `${MOCK_TEAM_ID}__ai_observability.trace.isRenderingMarkdown`
-        expect(window.localStorage[storageKey]).toBe('false')
-        expect(
-            Object.getOwnPropertyNames(window.localStorage).filter((key) => key.endsWith('trace.isRenderingMarkdown'))
-        ).toEqual([storageKey])
-
-        logic.unmount()
     })
 })

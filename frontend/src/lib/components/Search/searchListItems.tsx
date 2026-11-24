@@ -4,7 +4,7 @@ import { IconClock, IconDownload, IconLeave, IconNotification, IconSupport, Icon
 
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
-import { isFileSystemImportFlagEnabled, isFileSystemImportShown } from 'lib/utils/fileSystemImportFlags'
+import { isFileSystemImportShown, isFileSystemSearchTabShown } from 'lib/utils/fileSystemImportFlags'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { PLACEHOLDER_HREF } from 'lib/utils/navigateToHref'
 import { newInternalTab } from 'lib/utils/newInternalTab'
@@ -108,7 +108,7 @@ const tabSearchItems = (
     return parents.flatMap((parent) => {
         const parentName = parent.displayName || parent.name
         return (tabsByPath.get(parent.name) ?? [])
-            .filter((tab) => isFileSystemImportFlagEnabled(tab, featureFlags))
+            .filter((tab) => isFileSystemSearchTabShown(tab, featureFlags))
             .map((tab) => ({
                 id: `${parent.id}-tab-${tab.name}`,
                 name: `${parentName} ${tab.name}`,

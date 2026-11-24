@@ -21,12 +21,14 @@ They are sized for roughly one scrape per event a person triggers, and are meant
 The default reserve ladder applies, and `firecrawl_request` defaults to `NORMAL`.
 Domain research for Tasks (`products/tasks/backend/facade/domain_research.py`) scrapes on `NORMAL`.
 The AI-enrichment label tools (`products/growth/backend/enrichment/tools.py`) search and scrape on `BATCH`.
+The CIMD provisioning partner review (`posthog/temporal/cimd_provisioning_review/research.py`) scrapes one homepage and runs two searches per review on `BATCH`.
 Nothing in this domain runs `CRITICAL`, because what gets scraped comes from user-supplied input and callers can do without the scrape.
 
 ## Rate-limit headers
 
 Firecrawl documents no rate-limit status headers, so the domain declares no gauges.
 A 429 carries `Retry-After`, and the caller owns the retry.
+`FirecrawlScrapeFailed` and `FirecrawlSearchFailed` carry Firecrawl's HTTP status in `status_code` when it answered with an error, so a caller can tell a retryable 429 or 5xx from a failed page.
 The counter is `firecrawl_api_requests_total`, labeled `account, method, endpoint, status_code, source`.
 
 ## Auth

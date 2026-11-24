@@ -90,6 +90,14 @@ describe('dataWarehouseSavedQueryActivityDescriber', () => {
         )
     })
 
+    it('attributes a plan floor rewrite to PostHog', () => {
+        expect(
+            describeText([change('sync_frequency_interval', '0:15:00', '6:00:00')], 'sync_frequency_plan_floor')
+        ).toBe(
+            "PostHog changed sync frequency from 15 minutes to 6 hours on daily view, the fastest your organization's plan allowed"
+        )
+    })
+
     it('keeps the existing activity branches', () => {
         expect(describeText([change('sync_frequency_interval', '0:01:00', '1:00:00')])).toContain(
             'changed sync frequency from 1 minute to 1 hour'

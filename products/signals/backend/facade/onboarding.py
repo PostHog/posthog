@@ -18,7 +18,7 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.replay_vision.backend.facade.api import signal_emitting_scanner_ids
 from products.signals.backend.first_report_completion import first_report_completion_notifications_enabled
 from products.signals.backend.first_report_experiment import (
-    FIRST_REPORT_SCOUT_VARIANTS,
+    onboarding_runs_first_report,
     resolve_first_report_experiment,
 )
 from products.signals.backend.first_report_notification import register_first_report_notification
@@ -116,11 +116,11 @@ class InboxOnboarding:
             "first_report": first_report_state(self.team.parent_team_id or self.team_id)
             or (
                 {"status": "pending"}
-                if state.get("first_report_variant") in FIRST_REPORT_SCOUT_VARIANTS and jobs.get("scout") == "pending"
+                if onboarding_runs_first_report(state) and jobs.get("scout") == "pending"
                 else None
             ),
             "first_report_completion_notification": bool(
-                state.get("first_report_variant") in FIRST_REPORT_SCOUT_VARIANTS
+                onboarding_runs_first_report(state)
                 and state.get("activated_by") == self.user.pk
                 and first_report_completion_notifications_enabled(self.team.parent_team or self.team, self.user)
             ),
@@ -139,7 +139,7 @@ class InboxOnboarding:
     def state(self) -> dict[str, Any]:
         return self._state(get_or_create_team_extension(self.team, SignalTeamConfig))
 
-    def expose(self) -> dict[str, Any]:
+    def expose(self, onboarding_origin: str = "app") -> dict[str, Any]:
         config = get_or_create_team_extension(self.team, SignalTeamConfig)
         with transaction.atomic():
             config = SignalTeamConfig.objects.select_for_update().get(pk=config.pk, team_id=self.team_id)
@@ -149,6 +149,7 @@ class InboxOnboarding:
                     **state,
                     "exposed_at": timezone.now().isoformat(),
                     "exposed_by": self.user.pk,
+                    "onboarding_origin": onboarding_origin,
                 }
                 config.save(update_fields=["onboarding", "updated_at"])
                 transaction.on_commit(lambda: self._report_exposure(self.user, config), robust=True)
@@ -271,11 +272,12 @@ class InboxOnboarding:
                     "activated_by": user.pk,
                 }
                 quick = pilot or is_quick_setup(config.onboarding)
+                config.onboarding["first_report_scout"] = True
                 config.onboarding["jobs"] = {
-                    "scout": "pending" if experiment or quick else "skipped",
+                    "scout": "pending",
                     "recommendations": "pending" if quick else "skipped",
                 }
-                if experiment:
+                if experiment.variant is not None:
                     config.onboarding["first_report_variant"] = experiment.variant
                 config.save(
                     update_fields=["onboarding", "autostart_enabled", "default_autostart_priority", "updated_at"]

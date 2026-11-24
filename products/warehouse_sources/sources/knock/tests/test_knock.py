@@ -6,6 +6,7 @@ from parameterized import parameterized
 from products.warehouse_sources.sources.knock._config import KnockSourceConfig
 from products.warehouse_sources.sources.knock.knock import (
     NO_AUDIENCE_KEYS_ERROR,
+    NO_FEED_CHANNEL_IDS_ERROR,
     NO_OBJECT_COLLECTIONS_ERROR,
     KnockResumeConfig,
     get_resource,
@@ -13,6 +14,7 @@ from products.warehouse_sources.sources.knock.knock import (
 )
 from products.warehouse_sources.sources.knock.settings import ENDPOINTS_CONFIG
 from products.warehouse_sources.sources.knock.source import KnockSource
+from products.warehouse_sources.sources.sdk import Resource
 from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
@@ -45,10 +47,19 @@ class TestGetResource:
 
 class TestKnockSourceTransport:
     @staticmethod
-    def _driver(object_collections: str | None = None, audience_keys: str | None = None) -> SourceDriver:
+    def _driver(
+        object_collections: str | None = None,
+        audience_keys: str | None = None,
+        in_app_feed_channel_ids: str | None = None,
+    ) -> SourceDriver:
         return SourceDriver(
             KnockSource(),
-            KnockSourceConfig(api_key="sk_test", object_collections=object_collections, audience_keys=audience_keys),
+            KnockSourceConfig(
+                api_key="sk_test",
+                object_collections=object_collections,
+                audience_keys=audience_keys,
+                in_app_feed_channel_ids=in_app_feed_channel_ids,
+            ),
         )
 
     @parameterized.expand(
@@ -307,26 +318,78 @@ class TestKnockSourceTransport:
 
     @parameterized.expand(
         [
-            ("objects", None, NO_OBJECT_COLLECTIONS_ERROR),
-            ("objects", "", NO_OBJECT_COLLECTIONS_ERROR),
-            ("objects", " , ", NO_OBJECT_COLLECTIONS_ERROR),
-            ("audience_members", None, NO_AUDIENCE_KEYS_ERROR),
-            ("audience_members", " , ", NO_AUDIENCE_KEYS_ERROR),
+            ("objects", "object_collections", None, NO_OBJECT_COLLECTIONS_ERROR),
+            ("objects", "object_collections", "", NO_OBJECT_COLLECTIONS_ERROR),
+            ("objects", "object_collections", " , ", NO_OBJECT_COLLECTIONS_ERROR),
+            ("audience_members", "audience_keys", None, NO_AUDIENCE_KEYS_ERROR),
+            ("audience_members", "audience_keys", " , ", NO_AUDIENCE_KEYS_ERROR),
+            ("user_feed_items", "in_app_feed_channel_ids", None, NO_FEED_CHANNEL_IDS_ERROR),
+            ("user_feed_items", "in_app_feed_channel_ids", " , ", NO_FEED_CHANNEL_IDS_ERROR),
         ]
     )
     def test_keyed_table_without_keys_fails_with_actionable_error(
-        self, endpoint: str, keys: str | None, expected_error: str
+        self, endpoint: str, field: str, keys: str | None, expected_error: str
     ) -> None:
-        # Each table reads its own field, so the other field's keys must not stand in for it.
-        driver = (
-            self._driver(object_collections=keys, audience_keys="beta")
-            if endpoint == "objects"
-            else self._driver(object_collections="accounts", audience_keys=keys)
-        )
-        result = driver.run(endpoint, [])
+        # Each table reads its own field, so the other fields' keys must not stand in for it.
+        fields: dict[str, str | None] = {
+            "object_collections": "accounts",
+            "audience_keys": "beta",
+            "in_app_feed_channel_ids": "chan-1",
+        }
+        fields[field] = keys
+        result = self._driver(**fields).run(endpoint, [])
 
         assert isinstance(result.raised, ValueError)
         assert str(result.raised) == expected_error
+
+    def test_feed_items_walk_users_per_configured_channel(self) -> None:
+        feed_page = ScriptedResponse(
+            json={"entries": [{"id": "msg_1"}], "meta": {"total_count": 1}, "page_info": {"after": None}}
+        )
+        result = self._driver(in_app_feed_channel_ids="chan-1, chan/2").run(
+            "user_feed_items",
+            [
+                _page("users", [{"id": "team/jane"}], after=None),
+                feed_page,
+                _page("users", [{"id": "team/jane"}], after=None),
+                feed_page,
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == [
+            "/v1/users",
+            "/v1/users/team%2Fjane/feeds/chan-1",
+            "/v1/users",
+            "/v1/users/team%2Fjane/feeds/chan%2F2",
+        ]
+        # The feed hides archived items unless asked, which a full refresh would drop.
+        assert [request.param("archived") for request in result.requests[1::2]] == ["include", "include"]
+        assert [request.param("page_size") for request in result.requests] == ["50"] * 4
+        assert [(row["channel_id"], row["user_id"], row["id"]) for row in result.rows] == [
+            ("chan-1", "team/jane", "msg_1"),
+            ("chan/2", "team/jane", "msg_1"),
+        ]
+        # A checkpoint would resume as an append and repeat a half-read channel, so a hand-off
+        # must restart the run as a fresh full refresh.
+        assert result.saved_states == []
+        # Only a framework `Resource` gets per-page safe points through users with empty feeds.
+        assert result.response is not None
+        assert isinstance(result.response.items(), Resource)
+
+    def test_feed_items_fail_on_unknown_channel(self) -> None:
+        # An unknown user gets an empty feed, so a 404 can only mean a wrong channel id. Ignoring
+        # it would sync an empty table with no error.
+        result = self._driver(in_app_feed_channel_ids="not-a-channel").run(
+            "user_feed_items",
+            [
+                _page("users", [{"id": "u1"}], after=None),
+                ScriptedResponse(status=404, json={"code": "resource_missing", "message": "Not found"}),
+            ],
+        )
+
+        assert result.raised is not None
+        assert result.rows == []
 
 
 class TestValidateCredentials:

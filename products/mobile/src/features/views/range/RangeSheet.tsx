@@ -66,6 +66,11 @@ export function RangeSheet({
         if (range.preset !== key) {
             range.setChoice({ kind: 'preset', key }, method)
         }
+        onClose()
+    }
+    const reset = (): void => {
+        range.reset()
+        onClose()
     }
     const applyCustom = (start: string, end: string): void => {
         range.setChoice(customRange(start, end), 'custom')
@@ -82,11 +87,7 @@ export function RangeSheet({
             accessibilityLabel={page === 'main' ? 'Date range' : 'Custom range'}
             testID="range-sheet"
         >
-            {page === 'main' ? (
-                <SheetTitle title="Date range" onDone={onClose} />
-            ) : (
-                <CustomHead onBack={() => setPage('main')} />
-            )}
+            {page === 'main' ? <SheetTitle title="Date range" /> : <CustomHead onBack={() => setPage('main')} />}
             <GestureDetector gesture={listGesture}>
                 <ScrollView
                     style={{ maxHeight: Math.round(height * 0.74) }}
@@ -100,6 +101,7 @@ export function RangeSheet({
                             detail={detail}
                             compare={compare}
                             onChoose={choose}
+                            onReset={reset}
                             onCustom={() => setPage('custom')}
                         />
                     ) : (
@@ -125,10 +127,11 @@ interface MainPageProps {
     detail: string | null
     compare: RangeCompareRow | null
     onChoose: (key: RangePresetKey, method: 'chip' | 'more') => void
+    onReset: () => void
     onCustom: () => void
 }
 
-function MainPage({ range, emptyLabel, detail, compare, onChoose, onCustom }: MainPageProps): ReactElement {
+function MainPage({ range, emptyLabel, detail, compare, onChoose, onReset, onCustom }: MainPageProps): ReactElement {
     const colors = useColors()
     const styles = useStyles()
     const fixed = range.choice?.kind === 'fixed'
@@ -183,7 +186,7 @@ function MainPage({ range, emptyLabel, detail, compare, onChoose, onCustom }: Ma
             {compare ? <CompareRow compare={compare} /> : null}
             {range.isSaved ? null : (
                 <Pressable44
-                    onPress={range.reset}
+                    onPress={onReset}
                     pressedBackground={colors.pressed}
                     style={styles.reset}
                     testID="range-reset"

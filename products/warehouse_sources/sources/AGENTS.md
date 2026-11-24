@@ -8,7 +8,7 @@ Vendors that other code imports (core-coupled vendors) stay in the product.
 
 ```text
 products/warehouse_sources/sources/<vendor>/
-  __init__.py      # required: tach, grimp and pytest only see regular packages
+  __init__.py      # required: mypy and pytest name a module by the __init__.py files above it
   source.py        # the source class, registered with SourceRegistry
   _config.py       # generated config (pnpm generate:source-configs)
   tests/
@@ -24,9 +24,9 @@ A new vendor still needs its `ExternalDataSourceType` enum member.
 
 Import shared code only from `products.warehouse_sources.sources.sdk`. Tests can also import from `products.warehouse_sources.sources.sdk.testing`.
 Import your own directory as `products.warehouse_sources.sources.<vendor>`. Do not import another vendor.
-tach (`products.warehouse_sources.sources.*` in `tach.toml`) checks vendor code, and import-linter (`pyproject.toml`) also checks vendor tests, including that a vendor does not import a sibling vendor.
+hoglint's `sources-vendors-use-sdk` and `sources-vendors-independent` rules check vendor code and vendor tests, including that a vendor does not import a sibling vendor.
 If you need a shared name that the SDK does not have, add it to `products/warehouse_sources/sources/sdk/__init__.py` (or `testing.py`) from its origin module.
-`products/warehouse_sources/sources/sdk/internals.py` holds names from product modules that tach does not expose. Do not add to it if a module that the product exposes has the name.
+`products/warehouse_sources/sources/sdk/internals.py` holds names from product modules that the product does not expose. Do not add to it if a module that the product exposes has the name.
 A `mock.patch` target names the origin module, not `products.warehouse_sources.sources.sdk`: a patch on a re-export changes nothing.
 
 ## Tests
@@ -45,3 +45,7 @@ That job has no Postgres, ClickHouse, Redis or Kafka, so a vendor test must not 
 A pull request that changes only vendor directories runs the tests of those vendors, the catalog tests of those vendors, and the repo invariants scoped to those directories.
 A change to `products/warehouse_sources/sources/sdk/`, a file at the top of `products/warehouse_sources/sources/` (for example `conftest.py`), `products/warehouse_sources/backend/` or any other file runs every vendor.
 `tools/warehouse_sources_vendor_selection.py` makes that choice.
+In the merge queue, a pull request whose files are all inside vendor directories (markdown aside) gets a lane of its own, so it does not queue behind core changes, and its queue run narrows the same way.
+The generated registries in `VENDOR_REGISTRY_FILES` of `tools/warehouse_sources_vendor_selection.py` count as vendor files too, so a new source stays in that lane.
+A pull request that also touches any other file outside the vendor directories keeps the shared lanes and usually gets the full queue run.
+Keep a vendor change inside its directory to get the short queue run.

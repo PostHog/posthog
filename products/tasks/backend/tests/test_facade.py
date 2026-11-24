@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from typing import Any, ClassVar
 from uuid import UUID, uuid4
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.apps import apps
 from django.db import close_old_connections, connection, transaction
@@ -20,6 +20,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.clickhouse.query_tagging import get_query_tags, reset_query_tags
 from posthog.constants import AvailableFeature
 from posthog.models import Integration, Organization, OrganizationMembership, Team
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.scoping import team_scope
 from posthog.models.user import User
 
@@ -330,6 +331,44 @@ class TestFacadeReadsAndMappers(TestCase):
         defaults.update(kwargs)
         return Task.objects.create(**defaults)
 
+    @parameterized.expand([("delivered", None, True), ("not_delivered", RuntimeError("temporal is down"), False)])
+    def test_client_activity_counts_as_life_only_when_its_signal_lands(
+        self, _name: str, signal_error: Exception | None, heartbeat_stored: bool
+    ) -> None:
+        run = TaskRun.objects.create(task=self._make_task(), team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        with patch("posthog.temporal.common.client.sync_connect") as connect:
+            connect.return_value.get_workflow_handle.return_value.signal = AsyncMock(side_effect=signal_error)
+            facade.signal_task_run_client_activity(run.id, run.task_id, self.team.id)
+
+        run.refresh_from_db()
+        self.assertEqual(run.last_heartbeat_at is not None, heartbeat_stored)
+
+    def test_heartbeat_does_not_reach_a_run_of_another_task(self) -> None:
+        other_run = TaskRun.objects.create(
+            task=self._make_task(), team=self.team, status=TaskRun.Status.QUEUED, environment=TaskRun.Environment.LOCAL
+        )
+
+        outcome = facade.record_local_task_run_heartbeat(other_run.id, self._make_task().id, self.team.id)
+
+        self.assertEqual(outcome, "not_found")
+        other_run.refresh_from_db()
+        self.assertIsNone(other_run.last_heartbeat_at)
+
+    @parameterized.expand([("completed", TaskRun.Status.COMPLETED), ("queued", TaskRun.Status.QUEUED)])
+    def test_heartbeat_does_not_reach_a_run_from_before_a_handoff(self, _name: str, run_status: str) -> None:
+        task = self._make_task(state={TASK_OWNERSHIP_VERSION_STATE_KEY: "current-version"})
+        run = TaskRun.objects.create(
+            task=task, team=self.team, status=run_status, environment=TaskRun.Environment.LOCAL, state={}
+        )
+
+        outcome = facade.record_local_task_run_heartbeat(run.id, task.id, self.team.id)
+
+        self.assertEqual(outcome, "not_found")
+        run.refresh_from_db()
+        self.assertEqual(run.status, run_status)
+        self.assertIsNone(run.last_heartbeat_at)
+
     @parameterized.expand(
         [
             ("the_sandbox", True, True),
@@ -457,9 +496,9 @@ class TestFacadeReadsAndMappers(TestCase):
         self.assertIsNone(resumed_run)
 
     @override_settings(TASKS_WORKFLOW_DISPATCH_OUTBOX_ENABLED=True)
-    def test_resume_in_cloud_logs_a_restart_beside_a_live_run(self):
+    def test_resume_in_cloud_refuses_a_restart_beside_a_live_run(self):
         task = self._make_task()
-        live = TaskRun.objects.create(
+        TaskRun.objects.create(
             task=task, team=self.team, environment=TaskRun.Environment.CLOUD, status=TaskRun.Status.QUEUED
         )
         run = TaskRun.objects.create(
@@ -470,13 +509,29 @@ class TestFacadeReadsAndMappers(TestCase):
             state={"pr_authorship_mode": "bot"},
         )
 
-        with patch("products.tasks.backend.models.log_run_started_beside_live_run") as log_started:
-            outcome, _, _ = facade.resume_task_run_in_cloud(run.id, task.id, self.team.id, self.user.id)
+        outcome, _, _ = facade.resume_task_run_in_cloud(run.id, task.id, self.team.id, self.user.id)
 
-        self.assertEqual(outcome, "resumed")
-        log_started.assert_called_once_with(run, [live.id])
+        self.assertEqual(outcome, "run_in_progress")
         run.refresh_from_db()
-        self.assertEqual(run.environment, TaskRun.Environment.CLOUD)
+        self.assertEqual(run.status, TaskRun.Status.COMPLETED)
+
+    def test_a_warm_run_refuses_its_first_message_while_another_run_is_live(self):
+        task = self._make_task()
+        TaskRun.objects.create(
+            task=task, team=self.team, environment=TaskRun.Environment.CLOUD, status=TaskRun.Status.IN_PROGRESS
+        )
+        warm = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            environment=TaskRun.Environment.CLOUD,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={"await_user_message": True},
+        )
+
+        with self.assertRaises(facade.TaskRunAlreadyLiveError):
+            facade.signal_task_run_user_message(
+                warm.id, task.id, self.team.id, content="hello", artifact_ids=[], actor_user_id=self.user.id
+            )
 
     @parameterized.expand([(Task.OriginProduct.SIGNAL_REPORT,), (Task.OriginProduct.SIGNALS_SCOUT,)])
     def test_resume_in_cloud_cannot_reopen_automated_spend(self, origin_product: str) -> None:
@@ -2087,6 +2142,7 @@ class TestFacadeReadsAndMappers(TestCase):
         # The encrypted JSON field round-trips an empty dict as None; either way, no env vars.
         self.assertFalse(env.environment_variables)
         self.assertEqual(env.repositories, [])
+        self.assertFalse(ActivityLog.objects.filter(scope="SandboxEnvironment").exists())
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_task_returns_contract(self, _mock_workflow):

@@ -243,6 +243,12 @@ def _get_top_level_rows(
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[CodecovResumeConfig],
 ) -> Iterator[list[dict[str, Any]]]:
+    if config.response_shape is CodecovResponseShape.OBJECT:
+        data = _fetch_page(session, _endpoint_url(owner_base_url, config.path, config.extra_params), headers, logger)
+        if data:
+            yield [data]
+        return
+
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume is not None and resume.next_url:
         url = _ensure_codecov_url(resume.next_url)

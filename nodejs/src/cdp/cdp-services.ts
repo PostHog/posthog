@@ -1,9 +1,12 @@
+import { Counter } from 'prom-client'
+
 import { AppMetricsOutput, HogInvocationResultsOutput, LogEntriesOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
-import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
-import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
+import { ConsistentPersonReader, PersonReadRepository } from '~/common/persons/repositories/person-repository'
+import { RedisOptions, RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { UsageIngestionConfig, createUsageIngestionClient, usageReportTeamMatcher } from '~/common/usage-ingestion'
+import { limitNewConnectionsWith } from '~/common/utils/connection-rate-limiter'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { getRedisHost } from '~/common/utils/db/redis'
 import { logger } from '~/common/utils/logger'
@@ -14,7 +17,13 @@ import { InternalLogsProducer, InternalLogsProducerConfig } from '~/logs/interna
 import type { CommonConfig } from '../common/config'
 import { InternalCaptureService } from '../common/services/internal-capture'
 import type { CdpConfig } from './config'
-import { CdpEventsDlqOutput, SesWebhooksOutput, WarehouseSourceWebhooksOutput } from './outputs/outputs'
+import {
+    CdpEventsDlqOutput,
+    CdpIntakeDlqOutput,
+    CdpIntakeRunOutput,
+    SesWebhooksOutput,
+    WarehouseSourceWebhooksOutput,
+} from './outputs/outputs'
 import { CdpProducerName } from './outputs/producers'
 import { createCdpOutputsRegistry } from './outputs/registry'
 import { CapturedEventsService } from './services/captured-events/captured-events.service'
@@ -46,6 +55,10 @@ import { MessageAssetsService } from './services/messaging/message-assets.servic
 import { PushNotificationService } from './services/messaging/push-notification.service'
 import { RecipientPreferencesService } from './services/messaging/recipient-preferences.service'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
+import { SandboxEmailRuntime } from './services/messaging/sandbox/sandbox-email-runtime'
+import { SandboxEmailSendStep } from './services/messaging/sandbox/sandbox-email-step'
+import { SandboxEmailTester } from './services/messaging/sandbox/sandbox-email-tester'
+import { deliveredAddressReader } from './services/messaging/sandbox/sandbox-render'
 import {
     HogFunctionMonitoringService,
     parseInternalLogsSources,
@@ -71,6 +84,8 @@ export type CdpOutput =
     | HogInvocationResultsOutput
     | WarehouseSourceWebhooksOutput
     | CdpEventsDlqOutput
+    | CdpIntakeDlqOutput
+    | CdpIntakeRunOutput
     | SesWebhooksOutput
 
 export type CdpOutputs = IngestionOutputs<CdpOutput>
@@ -177,6 +192,8 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_WATCHER_OBSERVE_RESULTS_BUFFER_MAX_RESULTS'
         | 'CDP_HOGFLOW_AWAITED_STEPS_ENABLED'
         | 'WORKFLOWS_SANDBOX_SENDER_ENABLED'
+        | 'WORKFLOWS_SANDBOX_EMAIL_TEST_URL'
+        | 'WORKFLOWS_SANDBOX_EMAIL_TEST_JWT_SECRET'
         | 'CDP_INTERNAL_LOGS_SOURCES'
         | 'SES_ACCESS_KEY_ID'
         | 'SES_SECRET_ACCESS_KEY'
@@ -198,6 +215,8 @@ export type CdpCoreServicesConfig = Pick<
         | 'EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER'
         | 'CDP_EMAIL_UTM_LINK_SCANNER_TEAMS'
         | 'CDP_EMAIL_WORKFLOW_RUN_LINK_TAG_TEAMS'
+        | 'CDP_EMAIL_TEMPLATE_TAGS_TEAMS'
+        | 'CDP_EMAIL_TEXT_PART_TEAMS'
         | 'CDP_EMAIL_SOFT_BOUNCE_EVENT_TIME_TEAMS'
         | 'CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN'
         | 'CONVERSATIONS_TICKETS_JWT_SECRET'
@@ -224,6 +243,11 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_DLQ_BATCH_FAIL_RATIO'
         | 'CDP_EVENTS_DLQ_TOPIC'
         | 'CDP_EVENTS_DLQ_PRODUCER'
+        | 'CDP_INTAKE_DLQ_TOPIC'
+        | 'CDP_INTAKE_TRANSACTIONAL_EMAIL_TOPIC'
+        | 'CDP_INTAKE_WORKFLOW_WEBHOOK_TOPIC'
+        | 'CDP_INTAKE_MSK_PRODUCER'
+        | 'CDP_INTAKE_DLQ_PRODUCER'
         | 'CDP_SES_WEBHOOKS_TOPIC'
         | 'CDP_SES_WEBHOOKS_PRODUCER'
     > &
@@ -235,6 +259,7 @@ export interface CdpCoreServicesDeps {
     encryptedFields: EncryptedFields
     teamManager: TeamManager
     personRepository: PersonReadRepository
+    consistentPersonReader?: ConsistentPersonReader
     integrationManager: IntegrationManagerService
     /** Registry of producers backing the CDP outputs (DEFAULT / MSK / Warpstream-ingestion / Warehouse). */
     cdpProducerRegistry: KafkaProducerRegistry<CdpProducerName>
@@ -252,6 +277,7 @@ export interface CdpCoreServicesDeps {
      * `null` elsewhere, and when no host is configured, which turns the cap off.
      */
     frequencyCapValkey: RedisV2 | null
+    sandboxEmail?: SandboxEmailRuntime | null
 }
 
 /**
@@ -307,6 +333,44 @@ export function createCdpReaderRedisPool(
     return writerPool
 }
 
+const shadowCallsFailedOpenTotal = new Counter({
+    name: 'cdp_valkey_shadow_calls_failed_open_total',
+    help: 'Shadow Valkey calls with failOpen that failed: a pool or command error that returned null, or a pipeline with a failed command.',
+    labelNames: ['name'],
+})
+
+function failOpenOnAnyError(pool: RedisV2): RedisV2 {
+    const countFailedOpen = (options: RedisOptions, error: unknown): void => {
+        shadowCallsFailedOpenTotal.inc({ name: options.name })
+        logger.warn('🪞', `[${options.name}] shadow valkey call failed open`, { error: String(error) })
+    }
+    const failOpen = async <T>(options: RedisOptions, call: () => Promise<T | null>): Promise<T | null> => {
+        try {
+            return await call()
+        } catch (error) {
+            if (!options.failOpen) {
+                throw error
+            }
+            countFailedOpen(options, error)
+            return null
+        }
+    }
+    return {
+        useClient: (options, callback) =>
+            failOpen(options, () => pool.useClient({ ...options, failOpen: false }, callback)),
+        usePipeline: async (options, callback) => {
+            const results = await failOpen(options, () => pool.usePipeline({ ...options, failOpen: false }, callback))
+            // ioredis resolves a pipeline whose commands failed, with the errors in the results, so the catch above
+            // never sees a command that timed out inside a pipeline.
+            const commandError = results?.find(([error]) => error)?.[0]
+            if (options.failOpen && commandError) {
+                countFailedOpen(options, commandError)
+            }
+            return results
+        },
+    }
+}
+
 /**
  * Creates writer + reader pools for the shadow Valkey instance used in dual-write/read mode.
  * Throws when CDP_VALKEY_HOST is unset: a CDP process that cannot reach Valkey is
@@ -348,61 +412,51 @@ export function createCdpValkeyShadowPools(
 
     const tls = config.CDP_VALKEY_TLS ? {} : undefined
 
-    const writer = createRedisV2PoolFromConfig({
-        connection: {
-            url: config.CDP_VALKEY_HOST,
-            options: {
-                port: config.CDP_VALKEY_PORT,
-                password: config.CDP_VALKEY_PASSWORD,
-                commandTimeout: shadowCommandTimeoutMs,
-                tls,
-            },
-            name: `${name}-shadow`,
-        },
-        poolMinSize: config.REDIS_POOL_MIN_SIZE,
-        poolMaxSize: config.REDIS_POOL_MAX_SIZE,
-    })
-
     // The config is required, but reachability is not fatal: features not named in
     // CDP_VALKEY_READ_FEATURES still read from Redis, so an unreachable Valkey must not take
     // CDP down at boot. Features that have moved over surface it as failing reads instead.
-    void writer
-        .useClient({ name: 'startup-ping', timeout: 5000 }, (client) => client.ping())
-        .catch((err) => {
-            logger.error(
-                '🪞',
-                `[${name}] shadow writer at ${config.CDP_VALKEY_HOST}:${config.CDP_VALKEY_PORT} failed startup health check — valkey ops will surface as "[mirror:*] failed" warn logs from dual-store`,
-                { err }
-            )
-        })
-
-    let reader: RedisV2 = writer
-    if (config.CDP_VALKEY_READER_HOST) {
-        reader = createRedisV2PoolFromConfig({
-            connection: {
-                url: config.CDP_VALKEY_READER_HOST,
-                options: {
-                    port: config.CDP_VALKEY_READER_PORT,
-                    password: config.CDP_VALKEY_PASSWORD,
-                    commandTimeout: shadowCommandTimeoutMs,
-                    tls,
+    const createShadowPool = (host: string, port: number, poolName: string, role: string): RedisV2 => {
+        const pool = failOpenOnAnyError(
+            createRedisV2PoolFromConfig({
+                connection: {
+                    url: host,
+                    options: {
+                        port,
+                        password: config.CDP_VALKEY_PASSWORD,
+                        commandTimeout: shadowCommandTimeoutMs,
+                        tls,
+                    },
+                    name: poolName,
+                    exitOnRepeatedErrors: false,
                 },
-                name: `${name}-shadow-reader`,
-            },
-            poolMinSize: config.REDIS_POOL_MIN_SIZE,
-            poolMaxSize: config.REDIS_POOL_MAX_SIZE,
-        })
+                poolMinSize: config.REDIS_POOL_MIN_SIZE,
+                poolMaxSize: config.REDIS_POOL_MAX_SIZE,
+                acquireTimeoutMillis: shadowCommandTimeoutMs,
+                discardStalledClients: true,
+            })
+        )
 
-        void reader
+        void pool
             .useClient({ name: 'startup-ping', timeout: 5000 }, (client) => client.ping())
             .catch((err) => {
                 logger.error(
                     '🪞',
-                    `[${name}] shadow reader at ${config.CDP_VALKEY_READER_HOST}:${config.CDP_VALKEY_READER_PORT} failed startup health check`,
+                    `[${name}] shadow ${role} at ${host}:${port} failed startup health check — valkey ops will surface as "[mirror:*] failed" warn logs from dual-store`,
                     { err }
                 )
             })
+        return pool
     }
+
+    const writer = createShadowPool(config.CDP_VALKEY_HOST, config.CDP_VALKEY_PORT, `${name}-shadow`, 'writer')
+    const reader = config.CDP_VALKEY_READER_HOST
+        ? createShadowPool(
+              config.CDP_VALKEY_READER_HOST,
+              config.CDP_VALKEY_READER_PORT,
+              `${name}-shadow-reader`,
+              'reader'
+          )
+        : writer
 
     return { writer, reader }
 }
@@ -426,6 +480,7 @@ export function createCdpCoreServices(
 
     const redisReader = createCdpReaderRedisPool(config, redis, redisName)
     const valkeyShadow = createCdpValkeyShadowPools(config, redisName)
+    limitNewConnectionsWith(redis)
 
     // Every CDP process funnels through here, so this is the one place the per-feature read
     // source has to be applied for `dualRead` / `dualWrite` to see it.
@@ -479,7 +534,12 @@ export function createCdpCoreServices(
         softBounceEventTimeTeams: config.CDP_EMAIL_SOFT_BOUNCE_EVENT_TIME_TEAMS,
     })
     const recipientsManager = new RecipientsManagerService(deps.postgres)
-    const personsManager = new PersonsManagerService(deps.teamManager, deps.personRepository, config.SITE_URL)
+    const personsManager = new PersonsManagerService(
+        deps.teamManager,
+        deps.personRepository,
+        config.SITE_URL,
+        deps.consistentPersonReader
+    )
     const workflowsActivationReporter = new WorkflowsActivationReporter(deps.teamManager, deps.postgres)
     // Per-workflow send pacing rides the SES Valkey pool, which is only populated on pods that
     // execute email actions — exactly where the limit is enforced. Null elsewhere disables it.
@@ -505,6 +565,8 @@ export function createCdpCoreServices(
             teamEmailTierDailyCaps: parseTierCaps(config.EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER),
             utmLinkScannerTeams: config.CDP_EMAIL_UTM_LINK_SCANNER_TEAMS,
             workflowRunLinkTagTeams: config.CDP_EMAIL_WORKFLOW_RUN_LINK_TAG_TEAMS,
+            templateTagsTeams: config.CDP_EMAIL_TEMPLATE_TAGS_TEAMS,
+            textPartTeams: config.CDP_EMAIL_TEXT_PART_TEAMS,
         },
         deps.integrationManager,
         teamWorkflowsConfigService,
@@ -596,6 +658,7 @@ export function createCdpCoreServices(
         createUsageIngestionClient(config, 'cdp'),
         usageReportTeamMatcher(config)
     )
+    const sandboxDeliveredAddress = deliveredAddressReader(deps.postgres)
     const hogFlowExecutor = new HogFlowExecutorService(
         hogFlowFunctionsService,
         recipientPreferencesService,
@@ -607,7 +670,31 @@ export function createCdpCoreServices(
         cdpUsageReporter,
         {
             awaitedStepsEnabled: config.CDP_HOGFLOW_AWAITED_STEPS_ENABLED,
-            sandboxEmail: { enabled: config.WORKFLOWS_SANDBOX_SENDER_ENABLED },
+            sandboxEmail: {
+                enabled: config.WORKFLOWS_SANDBOX_SENDER_ENABLED,
+                send: deps.sandboxEmail
+                    ? new SandboxEmailSendStep({
+                          service: deps.sandboxEmail.service,
+                          events: deps.sandboxEmail.events,
+                          hogInputsService,
+                          deliveredAddress: sandboxDeliveredAddress,
+                          siteUrl: config.SITE_URL,
+                          recipientPreferences: recipientPreferencesService,
+                          teamWorkflowsConfig: teamWorkflowsConfigService,
+                          sesBucket: deps.sandboxEmail.sesBucket,
+                      })
+                    : null,
+                testClient: new SandboxEmailTester({
+                    hogInputsService,
+                    deliveredAddress: sandboxDeliveredAddress,
+                    siteUrl: config.SITE_URL,
+                    endpoint: config.WORKFLOWS_SANDBOX_EMAIL_TEST_URL,
+                    jwt: new ScopedServiceJwt(
+                        PosthogJwtAudience.WORKFLOWS_SANDBOX_EMAIL_TEST,
+                        config.WORKFLOWS_SANDBOX_EMAIL_TEST_JWT_SECRET
+                    ),
+                }),
+            },
         }
     )
 

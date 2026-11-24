@@ -53,6 +53,35 @@ class TestSlackAlertsRouting:
             "Runbook: https://wiki.posthog.com/services/clickhouse/runbooks/query-log-archive-export"
         )
 
+    @parameterized.expand(
+        [
+            ("current_owner", JobOwners.TEAM_ANALYTICS.value),
+            ("owner_stored_before_rename", "team-web-analytics"),
+        ]
+    )
+    def test_failure_alert_goes_to_analytics_channel(self, _name, owner):
+        failed_run = dagster.DagsterRun("some_web_job", run_id="run-id", tags={"owner": owner})
+        failure_event = dagster.DagsterEvent(
+            event_type_value=dagster.DagsterEventType.RUN_FAILURE.value,
+            job_name=failed_run.job_name,
+            message="failed",
+        )
+        context = dagster.RunFailureSensorContext(
+            sensor_name="notify_slack_on_failure",
+            dagster_run=failed_run,
+            dagster_event=failure_event,
+            instance=dagster.DagsterInstance.ephemeral(),
+        )
+        slack = mock.MagicMock()
+
+        with (
+            mock.patch("posthog.dags.slack_alerts.settings.CLOUD_DEPLOYMENT", "US"),
+            mock.patch("posthog.dags.slack_alerts.settings.DAGSTER_DOMAIN", "dagster.example.com"),
+        ):
+            notify_slack_on_failure(context, slack=slack)
+
+        assert slack.get_client.return_value.chat_postMessage.call_args.kwargs["channel"] == "#alerts-web-analytics"
+
     def test_regular_job_uses_owner_tag(self):
         mock_run = mock.MagicMock(spec=dagster.DagsterRun)
         mock_run.job_name = "some_regular_job"
@@ -73,7 +102,7 @@ class TestSlackAlertsRouting:
 
         result = get_job_owner_for_alert(mock_run, error_message)
 
-        assert result == JobOwners.TEAM_WEB_ANALYTICS.value
+        assert result == JobOwners.TEAM_ANALYTICS.value
 
     def test_asset_job_with_mixed_steps_routes_to_web_analytics(self):
         mock_run = mock.MagicMock(spec=dagster.DagsterRun)
@@ -84,7 +113,7 @@ class TestSlackAlertsRouting:
 
         result = get_job_owner_for_alert(mock_run, error_message)
 
-        assert result == JobOwners.TEAM_WEB_ANALYTICS.value
+        assert result == JobOwners.TEAM_ANALYTICS.value
 
     @parameterized.expand(
         [
@@ -302,6 +331,34 @@ class TestSendSlackAlert:
         # The retry must be text-only (no blocks) so a formatting/size issue can't suppress it.
         retry_kwargs = client.chat_postMessage.call_args_list[1].kwargs
         assert retry_kwargs == {"channel": "#test-channel", "text": "fallback"}
+
+    @parameterized.expand([("not_in_channel",), ("channel_not_found",), ("is_archived",)])
+    def test_unreachable_channel_resends_to_default_channel(self, code):
+        context = mock.MagicMock()
+        client = mock.MagicMock()
+        client.chat_postMessage.side_effect = [self._block_rejection(code), {"ok": True}]
+
+        with mock.patch("posthog.dags.slack_alerts.settings") as settings:
+            settings.DAGSTER_DEFAULT_SLACK_ALERTS_CHANNEL = "#alerts-default"
+            sent = send_slack_alert(context, client, "#alerts-team", self._blocks(), "fallback")
+
+        assert sent
+        retry = client.chat_postMessage.call_args_list[1].kwargs
+        assert retry["channel"] == "#alerts-default"
+        assert "#alerts-team" in retry["text"] and retry["text"].endswith("fallback")
+        assert retry["blocks"][1:] == self._blocks()
+
+    def test_unreachable_default_channel_does_not_retry(self):
+        context = mock.MagicMock()
+        client = mock.MagicMock()
+        client.chat_postMessage.side_effect = self._block_rejection("not_in_channel")
+
+        with mock.patch("posthog.dags.slack_alerts.settings") as settings:
+            settings.DAGSTER_DEFAULT_SLACK_ALERTS_CHANNEL = "#alerts-default"
+            sent = send_slack_alert(context, client, "#alerts-default", self._blocks(), "fallback")
+
+        assert not sent
+        assert client.chat_postMessage.call_count == 1
 
     def test_ambiguous_api_error_does_not_retry(self):
         context = mock.MagicMock()

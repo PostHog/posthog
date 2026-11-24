@@ -21,7 +21,7 @@ from posthog.exceptions import Conflict
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
 from posthog.permissions import APIScopePermission, TeamMemberAccessPermission, get_authenticator_scopes
-from posthog.scopes import scopes_not_covered
+from posthog.scopes.checks import scopes_not_covered
 from posthog.utils import UUID_REGEX
 
 from ..facade import api
@@ -89,7 +89,15 @@ ScopeLevel = Literal["read", "write"]
 
 
 def _surface(request: ValidatedRequest) -> WarehouseSuggestionSurface | None:
-    surface = request.validated_query_data.get("surface")
+    return _surface_from(request.validated_query_data)
+
+
+def _bulk(request: ValidatedRequest) -> bool:
+    return request.validated_query_data.get("bulk") is True
+
+
+def _surface_from(data: dict[str, Any]) -> WarehouseSuggestionSurface | None:
+    surface = data.get("surface")
     return WarehouseSuggestionSurface(surface) if surface else None
 
 
@@ -192,7 +200,7 @@ class WarehouseSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         result = api.surface_more(
             self.team,
             self.user_access_control,
-            surface=WarehouseSuggestionSurface(request.validated_data["surface"]),
+            surface=_surface_from(request.validated_data),
             subject_kinds=self._subject_kinds,
         )
         return Response(WarehouseSuggestionSurfaceMoreResultSerializer(result).data)
@@ -222,6 +230,7 @@ class WarehouseSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
                 note=request.validated_data.get("note") or None,
                 subject_kinds=self._subject_kinds,
                 surface=_surface(request),
+                bulk=_bulk(request),
             )
         )
 
@@ -242,6 +251,7 @@ class WarehouseSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
                 was_impersonated=is_impersonated(request),
                 subject_kinds=self._subject_kinds,
                 surface=_surface(request),
+                bulk=_bulk(request),
             )
         )
 

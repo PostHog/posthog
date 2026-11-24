@@ -45,11 +45,12 @@ from products.tasks.backend.logic.services.agent_server_launcher import AGENT_SE
 from products.tasks.backend.logic.services.agentsh import AGENTSH_DAEMON_PORT
 from products.tasks.backend.logic.services.cpu_billing import (
     CPU_BILLING_STATE_PATH,
+    CPU_STAT_PATH,
     build_sampler_start_command,
     compute_billed_cpu_usage_usec,
     parse_cpu_stat_usage_usec,
 )
-from products.tasks.backend.logic.services.sandbox import redact_sandbox_command
+from products.tasks.backend.logic.services.sandbox import redact_sandbox_command, sandbox_repo_path
 from products.tasks.backend.logic.services.sandbox_config import BURSTABLE_REQUEST_CPU_CORES
 
 from .sandbox import AgentServerResult, ExecutionResult, ExecutionStream, SandboxConfig, SandboxStatus, SandboxTemplate
@@ -452,8 +453,7 @@ class HoglandSandbox(AgentServerLaunchMixin):
         if not self.is_running():
             raise RuntimeError("Sandbox not in running state.")
 
-        org, repo = repository.lower().split("/")
-        repo_path = f"/tmp/workspace/repos/{org}/{repo}"
+        repo_path = sandbox_repo_path(repository)
 
         result = self.execute(f"cd {shlex.quote(repo_path)} && git status --porcelain")
         return not result.stdout.strip(), result.stdout
@@ -484,7 +484,7 @@ class HoglandSandbox(AgentServerLaunchMixin):
     def read_cpu_usage_usec(self) -> int | None:
         # Must go through exec: hogpanion's file endpoint sets Content-Length from
         # stat(), and sysfs files stat as size 0, so read_file returns an empty body.
-        result = self.execute("cat /sys/fs/cgroup/cpu.stat", timeout_seconds=10)
+        result = self.execute(f"cat {CPU_STAT_PATH}", timeout_seconds=10)
         if result.exit_code != 0:
             return None
         return parse_cpu_stat_usage_usec(result.stdout)

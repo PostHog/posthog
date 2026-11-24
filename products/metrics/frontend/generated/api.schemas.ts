@@ -37,11 +37,32 @@ export interface _MetricAttributeValuesResponseApi {
     results: _MetricAttributeValueApi[]
 }
 
+/**
+ * * `key` - key
+ * * `value` - value
+ */
+export type MatchedOnEnumApi = (typeof MatchedOnEnumApi)[keyof typeof MatchedOnEnumApi]
+
+export const MatchedOnEnumApi = {
+    Key: 'key',
+    Value: 'value',
+} as const
+
 export interface _MetricAttributeKeyApi {
     /** Attribute key as it appears on the team's metrics (e.g. 'env', 'k8s.pod.name'). */
     name: string
     /** Number of distinct values for this attribute in recent data. */
     value_count: number
+    /** Set to 'value' when the key matched through one of its values. Absent when its name matched.
+     *
+     * * `key` - key
+     * * `value` - value */
+    matchedOn?: MatchedOnEnumApi
+    /**
+     * One value that matched the search; only set when matchedOn is 'value'.
+     * @nullable
+     */
+    matchedValue?: string | null
 }
 
 export interface _MetricAttributeKeysResponseApi {
@@ -61,10 +82,13 @@ export interface _MetricAttributeKeysResponseApi {
  * * `rate` - rate
  * * `increase` - increase
  * * `histogram_quantile` - histogram_quantile
+ * * `count_rate` - count_rate
+ * * `count_increase` - count_increase
  */
-export type AggregationEnumApi = (typeof AggregationEnumApi)[keyof typeof AggregationEnumApi]
+export type MetricAnomalyAggregationEnumApi =
+    (typeof MetricAnomalyAggregationEnumApi)[keyof typeof MetricAnomalyAggregationEnumApi]
 
-export const AggregationEnumApi = {
+export const MetricAnomalyAggregationEnumApi = {
     Sum: 'sum',
     Avg: 'avg',
     Count: 'count',
@@ -74,6 +98,8 @@ export const AggregationEnumApi = {
     Rate: 'rate',
     Increase: 'increase',
     HistogramQuantile: 'histogram_quantile',
+    CountRate: 'count_rate',
+    CountIncrease: 'count_increase',
 } as const
 
 /**
@@ -154,8 +180,10 @@ export interface _MetricAnomalyBodyApi {
      * * `p95` - p95
      * * `rate` - rate
      * * `increase` - increase
-     * * `histogram_quantile` - histogram_quantile */
-    aggregation?: AggregationEnumApi | null
+     * * `histogram_quantile` - histogram_quantile
+     * * `count_rate` - count_rate
+     * * `count_increase` - count_increase */
+    aggregation?: MetricAnomalyAggregationEnumApi | null
     /**
      * Quantile for histogram_quantile. Defaults to 0.95.
      * @minimum 0
@@ -222,8 +250,38 @@ export type _MetricSeriesApiLabels = { [key: string]: string }
 export interface _MetricSeriesApi {
     /** Label values identifying this series. Empty for an ungrouped query. */
     labels: _MetricSeriesApiLabels
-    /** Time-bucketed points, ordered by time ascending. */
-    points: _MetricQueryPointApi[]
+    /** Time-bucketed points, ordered by time ascending. Absent for instant queries and the summary output. */
+    points?: _MetricQueryPointApi[]
+    /**
+     * Instant queries only: the series' value at 'time'.
+     * @nullable
+     */
+    value?: number | null
+    /**
+     * Instant queries: the time of 'value' (for the builder, the start of the bucket). Summary output: the time of 'last'.
+     * @nullable
+     */
+    time?: string | null
+    /**
+     * Summary output only: the last non-null value.
+     * @nullable
+     */
+    last?: number | null
+    /**
+     * Summary output only: the smallest non-null value.
+     * @nullable
+     */
+    min?: number | null
+    /**
+     * Summary output only: the largest non-null value.
+     * @nullable
+     */
+    max?: number | null
+    /**
+     * Summary output only: the mean of the non-null values.
+     * @nullable
+     */
+    avg?: number | null
     /**
      * Metric the series was computed from. Null for formula results.
      * @nullable
@@ -287,6 +345,11 @@ export interface _MetricAnomalyReportApi {
      * @nullable
      */
     onset_time: string | null
+    /**
+     * Start of the last bucket when it ends after anomalyTo or now, so it holds only part of its samples. It stays in series but is left out of every statistic, the onset and the movers. Null when every bucket is complete.
+     * @nullable
+     */
+    partial_bucket_time?: string | null
     /** Label values whose behavior changed the most between windows, largest change first. Empty when nothing moved or the metric has no labels. */
     top_movers: _MetricAnomalyDimensionApi[]
     /** The metric across baseline + anomaly windows on one grid, for plotting or further inspection. */
@@ -874,6 +937,8 @@ export const OtelMetricTypeEnumApi = {
  * * `rate` - rate
  * * `increase` - increase
  * * `histogram_quantile` - histogram_quantile
+ * * `count_rate` - count_rate
+ * * `count_increase` - count_increase
  */
 export type MetricQueryAggregationEnumApi =
     (typeof MetricQueryAggregationEnumApi)[keyof typeof MetricQueryAggregationEnumApi]
@@ -889,6 +954,8 @@ export const MetricQueryAggregationEnumApi = {
     Rate: 'rate',
     Increase: 'increase',
     HistogramQuantile: 'histogram_quantile',
+    CountRate: 'count_rate',
+    CountIncrease: 'count_increase',
 } as const
 
 /**
@@ -973,7 +1040,9 @@ export interface _MetricClauseApi {
      * * `p95` - p95
      * * `rate` - rate
      * * `increase` - increase
-     * * `histogram_quantile` - histogram_quantile */
+     * * `histogram_quantile` - histogram_quantile
+     * * `count_rate` - count_rate
+     * * `count_increase` - count_increase */
     aggregation?: MetricQueryAggregationEnumApi
     /** Counter-aware transform applied to each series before the aggregation: 'rate' (per-second) or 'increase'. Combine with 'none' to get one rate line per series. Do not combine with the 'rate' or 'increase' aggregations.
      *
@@ -987,11 +1056,28 @@ export interface _MetricClauseApi {
      * @nullable
      */
     quantile?: number | null
+    /**
+     * Apdex threshold T in milliseconds for 'posthog.derived.spans.apdex': a request is satisfied at or under T and tolerating up to 4T. Defaults to 500. Ignored for other metrics.
+     * @minimum 0.001
+     * @nullable
+     */
+    apdexThresholdMs?: number | null
     /** Label predicates ANDed together for this clause. */
     filters?: _MetricFilterApi[]
     /** Labels to split this clause into separate series by. */
     groupBy?: _MetricGroupByApi[]
 }
+
+/**
+ * * `points` - points
+ * * `summary` - summary
+ */
+export type MetricQueryOutputEnumApi = (typeof MetricQueryOutputEnumApi)[keyof typeof MetricQueryOutputEnumApi]
+
+export const MetricQueryOutputEnumApi = {
+    Points: 'points',
+    Summary: 'summary',
+} as const
 
 export interface _MetricQueryBodyApi {
     /**
@@ -1007,7 +1093,7 @@ export interface _MetricQueryBodyApi {
      * * `exponential_histogram` - exponential_histogram
      * * `summary` - summary */
     metricType?: OtelMetricTypeEnumApi | null
-    /** Defaults to 'sum'. Aggregation applied per time bucket, always across series rather than across raw samples. 'sum', 'avg', 'min', 'max' and 'p95' reduce each series to its last sample in the bucket and then combine those, so the result does not scale with the scrape rate; 'count' is the number of series that reported. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'. 'none' skips the aggregation and returns one series per label set, at most 100, using each series' last sample per bucket; it cannot be combined with 'groupBy'.
+    /** Defaults to 'sum'. Aggregation applied per time bucket, always across series rather than across raw samples. 'sum', 'avg', 'min', 'max' and 'p95' reduce each series to its last sample in the bucket and then combine those, so the result does not scale with the scrape rate; 'count' is the number of series that reported. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'. 'count_rate' (per-second) and 'count_increase' are 'rate' and 'increase' over a histogram's or summary's observation count instead of its running sum, so they chart requests per second from a latency histogram; they take no 'rangeFunction'. 'none' skips the aggregation and returns one series per label set, at most 100, using each series' last sample per bucket; it cannot be combined with 'groupBy'.
      *
      * * `none` - none
      * * `sum` - sum
@@ -1018,7 +1104,9 @@ export interface _MetricQueryBodyApi {
      * * `p95` - p95
      * * `rate` - rate
      * * `increase` - increase
-     * * `histogram_quantile` - histogram_quantile */
+     * * `histogram_quantile` - histogram_quantile
+     * * `count_rate` - count_rate
+     * * `count_increase` - count_increase */
     aggregation?: MetricQueryAggregationEnumApi
     /** Counter-aware transform applied to each series before the aggregation: 'rate' (per-second) or 'increase'. Combine with 'none' to get one rate line per series. Do not combine with the 'rate' or 'increase' aggregations.
      *
@@ -1032,6 +1120,12 @@ export interface _MetricQueryBodyApi {
      * @nullable
      */
     quantile?: number | null
+    /**
+     * Apdex threshold T in milliseconds for 'posthog.derived.spans.apdex': a request is satisfied at or under T and tolerating up to 4T. Defaults to 500. Ignored for other metrics.
+     * @minimum 0.001
+     * @nullable
+     */
+    apdexThresholdMs?: number | null
     /** Label predicates ANDed together. Rows must satisfy every filter. */
     filters?: _MetricFilterApi[]
     /** Labels to split the result into separate series by. Series share one time grid and are capped at the 100 largest. */
@@ -1079,6 +1173,15 @@ export interface _MetricQueryBodyApi {
      * @nullable
      */
     limit?: number | null
+    /** Return one value per series instead of a time series. PromQL runs as an instant query at 'time'. The builder returns the last complete bucket before 'time', 5 minutes wide unless 'interval' says otherwise. Each series then has 'value' and 'time' instead of 'points'. Cannot be combined with 'dateFrom', 'dateTo' or 'output'. */
+    instant?: boolean
+    /** Evaluation time of an instant query: ISO 8601 or a relative offset like dateFrom. Defaults to now. Setting it makes the query instant. */
+    time?: string
+    /** 'points' (default) returns every point. 'summary' runs the same range query but returns per series only 'last' (the last non-null value), its 'time', and 'min', 'max' and 'avg' over the non-null points.
+     *
+     * * `points` - points
+     * * `summary` - summary */
+    output?: MetricQueryOutputEnumApi
 }
 
 export interface _MetricQueryRequestApi {
@@ -1095,6 +1198,8 @@ export interface _MetricQueryResponseApi {
     omitted_empty_series?: number
     /** Number of series left out by 'limit'. Set only when it left some out. */
     omitted_by_limit?: number
+    /** Search params that open this query in the metrics viewer, e.g. /metrics?<url_params>. For a builder query the viewer cannot show (a 'resource' or 'attribute' scope, an unusual quantile), they open the viewer without it. */
+    url_params?: string
 }
 
 export interface _MetricQueryCountApi {
@@ -1302,6 +1407,10 @@ export interface _MetricNameApi {
      * @nullable
      */
     first_seen?: string | null
+    /** Approximate number of distinct series (label sets) in the last 24 hours. Only present when `series_stats` was requested. */
+    series_count?: number
+    /** Number of distinct datapoint attribute keys in the last 24 hours. Only present when `series_stats` was requested. */
+    tag_key_count?: number
     /** Set when this entry folds a Prometheus classic histogram's three names. Absent otherwise. */
     classic_histogram?: _MetricClassicHistogramApi
 }
@@ -1485,6 +1594,10 @@ export type MetricsAttributesRetrieveParams = {
      * @maxLength 255
      */
     search?: string
+    /**
+     * Also list keys whose values contain the search term, on searches of 4 or more characters. Value matches come after key matches and carry matchedOn='value' with the matching matchedValue.
+     */
+    search_values?: boolean
 }
 
 export type MetricsDashboardTemplatesListParams = {
@@ -1581,6 +1694,10 @@ export type MetricsValuesRetrieveParams = {
      * @minLength 1
      */
     match?: MetricsValuesRetrieveMatch
+    /**
+     * Add `series_count` and `tag_key_count` for each name, over the last 24 hours.
+     */
+    series_stats?: boolean
     /**
      * Comma-separated services to narrow the list to, e.g. `service=web,worker`. Omit for every service. Send it empty to select only series whose sender did not set `service.name`. A service name containing a comma cannot be selected.
      * @maxLength 1024

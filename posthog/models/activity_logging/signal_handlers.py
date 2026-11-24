@@ -745,6 +745,15 @@ def handle_tagged_item_change(
 def handle_organization_change(
     sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
 ):
+    # The organization reads its own log, so a staff member who deactivates it for abuse stays unnamed there.
+    deactivated_from_outside = (
+        activity == "updated"
+        and user is not None
+        and before_update is not None
+        and before_update.is_active is not False
+        and after_update.is_active is False
+        and not after_update.memberships.filter(user_id=user.id).exists()
+    )
     log_activity(
         organization_id=after_update.id,
         team_id=None,
@@ -757,6 +766,7 @@ def handle_organization_change(
             changes=changes_between(scope, previous=before_update, current=after_update),
             name=after_update.name,
         ),
+        external_actor=deactivated_from_outside,
     )
 
 
@@ -907,7 +917,7 @@ def handle_project_secret_api_key_change(
     sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
 ):
     changes = changes_between(scope, previous=before_update, current=after_update)
-    log_project_secret_api_key_activity(after_update, activity, user, was_impersonated, changes)
+    log_project_secret_api_key_activity(after_update, activity, user, was_impersonated, changes, previous=before_update)
 
 
 @receiver(pre_delete, sender=ProjectSecretAPIKey)

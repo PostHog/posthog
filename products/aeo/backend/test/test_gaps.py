@@ -10,6 +10,8 @@ from parameterized import parameterized
 
 from posthog.models.team import Team
 
+from products.aeo.backend.brand import names_brand
+from products.aeo.backend.catalog import own_domains
 from products.aeo.backend.facade.api import import_prompts, list_citation_gaps, update_prompt
 from products.aeo.backend.facade.contracts import PromptImport, PromptUpdate
 from products.aeo.backend.models import AEOCitationCheck, AEOPrompt
@@ -52,6 +54,7 @@ class TestListCitationGaps(BaseTest):
             target_urls=target_urls,
             search_queries=queries or [],
             answer_text=answer_text,
+            names_brand=None if failed else names_brand(answer_text, own_domains(self.team.id)),
         )
 
     def test_returns_only_uncited_active_prompts_with_competitor_evidence(self) -> None:
@@ -115,10 +118,10 @@ class TestListCitationGaps(BaseTest):
     def test_counts_brand_mentions_by_the_registrable_domain_name(
         self, _name: str, answer_text: str, own_brand_on_this_team: bool, mentioned_checks: int
     ) -> None:
-        prompt = self._prompt("best session replay tool")
-        self._check(prompt, "claude-web-search", cited_urls=["https://rival.example/replay"], answer_text=answer_text)
         other_team = Team.objects.create(organization=self.organization, name="Other")
         create_own_brand(self.team if own_brand_on_this_team else other_team, "example.co.uk")
+        prompt = self._prompt("best session replay tool")
+        self._check(prompt, "claude-web-search", cited_urls=["https://rival.example/replay"], answer_text=answer_text)
 
         gaps = list_citation_gaps(self.team.id, since=timezone.now() - dt.timedelta(days=14))
 

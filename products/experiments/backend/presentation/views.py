@@ -33,6 +33,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.tagged_item import TaggedItemViewSetMixin
 from posthog.api.utils import MAX_LISTED_IDS, action
 from posthog.auth import ProjectSecretAPIKeyAuthentication
+from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import get_original_user_from_session
 from posthog.models.activity_logging.activity_log import ActivityLog, get_activity_page
 from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
@@ -58,10 +59,9 @@ from posthog.rate_limit import (
     SessionEventDeltasBurstRateThrottle,
     SessionEventDeltasSustainedRateThrottle,
 )
-from posthog.scopes import scopes_not_covered
+from posthog.scopes.checks import scopes_not_covered
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.temporal.common.client import sync_connect
-from posthog.temporal.experiments.models import ExperimentTimeseriesRecalculationWorkflowInputs
 from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.api import (
@@ -75,11 +75,7 @@ from products.access_control.backend.facade.user_access_control import (
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.approvals.backend.presentation.mixins import ApprovalHandlingMixin
 from products.experiments.backend.experiment_service import ExperimentService, ExperimentVersionConflict
-from products.experiments.backend.facade.api import (
-    get_experiment_health,
-    get_experiment_health_inputs,
-    get_running_time_target,
-)
+from products.experiments.backend.facade.api import get_experiment_health, get_running_time_target
 from products.experiments.backend.facade.contracts import (
     ExperimentHealthReaderAccess,
     LegacyMigrationError,
@@ -87,6 +83,7 @@ from products.experiments.backend.facade.contracts import (
 )
 from products.experiments.backend.facade.legacy_migration import migrate_experiment as migrate_legacy_experiment
 from products.experiments.backend.facade.replay import resolve_in_session_exposure_semantics
+from products.experiments.backend.facade.temporal import ExperimentTimeseriesRecalculationWorkflowInputs
 from products.experiments.backend.llm_metric_templates import build_template, list_templates
 
 # TODO: Route through facade instead of direct import
@@ -118,7 +115,6 @@ from products.experiments.backend.presentation.serializers import (
     ExperimentBasicSerializer,
     ExperimentFlagCleanupTargetSerializer,
     ExperimentFlagCleanupTaskSerializer,
-    ExperimentHealthInputsSerializer,
     ExperimentHealthSerializer,
     ExperimentInSessionExposureSerializer,
     ExperimentMatchingIdsResponseSerializer,
@@ -182,6 +178,8 @@ from products.experiments.backend.setup_context import (
     SetupContextInputs,
     build_setup_context,
 )
+from products.feature_flags.backend.facade.config import ConfigFormatError
+from products.feature_flags.backend.facade.rules import ExperimentRuleError
 from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.tasks.backend.facade import api as tasks_facade
@@ -540,6 +538,17 @@ class EnterpriseExperimentsViewSet(
         except ExperimentVersionConflict as err:
             return Response(err.response_data(), status=err.status_code)
 
+    def handle_exception(self, exc: Exception) -> Response:
+        # An action that still reads the flag as a config version 1 document cannot serve an experiment on a
+        # feature flag rule yet. That is a refused request, and the capture keeps an action that should work visible.
+        if isinstance(exc, ConfigFormatError | ExperimentRuleError):
+            capture_exception(exc)
+            exc = ValidationError(
+                "This is not supported yet for an experiment on a feature flag that has rules.",
+                code="feature_flag_rules_not_supported",
+            )
+        return super().handle_exception(exc)
+
     def _check_scout_update(self, request: Request) -> None:
         # The API has no hard delete, so `deleted: true` on an update is the delete a scout must not make.
         if is_true(request.data.get("deleted", False)):
@@ -572,7 +581,7 @@ class EnterpriseExperimentsViewSet(
                 .select_related("created_by")
                 .defer(*LIST_DEFERRED_FIELDS)
             )
-        if self.action in ("health", "health_inputs", "in_session_exposure"):
+        if self.action in ("health", "in_session_exposure"):
             # The facade reads the experiment again with the joins its checks need, so the object lookup
             # here only checks access.
             queryset = queryset.select_related(None).prefetch_related(None).select_related("team")
@@ -967,7 +976,10 @@ class EnterpriseExperimentsViewSet(
         it returns an info finding with the subcode `not_checked` and the cause in
         `reason`. A caller who can't view the linked flag's history (viewer access to the
         flag and, with an API key, `activity_log:read`) gets that finding for every running
-        experiment, because the changes are not read.
+        experiment, because the changes are not read. A finding that tells the reader to
+        move the start date offers `move_start_date`, and `evidence.suggested_start_date` holds that
+        date in UTC: set the experiment's `start_date` to it. When one variant was set to 100% of the
+        split, the finding offers `end_experiment` instead.
 
         Two checks read whether the project received an event from its event definitions: a
         definition without `last_seen_at`, such as one Wizard wrote for a planned event, counts as
@@ -1056,8 +1068,10 @@ class EnterpriseExperimentsViewSet(
         The severity of the `some_conditions_pinned` finding follows the largest share that the
         users of the pinned release conditions make up among the users who got one variant from
         the flag, in the last 7 days, or since launch or the flag's last save if later. It reads
-        the flag's calls that name the matched condition, not the experiment's exposure criteria:
-        info up to 5%, warning above, and no finding under 1% when at least half of the calls
+        the flag's calls that name the matched condition, not the experiment's exposure criteria.
+        When the experiment applies the filter for internal and test users, the counts leave out the
+        calls that the filter excludes, so pinned users that the filter excludes add nothing. The
+        severity is info up to 5%, warning above, and no finding under 1% when at least half of the calls
         that returned a variant name a condition. The finding is info when the share is unknown,
         and `reason` says why: `not_measured` (for example an API key without
         `query:read`, or a caller denied a flag call property), `too_few_people` (under 100), or
@@ -1069,7 +1083,9 @@ class EnterpriseExperimentsViewSet(
         Two findings say that the variants are assigned outside PostHog, as info. A running
         experiment whose flag has a 0% rollout gets `assigned_outside_flag_service` instead of
         `running_but_no_rollout` when 10 or more people got a variant from flag calls without a
-        flag version that are no local evaluation, from an hour after the window starts. When
+        flag version that are no local evaluation, from an hour after the window starts. The
+        count leaves out the calls that the filter for internal and test users excludes, when the
+        experiment applies it. When
         every condition that includes users pins the variant whose key one property holds,
         `assigned_by_property` replaces `all_conditions_pinned`. When none of them includes
         everyone, so that every other user gets no variant, `closed_to_matched_users` replaces it,
@@ -1115,35 +1131,6 @@ class EnterpriseExperimentsViewSet(
         )
         return Response(ExperimentHealthSerializer(health).data)
 
-    @extend_schema(
-        request=None,
-        responses=ExperimentHealthInputsSerializer,
-    )
-    @action(
-        methods=["GET"],
-        detail=True,
-        required_scopes=["experiment:read"],
-        throttle_classes=[ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle],
-    )
-    def health_inputs(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """
-        Staff only. The inputs that the health checks read for this reader, to debug why a finding shows or not:
-        the context of the checks in `health`, the exposure query's answer that the exposure checks read, and facts
-        about the project from the setup context's providers (the team's experiment defaults and which SDKs call
-        flags). The exposure answer comes from the cache. When it is missing or stale, a calculation starts in the
-        background and `exposures.status` says so.
-        """
-        if not (request.user.is_staff or settings.DEBUG or is_impersonated_session(request)):
-            raise PermissionDenied("Only staff users can read the health check inputs.")
-        experiment: Experiment = self.get_object()
-        inputs = get_experiment_health_inputs(
-            team_id=self.team_id,
-            experiment_id=experiment.id,
-            reader_access=self._health_reader_access(request, experiment),
-            user=cast(User, request.user),
-        )
-        return Response(ExperimentHealthInputsSerializer(inputs).data)
-
     def _health_reader_access(self, request: Request, experiment: Experiment) -> ExperimentHealthReaderAccess:
         # The split history is flag history, which `activity` keeps behind the flag's own access controls and
         # `activity_log:read`. It also queries events, which a scoped token reaches only with `query:read`.
@@ -1163,6 +1150,7 @@ class EnterpriseExperimentsViewSet(
             can_read_flag_history=bool(can_view_flag) and "activity_log:read" not in missing_scopes,
             can_query_events="query:read" not in missing_scopes,
             denied_event_properties=split_restricted_property_names(restrictions).event,
+            restricted_properties=frozenset(restrictions),
         )
 
     @validated_request(

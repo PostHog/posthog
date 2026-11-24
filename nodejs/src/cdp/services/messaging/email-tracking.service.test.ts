@@ -3,11 +3,13 @@ import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 import { mockFetch, mockInternalFetch } from '~/tests/helpers/mocks/request.mock'
 
-import { Server } from 'http'
+import { Server, createServer } from 'http'
+import { AddressInfo } from 'net'
 import { Message } from 'node-rdkafka'
 import { register } from 'prom-client'
 import supertest from 'supertest'
 import express from 'ultimate-express'
+import { v5 as uuidv5 } from 'uuid'
 
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import {
@@ -28,6 +30,8 @@ import {
     KAFKA_EMAIL_STATUS,
     KAFKA_LOG_ENTRIES,
 } from '~/common/config/kafka-topics'
+import { StallingValkeyProxy } from '~/common/redis/_tests/stalling-valkey-proxy'
+import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import * as envUtils from '~/common/utils/env-utils'
@@ -35,6 +39,7 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
+import { pinDate } from '~/tests/helpers/pin-date'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../../types'
@@ -50,7 +55,11 @@ import {
     resolveEmailEngagementDistinctId,
 } from './email-tracking.service'
 import { SesWebhookHandler } from './helpers/ses'
-import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
+import {
+    EmailTrackingCodeSigner,
+    MESSAGE_CREATED_HEADER_NAME,
+    TRACKING_CODE_HEADER_NAME,
+} from './helpers/tracking-code'
 
 describe('EmailTrackingService', () => {
     let hub: Hub
@@ -158,16 +167,17 @@ describe('EmailTrackingService', () => {
             expect(out).not.toContain('target=')
         })
 
-        const sensitiveInvocation = { ...invocation, hogFunction: { metadata: { sensitive: true } } }
-
         it.each([
             ['clicktracking="off"', '<body><a href="https://example.com" clicktracking="off">x</a></body>', invocation],
             ['data-ph-no-track', '<body><a href="https://example.com" data-ph-no-track>x</a></body>', invocation],
-            ['a sensitive template', '<body><a href="https://example.com">x</a></body>', sensitiveInvocation],
-        ])('leaves the href untouched when the anchor opts out via %s', (_name, html, inv) => {
+            [
+                'clicktracking="off" after a quoted >',
+                '<body><a href="https://example.com" title="1 > 0" clicktracking="off">x</a></body>',
+                invocation,
+            ],
+        ])('leaves the anchor untouched when it opts out via %s', (_name, html, inv) => {
             const out = addTrackingToEmail(html, inv, signer)
-            expect(out).toContain('href="https://example.com"')
-            expect(out).not.toContain('target=')
+            expect(out).toContain(html.slice('<body>'.length, -'</body>'.length))
         })
 
         it('still wraps the link when the opt-out marker is on a child, not the anchor tag', () => {
@@ -242,31 +252,79 @@ describe('EmailTrackingService', () => {
                     '<a href="https://example.com/a">a',
                 ],
                 [
+                    'a quoted > in the href',
+                    '<a href="https://example.com/?q=1>0">a</a>',
+                    '<a href="https://example.com/?q=1>0" ses:tags="phl:0">a</a>',
+                ],
+                [
+                    'a single-quoted href holding a >',
+                    `<a href='https://example.com/?q=1>0'>a</a>`,
+                    `<a href='https://example.com/?q=1>0' ses:tags="phl:0">a</a>`,
+                ],
+                [
+                    'an unquoted href holding an apostrophe, before text holding another',
+                    "<a href=https://example.com/it's>Bob's</a>",
+                    '<a href=https://example.com/it\'s ses:tags="phl:0">Bob\'s</a>',
+                ],
+                [
+                    "an unquoted href holding =' and a >",
+                    "<a href=https://example.com/?q='a>Bob's</a>",
+                    '<a href=https://example.com/?q=\'a ses:tags="phl:0">Bob\'s</a>',
+                ],
+                [
+                    'a quote that never closes, before a quoted >',
+                    `<a href="https://example.com" title="Note ='one>Bob's</a>`,
+                    `<a href="https://example.com" title="Note ='one ses:tags="phl:0">Bob's</a>`,
+                ],
+                [
+                    'a quote that never closes, before a named quoted >',
+                    `<a href="https://example.com" title="Note setting='one>Bob's</a>`,
+                    `<a href="https://example.com" title="Note setting='one ses:tags="phl:0">Bob's</a>`,
+                ],
+                [
+                    'a non-breaking space inside an unquoted value, before a quote',
+                    `<a href="https://example.com" title=a\u00a0b='c>Bob's</a>`,
+                    `<a href="https://example.com" title=a\u00a0b='c ses:tags="phl:0">Bob's</a>`,
+                ],
+                [
                     'a tag that only starts with a',
                     '<abbr href="https://example.com/a">a</abbr><a href="https://example.com/b">b</a>',
                     '<abbr href="https://example.com/a">a</abbr><a href="https://example.com/b" ses:tags="phl:0">b</a>',
                 ],
             ])('tags the anchors in %s', (_name, body, tagged) => {
-                const out = sesTrack(`<body>${body}</body>`)
-                expect(out.slice(0, out.indexOf('<img src="'))).toBe(`<body>${tagged}`)
+                expect(sesTrack(`<body>${body}</body>`)).toBe(`<body>${tagged}</body>`)
             })
 
             it.each([
                 [
                     'clicktracking="off"',
-                    '<body><a href="https://example.com" clicktracking="off">x</a></body>',
+                    '<a href="https://example.com" clicktracking="off">x</a>',
                     invocation,
+                    '<a href="https://example.com" clicktracking="off" ses:no-track>x</a>',
                 ],
-                ['data-ph-no-track', '<body><a href="https://example.com" data-ph-no-track>x</a></body>', invocation],
-                ['a sensitive template', '<body><a href="https://example.com">x</a></body>', sensitiveInvocation],
-            ])('translates the %s opt-out into ses:no-track', (_name, html, inv) => {
+                [
+                    'data-ph-no-track',
+                    '<a href="https://example.com" data-ph-no-track>x</a>',
+                    invocation,
+                    '<a href="https://example.com" data-ph-no-track ses:no-track>x</a>',
+                ],
+                [
+                    'clicktracking="off" after a quoted >',
+                    '<a href="https://example.com/?q=1>0" clicktracking="off">x</a>',
+                    invocation,
+                    '<a href="https://example.com/?q=1>0" clicktracking="off" ses:no-track>x</a>',
+                ],
+                [
+                    'data-ph-no-track after a non-breaking space value and a quoted >',
+                    '<a href="https://example.com" title=  aria-label="1 > 0" data-ph-no-track>x</a>',
+                    invocation,
+                    '<a href="https://example.com" title=  aria-label="1 > 0" data-ph-no-track ses:no-track>x</a>',
+                ],
+            ])('translates the %s opt-out into ses:no-track', (_name, anchor, inv, translated) => {
                 // SES honors only its own attribute, so without this the anchor is still rewritten
                 // to awstrack.me and app deeplinks stop resolving.
-                const out = addTrackingToEmail(html, inv, signer, false, 'ses')
-                expect(out).toContain('ses:no-track')
-                expect(out).not.toContain('ses:tags')
-                // Opting links out of click tracking keeps the open pixel.
-                expect(out).toContain('ph_id=')
+                const out = addTrackingToEmail(`<body>${anchor}</body>`, inv, signer, false, 'ses')
+                expect(out).toBe(`<body>${translated}</body>`)
             })
 
             it('merges into an author-supplied ses:tags value instead of emitting a second attribute', () => {
@@ -289,32 +347,6 @@ describe('EmailTrackingService', () => {
             state: { globals: { event: { distinct_id: 'leaky-id' } } },
         } as any
         const phIdOf = (html: string): string => html.match(/ph_id=([A-Za-z0-9._-]+)/)![1]
-
-        it.each([
-            { captureEngagement: undefined, distinctId: 'leaky-id' },
-            { captureEngagement: true, distinctId: 'leaky-id' },
-            { captureEngagement: false, distinctId: undefined },
-        ])(
-            'mints the pixel and redirect codes in dev/test with the distinct_id the send choice $captureEngagement allows',
-            ({ captureEngagement, distinctId }) => {
-                const out = addTrackingToEmail(
-                    '<body><a href="https://example.com">x</a></body>',
-                    {
-                        ...invocationWithDistinctId,
-                        state: {
-                            ...invocationWithDistinctId.state,
-                            send: captureEngagement === undefined ? undefined : { tracking: { captureEngagement } },
-                        },
-                    },
-                    signer
-                )
-                const codes = [...out.matchAll(/ph_id=([A-Za-z0-9_.-]+)/g)].map((match) => signer.parse(match[1]))
-                expect(codes).toHaveLength(2)
-                for (const code of codes) {
-                    expect(code).toMatchObject({ functionId: 'fn-1', invocationId: 'inv-1', distinctId })
-                }
-            }
-        )
 
         it('omits distinct_id from the public tracking URLs in production (Referer-leak guard)', () => {
             const devSpy = jest.spyOn(envUtils, 'isDevEnv').mockReturnValue(false)
@@ -656,6 +688,94 @@ describe('EmailTrackingService', () => {
                 })
             })
 
+            it.each([
+                {
+                    captureEngagement: undefined,
+                    captured: ['$workflows_email_link_clicked', '$workflows_email_opened'],
+                },
+                { captureEngagement: true, captured: ['$workflows_email_link_clicked', '$workflows_email_opened'] },
+                { captureEngagement: false, captured: [] },
+            ])(
+                'records the open and click of a delivered email, and captures them for the recipient when the send choice is $captureEngagement',
+                async ({ captureEngagement, captured }) => {
+                    await hub.postgres.query(
+                        PostgresUse.COMMON_WRITE,
+                        `INSERT INTO workflows_teamworkflowsconfig
+                            (team_id, capture_workflows_engagement_events, email_tracking_consent_mode,
+                             email_sending_suspension_reason, ses_tenant_sending_status, email_sending_tier)
+                         VALUES ($1, true, 'off', '', '', 0)`,
+                        [team.id],
+                        'test-set-engagement-capture'
+                    )
+                    const sendId = new UUIDT().toString()
+                    const delivered = addTrackingToEmail(
+                        '<body><a href="https://example.com/docs">Docs</a></body>',
+                        {
+                            functionId: hogFunction.id,
+                            id: sendId,
+                            teamId: team.id,
+                            state: {
+                                globals: { event: { distinct_id: 'user-1' } },
+                                send: {
+                                    tracking: {
+                                        ...(captureEngagement === undefined ? {} : { captureEngagement }),
+                                        clicks: true,
+                                    },
+                                },
+                            },
+                        } as any,
+                        signer
+                    )
+                    const pathOf = (url: string): string => `${new URL(url).pathname}${new URL(url).search}`
+                    const pixel = delivered.match(/<img src="([^"]+)"/)![1]
+                    const link = delivered.match(/<a href="([^"]+)"/)![1].replace(/&amp;/g, '&')
+                    const received: { api_key: string; distinct_id: string; event: string }[] = []
+                    const capture = createServer((req, res) => {
+                        let body = ''
+                        req.on('data', (chunk) => (body += chunk))
+                        req.on('end', () => {
+                            received.push(parseJSON(body))
+                            res.writeHead(200, { 'Content-Type': 'application/json' })
+                            res.end('{}')
+                        })
+                    })
+                    await new Promise<void>((resolve) => capture.listen(0, '127.0.0.1', resolve))
+                    const captureUrl = hub.CAPTURE_INTERNAL_URL
+                    const stubbedFetch = mockInternalFetch.getMockImplementation()
+                    hub.CAPTURE_INTERNAL_URL = `http://127.0.0.1:${(capture.address() as AddressInfo).port}/capture`
+                    mockInternalFetch.mockImplementation(jest.requireActual('~/common/utils/request').internalFetch)
+                    const directEventsTracked = async (): Promise<number> =>
+                        ((await register.getSingleMetric('email_tracking_events_total')?.get())?.values ?? [])
+                            .filter(({ labels }) => labels.source === 'direct')
+                            .reduce((total, { value }) => total + value, 0)
+                    const trackedBefore = await directEventsTracked()
+                    try {
+                        expect((await supertest(app).get(pathOf(pixel))).status).toBe(200)
+                        const clicked = await supertest(app).get(pathOf(link))
+
+                        expect(clicked.status).toBe(302)
+                        expect(clicked.headers.location).toBe('https://example.com/docs')
+                        await waitForExpect(async () => expect(await directEventsTracked()).toBe(trackedBefore + 2))
+                        expect(
+                            mockProducerObserver
+                                .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                                .filter(({ value }) => value.instance_id === sendId)
+                                .map(({ value }) => value.metric_name)
+                        ).toEqual(expect.arrayContaining(['email_opened', 'email_link_clicked']))
+                        expect(
+                            received
+                                .filter((event) => event.api_key === team.api_token && event.distinct_id === 'user-1')
+                                .map((event) => event.event)
+                                .sort()
+                        ).toEqual(captured)
+                    } finally {
+                        mockInternalFetch.mockImplementation(stubbedFetch)
+                        hub.CAPTURE_INTERNAL_URL = captureUrl
+                        capture.close()
+                    }
+                }
+            )
+
             it('should return a 200 even if the tracking code is invalid', async () => {
                 const res = await supertest(app).get(`/public/m/pixel?ph_id=invalid-tracking-code`)
                 expect(res.status).toBe(200)
@@ -711,22 +831,39 @@ describe('EmailTrackingService', () => {
                 parentRunId,
                 workflowVersion,
                 transactionalMessageId,
+                actionId,
+                sentTags,
+                messageCreatedMs,
+                signedCreatedMs,
+                createdHeader,
                 headerCode,
                 distinctId,
                 snsMessageId = new UUIDT().toString(),
                 topicArn = 'arn:aws:sns:us-east-1:123456789012:ses-events',
                 sesMessage,
+                bounceType = 'Permanent',
+                recipient = 'user@example.com',
             }: {
                 functionId: string
                 parentRunId?: string
                 workflowVersion?: number
                 // Sends the bounce as SES reports it for a transactional email with this message id.
                 transactionalMessageId?: string
+                actionId?: string
+                sentTags?: Record<string, string[]>
+                // An unsigned SES tag claiming a creation time, as a forged notification could add.
+                messageCreatedMs?: string
+                // The creation time the email worker signs into its own header.
+                signedCreatedMs?: number
+                // Replaces that header's value, as a forged notification could.
+                createdHeader?: string
                 headerCode?: string
                 distinctId?: string
                 snsMessageId?: string
                 topicArn?: string
                 sesMessage?: string
+                bounceType?: 'Permanent' | 'Transient'
+                recipient?: string
             }): Promise<supertest.Response> => {
                 const trackingCode = signer.generate(
                     {
@@ -736,6 +873,7 @@ describe('EmailTrackingService', () => {
                         parentRunId,
                         workflowVersion,
                         distinctId,
+                        ...(actionId ? { state: { actionId } } : {}),
                     },
                     false,
                     workflowVersion !== undefined
@@ -746,18 +884,37 @@ describe('EmailTrackingService', () => {
                         timestamp: '2024-01-01T00:00:00.000Z',
                         source: 'sender@posthog.com',
                         messageId: 'ses-message-id',
-                        destination: ['user@example.com'],
-                        headers: [{ name: TRACKING_CODE_HEADER_NAME, value: headerCode ?? trackingCode }],
+                        destination: [recipient],
+                        headers: [
+                            { name: TRACKING_CODE_HEADER_NAME, value: headerCode ?? trackingCode },
+                            ...(createdHeader !== undefined || signedCreatedMs !== undefined
+                                ? [
+                                      {
+                                          name: MESSAGE_CREATED_HEADER_NAME,
+                                          value:
+                                              createdHeader ??
+                                              signer.messageCreatedHeaderValue(
+                                                  transactionalMessageId ?? invocationId,
+                                                  signedCreatedMs!
+                                              ),
+                                      },
+                                  ]
+                                : []),
+                        ],
                         ...(transactionalMessageId
                             ? {
-                                  commonHeaders: { to: ['user@example.com'] },
-                                  tags: { ph_email_status: ['true'] },
+                                  commonHeaders: { to: [recipient] },
+                                  tags: {
+                                      ph_email_status: ['true'],
+                                      ...sentTags,
+                                      ...(messageCreatedMs ? { ph_created_ms: [messageCreatedMs] } : {}),
+                                  },
                               }
                             : {}),
                     },
                     bounce: {
-                        bounceType: 'Permanent',
-                        bouncedRecipients: [{ emailAddress: 'user@example.com' }],
+                        bounceType,
+                        bouncedRecipients: [{ emailAddress: recipient }],
                         timestamp: '2024-01-01T00:00:00.000Z',
                     },
                 }
@@ -881,28 +1038,188 @@ describe('EmailTrackingService', () => {
                 expect(mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_LOG_ENTRIES)).toHaveLength(0)
             })
 
-            it('records the bounced status of a transactional email', async () => {
-                const hogFlow = await insertHogFlow(
-                    hub.postgres,
-                    new FixtureHogFlowBuilder().withTeamId(team.id).build()
+            const sentAt = Date.UTC(2026, 0, 2, 3, 4, 5, 678)
+            const keyedMessageId = uuidv5('a-key', '6ba7b811-9dad-11d1-80b4-00c04fd430c8')
+            describe('dated by the message', () => {
+                beforeEach(() => pinDate(sentAt + 60 * 60 * 1000))
+                afterEach(() => jest.useRealTimers())
+
+                it.each([
+                    ['dated by its message id', new UUIDT(sentAt).toString(), undefined, undefined],
+                    ['of a keyed send, dated by its signed creation header', keyedMessageId, sentAt, undefined],
+                    [
+                        'of a keyed send, dated by its signed header though an unsigned tag claims another day',
+                        keyedMessageId,
+                        sentAt,
+                        String(sentAt - 3 * 24 * 60 * 60 * 1000),
+                    ],
+                ])(
+                    'records the bounced status of a transactional email %s',
+                    async (_desc, messageId, signedCreatedMs, messageCreatedMs) => {
+                        const hogFlow = await insertHogFlow(
+                            hub.postgres,
+                            new FixtureHogFlowBuilder().withTeamId(team.id).build()
+                        )
+
+                        await recordBounce({
+                            functionId: hogFlow.id,
+                            transactionalMessageId: messageId,
+                            signedCreatedMs,
+                            messageCreatedMs,
+                        })
+
+                        // Recording flushes the status row before the batch completes.
+                        expect(mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_EMAIL_STATUS)).toEqual([
+                            expect.objectContaining({
+                                key: messageId,
+                                value: expect.objectContaining({
+                                    team_id: team.id,
+                                    message_id: messageId,
+                                    status: 'bounced',
+                                    reason: 'hard',
+                                    created_at: '2026-01-02 03:04:05.678000',
+                                }),
+                            }),
+                        ])
+                    }
                 )
-                const messageId = new UUIDT().toString()
 
-                await recordBounce({ functionId: hogFlow.id, transactionalMessageId: messageId })
+                it.each<[string, number | undefined, string | undefined, () => string | undefined]>([
+                    ['its signed time lies in the far future', Date.UTC(2200, 0, 1), undefined, () => undefined],
+                    ['it carries only an unsigned tag', undefined, String(sentAt), () => undefined],
+                    [
+                        'its header time was changed',
+                        undefined,
+                        undefined,
+                        () =>
+                            signer
+                                .messageCreatedHeaderValue(keyedMessageId, sentAt)
+                                .replace(String(sentAt), String(sentAt - 24 * 60 * 60 * 1000)),
+                    ],
+                    [
+                        'its header was signed for another message',
+                        undefined,
+                        undefined,
+                        () => signer.messageCreatedHeaderValue(new UUIDT(sentAt).toString(), sentAt),
+                    ],
+                ])(
+                    'records no status for a keyed send when %s',
+                    async (_desc, signedCreatedMs, messageCreatedMs, createdHeader) => {
+                        const hogFlow = await insertHogFlow(
+                            hub.postgres,
+                            new FixtureHogFlowBuilder().withTeamId(team.id).build()
+                        )
 
-                // Recording flushes the status row before the batch completes.
-                expect(mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_EMAIL_STATUS)).toEqual([
-                    expect.objectContaining({
-                        key: messageId,
-                        value: expect.objectContaining({
-                            team_id: team.id,
-                            message_id: messageId,
-                            status: 'bounced',
-                            reason: 'hard',
-                        }),
-                    }),
-                ])
+                        await recordBounce({
+                            functionId: hogFlow.id,
+                            transactionalMessageId: keyedMessageId,
+                            signedCreatedMs,
+                            messageCreatedMs,
+                            createdHeader: createdHeader(),
+                        })
+
+                        expect(mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_EMAIL_STATUS)).toEqual([])
+                    }
+                )
             })
+
+            describe('after a keyed message has expired', () => {
+                beforeEach(() => pinDate(sentAt + 40 * 24 * 60 * 60 * 1000))
+                afterEach(() => jest.useRealTimers())
+
+                it('records no fresh-dated status for it, whatever its tag claims', async () => {
+                    const hogFlow = await insertHogFlow(
+                        hub.postgres,
+                        new FixtureHogFlowBuilder().withTeamId(team.id).build()
+                    )
+
+                    await recordBounce({
+                        functionId: hogFlow.id,
+                        transactionalMessageId: keyedMessageId,
+                        signedCreatedMs: sentAt,
+                        messageCreatedMs: String(Date.now()),
+                    })
+
+                    expect(mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_EMAIL_STATUS)).toEqual([])
+                })
+            })
+
+            it.each<[string, Record<string, unknown>, Record<string, string[]>, boolean, Record<string, string>]>([
+                [
+                    'a template send',
+                    { template_uuid: 'template-1' },
+                    { ph_template_id: ['template-1'] },
+                    true,
+                    { $email_template_id: 'template-1' },
+                ],
+                [
+                    'a template send whose step was pointed at another template before the bounce',
+                    { template_uuid: 'template-2' },
+                    { ph_template_id: ['template-1'] },
+                    true,
+                    { $email_template_id: 'template-1' },
+                ],
+                [
+                    'a code send by key',
+                    { template_key: 'welcome' },
+                    { ph_template_key: ['welcome'] },
+                    true,
+                    { $email_template_key: 'welcome' },
+                ],
+                ['a template send that carried no template tags', { template_uuid: 'template-1' }, {}, true, {}],
+                ['a transactional workflow saved without a name', {}, {}, true, {}],
+                ['a workflow email made from a template', { template_uuid: 'template-1' }, {}, false, {}],
+            ])(
+                'names the email on the bounced event of %s',
+                async (_name, emailConfig, sentTags, transactional, identity) => {
+                    hub.CDP_EMAIL_TEMPLATE_TAGS_TEAMS = String(team.id)
+                    consumer = new CdpSesWebhooksConsumer(hub, createCdpConsumerDeps(hub))
+                    const hogFlow = await insertHogFlow(
+                        hub.postgres,
+                        new FixtureHogFlowBuilder()
+                            .withTeamId(team.id)
+                            .withWorkflow({
+                                actions: {
+                                    trigger: { type: 'trigger', config: { type: 'event', filters: {} } },
+                                    email: {
+                                        type: 'function_email',
+                                        config: { template_id: 'template-email', inputs: {}, ...emailConfig },
+                                    },
+                                },
+                                edges: [{ from: 'trigger', to: 'email', type: 'continue' }],
+                            })
+                            .build()
+                    )
+                    await hub.postgres.query(
+                        PostgresUse.COMMON_WRITE,
+                        `INSERT INTO workflows_teamworkflowsconfig
+                        (team_id, capture_workflows_engagement_events, email_tracking_consent_mode,
+                         email_sending_suspension_reason, ses_tenant_sending_status, email_sending_tier)
+                     VALUES ($1, true, 'off', '', '', 0)`,
+                        [team.id],
+                        'test-set-engagement-capture'
+                    )
+
+                    await recordBounce({
+                        functionId: hogFlow.id,
+                        actionId: 'email',
+                        sentTags,
+                        distinctId: 'distinct-id',
+                        transactionalMessageId: transactional ? new UUIDT().toString() : undefined,
+                    })
+
+                    const bounced = mockInternalFetch.mock.calls
+                        .map(([, options]) => parseJSON(String(options?.body)))
+                        .find(({ event }) => event === '$workflows_email_bounced')
+                    expect(
+                        Object.fromEntries(
+                            Object.entries(bounced.properties as Record<string, unknown>).filter(([key]) =>
+                                key.startsWith('$email_template_')
+                            )
+                        )
+                    ).toStrictEqual(identity)
+                }
+            )
 
             it.each<[string, (service: any) => void]>([
                 [
@@ -940,6 +1257,137 @@ describe('EmailTrackingService', () => {
                     expect(recordedMetrics()).toEqual(bounceMetrics)
                 }
             )
+
+            it('counts a soft bounce once when Kafka redelivers its batch', async () => {
+                await postBounce({ functionId: hogFunction.id, recipient: 'soft@example.com', bounceType: 'Transient' })
+                const batch = queuedSesNotifications()
+
+                await consumer.processBatch(batch)
+                await consumer.processBatch(batch)
+
+                const rows = await hub.postgres.query(
+                    PostgresUse.COMMON_READ,
+                    `SELECT identifier, transient_bounce_count FROM posthog_messagesuppression WHERE team_id = $1`,
+                    [team.id],
+                    'test-read-suppression'
+                )
+                expect(rows.rows).toEqual([{ identifier: 'soft@example.com', transient_bounce_count: 1 }])
+            })
+
+            it.each<[string, (snsMessageId: string) => Promise<void>]>([
+                [
+                    'Kafka redelivers its batch',
+                    async (snsMessageId) => {
+                        await postBounce({ functionId: hogFunction.id, snsMessageId })
+                        const batch = queuedSesNotifications()
+                        await consumer.processBatch(batch)
+                        await consumer.processBatch(batch)
+                    },
+                ],
+                [
+                    'SNS delivers it again in a later batch',
+                    async (snsMessageId) => {
+                        await recordBounce({ functionId: hogFunction.id, snsMessageId })
+                        await postBounce({ functionId: hogFunction.id, snsMessageId })
+                        await consumer.processBatch(queuedSesNotifications().slice(1))
+                    },
+                ],
+                [
+                    'SNS delivers it twice into one batch',
+                    async (snsMessageId) => {
+                        await postBounce({ functionId: hogFunction.id, snsMessageId })
+                        await recordBounce({ functionId: hogFunction.id, snsMessageId })
+                    },
+                ],
+            ])('records a notification once when %s', async (_, deliver) => {
+                const redeliveredBefore = await queuedAtStage('redelivered')
+
+                await deliver(new UUIDT().toString())
+
+                expect(recordedMetrics()).toEqual(bounceMetrics)
+                expect(await queuedAtStage('redelivered')).toBe(redeliveredBefore + 1)
+            })
+
+            it('resets the mark of a notification a redelivered batch skips, even when that batch fails its flush', async () => {
+                const snsMessageId = new UUIDT().toString()
+                const mark = `@posthog/ses-notification-recorded/${snsMessageId}`
+                await postBounce({ functionId: hogFunction.id, snsMessageId })
+                const batch = queuedSesNotifications()
+                await consumer.processBatch(batch)
+                await consumer.redis.useClient({ name: 'test-shorten-mark' }, (client) => client.expire(mark, 5))
+                jest.spyOn(
+                    consumer['emailTrackingService']['hogFunctionMonitoringService'],
+                    'flush'
+                ).mockRejectedValueOnce(new Error('broker unavailable'))
+
+                await expect(consumer.processBatch(batch)).rejects.toThrow('broker unavailable')
+
+                const ttl = await consumer.redis.useClient({ name: 'test-read-mark' }, (client) => client.ttl(mark))
+                expect(ttl).toBeGreaterThan(60 * 60 - 60)
+                expect(recordedMetrics()).toEqual(bounceMetrics)
+            })
+
+            const marksUnavailable = async (): Promise<number> =>
+                (
+                    await register.getSingleMetric('email_tracking_ses_recorded_marks_unavailable_total')!.get()
+                ).values.reduce((sum, { value }) => sum + value, 0)
+
+            it.each<[string, () => Promise<[Error | null, unknown][] | null>]>([
+                ['fails', () => Promise.reject(new Error('pool exhausted'))],
+                ['answers nothing', () => Promise.resolve(null)],
+                ['refuses the commands', () => Promise.resolve([[new Error('OOM command not allowed'), null]])],
+            ])(
+                'records a redelivered notification again, and counts Redis unavailable, when Redis %s',
+                async (_, answer) => {
+                    jest.spyOn(consumer.redis, 'usePipeline').mockImplementation(answer)
+                    const unavailableBefore = await marksUnavailable()
+                    await postBounce({ functionId: hogFunction.id })
+                    const batch = queuedSesNotifications()
+
+                    await consumer.processBatch(batch)
+                    await consumer.processBatch(batch)
+
+                    expect(recordedMetrics()).toEqual([...bounceMetrics, ...bounceMetrics])
+                    expect(await marksUnavailable()).toBe(unavailableBefore + 4)
+                }
+            )
+
+            it('records a redelivered notification again, without stalling the batch, when Redis stops answering', async () => {
+                const valkey = new StallingValkeyProxy({
+                    host: defaultConfig.CDP_REDIS_HOST,
+                    port: defaultConfig.CDP_REDIS_PORT,
+                })
+                const silentRedis = createRedisV2PoolFromConfig({
+                    connection: {
+                        url: '127.0.0.1',
+                        options: {
+                            port: await valkey.start(),
+                            password: defaultConfig.CDP_REDIS_PASSWORD,
+                            retryStrategy: () => null,
+                        },
+                        name: 'ses-recorded-marks-stall',
+                        exitOnRepeatedErrors: false,
+                    },
+                    poolMinSize: 0,
+                    poolMaxSize: 1,
+                    acquireTimeoutMillis: 30_000,
+                })
+                valkey.stopAnswering()
+                jest.spyOn(consumer.redis, 'usePipeline').mockImplementation(silentRedis.usePipeline)
+                const unavailableBefore = await marksUnavailable()
+                await postBounce({ functionId: hogFunction.id })
+                const batch = queuedSesNotifications()
+
+                try {
+                    await consumer.processBatch(batch)
+                    await consumer.processBatch(batch)
+                } finally {
+                    valkey.stop()
+                }
+
+                expect(recordedMetrics()).toEqual([...bounceMetrics, ...bounceMetrics])
+                expect(await marksUnavailable()).toBe(unavailableBefore + 4)
+            })
 
             it('answers 200 and queues the envelope by its MessageId without recording it', async () => {
                 const snsMessageId = new UUIDT().toString()
@@ -1021,21 +1469,27 @@ describe('EmailTrackingService', () => {
                 expect(mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_LOG_ENTRIES)).toHaveLength(3)
             })
 
-            it('fails the batch so Kafka redelivers it when the flush fails', async () => {
+            it('fails the batch so Kafka redelivers it when the flush fails, and records it again on redelivery', async () => {
                 await postBounce({ functionId: hogFunction.id })
                 jest.spyOn(
                     consumer['emailTrackingService']['hogFunctionMonitoringService'],
                     'flush'
                 ).mockRejectedValueOnce(new Error('broker unavailable'))
+                const batch = queuedSesNotifications()
+                const redeliveredBefore = await queuedAtStage('redelivered')
 
-                await expect(consumer.processBatch(queuedSesNotifications())).rejects.toThrow('broker unavailable')
+                await expect(consumer.processBatch(batch)).rejects.toThrow('broker unavailable')
+                await consumer.processBatch(batch)
+
+                expect(await queuedAtStage('redelivered')).toBe(redeliveredBefore)
             })
 
-            it('flushes the notifications that recorded before it fails the batch', async () => {
+            it('flushes the notifications that recorded before it fails the batch, and counts them once when Kafka redelivers it', async () => {
                 const parentRunId = new UUIDT().toString()
+                const failingId = new UUIDT().toString()
                 await postEnvelope({
                     Type: 'Notification',
-                    MessageId: new UUIDT().toString(),
+                    MessageId: failingId,
                     TopicArn: sesTopicArn,
                     Message: JSON.stringify({
                         eventType: 'Open',
@@ -1059,17 +1513,25 @@ describe('EmailTrackingService', () => {
                         open: { timestamp: '2024-01-01T00:00:00.000Z' },
                     }),
                 })
-                const failingId = new UUIDT().toString()
-                await postBounce({ functionId: hogFunction.id, snsMessageId: failingId })
+                await postBounce({ functionId: hogFunction.id })
                 const service = consumer['emailTrackingService']
                 const record = service.recordQueuedSesNotification.bind(service)
-                jest.spyOn(service, 'recordQueuedSesNotification').mockImplementation((envelope) =>
-                    envelope.MessageId === failingId ? Promise.reject(new Error('datastore down')) : record(envelope)
-                )
+                let failed = false
+                jest.spyOn(service, 'recordQueuedSesNotification').mockImplementation((envelope) => {
+                    if (envelope.MessageId === failingId && !failed) {
+                        failed = true
+                        return Promise.reject(new Error('datastore down'))
+                    }
+                    return record(envelope)
+                })
+                const batch = queuedSesNotifications()
 
-                await expect(consumer.processBatch(queuedSesNotifications())).rejects.toThrow('datastore down')
+                await expect(consumer.processBatch(batch)).rejects.toThrow('datastore down')
+                expect(recordedMetrics()).toEqual(bounceMetrics)
+                await consumer.processBatch(batch)
 
                 expect(recordedMetrics()).toEqual([
+                    ...bounceMetrics,
                     ['email_opened', 1],
                     ['email_opened_by_person', 1],
                 ])
@@ -1468,7 +1930,7 @@ describe('EmailTrackingService', () => {
             }
             const envelope = {
                 Type: 'Notification',
-                MessageId: 'sns-message-id',
+                MessageId: new UUIDT().toString(),
                 TopicArn: 'arn:aws:sns:us-east-1:123456789012:ses-events',
                 Message: JSON.stringify(sesRecord),
                 Timestamp: '2024-01-01T00:00:00.000Z',
@@ -1498,7 +1960,7 @@ describe('EmailTrackingService', () => {
             }
             const envelope = {
                 Type: 'Notification',
-                MessageId: 'sns-message-id',
+                MessageId: new UUIDT().toString(),
                 TopicArn: 'arn:aws:sns:us-east-1:123456789012:ses-events',
                 Message: JSON.stringify(sesRecord),
                 Timestamp: '2024-01-01T00:00:00.000Z',
@@ -1528,7 +1990,7 @@ describe('EmailTrackingService', () => {
             }
             const envelope = {
                 Type: 'Notification',
-                MessageId: 'sns-message-id',
+                MessageId: new UUIDT().toString(),
                 TopicArn: 'arn:aws:sns:us-east-1:123456789012:ses-events',
                 Message: JSON.stringify(sesRecord),
                 Timestamp: '2024-01-01T00:00:00.000Z',

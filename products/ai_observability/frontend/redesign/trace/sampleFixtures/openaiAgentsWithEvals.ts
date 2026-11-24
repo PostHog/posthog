@@ -238,6 +238,8 @@ export const openaiAgentsWithEvals: SampleTraceFixture = {
         sessionId: null,
         person: { distinctId: 'user-1', label: 'user-1' },
         totals: tree[0].stats,
+        totalsPartial: false,
+        costAndLatencyPartial: false,
     },
     tree,
     initialNodeId: ANSWER_GENERATION_ID,

@@ -14,9 +14,12 @@
                 "backend/migrations/**",
                 "backend/scopes.py",
                 "backend/alerts/registration.py",
+                "backend/alerts/slack.py",
                 "backend/alerts/wording.py",
                 "backend/apps.py",
-                "backend/task_profiles.py"
+                "backend/task_profiles.py",
+                "backend/metric_query_runner.py",
+                "backend/tests/_seeder.py"
             ],
             "outputs": [],
             "cache": true

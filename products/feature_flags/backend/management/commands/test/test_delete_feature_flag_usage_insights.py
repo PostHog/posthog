@@ -11,10 +11,7 @@ from django.core.management.base import CommandError
 
 from parameterized import parameterized
 
-from posthog.helpers.dashboard_templates import (
-    FEATURE_FLAG_UNIQUE_USERS_INSIGHT_NAME,
-    add_enriched_insights_to_feature_flag_dashboard,
-)
+from posthog.helpers.feature_flag_usage_insights import FEATURE_FLAG_UNIQUE_USERS_INSIGHT_NAME
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.sharing_configuration import SharingConfiguration
@@ -26,6 +23,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.test.usage_dashboard_fixtures import create_usage_dashboard
+from products.feature_flags.backend.usage_dashboard import add_enriched_insights_to_feature_flag_dashboard
 from products.product_analytics.backend.facade.models import Insight
 from products.subscriptions.backend.facade.testing import create_subscription
 
@@ -52,7 +50,7 @@ class TestDeleteFeatureFlagUsageInsights(BaseTest):
         flag = FeatureFlag.objects.create(team=team, created_by=self.user, key=key, filters=filters)
         dashboard = create_usage_dashboard(flag, self.user)
         if enriched:
-            add_enriched_insights_to_feature_flag_dashboard(flag, dashboard)
+            add_enriched_insights_to_feature_flag_dashboard(flag, dashboard.id)
         return flag
 
     def _run(self, *args: str, team: Team | None = None, stdout: StringIO | None = None) -> None:
@@ -160,6 +158,18 @@ class TestDeleteFeatureFlagUsageInsights(BaseTest):
 
         assert Insight.objects.filter(id=lookalike.id).exists()
         assert Insight.objects.filter(id__in=[i.id for i in orphans]).count() == 0
+
+    def test_orphan_sweep_leaves_insights_on_a_soft_deleted_generated_dashboard(self) -> None:
+        flag = self._flag_with_usage_dashboard("orphan")
+        insights = self._usage_insights(flag)
+        dashboard_id = flag.usage_dashboard_id
+        assert dashboard_id is not None
+        FeatureFlag.objects.filter(id=flag.id).update(usage_dashboard=None)
+        Dashboard.objects_including_soft_deleted.filter(id=dashboard_id).update(deleted=True)
+
+        self._run("--include-orphaned")
+
+        assert Insight.objects.filter(id__in=[i.id for i in insights]).count() == len(insights)
 
     def test_limit_caps_how_many_are_deleted(self) -> None:
         # --limit is the operator's brake, and the truncation is hand-rolled arithmetic against a
