@@ -1,7 +1,20 @@
+from pathlib import Path
 from types import SimpleNamespace
 
-from clickhouse_schema_cache import _other_databases, incompatibility, operation_text
+import pytest
+
+import clickhouse_schema_cache
+from clickhouse_schema_cache import (
+    SHARED_INPUTS,
+    SnapshotError,
+    _other_databases,
+    incompatibility,
+    load,
+    operation_text,
+)
 from parameterized import parameterized
+
+REPOSITORY = Path(__file__).resolve().parents[2]
 
 CACHED = {
     "inputs": {"epoch": "v1", "image": "clickhouse:1", "uv.lock": "a"},
@@ -51,3 +64,37 @@ def test_operation_text_ignores_random_zookeeper_paths_but_not_sql() -> None:
 def test_other_databases_skips_the_test_database_and_functions() -> None:
     snapshot = "database\tposthog_test\tAtomic\ntable\tposthog_test\tevents\nfunction\tf\tq\ntable\tdefault\tt\n"
     assert _other_databases(snapshot) == ["table\tdefault\tt"]
+
+
+def test_shared_inputs_all_exist_so_a_rename_cannot_silently_drop_one() -> None:
+    assert [path for path in SHARED_INPUTS if not (REPOSITORY / path).exists()] == []
+
+
+def _snapshot_dir(tmp_path: Path) -> tuple[Path, Path]:
+    directory = tmp_path / "snapshot"
+    directory.mkdir()
+    (directory / "fingerprint.json").write_text('{"inputs": {}, "migrations": {}}')
+    checkout = tmp_path / "checkout.json"
+    checkout.write_text('{"inputs": {}, "migrations": {}}')
+    return directory, checkout
+
+
+def _failing(*_args: object, **_kwargs: object) -> None:
+    raise SnapshotError("boom")
+
+
+def test_load_is_a_miss_when_the_failed_restore_is_cleaned_up(tmp_path, monkeypatch) -> None:
+    directory, checkout = _snapshot_dir(tmp_path)
+    resets = []
+    monkeypatch.setattr(clickhouse_schema_cache, "_restore", _failing)
+    monkeypatch.setattr(clickhouse_schema_cache, "reset", lambda: resets.append(1))
+    assert load(directory, checkout) is False
+    assert resets == [1]
+
+
+def test_load_raises_when_the_cleanup_after_a_failed_restore_fails(tmp_path, monkeypatch) -> None:
+    directory, checkout = _snapshot_dir(tmp_path)
+    monkeypatch.setattr(clickhouse_schema_cache, "_restore", _failing)
+    monkeypatch.setattr(clickhouse_schema_cache, "reset", _failing)
+    with pytest.raises(SnapshotError, match="could not clean up"):
+        load(directory, checkout)

@@ -34,12 +34,27 @@ SHARED_INPUTS = (
     "posthog/management/commands/migrate_clickhouse.py",
     "posthog/clickhouse/client/migration_tools.py",
     "posthog/clickhouse/cluster.py",
+    # Helpers that RunPython migrations call: their SQL is built at run time, so the operations
+    # carry no _sql to hash.
+    "ee/clickhouse/materialized_columns/columns.py",
+    "posthog/clickhouse/materialized_columns.py",
+    "posthog/models/performance/sql.py",
+    "posthog/models/channel_type/sql.py",
+    # What the ClickHouse container is started with.
+    ".github/clickhouse-schema-cache/backup-disk.xml",
+    ".github/clickhouse-schema-cache/docker-compose.yml",
+    "docker/clickhouse/config.xml",
+    "docker/clickhouse/users-dev.xml",
+    "docker/clickhouse/user_defined_function.xml",
     "uv.lock",
 )
 DATABASE = "posthog_test"
 BACKUP_DISK = "ci_schema_cache"  # .github/clickhouse-schema-cache/backup-disk.xml
 BACKUP_DIR = "/var/lib/clickhouse/ci_schema_cache"
 BACKUP_NAME = "snapshot"
+# `load` exits 1 on a miss, which the job treats as "migrate from scratch". It exits this when the
+# failed restore could not be cleaned up either, so the database is in an unknown state.
+EXIT_RESET_FAILED = 2
 USER_DATABASES = "database NOT IN ('system', 'information_schema', 'INFORMATION_SCHEMA')"
 # ops_query_log_archive_v3_mv copies system.query_log into these, so their row counts move with
 # every query the server runs, this snapshot's included.
@@ -196,7 +211,10 @@ def load(directory: Path, checkout: Path) -> bool:
         _restore(directory)
     except Exception as error:
         _notice(f"ClickHouse schema restore failed ({error}); migrating from scratch")
-        reset()
+        try:
+            reset()
+        except Exception as reset_error:
+            raise SnapshotError(f"could not clean up after the failed restore: {reset_error}") from reset_error
         return False
     sys.stdout.write("Restored the cached ClickHouse schema; migrate_clickhouse applies what it lacks\n")
     return True
@@ -279,7 +297,10 @@ def main() -> None:
     fp.add_argument("--out", type=Path, required=True)
     snap = commands.add_parser("snapshot", help="Write the normalized schema of every user database")
     snap.add_argument("--out", type=Path, required=True)
-    ld = commands.add_parser("load", help="Restore a compatible snapshot; exit 1 on a miss, leaving no schema")
+    ld = commands.add_parser(
+        "load",
+        help="Restore a compatible snapshot; exit 1 on a miss, leaving no schema, and 2 when it could not clean up",
+    )
     ld.add_argument("--snapshot", type=Path, required=True)
     ld.add_argument("--checkout", type=Path, required=True)
     sv = commands.add_parser("save", help="Save the migrated schema after proving a restore reproduces it")
@@ -296,7 +317,11 @@ def main() -> None:
     elif args.command == "snapshot":
         args.out.write_text(snapshot())
     elif args.command == "load":
-        sys.exit(0 if load(args.snapshot, args.checkout) else 1)
+        try:
+            sys.exit(0 if load(args.snapshot, args.checkout) else 1)
+        except SnapshotError as error:
+            sys.stdout.write(f"::error::{error}\n")
+            sys.exit(EXIT_RESET_FAILED)
     elif args.command == "save":
         save(args.checkout, args.before, args.out)
     else:

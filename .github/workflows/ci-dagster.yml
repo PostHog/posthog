@@ -759,11 +759,17 @@ jobs:
                       echo "::notice::ClickHouse schema cache miss; migrate_clickhouse will build the schema from scratch"
                       exit 0
                   fi
-                  if python .github/scripts/clickhouse_schema_cache.py load \
-                      --snapshot clickhouse-schema-snapshot --checkout .ci-clickhouse-schema/checkout.json; then
-                      echo "restored=true" >> "$GITHUB_OUTPUT"
-                  fi
+                  status=0
+                  python .github/scripts/clickhouse_schema_cache.py load \
+                      --snapshot clickhouse-schema-snapshot --checkout .ci-clickhouse-schema/checkout.json || status=$?
                   rm -rf clickhouse-schema-snapshot
+                  if [ "$status" = 0 ]; then
+                      echo "restored=true" >> "$GITHUB_OUTPUT"
+                  elif [ "$status" != 1 ]; then
+                      # Exit 1 is a plain miss. Anything else left ClickHouse in an unknown state.
+                      echo "::error::Could not reset ClickHouse after a failed schema restore"
+                      exit 1
+                  fi
 
             - name: Snapshot ClickHouse before migrations
               id: ch-before
