@@ -13,6 +13,8 @@ interface HtmlTag {
 const RAW_OPEN = /\{%-?\s*raw\s*-?%\}/y
 const RAW_CLOSE = /\{%-?\s*endraw\s*-?%\}/g
 const RAW_CLOSE_HERE = new RegExp(RAW_CLOSE.source, 'y')
+/** Marks a set of unclosed starts once the rest of the html has no end of a raw block. */
+const NO_RAW_CLOSE = -1
 const TAG_START = /<(\/?)([a-z][^\s/>{]*)/iy
 const TEXT_END = /[<{]/g
 const LIQUID_TAG_NAME = /^\{%-?\s*(\w+)/
@@ -80,11 +82,12 @@ function liquidEnd(html: string, start: number, unclosed: Set<number>): number |
 
 /** The end of a raw block that starts here, or of the one Liquid tag. */
 function liquidUnitEnd(html: string, start: number, unclosed: Set<number>): number | null {
-    if (execAt(RAW_OPEN, html, start)) {
+    if (execAt(RAW_OPEN, html, start) && !unclosed.has(NO_RAW_CLOSE)) {
         const close = execAt(RAW_CLOSE, html, RAW_OPEN.lastIndex)
         if (close) {
             return RAW_CLOSE.lastIndex
         }
+        unclosed.add(NO_RAW_CLOSE)
     }
     return liquidEnd(html, start, unclosed)
 }
@@ -252,10 +255,12 @@ function tagsToKeep(hidden: string): Piece[] {
     return staysInOneBranch(tags) && !tags.some((piece) => LIQUID_SETUP.has(liquidTagName(piece) ?? '')) ? [] : tags
 }
 
-const RAW_BLOCK = /\{%-?\s*raw\s*-?%\}[\s\S]*?\{%-?\s*endraw\s*-?%\}/g
-
 function leavesRawOpen(text: string): boolean {
-    return /\{%-?\s*raw\s*-?%\}/.test(text.replace(RAW_BLOCK, ''))
+    let open = false
+    for (const [, end] of text.matchAll(/\{%-?\s*(end)?raw\s*-?%\}/g)) {
+        open = !end
+    }
+    return open
 }
 
 function textOf(pieces: Piece[]): string {
