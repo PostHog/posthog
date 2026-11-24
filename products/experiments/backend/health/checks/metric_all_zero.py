@@ -9,7 +9,6 @@ the event aren't the people who were exposed.
 """
 
 from collections.abc import Mapping
-from datetime import UTC
 from typing import assert_never
 
 from posthog.schema import FunnelConversionWindowTimeUnit
@@ -24,6 +23,7 @@ from products.experiments.backend.facade.contracts import (
 )
 from products.experiments.backend.health.checks.change_wording import duration
 from products.experiments.backend.health.checks.events_received import joined, quoted
+from products.experiments.backend.health.checks.metric_calculation_failed import calculated_metric_values
 from products.experiments.backend.health.context import HealthContext, ZeroMetric
 from products.experiments.backend.health.skips import (
     NOT_ON_ARCHIVED,
@@ -72,16 +72,15 @@ class _Worded:
 
 def metric_all_zero_values(ctx: HealthContext) -> CheckValues:
     calculation = ctx.latest_calculation
-    if ctx.archived or not ctx.is_launched or calculation is None or calculation.metric_count == 0:
+    if (
+        ctx.archived
+        or not ctx.is_launched
+        or calculation is None
+        or calculation.metric_count == 0
+        or calculation.finished_at is None
+    ):
         return {}
-    finished_at = calculation.finished_at
-    if finished_at is None:
-        return {}
-    return {
-        ExperimentHealthValueKey.METRIC_COUNT: calculation.metric_count,
-        ExperimentHealthValueKey.COMPLETED_METRIC_COUNT: calculation.completed_count,
-        ExperimentHealthValueKey.CALCULATED_AT: finished_at.astimezone(UTC).isoformat(),
-    }
+    return calculated_metric_values(calculation)
 
 
 def metric_all_zero_rows(ctx: HealthContext) -> CheckRows:

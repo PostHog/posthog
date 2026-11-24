@@ -483,8 +483,8 @@ class ExperimentHealthValueKey(LabeledStrEnum):
     )
     CHANGE_COUNT = (
         "change_count",
-        "Changes of the feature flag since history_since_at that can move exposed users. The flag history check counts "
-        "every kind, and the other checks count their own kind",
+        "Changes of the feature flag since history_since_at of the kind that the check looks for, such as split "
+        "changes",
     )
     CHANGED_AT = "changed_at", "When a change of the feature flag was saved"
     BEFORE_EXPOSURE = (

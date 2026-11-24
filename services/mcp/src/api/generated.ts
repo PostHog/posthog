@@ -50116,7 +50116,7 @@ export namespace Schemas {
      * * `forced_percentage` - forced_count as a share of variant_matched_count
      * * `traffic_since_at` - The start of the window that matched_count counts: 7 days ago, or the launch or the flag's last save if later
      * * `history_since_at` - The start of the feature flag's history that the check reads: the experiment's start date, which can be earlier than the launch
-     * * `change_count` - Changes of the feature flag since history_since_at that can move exposed users. The flag history check counts every kind, and the other checks count their own kind
+     * * `change_count` - Changes of the feature flag since history_since_at of the kind that the check looks for, such as split changes
      * * `changed_at` - When a change of the feature flag was saved
      * * `before_exposure` - Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when unknown
      * * `changed_setting` - The flag setting that a change of the bucketing changed, as the flag page names it
@@ -50278,7 +50278,7 @@ export namespace Schemas {
        * * `forced_percentage` - forced_count as a share of variant_matched_count
        * * `traffic_since_at` - The start of the window that matched_count counts: 7 days ago, or the launch or the flag's last save if later
        * * `history_since_at` - The start of the feature flag's history that the check reads: the experiment's start date, which can be earlier than the launch
-       * * `change_count` - Changes of the feature flag since history_since_at that can move exposed users. The flag history check counts every kind, and the other checks count their own kind
+       * * `change_count` - Changes of the feature flag since history_since_at of the kind that the check looks for, such as split changes
        * * `changed_at` - When a change of the feature flag was saved
        * * `before_exposure` - Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when unknown
        * * `changed_setting` - The flag setting that a change of the bucketing changed, as the flag page names it
@@ -50351,7 +50351,7 @@ export namespace Schemas {
        * * `forced_percentage` - forced_count as a share of variant_matched_count
        * * `traffic_since_at` - The start of the window that matched_count counts: 7 days ago, or the launch or the flag's last save if later
        * * `history_since_at` - The start of the feature flag's history that the check reads: the experiment's start date, which can be earlier than the launch
-       * * `change_count` - Changes of the feature flag since history_since_at that can move exposed users. The flag history check counts every kind, and the other checks count their own kind
+       * * `change_count` - Changes of the feature flag since history_since_at of the kind that the check looks for, such as split changes
        * * `changed_at` - When a change of the feature flag was saved
        * * `before_exposure` - Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when unknown
        * * `changed_setting` - The flag setting that a change of the bucketing changed, as the flag page names it

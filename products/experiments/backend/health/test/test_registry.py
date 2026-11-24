@@ -756,11 +756,11 @@ class TestEvaluate(TestCase):
                 {Value.EVENT: "purchase", Value.EVENT_RECEIVED: False},
             ),
             (
-                "flag_history_counts_every_kind_of_change",
+                "flag_history_reads_where_the_history_starts",
                 Key.FLAG_HISTORY,
                 {"flag_history": flag_history([KEY_CHANGE], start_date=LAUNCHED_AT)},
                 Status.PASSED,
-                {Value.HISTORY_SINCE_AT: "2026-10-01T00:00:00+00:00", Value.CHANGE_COUNT: 1},
+                {Value.HISTORY_SINCE_AT: "2026-10-01T00:00:00+00:00"},
             ),
             (
                 "split_changes_count_only_their_kind",
@@ -768,17 +768,6 @@ class TestEvaluate(TestCase):
                 {"flag_history": flag_history([KEY_CHANGE], start_date=LAUNCHED_AT)},
                 Status.PASSED,
                 {Value.HISTORY_SINCE_AT: "2026-10-01T00:00:00+00:00", Value.CHANGE_COUNT: 0},
-            ),
-            (
-                "flag_history_without_access_counts_no_changes",
-                Key.FLAG_HISTORY,
-                {
-                    "flag_history": flag_history(
-                        [], start_date=LAUNCHED_AT, not_checked=FlagHistoryNotCheckedReason.NO_HISTORY_ACCESS
-                    )
-                },
-                Status.FINDING,
-                {Value.HISTORY_SINCE_AT: "2026-10-01T00:00:00+00:00"},
             ),
             (
                 "no_metric_counts_the_metrics",

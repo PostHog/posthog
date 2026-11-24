@@ -117,15 +117,10 @@ def changes_to_check(ctx: HealthContext) -> FlagHistory | FlagHistoryNotChecked 
 
 
 def history_values(ctx: HealthContext) -> CheckValues:
-    """Where the flag history starts and how many changes of any kind it holds. A history that wasn't read holds no
-    changes, so it reads only where it would start."""
     history = history_to_check(ctx)
     if isinstance(history, CheckSkip):
         return {}
-    since = {ExperimentHealthValueKey.HISTORY_SINCE_AT: history.start_date.astimezone(UTC).isoformat()}
-    if isinstance(history, FlagHistoryNotChecked) and history.reason in _HISTORY_NOT_READ:
-        return since
-    return {**since, ExperimentHealthValueKey.CHANGE_COUNT: len(history.changes)}
+    return {ExperimentHealthValueKey.HISTORY_SINCE_AT: history.start_date.astimezone(UTC).isoformat()}
 
 
 def change_values(ctx: HealthContext, kind: type[FlagChange]) -> CheckValues:
