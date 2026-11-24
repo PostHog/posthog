@@ -1,6 +1,5 @@
 from collections import Counter, defaultdict, deque
 from collections.abc import Collection, Iterable, Mapping, Sequence
-from dataclasses import fields
 from datetime import datetime, time, timedelta
 from functools import partial
 from typing import TYPE_CHECKING
@@ -14,7 +13,7 @@ from posthog.dataclasses import frozen
 from products.data_modeling.backend.facade.api import saved_query_definitions
 from products.data_modeling.backend.facade.contracts import SavedQueryDefinition
 
-from ..facade.contracts import SuggestionAlreadyDecidedError, SuggestionDraft, UnmaterializationAsset
+from ..facade.contracts import SuggestionAlreadyDecidedError, SuggestionDraft
 from ..facade.enums import (
     WarehouseSuggestionDismissalReason,
     WarehouseSuggestionKind,
@@ -28,7 +27,7 @@ from .candidates.base import CandidateContext
 from .candidates.registry import CANDIDATES
 from .reads import Subject
 from .rules import LifecycleRules, kind_position
-from .suggestions import ALLOWED_TRANSITIONS, Transitions, transition_to, upsert_suggestions
+from .suggestions import ALLOWED_TRANSITIONS, Transitions, only_stopped_materializing, transition_to, upsert_suggestions
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -104,7 +103,6 @@ def _upsert(team_id: int, drafts: Sequence[SuggestionDraft]) -> list[WarehouseSu
 ALL_WAITING = Q()
 REVIVABLE_STATUSES = (WarehouseSuggestionStatus.EXPIRED, WarehouseSuggestionStatus.AUTO_RESOLVED)
 FLIP_KINDS = frozenset({WarehouseSuggestionKind.MATERIALIZE, WarehouseSuggestionKind.UNMATERIALIZE})
-UNMATERIALIZATION_ASSET_FIELDS = frozenset(field.name for field in fields(UnmaterializationAsset))
 REOPEN_ACCEPTED: Transitions = {WarehouseSuggestionStatus.ACCEPTED: frozenset({WarehouseSuggestionStatus.PROPOSED})}
 
 
@@ -315,13 +313,9 @@ def _asset_updates(context: CandidateContext, row: WarehouseSuggestion) -> dict[
 
 
 def _asset_kind(row: WarehouseSuggestion) -> WarehouseSuggestionKind:
-    if row.kind == WarehouseSuggestionKind.DEPRECATE and _only_stopped_materializing(row.created_asset):
+    if row.kind == WarehouseSuggestionKind.DEPRECATE and only_stopped_materializing(row.created_asset):
         return WarehouseSuggestionKind.UNMATERIALIZE
     return WarehouseSuggestionKind(row.kind)
-
-
-def _only_stopped_materializing(created_asset: Mapping[str, object] | None) -> bool:
-    return created_asset is not None and set(created_asset) == UNMATERIALIZATION_ASSET_FIELDS
 
 
 def _window_starts_after(context: CandidateContext, accepted_at: datetime | None) -> bool:

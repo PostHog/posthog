@@ -9,7 +9,7 @@ from django.utils import timezone
 
 from posthog.models.scoping.manager import resolve_effective_team_id
 
-from ..facade.contracts import CreatedAsset, SuggestionAlreadyDecidedError, SuggestionDraft
+from ..facade.contracts import CreatedAsset, SuggestionAlreadyDecidedError, SuggestionDraft, UnmaterializationAsset
 from ..facade.enums import WarehouseSuggestionDismissalReason, WarehouseSuggestionStatus
 from ..models import WarehouseSuggestion
 from .payloads import payload_to_json
@@ -38,6 +38,7 @@ HUMAN_TRANSITIONS: Transitions = {
 }
 
 HUMAN_DECISIONS = frozenset({WarehouseSuggestionStatus.ACCEPTED, WarehouseSuggestionStatus.DISMISSED})
+UNMATERIALIZATION_ASSET_FIELDS = frozenset(field.name for field in fields(UnmaterializationAsset))
 
 DRAFT_FIELDS_UPDATED_ON_INGEST = (
     "payload",
@@ -102,6 +103,10 @@ def _record_dismissal(
     suggestion.dismissal_reason = reason
     suggestion.dismissal_note = note
     suggestion.dismissed_at_score = suggestion.score
+
+
+def only_stopped_materializing(created_asset: Mapping[str, object] | None) -> bool:
+    return created_asset is not None and set(created_asset) == UNMATERIALIZATION_ASSET_FIELDS
 
 
 def upsert_suggestions(team_id: int, drafts: Sequence[SuggestionDraft]) -> None:

@@ -530,14 +530,26 @@ class TestAcceptSuggestion(APIBaseTest):
 
         assert accepted["http_status"] == expected_http_status, accepted
 
-    def test_a_second_accept_cannot_turn_a_deprecation_into_a_delete(self) -> None:
+    @parameterized.expand(
+        [
+            ("deprecation_into_a_delete", {}, {"delete_view": True}, status.HTTP_409_CONFLICT),
+            ("stop_only_into_a_delete", {"mark_deprecated": False}, {"delete_view": True}, status.HTTP_409_CONFLICT),
+            ("stop_only_into_a_deprecation", {"mark_deprecated": False}, {}, status.HTTP_409_CONFLICT),
+            ("stop_only_again", {"mark_deprecated": False}, {"mark_deprecated": False}, status.HTTP_200_OK),
+        ]
+    )
+    def test_a_second_accept_cannot_change_what_the_first_one_did(
+        self, _name: str, first_body: dict, second_body: dict, expected_http_status: int
+    ) -> None:
+        materialize_in_place(self.view)
         suggestion = self._suggest_deprecate()
-        self._accept(suggestion.id)
+        self._accept(suggestion.id, first_body)
 
-        second = self._accept(suggestion.id, {"delete_view": True})
+        second = self._accept(suggestion.id, second_body)
 
         self.view.refresh_from_db()
-        assert (second["http_status"], bool(self.view.deleted)) == (status.HTTP_409_CONFLICT, False), second
+        assert (second["http_status"], bool(self.view.deleted)) == (expected_http_status, False), second
+        assert self._certification_status() == (CertificationStatus.DEPRECATED if not first_body else None)
 
     def test_delete_refuses_a_view_with_dependents_when_the_check_inside_the_delete_fails(self) -> None:
         suggestion = self._suggest_deprecate()
