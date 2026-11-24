@@ -730,6 +730,7 @@ class SummaryFaithful(JudgedScorer):
         threads = {thread["key"]: thread["text"] for thread in output.get("threads") or []}
         return {
             "output": {
+                "person": output.get("person") or "",
                 "items": "\n".join(f"- [{item['source']}] {item['text']}" for item in items),
                 "threads": "\n\n".join(f"[{key}]\n{text}" for key, text in threads.items()),
             }
@@ -740,6 +741,8 @@ class SummaryFaithful(JudgedScorer):
             name="summary_faithful",
             prompt_template="""
 You are checking a daily digest that PostHog sent one person in Slack. Each digest item names the thread it summarises in brackets. People appear as Slack tokens such as <@U0ANA>.
+
+The digest is for {{output.person}}, so an item that starts with "You" credits {{output.person}}.
 
 Threads:
 <threads>

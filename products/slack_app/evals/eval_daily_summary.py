@@ -141,6 +141,7 @@ def _write(team_id: int, case: BaseEvalCase) -> dict:
     key_of = {slack_workspace.permalink(thread): thread.key for thread in picked_threads}
     items = [{"text": item.text, "source": key_of.get(item.permalink or "")} for item in focus.summary]
     return {
+        "person": f"<@{PERSON.slack_user_id}>",
         "picked": [thread.key for thread in picked_threads],
         "threads": [{"key": thread.key, "text": slack_workspace.text_of(thread)} for thread in picked_threads],
         "intro": focus.intro,

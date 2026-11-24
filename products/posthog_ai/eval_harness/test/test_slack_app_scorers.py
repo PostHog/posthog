@@ -18,6 +18,7 @@ from products.slack_app.evals.scorers import (
     NoUnaskedWake,
     SentimentDetected,
     SummaryCovers,
+    SummaryFaithful,
     SummaryOmitsChatter,
     SummaryVoice,
     UnhappyDetected,
@@ -282,3 +283,12 @@ class TestDailySummaryScorers:
     def test_summary_voice(self, _name, output, want):
         expected = _write_spec(you_for=["decision"])
         assert SummaryVoice().eval(output=output, expected=expected).score == want
+
+    def test_summary_faithful_tells_the_judge_who_you_is(self):
+        output = {
+            "person": "<@U0DANA>",
+            **_summary(("decision", "You cut the trial to 14 days")),
+            "threads": [{"key": "decision", "text": "<@U0DANA>: Decided: 14 day trials"}],
+        }
+        prepared = SummaryFaithful()._prepare(output, _write_spec())
+        assert isinstance(prepared, dict) and prepared["output"]["person"] == "<@U0DANA>"
