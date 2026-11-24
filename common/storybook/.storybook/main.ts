@@ -69,6 +69,8 @@ const config: StorybookConfig = {
         { from: '../../../frontend/node_modules/@posthog/hedgehog-mode/assets', to: '/static/hedgehog-mode' },
         // EmojiPickerPanel loads frimousse's emoji data from here. The app build copies the same files into dist.
         { from: '../../../frontend/node_modules/emojibase-data/en', to: '/static/emoji/en' },
+        // uiSoundsLogic plays button-sounds samples from here. The app build copies the same files into dist.
+        { from: '../../../frontend/node_modules/button-sounds/assets', to: '/static/button-sounds' },
         // The replay player mounts rrweb into this document rather than the app's, so a recorded
         // page is judged against its policy instead of ours. Django renders the same file; serving
         // it here keeps stories on the real path rather than a Storybook-only stand-in.

@@ -47,6 +47,7 @@ copyPublicFolder(
     path.resolve(__dirname, 'dist', 'hedgehog-mode')
 )
 copyEmojibaseData()
+copyButtonSounds()
 copyWarehouseSourceIcons()
 copySnappyWASMFile(__dirname)
 copyRRWebWorkerFiles(__dirname)
@@ -366,6 +367,20 @@ function copyEmojibaseData() {
     const to = path.resolve(__dirname, 'dist', 'emoji', 'en')
     fs.mkdirSync(to, { recursive: true })
     for (const file of ['data.json', 'messages.json']) {
+        fs.copyFileSync(path.resolve(from, file), path.resolve(to, file))
+    }
+}
+
+// uiSoundsLogic plays these button-sounds samples from /static/button-sounds rather than from the package's
+// default CDN. The names must match the sounds in playUiSound.ts. The Vite public-assets plugin copies the
+// same files in development.
+const BUTTON_SOUND_FILES = ['hi75-soft.mp3', 'tonal-on.mp3', 'tonal-off.mp3']
+
+function copyButtonSounds() {
+    const from = path.resolve(__dirname, 'node_modules', 'button-sounds', 'assets')
+    const to = path.resolve(__dirname, 'dist', 'button-sounds')
+    fs.mkdirSync(to, { recursive: true })
+    for (const file of BUTTON_SOUND_FILES) {
         fs.copyFileSync(path.resolve(from, file), path.resolve(to, file))
     }
 }
