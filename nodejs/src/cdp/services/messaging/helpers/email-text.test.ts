@@ -52,11 +52,16 @@ describe('plainTextFromHtml', () => {
             '<p>Your code is 482913</p><hr><p>Thanks</p>',
             'Your code is 482913\n\n---\n\nThanks',
         ],
-        ['a list', '<p>Steps</p><ul><li>Open</li><li>Copy</li></ul>', 'Steps\n\n * Open\n * Copy'],
+        ['a list', '<p>Steps</p><ul><li>Open</li><li>Copy</li></ul>', 'Steps\n\nOpen\nCopy'],
         ['an image-only email', '<p><img src="banner.png" alt="Sale"></p>', ''],
         ['html longer than the converter reads', '<p>Hi</p>' + ' '.repeat(1 << 18), ''],
         ['html nested deeper than the stack allows', '<div>'.repeat(20000) + 'Hi' + '</div>'.repeat(20000), ''],
         ['markup that renders longer than its html', '<p>Hi</p>' + '<hr>'.repeat(1000), ''],
+        [
+            'quotes and lists nested deep',
+            '<blockquote>'.repeat(300) + '<ul><li>'.repeat(300) + '<p>a</p>'.repeat(30000),
+            'a\n\n'.repeat(29999) + 'a',
+        ],
     ])('renders %s', (_name, html, expected) => {
         expect(plainTextFromHtml(html)).toBe(expected)
     })

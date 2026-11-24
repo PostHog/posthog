@@ -21,6 +21,10 @@ const toText = compile({
         ...UNKNOWN_BLOCKS.map((selector) => ({ selector, format: 'block' })),
         // The library's 40-character line would make a short email longer than its html, and drop its text part.
         { selector: 'hr', options: { length: 3 } },
+        // The library indents quotes and lists by rebuilding every line at each level of nesting,
+        // so deeply nested ones cost seconds. As plain blocks they cost one pass.
+        ...['blockquote', 'ul', 'ol'].map((selector) => ({ selector, format: 'block' })),
+        { selector: 'li', format: 'block', options: { leadingLineBreaks: 1, trailingLineBreaks: 1 } },
         { selector: 'a', options: { hideLinkHrefIfSameAsText: true, linkBrackets: ['(', ')'] } },
         // Email layouts are tables, and the library would run the text of neighbouring cells together.
         { selector: 'tr', format: 'block' },
