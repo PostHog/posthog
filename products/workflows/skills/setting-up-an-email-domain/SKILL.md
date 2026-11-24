@@ -42,7 +42,7 @@ Accept the root domain if they prefer it.
 If they only give a domain, default the sender to `hello@<domain>` with the company name as the display name.
 Tell them the display name can change later, but the address cannot: a different address needs a new sender.
 Free mailbox domains such as gmail.com are rejected, and so is a domain another PostHog organization has already verified; relay that error and suggest contacting support for the second case.
-If another organization has only started setting up the domain, creating the sender succeeds, and the records include an `organization` TXT record that proves your organization owns the domain.
+If another organization has only started setting up the domain, the records of your sender include an `organization` TXT record that proves your organization owns the domain.
 
 Check `integrations-list` with `kind=email` first; each sender's `display_name` is its address.
 If a sender with the exact requested address exists, skip to step 3 with its `id`.
@@ -79,7 +79,7 @@ Pick the first path that works:
    You cannot approve it yourself. Give the URL to the person and say what will happen: they sign in at their DNS host (for example Cloudflare), review the records and approve. Nothing changes until they approve.
    If the domain already has a DMARC record, the URL leaves it out and keeps the existing policy.
    The URL publishes the email provider's records only. After the person approves, call `integrations-email-status-retrieve` with `refresh=true`.
-   Publish any record that is still `pending`, such as an `organization` TXT record, through path 2 or 3, but first confirm at the DNS host that the record is missing.
+   Publish any record that is still `pending`, such as an `organization` TXT record, through path 2 or 3, but first confirm at the DNS host that the record is missing, and for DMARC that the parent domain has no `_dmarc` record either.
    A lookup can lag behind the approval, and a second SPF or DMARC record breaks both.
 2. **Your own DNS tools.**
    If you can manage the domain's DNS (a DNS provider MCP server, CLI or API you are authorized to use), add the missing records yourself.
@@ -95,9 +95,10 @@ Pick the first path that works:
 
 When you publish records yourself or hand them over, never create a second `_dmarc` record.
 If the domain already has one, the DMARC record shows as `verified`; keep it.
-A `pending` DMARC record can also mean the lookup timed out, so confirm the domain has no `_dmarc` record before adding one.
-A `_dmarc` record without a valid policy, such as one that lacks a `p=` tag right after `v=DMARC1;`, keeps DMARC `pending`, and waiting never fixes it.
-Ask the person to fix that record, for example to `v=DMARC1; p=none;`, or to delete it so the parent domain's policy applies.
+A `pending` DMARC record can also mean the lookup timed out, so before adding one, confirm that neither the sending domain nor its parent domain, such as `_dmarc.example.com` for `mail.example.com`, has a `_dmarc` record.
+PostHog also lists DMARC as `pending` when the `_dmarc` record at the sending domain has no `p=` tag right after `v=DMARC1;`, and waiting never fixes it.
+Ask the person to edit that record: keep its policy and every other tag, and move the `p=` tag right after `v=DMARC1;`.
+If it has no `p=` tag at all, ask them which policy they want before you suggest one.
 
 ### 5. Poll, then verify once
 
