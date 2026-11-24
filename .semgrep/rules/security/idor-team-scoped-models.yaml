@@ -368,7 +368,6 @@ rules:
                               |OfflineExperimentItem
                               |OfflineExperimentItemPayload
                               |ParserRecipe
-                              |PendingFileUpload
                               |PendingSourceCredential
                               |PluginConfig
                               |ProductBrief
@@ -918,7 +917,6 @@ rules:
                         |OfflineExperimentItem
                         |OfflineExperimentItemPayload
                         |ParserRecipe
-                        |PendingFileUpload
                         |PendingSourceCredential
                         |PluginConfig
                         |ProductBrief

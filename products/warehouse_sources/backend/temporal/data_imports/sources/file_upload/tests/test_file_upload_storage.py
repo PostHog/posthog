@@ -1,25 +1,18 @@
 from datetime import UTC, datetime, timedelta
 from typing import Any
-from uuid import UUID
 
-import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
-from django.utils import timezone
 
 from parameterized import parameterized
-
-from posthog.models.team import Team
 
 from products.warehouse_sources.backend.file_uploads import LegacyUpload, UploadLocation
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.pending_file_upload import PendingFileUpload
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
-from products.warehouse_sources.backend.tasks import sweep_expired_file_uploads_task
 from products.warehouse_sources.backend.temporal.data_imports.sources.file_upload.source import FileUploadSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.file_upload.storage import (
     SupersededUpload,
@@ -27,7 +20,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.file_uploa
     release_superseded_uploads,
     superseded_metadata,
     superseded_uploads,
-    sweep_expired_file_uploads,
 )
 
 STORAGE = "products.warehouse_sources.backend.temporal.data_imports.sources.file_upload.storage"
@@ -127,69 +119,6 @@ class TestFileUploadStorage(BaseTest):
 
         with self.assertNumQueries(0):
             assert FileUploadSource().uploaded_file_name(source) == "first.csv"
-
-    @override_settings(CELERY_TASK_ALWAYS_EAGER=True)
-    def test_one_scheduled_sweep_drains_multiple_batches(self) -> None:
-        pending = PendingFileUpload.objects.for_team(self.team.pk)
-        paths = set()
-        for upload_id in (CURRENT_ID, OLD_ID, NEWER_ID):
-            pending.create(id=upload_id, team_id=self.team.pk, filename="orders.csv", expires_at=timezone.now())
-            paths.add(self._upload(upload_id).path)
-
-        with patch(f"{STORAGE}.PENDING_UPLOAD_BATCH_SIZE", 1):
-            sweep_expired_file_uploads_task()
-
-        assert set(self._removed()) == paths
-        assert not pending.exists()
-
-    def test_unreadable_source_keeps_its_upload_while_another_teams_file_is_reclaimed(self) -> None:
-        source = self._source(self._inputs(CURRENT_ID))
-        ExternalDataSource.objects.filter(pk=source.pk, team_id=self.team.pk).update(job_inputs="invalid JSON")
-        other_team = Team.objects.create(organization=self.organization)
-        other = UploadLocation(team_id=other_team.pk, upload_id=NEWER_ID, filename="orders.csv")
-        for upload in (self._upload(CURRENT_ID), other):
-            PendingFileUpload.objects.for_team(upload.team_id).create(
-                id=upload.upload_id, team_id=upload.team_id, filename=upload.filename, expires_at=timezone.now()
-            )
-
-        with patch(f"{STORAGE}.PENDING_UPLOAD_BATCH_SIZE", 1):
-            after_id = sweep_expired_file_uploads()
-            assert self._removed() == []
-            sweep_expired_file_uploads(after_id)
-        assert self._removed() == [other.path]
-        assert PendingFileUpload.objects.for_team(self.team.pk).filter(pk=CURRENT_ID).exists()
-        ExternalDataSource.objects.filter(pk=source.pk, team_id=self.team.pk).update(
-            job_inputs=self._inputs(CURRENT_ID)
-        )
-        sweep_expired_file_uploads()
-        assert self._removed() == [other.path]
-        assert not PendingFileUpload.objects.for_team(self.team.pk).exists()
-
-    def test_expiry_retries_storage_failures_and_preserves_files_used_by_an_older_worker(self) -> None:
-        now = timezone.now()
-        pending = PendingFileUpload.objects.for_team(self.team.pk)
-        for upload_id in (CURRENT_ID, OLD_ID, NEWER_ID):
-            pending.create(id=upload_id, team_id=self.team.pk, filename="orders.csv", expires_at=now)
-        self._source(self._inputs(CURRENT_ID), SupersededUpload(upload=self._upload(OLD_ID), superseded_at=now))
-        live_files = {self._upload(CURRENT_ID).path, self._upload(OLD_ID).path}
-        stored_files = live_files | {self._upload(NEWER_ID).path}
-
-        def delete_with_lost_acknowledgement(path: str) -> None:
-            if path not in stored_files:
-                raise FileNotFoundError(path)
-            stored_files.remove(path)
-            raise TimeoutError("Delete acknowledgement timed out")
-
-        self.s3.rm.side_effect = delete_with_lost_acknowledgement
-
-        with time_machine.travel(now, tick=False):
-            sweep_expired_file_uploads()
-        assert stored_files == live_files
-        assert pending.get().pk == UUID(NEWER_ID)
-
-        with time_machine.travel(now + timedelta(hours=1)):
-            sweep_expired_file_uploads()
-        assert not pending.exists()
 
     def test_a_completed_sync_deletes_only_the_uploads_replaced_before_it_started(self) -> None:
         before = SupersededUpload(upload=self._upload(OLD_ID), superseded_at=SYNC_STARTED_AT - timedelta(minutes=1))

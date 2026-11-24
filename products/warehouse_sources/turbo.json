@@ -34,7 +34,6 @@
                 "backend/temporal/data_imports/pipelines/pipeline_v3/sync_lock.py",
                 "backend/temporal/data_imports/settings.py",
                 "backend/temporal/data_imports/sources/__init__.py",
-                "backend/temporal/data_imports/sources/file_upload/storage.py",
                 "backend/temporal/data_imports/sources/github/naming.py",
                 "backend/temporal/data_imports/table_metadata_settings.py",
                 "backend/temporal/data_imports/util.py",
