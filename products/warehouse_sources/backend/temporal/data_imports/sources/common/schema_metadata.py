@@ -21,5 +21,5 @@ class _ReconcilesSchemaMetadata(Protocol):
 def reconcile_schema_metadata_if_supported(
     source_impl: Any, *, source: "ExternalDataSource", source_schemas: list["SourceSchema"], team_id: int
 ) -> None:
-    if isinstance(source_impl, _ReconcilesSchemaMetadata) and source_impl.supports_column_selection:
+    if isinstance(source_impl, _ReconcilesSchemaMetadata) and getattr(source_impl, "supports_column_selection", False):
         source_impl.reconcile_schema_metadata(source=source, source_schemas=source_schemas, team_id=team_id)
