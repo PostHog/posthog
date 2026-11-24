@@ -1073,7 +1073,8 @@ def unconfirmed_email_send() -> ExplainedRefusal:
 TRANSACTIONAL_EMAIL_SEND_FLOOR = Budget(burst=600, per_hour=20_000)
 
 
-def transactional_email_send_budget(team_id: int) -> Budget:
+def transactional_email_send_budget(team_id: int) -> Budget | None:
+    """The team's send budget, or None when its tier could not be read, so the send goes unlimited."""
     key = f"transactional_email_send_daily_cap:{team_id}"
     try:
         daily_cap = cache.get(key)
@@ -1082,13 +1083,14 @@ def transactional_email_send_budget(team_id: int) -> Budget:
         daily_cap = None
     if daily_cap is None:
         daily_cap = get_enforced_email_sending_daily_cap(team_id)
-        # Only a successful lookup is cached, so a failed one applies the floor to this send alone.
-        if daily_cap is not None:
-            try:
-                cache.set(key, daily_cap, 60)
-            except Exception as e:
-                capture_exception(e)
-    daily_cap = daily_cap or 0
+        if daily_cap is None:
+            # A floor budget would clip a higher tier's stored balance, so skip the limit for this send.
+            return None
+        try:
+            # add never overwrites, so a slow refresh cannot replace a newer tier.
+            cache.add(key, daily_cap, 60)
+        except Exception as e:
+            capture_exception(e)
     return Budget(
         burst=max(TRANSACTIONAL_EMAIL_SEND_FLOOR.burst, daily_cap // 100),
         per_hour=max(TRANSACTIONAL_EMAIL_SEND_FLOOR.per_hour, daily_cap // 10),
@@ -1111,9 +1113,10 @@ class TransactionalEmailSendThrottle(BaseThrottle):
     def allow_units(self, request: Request, units: int) -> bool:
         if not is_rate_limit_enabled(round(time.time() / 60)):
             return True
-        decision = consume(
-            f"transactional_email_send:{self.team_id}", transactional_email_send_budget(self.team_id), cost=units
-        )
+        budget = transactional_email_send_budget(self.team_id)
+        if budget is None:
+            return True
+        decision = consume(f"transactional_email_send:{self.team_id}", budget, cost=units)
         if isinstance(decision, BucketUnavailable) or decision.allowed:
             return True
         try:

@@ -865,12 +865,12 @@ class TestTransactionalEmail(APIBaseTest):
             ("lowest_tier_on_the_bypass_list", 0, True, None, "secret_key", status.HTTP_202_ACCEPTED),
             ("top_tier_while_the_cache_is_down", 7, False, "cache_down", "secret_key", status.HTTP_202_ACCEPTED),
             (
-                "top_tier_while_the_tier_lookup_fails",
-                7,
+                "lowest_tier_while_the_tier_lookup_fails",
+                0,
                 False,
                 "lookup_fails",
                 "secret_key",
-                status.HTTP_429_TOO_MANY_REQUESTS,
+                status.HTTP_202_ACCEPTED,
             ),
             ("lowest_tier_signed_in_to_the_app", 0, False, None, "session", status.HTTP_202_ACCEPTED),
         ]
