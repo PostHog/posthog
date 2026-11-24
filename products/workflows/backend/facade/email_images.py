@@ -10,7 +10,7 @@ from products.workflows.backend.facade.contracts import CopiedImages, EmailImage
 from products.workflows.backend.services import email_images
 
 
-def can_upload_media(*, team_id: int, user_id: int, scopes: Sequence[str] | None) -> bool:
+def can_upload_media(*, team_id: int, user_id: int | None, scopes: Sequence[str] | None) -> bool:
     """Whether a request may write to the media library. `scopes` is None for a session, which has no scopes."""
     if scopes is not None and "*" not in scopes and scopes_not_covered(list(scopes), ["uploaded_media:write"]):
         return False
