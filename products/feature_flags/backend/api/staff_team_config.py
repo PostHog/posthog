@@ -383,11 +383,11 @@ class FeatureFlagsStaffTeamConfigViewSet(viewsets.ViewSet):
             )
 
         config = get_or_create_team_extension(team, TeamFeatureFlagsConfig)
-        old_values = {setting: getattr(config, setting) for setting in MUTABLE_SETTINGS}
 
         # Saving only the fields actually sent keeps two staff editing different settings on the
         # same team from overwriting each other.
         update_fields = [setting for setting in MUTABLE_SETTINGS if setting in validated]
+        old_values = {setting: getattr(config, setting) for setting in update_fields}
         for setting in update_fields:
             setattr(config, setting, validated[setting])
         config.save(update_fields=update_fields)
@@ -412,13 +412,9 @@ class FeatureFlagsStaffTeamConfigViewSet(viewsets.ViewSet):
         # dashboards outside this repo were built on them before the endpoint took a second setting.
         changed_values: dict[str, Any] = {}
         for setting in update_fields:
-            old_key, new_key = (
-                ("old_value", "new_value")
-                if setting == "minimal_flag_called_events"
-                else (f"old_{setting}", f"new_{setting}")
-            )
-            changed_values[old_key] = old_values[setting]
-            changed_values[new_key] = getattr(config, setting)
+            suffix = "value" if setting == "minimal_flag_called_events" else setting
+            changed_values[f"old_{suffix}"] = old_values[setting]
+            changed_values[f"new_{suffix}"] = validated[setting]
 
         logger.info(
             "flags_staff_team_config_updated",
