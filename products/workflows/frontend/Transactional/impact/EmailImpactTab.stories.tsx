@@ -75,7 +75,7 @@ const Template: StoryFn<{
             },
         },
         patch: {
-            '/api/projects/:id': async ({ request }: { request: Request }) => {
+            '/api/organizations/:organization_id/projects/:id/': async ({ request }: { request: Request }) => {
                 const { workflows_config } = (await request.json()) as Partial<typeof team>
                 return [200, { ...team, workflows_config: { ...team.workflows_config, ...workflows_config } }]
             },

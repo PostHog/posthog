@@ -108,10 +108,23 @@ describe('ImpactFunnelCard', () => {
     )
 
     it('keeps the conversion count beside the link tracking prompt once an event is picked', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team/event_definitions': mockGetEventDefinitionsFrom([
+                    { ...mockEventDefinitions[0], id: 'plan-upgraded', name: 'plan upgraded' },
+                ]),
+            },
+        })
         initKeaTests(true, teamWithLinkTagging(false))
         answer = [200, { ...IMPACT, after_click: { sends: 2, converted: 1 } }]
-        renderCard()
-        emailImpactLogic({ workflowId: 'workflow-1' }).actions.setEvent('plan upgraded')
+        render(
+            <Provider>
+                <EmailImpactTab workflowId="workflow-1" alwaysSensitive={false} />
+            </Provider>
+        )
+
+        fireEvent.click(await screen.findByTestId('email-impact-event'))
+        fireEvent.click(await screen.findByText('plan upgraded'))
 
         const conversionStep = (await screen.findByTestId('email-impact-bar-converted')).closest('li')
         expect(conversionStep).toHaveTextContent('plan upgraded150%')
@@ -119,16 +132,30 @@ describe('ImpactFunnelCard', () => {
         expect(screen.queryByText('Started a session')).not.toBeInTheDocument()
     })
 
-    it('keeps waiting on its own save when another team setting saves', async () => {
+    it('sends one save while it is pending, and keeps the result of another project save', async () => {
         const capture = jest.spyOn(posthog, 'capture')
         const team = teamWithLinkTagging(false)
+        const linkTrackingSaves: Partial<TeamType>[] = []
+        let answerLinkTrackingSave: () => void = () => {}
+        const linkTrackingSaved = new Promise<void>((resolve) => (answerLinkTrackingSave = resolve))
+        let answerTimezoneSave: () => void = () => {}
+        const timezoneSaved = new Promise<void>((resolve) => (answerTimezoneSave = resolve))
         useMocks({
             patch: {
+                '/api/organizations/:organization_id/projects/:id/': async ({ request }) => {
+                    linkTrackingSaves.push((await request.json()) as Partial<TeamType>)
+                    await linkTrackingSaved
+                    return [
+                        200,
+                        {
+                            ...team,
+                            workflows_config: { ...team.workflows_config, ...linkTrackingSaves[0].workflows_config },
+                        },
+                    ]
+                },
                 '/api/projects/:id': async ({ request }) => {
                     const patch = (await request.json()) as Partial<TeamType>
-                    if (patch.workflows_config) {
-                        await new Promise(() => {})
-                    }
+                    await timezoneSaved
                     return [200, { ...team, ...patch }]
                 },
             },
@@ -138,12 +165,22 @@ describe('ImpactFunnelCard', () => {
         renderCard()
 
         fireEvent.click(await screen.findByText('Turn on for project'))
+        await waitFor(() => expect(linkTrackingSaves).toHaveLength(1))
         teamLogic.actions.updateCurrentTeam({ timezone: 'Europe/Berlin' })
-        await expectLogic(teamLogic).toDispatchActions(['updateCurrentTeamSuccess'])
+        fireEvent.click(screen.getByText('Turn on for project'))
+        expect(screen.getByText('Turn on for project').closest('button')).toHaveAttribute('aria-disabled', 'true')
 
-        expect(screen.getByText('Turn on for project').closest('button')).toHaveAttribute('aria-disabled', 'false')
-        expect(screen.getByText('Link tracking is off')).toBeInTheDocument()
-        expect(capture).not.toHaveBeenCalledWith('transactional email impact link tracking turned on')
+        answerTimezoneSave()
+        expect(await screen.findByText(/updated successfully/)).toBeInTheDocument()
+        answerLinkTrackingSave()
+
+        expect(await screen.findByText('Converted')).toBeInTheDocument()
+        expect(screen.queryByText('Turn on for project')).not.toBeInTheDocument()
+        expect(linkTrackingSaves).toEqual([{ workflows_config: { email_workflow_run_link_tag_enabled: true } }])
+        expect(teamLogic.values.currentTeam?.timezone).toBe('Europe/Berlin')
+        expect(
+            capture.mock.calls.filter(([name]) => name === 'transactional email impact link tracking turned on')
+        ).toHaveLength(1)
     })
 
     it.each([
@@ -162,7 +199,7 @@ describe('ImpactFunnelCard', () => {
         const saved = new Promise<void>((resolve) => (answerSave = resolve))
         useMocks({
             patch: {
-                '/api/projects/:id': async ({ request }) => {
+                '/api/organizations/:organization_id/projects/:id/': async ({ request }) => {
                     patches.push((await request.json()) as Partial<TeamType>)
                     await saved
                     const [status, body] = saveAnswer
@@ -200,7 +237,14 @@ describe('ImpactFunnelCard', () => {
 
     it("keeps link tracking off for someone who can't change project settings", async () => {
         const patches: unknown[] = []
-        useMocks({ patch: { '/api/projects/:id': async ({ request }) => [200, patches.push(await request.json())] } })
+        useMocks({
+            patch: {
+                '/api/organizations/:organization_id/projects/:id/': async ({ request }) => [
+                    200,
+                    patches.push(await request.json()),
+                ],
+            },
+        })
         initKeaTests(true, {
             ...teamWithLinkTagging(false),
             effective_membership_level: OrganizationMembershipLevel.Member,
@@ -212,7 +256,7 @@ describe('ImpactFunnelCard', () => {
         expect(button).toHaveAttribute('aria-disabled', 'true')
         fireEvent.click(button as HTMLButtonElement)
 
-        await expectLogic(teamLogic).toFinishAllListeners()
+        await expectLogic(emailImpactLogic({ workflowId: 'workflow-1' })).toFinishAllListeners()
         expect(screen.getByText('Link tracking is off')).toBeInTheDocument()
         expect(patches).toEqual([])
     })

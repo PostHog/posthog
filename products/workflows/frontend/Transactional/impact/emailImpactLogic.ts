@@ -18,6 +18,8 @@ import posthog from 'posthog-js'
 import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { organizationsProjectsPartialUpdate } from '~/generated/core/api'
+import type { TeamWorkflowsConfigApi } from '~/generated/core/api.schemas'
 import { TeamPublicType, TeamType } from '~/types'
 
 import { transactionalEmailLogImpactRetrieve } from 'products/messaging/frontend/generated/api'
@@ -62,7 +64,8 @@ export interface emailImpactLogicValues {
     impactLoading: boolean
     lift: ImpactLift | null
     linkTagging: LinkTagging
-    linkTrackingTurningOn: boolean
+    linkTrackingSave: TeamWorkflowsConfigApi | null
+    linkTrackingSaveLoading: boolean
     replayEnabled: boolean
     showsLinkTrackingPrompt: boolean
     steps: ImpactStep[] | null
@@ -77,21 +80,6 @@ export interface emailImpactLogicActions {
     ) => {
         currentTeam: TeamPublicType | null
         payload?: any
-    } // teamLogic
-    updateCurrentTeam: (payload: Partial<TeamType>) => Partial<TeamType> // teamLogic
-    updateCurrentTeamFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    } // teamLogic
-    updateCurrentTeamSuccess: (
-        currentTeam: TeamPublicType | TeamType,
-        payload?: Partial<TeamType> | undefined
-    ) => {
-        currentTeam: TeamPublicType | TeamType
-        payload?: Partial<TeamType>
     } // teamLogic
     loadImpact: (_: void) => void
     loadImpactFailure: (
@@ -124,8 +112,20 @@ export interface emailImpactLogicActions {
     setEvent: (event: string | null) => {
         event: string | null
     }
-    turnOnLinkTracking: () => {
-        value: true
+    turnOnLinkTracking: () => any
+    turnOnLinkTrackingFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    turnOnLinkTrackingSuccess: (
+        linkTrackingSave: TeamWorkflowsConfigApi | null,
+        payload?: any
+    ) => {
+        linkTrackingSave: TeamWorkflowsConfigApi | null
+        payload?: any
     }
 }
 
@@ -188,25 +188,17 @@ async function settledOrTimedOut(query: Promise<unknown>, ms: number): Promise<v
     }
 }
 
-function turnsOnLinkTracking(payload: Partial<TeamType> | undefined): boolean {
-    return payload?.workflows_config?.email_workflow_run_link_tag_enabled === true
-}
-
 export const emailImpactLogic = kea<emailImpactLogicType>([
     props({} as EmailImpactLogicProps),
     key((props) => props.workflowId),
     path((key) => ['products', 'workflows', 'frontend', 'Transactional', 'impact', 'emailImpactLogic', key]),
     connect(() => ({
         values: [teamLogic, ['currentTeamId', 'currentTeam']],
-        actions: [
-            teamLogic,
-            ['loadCurrentTeamSuccess', 'updateCurrentTeam', 'updateCurrentTeamSuccess', 'updateCurrentTeamFailure'],
-        ],
+        actions: [teamLogic, ['loadCurrentTeamSuccess']],
     })),
     actions({
         setEvent: (event: string | null) => ({ event }),
         pickEvent: (event: string | null, source: ConversionEventSource) => ({ event, source }),
-        turnOnLinkTracking: true,
         setDays: (days: number) => ({ days }),
         setAlwaysSensitive: (alwaysSensitive: boolean) => ({ alwaysSensitive }),
     }),
@@ -216,17 +208,6 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
         alwaysSensitive: [!!props.alwaysSensitive, { setAlwaysSensitive: (_, { alwaysSensitive }) => alwaysSensitive }],
         event: [null as string | null, { persist: true }, { setEvent: (_, { event }) => event }],
         days: [30 as number, { setDays: (_, { days }) => days }],
-        linkTrackingTurningOn: [
-            false,
-            {
-                turnOnLinkTracking: () => true,
-                // teamLogic's loader cancels a save when another one starts, so only the latest save
-                // ever succeeds or fails.
-                updateCurrentTeam: (turningOn, payload) => turningOn && turnsOnLinkTracking(payload),
-                updateCurrentTeamSuccess: () => false,
-                updateCurrentTeamFailure: () => false,
-            },
-        ],
         impactError: [
             null as string | null,
             {
@@ -237,6 +218,23 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
         ],
     })),
     loaders(({ props, values }) => ({
+        // Its own request rather than teamLogic's updateCurrentTeam, whose loader drops the answer of
+        // any project save still in flight when another one starts.
+        linkTrackingSave: [
+            null as TeamWorkflowsConfigApi | null,
+            {
+                turnOnLinkTracking: async () => {
+                    const team = values.currentTeam
+                    if (!team?.organization || !team.project_id) {
+                        throw new Error('The project has not loaded yet.')
+                    }
+                    const project = await organizationsProjectsPartialUpdate(team.organization, team.project_id, {
+                        workflows_config: { email_workflow_run_link_tag_enabled: true },
+                    })
+                    return project.workflows_config ?? null
+                },
+            },
+        ],
         impact: [
             null as TransactionalEmailImpactApi | null,
             {
@@ -323,20 +321,18 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
             (currentTeam: TeamType | TeamPublicType | null): boolean => !!currentTeam?.session_recording_opt_in,
         ],
     }),
-    listeners(({ actions, values, selectors }) => ({
+    listeners(({ actions, values }) => ({
         setEvent: () => actions.loadImpact(),
         pickEvent: ({ event, source }) => {
             // pinned: analytics event name - renaming breaks dashboards
             posthog.capture('transactional email impact event picked', { source, cleared: !event })
             actions.setEvent(event)
         },
-        turnOnLinkTracking: () => {
-            actions.updateCurrentTeam({ workflows_config: { email_workflow_run_link_tag_enabled: true } })
-        },
-        updateCurrentTeamSuccess: (_, __, ___, previousState) => {
-            if (selectors.linkTrackingTurningOn(previousState)) {
-                // pinned: analytics event name - renaming breaks dashboards
-                posthog.capture('transactional email impact link tracking turned on')
+        turnOnLinkTrackingSuccess: ({ linkTrackingSave }) => {
+            // pinned: analytics event name - renaming breaks dashboards
+            posthog.capture('transactional email impact link tracking turned on')
+            if (linkTrackingSave && values.currentTeam) {
+                actions.loadCurrentTeamSuccess({ ...values.currentTeam, workflows_config: linkTrackingSave })
             }
         },
         setDays: () => actions.loadImpact(),
