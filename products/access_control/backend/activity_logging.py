@@ -5,9 +5,13 @@ persists who granted, changed, or removed access. Registered from ``apps.ready()
 """
 
 import dataclasses
-from typing import Any, Optional
+from collections import defaultdict
+from collections.abc import Iterable
+from typing import Any, Optional, cast
+from uuid import UUID
 
-from posthog.models import User
+from posthog.dataclasses import frozen
+from posthog.models import OrganizationMembership, Team, User
 from posthog.models.activity_logging.activity_log import (
     ActivityContextBase,
     Change,
@@ -17,17 +21,98 @@ from posthog.models.activity_logging.activity_log import (
     log_activity,
 )
 from posthog.models.signals import model_activity_signal, mutable_receiver
+from posthog.scopes.catalog import APIScopeObject
 
+from products.access_control.backend.facade.object_names import resolve_object_names
+from products.access_control.backend.facade.user_access_control import resource_to_display_name
 from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.role import Role
 
 
 @dataclasses.dataclass(frozen=True)
 class AccessControlContext(ActivityContextBase):
     resource: str
     resource_id: str | None
+    resource_name: str | None
     access_level: str
     role_id: str | None
+    role_name: str | None
     organization_member_id: str | None
+
+
+@frozen
+class AccessRuleObject:
+    resource: str
+    resource_id: str
+
+
+@frozen
+class AccessRuleNames:
+    objects: dict[AccessRuleObject, str]
+    roles: dict[UUID, str]
+    members: dict[UUID, str]
+
+
+def resolve_access_rule_names(*, team: Team, rules: Iterable[AccessControl]) -> AccessRuleNames:
+    """Look up display names with one query per resource type, one for roles, and one for members.
+
+    A name that is not found is left out, and the entry shows the id instead.
+    """
+    object_ids: dict[str, set[str]] = defaultdict(set)
+    role_ids: set[UUID] = set()
+    member_ids: set[UUID] = set()
+    for rule in rules:
+        if rule.resource_id:
+            object_ids[rule.resource].add(rule.resource_id)
+        if rule.role_id:
+            role_ids.add(rule.role_id)
+        if rule.organization_member_id:
+            member_ids.add(rule.organization_member_id)
+
+    objects: dict[AccessRuleObject, str] = {}
+    for resource, ids in object_ids.items():
+        if resource == "project":
+            # A project rule points at the team that owns the rule
+            if str(team.pk) in ids:
+                objects[AccessRuleObject(resource=resource, resource_id=str(team.pk))] = team.name
+            continue
+        for resource_id, resolved in resolve_object_names(resource, sorted(ids), team.pk).items():
+            if resolved.name:
+                objects[AccessRuleObject(resource=resource, resource_id=resource_id)] = str(resolved.name)
+
+    roles: dict[UUID, str] = {}
+    if role_ids:
+        roles = dict(
+            Role.objects.filter(organization_id=team.organization_id, id__in=role_ids).values_list("id", "name")
+        )
+    members: dict[UUID, str] = {}
+    if member_ids:
+        members = {
+            membership_id: f"{first_name} {last_name}".strip() or email
+            for membership_id, first_name, last_name, email in OrganizationMembership.objects.filter(
+                organization_id=team.organization_id, id__in=member_ids
+            ).values_list("id", "user__first_name", "user__last_name", "user__email")
+        }
+    return AccessRuleNames(objects=objects, roles=roles, members=members)
+
+
+def access_rule_display_name(rule: AccessControl, names: AccessRuleNames) -> str:
+    resource_label = rule.resource.replace("_", " ")
+    if rule.resource_id is None:
+        target = f"all {resource_to_display_name(cast(APIScopeObject, rule.resource))}"
+    elif resource_name := names.objects.get(AccessRuleObject(resource=rule.resource, resource_id=rule.resource_id)):
+        target = f'{resource_label} "{resource_name}"'
+    else:
+        target = f"{resource_label} {rule.resource_id}"
+
+    if rule.role_id:
+        role_name = names.roles.get(rule.role_id)
+        role = f'role "{role_name}"' if role_name else f"role {rule.role_id}"
+        return f"access rule for {role} on {target}"
+    if rule.organization_member_id:
+        member = names.members.get(rule.organization_member_id) or f"member {rule.organization_member_id}"
+        return f"access rule for {member} on {target}"
+    return f"default access rule on {target}"
 
 
 def get_access_control_log_entry(
@@ -37,10 +122,13 @@ def get_access_control_log_entry(
     activity: str,
     user: Optional[User],
     was_impersonated: bool = False,
+    names: AccessRuleNames | None = None,
 ) -> LogActivityEntry | None:
     rule = after_update or before_update
     if rule is None:
         return None
+    if names is None:
+        names = resolve_access_rule_names(team=rule.team, rules=[rule])
 
     if activity == "created":
         changes = [Change(type="AccessControl", field="access_level", action="created", after=rule.access_level)]
@@ -58,14 +146,19 @@ def get_access_control_log_entry(
         scope="AccessControl",
         activity=activity,
         detail=Detail(
-            name=f"{rule.resource} {rule.resource_id}" if rule.resource_id else rule.resource,
+            name=access_rule_display_name(rule, names),
             changes=changes,
             context=AccessControlContext(
                 resource=rule.resource,
                 resource_id=rule.resource_id,
+                resource_name=(
+                    names.objects.get(AccessRuleObject(resource=rule.resource, resource_id=rule.resource_id))
+                    if rule.resource_id
+                    else None
+                ),
                 access_level=rule.access_level,
-                # Ids only: any activity-log reader sees this row, so it carries no names or emails.
                 role_id=str(rule.role_id) if rule.role_id else None,
+                role_name=names.roles.get(rule.role_id) if rule.role_id else None,
                 organization_member_id=str(rule.organization_member_id) if rule.organization_member_id else None,
             ),
         ),

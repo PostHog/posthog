@@ -43,7 +43,7 @@ from posthog.models.user import User
 from posthog.scopes.catalog import API_SCOPE_OBJECTS, APIScopeObject
 from posthog.scopes.exposure import INTERNAL_API_SCOPE_OBJECTS
 
-from products.access_control.backend.activity_logging import get_access_control_log_entry
+from products.access_control.backend.activity_logging import get_access_control_log_entry, resolve_access_rule_names
 from products.access_control.backend.models.role import Role, RoleMembership
 from products.event_definitions.backend.models import PropertyDefinition, effective_project_id_expr
 
@@ -914,6 +914,13 @@ def _validate_object_access_control(
 
 
 @frozen
+class _RuleChange:
+    before: AccessControl | None
+    after: AccessControl | None
+    activity: str
+
+
+@frozen
 class _ObjectAccessControlKey:
     resource: str
     resource_id: str | None
@@ -971,7 +978,7 @@ def bulk_set_object_access_controls(*, team_id: int, inputs: list[contracts.SetO
         created: list[AccessControl] = []
         updated: list[AccessControl] = []
         deleted_ids: list[UUID] = []
-        entries: list[LogActivityEntry] = []
+        rule_changes: list[_RuleChange] = []
         now = timezone.now()
         for key, input in requested.items():
             matching_rules: list[AccessControl | None] = [*existing.get(key, [])] or [None]
@@ -1005,15 +1012,23 @@ def bulk_set_object_access_controls(*, team_id: int, inputs: list[contracts.SetO
                     rule.updated_at = now
                     updated.append(rule)
                     activity = "updated"
-                entry = get_access_control_log_entry(
-                    before_update=before,
-                    after_update=rule,
-                    activity=activity,
-                    user=get_current_user(),
-                    was_impersonated=get_was_impersonated(),
-                )
-                if entry is not None:
-                    entries.append(entry)
+                rule_changes.append(_RuleChange(before=before, after=rule, activity=activity))
+        # Resolve names for the whole batch at once, so the log entries add no query per rule
+        names = resolve_access_rule_names(
+            team=team, rules=[rule for change in rule_changes if (rule := change.after or change.before)]
+        )
+        entries: list[LogActivityEntry] = []
+        for change in rule_changes:
+            entry = get_access_control_log_entry(
+                before_update=change.before,
+                after_update=change.after,
+                activity=change.activity,
+                user=get_current_user(),
+                was_impersonated=get_was_impersonated(),
+                names=names,
+            )
+            if entry is not None:
+                entries.append(entry)
         AccessControl.objects.bulk_create(created)
         AccessControl.objects.bulk_update(updated, ["access_level", "updated_at"])
         AccessControl.objects.filter(team_id=team_id, id__in=deleted_ids).delete()

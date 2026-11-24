@@ -122,6 +122,7 @@ class TestSetObjectAccessControl(_DashboardRulesTest):
     def test_bulk_rules_preserve_access_and_audit(self, subject: str, duplicates: bool) -> None:
         role = Role.objects.create(name="Support", organization=self.organization)
         RoleMembership.objects.create(user=self.other_user, role=role)
+        Dashboard.objects.filter(pk=self.dashboard.pk).update(name="Revenue")
         if duplicates:
             AccessControl.objects.bulk_create(
                 [
@@ -153,7 +154,7 @@ class TestSetObjectAccessControl(_DashboardRulesTest):
             assert self._other_user_level() == (level or "none")
         logs = list(
             ActivityLog.objects.filter(
-                team_id=self.team.id, scope="AccessControl", detail__name=f"dashboard {self.dashboard.id}"
+                team_id=self.team.id, scope="AccessControl", detail__context__resource_id=str(self.dashboard.id)
             ).order_by("created_at")
         )
         assert [log.activity for log in logs] == (
@@ -162,6 +163,11 @@ class TestSetObjectAccessControl(_DashboardRulesTest):
         assert len({log.item_id for log in logs}) == (2 if duplicates else 1)
         detail = logs[0 if duplicates else 1].detail
         assert detail is not None
+        assert (detail["name"], detail["context"]["resource_name"], detail["context"]["role_name"]) == (
+            ('access rule for other@posthog.com on dashboard "Revenue"', "Revenue", None)
+            if subject == "member"
+            else ('access rule for role "Support" on dashboard "Revenue"', "Revenue", "Support")
+        )
         assert detail["changes"] == [
             {
                 "type": "AccessControl",
@@ -280,7 +286,7 @@ class TestReplaceObjectAccessRules(_DashboardRulesTest):
         assert len(rules) == 2
         assert self._other_user_level() == "editor"
         logged = ActivityLog.objects.filter(
-            scope="AccessControl", detail__name=f"dashboard {self.dashboard.id}"
+            scope="AccessControl", detail__context__resource_id=str(self.dashboard.id)
         ).values_list("activity", flat=True)
         assert sorted(logged) == ["created", "created", "created", "deleted"]
 
