@@ -166,6 +166,16 @@ class TestSafeServerSelector(SimpleTestCase):
                 with mongo_client(connection_string, team_id=999):
                     pass
 
+    def test_client_checks_the_srv_hosts_even_when_the_string_defers_the_lookup(self):
+        resolver = MagicMock()
+        resolver.return_value.get_hosts.return_value = [("127.0.0.1", 1), ("127.0.0.1", 2)]
+        resolver.return_value.get_options.return_value = ""
+        with patch("pymongo.synchronous.uri_parser._SrvResolver", resolver):
+            with mongo_client("mongodb+srv://user:pw@cluster0.example.com/db?connect=false", team_id=999) as client:
+                seeds = list(client.topology_description.server_descriptions())
+
+        assert seeds == [("127.0.0.1", 1), ("127.0.0.1", 2)]
+
 
 class TestProcessNestedValue(SimpleTestCase):
     CANONICAL_UUID_STR = "00000015-af12-f829-04fe-1f5e8f1a5230"

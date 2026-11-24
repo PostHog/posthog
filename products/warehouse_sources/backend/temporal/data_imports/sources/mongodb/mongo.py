@@ -461,6 +461,9 @@ def mongo_client(connection_string: str, team_id: int, tls_ca_file: str | None =
         "tls": True,
         "tlsCAFile": tls_ca_file or certifi.where(),
         "server_selector": _make_safe_server_selector(team_id),
+        # `connect=false` in the string would defer the SRV lookup to the first operation, and
+        # `_check_single_seed` would then check the SRV name instead of the hosts it resolves to.
+        "connect": True,
         # Decode BSON Binary subtype 4 as native uuid.UUID instead of bson.Binary,
         # so UUID primary keys don't leak as Python bytes repr downstream.
         # Subtype 3 stays as Binary under STANDARD and is handled in _convert_binary.
