@@ -13,12 +13,6 @@ export function EmailInfrastructureCard({ className }: { className?: string }): 
     }
     const metrics = [
         {
-            label: 'Delivery rate',
-            tooltip:
-                "Emails the recipients' mailbox providers accepted, divided by emails sent. A provider can accept an email and still file it as spam.",
-            value: percentage(health.delivery_rate, 1, true),
-        },
-        {
             label: 'Bounce rate',
             tooltip:
                 'Hard (permanent) bounces divided by emails sent. Transient bounces like a full mailbox are not counted.',

@@ -3454,13 +3454,6 @@ class EmailInfrastructureHealthSerializer(serializers.Serializer):
             "(1,234,567 sent reads as 1,000,000). The exact count is not exposed."
         ),
     )
-    delivery_rate = serializers.FloatField(
-        read_only=True,
-        help_text=(
-            "Emails the recipients' mailbox providers accepted, divided by emails sent (0-1), rounded down "
-            "to 0.001. Acceptance is not inbox placement."
-        ),
-    )
     bounce_rate = serializers.FloatField(
         read_only=True,
         help_text="Hard (permanent) bounces divided by emails sent (0-1), rounded up to 0.0001.",
