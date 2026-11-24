@@ -363,6 +363,19 @@ export interface GroupingApi {
 }
 
 /**
+ * * `resolve` - Resolve
+ * * `keep_last_state` - Keep last state
+ * * `breaching` - Breaching
+ */
+export type OnMissingDataEnumApi = (typeof OnMissingDataEnumApi)[keyof typeof OnMissingDataEnumApi]
+
+export const OnMissingDataEnumApi = {
+    Resolve: 'resolve',
+    KeepLastState: 'keep_last_state',
+    Breaching: 'breaching',
+} as const
+
+/**
  * * `ok` - OK
  * * `errored` - Errored
  * * `broken` - Broken
@@ -608,6 +621,12 @@ export interface PlatformAlertConfigurationApi {
     readonly legacy_configuration_id: string | null
     /** How the alert splits its results into instances. */
     readonly grouping: GroupingApi
+    /** What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve.
+     *
+     * * `resolve` - Resolve
+     * * `keep_last_state` - Keep last state
+     * * `breaching` - Breaching */
+    readonly on_missing_data: OnMissingDataEnumApi
     /**
      * Time until which every instance's notifications are muted. Null when not muted. An instance's own snooze_until mutes one group, and the later of the two holds.
      * @nullable
@@ -736,6 +755,12 @@ export interface ErrorTrackingPlatformAlertConfigurationCreateApi {
     source_config: ErrorTrackingPlatformAlertConfigApi
     /** How the alert splits its results into instances. Defaults to mode single. */
     grouping?: GroupingApi
+    /** What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve. Defaults to resolve.
+     *
+     * * `resolve` - Resolve
+     * * `keep_last_state` - Keep last state
+     * * `breaching` - Breaching */
+    on_missing_data?: OnMissingDataEnumApi
     /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. Defaults to null. */
     schedule_restriction?: AlertScheduleRestrictionApi | null
     /**
@@ -1226,6 +1251,12 @@ export interface LogsPlatformAlertConfigurationCreateApi {
     source_config: LogsPlatformAlertSourceConfigApi
     /** How the alert splits its results into instances. Defaults to mode single. */
     grouping?: GroupingApi
+    /** What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve. Defaults to resolve.
+     *
+     * * `resolve` - Resolve
+     * * `keep_last_state` - Keep last state
+     * * `breaching` - Breaching */
+    on_missing_data?: OnMissingDataEnumApi
     /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. Defaults to null. */
     schedule_restriction?: AlertScheduleRestrictionApi | null
     /**
@@ -1333,6 +1364,12 @@ export interface MetricsPlatformAlertConfigurationCreateApi {
     source_config: MetricsPlatformAlertConfigApi
     /** How the alert splits its results into instances. Defaults to mode single. */
     grouping?: GroupingApi
+    /** What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve. Defaults to resolve.
+     *
+     * * `resolve` - Resolve
+     * * `keep_last_state` - Keep last state
+     * * `breaching` - Breaching */
+    on_missing_data?: OnMissingDataEnumApi
     /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. Defaults to null. */
     schedule_restriction?: AlertScheduleRestrictionApi | null
     /**
@@ -1465,6 +1502,12 @@ export interface TracesPlatformAlertConfigurationCreateApi {
     source_config: TracesPlatformAlertConfigApi
     /** How the alert splits its results into instances. Defaults to mode single. */
     grouping?: GroupingApi
+    /** What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve. Defaults to resolve.
+     *
+     * * `resolve` - Resolve
+     * * `keep_last_state` - Keep last state
+     * * `breaching` - Breaching */
+    on_missing_data?: OnMissingDataEnumApi
     /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. Defaults to null. */
     schedule_restriction?: AlertScheduleRestrictionApi | null
     /**
@@ -1538,6 +1581,12 @@ export interface WarehouseDestinationPlatformAlertConfigurationCreateApi {
     source_config: WarehouseDestinationAlertConfigApi
     /** How the alert splits its results into instances. Defaults to mode single. */
     grouping?: GroupingApi
+    /** What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve. Defaults to resolve.
+     *
+     * * `resolve` - Resolve
+     * * `keep_last_state` - Keep last state
+     * * `breaching` - Breaching */
+    on_missing_data?: OnMissingDataEnumApi
     /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. Defaults to null. */
     schedule_restriction?: AlertScheduleRestrictionApi | null
     /**
@@ -1623,6 +1672,12 @@ export interface WarehouseSourcePlatformAlertConfigurationCreateApi {
     source_config: WarehouseSourceAlertConfigApi
     /** How the alert splits its results into instances. Defaults to mode single. */
     grouping?: GroupingApi
+    /** What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve. Defaults to resolve.
+     *
+     * * `resolve` - Resolve
+     * * `keep_last_state` - Keep last state
+     * * `breaching` - Breaching */
+    on_missing_data?: OnMissingDataEnumApi
     /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. Defaults to null. */
     schedule_restriction?: AlertScheduleRestrictionApi | null
     /**
@@ -1694,6 +1749,12 @@ export interface ErrorTrackingPlatformAlertConfigurationEditApi {
     source_config: ErrorTrackingPlatformAlertConfigApi
     /** How the alert splits its results into instances. */
     grouping: GroupingApi
+    /** What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve.
+     *
+     * * `resolve` - Resolve
+     * * `keep_last_state` - Keep last state
+     * * `breaching` - Breaching */
+    on_missing_data?: OnMissingDataEnumApi
     /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
     schedule_restriction: AlertScheduleRestrictionApi | null
     /**
@@ -1843,6 +1904,12 @@ export interface InsightPlatformAlertConfigurationEditApi {
     source_config: InsightPlatformAlertSourceConfigApi
     /** How the alert splits its results into instances. */
     grouping: GroupingApi
+    /** What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve.
+     *
+     * * `resolve` - Resolve
+     * * `keep_last_state` - Keep last state
+     * * `breaching` - Breaching */
+    on_missing_data?: OnMissingDataEnumApi
     /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
     schedule_restriction: AlertScheduleRestrictionApi | null
     /**
@@ -1906,6 +1973,12 @@ export interface LogsPlatformAlertConfigurationEditApi {
     source_config: LogsPlatformAlertSourceConfigApi
     /** How the alert splits its results into instances. */
     grouping: GroupingApi
+    /** What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve.
+     *
+     * * `resolve` - Resolve
+     * * `keep_last_state` - Keep last state
+     * * `breaching` - Breaching */
+    on_missing_data?: OnMissingDataEnumApi
     /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
     schedule_restriction: AlertScheduleRestrictionApi | null
     /**
@@ -1969,6 +2042,12 @@ export interface MetricsPlatformAlertConfigurationEditApi {
     source_config: MetricsPlatformAlertConfigApi
     /** How the alert splits its results into instances. */
     grouping: GroupingApi
+    /** What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve.
+     *
+     * * `resolve` - Resolve
+     * * `keep_last_state` - Keep last state
+     * * `breaching` - Breaching */
+    on_missing_data?: OnMissingDataEnumApi
     /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
     schedule_restriction: AlertScheduleRestrictionApi | null
     /**
@@ -2037,6 +2116,12 @@ export interface TracesPlatformAlertConfigurationEditApi {
     source_config: TracesPlatformAlertConfigApi
     /** How the alert splits its results into instances. */
     grouping: GroupingApi
+    /** What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve.
+     *
+     * * `resolve` - Resolve
+     * * `keep_last_state` - Keep last state
+     * * `breaching` - Breaching */
+    on_missing_data?: OnMissingDataEnumApi
     /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
     schedule_restriction: AlertScheduleRestrictionApi | null
     /**
@@ -2100,6 +2185,12 @@ export interface WarehouseDestinationPlatformAlertConfigurationEditApi {
     source_config: WarehouseDestinationAlertConfigApi
     /** How the alert splits its results into instances. */
     grouping: GroupingApi
+    /** What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve.
+     *
+     * * `resolve` - Resolve
+     * * `keep_last_state` - Keep last state
+     * * `breaching` - Breaching */
+    on_missing_data?: OnMissingDataEnumApi
     /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
     schedule_restriction: AlertScheduleRestrictionApi | null
     /**
@@ -2163,6 +2254,12 @@ export interface WarehouseSourcePlatformAlertConfigurationEditApi {
     source_config: WarehouseSourceAlertConfigApi
     /** How the alert splits its results into instances. */
     grouping: GroupingApi
+    /** What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve.
+     *
+     * * `resolve` - Resolve
+     * * `keep_last_state` - Keep last state
+     * * `breaching` - Breaching */
+    on_missing_data?: OnMissingDataEnumApi
     /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
     schedule_restriction: AlertScheduleRestrictionApi | null
     /**
@@ -2235,6 +2332,12 @@ export interface PatchedErrorTrackingPlatformAlertConfigurationEditApi {
     source_config?: ErrorTrackingPlatformAlertConfigApi
     /** How the alert splits its results into instances. */
     grouping?: GroupingApi
+    /** What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve.
+     *
+     * * `resolve` - Resolve
+     * * `keep_last_state` - Keep last state
+     * * `breaching` - Breaching */
+    on_missing_data?: OnMissingDataEnumApi
     /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
     schedule_restriction?: AlertScheduleRestrictionApi | null
     /**
@@ -2298,6 +2401,12 @@ export interface PatchedInsightPlatformAlertConfigurationEditApi {
     source_config?: InsightPlatformAlertSourceConfigApi
     /** How the alert splits its results into instances. */
     grouping?: GroupingApi
+    /** What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve.
+     *
+     * * `resolve` - Resolve
+     * * `keep_last_state` - Keep last state
+     * * `breaching` - Breaching */
+    on_missing_data?: OnMissingDataEnumApi
     /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
     schedule_restriction?: AlertScheduleRestrictionApi | null
     /**
@@ -2361,6 +2470,12 @@ export interface PatchedLogsPlatformAlertConfigurationEditApi {
     source_config?: LogsPlatformAlertSourceConfigApi
     /** How the alert splits its results into instances. */
     grouping?: GroupingApi
+    /** What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve.
+     *
+     * * `resolve` - Resolve
+     * * `keep_last_state` - Keep last state
+     * * `breaching` - Breaching */
+    on_missing_data?: OnMissingDataEnumApi
     /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
     schedule_restriction?: AlertScheduleRestrictionApi | null
     /**
@@ -2424,6 +2539,12 @@ export interface PatchedMetricsPlatformAlertConfigurationEditApi {
     source_config?: MetricsPlatformAlertConfigApi
     /** How the alert splits its results into instances. */
     grouping?: GroupingApi
+    /** What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve.
+     *
+     * * `resolve` - Resolve
+     * * `keep_last_state` - Keep last state
+     * * `breaching` - Breaching */
+    on_missing_data?: OnMissingDataEnumApi
     /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
     schedule_restriction?: AlertScheduleRestrictionApi | null
     /**
@@ -2492,6 +2613,12 @@ export interface PatchedTracesPlatformAlertConfigurationEditApi {
     source_config?: TracesPlatformAlertConfigApi
     /** How the alert splits its results into instances. */
     grouping?: GroupingApi
+    /** What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve.
+     *
+     * * `resolve` - Resolve
+     * * `keep_last_state` - Keep last state
+     * * `breaching` - Breaching */
+    on_missing_data?: OnMissingDataEnumApi
     /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
     schedule_restriction?: AlertScheduleRestrictionApi | null
     /**
@@ -2555,6 +2682,12 @@ export interface PatchedWarehouseDestinationPlatformAlertConfigurationEditApi {
     source_config?: WarehouseDestinationAlertConfigApi
     /** How the alert splits its results into instances. */
     grouping?: GroupingApi
+    /** What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve.
+     *
+     * * `resolve` - Resolve
+     * * `keep_last_state` - Keep last state
+     * * `breaching` - Breaching */
+    on_missing_data?: OnMissingDataEnumApi
     /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
     schedule_restriction?: AlertScheduleRestrictionApi | null
     /**
@@ -2618,6 +2751,12 @@ export interface PatchedWarehouseSourcePlatformAlertConfigurationEditApi {
     source_config?: WarehouseSourceAlertConfigApi
     /** How the alert splits its results into instances. */
     grouping?: GroupingApi
+    /** What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve.
+     *
+     * * `resolve` - Resolve
+     * * `keep_last_state` - Keep last state
+     * * `breaching` - Breaching */
+    on_missing_data?: OnMissingDataEnumApi
     /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
     schedule_restriction?: AlertScheduleRestrictionApi | null
     /**

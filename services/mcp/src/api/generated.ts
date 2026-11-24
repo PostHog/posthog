@@ -45898,6 +45898,20 @@ export namespace Schemas {
     }
 
     /**
+     * * `resolve` - Resolve
+     * * `keep_last_state` - Keep last state
+     * * `breaching` - Breaching
+     */
+    export type OnMissingDataEnum = typeof OnMissingDataEnum[keyof typeof OnMissingDataEnum];
+
+
+    export const OnMissingDataEnum = {
+      Resolve: 'resolve',
+      KeepLastState: 'keep_last_state',
+      Breaching: 'breaching',
+    } as const;
+
+    /**
      * The settings of a new alert. Every one but source_config has a default, which is stored.
      */
     export interface ErrorTrackingPlatformAlertConfigurationCreate {
@@ -45914,6 +45928,12 @@ export namespace Schemas {
       source_config: ErrorTrackingPlatformAlertConfig;
       /** How the alert splits its results into instances. Defaults to mode single. */
       grouping?: Grouping;
+      /** What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve. Defaults to resolve.
+       *
+       * * `resolve` - Resolve
+       * * `keep_last_state` - Keep last state
+       * * `breaching` - Breaching */
+      on_missing_data?: OnMissingDataEnum;
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. Defaults to null. */
       schedule_restriction?: AlertScheduleRestriction | null;
       /**
@@ -45977,6 +45997,12 @@ export namespace Schemas {
       source_config: ErrorTrackingPlatformAlertConfig;
       /** How the alert splits its results into instances. */
       grouping: Grouping;
+      /** What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve.
+       *
+       * * `resolve` - Resolve
+       * * `keep_last_state` - Keep last state
+       * * `breaching` - Breaching */
+      on_missing_data?: OnMissingDataEnum;
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
       schedule_restriction: AlertScheduleRestriction | null;
       /**
@@ -67421,6 +67447,12 @@ export namespace Schemas {
       source_config: InsightPlatformAlertSourceConfig;
       /** How the alert splits its results into instances. */
       grouping: Grouping;
+      /** What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve.
+       *
+       * * `resolve` - Resolve
+       * * `keep_last_state` - Keep last state
+       * * `breaching` - Breaching */
+      on_missing_data?: OnMissingDataEnum;
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
       schedule_restriction: AlertScheduleRestriction | null;
       /**
@@ -72360,6 +72392,12 @@ export namespace Schemas {
       source_config: LogsPlatformAlertSourceConfig;
       /** How the alert splits its results into instances. Defaults to mode single. */
       grouping?: Grouping;
+      /** What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve. Defaults to resolve.
+       *
+       * * `resolve` - Resolve
+       * * `keep_last_state` - Keep last state
+       * * `breaching` - Breaching */
+      on_missing_data?: OnMissingDataEnum;
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. Defaults to null. */
       schedule_restriction?: AlertScheduleRestriction | null;
       /**
@@ -72423,6 +72461,12 @@ export namespace Schemas {
       source_config: LogsPlatformAlertSourceConfig;
       /** How the alert splits its results into instances. */
       grouping: Grouping;
+      /** What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve.
+       *
+       * * `resolve` - Resolve
+       * * `keep_last_state` - Keep last state
+       * * `breaching` - Breaching */
+      on_missing_data?: OnMissingDataEnum;
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
       schedule_restriction: AlertScheduleRestriction | null;
       /**
@@ -76051,6 +76095,12 @@ export namespace Schemas {
       source_config: MetricsPlatformAlertConfig;
       /** How the alert splits its results into instances. Defaults to mode single. */
       grouping?: Grouping;
+      /** What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve. Defaults to resolve.
+       *
+       * * `resolve` - Resolve
+       * * `keep_last_state` - Keep last state
+       * * `breaching` - Breaching */
+      on_missing_data?: OnMissingDataEnum;
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. Defaults to null. */
       schedule_restriction?: AlertScheduleRestriction | null;
       /**
@@ -76119,6 +76169,12 @@ export namespace Schemas {
       source_config: MetricsPlatformAlertConfig;
       /** How the alert splits its results into instances. */
       grouping: Grouping;
+      /** What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve.
+       *
+       * * `resolve` - Resolve
+       * * `keep_last_state` - Keep last state
+       * * `breaching` - Breaching */
+      on_missing_data?: OnMissingDataEnum;
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
       schedule_restriction: AlertScheduleRestriction | null;
       /**
@@ -82610,6 +82666,12 @@ export namespace Schemas {
       readonly legacy_configuration_id: string | null;
       /** How the alert splits its results into instances. */
       readonly grouping: Grouping;
+      /** What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve.
+       *
+       * * `resolve` - Resolve
+       * * `keep_last_state` - Keep last state
+       * * `breaching` - Breaching */
+      readonly on_missing_data: OnMissingDataEnum;
       /**
          * Time until which every instance's notifications are muted. Null when not muted. An instance's own snooze_until mutes one group, and the later of the two holds.
          * @nullable
@@ -92547,6 +92609,12 @@ export namespace Schemas {
       source_config?: ErrorTrackingPlatformAlertConfig;
       /** How the alert splits its results into instances. */
       grouping?: Grouping;
+      /** What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve.
+       *
+       * * `resolve` - Resolve
+       * * `keep_last_state` - Keep last state
+       * * `breaching` - Breaching */
+      on_missing_data?: OnMissingDataEnum;
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
       schedule_restriction?: AlertScheduleRestriction | null;
       /**
@@ -94663,6 +94731,12 @@ export namespace Schemas {
       source_config?: InsightPlatformAlertSourceConfig;
       /** How the alert splits its results into instances. */
       grouping?: Grouping;
+      /** What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve.
+       *
+       * * `resolve` - Resolve
+       * * `keep_last_state` - Keep last state
+       * * `breaching` - Breaching */
+      on_missing_data?: OnMissingDataEnum;
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
       schedule_restriction?: AlertScheduleRestriction | null;
       /**
@@ -95118,6 +95192,12 @@ export namespace Schemas {
       source_config?: LogsPlatformAlertSourceConfig;
       /** How the alert splits its results into instances. */
       grouping?: Grouping;
+      /** What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve.
+       *
+       * * `resolve` - Resolve
+       * * `keep_last_state` - Keep last state
+       * * `breaching` - Breaching */
+      on_missing_data?: OnMissingDataEnum;
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
       schedule_restriction?: AlertScheduleRestriction | null;
       /**
@@ -95484,6 +95564,12 @@ export namespace Schemas {
       source_config?: MetricsPlatformAlertConfig;
       /** How the alert splits its results into instances. */
       grouping?: Grouping;
+      /** What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve.
+       *
+       * * `resolve` - Resolve
+       * * `keep_last_state` - Keep last state
+       * * `breaching` - Breaching */
+      on_missing_data?: OnMissingDataEnum;
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
       schedule_restriction?: AlertScheduleRestriction | null;
       /**
@@ -96197,6 +96283,12 @@ export namespace Schemas {
       source_config?: TracesPlatformAlertConfig;
       /** How the alert splits its results into instances. */
       grouping?: Grouping;
+      /** What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve.
+       *
+       * * `resolve` - Resolve
+       * * `keep_last_state` - Keep last state
+       * * `breaching` - Breaching */
+      on_missing_data?: OnMissingDataEnum;
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
       schedule_restriction?: AlertScheduleRestriction | null;
       /**
@@ -96270,6 +96362,12 @@ export namespace Schemas {
       source_config?: WarehouseDestinationAlertConfig;
       /** How the alert splits its results into instances. */
       grouping?: Grouping;
+      /** What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve.
+       *
+       * * `resolve` - Resolve
+       * * `keep_last_state` - Keep last state
+       * * `breaching` - Breaching */
+      on_missing_data?: OnMissingDataEnum;
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
       schedule_restriction?: AlertScheduleRestriction | null;
       /**
@@ -96355,6 +96453,12 @@ export namespace Schemas {
       source_config?: WarehouseSourceAlertConfig;
       /** How the alert splits its results into instances. */
       grouping?: Grouping;
+      /** What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve.
+       *
+       * * `resolve` - Resolve
+       * * `keep_last_state` - Keep last state
+       * * `breaching` - Breaching */
+      on_missing_data?: OnMissingDataEnum;
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
       schedule_restriction?: AlertScheduleRestriction | null;
       /**
@@ -101954,6 +102058,12 @@ export namespace Schemas {
       source_config: TracesPlatformAlertConfig;
       /** How the alert splits its results into instances. Defaults to mode single. */
       grouping?: Grouping;
+      /** What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve. Defaults to resolve.
+       *
+       * * `resolve` - Resolve
+       * * `keep_last_state` - Keep last state
+       * * `breaching` - Breaching */
+      on_missing_data?: OnMissingDataEnum;
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. Defaults to null. */
       schedule_restriction?: AlertScheduleRestriction | null;
       /**
@@ -102017,6 +102127,12 @@ export namespace Schemas {
       source_config: WarehouseDestinationAlertConfig;
       /** How the alert splits its results into instances. Defaults to mode single. */
       grouping?: Grouping;
+      /** What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve. Defaults to resolve.
+       *
+       * * `resolve` - Resolve
+       * * `keep_last_state` - Keep last state
+       * * `breaching` - Breaching */
+      on_missing_data?: OnMissingDataEnum;
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. Defaults to null. */
       schedule_restriction?: AlertScheduleRestriction | null;
       /**
@@ -102080,6 +102196,12 @@ export namespace Schemas {
       source_config: WarehouseSourceAlertConfig;
       /** How the alert splits its results into instances. Defaults to mode single. */
       grouping?: Grouping;
+      /** What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve. Defaults to resolve.
+       *
+       * * `resolve` - Resolve
+       * * `keep_last_state` - Keep last state
+       * * `breaching` - Breaching */
+      on_missing_data?: OnMissingDataEnum;
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. Defaults to null. */
       schedule_restriction?: AlertScheduleRestriction | null;
       /**
@@ -102145,6 +102267,12 @@ export namespace Schemas {
       source_config: TracesPlatformAlertConfig;
       /** How the alert splits its results into instances. */
       grouping: Grouping;
+      /** What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve.
+       *
+       * * `resolve` - Resolve
+       * * `keep_last_state` - Keep last state
+       * * `breaching` - Breaching */
+      on_missing_data?: OnMissingDataEnum;
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
       schedule_restriction: AlertScheduleRestriction | null;
       /**
@@ -102208,6 +102336,12 @@ export namespace Schemas {
       source_config: WarehouseDestinationAlertConfig;
       /** How the alert splits its results into instances. */
       grouping: Grouping;
+      /** What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve.
+       *
+       * * `resolve` - Resolve
+       * * `keep_last_state` - Keep last state
+       * * `breaching` - Breaching */
+      on_missing_data?: OnMissingDataEnum;
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
       schedule_restriction: AlertScheduleRestriction | null;
       /**
@@ -102271,6 +102405,12 @@ export namespace Schemas {
       source_config: WarehouseSourceAlertConfig;
       /** How the alert splits its results into instances. */
       grouping: Grouping;
+      /** What a group means once the source is sure the check did not return it. resolve counts it as not breaching. keep_last_state keeps the group's state until its data returns. breaching counts it as breaching, which suits a heartbeat alert, and needs an ungrouped alert. Metrics alerts accept every option, and other source kinds accept only resolve.
+       *
+       * * `resolve` - Resolve
+       * * `keep_last_state` - Keep last state
+       * * `breaching` - Breaching */
+      on_missing_data?: OnMissingDataEnum;
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
       schedule_restriction: AlertScheduleRestriction | null;
       /**
