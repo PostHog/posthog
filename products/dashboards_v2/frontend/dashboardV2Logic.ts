@@ -36,6 +36,7 @@ export interface dashboardV2LogicActions {
     }
     commitDashboard: (dashboard: Dashboard) => {
         dashboard: {
+            description?: string | undefined
             tabs: (
                 | {
                       href: string
@@ -104,6 +105,7 @@ export interface dashboardV2LogicMeta {
         canUndo: (history: DashboardHistory) => boolean
         canRedo: (history: DashboardHistory) => boolean
         disabledReasonFor: (dashboard: {
+            description?: string | undefined
             tabs: (
                 | {
                       href: string
@@ -152,6 +154,7 @@ export interface dashboardV2LogicMeta {
         }) => (action: DashboardV2Action) => string | null
         activeTab: (
             dashboard: {
+                description?: string | undefined
                 tabs: (
                     | {
                           href: string
