@@ -646,6 +646,17 @@ export const productRedirects: Record<
     '/web/content-autopilot/prompts/:promptId': ({ promptId }, searchParams) =>
         combineUrl(urls.webAnalyticsContentAutopilotPrompt(promptId ?? ''), searchParams).url,
     '/web/bots': () => urls.webAnalyticsContentAutopilot(),
+    '/messaging': () => urls.workflows(),
+    '/messaging/:tab': ({ tab }) => {
+        if (tab === 'broadcasts') {
+            return urls.broadcasts()
+        }
+        if (tab === 'library' || tab === 'channels' || tab === 'opt-outs') {
+            return urls.workflows(tab)
+        }
+        return urls.workflows()
+    },
+    '/messaging/broadcasts/:id': ({ id }) => urls.broadcast(id ?? ''),
 }
 
 /** This const is auto-generated, as is the whole file */
