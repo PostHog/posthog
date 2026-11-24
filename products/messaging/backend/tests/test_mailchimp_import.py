@@ -623,10 +623,10 @@ class TestMailchimpContacts(ClickhouseTestMixin, TestMailchimpImportBase):
         self._close(run)
         self._add_segments(0, (1, "Renamed", "static", []))
 
-        staged = self._staged(self._import_contacts("new_people"))
+        later = self._staged(self._import_contacts("new_people"))
 
         # The tag's cohort keeps its name and loses the person who left the tag.
-        assert staged["VIP 🎉 (tag in Weekly newsletter, from Mailchimp)"] == {}
+        assert later["VIP 🎉 (tag in Weekly newsletter, from Mailchimp)"] == {}
 
     def test_a_tag_takes_only_members_the_audience_read_as_subscribed(self) -> None:
         self._add_segments(0, (1, "Old", "static", ["Left.Person@example.com", "ada@example.com"]))
