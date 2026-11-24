@@ -24,6 +24,7 @@ def _checkout(inputs: dict | None = None, migrations: dict | None = None, drop: 
         ("identical", _checkout(), None),
         ("new migrations are topped up", _checkout(migrations={"0003_new": "z"}), None),
         ("shared input changed", _checkout(inputs={"uv.lock": "b"}), "shared input changed: uv.lock"),
+        ("shared input added", _checkout(inputs={"new.py": "c"}), "shared input changed: new.py"),
         (
             "snapshot newer than checkout",
             _checkout(drop="0002_events"),

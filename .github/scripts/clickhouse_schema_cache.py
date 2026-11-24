@@ -105,8 +105,9 @@ def fingerprint(repository: Path, epoch: str, image: str) -> dict:
 
 
 def incompatibility(cached: dict, checkout: dict) -> str | None:
-    for name, value in cached["inputs"].items():
-        if checkout["inputs"].get(name) != value:
+    # Both sides' keys: an input added after the snapshot was taken is a change too.
+    for name in sorted(cached["inputs"].keys() | checkout["inputs"].keys()):
+        if cached["inputs"].get(name) != checkout["inputs"].get(name):
             return f"shared input changed: {name}"
     for name, value in cached["migrations"].items():
         if name not in checkout["migrations"]:
