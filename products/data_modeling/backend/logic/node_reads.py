@@ -66,11 +66,13 @@ def get_node(
     if not include_hidden:
         nodes = exclude_hidden_nodes(nodes, team, user_access_control)
     nodes = _with_latest_serving_job(nodes)
-    lookup_filter = {
-        "saved_query": {"saved_query_id": node_id},
-        "warehouse_table": {"properties__warehouse_table_id": node_id},
-        "metric": {"metric_id": node_id},
-    }.get(lookup, {"pk": node_id})
+    lookup_filter = {"pk": node_id}
+    if lookup is not None:
+        lookup_filter = {
+            "saved_query": {"saved_query_id": node_id},
+            "warehouse_table": {"properties__warehouse_table_id": node_id},
+            "metric": {"metric_id": node_id},
+        }.get(lookup, lookup_filter)
     return nodes.filter(**lookup_filter).order_by("created_at").first()
 
 

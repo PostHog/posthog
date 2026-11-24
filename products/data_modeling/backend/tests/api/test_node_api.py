@@ -1254,6 +1254,7 @@ class TestMetricNodeVisibility(WarehouseAccessControlTestMixin):
                 last_run_at=timezone.now(),
             )
 
+        assert self.view_node.saved_query is not None
         fail(self.view_node.saved_query)
         self.metric_node.properties = {"system": {"last_run_status": DataModelingJob.Status.FAILED}}
         self.metric_node.save(update_fields=["properties"])
