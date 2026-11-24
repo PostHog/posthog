@@ -1,6 +1,7 @@
 import copy
 import enum
 import uuid
+from collections.abc import Iterable
 from datetime import timedelta
 from typing import TYPE_CHECKING, cast
 from urllib.parse import urlparse
@@ -598,7 +599,30 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
 
     def save(self, *args, **kwargs):
         self.full_clean()
-        super().save(*args, **kwargs)
+
+        if not self._writes_partner_flag_off(kwargs.get("update_fields")):
+            super().save(*args, **kwargs)
+            return
+
+        # Every write of the flag goes through save. The stored flag is read under the app row lock, so
+        # a request that turns the flag on cannot commit between the read and the write. The revoke
+        # shares the transaction, so a failed revoke also undoes the flag change. The app row is locked
+        # before any token row, the order revoke_application_sessions and every token mint use.
+        with transaction.atomic():
+            stored_as_partner = (
+                OAuthApplication.objects.select_for_update()
+                .filter(pk=self.pk)
+                .values_list("is_provisioning_partner", flat=True)
+                .first()
+            )
+            super().save(*args, **kwargs)
+            if stored_as_partner:
+                revoke_application_sessions(self)
+
+    def _writes_partner_flag_off(self, update_fields: Iterable[str] | None) -> bool:
+        if self._state.adding or self.is_provisioning_partner:
+            return False
+        return update_fields is None or "is_provisioning_partner" in update_fields
 
     def allows_grant_type(self, *grant_types: str) -> bool:
         # The device grant's approval page can only show a client's self-declared name, so a device
