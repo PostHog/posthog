@@ -479,11 +479,15 @@ fn evaluate_single_cohort(
 /// Fails with `CohortFiltersParsingError` when the membership of the requested cohort is
 /// unknown. A dependency with unknown membership does not fail the evaluation when the
 /// rest of the requested cohort decides the result.
+///
+/// An entry in `known_cohort_matches` replaces the evaluation of that cohort's criteria, for
+/// a static, realtime or dynamic cohort. Every entry must come from the same person, target
+/// properties and matching context as this call, or the result uses a stale membership.
 pub fn evaluate_dynamic_cohorts(
     initial_cohort_id: CohortId,
     target_properties: &HashMap<String, Value>,
     cohorts: &[Cohort],
-    static_cohort_matches: &HashMap<CohortId, bool>,
+    known_cohort_matches: &HashMap<CohortId, bool>,
     matching_context: PropertyMatchingContext,
 ) -> Result<bool, FlagError> {
     // First check if this is a static cohort
@@ -506,13 +510,14 @@ pub fn evaluate_dynamic_cohorts(
 
     // Use for_each_dependencies_first to evaluate each cohort in the correct order
     let results = graph.for_each_dependencies_first(|cohort, results, result| {
-        // If this is a static cohort dependency, use the cached result
+        // Static members come from `posthog_cohortpeople` and realtime members from
+        // `cohort_membership`. Neither can be worked out from the cohort's criteria here.
+        if let Some(&known) = known_cohort_matches.get(&cohort.id) {
+            *result = Some(known);
+            return Ok(());
+        }
         if cohort.is_static {
-            let cached_result = static_cohort_matches
-                .get(&cohort.id)
-                .copied()
-                .unwrap_or(false);
-            *result = Some(cached_result);
+            *result = Some(false);
             return Ok(());
         }
 
@@ -595,14 +600,14 @@ mod tests {
         initial_cohort_id: CohortId,
         target_properties: &HashMap<String, Value>,
         cohorts: &[Cohort],
-        static_cohort_matches: &HashMap<CohortId, bool>,
+        known_cohort_matches: &HashMap<CohortId, bool>,
         team_timezone: Tz,
     ) -> Result<bool, FlagError> {
         super::evaluate_dynamic_cohorts(
             initial_cohort_id,
             target_properties,
             cohorts,
-            static_cohort_matches,
+            known_cohort_matches,
             PropertyMatchingContext::new(team_timezone, false),
         )
     }
@@ -964,6 +969,41 @@ mod tests {
             !result,
             "Dynamic cohort should not match when static cohort is not in cache"
         );
+    }
+
+    #[rstest]
+    #[case::in_known_member("in", true, true)]
+    #[case::in_known_non_member("in", false, false)]
+    #[case::not_in_known_member("not_in", true, false)]
+    #[case::not_in_known_non_member("not_in", false, true)]
+    fn test_evaluate_dynamic_cohorts_uses_known_membership_of_non_static_dependency(
+        #[case] operator: &str,
+        #[case] known_member: bool,
+        #[case] expected: bool,
+    ) {
+        let behavioral = create_dynamic_cohort_with_filters(
+            20,
+            json!({"properties": {"type": "AND", "values": [behavioral_leaf_json()]}}),
+        );
+        let wrapper = create_dynamic_cohort_with_filters(
+            30,
+            json!({"properties": {"type": "AND", "values": [
+                email_leaf("user@example.com"),
+                {"key": "id", "type": "cohort", "value": 20, "operator": operator},
+            ]}}),
+        );
+        let target_properties = HashMap::from([("email".to_string(), json!("user@example.com"))]);
+
+        let result = evaluate_dynamic_cohorts(
+            30,
+            &target_properties,
+            &[behavioral, wrapper],
+            &HashMap::from([(20, known_member)]),
+            Tz::UTC,
+        )
+        .unwrap();
+
+        assert_eq!(result, expected);
     }
 
     #[test]

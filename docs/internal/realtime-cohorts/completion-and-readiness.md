@@ -252,6 +252,7 @@ It routes a cohort to the membership table when all of these hold:
 - its stamps satisfy the configured stamp policy.
 
 Otherwise the cohort is evaluated dynamically from person properties, where behavioral leaves can never match.
+A routed cohort that a dynamically evaluated cohort includes keeps its table answer.
 [Membership output and readers](membership-output-and-readers.md#feature-flags) describes the read path.
 
 The Django rule and the Rust rule are separate predicates.
