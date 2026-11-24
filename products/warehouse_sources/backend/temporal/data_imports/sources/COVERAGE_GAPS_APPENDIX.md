@@ -5465,13 +5465,13 @@ Diffed against: <https://developers.everflow.io/llms.txt>
 
 - [x] `Categories (GET /networks/categories)` — lookup for offer category ids carried on offers (high)
 - [x] `Affiliate tiers (GET /networks/affiliatetiers)` — lookup for the tier of each affiliate (high)
-- [ ] `Labels (GET /networks/labels)` — lookup for label ids used on offers and affiliates (medium)
+- [x] `Labels (GET /networks/labels)` — lookup for label ids used on offers and affiliates (medium)
 - [x] `Affiliate users (GET /networks/affiliates/{affiliateId}/users)` — users per affiliate, fan-out per affiliate we sync (medium)
 - [ ] `Advertiser users (GET /networks/advertisers/{advertiserId}/users)` — users per advertiser, fan-out per advertiser we sync (low)
 - [x] `Partner invoices (POST /networks/billings/affiliates/invoicestable)` — affiliate payouts and billing status for finance reporting (high)
-- [ ] `Reporting adjustments (POST /networks/reportingadjustments/table)` — manual changes to conversion payout and revenue, needed to reconcile reports (medium)
-- [ ] `Creatives (POST /networks/creativestable)` — creative assets per offer for performance breakdowns (medium)
-- [ ] `Traffic sources (GET /networks/trafficsource)` — lookup for traffic sources on clicks and conversions (medium)
+- [x] `Reporting adjustments (POST /networks/reportingadjustments/table)` — manual changes to conversion payout and revenue, needed to reconcile reports (medium)
+- [x] `Creatives (POST /networks/creativestable)` — creative assets per offer for performance breakdowns (medium)
+- [x] `Traffic sources (GET /networks/trafficsource)` — lookup for traffic sources on clicks and conversions (medium)
 - [ ] `Offer groups (GET /networks/offergroups)` — grouping of offers for offer-level reports (low)
 
 Note: Read the Everflow llms.txt and the per-endpoint OpenAPI pages for the paths. Many list calls are POST table queries with paging in the body, so they need a request body. Excluded create, update, delete, bulk edit, webhooks, tracking links and click streams.
