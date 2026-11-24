@@ -92,7 +92,8 @@ tools:
         title: Read project limits
         description: >
             Read the project's autoresearch limits and current usage: training runs against the daily limit and when the
-            next can start, the most experiments per run, and live pipelines against the live pipeline limit.
+            next can start, the most experiments per run, live pipelines against the live pipeline limit, and this UTC
+            calendar month's training spend in US dollars against the monthly budget, with when it resets.
         feature_flag: autoresearch
     autoresearch-list:
         operation: autoresearch_list
@@ -517,7 +518,9 @@ tools:
             call autoresearch-score-create once. The run uses the pipeline's iterations_per_run unless you override
             iteration_budget for this run, and the project's iteration limit per run can lower either. Returns 429 when
             the project has used its daily limit of training runs, across all its pipelines: do not retry before
-            next_slot_at in the response, and tell the user when the next run can start. A manual run resets the clock
+            next_slot_at in the response, and tell the user when the next run can start. Also returns 429 with code
+            'training_budget_reached' when the project has used its monthly training budget: do not retry before
+            resets_at, and tell the user the amount spent, the budget and when it resets. A manual run resets the clock
             for the next scheduled research run. A pipeline with an action target also needs the action:read scope.
         feature_flag: autoresearch
     autoresearch-training-runs-artifacts-delete-create:

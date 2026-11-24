@@ -53,7 +53,12 @@ with workflow.unsafe.imports_passed_through():
         run_inference_for_pipeline,
         score_shadow_set_for_run,
     )
-    from products.autoresearch.backend.limits import check_training_run_cap, limits_for_team, training_run_usage
+    from products.autoresearch.backend.limits import (
+        check_training_budget,
+        check_training_run_cap,
+        limits_for_team,
+        training_run_usage,
+    )
     from products.autoresearch.backend.models import (
         AutoresearchModel,
         AutoresearchPipeline,
@@ -743,7 +748,7 @@ class KickoffTrainingResult:
     kicked_off: bool
     # "explore" | "scheduled" | "not_due" | "manual_only" | "already_running" | "already_ran_today"
     # | "not_eligible" | "access_refused" | "no_creator" | "not_launchable" | "rescue_unscorable" | "rescue_throttled"
-    # | "team_daily_cap"
+    # | "team_daily_cap" | "team_monthly_budget"
     reason: str
     error: Optional[str] = None
     # Why an expected skip happened, without counting it as a failure.
@@ -981,6 +986,12 @@ def activity_kickoff_training(inp: KickoffTrainingInput) -> KickoffTrainingResul
         if cap := check_training_run_cap(inp.team_id, limits):
             detail = f"The project has used {cap.used} of its daily limit of {cap.limit} training runs"
             return KickoffTrainingResult(kicked_off=False, reason="team_daily_cap", detail=detail)
+        if spent := check_training_budget(inp.team_id, limits):
+            detail = (
+                f"The project has used ${spent.spent_usd:,.2f} of its ${spent.limit_usd:,} monthly training budget, "
+                f"which resets at {spent.resets_at.isoformat()}"
+            )
+            return KickoffTrainingResult(kicked_off=False, reason="team_monthly_budget", detail=detail)
 
         rescue = kickoff_reason == AutoresearchTrainingRun.KickoffReason.RESCUE
         if pipeline.status == AutoresearchPipeline.Status.BOOTSTRAPPING:

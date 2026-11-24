@@ -77,7 +77,13 @@ class TestLimitsForTeam(SimpleTestCase):
         payload = {
             "default_team_config": {"max_iterations_per_run": 12, "max_live_pipelines": 4},
             # A value below the minimum falls through to the next layer.
-            "team_configs": {str(TEAM_ID): {"max_training_runs_per_day": 9, "max_iterations_per_run": 0}},
+            "team_configs": {
+                str(TEAM_ID): {
+                    "max_training_runs_per_day": 9,
+                    "max_iterations_per_run": 0,
+                    "max_training_spend_usd_per_month": 250,
+                }
+            },
         }
 
         limits = self._limits({"autoresearch-limits": payload})
@@ -86,9 +92,11 @@ class TestLimitsForTeam(SimpleTestCase):
             max_training_runs_per_day=9,
             max_iterations_per_run=12,
             max_live_pipelines=4,
+            max_training_spend_usd_per_month=250,
             sources=LimitSources(
                 max_training_runs_per_day=LimitSource.PROJECT,
                 max_iterations_per_run=LimitSource.DEFAULT,
                 max_live_pipelines=LimitSource.DEFAULT,
+                max_training_spend_usd_per_month=LimitSource.PROJECT,
             ),
         )

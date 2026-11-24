@@ -64,10 +64,12 @@ from ..limits import (
     LimitSource,
     TeamLimits,
     check_live_pipeline_cap,
+    check_training_budget,
     check_training_run_cap,
     limits_for_team,
     live_pipeline_count,
     training_run_usage,
+    training_spend,
 )
 from ..models import (
     RESEARCH_INTERVAL_DAYS_CHOICES as _RESEARCH_INTERVAL_DAYS_CHOICES,
@@ -132,6 +134,7 @@ from .contracts import (
     Suggestion,
     SuggestionNotFound as SuggestionNotFound,
     TemplateInfo,
+    TrainingBudgetReached,
     TrainingRun,
     TrainingRunCapReached,
     TrainingRunHistory,
@@ -888,6 +891,7 @@ def get_project_limits(team_id: int) -> ProjectLimits:
     """The project's limits and current usage, for display. Takes no lock, so it can be stale by one run."""
     limits = limits_for_team(team_id)
     training = training_run_usage(team_id, limits)
+    spend = training_spend(team_id, limits)
     return ProjectLimits(
         max_training_runs_per_day=limits.max_training_runs_per_day,
         training_runs_used=training.used,
@@ -895,9 +899,13 @@ def get_project_limits(team_id: int) -> ProjectLimits:
         max_iterations_per_run=limits.max_iterations_per_run,
         max_live_pipelines=limits.max_live_pipelines,
         live_pipelines=live_pipeline_count(team_id),
+        max_training_spend_usd_per_month=limits.max_training_spend_usd_per_month,
+        training_spend_usd=spend.spent_usd,
+        training_spend_resets_at=spend.resets_at,
         max_training_runs_per_day_source=limits.sources.max_training_runs_per_day,
         max_iterations_per_run_source=limits.sources.max_iterations_per_run,
         max_live_pipelines_source=limits.sources.max_live_pipelines,
+        max_training_spend_usd_per_month_source=limits.sources.max_training_spend_usd_per_month,
     )
 
 
@@ -1559,8 +1567,9 @@ def start_training(
     reads the locked row, so a concurrent edit of the target cannot slip past it.
 
     Raises ``TrainingRunCapReached`` when the project has used its daily limit of sandbox training
-    runs, across all its pipelines, and ``LivePipelineCapReached`` when a draft's first
-    run would take the project over its live pipeline limit.
+    runs, across all its pipelines, ``TrainingBudgetReached`` when it has used its monthly training
+    budget, and ``LivePipelineCapReached`` when a draft's first run would take the project over its
+    live pipeline limit.
     """
     # The runner and the sandbox import pandas and pyarrow, so the router path loads them only here.
     from ..inference.sandbox import SandboxInferenceError  # noqa: PLC0415
@@ -1581,6 +1590,8 @@ def start_training(
             _require_live_pipeline_slot(team_id, limits)
         if cap := check_training_run_cap(team_id, limits):
             raise TrainingRunCapReached(used=cap.used, limit=cap.limit, next_slot_at=cap.next_slot_at)
+        if spent := check_training_budget(team_id, limits):
+            raise TrainingBudgetReached(spent_usd=spent.spent_usd, limit_usd=spent.limit_usd, resets_at=spent.resets_at)
         budget = iteration_budget or pipeline.iterations_per_run
         try:
             training_run = run_training(

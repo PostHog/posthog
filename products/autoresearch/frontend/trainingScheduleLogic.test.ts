@@ -12,9 +12,13 @@ const LIMITS: ProjectLimitsApi = {
     max_iterations_per_run: 10,
     max_live_pipelines: 3,
     live_pipelines: 1,
+    max_training_spend_usd_per_month: 100,
+    training_spend_usd: 12.5,
+    training_spend_resets_at: '2026-04-01T00:00:00Z',
     max_training_runs_per_day_source: 'code',
     max_iterations_per_run_source: 'code',
     max_live_pipelines_source: 'code',
+    max_training_spend_usd_per_month_source: 'code',
 }
 
 const PIPELINE = {
@@ -37,6 +41,16 @@ describe('trainingScheduleLogic limits', () => {
             { max_training_runs_per_day: 0, training_runs_used: 0 },
             'Training is turned off for this project. Contact support to turn it on.',
         ],
+        [
+            'the project has used its monthly budget',
+            { training_spend_usd: 100.4, training_runs_used: 3, next_slot_at: '2026-03-01T15:30:00Z' },
+            'This project has used its $100 monthly training budget. Training can start again on Apr 1.',
+        ],
+        [
+            'the monthly budget is 0',
+            { max_training_spend_usd_per_month: 0, training_spend_usd: 0 },
+            'Training is turned off for this project. Contact support to turn it on.',
+        ],
     ])('status line when %s', (_name, overrides, expected) => {
         expect(trainingScheduleStatus(PIPELINE, { ...LIMITS, ...overrides }, NOW)).toEqual(expected)
     })
@@ -45,6 +59,7 @@ describe('trainingScheduleLogic limits', () => {
         ['a draft at the active model limit', 'draft', { live_pipelines: 3 }, true],
         ['a live model retraining at the active model limit', 'running', { live_pipelines: 3 }, false],
         ['a draft under the active model limit', 'draft', {}, false],
+        ['a live model at the monthly budget', 'running', { training_spend_usd: 100 }, true],
     ])('train is disabled for %s', (_name, status, overrides, disabled) => {
         const reason = trainingDisabledByLimitReason({ ...PIPELINE, status }, { ...LIMITS, ...overrides })
         expect(reason !== undefined).toBe(disabled)

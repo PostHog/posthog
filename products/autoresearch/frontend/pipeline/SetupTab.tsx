@@ -13,6 +13,7 @@ import {
     ResearchIntervalDaysEnumApi,
 } from '../generated/api.schemas'
 import {
+    budgetResetDate,
     MAX_ITERATIONS_PER_RUN,
     MIN_ITERATIONS_PER_RUN,
     trainingScheduleLogic,
@@ -197,7 +198,9 @@ function ProjectUsage({ limits }: { limits: ProjectLimitsApi }): JSX.Element {
     return (
         <p className="text-xs text-secondary mb-0" data-attr="autoresearch-project-limits">
             This project has used {limits.training_runs_used} of its daily limit of {limits.max_training_runs_per_day}{' '}
-            training runs, and has {limits.live_pipelines} of {limits.max_live_pipelines} active models.
+            training runs, and has {limits.live_pipelines} of {limits.max_live_pipelines} active models. This month it
+            has spent ${limits.training_spend_usd.toFixed(2)} of its ${limits.max_training_spend_usd_per_month} training
+            budget, which resets on {budgetResetDate(limits)}.
         </p>
     )
 }

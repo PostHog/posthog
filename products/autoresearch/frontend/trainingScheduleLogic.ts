@@ -42,6 +42,22 @@ function dailyTrainingLimitReason(limits: ProjectLimitsApi | null): string | und
     return `This project is at its daily limit of ${limits.max_training_runs_per_day} training runs. The next run can start at ${dayjs(limits.next_slot_at).format('MMM D, h:mm A')}.`
 }
 
+/** Why no training run can start now because of the project's monthly training budget, or undefined while one can. */
+function monthlyBudgetReason(limits: ProjectLimitsApi | null): string | undefined {
+    if (!limits || limits.training_spend_usd < limits.max_training_spend_usd_per_month) {
+        return undefined
+    }
+    if (limits.max_training_spend_usd_per_month === 0) {
+        return 'Training is turned off for this project. Contact support to turn it on.'
+    }
+    return `This project has used its $${limits.max_training_spend_usd_per_month} monthly training budget. Training can start again on ${budgetResetDate(limits)}.`
+}
+
+/** The day the monthly training budget resets. It resets at midnight UTC, so the date is the UTC one. */
+export function budgetResetDate(limits: ProjectLimitsApi): string {
+    return dayjs.utc(limits.training_spend_resets_at).format('MMM D')
+}
+
 /** Why a draft cannot start its first training run because of the project's active model limit. */
 function liveModelLimitReason(
     pipeline: AutoresearchPipelineApi | null,
@@ -58,16 +74,16 @@ export function trainingDisabledByLimitReason(
     pipeline: AutoresearchPipelineApi | null,
     limits: ProjectLimitsApi | null
 ): string | undefined {
-    return liveModelLimitReason(pipeline, limits) ?? dailyTrainingLimitReason(limits)
+    return liveModelLimitReason(pipeline, limits) ?? monthlyBudgetReason(limits) ?? dailyTrainingLimitReason(limits)
 }
 
-/** One line on what training does next, from the saved schedule and the project's daily limit. */
+/** One line on what training does next, from the saved schedule and the project's training limits. */
 export function trainingScheduleStatus(
     pipeline: AutoresearchPipelineApi,
     limits: ProjectLimitsApi | null = null,
     now: dayjs.Dayjs = dayjs()
 ): string {
-    const limitReason = dailyTrainingLimitReason(limits)
+    const limitReason = monthlyBudgetReason(limits) ?? dailyTrainingLimitReason(limits)
     if (limitReason) {
         return limitReason
     }
