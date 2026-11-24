@@ -98,6 +98,19 @@ async function metricValue(name: string, labels: Record<string, string>, metricN
     return sample?.value ?? 0
 }
 
+async function metricTotal(name: string, labels: Record<string, string>, metricName: string): Promise<number> {
+    const metric = await register.getSingleMetric(name)!.get()
+    const values: { labels: Partial<Record<string, string | number>>; value: number; metricName?: string }[] =
+        metric.values
+    return values
+        .filter(
+            (value) =>
+                value.metricName === metricName &&
+                Object.entries(labels).every(([key, labelValue]) => value.labels[key] === labelValue)
+        )
+        .reduce((total, value) => total + value.value, 0)
+}
+
 describe('sanitizeEmailSubject', () => {
     it.each([
         ['passes through normal text', 'Hello World', 'Hello World'],
@@ -887,7 +900,12 @@ describe('EmailService', () => {
                     invocation.queueDueAt = DateTime.utc().minus({ seconds: 5 })
                     invocation.queueScheduledAt = undefined
                     const name = 'cdp_email_queue_to_send_ms'
-                    const labels = { source, priority_class: priorityClass, team_capped: teamCapped }
+                    const labels = {
+                        source,
+                        priority_class: priorityClass,
+                        team_capped: teamCapped,
+                        with_files: 'false',
+                    }
                     const countBefore = await metricValue(name, labels, `${name}_count`)
                     const sumBefore = await metricValue(name, labels, `${name}_sum`)
 
@@ -2470,6 +2488,54 @@ describe('EmailService', () => {
                     },
                 ])
             })
+
+            it.each([
+                ['with files that SES accepts', (): StoredFile[] => [pdf], sesAccepts, 'success', 'true', 'false'],
+                ['without files that SES accepts', (): StoredFile[] => [], sesAccepts, 'success', 'false', 'true'],
+                ['with files that SES rejects', (): StoredFile[] => [pdf], sesRejects, 'error', 'true', 'false'],
+                ['without files that SES rejects', (): StoredFile[] => [], sesRejects, 'error', 'false', 'true'],
+            ])(
+                'times a send %s apart from the other kind',
+                async (_case, files, sesAnswer, sesResult, counted, untouched) => {
+                    invocation.queue = 'email'
+                    invocation.queueDueAt = DateTime.utc().minus({ seconds: 5 })
+                    send(files())
+                    sesAnswer()
+                    const latencyCounts = async (withFiles: string): Promise<number[]> => [
+                        await metricTotal(
+                            'cdp_ses_send_duration_ms',
+                            { result: sesResult, with_files: withFiles },
+                            'cdp_ses_send_duration_ms_count'
+                        ),
+                        await metricTotal(
+                            'cdp_ses_send_duration_ms',
+                            { with_files: withFiles },
+                            'cdp_ses_send_duration_ms_count'
+                        ),
+                        await metricTotal(
+                            'cdp_email_queue_to_send_ms',
+                            { with_files: withFiles },
+                            'cdp_email_queue_to_send_ms_count'
+                        ),
+                    ]
+                    const allSeries = async (): Promise<number[]> => [
+                        await metricTotal('cdp_ses_send_duration_ms', {}, 'cdp_ses_send_duration_ms_count'),
+                        await metricTotal('cdp_email_queue_to_send_ms', {}, 'cdp_email_queue_to_send_ms_count'),
+                    ]
+                    const countedBefore = await latencyCounts(counted)
+                    const untouchedBefore = await latencyCounts(untouched)
+                    const allSeriesBefore = await allSeries()
+
+                    const result = await sender().executeSendEmail(invocation)
+
+                    expect(result.error).toEqual(
+                        sesResult === 'error' ? expect.stringContaining('SES error') : undefined
+                    )
+                    expect(await latencyCounts(counted)).toEqual(countedBefore.map((count) => count + 1))
+                    expect(await latencyCounts(untouched)).toEqual(untouchedBefore)
+                    expect(await allSeries()).toEqual(allSeriesBefore.map((count) => count + 1))
+                }
+            )
 
             describe('team budget across load retries', () => {
                 it.each([
