@@ -16,6 +16,8 @@ function describe(card: MCPWrappedArchetypeCardApi): string {
             return `${formatPercent(evidence)} of calls came in on weekends.`
         case 'speed_demon':
             return `95% of tool calls returned in under ${formatDuration(evidence)}.`
+        case 'superhero':
+            return `${formatPercent(evidence)} of tool calls came back without an error, and fast.`
         case 'rocket':
             return `Calls grew ${evidence}× since your first full month.`
         case 'all_rounder':

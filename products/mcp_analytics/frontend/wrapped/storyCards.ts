@@ -25,6 +25,7 @@ export const ARCHETYPE_NAMES: Record<ArchetypeEnumApi, string> = {
     weekend_warrior: 'The Weekend Warrior',
     speed_demon: 'The Speed Demon',
     rocket: 'The Rocket',
+    superhero: 'The Superhero',
     all_rounder: 'The All-Rounder',
 }
 
@@ -35,6 +36,7 @@ export const ARCHETYPE_TAGLINES: Record<ArchetypeEnumApi, string> = {
     weekend_warrior: 'No days off.',
     speed_demon: 'Fast and light on its feet.',
     rocket: 'Growing like a rocket.',
+    superhero: "Your agents' favorite safety net.",
     all_rounder: 'A bit of everything, done well.',
 }
 

@@ -124,6 +124,7 @@ export const ARCHETYPE_HOGGIES: Record<ArchetypeEnumApi, Hoggie> = {
     weekend_warrior: hoggies.surfer,
     speed_demon: hoggies.coolCar,
     rocket: hoggies.finalEvolution,
+    superhero: hoggies.superhero,
     all_rounder: hoggies.puzzle,
 }
 

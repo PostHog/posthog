@@ -858,6 +858,7 @@ export interface MCPWrappedSpeedCardApi {
  * * `weekend_warrior` - The Weekend Warrior
  * * `speed_demon` - The Speed Demon
  * * `rocket` - The Rocket
+ * * `superhero` - The Superhero
  * * `all_rounder` - The All-Rounder
  */
 export type ArchetypeEnumApi = (typeof ArchetypeEnumApi)[keyof typeof ArchetypeEnumApi]
@@ -869,6 +870,7 @@ export const ArchetypeEnumApi = {
     WeekendWarrior: 'weekend_warrior',
     SpeedDemon: 'speed_demon',
     Rocket: 'rocket',
+    Superhero: 'superhero',
     AllRounder: 'all_rounder',
 } as const
 
@@ -881,6 +883,7 @@ export interface MCPWrappedArchetypeCardApi {
      * * `weekend_warrior` - The Weekend Warrior
      * * `speed_demon` - The Speed Demon
      * * `rocket` - The Rocket
+     * * `superhero` - The Superhero
      * * `all_rounder` - The All-Rounder */
     readonly archetype: ArchetypeEnumApi
     /**

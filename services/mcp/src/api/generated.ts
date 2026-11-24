@@ -17278,6 +17278,7 @@ export namespace Schemas {
      * * `weekend_warrior` - The Weekend Warrior
      * * `speed_demon` - The Speed Demon
      * * `rocket` - The Rocket
+     * * `superhero` - The Superhero
      * * `all_rounder` - The All-Rounder
      */
     export type ArchetypeEnum = typeof ArchetypeEnum[keyof typeof ArchetypeEnum];
@@ -17290,6 +17291,7 @@ export namespace Schemas {
       WeekendWarrior: 'weekend_warrior',
       SpeedDemon: 'speed_demon',
       Rocket: 'rocket',
+      Superhero: 'superhero',
       AllRounder: 'all_rounder',
     } as const;
 
@@ -74263,6 +74265,7 @@ export namespace Schemas {
        * * `weekend_warrior` - The Weekend Warrior
        * * `speed_demon` - The Speed Demon
        * * `rocket` - The Rocket
+       * * `superhero` - The Superhero
        * * `all_rounder` - The All-Rounder */
       readonly archetype: ArchetypeEnum;
       /**
