@@ -6,7 +6,6 @@ They stop loading once the team closes its account there. An image on any other 
 import re
 import time
 from collections.abc import Callable, Iterable
-from urllib.parse import quote
 
 from posthog.dataclasses import frozen
 
@@ -36,7 +35,6 @@ _CSS_URL = re.compile(
     r"""|([^\s"'()<>]{1,8192}))\s{0,20}\)""",
     re.IGNORECASE,
 )
-_URL_CHARACTERS = "%:/?#[]@!$&'()*+,;=-._~"
 _AMPERSAND = re.compile(r"&(?:amp|#38|#x26);", re.IGNORECASE)
 # Liquid, Handlebars, Mailchimp and Mailgun tags, written out or percent-encoded. The address only exists at send time.
 _TEMPLATE_TAG = re.compile(r"[{}]|\*\||\|\*|%recipient|%7b|\*%7c", re.IGNORECASE)
@@ -156,8 +154,7 @@ def _hosted_url(value: str, source: EmailImageSource) -> str | None:
     """The https address of an image on the provider's hosts, or None. Older emails name those hosts over http."""
     if _TEMPLATE_TAG.search(value):
         return None
-    # A file name can hold spaces or accents, which a browser encodes. In the host they never match.
-    url = quote(_AMPERSAND.sub("&", value.strip()), safe=_URL_CHARACTERS)
+    url = _AMPERSAND.sub("&", value.strip())
     scheme, separator, rest = url.partition("//")
     if not separator or scheme.lower() not in ("", "http:", "https:"):
         return None
