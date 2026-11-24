@@ -7684,6 +7684,10 @@
         "BookActivityMatrixCell": {
             "additionalProperties": false,
             "properties": {
+                "agentUsers": {
+                    "$ref": "#/definitions/integer",
+                    "description": "People active in this product through AI agents, such as MCP tool calls."
+                },
                 "column": {
                     "type": "string"
                 },
@@ -7693,8 +7697,13 @@
                 "series": {
                     "type": "string"
                 },
+                "uiUsers": {
+                    "$ref": "#/definitions/integer",
+                    "description": "People active in this product in the app."
+                },
                 "users": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/integer",
+                    "description": "People active in this product through any channel. Each person counts once."
                 }
             },
             "required": ["row", "column", "series", "users"],
@@ -8162,6 +8171,10 @@
                         "$ref": "#/definitions/BookActivityPersonAction"
                     },
                     "type": "array"
+                },
+                "agentCalls": {
+                    "$ref": "#/definitions/integer",
+                    "description": "AI agent calls, such as MCP tool calls, that qualified this person for the product."
                 },
                 "column": {
                     "description": "Bucket start, the same as `AccountActivityMatrixColumn.key`.",

@@ -101,6 +101,19 @@ class ZohoCRMSource(ResumableSource[ZohoCRMSourceConfig, ZohoCRMResumeConfig]):
             "Non-JSON response from": "Zoho CRM returned a non-JSON response, for example an HTML error or login page, instead of data. Check that the data center you picked matches your Zoho account, then try again.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # A 5xx reaches us only after the tracked session spent its retries (see `ZOHO_RETRY`), so
+        # Zoho is briefly unavailable. A match makes the sync and the schema discovery activities
+        # re-raise it as non-reportable, so Temporal retries without an error tracking issue. The
+        # patterns leave out the reason phrase, because a response over HTTP/2 has none and
+        # `raise_for_status()` then renders it blank.
+        return {
+            "500 Server Error",
+            "502 Server Error",
+            "503 Server Error",
+            "504 Server Error",
+        }
+
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(

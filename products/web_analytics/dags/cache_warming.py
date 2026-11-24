@@ -1831,7 +1831,7 @@ def report_warming_plan_op(context: dagster.OpExecutionContext, queries: list[di
 @dagster.job(
     description="Warms web analytics query cache and precompute buckets for frequently-run queries fleet-wide",
     tags={
-        "owner": JobOwners.TEAM_WEB_ANALYTICS.value,
+        "owner": JobOwners.TEAM_ANALYTICS.value,
         "dagster/web_analytics_cache_warming": "web_analytics_cache_warming",
         # Run-level backstop, enforced by Dagster run monitoring. The in-op
         # guards (stall windows, pass deadline) only bound executing shard
@@ -1868,7 +1868,7 @@ def web_analytics_cache_warming_job():
 @dagster.job(
     description="Dry run: report how many web analytics query shapes cache warming would warm, without warming",
     tags={
-        "owner": JobOwners.TEAM_WEB_ANALYTICS.value,
+        "owner": JobOwners.TEAM_ANALYTICS.value,
         "dagster/web_analytics_cache_warming": "web_analytics_cache_warming_dry_run",
     },
 )
@@ -1881,7 +1881,7 @@ def web_analytics_cache_warming_dry_run_job():
     cron_schedule="3 * * * *",
     job=web_analytics_cache_warming_job,
     execution_timezone="UTC",
-    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
+    tags={"owner": JobOwners.TEAM_ANALYTICS.value},
 )
 def web_analytics_cache_warming_schedule(context: dagster.ScheduleEvaluationContext):
     skip_reason = check_for_concurrent_runs(context)
