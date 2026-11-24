@@ -583,8 +583,9 @@ tools:
         title: List error tracking tag rules
         description: >
             List the tag rules of the current project, with the label, color, filters, key, version and disabled state
-            of each. Use a rule's `key` with `error-tracking-issues-tag-partial-update` to apply or remove its tag on one issue.
-            The call fails with "Issue tags are off for this project." when the project does not have issue tags.
+            of each. Use a rule's `key` with `error-tracking-issues-tag-partial-update` to apply or remove its tag on
+            one issue. The call fails with "Issue tags are off for this project." when the project does not have issue
+            tags.
         feature_flag: error-tracking-issue-tags
     error-tracking-tag-rules-update:
         operation: error_tracking_tag_rules_partial_update
