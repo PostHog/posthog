@@ -462,11 +462,15 @@ class _HogCodeVisitor(TraversingVisitor):
         self._scopes: list[dict[str, _Binding]] = [{}]
         self._literal_urls: list[str] = []
         self._raw_body = False
+        # Locals passed as a `fetch` body. They go out as JSON while they still hold the dict literal they were declared
+        # with when the walk ends, because a later replacement can run before the request.
+        self._body_locals: list[_Binding] = []
         self._other_call = False
         self._graph = _CallGraph()
 
     def requests(self) -> _Requests:
-        return self._graph.requests(self._literal_urls, self._other_call, self._raw_body)
+        raw_body = self._raw_body or not all(map(_is_dict, self._body_locals))
+        return self._graph.requests(self._literal_urls, self._other_call, raw_body)
 
     def _sends(self, literal_url: str | None = None) -> None:
         """A call here can send a request: a `fetch` of `literal_url`, or any call when it is None."""
@@ -595,7 +599,8 @@ class _HogCodeVisitor(TraversingVisitor):
             return
         if node.name == "fetch" and node.params is None and (url := _literal_string(node.args[:1])) is not None:
             self._sends(url)
-            self._raw_body |= len(node.args) > 1 and not _has_json_body(node.args[1])
+            if len(node.args) > 1:
+                self._check_json_body(node.args[1])
         elif node.params is not None or node.name not in _BUILTIN_FUNCTIONS or node.name in OUTBOUND_FUNCTIONS:
             self._sends()
         if node.name in _CALLBACK_FUNCTIONS and node.args and not isinstance(node.args[0], ast.Lambda):
@@ -606,6 +611,23 @@ class _HogCodeVisitor(TraversingVisitor):
             self.matched.add(Rule.HUGE_RANGE)
         elif node.name == "replaceAll" and _replaces_empty_string(node.args):
             self.matched.add(Rule.REPLACE_AMPLIFICATION)
+
+    def _check_json_body(self, options: ast.Expr) -> None:
+        """`fetch` sends a string body as it is, and a dict as JSON. Options count as JSON when they are a dict literal
+        whose body, if any, is a dict literal or a local declared as one."""
+        if not isinstance(options, ast.Dict):
+            self._raw_body = True
+            return
+        for key, value in options.items:
+            name = _literal_string([key])
+            if name is None:
+                self._raw_body = True
+            elif name == "body" and not isinstance(value, ast.Dict):
+                match value:
+                    case ast.Field(chain=[str(local)]) if (binding := self._local(local)) is not None:
+                        self._body_locals.append(binding)
+                    case _:
+                        self._raw_body = True
 
     def visit_field(self, node: ast.Field) -> None:
         # `let run := postHogCreateTask` followed by `run()` reaches the same handler as a direct call.
@@ -627,17 +649,6 @@ def _literal_string(args: list[ast.Expr]) -> str | None:
         case [ast.Constant(value=str(value))]:
             return value
     return None
-
-
-def _has_json_body(options: ast.Expr) -> bool:
-    """Whether `fetch` options are a dict literal whose body, if any, is a dict literal, which `fetch` sends as JSON."""
-    if not isinstance(options, ast.Dict):
-        return False
-    for key, value in options.items:
-        name = _literal_string([key])
-        if name is None or (name == "body" and not isinstance(value, ast.Dict)):
-            return False
-    return True
 
 
 def _hog_range_size(args: list[ast.Expr]) -> float:

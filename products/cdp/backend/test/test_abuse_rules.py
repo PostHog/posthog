@@ -778,6 +778,22 @@ class TestAbuseRules(SimpleTestCase):
                 None,
             ),
             (
+                "body_built_in_a_local",
+                content(
+                    hog="let body := {'text': inputs.text}\nbody['username'] := inputs.username\n"
+                    "fetch('https://slack.com/api/chat.postMessage', {'body': body})"
+                ),
+                SetAsideReason.CHAT_MESSAGES_ONLY,
+            ),
+            (
+                "body_local_replaced_after_the_request",
+                content(
+                    hog="let body := {'text': inputs.text}\nfetch('https://slack.com/api/chat.postMessage', {'body': body})\n"
+                    "body := event.properties.payload"
+                ),
+                None,
+            ),
+            (
                 "options_from_a_variable",
                 content(
                     hog="let options := {'body': {'text': 'hi'}}\nfetch('https://slack.com/api/chat.postMessage', options)"
