@@ -80,8 +80,6 @@ const meta: Meta<typeof PlatformAlertStateSummary> = {
     component: PlatformAlertStateSummary,
     parameters: {
         layout: 'padded',
-        // Only the alerts list uses this component, and the list story snapshots it there.
-        testOptions: { snapshotBrowsers: [] },
     },
 }
 export default meta
