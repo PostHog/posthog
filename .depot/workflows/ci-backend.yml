@@ -4177,12 +4177,12 @@ jobs:
               shell: bash
               env:
                   CACHE_DIR: ${{ steps.temporal-test-servers.outputs.dir }}
-                  TEMPORALIO_VERSION: ${{ steps.temporal-test-servers.outputs.version }}
+                  CHECKSUMS: ${{ steps.temporal-test-servers.outputs.checksums }}
               run: |
                   # The file names follow sdk-core's naming for a default-version download. Both must be
                   # present, because a cache entry saved with one binary would serve every later job without the other.
                   mkdir -p "$CACHE_DIR"
-                  for binary in "temporal-sdk-python-$TEMPORALIO_VERSION" "temporal-test-server-sdk-python-$TEMPORALIO_VERSION"; do
+                  while read -r _ binary; do
                       for temp_dir in "${TMPDIR:-/tmp}" /tmp; do
                           if [ -f "$temp_dir/$binary" ] && [ ! -L "$temp_dir/$binary" ]; then
                               cp "$temp_dir/$binary" "$CACHE_DIR/"
@@ -4193,7 +4193,11 @@ jobs:
                           echo "::warning::$binary was not found in the temp directory, so the Temporal test server cache was not saved"
                           exit 0
                       fi
-                  done
+                  done < "$CHECKSUMS"
+                  if ! (cd "$CACHE_DIR" && sha256sum --check --strict "$CHECKSUMS"); then
+                      echo "::warning::The downloaded Temporal test servers do not match their pinned digests, so the cache was not saved. Update the digests in the temporal-test-servers action."
+                      exit 0
+                  fi
                   echo "complete=true" >> "$GITHUB_OUTPUT"
             - name: Save Temporal test servers to cache
               if: ${{ !cancelled() && steps.collect-temporal-test-servers.outputs.complete == 'true' }}

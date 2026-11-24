@@ -10,10 +10,10 @@ description: |
 
 outputs:
     cache-hit:
-        description: "'true' when both binaries came from the cache"
-        value: ${{ steps.restore.outputs.cache-hit }}
+        description: "'true' when both binaries came from the cache and matched their pinned digests"
+        value: ${{ steps.link.outputs.verified }}
     key:
-        description: Cache key for the locked temporalio version, empty when uv.lock pins no temporalio
+        description: Cache key for the locked temporalio version, empty when that version has no pinned digests
         value: ${{ steps.version.outputs.key }}
     dir:
         description: Directory the cache restores into and saves from
@@ -21,6 +21,9 @@ outputs:
     version:
         description: Locked temporalio version
         value: ${{ steps.version.outputs.version }}
+    checksums:
+        description: sha256sum check file holding the pinned digests of both binaries
+        value: ${{ steps.version.outputs.checksums }}
 
 runs:
     using: composite
@@ -31,13 +34,29 @@ runs:
           env:
               RUNNER_OS_NAME: ${{ runner.os }}
               RUNNER_ARCH_NAME: ${{ runner.arch }}
+              # Depot Cache has no branch isolation, so any pull request can write this cache key. A cached
+              # binary is linked only when it matches a digest from the checked-out repository.
+              # After a temporalio bump, take the new digests from the binaries the SDK downloads on Linux X64.
+              PINNED_DIGESTS: |
+                  960afddde142595ea4bf6c74f0213b4634a4ef2ef8778c2e930af2cce30d7c8a  temporal-sdk-python-1.34.0
+                  25d5fb9ec503429bd5b56b6bcdbfd3197585b29458efb2284946b1e4ff8f0abe  temporal-test-server-sdk-python-1.34.0
           run: |
               version=$(awk '/^name = "temporalio"$/ { getline; gsub(/"/, "", $3); print $3; exit }' uv.lock)
               echo "version=$version" >> "$GITHUB_OUTPUT"
               echo "dir=$HOME/.cache/temporal-test-servers" >> "$GITHUB_OUTPUT"
-              if [ -n "$version" ]; then
-                  echo "key=temporal-test-servers-$RUNNER_OS_NAME-$RUNNER_ARCH_NAME-$version" >> "$GITHUB_OUTPUT"
+              if [ -z "$version" ] || [ "$RUNNER_OS_NAME-$RUNNER_ARCH_NAME" != "Linux-X64" ]; then
+                  exit 0
               fi
+              checksums="$RUNNER_TEMP/temporal-test-servers.sha256"
+              printf '%s\n' "$PINNED_DIGESTS" | awk -v version="$version" \
+                  '$2 == "temporal-sdk-python-" version || $2 == "temporal-test-server-sdk-python-" version { print $1 "  " $2 }' \
+                  > "$checksums"
+              if [ "$(wc -l < "$checksums")" -ne 2 ]; then
+                  echo "::warning::No pinned digests for temporalio $version, so the Temporal test server cache is off. Add them to the temporal-test-servers action."
+                  exit 0
+              fi
+              echo "checksums=$checksums" >> "$GITHUB_OUTPUT"
+              echo "key=temporal-test-servers-$RUNNER_OS_NAME-$RUNNER_ARCH_NAME-$version" >> "$GITHUB_OUTPUT"
 
         - name: Restore Temporal test servers from cache
           id: restore
@@ -51,17 +70,23 @@ runs:
               key: ${{ steps.version.outputs.key }}
 
         - name: Link Temporal test servers into the temp directory
+          id: link
           if: steps.restore.outputs.cache-hit == 'true'
           shell: bash
           env:
               CACHE_DIR: ${{ steps.version.outputs.dir }}
+              CHECKSUMS: ${{ steps.version.outputs.checksums }}
           run: |
-              shopt -s nullglob
+              if ! (cd "$CACHE_DIR" && sha256sum --check --strict "$CHECKSUMS"); then
+                  echo "::warning::The cached Temporal test servers do not match their pinned digests, so the SDK downloads them instead"
+                  exit 0
+              fi
               # Product tests run pytest under turbo, which strips undeclared env vars. If it strips
               # TMPDIR, the SDK there resolves /tmp even when the runner sets TMPDIR elsewhere.
               for temp_dir in "${TMPDIR:-/tmp}" /tmp; do
-                  for binary in "$CACHE_DIR"/*; do
-                      ln -sf "$binary" "$temp_dir/$(basename "$binary")"
-                  done
+                  while read -r _ binary; do
+                      ln -sf "$CACHE_DIR/$binary" "$temp_dir/$binary"
+                  done < "$CHECKSUMS"
               done
               ls -l "$CACHE_DIR"
+              echo "verified=true" >> "$GITHUB_OUTPUT"
