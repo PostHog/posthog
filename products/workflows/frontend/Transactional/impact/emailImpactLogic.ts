@@ -319,7 +319,7 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
             // as its project, so a save from any other environment cannot find the project and fails.
             (currentTeam: TeamPublicType | TeamType | null): string | null =>
                 currentTeam?.project_id && currentTeam.id !== currentTeam.project_id
-                    ? "Switch to this project's main environment to turn on link tracking."
+                    ? "Link tracking can't be turned on in this environment yet."
                     : null,
         ],
         steps: [

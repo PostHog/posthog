@@ -251,7 +251,7 @@ describe('ImpactFunnelCard', () => {
         [
             "an environment that is not its project's main one",
             { ...teamWithLinkTagging(false), id: 1001, project_id: 1000 },
-            "Switch to this project's main environment to turn on link tracking.",
+            "Link tracking can't be turned on in this environment yet.",
         ],
     ])('keeps link tracking off and says why, for %s', async (_, team, reason) => {
         const patches: string[] = []
