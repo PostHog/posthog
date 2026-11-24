@@ -55,7 +55,7 @@ from products.messaging.backend.presentation.views.transactional_push_status imp
 
 class KeyScopedMessagingSendViewSet(MessagingSendViewSet):
     team_from_project_secret_api_key = True
-    psak_allowed_actions = ["email", "email_batch"]
+    psak_allowed_actions = ["email", "email_batch", "push", "push_batch"]
     transactional_email_send_actions = ("email", "email_batch")
 
     def initial(self, request: Any, *args: Any, **kwargs: Any) -> None:

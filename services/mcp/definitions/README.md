@@ -224,11 +224,12 @@ tools:
 
 `confirmed_action` fields:
 
-| Field          | Required | Description                                                                                              |
-| -------------- | -------- | -------------------------------------------------------------------------------------------------------- |
-| `message`      | Yes      | Prompt shown to the user. Supports `{paramName}` placeholders interpolated from the validated tool args. |
-| `action_label` | No       | Short label for the action (e.g. "delete project"). Defaults to the tool's title.                        |
-| `preview`      | No       | Module under `src/tools/` that reads what the action works on. Replaces `{preview}` in `message`.        |
+| Field                  | Required | Description                                                                                                                |
+| ---------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `message`              | Yes      | Prompt shown to the user. Supports `{paramName}` placeholders interpolated from the validated tool args.                   |
+| `action_label`         | No       | Short label for the action (e.g. "delete project"). Defaults to the tool's title.                                          |
+| `preview`              | No       | Module under `src/tools/` that reads what the action works on. Replaces `{preview}` in `message`.                          |
+| `preview_digest_param` | No       | Body field that carries the preview's `digest`. The API compares it under its own lock and answers 409 `template_changed`. |
 
 With `preview`, prepare fails when the module can't read what the action works on, and execute refuses when it changed since prepare. The module quotes text that people wrote with `quoteUntrusted`.
 

@@ -50,7 +50,7 @@ import {
     confirmedActionPreparesTotal,
     confirmedActionRefusalsTotal,
 } from '@/hono/metrics'
-import { ToolInputValidationError } from '@/lib/errors'
+import { PostHogApiError, ToolInputValidationError, parseApiErrorIdentifiers } from '@/lib/errors'
 import {
     MAX_STASHED_PAYLOAD_BYTES,
     PAYLOAD_STASH_TTL_MARGIN_SECONDS,
@@ -85,6 +85,8 @@ export interface ConfirmedActionPreview {
     text: string
     /** Covers everything the user confirms, also the parts that `text` shows cut. */
     fingerprint: string
+    /** Sent to the API as `preview_digest_param`, which refuses the request when its own digest differs. */
+    digest?: string
 }
 
 /** Declared per tool with `confirmed_action.preview`. A loader that throws stops the prepare or the execute. */
@@ -133,6 +135,7 @@ interface SignedConfirmedActionPayload {
     args: Record<string, unknown>
     scope: ConfirmedActionScope | null
     previewFingerprint?: string
+    previewDigest?: string
 }
 
 /**
@@ -191,7 +194,9 @@ export async function prepareConfirmedAction<P extends Record<string, unknown>>(
     const payload: SignedConfirmedActionPayload = {
         args: options.args,
         scope: withConnectionScope(context, options.boundScope),
-        ...(options.preview ? { previewFingerprint: options.preview.fingerprint } : {}),
+        ...(options.preview
+            ? { previewFingerprint: options.preview.fingerprint, previewDigest: options.preview.digest }
+            : {}),
     }
     // Digest the exact string that gets stashed — execute re-hashes the
     // stored string, so serialization only has to be stable across this
@@ -265,7 +270,9 @@ export interface ExecuteConfirmedActionOptions {
     loadPreview?: (args: Record<string, unknown>) => Promise<ConfirmedActionPreview>
 }
 
-export type ExecuteConfirmedActionOutcome<P> = { ok: true; verifiedArgs: P } | { ok: false; result: ToolErrorResult }
+export type ExecuteConfirmedActionOutcome<P> =
+    | { ok: true; verifiedArgs: P; previewDigest?: string | undefined }
+    | { ok: false; result: ToolErrorResult }
 
 interface ToolErrorResult {
     content: Array<{ type: 'text'; text: string }>
@@ -377,16 +384,12 @@ export async function executeConfirmedAction<P extends Record<string, unknown>>(
     if (options.loadPreview) {
         const current = await options.loadPreview(args as Record<string, unknown>)
         if (wrapper.previewFingerprint !== current.fingerprint) {
-            return refuse(
-                options.purpose,
-                'preview_changed',
-                `${options.purpose} was not executed: it changed after the user was asked to confirm. Run the prepare step again, and show the user the new message.`
-            )
+            return refusePreviewChanged(options.purpose)
         }
     }
 
     confirmedActionExecutesTotal.inc({ tool: options.purpose, status: 'ok' })
-    return { ok: true, verifiedArgs: args as P }
+    return { ok: true, verifiedArgs: args as P, previewDigest: wrapper.previewDigest }
 }
 
 /**
@@ -424,6 +427,30 @@ function scopesMatch(signed: ConfirmedActionScope | null, expected: ConfirmedAct
         }
     }
     return true
+}
+
+function refusePreviewChanged(purpose: string): { ok: false; result: ToolErrorResult } {
+    return refuse(
+        purpose,
+        'preview_changed',
+        `${purpose} was not executed: it changed after the user was asked to confirm. Run the prepare step again, and show the user the new message.`
+    )
+}
+
+/** Turns the API's answer to a digest that no longer matches into the refusal a changed preview gets. */
+export async function refuseChangedPreview<T>(purpose: string, request: () => Promise<T>): Promise<T> {
+    try {
+        return await request()
+    } catch (error) {
+        if (
+            error instanceof PostHogApiError &&
+            error.status === 409 &&
+            parseApiErrorIdentifiers(error.body).code === 'template_changed'
+        ) {
+            return refusePreviewChanged(purpose).result as never
+        }
+        throw error
+    }
 }
 
 function refuse(purpose: string, reason: string, message: string): { ok: false; result: ToolErrorResult } {

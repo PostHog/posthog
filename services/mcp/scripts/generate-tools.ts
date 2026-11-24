@@ -1722,6 +1722,15 @@ function buildConfirmedActionFactories(args: {
         ? `            loadPreview: (args) => ${previewVar}(context, args as z.infer<ReturnType<typeof ${schemaName}>>, ${previewScope}),\n`
         : ''
 
+    const digestParam = config.confirmed_action?.preview_digest_param
+    if (digestParam) {
+        executeHandlerBody = executeHandlerBody.replace(
+            '        const result = await context.api.request',
+            `        if (__guard.previewDigest !== undefined) body[${JSON.stringify(digestParam)}] = __guard.previewDigest\n        const result = await context.api.request`
+        )
+        executeHandlerBody = `        return await refuseChangedPreview(${JSON.stringify(toolName)}, async () => {\n${executeHandlerBody}        })\n`
+    }
+
     // Prepare handler: validate args via the base schema (already happens
     // before our handler runs) and call into the runtime. Args are signed
     // (with any state fallbacks resolved) — bound to user identity + purpose
@@ -2342,7 +2351,7 @@ function generateCategoryFile(
         enabledWrappers.length > 0 ? `import { createQueryWrapper } from '@/tools/query-wrapper-factory'\n` : ''
 
     const confirmedActionImportLine = hasConfirmedAction
-        ? `import { getConfirmedActionRuntime } from '@/tools/confirmed-action-registry'\nimport { executeConfirmedAction, prepareConfirmedAction, type PrepareConfirmedActionResult } from '@/tools/confirmed-action-runtime'\n`
+        ? `import { getConfirmedActionRuntime } from '@/tools/confirmed-action-registry'\nimport { executeConfirmedAction, prepareConfirmedAction, ${enabledTools.some(([, c]) => c.confirmed_action?.preview_digest_param) ? 'refuseChangedPreview, ' : ''}type PrepareConfirmedActionResult } from '@/tools/confirmed-action-runtime'\n`
         : ''
 
     const schemaRefCode = allSchemaRefBlocks.length > 0 ? '\n' + allSchemaRefBlocks.join('\n\n') + '\n' : ''

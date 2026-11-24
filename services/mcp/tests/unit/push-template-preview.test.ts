@@ -3,6 +3,7 @@ import type { AddressInfo } from 'node:net'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { ApiClient } from '@/api/client'
+import { pushDigest } from '@/lib/push-digest'
 import { quoteUntrusted } from '@/lib/quote-untrusted'
 import { PayloadStash, SignedStateCodec } from '@/lib/signed-state'
 import { describeLinkTarget, describeVariables } from '@/lib/untrusted-link'
@@ -20,6 +21,8 @@ describe('push template preview', () => {
     let template: Record<string, any> | null
     let integrations: Record<string, [number, unknown]>
     let posts: string[]
+    let sent: Record<string, unknown>
+    let postStatus: number
     let context: Context
     let close: () => Promise<unknown>
 
@@ -32,12 +35,19 @@ describe('push template preview', () => {
         }
         integrations = { 13: [200, { kind: 'firebase', display_name: 'my-app' }] }
         posts = []
+        postStatus = 200
         const server = createServer((incoming, response) => {
             response.setHeader('Content-Type', 'application/json')
             const integration = /integrations\/(\d+)\//.exec(incoming.url ?? '')?.[1]
             if (incoming.method === 'POST') {
-                posts.push(incoming.url!)
-                response.end(JSON.stringify(template))
+                let body = ''
+                incoming.on('data', (chunk) => (body += chunk))
+                incoming.on('end', () => {
+                    posts.push(incoming.url!)
+                    sent = JSON.parse(body)
+                    response.statusCode = postStatus
+                    response.end(JSON.stringify(postStatus === 200 ? template : { code: 'template_changed' }))
+                })
                 return
             }
             const [status, body] = integration
@@ -110,6 +120,39 @@ describe('push template preview', () => {
         expect(posts).toEqual([`/api/projects/42/messaging_templates/${TEMPLATE_ID}/make_transactional/`])
     })
 
+    it('sends the digest of what it showed, and refuses when the API says it changed', async () => {
+        const prepared = await prepare()
+        postStatus = 409
+
+        const result = await execute(prepared)
+
+        expect(sent).toEqual({ expected_type: 'push', confirmed_digest: pushDigest(template as never) })
+        expect(result).toMatchObject({
+            isError: true,
+            content: [{ text: expect.stringContaining('changed after the user was asked') }],
+        })
+    })
+
+    it('computes the digest the API computes', () => {
+        // The same template and hash are in products/messaging/backend/tests/api/test_transactional_push.py.
+        expect(
+            pushDigest({
+                id: TEMPLATE_ID,
+                name: 'Zoë "q" \\ \u2028 😀',
+                type: 'push',
+                sensitive: true,
+                content: {
+                    push: {
+                        title: 'a\n\t\u0001\u007f',
+                        body: 'b',
+                        data: { '\uff5e': 'x', '😀': 'y', a: '', B: '1' },
+                        channels: [13, 2],
+                    },
+                },
+            } as never)
+        ).toBe('6c63aea3fe3b7ee9216ca71246fa54610aa7b7b110242ecb8d9d96271528cd26')
+    })
+
     it('keeps hostile text on its own line', async () => {
         const clean = (await prepare()).message.split('\n').length
         const hostile =
@@ -168,6 +211,7 @@ describe('push template preview', () => {
         ['a data value', (): void => void (template!.content.push.data = { a: 'b' })],
         ['the link', (): void => void (template!.content.push.link = 'https://example.net')],
         ['the image', (): void => void (template!.content.push.image = 'https://example.net/i.png')],
+        ['whether it is sensitive', (): void => void (template!.sensitive = true)],
         ['whether it is sendable', (): void => void (template!.transactional_hog_flow_id = TEMPLATE_ID)],
         ['a channel', (): void => void (integrations[13] = [404, {}])],
     ])('refuses the execute when %s changed after the prepare', async (_, change) => {

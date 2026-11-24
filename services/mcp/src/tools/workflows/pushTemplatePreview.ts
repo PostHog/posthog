@@ -1,7 +1,6 @@
-import { createHash } from 'node:crypto'
-
 import type { Schemas } from '@/api/generated'
 import { PostHogApiError, PostHogPermissionError, ToolInputValidationError } from '@/lib/errors'
+import { pushDigest } from '@/lib/push-digest'
 import { quoteUntrusted } from '@/lib/quote-untrusted'
 import { describeLinkTarget, describeVariables } from '@/lib/untrusted-link'
 import type { ConfirmedActionPreviewLoader } from '@/tools/confirmed-action-runtime'
@@ -108,17 +107,9 @@ const previewPushTemplate: ConfirmedActionPreviewLoader<{ id: string }> = async 
     ]
     return {
         text: ['```text', ...lines, '```'].join('\n'),
-        fingerprint: createHash('sha256')
-            .update(
-                JSON.stringify([
-                    template.id,
-                    template.name,
-                    template.content,
-                    template.transactional_hog_flow_id,
-                    channels,
-                ])
-            )
-            .digest('hex'),
+        // The API can't see which channel names this connection could read, so they are compared here only.
+        fingerprint: JSON.stringify([pushDigest(template), channels]),
+        digest: pushDigest(template),
     }
 }
 
