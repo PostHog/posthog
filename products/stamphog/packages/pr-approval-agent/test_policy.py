@@ -183,7 +183,6 @@ OLD_DENY_PATTERN_DEFS = {
             "^services/mcp/src/lib/instructions-formatter\\.ts$",
             "^services/mcp/src/hono/guidance/",
             "^services/mcp/src/templates/sections/(cli-[^/]*|exec-[^/]*|basic-functionality|compact-instructions|skills-first|tool-search)\\.md$",
-            "^services/mcp/src/skills/served-skills\\.json$",
         ]
     },
 }
