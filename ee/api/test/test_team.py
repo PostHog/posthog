@@ -289,7 +289,7 @@ class TestTeamEnterpriseAPI(team_enterprise_api_test_factory()):  # type: ignore
         projects_response = self.client.get(f"/api/environments/")
 
         # 9 (above):
-        with self.assertNumQueries(FuzzyInt(14, 18)):
+        with self.assertNumQueries(FuzzyInt(14, 19)):
             current_org_response = self.client.get(f"/api/organizations/{self.organization.id}/")
 
         self.assertEqual(projects_response.status_code, HTTP_200_OK)

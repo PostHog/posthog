@@ -79,6 +79,26 @@ SMARTREACH_ENDPOINTS: dict[str, SmartreachEndpointConfig] = {
         data_key="users",
         api_versions=(SMARTREACH_API_V3,),
     ),
+    "email_settings": SmartreachEndpointConfig(
+        name="email_settings",
+        path="/email_settings",
+        data_key="email_settings",
+        api_versions=(SMARTREACH_API_V3,),
+    ),
+    "do_not_contacts": SmartreachEndpointConfig(
+        name="do_not_contacts",
+        path="/do_not_contact",
+        data_key="do_not_contacts",
+        api_versions=(SMARTREACH_API_V3,),
+    ),
+    "campaign_channel_settings": SmartreachEndpointConfig(
+        name="campaign_channel_settings",
+        path="/campaigns/{campaign_id}/channel_settings",
+        data_key=None,
+        primary_keys=["campaign_id"],
+        api_versions=(SMARTREACH_API_V3,),
+        fanout=_campaign_fanout(),
+    ),
 }
 
 ENDPOINTS = tuple(SMARTREACH_ENDPOINTS.keys())

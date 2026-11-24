@@ -55,8 +55,10 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFlagChangeKind,
     ExperimentHealthInputsTrafficStatus,
     ExperimentHealthMetricCompileErrorKind,
+    ExperimentHealthMultipleVariantHandling,
     ExperimentHealthRuleSide,
     ExperimentHealthRuleTest,
+    ExperimentHealthStatsMethod,
     ExperimentHealthValueKey,
     ExperimentValidationError,
     HealthExposureInputsStatus,
@@ -421,6 +423,101 @@ class ExperimentHealthReleaseConditionSerializer(serializers.Serializer):
             "it assigns them by user."
         ),
     )
+    variant = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "The key of the variant that the condition set serves to every user it matches, its variant override. Null "
+            "when the flag's split picks the variant, or when the override names no variant of the flag, which the "
+            "flag service ignores."
+        ),
+    )
+    reachable = serializers.BooleanField(
+        allow_null=True,
+        help_text=(
+            "Whether the condition set can serve anyone. False when its rollout is 0%, or when an earlier set without "
+            "filters ends the flag's evaluation before it, so its rollout and variant override apply to nobody. Null "
+            "when the flag buckets by device ID, because a request without a device ID skips the earlier sets that "
+            "need the bucketing hash and can reach this set anyway."
+        ),
+    )
+
+
+class ExperimentHealthExposureSetupSerializer(serializers.Serializer):
+    event = serializers.CharField(
+        allow_null=True,
+        help_text="The event that the exposure criteria count. Null when they count the flag's calls or an action.",
+    )
+    action = serializers.CharField(
+        allow_null=True,
+        help_text="The name of the action that the exposure criteria count. Null when they count an event.",
+    )
+    activation = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "The event, or the name of the action, that has to follow a user's flag call before the user counts as "
+            "exposed. Null without one."
+        ),
+    )
+
+
+class ExperimentHealthAnalysisSetupSerializer(serializers.Serializer):
+    stats_method = serializers.ChoiceField(
+        choices=ExperimentHealthStatsMethod.choices, help_text="The statistical method of the results."
+    )
+    confidence_level = serializers.FloatField(
+        help_text="The Bayesian credible interval, or 1 - alpha for the frequentist test, as a fraction such as 0.95."
+    )
+    sequential_testing = serializers.BooleanField(
+        allow_null=True,
+        help_text="Whether the frequentist test uses sequential testing. Null for the Bayesian method.",
+    )
+    sequential_testing_from_project_default = serializers.BooleanField(
+        help_text="Whether the experiment leaves sequential testing unset, so the project's default applies."
+    )
+    cuped = serializers.BooleanField(
+        help_text="Whether the results apply CUPED variance reduction to the metrics that support it."
+    )
+    cuped_lookback_days = serializers.IntegerField(
+        allow_null=True, help_text="The days before exposure that CUPED reads. Null when CUPED is off."
+    )
+    cuped_from_project_default = serializers.BooleanField(
+        help_text="Whether the experiment leaves CUPED unset, so the project's default applies."
+    )
+    cuped_lookback_days_from_project_default = serializers.BooleanField(
+        help_text="Whether CUPED is on and the experiment leaves its lookback unset, so the project's default applies."
+    )
+    metrics_without_cuped_support = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "The names of the calculated metrics that CUPED doesn't apply to, because CUPED doesn't support their "
+            "metric type. Empty when CUPED is off."
+        ),
+    )
+    filters_test_accounts = serializers.BooleanField(
+        allow_null=True,
+        help_text=(
+            "Whether the results leave out internal and test users with the project's test account filters. Null "
+            "when the exposure criteria can't be read, or the exposures come from a data warehouse table."
+        ),
+    )
+    test_account_filter_count = serializers.IntegerField(
+        help_text="How many of the project's test account filters the results apply. 0 when they count test accounts."
+    )
+    multiple_variant_handling = serializers.ChoiceField(
+        choices=ExperimentHealthMultipleVariantHandling.choices,
+        allow_null=True,
+        help_text=(
+            "What the results do with users exposed to more than one variant. Null when the exposure criteria can't "
+            "be read."
+        ),
+    )
+    only_count_matured_users = serializers.BooleanField(
+        help_text="Whether a user counts only after their conversion or retention window is complete."
+    )
+    baseline_variant = serializers.CharField(help_text="The variant that the others are compared against.")
+    excluded_variants = serializers.ListField(
+        child=serializers.CharField(), help_text="The variants that the results leave out."
+    )
 
 
 class ExperimentHealthSetupSerializer(serializers.Serializer):
@@ -462,6 +559,16 @@ class ExperimentHealthSetupSerializer(serializers.Serializer):
     )
     ensure_experience_continuity = serializers.BooleanField(
         help_text="The flag's 'Persist flag across authentication steps' setting.",
+    )
+    exposure = ExperimentHealthExposureSetupSerializer(
+        allow_null=True,
+        help_text=(
+            "What the exposure criteria count as an exposure. Null when they can't be read, or when the exposures come "
+            "from a data warehouse table."
+        ),
+    )
+    analysis = ExperimentHealthAnalysisSetupSerializer(
+        help_text="What the results calculation reads besides the metrics, with the project's defaults applied."
     )
 
 

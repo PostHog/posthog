@@ -130,6 +130,43 @@ class TestGetRowsFanOut:
         assert result.paths == ["/api/v1/customers", "/api/v1/paymentmethods/cus_1"]
         assert result.params("page") == ["2", "1"]
 
+    def test_one_row_per_parent_fetches_once_without_paging_and_keys_on_parent(self) -> None:
+        scheduled = {"customer_id": "cus_1", "when_apply": "eot", "new_plan": {"id": "plan_2"}}
+        result = _driver().run(
+            "scheduled_changes",
+            [_page([{"id": "sub_1"}, {"id": "sub_2"}]), _page(scheduled), _page({"customer_id": "cus_2"})],
+        )
+        assert result.raised is None
+        assert result.paths == [
+            "/api/v1/subscriptions",
+            "/api/v1/scheduledchanges/sub_1",
+            "/api/v1/scheduledchanges/sub_2",
+        ]
+        # The child path returns one object, not a list, so it must not be paged.
+        assert result.params("page") == ["1", None, None]
+        assert result.params("limit") == [str(PAGE_SIZE), None, None]
+        assert result.rows == [
+            {**scheduled, "subscription_id": "sub_1"},
+            {"customer_id": "cus_2", "subscription_id": "sub_2"},
+        ]
+
+    @parameterized.expand(
+        [
+            ("bad_request", ScriptedResponse(status=400)),
+            ("no_data_envelope", ScriptedResponse(json={"status": "error", "message": "No data found"})),
+            ("empty_object", _page({})),
+            ("null_data", _page(None)),
+        ]
+    )
+    def test_one_row_per_parent_without_a_row_is_skipped(self, _name: str, child: ScriptedResponse) -> None:
+        # Most subscriptions have no pending change; that must not fail the sync or write an empty row.
+        result = _driver().run(
+            "scheduled_changes",
+            [_page([{"id": "sub_1"}, {"id": "sub_2"}]), child, _page({"customer_id": "cus_2"})],
+        )
+        assert result.raised is None
+        assert result.rows == [{"customer_id": "cus_2", "subscription_id": "sub_2"}]
+
     def test_parent_row_without_an_id_fails_fast(self) -> None:
         # A parent row missing its primary key must raise rather than silently drop its children.
         result = _driver().run("coupons", [_page([{"name": "no id"}])])
@@ -199,8 +236,16 @@ class TestFetchPage:
         assert result.raised is None
         assert result.rows == []
 
-    def test_other_error_envelope_raises(self) -> None:
-        result = _driver().run("customers", [ScriptedResponse(json={"status": "error", "message": "Invalid user api"})])
+    @parameterized.expand(
+        [
+            ("top_level", "customers", []),
+            # A full-refresh table must not swallow a real error as "no pending change" and sync empty.
+            ("one_row_per_parent", "scheduled_changes", [_page([{"id": "sub_1"}])]),
+        ]
+    )
+    def test_other_error_envelope_raises(self, _name: str, endpoint: str, before: list[ScriptedResponse]) -> None:
+        error = ScriptedResponse(json={"status": "error", "message": "Invalid user api"})
+        result = _driver().run(endpoint, [*before, error])
         assert isinstance(result.raised, ValueError)
         assert "Invalid user api" in str(result.raised)
 
@@ -243,6 +288,9 @@ class TestHttpSampleCapture:
             ("licenses", False),
             ("coupons", False),
             ("commissions", False),
+            ("affiliate_clicks", False),
+            ("affiliate_links", False),
+            ("scheduled_changes", False),
         ]
     )
     def test_capture_enabled_only_for_catalog_metadata_endpoints(
@@ -307,7 +355,10 @@ class TestPabblySourceResponse:
         for config in PABBLY_ENDPOINTS.values():
             if config.parent:
                 assert config.parent_field is not None
-                assert config.primary_keys == [config.parent_field, "id"]
+                if config.one_row_per_parent:
+                    assert config.primary_keys == [config.parent_field]
+                else:
+                    assert config.primary_keys == [config.parent_field, "id"]
                 assert "{parent_id}" in config.path
             else:
                 assert config.primary_keys == ["id"]

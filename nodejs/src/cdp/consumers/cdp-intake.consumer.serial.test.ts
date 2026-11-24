@@ -1,6 +1,7 @@
 import '~/tests/helpers/mocks/consumer.mock'
 import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 
+import { Message } from 'node-rdkafka'
 import { Pool } from 'pg'
 
 import { createKafkaMessage } from '~/cdp/_tests/fixtures'
@@ -19,10 +20,11 @@ describe('CdpIntakeConsumer', () => {
     let pool: Pool
     let consumer: CdpIntakeConsumer
 
-    const sendMessage = (id: string): Buffer => {
+    const sendMessage = (id: string, shadow?: boolean): Buffer => {
         const encoded = encodeIntakeMessage({
             kind: 'transactional-email',
             fingerprint: 'fingerprint-a',
+            shadow,
             job: {
                 id,
                 teamId: 7,
@@ -72,5 +74,38 @@ describe('CdpIntakeConsumer', () => {
                 }),
             }),
         ])
+    })
+
+    const dlq = (value: Buffer, group: string, offset: number): Message => ({
+        ...createKafkaMessage(parseJSON(value.toString()), { offset, topic: KAFKA_CDP_INTAKE_DLQ }),
+        headers: [{ dlq_consumer_group: group }],
+    })
+    const ownGroup = 'cdp-intake-transactional-email-consumer'
+    const stillInvalid = Buffer.from(JSON.stringify({ v: 1, kind: 'transactional-email' }))
+
+    it("drains its own dead letters, but not another group's or a shadow copy the route inserted, even one that fails to decode", async () => {
+        const [own, other, shadow] = [new UUIDT().toString(), new UUIDT().toString(), new UUIDT().toString()]
+
+        await consumer.drainBatch([
+            dlq(sendMessage(own), ownGroup, 1),
+            dlq(sendMessage(other), 'cdp-intake-workflow-webhook-consumer', 2),
+            dlq(sendMessage(shadow, true), ownGroup, 3),
+            dlq(Buffer.from(JSON.stringify({ v: 1, kind: 'transactional-email', shadow: true })), ownGroup, 4),
+        ])
+
+        const jobs = await pool.query('SELECT id FROM cyclotron_jobs WHERE id = ANY($1)', [[own, other, shadow]])
+        expect(jobs.rows).toEqual([{ id: own }])
+    })
+
+    it('holds a drain batch with a record that still fails, inserting none of it and parking nothing', async () => {
+        const id = new UUIDT().toString()
+
+        await expect(
+            consumer.drainBatch([dlq(sendMessage(id), ownGroup, 1), dlq(stillInvalid, ownGroup, 2)])
+        ).rejects.toThrow('still fails: schema_invalid')
+
+        const jobs = await pool.query('SELECT id FROM cyclotron_jobs WHERE id = $1', [id])
+        expect(jobs.rows).toEqual([])
+        expect(mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_CDP_INTAKE_DLQ)).toEqual([])
     })
 })

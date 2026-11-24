@@ -4,7 +4,7 @@
 #
 # To pass options, download the script first, or set the environment variables:
 #   -Version <version>   HOG_VERSION       Install this version instead of the latest one
-#   -InstallDir <folder> HOG_INSTALL_DIR   Where to put hog.exe. Defaults to ~\.local\bin
+#   -InstallDir <folder> HOG_INSTALL_DIR   Where to put hog.exe and hog-worker.exe. Defaults to ~\.local\bin
 #
 # Everything runs from Install-Hog, called on the last line, so a download cut short runs nothing.
 
@@ -133,28 +133,56 @@ function Install-Hog {
         if (-not (Test-Path $binary)) { throw "$archive has no hog.exe." }
 
         # Run before the swap, so a build that can't run here never replaces a working hog. A build Windows
-        # can't start throws instead of setting an exit code.
+        # can't start throws instead of setting an exit code. HOG_CHECK_INSTALL makes hog check the files
+        # that ship next to it. A release from before that check ignores it.
         $runs = $false
         try {
+            $env:HOG_CHECK_INSTALL = '1'
             $installed = & $binary --version
             $runs = ($LASTEXITCODE -eq 0) -and $installed
-        } catch {}
+        } catch {
+            $runs = $false
+        } finally {
+            Remove-Item Env:HOG_CHECK_INSTALL -ErrorAction SilentlyContinue
+        }
         if (-not $runs) { throw "hog $Version doesn't run on this machine, so the install changed nothing." }
 
-        # Windows can't overwrite a running exe, but it can rename one. The old copy goes aside, and comes
-        # back if the new one can't take its place.
+        # Windows can't overwrite a running exe, but it can rename one. Each old copy goes aside, and all
+        # of them come back if a new one can't take its place, because the files of a release work only
+        # together.
         New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
         $exe = Join-Path $InstallDir 'hog.exe'
-        $old = Join-Path $InstallDir 'hog.old.exe'
-        if (Test-Path $old) { Remove-Item -Force $old -ErrorAction SilentlyContinue }
-        if (Test-Path $exe) { Move-Item -Force $exe $old }
+        $files = Get-ChildItem -File (Join-Path $tmp 'unpacked') | Where-Object { -not $_.Name.StartsWith('.') }
+        $swapped = @()
         try {
-            Move-Item -Force $binary $exe
+            foreach ($file in $files) {
+                $swap = @{
+                    New = $file.FullName
+                    Exe = Join-Path $InstallDir $file.Name
+                    Old = Join-Path $InstallDir "$($file.BaseName).old$($file.Extension)"
+                    HadOld = $false
+                    Placed = $false
+                }
+                if (Test-Path $swap.Old) { Remove-Item -Force $swap.Old -ErrorAction SilentlyContinue }
+                $swapped += $swap
+                if (Test-Path $swap.Exe) {
+                    Move-Item -Force $swap.Exe $swap.Old
+                    $swap.HadOld = $true
+                }
+                Move-Item -Force $swap.New $swap.Exe
+                $swap.Placed = $true
+            }
         } catch {
-            if (Test-Path $old) { Move-Item -Force $old $exe }
+            # Only a file the install put in place goes, so an old one it couldn't move aside stays.
+            foreach ($swap in $swapped) {
+                if ($swap.Placed) { Remove-Item -Force $swap.Exe -ErrorAction SilentlyContinue }
+                if ($swap.HadOld) { Move-Item -Force $swap.Old $swap.Exe }
+            }
             throw
         }
-        if (Test-Path $old) { Remove-Item -Force $old -ErrorAction SilentlyContinue }
+        foreach ($swap in $swapped) {
+            if (Test-Path $swap.Old) { Remove-Item -Force $swap.Old -ErrorAction SilentlyContinue }
+        }
 
         # Best effort: hog works without the receipt, which tells a later upgrade that this script owns the binary.
         try {

@@ -27,7 +27,13 @@ from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.direct_redshift_table import DirectRedshiftTable
 from posthog.hogql.database.direct_snowflake_table import DirectSnowflakeTable
 from posthog.hogql.database.direct_trino_table import DirectTrinoTable
-from posthog.hogql.database.models import DatabaseField, FieldOrTable, StructDatabaseField
+from posthog.hogql.database.models import (
+    DatabaseField,
+    DecimalDatabaseField,
+    FieldOrTable,
+    StructDatabaseField,
+    clickhouse_decimal_scale,
+)
 from posthog.hogql.database.s3_table import (
     DataWarehouseTable as HogQLDataWarehouseTable,
     build_function_call,
@@ -396,12 +402,15 @@ def get_hogql_field_for_column(
     # Support for 'old' style columns
     if isinstance(column_definition, str):
         hogql_type_str = clickhouse_type.partition("(")[0]
-        return LEGACY_CLICKHOUSE_HOGQL_MAPPING[hogql_type_str](name=column_name, nullable=is_nullable)
-
-    return STR_TO_HOGQL_MAPPING.get(
-        str(column_definition.get("hogql", "UnknownDatabaseField")),
-        STR_TO_HOGQL_MAPPING["UnknownDatabaseField"],
-    )(name=column_name, nullable=is_nullable)
+        field = LEGACY_CLICKHOUSE_HOGQL_MAPPING[hogql_type_str](name=column_name, nullable=is_nullable)
+    else:
+        field = STR_TO_HOGQL_MAPPING.get(
+            str(column_definition.get("hogql", "UnknownDatabaseField")),
+            STR_TO_HOGQL_MAPPING["UnknownDatabaseField"],
+        )(name=column_name, nullable=is_nullable)
+    if isinstance(field, DecimalDatabaseField):
+        field.scale = clickhouse_decimal_scale(clickhouse_type)
+    return field
 
 
 def hogql_fields_and_structure_for_columns(
@@ -1112,6 +1121,15 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             return False
         return len(schema_rows) > 0 and all(row.enabled_columns is None for row in schema_rows)
 
+    def _direct_columns_are_restricted(self) -> bool:
+        """Whether a column-picker restriction hides some of this direct table's columns. Reads the
+        same preloaded schema rows as `_direct_columns_are_complete`; if they aren't preloaded,
+        returns True (safe: the table prints as a projection of its own fields)."""
+        schema_rows = self.__dict__.get("_active_external_data_schemas")
+        if schema_rows is None:
+            return True
+        return any(row.enabled_columns is not None for row in schema_rows)
+
     def hogql_definition(
         self, modifiers: Optional["HogQLQueryModifiers"] = None
     ) -> (
@@ -1189,6 +1207,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 postgres_schema=postgres_schema,
                 postgres_table_name=postgres_table_name,
                 external_data_source_id=str(self.external_data_source_id),
+                column_restricted=self._direct_columns_are_restricted(),
                 source_type=self.external_data_source.source_type,
                 connection_metadata=self.external_data_source.connection_metadata,
             )
@@ -1211,6 +1230,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 mysql_schema=mysql_schema,
                 mysql_table_name=mysql_table_name,
                 external_data_source_id=str(self.external_data_source_id),
+                column_restricted=self._direct_columns_are_restricted(),
                 connection_metadata=self.external_data_source.connection_metadata,
             )
 
@@ -1238,6 +1258,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 snowflake_schema=snowflake_schema,
                 snowflake_table_name=snowflake_table_name,
                 external_data_source_id=str(self.external_data_source_id),
+                column_restricted=self._direct_columns_are_restricted(),
                 connection_metadata=self.external_data_source.connection_metadata,
             )
 
@@ -1267,6 +1288,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 postgres_schema=redshift_schema,
                 postgres_table_name=redshift_table_name,
                 external_data_source_id=str(self.external_data_source_id),
+                column_restricted=self._direct_columns_are_restricted(),
                 connection_metadata=self.external_data_source.connection_metadata,
             )
 
@@ -1300,6 +1322,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 motherduck_schema=motherduck_schema,
                 motherduck_table_name=motherduck_table_name,
                 external_data_source_id=str(self.external_data_source_id),
+                column_restricted=self._direct_columns_are_restricted(),
                 connection_metadata=self.external_data_source.connection_metadata,
                 has_complete_columns=self._direct_columns_are_complete(),
             )
@@ -1332,6 +1355,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 trino_schema=trino_schema,
                 trino_table_name=trino_table_name,
                 external_data_source_id=str(self.external_data_source_id),
+                column_restricted=self._direct_columns_are_restricted(),
                 connection_metadata=self.external_data_source.connection_metadata,
                 has_complete_columns=self._direct_columns_are_complete(),
             )
@@ -1368,6 +1392,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 clickhouse_database=clickhouse_database,
                 clickhouse_table_name=clickhouse_table_name,
                 external_data_source_id=str(self.external_data_source_id),
+                column_restricted=self._direct_columns_are_restricted(),
                 connection_metadata=self.external_data_source.connection_metadata,
                 has_complete_columns=self._direct_columns_are_complete(),
             )
@@ -1606,10 +1631,3 @@ def create_datawarehousetable(**kwargs: Any) -> DataWarehouseTable:
 @database_sync_to_async
 def acreate_datawarehousetable(**kwargs: Any) -> DataWarehouseTable:
     return create_datawarehousetable(**kwargs)
-
-
-@database_sync_to_async
-def asave_datawarehousetable(table: DataWarehouseTable) -> None:
-    # Saved-query materialization is the only caller: it computes url_pattern itself from the
-    # backing DataWarehouseSavedQuery rather than taking it from request input.
-    table.save(internally_computed_url_pattern=True)
