@@ -113,7 +113,7 @@ def schedule_source_issue_writeback(*, team_id: int, report_id: str, signals: li
     Scout reports skip research, so the inbox notification workflow that comments for a researched
     report never runs for them. Grouping also calls this with the issue's signal when that signal
     joins the report, and the per-issue claim in the writeback keeps that from posting a second
-    comment. The task re-checks the team opt-in and the report status itself.
+    comment, also when another open report of the team already commented on the issue. The task re-checks the team opt-in and the report status itself.
     """
     from products.signals.backend.github_writeback import COMMENT_STATUSES  # noqa: PLC0415 - it imports this module
 
