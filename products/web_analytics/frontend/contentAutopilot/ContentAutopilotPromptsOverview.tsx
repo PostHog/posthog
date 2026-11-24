@@ -7,12 +7,15 @@ import { pluralize } from 'lib/utils/strings'
 import { PagePerformanceCard } from 'scenes/web-analytics/PagePerformanceCard'
 import { PagePerformanceCardHeader } from 'scenes/web-analytics/PagePerformanceCardHeader'
 
+import { AiVisibilityCompetitorReview } from './AiVisibilityCompetitorReview'
 import { ContentAutopilotCitedSitesTable } from './ContentAutopilotCitedSitesTable'
 import { ContentAutopilotEngineTable } from './ContentAutopilotEngineTable'
+import { ContentAutopilotEngineTopicHeatmap } from './ContentAutopilotEngineTopicHeatmap'
 import { contentAutopilotFiltersLogic } from './contentAutopilotFiltersLogic'
 import { ContentAutopilotFirstRunCard } from './ContentAutopilotFirstRunCard'
 import { ContentAutopilotKpiStat } from './ContentAutopilotKpiStat'
 import { contentAutopilotLogic } from './contentAutopilotLogic'
+import { ContentAutopilotMovers } from './ContentAutopilotMovers'
 import { ContentAutopilotOpenInsightButton } from './ContentAutopilotOpenInsightButton'
 import { ContentAutopilotPromptsDisabled } from './ContentAutopilotPromptsDisabled'
 import { contentAutopilotPromptsOverviewLogic } from './contentAutopilotPromptsOverviewLogic'
@@ -26,6 +29,7 @@ import { ContentAutopilotStatStrip } from './ContentAutopilotStatStrip'
 import { ContentAutopilotVisibilityChart } from './ContentAutopilotVisibilityChart'
 import { ContentAutopilotVisibilityDashboardButton } from './ContentAutopilotVisibilityDashboardButton'
 import { POSITION_DESCRIPTION } from './promptReport'
+import { engineTopicGrid } from './promptsOverview'
 import { brandedAnswersNote, filtersHeading, segmentPrompts, sortEngines, windowRange } from './utils'
 
 export const ContentAutopilotPromptsOverview = (): JSX.Element => {
@@ -130,6 +134,7 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
             data-attr="content-autopilot-prompts-overview"
         >
             {header}
+            <AiVisibilityCompetitorReview />
             <ContentAutopilotStatStrip
                 className="grid-cols-2 @3xl/prompts-overview:grid-cols-4"
                 data-attr="content-autopilot-prompts-overview-kpis"
@@ -173,6 +178,8 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
                 data-attr="content-autopilot-prompts-overview-visibility"
             />
 
+            <ContentAutopilotMovers />
+
             <div className="grid grid-cols-1 @3xl/prompts-overview:grid-cols-2 gap-4">
                 <PagePerformanceCard className="min-w-0">
                     <PagePerformanceCardHeader
@@ -197,6 +204,12 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
                     </div>
                 </PagePerformanceCard>
             </div>
+
+            <ContentAutopilotEngineTopicHeatmap
+                grid={engineTopicGrid(overview)}
+                selectedTopic={topic}
+                onSelectTopic={selectOverviewTopic}
+            />
 
             <div className="grid grid-cols-1 @3xl/prompts-overview:grid-cols-2 gap-4">
                 <PagePerformanceCard className="min-w-0">

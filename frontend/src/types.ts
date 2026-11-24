@@ -675,7 +675,6 @@ export interface OrganizationType extends OrganizationBasicType {
     member_count: number
     default_anonymize_ips?: boolean
     default_role_id?: string | null
-    uses_most_specific_access_resolution?: boolean | null
     external_project_links?: OrganizationExternalProjectLinkApi[]
 }
 
@@ -3559,6 +3558,10 @@ export interface TrendResult {
     /** Slope graph only: whether the last bucket is the current, still-accumulating period. Set by
      * SlopeGraphTrendsQueryRunner so the insight and MCP dash the provisional end identically. */
     incomplete_end?: boolean
+    /** Formula breakdowns only: the events all series counted for this value, which decide the shown rows. */
+    breakdown_event_count?: number
+    /** Formula breakdowns only, on the "Other" row: how many breakdown values it groups. */
+    breakdown_other_values_count?: number
 }
 
 interface Person {

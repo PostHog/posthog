@@ -13,7 +13,7 @@ import { TodayMoreMenu } from './TodayMoreMenu'
 import { TodayPreviewCardProvider } from './TodayPreviewCardProvider'
 import type { TodayRailPreview } from './todayPreviewCards'
 import { TodayPreviewTrigger } from './TodayPreviewTrigger'
-import { TODAY_PANES, TODAY_RAIL_FOOTER_PANES } from './todayRailItems'
+import { TODAY_PANES } from './todayRailItems'
 import { TodayRailTile } from './TodayRailTile'
 import { TODAY_RAIL_WIDTH, TodayRailPane, railPaneHref, todayShellLogic } from './todayShellLogic'
 import { TodaySpacesLogicMount } from './TodaySpacesLogicMount'
@@ -26,12 +26,9 @@ const WizardRailButton = lazyWithRetry(() =>
     }))
 )
 
-// pinned: autocapture data-attr. The Settings tile kept the attribute of the gear button it replaced.
-const RAIL_DATA_ATTRS: Partial<Record<TodayRailPane, string>> = { settings: 'today-settings' }
-
 const RAIL_PREVIEWS = Object.fromEntries(
     Object.keys(TODAY_PANES)
-        .filter((pane) => pane !== 'home' && pane !== 'settings')
+        .filter((pane) => pane !== 'home')
         .map((pane) => [pane, { kind: 'rail', pane }])
 ) as Partial<Record<TodayRailPane, TodayRailPreview>>
 
@@ -73,7 +70,7 @@ export function TodayRail(): JSX.Element {
                 active={activePane === pane}
                 to={railPaneHref(pane, effectivePhaiView, featureFlags)}
                 onClick={() => clickRailPane(pane)}
-                dataAttr={RAIL_DATA_ATTRS[pane] ?? `today-rail-${pane}`}
+                dataAttr={`today-rail-${pane}`}
                 onPointerEnter={pane === 'spaces' ? () => setChatsPreviewed(true) : undefined}
             />
         )
@@ -118,10 +115,7 @@ export function TodayRail(): JSX.Element {
                             </Suspense>
                         </PostHogErrorBoundary>
                     )}
-                <div className="flex w-full flex-col items-center gap-3">
-                    <TodayMoreMenu overflowPanes={overflowPanes} />
-                    {TODAY_RAIL_FOOTER_PANES.map(renderTile)}
-                </div>
+                <TodayMoreMenu overflowPanes={overflowPanes} renderTile={renderTile} />
                 <TodayAccountMenu />
                 {chatsPreviewed && <TodaySpacesLogicMount />}
             </nav>

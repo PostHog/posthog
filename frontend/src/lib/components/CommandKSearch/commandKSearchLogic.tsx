@@ -31,6 +31,9 @@ import { userLogic } from 'scenes/userLogic'
 import { MAX_SIDE_PANEL_ID } from '~/layout/ai/aiPanelIds'
 import { runnerPanelLogic } from '~/layout/ai/runnerPanelLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { isTodayPaneEnabled } from '~/layout/today/todayPaneFlags'
+import { TODAY_PANES } from '~/layout/today/todayRailItems'
+import { TODAY_RAIL_PANES, todayShellLogic } from '~/layout/today/todayShellLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { membersLogic } from '~/models/membersLogic'
 import { recentItemsModel } from '~/models/recentItemsModel'
@@ -151,6 +154,7 @@ export interface commandKSearchLogicValues {
     sections: CommandKSection[]
     selectableRows: CommandKRow[]
     shownQuery: SectionsQuery | null
+    sidebarItems: SearchItem[]
     suggestionsSection: CommandKSection | null
     tabAsksAi: boolean
     text: string
@@ -334,11 +338,13 @@ export interface commandKSearchLogicMeta {
             folders: FileSystemEntry[] | null
         ) => CommandKSection | null
         recentItems: (recents: FileSystemEntry[]) => SearchItem[]
+        sidebarItems: (featureFlags: FeatureFlagsSet) => SearchItem[]
         localLists: (
             recentItems: SearchItem[],
             starredItems: SearchItem[],
             shortcutItems: SearchItem[],
             productsItems: SearchItem[],
+            sidebarItems: SearchItem[],
             settingsItems: SearchItem[],
             newItems: SearchItem[],
             dataManagementItems: SearchItem[],
@@ -706,12 +712,33 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                     .slice(0, RECENTS_LIMIT)
                     .map((entry) => fileSystemEntryToSearchItem(entry, { id: entry.path, category: 'recents' })),
         ],
+        sidebarItems: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): SearchItem[] =>
+                featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV]
+                    ? // Settings opens from the account menu rather than a rail tile, but it is still a pane to search for.
+                      [...TODAY_RAIL_PANES, 'settings' as const]
+                          .filter((pane) => isTodayPaneEnabled(pane, featureFlags))
+                          .map((pane) => {
+                              const { label, title, icon } = TODAY_PANES[pane]
+                              return {
+                                  id: `sidebar-${pane}`,
+                                  name: label,
+                                  category: 'sidebar',
+                                  icon,
+                                  searchKeywords: title !== label ? [title] : [],
+                                  onSelect: () => todayShellLogic.findMounted()?.actions.showPane(pane),
+                              }
+                          })
+                    : [],
+        ],
         localLists: [
             (s) => [
                 s.recentItems,
                 s.starredItems,
                 s.shortcutItems,
                 s.productsItems,
+                s.sidebarItems,
                 s.settingsItems,
                 s.newItems,
                 s.dataManagementItems,
@@ -724,6 +751,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                 starred: SearchItem[],
                 shortcuts: SearchItem[],
                 products: SearchItem[],
+                sidebar: SearchItem[],
                 settings: SearchItem[],
                 create: SearchItem[],
                 dataManagement: SearchItem[],
@@ -735,6 +763,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                 starred,
                 shortcuts,
                 products,
+                sidebar,
                 settings,
                 create,
                 'data-management': dataManagement,

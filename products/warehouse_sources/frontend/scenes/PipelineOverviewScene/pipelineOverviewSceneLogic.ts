@@ -1,15 +1,4 @@
-import {
-    MakeLogicType,
-    actions,
-    afterMount,
-    beforeUnmount,
-    connect,
-    kea,
-    listeners,
-    path,
-    reducers,
-    selectors,
-} from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { loadAppMetricsTimeSeries } from 'lib/components/AppMetrics/appMetricsLogic'
@@ -61,7 +50,25 @@ const WAREHOUSE_APP_SOURCE = 'warehouse_source_sync'
  * Long enough not to hammer ClickHouse and Postgres from an idle tab.
  */
 const STATS_POLL_INTERVAL_MS = 30_000
+const STATS_POLL_KEY = 'statsPoll'
 const MATERIALIZED_VIEW_ACTIVITY_TYPE = 'Materialized view'
+
+/**
+ * Loaders served by `DataWarehouseViewSet`, which one scope guards. A 403 from any of them means
+ * the user cannot read the warehouse at all, so the scene shows access denied and stops polling.
+ * The source and destination lists are left out: a user can lack access to those alone, and the
+ * rest of the scene still works for them.
+ */
+const WAREHOUSE_LOADER_FAILURES = [
+    'loadJobStatsFailure',
+    'loadRowsStatsFailure',
+    'loadHealthIssuesFailure',
+    'loadRecentRunsFailure',
+] as const
+
+function isForbidden(errorObject: unknown): boolean {
+    return (errorObject as { status?: number } | null)?.status === 403
+}
 
 /** Most severe first, so the worst pipeline is the one a reader sees. */
 const ISSUE_SEVERITY: Record<string, number> = {
@@ -98,6 +105,7 @@ export interface pipelineOverviewSceneLogicValues {
     rowsByDestination: { key: string; label: string; data: number[]; type: 'area'; fill: { opacity: number } }[]
     hasIssues: boolean
     loadingFirstTime: boolean
+    accessDenied: boolean
 }
 
 export interface pipelineOverviewSceneLogicActions {
@@ -147,6 +155,15 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
             {
                 loadJobStatsSuccess: () => new Date().toISOString(),
             },
+        ],
+        accessDenied: [
+            false,
+            Object.fromEntries(
+                WAREHOUSE_LOADER_FAILURES.map((failure) => [
+                    failure,
+                    (state: boolean, { errorObject }: { errorObject?: unknown }) => state || isForbidden(errorObject),
+                ])
+            ),
         ],
     }),
     loaders(({ values }: any) => ({
@@ -407,7 +424,19 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
             ): boolean => (jobStatsLoading && jobStats === null) || (healthIssuesLoading && healthIssues === null),
         ],
     }),
-    listeners(({ actions, values }: any) => ({
+    listeners(({ actions, values, cache }: any) => ({
+        // A user without access gets a 403 on every call. Polling then only repeats the same
+        // refusals every 30 seconds, and each one becomes a new failure report.
+        ...Object.fromEntries(
+            WAREHOUSE_LOADER_FAILURES.map((failure) => [
+                failure,
+                ({ errorObject }: { errorObject?: unknown }) => {
+                    if (isForbidden(errorObject)) {
+                        cache.disposables.dispose(STATS_POLL_KEY)
+                    }
+                },
+            ])
+        ),
         // Health is current state and rows are reported per billing period, so neither is
         // windowed. Everything else is.
         setWindow: () => {
@@ -450,13 +479,9 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
     })),
     afterMount(({ actions, cache }: any) => {
         actions.loadEverything()
-        cache.pollInterval = window.setInterval(() => actions.pollStats(), STATS_POLL_INTERVAL_MS)
-    }),
-    beforeUnmount(({ cache }: any) => {
-        // Without this the timer outlives the scene and keeps querying after navigation.
-        if (cache.pollInterval) {
-            window.clearInterval(cache.pollInterval)
-            cache.pollInterval = undefined
-        }
+        cache.disposables.add(() => {
+            const pollInterval = window.setInterval(() => actions.pollStats(), STATS_POLL_INTERVAL_MS)
+            return () => window.clearInterval(pollInterval)
+        }, STATS_POLL_KEY)
     }),
 ])

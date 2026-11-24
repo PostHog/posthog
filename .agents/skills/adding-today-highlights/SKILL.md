@@ -1,6 +1,6 @@
 ---
 name: adding-today-highlights
-description: Add a "For you today" highlight source, the rule that turns a product's facts into items on the Today home page (firing alerts, flags that lose reach, ticket SLA breaches, workflow failures). Use when asked to "add a Today highlight", "show X in For you today", "surface X on the home page", or when changing an existing source's query, thresholds, copy or icon. Covers where the rule and its declaration live, the Today facade contract, scopes, caching, ranking inputs, tests, tach, and the frontend icon.
+description: Add a "For you today" highlight source, the rule that turns a product's facts into items on the Today home page (firing alerts, flags that lose reach, ticket SLA breaches, workflow failures). Use when asked to "add a Today highlight", "show X in For you today", "surface X on the home page", or when changing an existing source's query, thresholds, copy or icon. Covers where the rule and its declaration live, the Today facade contract, scopes, caching, ranking inputs, tests, and the frontend icon.
 ---
 
 # Adding a Today highlight source
@@ -29,11 +29,10 @@ Today has no list of sources to edit. It finds each product's declaration by mod
    HIGHLIGHT_SOURCES = (HighlightSource(name="stale_things", find=find_stale_things, scopes=("thing:read",)),)
    ```
 
-3. Add `"products.today"` to the product's `depends_on` in the root `tach.toml`, with a `# Facade-only:` comment like the other products have. Today gets no new dependency.
-4. Test the rule in the product with `products.today.backend.facade.testing.highlight_context`.
+3. Test the rule in the product with `products.today.backend.facade.testing.highlight_context`.
    `products/alerts/backend/tests/test_alert_today_highlights.py` is a short example.
    A test folder without `__init__.py` needs a product-specific file name, so pytest does not collide on `test_today_highlights.py`.
-5. The row icon comes from the product. If `PRODUCT_ICONS` in `frontend/src/scenes/project-homepage/today/todayRowIcons.tsx` has no entry for the product yet, add one. That file is Today's, so team-surfaces reviews it.
+4. The row icon comes from the product. If `PRODUCT_ICONS` in `frontend/src/scenes/project-homepage/today/todayRowIcons.tsx` has no entry for the product yet, add one. That file is Today's, so team-surfaces reviews it.
 
 `products/feature_flags/backend/today_highlights.py` is a complete source with a reach drop and a cleanup item.
 
