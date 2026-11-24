@@ -8,7 +8,8 @@ import { createInvocationResult } from '../utils/invocation-utils'
 const GEOIP_TEMPLATE_ID = 'template-geoip'
 
 // sha256 of the trimmed source of each shipped GeoIP template version whose early return is the one
-// geoipNoopResult mirrors. Saving a function trims its source, so the stored text is trimmed too.
+// geoipNoopResult mirrors, and which reads no event property outside PROPERTIES_THE_TEMPLATE_READS.
+// Saving a function trims its source, so the stored text is trimmed too.
 // A function keeps the source it was saved with, so add every new version and never remove one.
 const NOOP_SOURCE_HASHES = new Set([
     'c60a2c9cf0d2f82812392c3c682f4223e17082f109e02fbf5467fbb0069d0770', // shipped 2025-01-30
@@ -87,4 +88,48 @@ export function geoipNoopResult(
     addLog('info', 'geoip disabled or no ip.')
     addLog('debug', `Function completed in ${Number((performance.now() - startedAt).toFixed(2))}ms.`)
     return result
+}
+
+// The template holds the event in a variable, and every access to it walks the whole event, so a large
+// event takes the run past its time or memory limit. The template returns the event it was given, so the
+// properties it never reads can stay out of the VM.
+const PROPERTIES_THE_TEMPLATE_READS = ['$geoip_disable', '$ip', '$set', '$set_once']
+
+export async function executeGeoipOnSlimEvent(
+    invocation: CyclotronJobInvocationHogFunction,
+    execute: (
+        invocation: CyclotronJobInvocationHogFunction
+    ) => Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>>
+): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> | null> {
+    const { hogFunction } = invocation
+    const { globals } = invocation.state
+    const { properties } = globals.event
+    if (hogFunction.template_id !== GEOIP_TEMPLATE_ID || !hasNoopSource(hogFunction) || !isRecord(properties)) {
+        return null
+    }
+
+    const readProperties = Object.fromEntries(
+        PROPERTIES_THE_TEMPLATE_READS.filter((key) => Object.hasOwn(properties, key)).map((key) => [
+            key,
+            properties[key],
+        ])
+    )
+    const result = await execute({
+        ...invocation,
+        state: {
+            ...invocation.state,
+            globals: { ...globals, event: { ...globals.event, properties: readProperties } },
+        },
+    })
+
+    result.invocation = { ...result.invocation, state: { ...result.invocation.state, globals } }
+    const { execResult } = result
+    if (isRecord(execResult) && isRecord(execResult.properties)) {
+        result.execResult = { ...execResult, properties: { ...properties, ...execResult.properties } }
+    }
+    return result
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value)
 }

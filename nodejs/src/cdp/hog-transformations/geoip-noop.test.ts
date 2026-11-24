@@ -6,9 +6,9 @@ import { HogExecutorService } from '../services/hog-executor.service'
 import { HogInputsService } from '../services/hog-inputs.service'
 import { template as geoipTemplate } from '../templates/_transformations/geoip/geoip.template'
 import { compileHog } from '../templates/compiler'
-import { CyclotronJobInvocationResult, HogFunctionType } from '../types'
+import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, HogFunctionType } from '../types'
 import { createInvocation } from '../utils/invocation-utils'
-import { geoipNoopResult, hogTransformationGeoipNoopSkips } from './geoip-noop'
+import { executeGeoipOnSlimEvent, geoipNoopResult, hogTransformationGeoipNoopSkips } from './geoip-noop'
 import { RustVmExecutor } from './rust-vm-executor'
 import { getTransformationFunctions } from './transformation-functions'
 
@@ -162,6 +162,66 @@ describe('geoipNoopResult', () => {
                     )
                 }
             }
+        }
+    )
+
+    const aiInput = Array.from({ length: 50 }, (_, index) => ({
+        role: index % 2 ? 'assistant' : 'user',
+        content: [{ type: 'text', text: `message ${index}` }],
+    }))
+    const enrichmentCases = [
+        { name: 'only an ip', properties: { $ip: VALID_IP } },
+        {
+            name: 'existing $set and $set_once',
+            properties: {
+                $ip: VALID_IP,
+                $set: { email: 'person@example.com', $geoip_city_name: 'Old city' },
+                $set_once: { $initial_referrer: 'https://example.com' },
+            },
+        },
+        {
+            name: 'earlier geoip values and unrelated nested properties',
+            properties: {
+                $current_url: 'https://example.com',
+                $geoip_city_name: 'Old city',
+                $ai_input: aiInput,
+                $ip: VALID_IP,
+                $ai_output_choices: [{ role: 'assistant', content: 'done' }],
+            },
+        },
+        { name: 'a localhost ip', properties: { $ai_input: aiInput, $ip: '127.0.0.1' } },
+        { name: 'a private network ip', properties: { $ai_input: aiInput, $ip: '192.168.0.1' } },
+        { name: 'an ip the lookup cannot find', properties: { $ai_input: aiInput, $ip: 'not-an-ip' } },
+        { name: '$set that is not an object', properties: { $ip: VALID_IP, $set: 'not-an-object' } },
+        { name: 'geoip disabled', properties: { $ai_input: aiInput, $geoip_disable: true, $ip: VALID_IP } },
+    ]
+
+    it.each(
+        [...shippedSources, { shipped: 'now', eligible: true, source: currentSource }].flatMap(({ shipped, source }) =>
+            enrichmentCases.flatMap((enrichment) =>
+                (['node', 'rust'] as const).map((vm) => ({ ...enrichment, shipped, source, vm }))
+            )
+        )
+    )(
+        'enriches an event with $name as a run on the full event does, on the $vm vm (template shipped $shipped)',
+        async ({ source, properties, vm }) => {
+            const fn = { hog: source, bytecode: await compileHog(source) }
+            const run = (invocation: CyclotronJobInvocationHogFunction) =>
+                vm === 'node'
+                    ? nodeVm.execute(invocation, { functions: transformationFunctions })
+                    : Promise.resolve(rustVm.execute(invocation, [])!)
+
+            const onFullEvent = await run(createGeoipInvocation(fn, properties))
+            const invocation = createGeoipInvocation(fn, properties)
+            const result = (await executeGeoipOnSlimEvent(invocation, run)) ?? (await run(invocation))
+
+            const comparable = (r: CyclotronJobInvocationResult) => ({
+                error: r.error,
+                execResult: r.execResult,
+                logs: r.logs.filter(({ level }) => level !== 'debug').map(({ level, message }) => ({ level, message })),
+                globals: r.invocation.state?.globals,
+            })
+            expect(comparable(result)).toEqual(comparable(onFullEvent))
         }
     )
 

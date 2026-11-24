@@ -194,6 +194,34 @@ describe('HogTransformer', () => {
             `)
         })
 
+        it('enriches an event whose other properties are larger than the hog memory limit', async () => {
+            const geoIpFunction = createHogFunction({
+                type: 'transformation',
+                name: geoipTemplate.name,
+                team_id: teamId,
+                enabled: true,
+                template_id: geoipTemplate.id,
+                hog: geoipTemplate.code,
+                bytecode: await compileHog(geoipTemplate.code),
+                execution_order: 1,
+            })
+            await insertHogFunction(hub.postgres, teamId, geoIpFunction)
+            hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [geoIpFunction.id])
+            const aiInput = 'x'.repeat(40 * 1024 * 1024)
+
+            const result = await hogTransformer.transformEventAndProduceMessages(
+                createPluginEvent({ properties: { $ip: '216.160.83.56', $ai_input: aiInput } }, teamId)
+            )
+
+            expect(result.invocationResults[0].error).toBeUndefined()
+            expect(result.event?.properties).toMatchObject({
+                $ai_input: aiInput,
+                $geoip_city_name: 'Milton',
+                $set: { $geoip_city_name: 'Milton' },
+                $set_once: { $initial_geoip_city_name: 'Milton' },
+            })
+        })
+
         it('should expose elements_chain from $elements_chain property', async () => {
             const fn = createHogFunction({
                 type: 'transformation',

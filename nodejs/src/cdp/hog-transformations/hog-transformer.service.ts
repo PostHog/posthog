@@ -11,6 +11,7 @@ import type { TeamManager } from '~/common/utils/team-manager'
 import { PluginEvent, Properties } from '~/plugin-scaffold'
 
 import {
+    CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
     HogFunctionInvocationGlobals,
     HogFunctionInvocationGlobalsWithInputs,
@@ -33,7 +34,7 @@ import { EncryptedFields } from '../utils/encryption-utils'
 import { HogConfigurationError } from '../utils/hog-error-classification'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
 import { createInputsFailureResult, createInvocation } from '../utils/invocation-utils'
-import { geoipNoopResult } from './geoip-noop'
+import { executeGeoipOnSlimEvent, geoipNoopResult } from './geoip-noop'
 import { RustVmExecutor } from './rust-vm-executor'
 import { getTransformationFunctions } from './transformation-functions'
 
@@ -395,12 +396,22 @@ export class HogTransformerService implements HogTransformer {
             return geoipNoop
         }
 
+        const execute = (toExecute: CyclotronJobInvocationHogFunction) =>
+            this.executeInvocation(toExecute, transformationFunctions)
+        return (await executeGeoipOnSlimEvent(invocation, execute)) ?? (await execute(invocation))
+    }
+
+    private async executeInvocation(
+        invocation: CyclotronJobInvocationHogFunction,
+        transformationFunctions: ReturnType<typeof getTransformationFunctions>
+    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
+        const { hogFunction } = invocation
         if (isLegacyPluginHogFunction(hogFunction)) {
             return await this.pluginExecutor.execute(invocation)
         }
 
         if (this.rustVmExecutor) {
-            const sensitiveValues = this.hogExecutor.getSensitiveValues(hogFunction, globalsWithInputs.inputs)
+            const sensitiveValues = this.hogExecutor.getSensitiveValues(hogFunction, invocation.state.globals.inputs)
             const rustResult = this.config.hogRustVmBatchExecutionEnabled
                 ? await this.rustVmExecutor.executeBatched(invocation, sensitiveValues)
                 : this.rustVmExecutor.execute(invocation, sensitiveValues)
