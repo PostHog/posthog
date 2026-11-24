@@ -11,8 +11,8 @@ export function NodeStatChips({ stats }: NodeStatChipsProps): JSX.Element {
     return (
         <div className="flex flex-wrap gap-1">
             {statParts(stats).map((part) => (
-                <LemonTag key={part} weight="normal" className="font-mono">
-                    {part}
+                <LemonTag key={part.kind} weight="normal" className="font-mono">
+                    {part.text}
                 </LemonTag>
             ))}
         </div>

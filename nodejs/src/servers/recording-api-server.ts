@@ -92,6 +92,7 @@ export class RecordingApiServer implements NodeServer {
             deployed: isHostedCloud(),
             blocksJwtSecret: this.config.RECORDING_API_BLOCKS_JWT_SECRET,
             jwtSecret: this.config.RECORDING_API_JWT_SECRET,
+            staffJwtSecret: this.config.RECORDING_API_STAFF_JWT_SECRET,
         })
 
         // A public process serves only browser block reads, so it never connects to Postgres or Kafka.

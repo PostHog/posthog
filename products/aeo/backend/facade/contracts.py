@@ -444,6 +444,19 @@ class BrandSource(LabeledStrEnum):
     MANUAL = "manual", "Manual"
 
 
+class MentionKind(LabeledStrEnum):
+    """Which identifier of a brand an answer used. The first four are found in the answer text."""
+
+    NAME = "name", "Name"
+    ALIAS = "alias", "Alias"
+    DOMAIN_LABEL = "domain_label", "Domain label"
+    DOMAIN = "domain", "Domain"
+    URL = "url", "URL"
+    # Not in the text: the answer cites, or the engine retrieved, a page on the brand's domain.
+    CITATION = "citation", "Citation"
+    RETRIEVAL = "retrieval", "Retrieval"
+
+
 @frozen
 class Brand:
     """One company in the team's brand catalog, keyed by its registrable domain."""

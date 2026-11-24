@@ -32,7 +32,7 @@ gh_api_to() {
 
 # A renamed file is listed as its old path and its new one. The
 # old path is what the target script reads as deleted, and it
-# widens on that: the tach map has no importer edge for it.
+# widens on that: the hoglint map has no importer edge for it.
 file_paths='.filename, (select(.previous_filename) | .previous_filename)'
 
 [[ -n "$MERGE_TARGET" && ! "$MERGE_TARGET" =~ ^0+$ ]] || unresolved "No valid comparison base"

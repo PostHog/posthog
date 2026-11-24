@@ -5,7 +5,9 @@ from typing import Any, Optional
 
 from products.warehouse_sources.sources.bigcommerce.settings import (
     ENDPOINT_PATHS,
+    FAN_OUT_PARENTS,
     INCREMENTAL_FILTERS,
+    PAGINATED_V3_CHILDREN,
     UNPAGINATED_ENDPOINTS,
     V2_ENDPOINTS,
 )
@@ -31,9 +33,10 @@ PAGE_SIZE = 250
 
 @dataclasses.dataclass(frozen=True)
 class BigCommerceResumeConfig:
-    # Next page of a flat listing, or the orders page a per-order sync is on.
+    # Next page of a flat listing, or the parent page a per-parent sync is on.
     page: Optional[int] = None
-    # Per-order endpoints only: how many orders on `page` are already read.
+    # Per-parent endpoints only: how many parents on `page` are already read. The name predates
+    # the per-product endpoints and stays, because saved resume state uses it.
     order_index: int = 0
 
 
@@ -148,10 +151,24 @@ def bigcommerce_source(
     )
 
 
-def _order_children(
-    client: RESTClient, endpoint: str, order_id: Any, hooks: Optional[dict[str, Any]]
+def _children(
+    client: RESTClient, endpoint: str, parent_id: Any, hooks: Optional[dict[str, Any]]
 ) -> list[dict[str, Any]]:
-    path = ENDPOINT_PATHS[endpoint].format(order_id=order_id)
+    _, placeholder = FAN_OUT_PARENTS[endpoint]
+    path = ENDPOINT_PATHS[endpoint].format(**{placeholder: parent_id})
+    if endpoint in PAGINATED_V3_CHILDREN:
+        return [
+            row
+            for page_rows in client.paginate(
+                path=path,
+                params={"limit": PAGE_SIZE},
+                paginator=PageNumberPaginator(base_page=1, page_param="page", total_path="meta.pagination.total_pages"),
+                data_selector="data",
+                hooks=hooks,
+            )
+            for row in page_rows
+        ]
+
     if endpoint not in V2_ENDPOINTS:
         return [
             row
@@ -180,25 +197,45 @@ def _order_children(
         page += 1
 
 
-def order_fan_out_source(
+def _parent_page(client: RESTClient, parent: str, page: int) -> list[dict[str, Any]]:
+    params: dict[str, Any] = {"limit": PAGE_SIZE, "page": page}
+    if parent in V2_ENDPOINTS:
+        return next(
+            client.paginate(path=ENDPOINT_PATHS[parent], params=params, paginator=SinglePagePaginator()),
+            [],
+        )
+    # The fan-out needs only the id, which BigCommerce always returns; asking for one small field
+    # keeps large catalog rows out of each listing page.
+    params["include_fields"] = "date_modified"
+    return next(
+        client.paginate(
+            path=ENDPOINT_PATHS[parent], params=params, paginator=SinglePagePaginator(), data_selector="data"
+        ),
+        [],
+    )
+
+
+def fan_out_source(
     store_hash: str,
     access_token: str,
     endpoint: str,
     resumable_source_manager: ResumableSourceManager[BigCommerceResumeConfig],
 ) -> Iterator[list[dict[str, Any]]]:
-    """Read the rows of a per-order endpoint for every order, one order at a time.
+    """Read the rows of a per-parent endpoint for every parent row, one parent at a time.
 
-    BigCommerce has no collection endpoint for order products, shipments or transactions, so this
-    walks the V2 orders listing page by page. The resume state is the orders page and the position
-    in it, which keeps each checkpoint the same size however many orders the store has.
+    BigCommerce has no collection endpoint for order products, shipments, transactions, coupons or
+    product reviews, so this walks the parent listing (orders or products) page by page. The resume
+    state is the parent page and the position in it, which keeps each checkpoint the same size
+    however many parents the store has.
     """
     client = RESTClient(
         base_url=f"{BASE_URL}/stores/{store_hash}",
         headers={"Accept": "application/json"},
         auth=APIKeyAuth(api_key=access_token, name="X-Auth-Token", location="header"),
     )
-    # An order deleted between the orders listing and its child request has nothing to read.
-    skip_deleted_order = create_response_hooks([{"status_code": 404, "action": "ignore"}])
+    # A parent deleted between the listing and its child request has nothing to read.
+    skip_deleted_parent = create_response_hooks([{"status_code": 404, "action": "ignore"}])
+    parent, _ = FAN_OUT_PARENTS[endpoint]
 
     page, order_index = 1, 0
     if resumable_source_manager.can_resume():
@@ -207,19 +244,12 @@ def order_fan_out_source(
             page, order_index = resume_config.page, resume_config.order_index
 
     while True:
-        orders = next(
-            client.paginate(
-                path=ENDPOINT_PATHS["orders"],
-                params={"limit": PAGE_SIZE, "page": page},
-                paginator=SinglePagePaginator(),
-            ),
-            [],
-        )
-        if not orders:
+        parents = _parent_page(client, parent, page)
+        if not parents:
             return
 
-        for index in range(order_index, len(orders)):
-            rows = _order_children(client, endpoint, orders[index]["id"], skip_deleted_order)
+        for index in range(order_index, len(parents)):
+            rows = _children(client, endpoint, parents[index]["id"], skip_deleted_parent)
             resumable_source_manager.save_state(BigCommerceResumeConfig(page=page, order_index=index + 1))
             if rows:
                 yield rows

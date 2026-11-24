@@ -20,6 +20,7 @@ import {
     firstRunCheckProblem,
     needsFirstRunCheck,
     runFirstRunCheck,
+    trainingStartRefusal,
 } from './firstRunCheck'
 import {
     autoresearchDestroy,
@@ -385,12 +386,14 @@ export const autoresearchLogic = kea<autoresearchLogicType>([
                 lemonToast.success(`Started training "${pipeline.name}"`)
                 actions.loadPipelines()
             } catch (error: any) {
+                const refusal = trainingStartRefusal(error)
                 posthog.capture('autoresearch model action failed', {
                     action: 'train',
                     pipeline_id: pipeline.id,
                     status: error?.status,
+                    ...(refusal.code ? { error_code: refusal.code } : {}),
                 })
-                lemonToast.error(error?.detail ?? error?.data?.detail ?? 'Failed to start training')
+                lemonToast.error(refusal.reason ?? 'Failed to start training')
             } finally {
                 actions.setPipelineMutating(pipeline.id, false)
             }
