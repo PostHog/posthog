@@ -221,7 +221,7 @@ export interface contentAutopilotLogicMeta {
             selectedProfileId: string | null
         ) => ContentAutopilotSiteProfileApi | null
         workspaceInitialized: (workspaceSettled: ContentAutopilotWorkspaceSettled) => boolean
-        workspaceError: (workspaceErrors: Partial<Record<ContentAutopilotWorkspaceResource, string>>) => string | null
+        workspaceError: (workspaceErrors: Partial<Record<'profiles', string>>) => string | null
     }
 }
 
