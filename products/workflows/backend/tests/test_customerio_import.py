@@ -457,6 +457,35 @@ class TestCustomerioCampaignTranslation(BaseTest):
 
     @parameterized.expand(
         [
+            ("a person update on the path", [("1", "10"), ("10", "9")], True),
+            ("a person update no path reaches", [("1", "9")], False),
+        ]
+    )
+    def test_gate_covers_steps_that_change_what_people_get_later(
+        self, _name: str, links: list[tuple[str, str]], gated: bool
+    ) -> None:
+        source = _onboarding_campaign()
+        campaign = {
+            **source.campaign,
+            "workflow_action_ids": ["1", "9", "10"],
+            "edges": [{"from": start, "to": end, "type": "continue"} for start, end in links],
+        }
+        update = {
+            "id": "10",
+            "type": "attribute_update_action",
+            "name": "Mark paid",
+            "preconditions": _encode([{"type": "segments_negatable", "segments": [7], "negate": False}]),
+        }
+        workflow = translate_campaign(
+            CampaignSource(campaign=campaign, actions=[*source.actions, update], templates=source.templates), _OPTIONS
+        ).workflow
+
+        steps = {action["id"]: action for action in workflow["actions"]}
+        assert ("cio_audience" in steps) == gated
+        assert ("cio_10" in steps) == gated
+
+    @parameterized.expand(
+        [
             ("unreadable", "transactional", "!!unreadable", ["false"]),
             (
                 "on a segment trigger",

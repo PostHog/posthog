@@ -88,8 +88,9 @@ class _Builder:
         self.snippet_room = snippet_room
         # Person filters that the trigger can't hold, checked in a branch before the first step instead.
         self.audience: list[dict[str, Any]] = []
-        # A path the workflow takes depends on a condition it can't check, so nobody may enter until it is set.
-        self.unfinished = False
+        # The steps, or the trigger, whose condition can't be checked and decides what a person gets later, so nobody
+        # may enter until it is set.
+        self.unfinished: set[str] = set()
 
     def note(self, level: NoteLevel, message: str, action: dict[str, Any] | None = None) -> None:
         self.notes.append(
@@ -131,7 +132,12 @@ class _Builder:
                 self.actions[action_id] = translated
 
         edges = self._edges(roots)
-        if self.unfinished:
+        posthog_actions.extend(self.actions.values())
+        posthog_actions.append(_exit_action(_EXIT_ID, "Exit"))
+        pruned = _prune_unreachable(posthog_actions, edges)
+        posthog_actions, edges = pruned.actions, pruned.edges
+        kept_ids = {action["id"] for action in posthog_actions}
+        if self.unfinished & kept_ids:
             self.note(
                 NoteLevel.NEEDS_INPUT,
                 "The `Audience` step lets nobody in, because this workflow has conditions PostHog can't check. Set the "
@@ -139,19 +145,15 @@ class _Builder:
             )
             self.audience.append(_NOBODY)
         if self.audience:
-            posthog_actions.append(self._audience_step())
+            posthog_actions.insert(1, self._audience_step())
+            if _EXIT_ID not in kept_ids:
+                posthog_actions.append(_exit_action(_EXIT_ID, "Exit"))
             edges = [
                 edge if edge["from"] != TRIGGER_ID else {**edge, "from": _AUDIENCE_ID, "type": "branch", "index": 0}
                 for edge in edges
             ]
             edges.append({"from": TRIGGER_ID, "to": _AUDIENCE_ID, "type": "continue"})
             edges.append({"from": _AUDIENCE_ID, "to": _EXIT_ID, "type": "continue"})
-        posthog_actions.extend(self.actions.values())
-        if any(edge["to"] == _EXIT_ID for edge in edges):
-            posthog_actions.append(_exit_action(_EXIT_ID, "Exit"))
-        pruned = _prune_unreachable(posthog_actions, edges)
-        posthog_actions, edges = pruned.actions, pruned.edges
-        kept_ids = {action["id"] for action in posthog_actions}
 
         workflow: dict[str, Any] = {
             "name": (self.campaign.get("name") or "Imported from Customer.io")[:400],
@@ -250,7 +252,7 @@ class _Builder:
                 self.note(
                     NoteLevel.NEEDS_INPUT, "Who can enter in Customer.io could not be read. Set it before enabling."
                 )
-                self.unfinished = True
+                self.unfinished.add(TRIGGER_ID)
             return
         translated = conditions.translate_condition(
             audience, self.options.segment_cohorts, self.options.pending_segment_cohorts
@@ -262,7 +264,8 @@ class _Builder:
                 NoteLevel.NEEDS_INPUT,
                 f"Only people {description} can enter in Customer.io. Add that to the `Audience` step.",
             )
-        self.unfinished = self.unfinished or bool(skipped)
+        if skipped:
+            self.unfinished.add(TRIGGER_ID)
         starts_on_event = trigger["type"] == "event" and bool(trigger["filters"]["events"])
         if starts_on_event and not any(item.get("type") == "cohort" for item in properties):
             if properties:
@@ -468,8 +471,8 @@ class _Builder:
         skipped = [*translated.skipped, *(f"event {event['name']}" for event in translated.events)]
         if encoded and conditions.decode(encoded) is None:
             skipped.append("a condition that could not be read")
-        # Skipping a message withholds it, but skipping a wait or a branch sends people on.
-        withholds = action["type"] in ("function", "function_email")
+        # Skipping a message withholds it. Skipping any other step changes what people get later.
+        withholds = source.get("type") in ("email_action", "webhook_action")
         for description in skipped:
             self.note(
                 NoteLevel.NEEDS_INPUT,
@@ -482,7 +485,7 @@ class _Builder:
                 action,
             )
         if skipped and not withholds:
-            self.unfinished = True
+            self.unfinished.add(action["id"])
         if withholds and source.get("sending_state") == "off":
             self.note(
                 NoteLevel.APPROXIMATED,
@@ -808,7 +811,7 @@ class _Builder:
                     f"Wait condition {index + 1} could not be read. Set it before enabling.",
                     base,
                 )
-                self.unfinished = True
+                self.unfinished.add(base["id"])
                 continue
             # A wait can't check a cohort, so no segment is translated here.
             translated = conditions.translate_condition(condition, {})
@@ -819,7 +822,8 @@ class _Builder:
                     f"The wait for `{description}` is something a wait here can't check. Set it before enabling.",
                     base,
                 )
-            self.unfinished = self.unfinished or bool(translated.skipped)
+            if translated.skipped:
+                self.unfinished.add(base["id"])
             if translated.skipped and (translated.events or condition_properties):
                 condition_properties.append(_NOBODY)
             if translated.events:
@@ -896,7 +900,7 @@ class _Builder:
             properties = list(translated.properties)
             if decoded is None or translated.skipped or translated.events:
                 properties.append(_NOBODY)
-                self.unfinished = True
+                self.unfinished.add(base["id"])
                 parts = list(translated.skipped) + [f"event {event['name']}" for event in translated.events]
                 detail = f" `{'; '.join(parts)}`" if parts else ""
                 self.note(
