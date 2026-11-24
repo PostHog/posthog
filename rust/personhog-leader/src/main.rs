@@ -327,11 +327,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             statement_timeout_ms: Some(5_000),
             ..Default::default()
         };
+        let mut options = common_database::pool_options(pool_config);
+        if let Some(min_idle) = config.fallback_pg_ping_idle_after() {
+            tracing::info!(
+                ?min_idle,
+                "Pinging fallback connections only after an idle period"
+            );
+            options = common_database::install_idle_ping(options, min_idle);
+        }
         let fallback = PgFallback {
-            pool: common_database::get_pool_with_config(
-                &config.fallback_database_url,
-                pool_config,
-            )?,
+            pool: options.connect_lazy(&config.fallback_database_url)?,
             table: config.fallback_table.clone(),
             lifecycle: LifecycleTables::new(
                 &config.lifecycle_op_table,
