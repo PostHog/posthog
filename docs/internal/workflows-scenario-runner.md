@@ -305,8 +305,11 @@ sequenceDiagram
 
 During drive and convergence the Runner polls `Environment.dependencyHealth()` every 5 seconds.
 A failed check runs again at once.
+A dependency that first fails on that second check gets one more check of its own, even when the run is stopping.
 A dependency went away when both checks failed and the runner's event loop does not explain it.
 A check that ran out its 2-second timeout while the loop was busy for half or more of the check is unheard: the runner also hosts the edge and runs the probes, so a saturated loop times them out against healthy services.
+A refusal or an HTTP status is an answer, however late the busy loop delivered it.
+The dependency is unheard only when both of its checks were unheard.
 A dependency that answers the second check recovered.
 `probes.json` keeps every failed check with its reason, time, kind and the loop's busy share.
 It reads `Environment.exits()` from `Judge.open` on, to tell an exit a valve caused from an unexplained one.

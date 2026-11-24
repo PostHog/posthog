@@ -34,7 +34,7 @@ function lossesOf(at: number, first: Attempt, second: Attempt): DependencyLoss[]
     return first.failures.map((failure) => {
         const again = second.failures.find(({ name }) => name === failure.name)
         const kind =
-            again === undefined ? 'recovered' : excused(failure, first) || excused(again, second) ? 'unheard' : 'gone'
+            again === undefined ? 'recovered' : excused(failure, first) && excused(again, second) ? 'unheard' : 'gone'
         const last = again ?? failure
         return {
             name: failure.name,
@@ -53,13 +53,22 @@ export function watchDependencies(
     const losses: DependencyLoss[] = []
     const stopped = new AbortController()
     const watching = (async () => {
-        while (!stopped.signal.aborted) {
+        let unconfirmed: Attempt | undefined
+        while (!stopped.signal.aborted || unconfirmed) {
             const at = Date.now()
-            const first = await attempt(check)
-            if (first.failures.length > 0) {
-                losses.push(...lossesOf(at, first, await attempt(check)))
+            const first = unconfirmed ?? (await attempt(check))
+            const second = first.failures.length > 0 ? await attempt(check) : undefined
+            const fresh =
+                second && !unconfirmed
+                    ? second.failures.filter(({ name }) => !first.failures.some((failure) => failure.name === name))
+                    : []
+            if (second) {
+                losses.push(...lossesOf(at, first, second))
             }
-            await sleep(everyMs, undefined, { signal: stopped.signal }).catch(() => undefined)
+            unconfirmed = second && fresh.length > 0 ? { failures: fresh, runnerBusy: second.runnerBusy } : undefined
+            if (!unconfirmed) {
+                await sleep(everyMs, undefined, { signal: stopped.signal }).catch(() => undefined)
+            }
         }
     })()
     return {
@@ -89,9 +98,9 @@ function goneReasonOf(gone: readonly DependencyLoss[], steps: readonly StepWindo
 }
 
 function unheardReasonOf(unheard: readonly DependencyLoss[], steps: readonly StepWindow[]): string {
-    const names = unheard.map(({ name }) => name).join(', ')
+    const each = unheard.map(({ name, at }) => `${name} ${whenOf(at, steps)}`).join(', ')
     const busy = Math.round(Math.max(...unheard.map(({ runnerBusy }) => runnerBusy)) * 100)
-    return `the runner's event loop was too busy to check ${names} ${whenOf(unheard[0].at, steps)} (busy ${busy}% of the check), a harness limit: the run cannot tell whether they stayed up`
+    return `the runner's event loop was too busy to check ${each} (busy ${busy}% of the check), a harness limit: the run cannot tell whether they stayed up`
 }
 
 export function dependencyReasonOf(down: readonly DependencyLoss[], steps: readonly StepWindow[]): string | undefined {

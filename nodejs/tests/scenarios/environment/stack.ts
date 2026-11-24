@@ -416,6 +416,14 @@ export function dependencyProbes(
     }
 }
 
+// A refusal or an HTTP status is an answer, however late a busy loop delivered it.
+const ANSWER = /ECONNREFUSED|ECONNRESET|ENOTFOUND|EHOSTUNREACH|answered \d{3}/
+
+const textOf = (error: unknown): string =>
+    error instanceof Error
+        ? `${error.message} ${String((error as { code?: unknown }).code ?? '')} ${textOf(error.cause ?? '')}`
+        : String(error)
+
 // A probe that failed before its timeout got an answer; one that ran out its clock may only have gone unheard.
 export async function failedProbes(probes: Probes): Promise<ProbeFailure[]> {
     const results = await Promise.all(
@@ -425,7 +433,7 @@ export async function failedProbes(probes: Probes): Promise<ProbeFailure[]> {
                 await probe()
                 return null
             } catch (error) {
-                const timedOut = performance.now() - startedAt >= PROBE_TIMEOUT_MS
+                const timedOut = performance.now() - startedAt >= PROBE_TIMEOUT_MS && !ANSWER.test(textOf(error))
                 return { name, reason: error instanceof Error ? error.message : String(error), timedOut }
             }
         })

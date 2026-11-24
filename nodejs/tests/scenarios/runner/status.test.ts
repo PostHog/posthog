@@ -11,7 +11,7 @@ import { Admission, Verdict, admissionsOf, judgedInvariantsOf, statusOf } from '
 const HELD: Verdict = {
     admissions: [],
     minOffered: 0.9,
-    units: { targetUnits: 60, offeredUnits: 60 },
+    units: { targetUnits: 60, offeredUnits: 60, steps: [] },
     down: [],
     convergence: { converged: true, unfinishedJobs: 0, unrecorded: [], tookMs: 1000 },
     invariants: [{ name: 'at_least_once', passed: true, observed: 0, unitIds: [] }],
@@ -101,14 +101,14 @@ describe('statusOf', () => {
         ],
         [
             'the generator offered under minOffered',
-            { units: { targetUnits: 60, offeredUnits: 53 }, invariants: [BROKEN] },
+            { units: { targetUnits: 60, offeredUnits: 53, steps: [] }, invariants: [BROKEN] },
             'invalid',
             'the generator offered 53 of 60 units, under minOffered 0.9',
         ],
         [
             'a ramp that broke at a step before a later step fell short of minOffered',
             {
-                units: { targetUnits: 60, offeredUnits: 53 },
+                units: { targetUnits: 60, offeredUnits: 53, steps: [] },
                 ramp: { end: 'broke', sustainedScale: 1, reason: 'writer_cpu_under broke at the 2x step' },
             },
             'failed',

@@ -103,7 +103,7 @@ export function admissionsOf(
 export type Verdict = {
     admissions: Admission[]
     minOffered: number
-    units: Pick<DriveSummary, 'targetUnits' | 'offeredUnits'> & Partial<Pick<DriveSummary, 'steps'>>
+    units: Pick<DriveSummary, 'targetUnits' | 'offeredUnits' | 'steps'>
     down: DependencyLoss[]
     convergence: Convergence
     invariants: InvariantResult[]
@@ -291,7 +291,7 @@ function unrampedStatusOf({
     status: Status
     statusReason: string
 } {
-    const lost = dependencyReasonOf(down, units.steps ?? [])
+    const lost = dependencyReasonOf(down, units.steps)
     if (lost !== undefined) {
         return { status: 'invalid', statusReason: lost }
     }

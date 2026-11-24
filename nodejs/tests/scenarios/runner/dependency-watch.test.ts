@@ -3,7 +3,7 @@ import { AddressInfo } from 'net'
 
 import { defaultConfig } from '~/common/config/config'
 
-import { Probes, dependencyProbes, expectOk, failedProbes } from '../environment/stack'
+import { ProbeFailure, Probes, dependencyProbes, expectOk, failedProbes } from '../environment/stack'
 import { ProviderEdge, startProviderEdge } from '../provider-edge'
 import { DependencyLoss, dependencyReasonOf, watchDependencies } from './dependency-watch'
 
@@ -11,6 +11,8 @@ const POSTGRES = defaultConfig.DATABASE_URL!
 const UNREACHABLE_POSTGRES = 'postgres://posthog:posthog@127.0.0.1:1/posthog'
 const VALKEY = { host: '127.0.0.1', port: 6379 }
 const RUNNER_BLOCKS_MS = 2100
+
+const refusal = (name: string): ProbeFailure => ({ name, reason: 'connect ECONNREFUSED', timedOut: false })
 
 const busyFor = (ms: number): void => {
     const until = performance.now() + ms
@@ -50,7 +52,7 @@ describe('dependency watch', () => {
         const { reason } = await watched(edgeAndPostgres(POSTGRES), RUNNER_BLOCKS_MS)
 
         expect(reason).toMatch(
-            /^the runner's event loop was too busy to check provider-edge, postgres in the 320x step \(busy \d+% of the check\), a harness limit: the run cannot tell whether they stayed up$/
+            /^the runner's event loop was too busy to check provider-edge in the 320x step, postgres in the 320x step \(busy \d+% of the check\), a harness limit: the run cannot tell whether they stayed up$/
         )
     }, 30_000)
 
@@ -59,6 +61,60 @@ describe('dependency watch', () => {
 
         expect(reason).toMatch(
             /^dependencies went away: postgres in the 320x step \(Postgres at 127\.0\.0\.1:1 failed: .*ECONNREFUSED.*\)$/
+        )
+    })
+
+    it('names a refused dependency as gone even when the busy runner hears the refusal late', async () => {
+        const { postgres } = edgeAndPostgres(UNREACHABLE_POSTGRES)
+        const heardLate = (): Promise<unknown> => {
+            busyFor(1500)
+            const refused = postgres()
+            busyFor(1000)
+            return refused
+        }
+
+        const { reason } = await watched({ postgres: heardLate })
+
+        expect(reason).toMatch(/^dependencies went away: postgres in the 320x step \(.*ECONNREFUSED.*\)$/)
+    }, 30_000)
+
+    it('confirms a dependency that first failed on the retry before the watch stops', async () => {
+        const checks: ProbeFailure[][] = [[refusal('postgres')], [refusal('redis')], [refusal('redis')]]
+
+        const losses = await watchDependencies(() => Promise.resolve(checks.shift() ?? []), 60_000).stop()
+
+        expect(losses.map(({ name, kind }) => `${name} ${kind}`)).toEqual(['postgres recovered', 'redis gone'])
+    })
+
+    it('names a dependency gone when the retry hears a refusal after a busy first check timed out', async () => {
+        const checks: (() => ProbeFailure[])[] = [
+            () => {
+                busyFor(200)
+                return [{ name: 'postgres', reason: 'timeout expired', timedOut: true }]
+            },
+            () => [refusal('postgres')],
+        ]
+
+        const losses = await watchDependencies(() => Promise.resolve(checks.shift()?.() ?? []), 60_000).stop()
+
+        expect(losses.map(({ name, kind }) => `${name} ${kind}`)).toEqual(['postgres gone'])
+    })
+
+    it('names each unheard dependency at its own ramp step', () => {
+        const steps = [
+            { scale: 2, startedAt: 0, endedAt: 1000 },
+            { scale: 320, startedAt: 1000, endedAt: 2000 },
+        ]
+        const unheard = (name: string, at: number): DependencyLoss => ({
+            name,
+            at,
+            reason: 'timeout expired',
+            runnerBusy: 0.9,
+            kind: 'unheard',
+        })
+
+        expect(dependencyReasonOf([unheard('provider-edge', 500), unheard('postgres', 1500)], steps)).toMatch(
+            /^the runner's event loop was too busy to check provider-edge in the 2x step, postgres in the 320x step /
         )
     })
 
