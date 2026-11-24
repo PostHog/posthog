@@ -50,7 +50,7 @@ export async function checkHogFlowQuotaLimits(
     // Check which quotas the team is limited on
     const [isEmailQuotaLimited, isDestinationQuotaLimited] = await Promise.all([
         quotaLimiting.isTeamQuotaLimited(teamId, 'workflow_emails'),
-        quotaLimiting.isTeamQuotaLimited(teamId, 'workflow_destinations_dispatched'),
+        quotaLimiting.isTeamQuotaLimited(teamId, 'workflow_destinations'),
     ])
 
     // Check if any billable action type is quota limited

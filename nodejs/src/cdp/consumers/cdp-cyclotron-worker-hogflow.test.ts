@@ -645,7 +645,7 @@ describe('CdpCyclotronWorkerHogFlow', () => {
                 ...new FixtureHogFlowBuilder().withTeamId(team.id).withStatus('active').withSimpleWorkflow().build(),
                 billable_action_types: ['function', 'function_email'],
             })
-            await setTeamQuotaLimited(hub, team, 'workflow_destinations_dispatched', true)
+            await setTeamQuotaLimited(hub, team, 'workflow_destinations', true)
 
             const [result] = await processor.processInvocations([
                 createSerializedHogFlowInvocation(billableFlow, {
