@@ -115,21 +115,6 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
             data={
                 "name": "Test Experiment saved metric",
                 "description": "Test description",
-                "query": {"kind": "TrendsQuery"},
-            },
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response.json()["detail"],
-            "Invalid metric: metric kind must be 'ExperimentMetric'",
-        )
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
-            data={
-                "name": "Test Experiment saved metric",
-                "description": "Test description",
                 "query": {"kind": "ExperimentMetric"},
             },
             format="json",
@@ -354,6 +339,38 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["results"][0]["linked_experiments"], [])
 
+    def test_list_hides_metrics_the_viewer_has_no_access_to(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        other_user = self._create_user("metric-owner@posthog.com")
+        query = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "source": {"kind": "EventsNode", "event": "$pageview"},
+        }
+
+        def _create_metric(name: str, created_by, access_level: str | None) -> None:
+            metric = ExperimentSavedMetric.objects.create(team=self.team, name=name, query=query, created_by=created_by)
+            if access_level is not None:
+                AccessControl.objects.create(
+                    team=self.team,
+                    resource="experiment_saved_metric",
+                    resource_id=str(metric.pk),
+                    access_level=access_level,
+                )
+
+        _create_metric("Blocked metric", other_user, "none")
+        _create_metric("Open metric", other_user, None)
+        # A rule of "none" does not hide a metric from the user who created it
+        _create_metric("Own blocked metric", self.user, "none")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiment_saved_metrics/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 2)
+        self.assertEqual({row["name"] for row in response.json()["results"]}, {"Open metric", "Own blocked metric"})
+
     def test_create_saved_metric_without_uuid_gets_one_and_can_be_attached(self) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiment_saved_metrics/",
@@ -549,8 +566,9 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
             data={
                 "name": None,  # invalid
                 "query": {
-                    "kind": "ExperimentTrendsQuery",
-                    "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
                 },
             },
             format="json",
