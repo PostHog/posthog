@@ -1,0 +1,17 @@
+<!--
+    Backup disk for the ClickHouse schema snapshot that ci-dagster.yml caches.
+    Mounted only through docker-compose.yml in this directory.
+-->
+<clickhouse>
+    <storage_configuration>
+        <disks>
+            <ci_schema_cache>
+                <type>local</type>
+                <path>/var/lib/clickhouse/ci_schema_cache/</path>
+            </ci_schema_cache>
+        </disks>
+    </storage_configuration>
+    <backups>
+        <allowed_disk>ci_schema_cache</allowed_disk>
+    </backups>
+</clickhouse>

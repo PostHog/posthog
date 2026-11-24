@@ -5,6 +5,8 @@ rules:
       owners: team-devex
     - match: ['/scripts/deltalite_selection.py', '/scripts/test_deltalite_selection.py']
       owners: team-devex
+    - match: ['/scripts/clickhouse_schema_cache.py', '/scripts/test_clickhouse_schema_cache.py', '/clickhouse-schema-cache/']
+      owners: team-devex
     - match: ['/scripts/check_call_assertions.py', '/scripts/test_check_call_assertions.py']
       owners: team-devex
     - match: ['/scripts/junit_node_ids.py', '/scripts/test_junit_node_ids.py']

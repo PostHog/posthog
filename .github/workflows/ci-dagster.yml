@@ -29,6 +29,8 @@ permissions:
 env:
     # Keep SCHEMA_CACHE_EPOCH in sync with .depot/workflows/ci-backend.yml so schema cache keys match.
     SCHEMA_CACHE_EPOCH: v2
+    # Bump to abandon every cached ClickHouse schema snapshot (see .github/scripts/clickhouse_schema_cache.py).
+    CH_SCHEMA_CACHE_EPOCH: v1
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
     REDIS_URL: 'redis://localhost'
@@ -257,6 +259,8 @@ jobs:
                         # Make sure we run if someone is explicitly change the workflow
                         - .github/workflows/ci-dagster.yml
                         - .github/actions/setup-uv/**
+                        - .github/scripts/clickhouse_schema_cache.py
+                        - '.github/clickhouse-schema-cache/**'
                         # The test selector guards itself: selector changes run the
                         # suite (full mode), which executes its unit tests first
                         - tools/dagster_test_selection.py
@@ -299,6 +303,8 @@ jobs:
                         - 'posthog/temporal/health_checks/rollups/**' # daily rollup fills run in Dagster
                         - .github/workflows/ci-dagster.yml
                         - .github/actions/setup-uv/**
+                        - .github/scripts/clickhouse_schema_cache.py
+                        - '.github/clickhouse-schema-cache/**'
                         - tools/dagster_test_selection.py
                         - tools/test_dagster_test_selection.py
 
@@ -571,7 +577,8 @@ jobs:
 
             - name: Start stack with Docker Compose
               env:
-                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
+                  # The last file adds the backup disk that the ClickHouse schema snapshot uses.
+                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml:.github/clickhouse-schema-cache/docker-compose.yml
                   CLICKHOUSE_SERVER_IMAGE: ${{ matrix.clickhouse-server-image }}
                   WAIT_FOR_DOCKER_LAUNCH_RETRY_DELAY: 5
               run: |
@@ -579,7 +586,7 @@ jobs:
 
             - name: Wait for Docker services
               env:
-                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
+                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml:.github/clickhouse-schema-cache/docker-compose.yml
                   CLICKHOUSE_SERVER_IMAGE: ${{ matrix.clickhouse-server-image }}
               run: bin/ci-wait-for-docker wait
 
@@ -704,13 +711,117 @@ jobs:
                   DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
                     sqlx migrate run --source rust/persons_migrations/
 
+            # ClickHouse schema snapshot: restore the schema a full migrate built for the same
+            # migrations, and let migrate_clickhouse apply only what it lacks. The first shard of a
+            # run that migrated from scratch builds the snapshot, after proving a restore of it
+            # reproduces the migrated schema. Any miss or error falls back to the full migrate.
+            - name: Fingerprint ClickHouse migrations
+              id: ch-fingerprint
+              if: github.event_name == 'pull_request' || github.event_name == 'schedule'
+              continue-on-error: true
+              env:
+                  DATABASE_URL: postgres://posthog:posthog@localhost:5432/test_posthog
+                  CLICKHOUSE_SERVER_IMAGE: ${{ matrix.clickhouse-server-image }}
+              run: |
+                  mkdir -p .ci-clickhouse-schema
+                  # Django setup can print, so the digest is the last line.
+                  digest=$(python .github/scripts/clickhouse_schema_cache.py fingerprint \
+                      --epoch "$CH_SCHEMA_CACHE_EPOCH" --image "$CLICKHOUSE_SERVER_IMAGE" \
+                      --out .ci-clickhouse-schema/checkout.json | tail -n 1)
+                  if [[ ! "$digest" =~ ^[0-9a-f]{40}$ ]]; then
+                      echo "::warning::Could not fingerprint the ClickHouse migrations; migrating from scratch"
+                      exit 1
+                  fi
+                  echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
+            - name: Restore ClickHouse schema snapshot
+              id: ch-cache
+              if: steps.ch-fingerprint.outputs.digest != ''
+              timeout-minutes: 4
+              continue-on-error: true
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: clickhouse-schema.tar.gz
+                  # Exact matches first, then the newest snapshot; the load step checks that one
+                  # migration by migration. Only master writes the master namespace.
+                  key: posthog-ch-schema-${{ env.CH_SCHEMA_CACHE_EPOCH }}-${{ github.event_name == 'pull_request' && format('pr{0}', github.event.pull_request.number) || 'master' }}-${{ steps.ch-fingerprint.outputs.digest }}
+                  restore-keys: |
+                      posthog-ch-schema-${{ env.CH_SCHEMA_CACHE_EPOCH }}-master-${{ steps.ch-fingerprint.outputs.digest }}
+                      posthog-ch-schema-${{ env.CH_SCHEMA_CACHE_EPOCH }}-${{ github.event_name == 'pull_request' && format('pr{0}', github.event.pull_request.number) || 'master' }}-
+                      posthog-ch-schema-${{ env.CH_SCHEMA_CACHE_EPOCH }}-master-
+
+            - name: Load ClickHouse schema snapshot
+              id: ch-load
+              if: steps.ch-fingerprint.outputs.digest != ''
+              run: |
+                  echo "restored=false" >> "$GITHUB_OUTPUT"
+                  if [ ! -f clickhouse-schema.tar.gz ]; then
+                      echo "::notice::ClickHouse schema cache miss; migrate_clickhouse will build the schema from scratch"
+                      exit 0
+                  fi
+                  if python .github/scripts/clickhouse_schema_cache.py load \
+                      --archive clickhouse-schema.tar.gz --checkout .ci-clickhouse-schema/checkout.json; then
+                      echo "restored=true" >> "$GITHUB_OUTPUT"
+                  fi
+                  rm -f clickhouse-schema.tar.gz
+
+            - name: Snapshot ClickHouse before migrations
+              id: ch-before
+              if: >-
+                  steps.ch-fingerprint.outputs.digest != '' && steps.ch-load.outputs.restored != 'true'
+                  && steps.ch-cache.outputs.cache-hit != 'true' && matrix.group == 1
+                  && (github.event_name == 'schedule' || github.event.pull_request.head.repo.full_name == github.repository)
+              continue-on-error: true
+              run: python .github/scripts/clickhouse_schema_cache.py snapshot --out .ci-clickhouse-schema/before.tsv
+
             - name: Run clickhouse migrations
               # Reads posthog_instancesetting through Django, so it needs a migrated
               # Postgres db. test_posthog is the only one this job maintains, which is
               # what ci-mcp.yml and ci-e2e-playwright.yml do with their own single db.
+              # After a snapshot restore this applies only the migrations the snapshot lacks.
               env:
                   DATABASE_URL: postgres://posthog:posthog@localhost:5432/test_posthog
-              run: python manage.py migrate_clickhouse
+                  RESTORED: ${{ steps.ch-load.outputs.restored }}
+              run: |
+                  if python manage.py migrate_clickhouse; then
+                      exit 0
+                  fi
+                  if [ "$RESTORED" != true ]; then
+                      exit 1
+                  fi
+                  echo "::warning::migrate_clickhouse failed on the restored snapshot; migrating from scratch"
+                  python .github/scripts/clickhouse_schema_cache.py reset
+                  python manage.py migrate_clickhouse
+
+            - name: Build ClickHouse schema snapshot
+              # Fails only when the schema had to be rebuilt and that rebuild failed.
+              if: >-
+                  steps.ch-fingerprint.outputs.digest != '' && steps.ch-load.outputs.restored != 'true'
+                  && steps.ch-cache.outputs.cache-hit != 'true' && matrix.group == 1
+                  && (github.event_name == 'schedule' || github.event.pull_request.head.repo.full_name == github.repository)
+                  && steps.ch-before.outcome == 'success'
+              env:
+                  DATABASE_URL: postgres://posthog:posthog@localhost:5432/test_posthog
+              run: |
+                  python .github/scripts/clickhouse_schema_cache.py save --checkout .ci-clickhouse-schema/checkout.json \
+                      --before .ci-clickhouse-schema/before.tsv --archive clickhouse-schema.tar.gz
+
+            - name: Save ClickHouse schema snapshot for master
+              if: github.ref == 'refs/heads/master' && hashFiles('clickhouse-schema.tar.gz') != ''
+              continue-on-error: true
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: clickhouse-schema.tar.gz
+                  key: posthog-ch-schema-${{ env.CH_SCHEMA_CACHE_EPOCH }}-master-${{ steps.ch-fingerprint.outputs.digest }}
+
+            - name: Save ClickHouse schema snapshot for this pull request
+              # Its own namespace, which only this PR's runs read, so a re-run can measure the restore.
+              if: github.event_name == 'pull_request' && hashFiles('clickhouse-schema.tar.gz') != ''
+              continue-on-error: true
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: clickhouse-schema.tar.gz
+                  key: posthog-ch-schema-${{ env.CH_SCHEMA_CACHE_EPOCH }}-pr${{ github.event.pull_request.number }}-${{ steps.ch-fingerprint.outputs.digest }}
 
             - name: Restore test durations from cache
               # pytest-split distributes Dagster tests across shards using .test_durations.
