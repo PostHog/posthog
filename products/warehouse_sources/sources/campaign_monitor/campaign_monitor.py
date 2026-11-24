@@ -40,7 +40,7 @@ JOURNEY_EMAILS_RESOURCE = "journey_emails"
 TRANSACTIONAL_PAGE_SIZE = 200  # The message timeline's documented maximum `count`.
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class CampaignMonitorResumeConfig:
     # Pre-framework fan-out bookmarks. Kept (with defaults) so previously saved state still
     # parses; no longer written — fan-out resume now lives in fanout_state.
