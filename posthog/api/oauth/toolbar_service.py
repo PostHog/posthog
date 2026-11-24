@@ -272,13 +272,8 @@ def validate_and_consume_toolbar_oauth_state(
         logger.warning("toolbar_oauth_state_validation_failed", code="invalid_state", reason="missing_nonce")
         raise ToolbarOAuthError("invalid_state", "OAuth state is missing nonce", 400)
 
-    try:
-        toolbar_oauth_state_cache.claim_or_raise(nonce)
-    except ToolbarOAuthError as exc:
-        logger.warning("toolbar_oauth_state_validation_failed", code="invalid_state", reason=exc.code)
-        error_class = ToolbarOAuthStateReplayError if exc.code == "state_replay" else ToolbarOAuthError
-        raise error_class("invalid_state", "OAuth state is invalid", 400) from exc
-
+    # Check the binding before the nonce is claimed. A state of another user or team then cannot use up the
+    # owner's nonce, and it never reaches the replay error, which tells the callback to keep the grant.
     if payload.get("user_id") != request_user.pk:
         logger.warning("toolbar_oauth_state_validation_failed", code="state_user_mismatch")
         raise ToolbarOAuthError("state_user_mismatch", "OAuth state user mismatch", 400)
@@ -286,6 +281,13 @@ def validate_and_consume_toolbar_oauth_state(
     if payload.get("team_id") != request_team.pk:
         logger.warning("toolbar_oauth_state_validation_failed", code="state_team_mismatch")
         raise ToolbarOAuthError("state_team_mismatch", "OAuth state team mismatch", 400)
+
+    try:
+        toolbar_oauth_state_cache.claim_or_raise(nonce)
+    except ToolbarOAuthError as exc:
+        logger.warning("toolbar_oauth_state_validation_failed", code="invalid_state", reason=exc.code)
+        error_class = ToolbarOAuthStateReplayError if exc.code == "state_replay" else ToolbarOAuthError
+        raise error_class("invalid_state", "OAuth state is invalid", 400) from exc
 
     app_url = payload.get("app_url")
     if not app_url:

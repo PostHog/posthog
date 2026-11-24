@@ -476,8 +476,9 @@ class TestToolbarOAuthCallbackExchange(ToolbarOAuthAuthorizeMixin, APIBaseTest):
         assert "redirect_uri:" not in location
         assert "token_endpoint:" not in location
 
-    def test_callback_state_user_mismatch_returns_error(self):
+    def test_callback_state_of_another_user_returns_error_and_revokes_the_code(self):
         state = self._authorize_and_get_state()
+        assert self.client.get(f"/toolbar_oauth/callback?code=owner_code&state={state}").status_code == 302
         other_user = User.objects.create_user(
             email="other-callback@example.com",
             first_name="Other",
@@ -487,8 +488,21 @@ class TestToolbarOAuthCallbackExchange(ToolbarOAuthAuthorizeMixin, APIBaseTest):
         )
         self.organization.members.add(other_user)
         self.client.force_login(other_user)
-        response = self.client.get(f"/toolbar_oauth/callback?code=abc&state={state}")
+        OAuthGrant.objects.create(
+            user=other_user,
+            application=get_or_create_toolbar_oauth_application(user=other_user),
+            code="injected_code",
+            expires=timezone.now() + timedelta(minutes=5),
+            redirect_uri=f"{settings.SITE_URL}{CALLBACK_PATH}",
+            scope="openid",
+            code_challenge="test_challenge_value",
+            code_challenge_method=OAuthGrant.CODE_CHALLENGE_S256,
+        )
+
+        response = self.client.get(f"/toolbar_oauth/callback?code=injected_code&state={state}")
+
         assert response.status_code >= 400
+        assert not OAuthGrant.objects.filter(code="injected_code").exists()
 
     def test_callback_state_team_mismatch_returns_error(self):
         state = self._authorize_and_get_state()
