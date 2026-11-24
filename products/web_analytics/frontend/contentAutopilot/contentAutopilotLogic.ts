@@ -841,7 +841,7 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
             {
                 loadRuns: async (_, breakpoint) => {
                     const profile = values.profile
-                    if (!profile) {
+                    if (!profile || !values.draftingEnabled) {
                         return []
                     }
                     const runs = await fetchAllPages((offset, limit) =>
@@ -861,7 +861,7 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
             {
                 loadProposals: async (_, breakpoint) => {
                     const profile = values.profile
-                    if (!profile) {
+                    if (!profile || !values.draftingEnabled) {
                         return []
                     }
                     const proposals = await fetchAllPages((offset, limit) =>
@@ -881,7 +881,7 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
             {
                 loadOpportunities: async (_, breakpoint) => {
                     const profile = values.profile
-                    // Only the drafting tabs show opportunities, and listing them pages through every prompt.
+                    // Only drafting reads opportunities, runs and proposals, and listing opportunities pages through every prompt.
                     if (!profile || !values.draftingEnabled) {
                         return []
                     }

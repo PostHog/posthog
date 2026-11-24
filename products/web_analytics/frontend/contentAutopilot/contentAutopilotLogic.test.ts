@@ -144,14 +144,18 @@ describe('contentAutopilotLogic', () => {
         return logic
     }
 
-    it('reads no opportunities when drafting is off', async () => {
+    it('reads no drafting data when drafting is off', async () => {
         featureFlagLogic.actions.setFeatureFlags([], {})
 
         const mountedLogic = await mountWorkspace()
 
         expect(mountedLogic.values.opportunities).toEqual([])
+        expect(mountedLogic.values.runs).toEqual([])
+        expect(mountedLogic.values.proposals).toEqual([])
         expect(webAnalyticsContentAutopilotOpportunitiesList).not.toHaveBeenCalled()
         expect(mockOpportunitiesRefresh).not.toHaveBeenCalled()
+        expect(mockRunsList).not.toHaveBeenCalled()
+        expect(mockProposalsList).not.toHaveBeenCalled()
     })
 
     it('shows saved opportunities while the refresh runs and keeps rows the refresh response leaves out', async () => {
