@@ -675,16 +675,15 @@ def transactional_email_impact(
 def _sessions_with_a_pageview_from_the_email(
     team: Team, user: User | None, workflow_id: str, period: _Period
 ) -> int | None:
-    # The session count reads the events table, which the funnel and the conversions don't need, so a failed count
-    # leaves sessions empty and keeps the rest of the response.
+    # The session count is optional, so a failed count leaves sessions empty and keeps the funnel and the conversions.
     try:
         return _count_sessions(team, user, workflow_id, period)
     except Exception as error:
-        capture_exception(error)
+        capture_exception(error, {"workflow_id": workflow_id, "team_id": team.id})
         return None
 
 
-def _count_sessions(team: Team, user: User | None, workflow_id: str, period: _Period) -> int:
+def _count_sessions(team: Team, user: User | None, workflow_id: str, period: _Period) -> int | None:
     rows = _execute(
         team.id,
         f"""
@@ -704,7 +703,11 @@ def _count_sessions(team: Team, user: User | None, workflow_id: str, period: _Pe
     )
     sessions: set[str] = set()
     for batch in _batches_by_query_size(team.id, [message_id for (message_id,) in rows], _escaped_literal_bytes):
-        sessions |= _sessions_in_batch(team, user, batch, period)
+        batch_sessions = _sessions_in_batch(team, user, batch, period)
+        # A batch that fills the row limit can hold more sessions than it returned, so the count is unknown.
+        if len(batch_sessions) >= MAX_SELECT_RETURNED_ROWS:
+            return None
+        sessions |= batch_sessions
     return len(sessions)
 
 

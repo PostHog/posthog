@@ -803,7 +803,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             "without_click": {"sends": 3, "converted": 2},
             "sessions": None,
         }
-        reported.assert_called_once_with(timeout)
+        reported.assert_called_once_with(timeout, {"workflow_id": str(self.workflow_id), "team_id": self.team.id})
 
     def test_counts_conversions_of_sends_whose_ids_overflow_the_teams_clickhouse_query_size(self, _flag):
         long_distinct_ids = [f"long-{index:02d}-{'€' * 380}" for index in range(LONG_ID_SENDS)]
@@ -830,8 +830,10 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             self._send(minutes_ago, f"reader-{minutes_ago}@example.com", clicked)
             for minutes_ago in range(10, 10 + CLICKED_SENDS_PAST_ONE_BATCH)
         ]
-        self._land("reader", "one-session", message_ids[0])
-        self._land("reader", "one-session", message_ids[-1])
+        self._land("reader", "shared-session", message_ids[0])
+        self._land("reader", "shared-session", message_ids[-1])
+        self._land("reader", "first-batch-session", message_ids[0])
+        self._land("reader", "second-batch-session", message_ids[-1])
         flush_persons_and_events()
 
         with patch.dict(
@@ -839,19 +841,33 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         ):
             impact = self._impact(date_from=(NOW - timedelta(days=1)).isoformat())
 
-        assert (impact["clicked"], impact["sessions"]) == (CLICKED_SENDS_PAST_ONE_BATCH, 1)
+        assert (impact["clicked"], impact["sessions"]) == (CLICKED_SENDS_PAST_ONE_BATCH, 3)
 
     def test_counts_sessions_of_the_newest_clicked_sends_with_ties_broken_by_message_id(self, _flag):
         clicked = [("sent", 1, ""), ("delivered", 2, ""), ("clicked", 60, "")]
-        self._send(30, "first@example.com", clicked, message_id="11111111-1111-4111-8111-111111111111")
+        dropped = self._send(30, "first@example.com", clicked, message_id="11111111-1111-4111-8111-111111111111")
         kept = self._send(30, "second@example.com", clicked, message_id="22222222-2222-4222-8222-222222222222")
+        self._land("first", "dropped-session", dropped)
         self._land("second", "kept-session", kept)
+        self._land("second", "kept-second-session", kept)
         flush_persons_and_events()
 
         with patch("products.messaging.backend.services.transactional_email_log.MAX_RESULTS_RECIPIENTS", 1):
             impact = self._impact(date_from=(NOW - timedelta(days=1)).isoformat())
 
-        assert impact["sessions"] == 1
+        assert impact["sessions"] == 2
+
+    def test_has_no_session_count_when_a_batch_fills_the_row_limit(self, _flag):
+        clicked = [("sent", 1, ""), ("delivered", 2, ""), ("clicked", 60, "")]
+        message_id = self._send(30, "reader@example.com", clicked)
+        self._land("reader", "first-session", message_id)
+        self._land("reader", "second-session", message_id)
+        flush_persons_and_events()
+
+        with patch("products.messaging.backend.services.transactional_email_log.MAX_SELECT_RETURNED_ROWS", 1):
+            impact = self._impact(date_from=(NOW - timedelta(days=1)).isoformat())
+
+        assert (impact["clicked"], impact["sessions"]) == (1, None)
 
     def test_sizes_impact_batches_by_the_default_limit_when_a_team_turns_the_limit_off(self, _flag):
         welcomed: list[str] = []
