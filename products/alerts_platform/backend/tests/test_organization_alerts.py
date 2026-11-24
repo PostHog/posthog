@@ -11,6 +11,7 @@ from unittest.mock import patch
 from parameterized import parameterized
 from pydantic import BaseModel, ConfigDict
 
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 
@@ -141,6 +142,9 @@ class TestOrganizationAlerts(BaseTest):
             organization_id=organization_id, source_kind=kind, configuration_id=configuration_id
         )
         assert not PlatformAlertConfiguration.objects.unscoped().filter(id=configuration_id).exists()
+        assert not ActivityLog.objects.filter(
+            scope="PlatformAlertConfiguration", item_id=str(configuration_id)
+        ).exists()
 
     @parameterized.expand(
         [
