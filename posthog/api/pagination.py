@@ -176,6 +176,16 @@ class FacadePageNumberPagination(BoundedPageNumberPagination):
             self.display_page_controls = True
         return fetched
 
+    def get_paginated_facade_response[T](
+        self,
+        request: Request,
+        view: "GenericAPIView",
+        fetch: Callable[[PageRequest], Page[T]],
+        serializer_class: type[BaseSerializer] | None = None,
+    ) -> Response:
+        page = self.read_facade_page(request, fetch)
+        return self.get_paginated_response(_serialize_rows(view, page.results, serializer_class))
+
 
 class PrecountedLimitOffsetPagination(BoundedLimitOffsetPagination):
     """Pages a queryset that the view has already bounded with LIMIT and OFFSET.
@@ -583,6 +593,23 @@ def facade_page_response[T](
     if not isinstance(paginator, FacadeLimitOffsetPagination):
         raise ImproperlyConfigured(f"{type(view).__name__} needs a FacadeLimitOffsetPagination pagination_class.")
     return paginator.get_paginated_facade_response(view.request, view, fetch, serializer_class)
+
+
+def facade_numbered_paginator(view: "GenericAPIView") -> FacadePageNumberPagination:
+    """Return the view's numbered-page facade paginator."""
+    paginator = view.paginator
+    if not isinstance(paginator, FacadePageNumberPagination):
+        raise ImproperlyConfigured(f"{type(view).__name__} needs a FacadePageNumberPagination pagination_class.")
+    return paginator
+
+
+def facade_numbered_page_response[T](
+    view: "GenericAPIView",
+    fetch: Callable[[PageRequest], Page[T]],
+    serializer_class: type[BaseSerializer] | None = None,
+) -> Response:
+    """Return the numbered-page response for one page that `fetch` reads through a facade."""
+    return facade_numbered_paginator(view).get_paginated_facade_response(view.request, view, fetch, serializer_class)
 
 
 def facade_cursor_page_response[T](

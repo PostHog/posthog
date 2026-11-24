@@ -649,7 +649,7 @@ export type DataModelingNodesListParams = {
      */
     page?: number
     /**
-     * A search term.
+     * Return only nodes whose name contains every search term.
      */
     search?: string
 }

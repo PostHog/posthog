@@ -30,6 +30,13 @@ class NodeType(LabeledStrEnum):
     METRIC = "metric"
 
 
+class NodeLookup(LabeledStrEnum):
+    SAVED_QUERY = "saved_query"
+    WAREHOUSE_TABLE = "warehouse_table"
+    POSTHOG_TABLE = "posthog_table"
+    METRIC = "metric"
+
+
 class LineageIssueKind(LabeledStrEnum):
     SYNC_FAILED = "sync_failed"
     UNRESOLVED = "unresolved"

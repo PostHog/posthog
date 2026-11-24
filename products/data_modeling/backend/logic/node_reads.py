@@ -1,14 +1,14 @@
-from collections.abc import Collection, Sequence
+from collections.abc import Callable, Collection, Sequence
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from django.db.models import Exists, OuterRef, QuerySet, Subquery
+from django.db.models import Exists, OuterRef, Q, QuerySet, Subquery
 
 from posthog.models.utils import strict_fetch
 from posthog.paging import Page, PageRequest
 from posthog.queryset_paging import select_page
 
-from products.data_modeling.backend.facade.enums import DataModelingJobEngine, NodeType
+from products.data_modeling.backend.facade.enums import DataModelingJobEngine, NodeLookup, NodeType
 from products.data_modeling.backend.logic.node_visibility import exclude_hidden_edges, exclude_hidden_nodes
 from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
 from products.data_modeling.backend.models.edge import Edge
@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 
-def _with_latest_serving_job(nodes: QuerySet[Node]) -> QuerySet[Node]:
+def with_latest_serving_job(nodes: QuerySet[Node]) -> QuerySet[Node]:
     """Annotate the run state a reader is asking about: the newest ClickHouse job.
 
     Managed warehouse jobs can shadow a serving run and finish after it, so a shadow failure would
@@ -39,7 +39,7 @@ def _with_latest_serving_job(nodes: QuerySet[Node]) -> QuerySet[Node]:
     )
 
 
-def _visible_nodes(team: "Team", user_access_control: "UserAccessControl") -> QuerySet[Node]:
+def visible_nodes(team: "Team", user_access_control: "UserAccessControl") -> QuerySet[Node]:
     return exclude_hidden_nodes(Node.objects.filter(team_id=team.id), team, user_access_control)
 
 
@@ -54,61 +54,55 @@ def list_nodes(
     page: PageRequest,
     search_terms: Sequence[str] = (),
 ) -> Page[Node]:
-    nodes = _with_latest_serving_job(_visible_nodes(team, user_access_control).select_related("saved_query", "dag"))
+    nodes = with_latest_serving_job(visible_nodes(team, user_access_control).select_related("saved_query", "dag"))
     for term in search_terms:
         nodes = nodes.filter(name__icontains=term)
     return select_page(strict_fetch(nodes.order_by("name")), page)
+
+
+_NODE_LOOKUP_FILTERS: dict[NodeLookup, Callable[[UUID | str], Q]] = {
+    NodeLookup.SAVED_QUERY: lambda key: Q(saved_query_id=key),
+    NodeLookup.WAREHOUSE_TABLE: lambda key: Q(properties__warehouse_table_id=key),
+    NodeLookup.POSTHOG_TABLE: lambda key: Q(
+        name=key, type=NodeType.TABLE, saved_query__isnull=True, properties__origin="posthog"
+    ),
+    NodeLookup.METRIC: lambda key: Q(metric_id=key),
+}
+
+
+def _lookup_filter(lookup: NodeLookup | None, key: UUID | str) -> Q:
+    return Q(pk=key) if lookup is None else _NODE_LOOKUP_FILTERS[lookup](key)
 
 
 def get_node(
     team: "Team",
     user_access_control: "UserAccessControl",
     *,
-    node_id: UUID | str,
-    lookup: str | None = None,
+    key: UUID | str,
+    lookup: NodeLookup | None = None,
     include_hidden: bool = False,
+    include_run_state: bool = True,
 ) -> Node | None:
-    nodes = Node.objects.filter(team_id=team.id).select_related("saved_query", "dag")
+    nodes = Node.objects.filter(_lookup_filter(lookup, key), team_id=team.id).select_related("saved_query", "dag")
     if not include_hidden:
         nodes = exclude_hidden_nodes(nodes, team, user_access_control)
-    nodes = _with_latest_serving_job(nodes)
-    lookup_filter = {"pk": node_id}
-    if lookup is not None:
-        lookup_filter = {
-            "saved_query": {"saved_query_id": node_id},
-            "warehouse_table": {"properties__warehouse_table_id": node_id},
-            "metric": {"metric_id": node_id},
-        }.get(lookup, lookup_filter)
-    return nodes.filter(**lookup_filter).order_by("created_at").first()
+    if include_run_state:
+        nodes = with_latest_serving_job(nodes)
+    return nodes.order_by("created_at").first()
 
 
-def get_posthog_table_node(
-    team: "Team", user_access_control: "UserAccessControl", *, name: str, include_hidden: bool = False
-) -> Node | None:
-    nodes = Node.objects.filter(
-        team_id=team.id,
-        name=name,
-        type=NodeType.TABLE,
-        saved_query__isnull=True,
-        properties__origin="posthog",
-    ).select_related("saved_query", "dag")
-    if not include_hidden:
-        nodes = exclude_hidden_nodes(nodes, team, user_access_control)
-    return _with_latest_serving_job(nodes).order_by("created_at").first()
-
-
-def visible_node_ids_for_saved_query(
+def visible_node_ids_in_dags_of_saved_query(
     team: "Team", user_access_control: "UserAccessControl", *, saved_query_id: UUID | str
 ) -> frozenset[UUID]:
     dag_ids = Node.objects.filter(team_id=team.id, saved_query_id=saved_query_id).values("dag_id")
-    return frozenset(_visible_nodes(team, user_access_control).filter(dag_id__in=dag_ids).values_list("id", flat=True))
+    return frozenset(visible_nodes(team, user_access_control).filter(dag_id__in=dag_ids).values_list("id", flat=True))
 
 
 def list_lineage_nodes(
     team: "Team", user_access_control: "UserAccessControl", *, node_ids: Collection[UUID]
 ) -> list[Node]:
-    nodes = _with_latest_serving_job(
-        _visible_nodes(team, user_access_control).filter(id__in=node_ids).select_related("saved_query", "dag")
+    nodes = with_latest_serving_job(
+        visible_nodes(team, user_access_control).filter(id__in=node_ids).select_related("saved_query", "dag")
     )
     return list(strict_fetch(nodes))
 

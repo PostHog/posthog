@@ -10,7 +10,7 @@ from rest_framework import filters, mixins, request, response, serializers, stat
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, Throttled
 
-from posthog.api.pagination import FacadePageNumberPagination
+from posthog.api.pagination import FacadePageNumberPagination, facade_numbered_paginator
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import SessionAuthentication
 from posthog.exceptions import Conflict
@@ -38,7 +38,6 @@ from products.data_modeling.backend.facade.api import (
     failing_model_count,
     get_declared_target,
     get_node,
-    get_posthog_table_node,
     is_declared_pin,
     list_lineage_edges,
     list_lineage_nodes,
@@ -54,7 +53,7 @@ from products.data_modeling.backend.facade.api import (
     set_watching,
     suspension_state,
     unsuspend_nodes,
-    visible_node_ids_for_saved_query,
+    visible_node_ids_in_dags_of_saved_query,
     watched_node_ids,
     write_node_description,
 )
@@ -65,6 +64,7 @@ from products.data_modeling.backend.facade.models import (
     Edge,
     LineageIssueKind,
     Node,
+    NodeLookup,
     NodeType,
 )
 from products.data_modeling.backend.presentation.views.edge import EdgeSerializer
@@ -141,11 +141,11 @@ class LineageLookupError(Exception):
     """Raised when the lineage request names no node, or names one with an unparseable id."""
 
 
-class NodeLookup(models.TextChoices):
-    SAVED_QUERY = "saved_query"
-    WAREHOUSE_TABLE = "warehouse_table"
-    POSTHOG_TABLE = "posthog_table"
-    METRIC = "metric"
+_LINEAGE_LOOKUPS: dict[str, NodeLookup | None] = {
+    "node_id": None,
+    "saved_query_id": NodeLookup.SAVED_QUERY,
+    "metric_id": NodeLookup.METRIC,
+}
 
 
 class LineageIssueSerializer(serializers.Serializer):
@@ -647,9 +647,6 @@ class NodeViewSet(
     queryset = Node.objects.select_related("saved_query", "dag").all()
     serializer_class = NodeSerializer
     pagination_class = NodePagination
-    filter_backends = [filters.SearchFilter]
-    search_fields = ["name"]
-    ordering = "name"
 
     def get_serializer_context(self) -> dict[str, Any]:
         return {
@@ -702,7 +699,7 @@ class NodeViewSet(
             return {}
         listed_ids = {
             str(node_id)
-            for node_id in visible_node_ids_for_saved_query(
+            for node_id in visible_node_ids_in_dags_of_saved_query(
                 self.team, self.user_access_control, saved_query_id=node.saved_query_id
             )
         }
@@ -759,24 +756,19 @@ class NodeViewSet(
         delete_node(instance.team_id, instance.pk)
 
     def read_object(self) -> Node | None:
-        lookup = self.request.query_params.get("lookup")
-        if lookup and lookup not in NodeLookup.values:
-            raise serializers.ValidationError({"lookup": f"Unsupported node lookup: {lookup}"})
-        # An unwatch must reach a hidden node so a user who lost access can still opt out. The write rejects deleted views.
-        include_hidden = self.action == "unwatch"
-        if lookup == NodeLookup.POSTHOG_TABLE:
-            return get_posthog_table_node(
-                self.team,
-                self.user_access_control,
-                name=self.kwargs["pk"],
-                include_hidden=include_hidden,
-            )
+        requested_lookup = self.request.query_params.get("lookup")
+        try:
+            lookup = NodeLookup(requested_lookup) if requested_lookup else None
+        except ValueError:
+            raise serializers.ValidationError({"lookup": f"Unsupported node lookup: {requested_lookup}"})
+        is_unwatch = self.action == "unwatch"
         return get_node(
             self.team,
             self.user_access_control,
-            node_id=self.kwargs["pk"],
+            key=self.kwargs["pk"],
             lookup=lookup,
-            include_hidden=include_hidden,
+            include_hidden=is_unwatch,
+            include_run_state=not is_unwatch,
         )
 
     @extend_schema(
@@ -795,12 +787,22 @@ class NodeViewSet(
         self._require_warehouse_access(level="viewer", message=_READ_DENIED)
         return super().retrieve(request, *args, **kwargs)
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="search",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Return only nodes whose name contains every search term.",
+            )
+        ]
+    )
     def list(self, request, *args, **kwargs):
         self._require_warehouse_access(level="viewer", message=_READ_DENIED)
 
         search_terms = filters.SearchFilter().get_search_terms(request)
-        paginator = self.paginator
-        assert isinstance(paginator, FacadePageNumberPagination)
+        paginator = facade_numbered_paginator(self)
         page = paginator.read_facade_page(
             request,
             lambda page_request: list_nodes(
@@ -870,20 +872,21 @@ class NodeViewSet(
             raise Throttled(wait=error.retry_after_seconds, detail=str(error))
         return response.Response(NodeRunResponseSerializer(run).data, status=status.HTTP_200_OK)
 
-    def _lineage_lookup(self, req: request.Request) -> dict[str, UUID]:
-        by_param = {
-            "id": req.query_params.get("node_id"),
-            "saved_query_id": req.query_params.get("saved_query_id"),
-            "metric_id": req.query_params.get("metric_id"),
-        }
-        given = {field: value for field, value in by_param.items() if value}
-        if not given:
+    def _lineage_node(self, req: request.Request) -> Node | None:
+        param = next((param for param in _LINEAGE_LOOKUPS if req.query_params.get(param)), None)
+        if param is None:
             raise LineageLookupError("node_id, saved_query_id or metric_id is required")
-        field, value = next(iter(given.items()))
         try:
-            return {field: UUID(value)}
+            key = UUID(req.query_params[param])
         except ValueError:
             raise LineageLookupError("Invalid UUID")
+        return get_node(
+            self.team,
+            self.user_access_control,
+            key=key,
+            lookup=_LINEAGE_LOOKUPS[param],
+            include_run_state=False,
+        )
 
     @extend_schema(
         parameters=[
@@ -912,20 +915,12 @@ class NodeViewSet(
         # gated on.
         self._require_warehouse_access(level="viewer", message="Reading lineage requires data warehouse read access.")
 
-        try:
-            lookup = self._lineage_lookup(req)
-        except LineageLookupError as error:
-            return response.Response({"error": str(error)}, status=status.HTTP_400_BAD_REQUEST)
-
         # saved_query is a non-unique FK: a saved query synced into multiple DAGs has multiple nodes.
         # Order for a deterministic pick (the graphs are equivalent for lineage purposes).
-        lookup_field, lookup_value = next(iter(lookup.items()))
-        node = get_node(
-            self.team,
-            self.user_access_control,
-            node_id=lookup_value,
-            lookup={"saved_query_id": "saved_query", "metric_id": "metric"}.get(lookup_field),
-        )
+        try:
+            node = self._lineage_node(req)
+        except LineageLookupError as error:
+            return response.Response({"error": str(error)}, status=status.HTTP_400_BAD_REQUEST)
         if node is None:
             return response.Response({"error": "Node not found"}, status=status.HTTP_404_NOT_FOUND)
 
@@ -1035,8 +1030,8 @@ class NodeViewSet(
     @action(methods=["POST"], detail=True)
     def unwatch(self, req: request.Request, *args, **kwargs) -> response.Response:
         """Stop getting failure notifications for this node, including the ones you get as its creator."""
-        # No read check here, and `safely_get_queryset` keeps hidden nodes, so someone who lost access
-        # to a view or metric can still turn its notifications off.
+        # No read check here, and `read_object` keeps hidden nodes, so someone who lost access
+        # to a view or metric can still turn its notifications off. `set_watching` rejects a deleted view.
         node = self.get_object()
         return self._set_node_watching(node, req, watching=False)
 

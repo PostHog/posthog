@@ -1,8 +1,9 @@
 from typing import Any, cast
 
+from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, serializers, viewsets
 
-from posthog.api.pagination import FacadePageNumberPagination
+from posthog.api.pagination import FacadePageNumberPagination, facade_numbered_page_response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from products.data_modeling.backend.facade.api import delete_orphaned_table_nodes, get_edge, list_edges
@@ -78,7 +79,6 @@ class EdgeViewSet(
     queryset = Edge.objects.select_related("dag", "source__saved_query", "target__saved_query").all()
     serializer_class = EdgeSerializer
     pagination_class = EdgePagination
-    ordering = "-created_at"
 
     def get_serializer_context(self) -> dict[str, Any]:
         return super().get_serializer_context()
@@ -102,14 +102,11 @@ class EdgeViewSet(
         instance.delete()
         delete_orphaned_table_nodes(instance.team_id, [instance.source_id])
 
+    @extend_schema(responses=EdgeSummarySerializer(many=True))
     def list(self, request, *args, **kwargs):
-        paginator = self.paginator
-        assert isinstance(paginator, FacadePageNumberPagination)
-        page = paginator.read_facade_page(
-            request, lambda page_request: list_edges(self.team, self.user_access_control, page=page_request)
+        return facade_numbered_page_response(
+            self, lambda page_request: list_edges(self.team, self.user_access_control, page=page_request)
         )
-        serializer = self.get_serializer(page.results, many=True)
-        return paginator.get_paginated_response(serializer.data)
 
     def read_object(self) -> Edge | None:
         return get_edge(self.team, self.user_access_control, edge_id=self.kwargs["pk"])
