@@ -61,8 +61,30 @@ export type JudgeOptions = {
     probe: Pick<CyclotronProbe, 'unfinishedJobs'>
     fetchRetries: number
     residentBacklog?: () => Promise<ResidentBacklog>
+    finalRead?: FinalRead
     pollMs?: number
     now?: () => number
+}
+
+export type FinalRead = { attempts: number; backoffMs: number }
+
+const FINAL_READ: FinalRead = { attempts: 3, backoffMs: 1000 }
+const ONCE: FinalRead = { attempts: 1, backoffMs: 0 }
+
+const messageOf = (error: unknown): string =>
+    typeof error === 'object' && error !== null && 'message' in error ? String(error.message) : String(error)
+
+async function retried<T>(read: () => Promise<T>, { attempts, backoffMs }: FinalRead): Promise<T> {
+    for (let attempt = 1; ; attempt++) {
+        try {
+            return await read()
+        } catch (error) {
+            if (attempt >= attempts) {
+                throw error
+            }
+            await sleep(backoffMs * attempt)
+        }
+    }
 }
 
 export function createJudge({
@@ -70,6 +92,7 @@ export function createJudge({
     probe,
     fetchRetries,
     residentBacklog,
+    finalRead = FINAL_READ,
     pollMs = 1000,
     now = Date.now,
 }: JudgeOptions): Judge {
@@ -79,14 +102,27 @@ export function createJudge({
     let teams: number[] = []
     let unread: string | undefined
 
-    const pullTruth = async (): Promise<void> => {
-        for (;;) {
-            const page = await source.after(cursor)
+    const pullTruth = async (head = Infinity, attempts = ONCE): Promise<void> => {
+        while (cursor < head) {
+            const page = await retried(() => source.after(cursor), attempts)
             if (page.records.length === 0) {
                 return
             }
             truth.push(...page.records)
             cursor = page.next
+        }
+    }
+
+    const pullToHead = async (): Promise<void> => {
+        let head: number | undefined
+        try {
+            head = await retried(() => source.head(), finalRead)
+            await pullTruth(head, finalRead)
+        } catch (error) {
+            const at = head === undefined ? cursor : `${cursor} of ${head}`
+            throw new Error(
+                `the truth read hit a harness limit at record ${at}: ${finalRead.attempts} attempts failed, the last with ${messageOf(error)}`
+            )
         }
     }
 
@@ -96,7 +132,7 @@ export function createJudge({
             unread = undefined
             return value
         } catch (error) {
-            unread = error instanceof Error ? error.message : String(error)
+            unread = messageOf(error)
             return undefined
         }
     }
@@ -153,7 +189,7 @@ export function createJudge({
         },
 
         async check(invariants, gates, run) {
-            await read(pullTruth)
+            await read(pullToHead)
             const resident = invariants.some(({ name }) => name === residentBacklogIntact.name)
                 ? await residentBacklog?.()
                 : undefined

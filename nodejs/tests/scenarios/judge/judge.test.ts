@@ -1,5 +1,7 @@
 import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2'
 import { mkdtempSync, rmSync } from 'fs'
+import http from 'http'
+import { AddressInfo } from 'net'
 import os from 'os'
 import path from 'path'
 
@@ -9,6 +11,7 @@ import { internalFetch } from '~/common/utils/request'
 import type { ResidentBacklog } from '../backlog/backlog'
 import type { Backlog } from '../cards'
 import { ProviderEdge, TruthRecord, UNIT_EMAIL_DOMAIN, startProviderEdge } from '../provider-edge'
+import { Truth } from '../provider-edge/truth'
 import { atLeastOnce } from './invariants'
 import { FollowUpAnswer, JournalEntry, Judge, createJudge } from './judge'
 import { edgeTruth } from './truth'
@@ -64,6 +67,7 @@ describe('judge', () => {
             },
             fetchRetries: 3,
             residentBacklog: () => Promise.resolve(resident!),
+            finalRead: { attempts: 2, backoffMs: 0 },
             pollMs: 10,
             now: () => clockMs,
         })
@@ -759,13 +763,91 @@ describe('judge', () => {
         judge.record(offered())
         await deliver(UNIT)
         await judge.converge(50, NEVER_ABORTED)
+        await deliver('run-a-2')
         truthFails = 'The operation was aborted due to timeout'
 
         const [result] = await judge.check([{ name: 'at_least_once', params: {} }], {}, NO_RESETS)
 
         expect({ result, unread: judge.evidence().unread }).toEqual({
             result: expect.objectContaining({ passed: true }),
-            unread: 'The operation was aborted due to timeout',
+            unread: 'the truth read hit a harness limit at record 1 of 2: 2 attempts failed, the last with The operation was aborted due to timeout',
+        })
+    })
+
+    describe('reading a large truth', () => {
+        const LARGE_TRUTH_RECORDS = 1_500_000
+        const PAGE = 1000
+        const PAGE_TIMEOUT_MS = 1000
+
+        let truth: Truth
+        let edge: ProviderEdge
+        let front: http.Server
+        let hangs: (after: number) => boolean
+
+        beforeEach(async () => {
+            truth = new Truth()
+            edge = await startProviderEdge({ port: 0, truth })
+            front = http.createServer((req, res) => {
+                const url = new URL(req.url ?? '/', edge.url)
+                if (url.pathname === '/_truth' && hangs(Number(url.searchParams.get('after')))) {
+                    return
+                }
+                http.get(`${edge.url}${req.url}`, (answer) => {
+                    res.writeHead(answer.statusCode ?? 502, answer.headers)
+                    answer.pipe(res)
+                })
+            })
+            await new Promise<void>((resolve) => front.listen(0, '127.0.0.1', resolve))
+        })
+
+        afterEach(async () => {
+            front.closeAllConnections()
+            await new Promise<void>((resolve) => front.close(() => resolve()))
+            await edge.close()
+        })
+
+        const append = (records: number): void => {
+            for (let i = 1; i <= records; i++) {
+                truth.append({ kind: 'ses.send', status: 200, unitId: `run-a-${i}`, actionId: 'email', detail: {} })
+            }
+        }
+
+        const hangingOnce = (at: number): ((after: number) => boolean) => {
+            let hung = false
+            return (after) => after === at && !hung && (hung = true)
+        }
+
+        it.each<[string, number, (after: number) => boolean, object]>([
+            [
+                'reads all of it when one page request hangs once',
+                LARGE_TRUTH_RECORDS,
+                hangingOnce(LARGE_TRUTH_RECORDS / 2),
+                { read: LARGE_TRUTH_RECORDS, unread: undefined },
+            ],
+            [
+                'keeps what it read and names a harness limit when the edge stops answering',
+                3 * PAGE,
+                (after) => after >= 2 * PAGE,
+                {
+                    read: 2 * PAGE,
+                    unread: `the truth read hit a harness limit at record ${2 * PAGE} of ${3 * PAGE}: 3 attempts failed, the last with The operation was aborted due to timeout`,
+                },
+            ],
+        ])('%s', async (_story, records, hang, expected) => {
+            hangs = hang
+            const judge = createJudge({
+                truth: edgeTruth(`http://127.0.0.1:${(front.address() as AddressInfo).port}`, PAGE_TIMEOUT_MS),
+                probe: { unfinishedJobs: () => Promise.resolve(0) },
+                fetchRetries: 3,
+                finalRead: { attempts: 3, backoffMs: 0 },
+            })
+            await judge.open(SEED)
+            append(records)
+
+            await judge.check([], {}, NO_RESETS)
+
+            const { truth: read, unread } = judge.evidence()
+            expect({ read: read.length, unread }).toEqual(expected)
         })
     })
 })
