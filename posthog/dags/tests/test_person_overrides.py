@@ -26,9 +26,10 @@ from posthog.dags.person_overrides import (
     squash_person_overrides,
     wait_for_overrides_delete_mutations,
 )
-from posthog.dags.tests.conftest import insert_flag_evaluations
+from posthog.dags.tests.conftest import insert_ai_events, insert_flag_evaluations
+from posthog.models.ai_events.sql import DATA_TABLE_NAME as AI_EVENTS_DATA_TABLE
 from posthog.models.async_deletion import AsyncDeletion, DeletionRunJob, DeletionRunLog, DeletionRunStatus, DeletionType
-from posthog.models.deletion_targets import EVENTS, EVENTS_JSON, FLAG_EVALUATIONS, TargetPlacement
+from posthog.models.deletion_targets import AI_EVENTS, EVENTS, EVENTS_JSON, FLAG_EVALUATIONS, TargetPlacement
 from posthog.models.event.sql import EVENTS_DATA_TABLE, EVENTS_JSON_DATA_TABLE
 from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_DATA_TABLE
 
@@ -134,8 +135,15 @@ def test_full_job(cluster: ClickhouseCluster):
     assert cluster.any_host(get_distinct_ids_with_overrides).result() == {"z"}
 
 
+@pytest.mark.parametrize(
+    "insert_rows,read_table",
+    [(insert_flag_evaluations, "flag_evaluations"), (insert_ai_events, "ai_events")],
+    ids=["flag_evaluations", "ai_events"],
+)
 @pytest.mark.django_db
-def test_a_person_deletion_after_a_merge_reaches_flag_evaluations(cluster: ClickhouseCluster):
+def test_a_person_deletion_after_a_merge_reaches_every_squashed_table(
+    cluster: ClickhouseCluster, insert_rows, read_table: str
+):
     # A merge moves a distinct_id's rows onto the surviving person, and a deletion of that person
     # names only the surviving uuid. The squash is what makes the two agree, so a table it skips
     # keeps the absorbed uuid and the sweep never matches those rows, permanently, because the
@@ -148,10 +156,7 @@ def test_a_person_deletion_after_a_merge_reaches_flag_evaluations(cluster: Click
     row_uuid = UUID(int=9003)
 
     cluster.any_host(
-        partial(
-            insert_flag_evaluations,
-            [(team_id, "merged", absorbed_person, row_uuid, timestamp - timedelta(hours=2))],
-        )
+        partial(insert_rows, [(team_id, "merged", absorbed_person, row_uuid, timestamp - timedelta(hours=2))])
     ).result()
 
     def insert_override(client: Client) -> None:
@@ -162,11 +167,11 @@ def test_a_person_deletion_after_a_merge_reaches_flag_evaluations(cluster: Click
 
     cluster.any_host(insert_override).result()
 
-    def surviving_flag_evaluation_person_ids(client: Client) -> set[UUID]:
+    def surviving_person_ids(client: Client) -> set[UUID]:
         # _row_exists = 1 drops rows a lightweight delete already hid; without it a swept row
         # still reads back until its part merges.
         rows = client.execute(
-            "SELECT person_id FROM flag_evaluations WHERE uuid = %(uuid)s AND _row_exists = 1",
+            f"SELECT person_id FROM {read_table} WHERE uuid = %(uuid)s AND _row_exists = 1",
             {"uuid": row_uuid},
         )
         return {person_id for [person_id] in rows}
@@ -178,7 +183,7 @@ def test_a_person_deletion_after_a_merge_reaches_flag_evaluations(cluster: Click
         resources={"cluster": cluster},
     )
 
-    assert cluster.any_host(surviving_flag_evaluation_person_ids).result() == {surviving_person}
+    assert cluster.any_host(surviving_person_ids).result() == {surviving_person}
 
     deletion = AsyncDeletion.objects.create(
         team_id=team_id, deletion_type=DeletionType.Person, key=str(surviving_person)
@@ -202,7 +207,7 @@ def test_a_person_deletion_after_a_merge_reaches_flag_evaluations(cluster: Click
         resources={"cluster": cluster},
     )
 
-    assert cluster.any_host(surviving_flag_evaluation_person_ids).result() == set()
+    assert cluster.any_host(surviving_person_ids).result() == set()
 
 
 def test_the_default_cutoff_follows_the_clock_of_the_run() -> None:
@@ -322,12 +327,14 @@ def test_run_person_id_update_mutations_rewrites_each_target_on_its_own_cluster(
         TargetPlacement(target=EVENTS, cluster=cluster),
         TargetPlacement(target=EVENTS_JSON, cluster=sibling),
         TargetPlacement(target=FLAG_EVALUATIONS, cluster=sibling),
+        TargetPlacement(target=AI_EVENTS, cluster=sibling),
     ]
     calls = Mock()
     enqueued = {
         EVENTS_DATA_TABLE(): {0: Mock()},
         EVENTS_JSON_DATA_TABLE: {},
         FLAG_EVALUATIONS_DATA_TABLE: {0: Mock()},
+        AI_EVENTS_DATA_TABLE: {0: Mock()},
     }
 
     with (
@@ -346,7 +353,7 @@ def test_run_person_id_update_mutations_rewrites_each_target_on_its_own_cluster(
 
     # This assertion names the targets literally instead of reusing SQUASH_TARGETS. That constant
     # would still match after someone drops a target from it.
-    resolve_placements.assert_called_once_with(cluster, (EVENTS, EVENTS_JSON, FLAG_EVALUATIONS))
+    resolve_placements.assert_called_once_with(cluster, (EVENTS, EVENTS_JSON, FLAG_EVALUATIONS, AI_EVENTS))
     assert sorted(
         (
             enqueue.args[0].table,
@@ -359,6 +366,7 @@ def test_run_person_id_update_mutations_rewrites_each_target_on_its_own_cluster(
         [
             (EVENTS_DATA_TABLE(), False, False, None),
             (FLAG_EVALUATIONS_DATA_TABLE, True, False, None),
+            (AI_EVENTS_DATA_TABLE, True, False, None),
             # One statement per partition. A single statement over the whole table holds a block
             # number open in every partition and stalls merges across the table until it finishes.
             (EVENTS_JSON_DATA_TABLE, True, True, "202501"),
@@ -371,10 +379,11 @@ def test_run_person_id_update_mutations_rewrites_each_target_on_its_own_cluster(
         [
             call(cluster, enqueued[EVENTS_DATA_TABLE()]),
             call(sibling, enqueued[FLAG_EVALUATIONS_DATA_TABLE]),
+            call(sibling, enqueued[AI_EVENTS_DATA_TABLE]),
         ],
         any_order=True,
     )
     # Waiting on each mutation as it is enqueued would cost the sum of their completion times
     # rather than the longest, which is the whole reason the op enqueues in one pass.
-    assert [name for name, *_ in calls.mock_calls] == ["enqueue"] * 4 + ["wait"] * 2
+    assert [name for name, *_ in calls.mock_calls] == ["enqueue"] * 5 + ["wait"] * 3
     cluster.any_host(dictionary.source.drop).result()

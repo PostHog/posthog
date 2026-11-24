@@ -5,6 +5,8 @@ __all__ = ["django_db_setup"]
 
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
+from datetime import datetime
+from uuid import UUID
 
 import pytest
 from posthog.test.base import reset_clickhouse_database_if_dirty, truncate_or_reset_clickhouse_database
@@ -27,6 +29,7 @@ from posthog.dags.tests.dagster_pg_fixtures import (  # noqa: F401
     _dagster_postgres_instance,
     _use_postgres_dagster_instance,
 )
+from posthog.models.ai_events.sql import DATA_TABLE_NAME as AI_EVENTS_DATA_TABLE
 from posthog.persons_db import persons_db_connection, persons_db_url
 
 
@@ -42,6 +45,15 @@ def insert_flag_evaluations(rows: list[tuple], client: Client) -> None:
     if rows and len(rows[0]) == 6:
         columns += ", inserted_at"
     client.execute(f"INSERT INTO writable_flag_evaluations ({columns}) VALUES", rows)
+
+
+def insert_ai_events(rows: list[tuple[int, str, UUID, UUID, datetime]], client: Client) -> None:
+    # _timestamp is the sweep's ingestion bound here, so it is pinned to the event time like
+    # inserted_at elsewhere. retention_days keeps the hardcoded TTL from dropping the rows.
+    client.execute(
+        f"INSERT INTO {AI_EVENTS_DATA_TABLE} (team_id, distinct_id, person_id, uuid, timestamp, _timestamp, trace_id, retention_days) VALUES",
+        [(*row, row[4], "trace", 10000) for row in rows],
+    )
 
 
 def refresh_person_from_persons_db(person) -> None:
