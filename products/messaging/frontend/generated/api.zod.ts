@@ -2049,6 +2049,8 @@ export const MessagingTemplatesDesignPartialUpdateBody = /* @__PURE__ */ zod.obj
  * Make this template sendable over the transactional email API, or the transactional push API for a push template. This creates the workflow that sends it, with its own metrics, run history and versions. This can't be undone: the template stays transactional. Transactional sends ignore marketing opt-outs. Calling it again on a transactional template changes nothing. Needs the scope that sends the template: `transactional_email:write` for an email template, `transactional_push:write` for a push template. A key with `hog_flow:write` also works, but that scope reaches the rest of Workflows too. Without `hog_flow:read`, the response leaves out `content` and `draft_content`.
  * @summary Make a template transactional
  */
+export const messagingTemplatesMakeTransactionalCreateBodyConfirmedDigestMax = 64
+
 export const MessagingTemplatesMakeTransactionalCreateBody = /* @__PURE__ */ zod.object({
     from_integration_id: zod
         .number()
@@ -2062,6 +2064,13 @@ export const MessagingTemplatesMakeTransactionalCreateBody = /* @__PURE__ */ zod
         .optional()
         .describe(
             "The template type the caller means to make transactional. A template of another type is refused, so a push tool can't make an email template transactional, and the other way round.\n\n\* `email` - email\n\* `push` - push"
+        ),
+    confirmed_digest: zod
+        .string()
+        .max(messagingTemplatesMakeTransactionalCreateBodyConfirmedDigestMax)
+        .optional()
+        .describe(
+            'Digest of the push template that a person confirmed. The template is refused with the code `template_changed` when it has changed since, and nothing happens. Only for push templates.'
         ),
 })
 
