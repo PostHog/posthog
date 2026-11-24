@@ -1000,7 +1000,7 @@ class RowFilterColumnSerializer(serializers.Serializer):
 
 
 LAST_CHECKED_AT_HELP_TEXT = (
-    "When a sync last checked the source successfully, including runs that found no new rows. Use this, "
+    "When the last successful sync of the source started, including runs that found no new rows. Use this, "
     "not `last_synced_at`, to judge whether a table is stale: `last_synced_at` can stay put while every "
     "run succeeds because the source has nothing new. Null until the first successful sync."
 )
@@ -1008,7 +1008,7 @@ LAST_CHECKED_AT_HELP_TEXT = (
 
 def last_checked_at_field() -> serializers.DateTimeField:
     return serializers.DateTimeField(
-        source="last_run_at", read_only=True, allow_null=True, help_text=LAST_CHECKED_AT_HELP_TEXT
+        source="last_check_started_at", read_only=True, allow_null=True, help_text=LAST_CHECKED_AT_HELP_TEXT
     )
 
 

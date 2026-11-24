@@ -685,16 +685,24 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
 
     @property
     def last_run_at(self) -> datetime | None:
-        """When a sync last ran, whether or not it moved any rows.
+        """Roughly when a sync last ran, whether or not it moved any rows, for staleness checks.
 
         `last_checked_at` covers every successful run. The older stamps cover rows whose last run
-        predates that column. `last_full_run_at` is a completion time, so it would read as a later
-        empty run when `last_checked_at` is set.
+        predates that column.
         """
-        if self.last_checked_at is not None:
-            return self.last_checked_at
-        stamps = [stamp for stamp in (self.last_synced_at, self.last_full_run) if stamp is not None]
+        stamps = [
+            stamp for stamp in (self.last_checked_at, self.last_synced_at, self.last_full_run) if stamp is not None
+        ]
         return max(stamps) if stamps else None
+
+    @property
+    def last_check_started_at(self) -> datetime | None:
+        """Start of the last successful run, the value readers see as `last_checked_at`.
+
+        Falls back to `last_synced_at`, a start time too, and never to `last_full_run_at`: that one
+        is a completion time, so it would make a run that loaded rows look like a later empty one.
+        """
+        return self.last_checked_at or self.last_synced_at
 
     @property
     def incremental_field_lookback_seconds(self) -> int | None:
