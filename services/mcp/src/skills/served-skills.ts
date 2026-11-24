@@ -28,6 +28,12 @@ export interface SkillCaller {
 
 export function parseServedSkills(json: unknown): ServedSkills {
     const { skills, context_mill_skills } = ServedSkillsSchema.parse(json)
+    const contextMillNames = new Set(Object.keys(context_mill_skills))
+    const listedTwice = Object.keys(skills).filter((name) => contextMillNames.has(name))
+    if (listedTwice.length > 0) {
+        // The second entry would replace the first and could drop its flag or consumer limit.
+        throw new Error(`Served skills listed in both sections: ${listedTwice.join(', ')}`)
+    }
     return new Map([...Object.entries(skills), ...Object.entries(context_mill_skills)])
 }
 
