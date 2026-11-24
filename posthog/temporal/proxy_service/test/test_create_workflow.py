@@ -269,8 +269,12 @@ class TestCloudflareProxyActivation(CloudflareProxyTestMixin, TestCase):
             self.assertEqual(len(http.calls), 0)
         self.assertEqual(temporal.started, {})
 
-    def test_deprovisioning_is_idempotent_when_hostname_is_already_absent(self) -> None:
+    @parameterized.expand([(ProxyRecord.Status.VALID, True), (ProxyRecord.Status.ERRORING, False)])
+    def test_deprovisioning_is_idempotent_when_hostname_is_already_absent(
+        self, status: str, needs_recovery: bool
+    ) -> None:
         Organization.objects.filter(pk=self.organization.pk).update(is_active=False)
+        ProxyRecord.objects.filter(pk=self.record.pk).update(status=status)
         with responses.RequestsMock(assert_all_requests_are_fired=False) as http:
             self._cloudflare(http, exists=False)
             reconcile_proxy.run(str(self.organization.pk), str(self.record.pk))
@@ -278,6 +282,7 @@ class TestCloudflareProxyActivation(CloudflareProxyTestMixin, TestCase):
             self.assertEqual([call.request.method for call in http.calls], ["GET", "DELETE"])
         self.record.refresh_from_db()
         self.assertTrue(self.record.cloudflare_deprovisioned)
+        self.assertEqual(self.record.needs_activation_recovery, needs_recovery)
 
     @parameterized.expand([(False, ProxyRecord.Status.VALID), (True, ProxyRecord.Status.DELETING)])
     def test_redirect_job_does_not_restore_an_unavailable_proxy(self, active: bool, status: str) -> None:
@@ -375,7 +380,7 @@ class TestCloudflareProxyActivation(CloudflareProxyTestMixin, TestCase):
             reconcile_proxy.run(str(self.organization.pk), str(self.record.pk), from_sweep=True)
         self.assertEqual(temporal.started, {})
 
-    @parameterized.expand([(ProxyRecord.Status.VALID,), (ProxyRecord.Status.ISSUING,)])
+    @parameterized.expand([(ProxyRecord.Status.VALID,), (ProxyRecord.Status.ISSUING,), (ProxyRecord.Status.ERRORING,)])
     def test_hourly_sweep_recovers_suspended_proxy_after_error_and_missed_enqueue(self, previous_status: str) -> None:
         self.record.status = previous_status
         self.record.save(update_fields=["status"])
