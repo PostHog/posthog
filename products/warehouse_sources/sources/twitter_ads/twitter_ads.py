@@ -10,6 +10,7 @@ from structlog.types import FilteringBoundLogger
 
 from products.warehouse_sources.sources.sdk import (
     IntegrationRecord,
+    RESTClientRetryableError,
     ResumableSourceManager,
     SourceResponse,
     credentials_service,
@@ -52,6 +53,11 @@ STATS_WINDOW = timedelta(days=6)
 # Cap on how much of X's error body rides along in the exception message.
 _MAX_ERROR_DETAIL = 300
 _MAX_LOGGED_BODY = 2000
+
+# X's own retry example waits at least a minute, so a missing or already-passed reset never retries straight back
+# into the same window.
+_MIN_RATE_LIMIT_WAIT_SECONDS = 60.0
+_RATE_LIMIT_RESET_PADDING_SECONDS = 5.0
 
 
 def _account_midnight(day: date, account_timezone: ZoneInfo) -> datetime:
@@ -125,6 +131,28 @@ def _error_detail(response: requests.Response) -> str:
     return "; ".join(part for part in parts if part)[:_MAX_ERROR_DETAIL]
 
 
+def _rate_limit_wait(response: requests.Response) -> float:
+    # X documents only the epoch when its 15-minute window resets. A Retry-After wins if X ever sends one.
+    # Entity endpoints count per ad account, so their reset comes in the account header, which X's own SDKs
+    # read first and pad by a few seconds.
+    retry_after = response.headers.get("Retry-After", "")
+    reset = next(
+        (
+            value
+            for name in ("x-account-rate-limit-reset", "x-rate-limit-reset")
+            if (value := response.headers.get(name, "")).isdecimal()
+        ),
+        "",
+    )
+    if retry_after.isdecimal():
+        wait = float(retry_after)
+    elif reset.isdecimal():
+        wait = float(reset) - datetime.now(UTC).timestamp() + _RATE_LIMIT_RESET_PADDING_SECONDS
+    else:
+        wait = 0.0
+    return max(wait, _MIN_RATE_LIMIT_WAIT_SECONDS)
+
+
 class TwitterAdsClient:
     def __init__(self, integration: IntegrationRecord, api_version: str = API_VERSION) -> None:
         if api_version != API_VERSION:
@@ -146,6 +174,20 @@ class TwitterAdsClient:
 
     def get(self, path: str, params: dict[str, str | int] | None = None) -> dict[str, Any]:
         response = self.session.get(f"{self.base_url}/{path}", params=params, timeout=60)
+        if response.status_code == 429:
+            # Handing the wait to Temporal defers the next attempt past X's window instead of spending attempts
+            # inside it. The raw headers in the message are the only record of what X actually sends.
+            headers = [
+                f"{name}={response.headers[name]}"
+                for name in ("Retry-After", "x-account-rate-limit-reset", "x-rate-limit-reset")
+                if name in response.headers
+            ]
+            message = ". ".join(
+                part
+                for part in (f"429 Client Error: X Ads rate limit on {path}", _error_detail(response), *headers)
+                if part
+            )
+            raise RESTClientRetryableError(message, retry_after=_rate_limit_wait(response))
         try:
             response.raise_for_status()
         except requests.HTTPError as error:
