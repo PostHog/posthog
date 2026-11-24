@@ -2021,6 +2021,7 @@ class FileSystemSearchTab(BaseModel):
     href: str
     name: str
     requiredFlags: list[str] | None = Field(default=None, description="Flags that must all be on to show the tab.")
+    sceneKey: str | None = None
     searchKeywords: list[str] | None = None
 
 

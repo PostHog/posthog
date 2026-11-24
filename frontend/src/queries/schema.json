@@ -31814,6 +31814,9 @@
                     },
                     "type": "array"
                 },
+                "sceneKey": {
+                    "type": "string"
+                },
                 "searchKeywords": {
                     "items": {
                         "type": "string"

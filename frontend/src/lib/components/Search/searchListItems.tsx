@@ -118,7 +118,9 @@ const tabSearchItems = (
                 href: tab.href,
                 itemType: parent.itemType,
                 searchKeywords: tab.searchKeywords,
-                disabledReason: parent.disabledReason,
+                disabledReason: tab.sceneKey
+                    ? getProductAccessDisabledReason({ sceneKey: tab.sceneKey, displayLabel: tab.name })
+                    : parent.disabledReason,
                 record: parent.record,
             }))
     })

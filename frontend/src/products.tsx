@@ -3280,7 +3280,9 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconColor: ['var(--color-product-llm-prompts-light)', 'var(--color-product-llm-prompts-dark)'],
         href: urls.aiObservabilityPrompts(),
         searchKeywords: ['prompt management', 'prompt templates', 'prompt testing', 'model comparison'],
-        searchTabs: [{ name: 'Playground', href: urls.aiObservabilityPlayground() }],
+        searchTabs: [
+            { name: 'Playground', href: urls.aiObservabilityPlayground(), sceneKey: 'AIObservabilityPlayground' },
+        ],
         sceneKey: 'AIObservabilityPrompts',
         sceneKeys: [
             'AIObservability',
