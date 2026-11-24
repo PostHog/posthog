@@ -1143,7 +1143,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ steps.image.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-error-tracking",
