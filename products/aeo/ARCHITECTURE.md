@@ -31,10 +31,10 @@ The catalog is small, so the join is cheap, and a relabel needs no recompute.
 | Brand catalog rows for newly cited domains                                      | After each run (`sync_brands_from_run` in `catalog.py`)                   | `posthog_aeo_brand`                                      | Never: the sync only inserts                         |
 | Brand sentiment and its scored sentences                                        | On the AEO Temporal queue, after each run and from a backlog every 10 min | The check row                                            | The reconcile clears them when the own brands change |
 | One row per brand an answer names, cites or retrieved                           | With the check (`write_check_brands` in `check_brands.py`)                | `posthog_aeo_check_brand`                                | That brand's name, aliases or domain change          |
-| Competitor mentions and keyword matches                                         | At read, from the answer text                                             | Not stored                                               | Not applicable                                       |
+| Keyword matches                                                                 | At read, from the answer text                                             | Not stored                                               | Not applicable                                       |
 
 The last row breaks the rule.
-Those are the slow reads that remain, and [the planned read model](#planned-read-model) moves them to write time.
+It is the slow read that remains.
 
 ### Brand rows
 
@@ -110,7 +110,7 @@ Each row copies `team_id` and `created_at` from its check, so a read finds the r
 A read that narrows by engine, topic or the branded split joins them to `aeo_check_window_cover_idx`, which holds those columns.
 
 The cited URL, search and brand rows are built.
-The overview and the rankings read the cited URL and search rows. No read uses the brand rows.
+The overview and the rankings read the cited URL and search rows; the rankings, the competitor suggestions and the keyword report read the brand rows.
 The reconcile after a run writes the fact rows once for checks recorded before the rows existed, and `backfill_aeo_check_facts` does the same on demand.
 Until then such a check counts no citations and no searches.
 
