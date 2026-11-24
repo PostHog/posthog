@@ -48,6 +48,7 @@ from posthog.utils import get_instance_realm
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.access_control.backend.presentation.access_control_settings import AccessControlSettingsViewSetMixin
 from products.authorization.backend.presentation.querysets import filter_visible_projects
+from products.dashboards.backend.facade import api as dashboards_api
 
 from . import integration_config, team_config, team_permissions, team_serializer
 
@@ -77,6 +78,75 @@ class EventIngestionRestrictionSerializer(serializers.Serializer):
         child=serializers.ChoiceField(choices=IngestionPipeline.choices),
         help_text="Ingestion pipelines the restriction applies to. Filters combine with AND; values within a filter combine with OR.",
     )
+
+
+def team_settings_as_of_view(team: Team, request: request.Request) -> response.Response:
+    """
+    Return the team settings as of the provided timestamp.
+    Query params:
+    - at: ISO8601 datetime (required)
+    - scope: optional, one or multiple keys to filter the returned settings
+    """
+    at_param = request.query_params.get("at")
+    if not at_param:
+        raise exceptions.ValidationError({"at": "Query parameter 'at' is required (ISO8601)."})
+
+    as_of = parse_datetime(at_param)
+    if as_of is None:
+        raise exceptions.ValidationError({"at": "Invalid datetime format. Use ISO8601 (e.g., 2025-11-24T12:34:56Z)."})
+    if timezone.is_naive(as_of):
+        as_of = timezone.make_aware(as_of)
+
+    # Build starting snapshot from current model values for config fields
+    settings_fields = set(team_config.TEAM_CONFIG_FIELDS)
+    snapshot: dict[str, Any] = {}
+    for field_name in settings_fields:
+        if hasattr(team, field_name):
+            snapshot[field_name] = getattr(team, field_name)
+        elif hasattr(team, f"{field_name}_id"):
+            snapshot[field_name] = getattr(team, f"{field_name}_id")
+        else:
+            snapshot[field_name] = None
+    # Stored on a dashboards extension, not on Team, so the loop above reads None for it.
+    snapshot["home_tab_dashboard"] = dashboards_api.home_tab_dashboard_id(team_id=team.id)
+
+    # Fetch Team-scoped activity logs after the target timestamp
+    logs = (
+        ActivityLog.objects.filter(team_id=team.id, scope="Team", item_id=str(team.id), created_at__gt=as_of)
+        .order_by("-created_at")
+        .only("detail", "created_at", "activity")
+    )
+
+    # Roll back newest → oldest
+    for log in logs.iterator():
+        detail = log.detail or {}
+        changes = detail.get("changes") or []
+        for change in changes:
+            field = change.get("field")
+            action = change.get("action")
+            before = change.get("before")
+
+            # Normalize FK fields (e.g., primary_dashboard_id → primary_dashboard)
+            target = field[:-3] if isinstance(field, str) and field.endswith("_id") else field
+            if target not in settings_fields:
+                continue
+
+            if action == "changed":
+                snapshot[target] = before
+            elif action == "created":
+                snapshot[target] = None
+            elif action == "deleted":
+                snapshot[target] = before
+            # Other actions (created/deleted without relevant field) are ignored
+
+    # Optional scope filtering
+    scope_values = request.query_params.getlist("scope")
+
+    if scope_values:
+        filtered = {k: snapshot.get(k, None) for k in scope_values}
+        return response.Response(filtered)
+
+    return response.Response(snapshot)
 
 
 def team_event_ingestion_restrictions_view(team: Team, request: request.Request) -> response.Response:
@@ -410,74 +480,7 @@ class TeamViewSet(
 
     @action(methods=["GET"], detail=True)
     def settings_as_of(self, request: request.Request, **kwargs) -> response.Response:
-        """
-        Return the team settings as of the provided timestamp.
-        Query params:
-        - at: ISO8601 datetime (required)
-        - scope: optional, one or multiple keys to filter the returned settings
-        """
-        team = self.get_object()
-
-        at_param = request.query_params.get("at")
-        if not at_param:
-            raise exceptions.ValidationError({"at": "Query parameter 'at' is required (ISO8601)."})
-
-        as_of = parse_datetime(at_param)
-        if as_of is None:
-            raise exceptions.ValidationError(
-                {"at": "Invalid datetime format. Use ISO8601 (e.g., 2025-11-24T12:34:56Z)."}
-            )
-        if timezone.is_naive(as_of):
-            as_of = timezone.make_aware(as_of)
-
-        # Build starting snapshot from current model values for config fields
-        settings_fields = set(team_config.TEAM_CONFIG_FIELDS)
-        snapshot: dict[str, Any] = {}
-        for field_name in settings_fields:
-            if hasattr(team, field_name):
-                snapshot[field_name] = getattr(team, field_name)
-            elif hasattr(team, f"{field_name}_id"):
-                snapshot[field_name] = getattr(team, f"{field_name}_id")
-            else:
-                snapshot[field_name] = None
-
-        # Fetch Team-scoped activity logs after the target timestamp
-        logs = (
-            ActivityLog.objects.filter(team_id=team.id, scope="Team", item_id=str(team.id), created_at__gt=as_of)
-            .order_by("-created_at")
-            .only("detail", "created_at", "activity")
-        )
-
-        # Roll back newest → oldest
-        for log in logs.iterator():
-            detail = log.detail or {}
-            changes = detail.get("changes") or []
-            for change in changes:
-                field = change.get("field")
-                action = change.get("action")
-                before = change.get("before")
-
-                # Normalize FK fields (e.g., primary_dashboard_id → primary_dashboard)
-                target = field[:-3] if isinstance(field, str) and field.endswith("_id") else field
-                if target not in settings_fields:
-                    continue
-
-                if action == "changed":
-                    snapshot[target] = before
-                elif action == "created":
-                    snapshot[target] = None
-                elif action == "deleted":
-                    snapshot[target] = before
-                # Other actions (created/deleted without relevant field) are ignored
-
-        # Optional scope filtering
-        scope_values = request.query_params.getlist("scope")
-
-        if scope_values:
-            filtered = {k: snapshot.get(k, None) for k in scope_values}
-            return response.Response(filtered)
-
-        return response.Response(snapshot)
+        return team_settings_as_of_view(self.get_object(), request)
 
     @action(
         methods=["PATCH"],
