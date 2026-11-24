@@ -79,6 +79,12 @@ export interface dashboardV2LogicActions {
                       title: string
                   }
             )[]
+            time?:
+                | {
+                      from: string
+                      to: string
+                  }
+                | undefined
             title: string
             user_access_level?: AccessControlLevel | undefined
             version: 2
@@ -148,6 +154,12 @@ export interface dashboardV2LogicMeta {
                       title: string
                   }
             )[]
+            time?:
+                | {
+                      from: string
+                      to: string
+                  }
+                | undefined
             title: string
             user_access_level?: AccessControlLevel | undefined
             version: 2
@@ -197,6 +209,12 @@ export interface dashboardV2LogicMeta {
                           title: string
                       }
                 )[]
+                time?:
+                    | {
+                          from: string
+                          to: string
+                      }
+                    | undefined
                 title: string
                 user_access_level?: AccessControlLevel | undefined
                 version: 2
