@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Callable, Iterable
-from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
+from typing import Any, cast
 
 from django.db import connection, models, transaction
 from django.db.models import Q
@@ -52,6 +52,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     CustomSource,
     MySQLSource,
     PostgresSource,
+    ReconcilesSchemaMetadata,
     build_default_sync_settings,
     define_added_table_metadata,
     known_source_key,
@@ -67,18 +68,6 @@ from products.warehouse_sources.backend.presentation.views.external_data_schema 
 
 from . import base, credential_store, helpers
 from .source_type_field import resolve_known_source_key
-
-if TYPE_CHECKING:
-    from products.warehouse_sources.backend.facade.source_management import SourceSchema
-
-
-@runtime_checkable
-class _ReconcilesSchemaMetadata(Protocol):
-    supports_column_selection: bool
-
-    def reconcile_schema_metadata(
-        self, source: ExternalDataSource, source_schemas: list[SourceSchema], team_id: int
-    ) -> list[str]: ...
 
 
 class RefreshSchemasResponseSerializer(serializers.Serializer):
@@ -495,9 +484,7 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
                 )
                 if reconciled_deleted_schemas:
                     schemas_deleted = list({*schemas_deleted, *reconciled_deleted_schemas})
-            elif isinstance(source, _ReconcilesSchemaMetadata) and source.supports_column_selection:
-                # A capability check rather than an isinstance on ClickHouseSource: naming that class
-                # would import clickhouse_connect and polars into every web process at boot.
+            elif isinstance(source, ReconcilesSchemaMetadata) and source.supports_column_selection:
                 source.reconcile_schema_metadata(source=instance, source_schemas=schemas, team_id=self.team_id)
 
         # Outside the atomic block: schedule creation talks to Temporal, which must not run under
