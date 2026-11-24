@@ -2,39 +2,19 @@ import dataclasses
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from posthog.test.base import (
-    BaseTest,
-    ClickhouseTestMixin,
-    _create_event,
-    _create_flag_evaluations,
-    flush_persons_and_events,
-)
-from unittest.mock import patch
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
 from parameterized import parameterized
 
-from posthog.exceptions import (
-    ClickHouseEstimatedQueryExecutionTimeTooLong,
-    ClickHouseQueryMemoryLimitExceeded,
-    ClickHouseQueryTimeOut,
-)
-from posthog.test.persons import create_group_type_mapping, create_person
+from posthog.test.persons import create_person
 
 from products.error_tracking.backend.facade.testing import (
     create_issue,
     create_issue_fingerprint,
     sync_issue_to_clickhouse,
 )
-from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
-from products.feature_flags.backend.flag_windows import query as flag_window_query
-from products.feature_flags.backend.flag_windows.errors import (
-    ConditionErrors,
-    ErrorCounts,
-    ErrorsByLastValue,
-    errors_by_bucket,
-)
+from products.feature_flags.backend.flag_windows.errors import ConditionErrors, ErrorCounts, errors_by_bucket
 from products.feature_flags.backend.flag_windows.query import ConditionMatch, WatchedCondition, WatchedEdit
-from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 
 EDITED_AT = datetime(2026, 10, 1, 12, 0, tzinfo=UTC)
 WINDOW = timedelta(minutes=30)
@@ -103,7 +83,6 @@ class TestErrorsByBucket(ClickhouseTestMixin, BaseTest):
                     exposed_with_errors=1,
                     unexposed_with_errors=1,
                     by_variant={},
-                    by_last_value=ErrorsByLastValue(exposed_with_errors=1, unexposed_with_errors=1),
                 ),
             ),
             (
@@ -120,7 +99,6 @@ class TestErrorsByBucket(ClickhouseTestMixin, BaseTest):
                     exposed_with_errors=2,
                     unexposed_with_errors=1,
                     by_variant={"control": 1, "test": 1},
-                    by_last_value=ErrorsByLastValue(exposed_with_errors=2, unexposed_with_errors=1),
                 ),
             ),
             (
@@ -141,7 +119,6 @@ class TestErrorsByBucket(ClickhouseTestMixin, BaseTest):
                     exposed_with_errors=1,
                     unexposed_with_errors=1,
                     by_variant={},
-                    by_last_value=ErrorsByLastValue(exposed_with_errors=1, unexposed_with_errors=1),
                 ),
             ),
         ]
@@ -188,164 +165,6 @@ class TestErrorsByBucket(ClickhouseTestMixin, BaseTest):
         self.assertEqual(
             {edit_id: buckets[0].since_edit.with_new_errors for edit_id, buckets in errors.items()},
             {"boolean": 1, "earlier": 3},
-        )
-
-    def test_an_error_without_the_flag_takes_the_value_of_the_last_event_before_it(self) -> None:
-        def called(flag_key: str, response: bool) -> dict[str, Any]:
-            return {"$feature_flag": flag_key, "$feature_flag_response": response, f"$feature/{flag_key}": response}
-
-        # HogQL hides the group of an event sent before the group type existed.
-        create_group_type_mapping(
-            team=self.team,
-            project_id=self.team.project_id,
-            group_type="organization",
-            group_type_index=0,
-            created_at=EDITED_AT - timedelta(days=1),
-        )
-        self._send(
-            [
-                # The value on a pageview before the error. The call of another flag comes first, because the native
-                # events table reads an event with any flag as one that loaded flags, which ENABLED counts as unexposed.
-                ("person-1", "$feature_flag_called", 1, called("other-flag", True)),
-                ("person-1", "$pageview", 2, {"$feature/new-checkout": True}),
-                ("person-1", "$exception", 3, {}),
-                ("person-2", "$pageview", 1, {"$feature/new-checkout": False, "$feature/other-flag": False}),
-                ("person-2", "$exception", 2, {}),
-                # A value after the error doesn't count.
-                ("person-3", "$exception", 2, {}),
-                ("person-3", "$pageview", 4, {"$feature/new-checkout": True}),
-                # The value of a flag call.
-                ("person-4", "$feature_flag_called", 1, called("new-checkout", True)),
-                ("person-4", "$exception", 2, {}),
-                # A value from before the edit is the old value.
-                ("person-5", "$pageview", -10, {"$feature/new-checkout": True}),
-                ("person-5", "$exception", 2, {}),
-                # The value on the error event wins over an earlier one.
-                ("person-6", "$pageview", 1, {"$feature/new-checkout": True}),
-                ("person-6", "$exception", 2, {"$feature/new-checkout": False}),
-                # Only an unwatched flag, which reads as unexposed for an edit that enables the flag.
-                ("person-7", "$pageview", 1, {"$active_feature_flags": ["unwatched"], "$feature/unwatched": True}),
-                ("person-7", "$exception", 2, {}),
-                # Another person of the same group gives the group's value.
-                ("person-8", "$pageview", 1, {"$feature/org-beta": True, "$group_0": "org-a"}),
-                ("person-9", "$exception", 2, {"$group_0": "org-a"}),
-                # The latest of two values before the error wins.
-                ("person-10", "$pageview", 1, {"$feature/new-checkout": True}),
-                ("person-10", "$pageview", 2, {"$feature/new-checkout": False}),
-                ("person-10", "$exception", 3, {}),
-                # A later pageview wins over an earlier flag call.
-                ("person-11", "$feature_flag_called", 1, called("new-checkout", True)),
-                ("person-11", "$pageview", 2, {"$feature/new-checkout": False}),
-                ("person-11", "$exception", 3, {}),
-            ]
-        )
-        other = dataclasses.replace(BOOLEAN, id="other", flag_key="other-flag")
-        group = dataclasses.replace(BOOLEAN, id="group", flag_key="org-beta", group_type_index=0)
-
-        errors = errors_by_bucket(self.team, [BOOLEAN, other, ENABLED, group], EDITED_AT, EDITED_AT + WINDOW, WINDOW)
-
-        self.assertEqual(
-            {edit_id: bucket.since_edit.by_last_value for edit_id, [bucket] in errors.items()},
-            {
-                "boolean": ErrorsByLastValue(exposed_with_errors=2, unexposed_with_errors=4),
-                "other": ErrorsByLastValue(exposed_with_errors=1, unexposed_with_errors=1),
-                "enabled": ErrorsByLastValue(exposed_with_errors=2, unexposed_with_errors=5),
-                "group": ErrorsByLastValue(exposed_with_errors=1, unexposed_with_errors=0),
-            },
-        )
-
-    def test_a_last_value_counts_only_from_the_range_start_and_the_edit(self) -> None:
-        self._send(
-            [
-                # In the range and after the earlier edit, but before the later edit.
-                ("person-1", "$pageview", -10, {"$feature/new-checkout": True}),
-                ("person-1", "$exception", 5, {}),
-                # After the earlier edit, but before the range, where the exposure counts don't read it.
-                ("person-2", "$pageview", -30, {"$feature/new-checkout": True}),
-                ("person-2", "$exception", 5, {}),
-                # In the range and after both edits.
-                ("person-3", "$pageview", 1, {"$feature/new-checkout": True}),
-                ("person-3", "$exception", 5, {}),
-            ]
-        )
-        earlier = dataclasses.replace(BOOLEAN, id="earlier", edited_at=EDITED_AT - timedelta(minutes=90))
-        start = EDITED_AT - timedelta(minutes=20)
-
-        errors = errors_by_bucket(self.team, [earlier, BOOLEAN], start, start + WINDOW, WINDOW)
-
-        self.assertEqual(
-            {edit_id: bucket.since_edit.by_last_value for edit_id, [bucket] in errors.items()},
-            {
-                "earlier": ErrorsByLastValue(exposed_with_errors=2, unexposed_with_errors=0),
-                "boolean": ErrorsByLastValue(exposed_with_errors=1, unexposed_with_errors=0),
-            },
-        )
-
-    @parameterized.expand(
-        [
-            ("timeout", ClickHouseQueryTimeOut),
-            ("memory", ClickHouseQueryMemoryLimitExceeded),
-            ("estimated_too_slow", ClickHouseEstimatedQueryExecutionTimeTooLong),
-        ]
-    )
-    def test_a_failed_last_value_query_keeps_the_other_counts(self, _name: str, error: type[Exception]) -> None:
-        self._send([("person-1", "$exception", 1, {"$feature/new-checkout": True})])
-        run_query = flag_window_query.execute_hogql_query
-
-        def fail_last_values(*args: Any, **kwargs: Any) -> Any:
-            if kwargs.get("query_type") == "flag_errors_by_last_value_by_bucket":
-                raise error()
-            return run_query(*args, **kwargs)
-
-        with patch.object(flag_window_query, "execute_hogql_query", side_effect=fail_last_values):
-            since_edit = self._since_edit(BOOLEAN)
-
-        self.assertEqual((since_edit.exposed_with_errors, since_edit.by_last_value), (1, None))
-
-    def test_a_flag_call_only_in_flag_evaluations_gives_no_value(self) -> None:
-        # On this mode the flag calls of server SDKs reach flag_evaluations and not events, so the exposure counts
-        # don't count their people.
-        OrganizationFeatureFlagsConfig.objects.update_or_create(
-            organization=self.organization,
-            defaults={"flag_evaluations_mode": FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY},
-        )
-        create_group_type_mapping(
-            team=self.team,
-            project_id=self.team.project_id,
-            group_type="organization",
-            group_type_index=0,
-            created_at=EDITED_AT - timedelta(days=1),
-        )
-        calls = [("person-1", "new-checkout", {}), ("person-2", "org-beta", {"$group_0": "org-a"})]
-        people = {distinct_id: create_person(team=self.team, distinct_ids=[distinct_id]) for distinct_id, _, _ in calls}
-        people["person-3"] = create_person(team=self.team, distinct_ids=["person-3"])
-        for distinct_id, properties in (("person-1", {}), ("person-3", {"$group_0": "org-a"})):
-            _create_event(
-                team=self.team,
-                event="$exception",
-                distinct_id=distinct_id,
-                timestamp=EDITED_AT + timedelta(minutes=2),
-                properties=properties,
-            )
-        flush_persons_and_events()
-        for distinct_id, flag_key, properties in calls:
-            _create_flag_evaluations(
-                self.team.pk,
-                flag_key,
-                timestamp=EDITED_AT + timedelta(minutes=1),
-                distinct_id=distinct_id,
-                person_id=people[distinct_id].uuid,
-                response=True,
-                properties=properties,
-            )
-        group = dataclasses.replace(BOOLEAN, id="group", flag_key="org-beta", group_type_index=0)
-
-        errors = errors_by_bucket(self.team, [BOOLEAN, group], EDITED_AT, EDITED_AT + WINDOW, WINDOW)
-
-        nobody = ErrorsByLastValue(exposed_with_errors=0, unexposed_with_errors=0)
-        self.assertEqual(
-            {edit_id: bucket.since_edit.by_last_value for edit_id, [bucket] in errors.items()},
-            {"boolean": nobody, "group": nobody},
         )
 
     def test_errors_in_the_watched_conditions_split_by_reason_and_by_properties(self) -> None:
