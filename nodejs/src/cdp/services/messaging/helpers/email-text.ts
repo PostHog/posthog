@@ -4,9 +4,13 @@ import { compile } from 'html-to-text'
 const MAX_HTML_CHARACTERS = 1 << 18
 
 const HEADINGS = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6']
+// Blocks the library would render inline, running a label into the code beside it.
+const UNKNOWN_BLOCKS = ['center', 'dl', 'dt', 'dd', 'figure', 'figcaption', 'address', 'details', 'summary', 'fieldset']
 
 const toText = compile({
     wordwrap: false,
+    // The library counts a zero-width space as whitespace, which would split a code or a link target.
+    whitespaceCharacters: ' \t\r\n\f',
     selectors: [
         { selector: 'img', format: 'skip' },
         { selector: '[hidden]', format: 'skip' },
@@ -14,6 +18,9 @@ const toText = compile({
         { selector: '[style*="display:none" i]', format: 'skip' },
         { selector: '[style*="display: none" i]', format: 'skip' },
         ...HEADINGS.map((selector) => ({ selector, options: { uppercase: false } })),
+        ...UNKNOWN_BLOCKS.map((selector) => ({ selector, format: 'block' })),
+        // The library's 40-character line would make a short email longer than its html, and drop its text part.
+        { selector: 'hr', options: { length: 3 } },
         { selector: 'a', options: { hideLinkHrefIfSameAsText: true, linkBrackets: ['(', ')'] } },
         // Email layouts are tables, and the library would run the text of neighbouring cells together.
         { selector: 'tr', format: 'block' },

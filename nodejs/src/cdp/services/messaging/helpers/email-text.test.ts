@@ -37,6 +37,21 @@ describe('plainTextFromHtml', () => {
             'Reset\n\nhere (https://example.com/r)',
         ],
         ['table cells', '<table><tr><td>Total</td><td>$5</td></tr></table>', 'Total\n$5'],
+        [
+            'blocks the library does not know',
+            '<center>Your code</center><center>482913</center>',
+            'Your code\n\n482913',
+        ],
+        [
+            'zero-width spaces in a code and a link target',
+            '<p>48&#8203;2913</p><a href="https://example.com/r&#8203;eset">Reset</a>',
+            '48\u200b2913\n\nReset (https://example.com/r\u200beset)',
+        ],
+        [
+            'a short email with a divider',
+            '<p>Your code is 482913</p><hr><p>Thanks</p>',
+            'Your code is 482913\n\n---\n\nThanks',
+        ],
         ['a list', '<p>Steps</p><ul><li>Open</li><li>Copy</li></ul>', 'Steps\n\n * Open\n * Copy'],
         ['an image-only email', '<p><img src="banner.png" alt="Sale"></p>', ''],
         ['html longer than the converter reads', '<p>Hi</p>' + ' '.repeat(1 << 18), ''],
