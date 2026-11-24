@@ -1589,14 +1589,16 @@ jobs:
                   # HOG_CHECK_INSTALL makes hog start the hog-worker next to it and compare versions, as the installers do.
                   test "$(HOG_CHECK_INSTALL=1 HOG_NO_TELEMETRY=1 HOG_NO_UPDATE_CHECK=1 unpacked/hog --version)" = "$VERSION"
 
-            # symbol-set mode keeps the release out of the bundle, so the run needs no login and no network.
+            # hog reads the release from the GitHub Actions variables when GITHUB_ACTIONS is set, and creating
+            # that release needs a login. Without GITHUB_ACTIONS, and with no checkout to read git from, hog
+            # finds no release, so the symbol-set run needs no login and no network.
             - name: Check the signed build injects with its hog-worker
               run: |
                   set -euo pipefail
                   mkdir site
                   printf 'console.log(1)\n//# sourceMappingURL=app.js.map\n' > site/app.js
                   printf '{"version":3,"file":"app.js","sources":["app.ts"],"names":[],"mappings":"AAAA"}\n' > site/app.js.map
-                  HOG_NO_TELEMETRY=1 HOG_NO_UPDATE_CHECK=1 unpacked/hog error-tracking inject site --release-mode symbol-set
+                  env -u GITHUB_ACTIONS HOG_NO_TELEMETRY=1 HOG_NO_UPDATE_CHECK=1 unpacked/hog error-tracking inject site --release-mode symbol-set
                   grep -q '^//# chunkId=' site/app.js
 
     # Creates the GitHub release, then moves latest, the install scripts, the formula and npm's latest tag
