@@ -17,9 +17,9 @@ import { todayPromptsLogic } from './todayPromptsLogic'
 const SELF_DRIVING_ICON = { color: 'var(--color-product-self-driving-light)', glyph: <IconSelfDriving /> }
 
 export function TodaySelfDrivingRow(): JSX.Element | null {
-    const { selfDrivingDismissed } = useValues(todayPromptsLogic)
+    const { canOfferSelfDriving } = useValues(todayPromptsLogic)
 
-    if (selfDrivingDismissed) {
+    if (!canOfferSelfDriving) {
         return null
     }
     return <SelfDrivingSetUpCheck />

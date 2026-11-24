@@ -4,7 +4,6 @@ import { Suspense } from 'react'
 import { IconArrowRight, IconChevronDown } from '@posthog/icons'
 import { Button, Skeleton } from '@posthog/quill'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { urls } from 'scenes/urls'
@@ -59,8 +58,7 @@ function countFixes(rows: TodayForYouRow[]): number {
 
 function TodayForYouBody(): JSX.Element | null {
     const { forYouReady, forYouRows, forYouVisibleRows, forYouFailedNote } = useValues(todayLogic)
-    const { aiEnabled, selfDrivingDismissed } = useValues(todayPromptsLogic)
-    const selfDrivingAvailable = useFeatureFlag('PRODUCT_AUTONOMY')
+    const { canOfferSelfDriving } = useValues(todayPromptsLogic)
 
     if (!forYouReady) {
         return <TodayRowsSkeleton />
@@ -72,7 +70,7 @@ function TodayForYouBody(): JSX.Element | null {
     return (
         <ol className="TodayRows">
             <TodayAiRow />
-            {selfDrivingAvailable && aiEnabled && !selfDrivingDismissed ? (
+            {canOfferSelfDriving ? (
                 <Suspense fallback={null}>
                     <TodaySelfDrivingRow />
                 </Suspense>

@@ -1,7 +1,9 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
@@ -16,12 +18,14 @@ export interface todayPromptsLogicValues {
     dataProcessingApprovalDisabledReason: string | null // aiConsentLogic
     dataProcessingLocked: boolean // aiConsentLogic
     requestingAiAccess: boolean // aiConsentLogic
+    featureFlags: FeatureFlagsSet // featureFlagLogic
     githubIntegrations: IntegrationType[] // integrationsLogic
     integrationsLoading: boolean // integrationsLogic
     currentTeamId: number | null // teamLogic
     aiEnabled: boolean
     aiPromptDismissed: boolean
     canEnableAi: boolean
+    canOfferSelfDriving: boolean
     dismissedPrompts: Record<string, true>
     githubConnected: boolean
     githubDismissed: boolean
@@ -64,6 +68,11 @@ export interface todayPromptsLogicMeta {
         githubDismissed: (dismissedPrompts: Record<string, true>, currentTeamId: number | null) => boolean
         aiPromptDismissed: (dismissedPrompts: Record<string, true>, currentTeamId: number | null) => boolean
         selfDrivingDismissed: (dismissedPrompts: Record<string, true>, currentTeamId: number | null) => boolean
+        canOfferSelfDriving: (
+            featureFlags: FeatureFlagsSet,
+            aiEnabled: boolean,
+            selfDrivingDismissed: boolean
+        ) => boolean
     }
 }
 
@@ -90,6 +99,8 @@ export const todayPromptsLogic = kea<todayPromptsLogicType>([
                 'dataProcessingLocked',
                 'requestingAiAccess',
             ],
+            featureFlagLogic,
+            ['featureFlags'],
             integrationsLogic,
             ['githubIntegrations', 'integrationsLoading'],
             teamLogic,
@@ -139,6 +150,11 @@ export const todayPromptsLogic = kea<todayPromptsLogicType>([
             (s) => [s.dismissedPrompts, s.currentTeamId],
             (dismissedPrompts: Record<string, true>, currentTeamId: number | null): boolean =>
                 !!dismissedPrompts[promptKey(currentTeamId, 'self_driving')],
+        ],
+        canOfferSelfDriving: [
+            (s) => [s.featureFlags, s.aiEnabled, s.selfDrivingDismissed],
+            (featureFlags: FeatureFlagsSet, aiEnabled: boolean, selfDrivingDismissed: boolean): boolean =>
+                !!featureFlags[FEATURE_FLAGS.PRODUCT_AUTONOMY] && aiEnabled && !selfDrivingDismissed,
         ],
     }),
     listeners(({ actions, values }) => ({
