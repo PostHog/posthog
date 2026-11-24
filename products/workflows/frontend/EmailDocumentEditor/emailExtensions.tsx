@@ -150,7 +150,7 @@ function withCanvasStyle<T extends Node<any, any>>(extension: T): T {
 
 const EmailDocumentNode = Document.extend({
     addAttributes() {
-        return { page: { default: {} } }
+        return { page: { default: {} }, ownPlainText: { default: false } }
     },
 })
 
