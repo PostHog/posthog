@@ -18,7 +18,7 @@ export function TagRuleModal(): JSX.Element {
         <RuleModal
             logic={tagRuleModalLogic}
             ruleLabel="tag"
-            description="New issues get this tag when their first exception matches the filters. The rule applies to new issues only. Deleting it removes the tag from every issue."
+            description="New issues get this tag when their first exception matches the filters. Once a day, other issues get it when an exception from the past day matches. Filters on the exception list check only the first exception. Deleting the rule removes the tag from every issue."
             pageKey="tag-rule-modal"
             taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
             saveDisabledReason={saveDisabledReason}

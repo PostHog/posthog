@@ -2267,6 +2267,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                         detected_primary_keys,
                         incremental_field,
                         normalize=False,
+                        fall_back_to_all_columns=False,
                     ),
                     source_catalog=metadata_source_catalog,
                     source_schema=cast(str, metadata_source_schema),
