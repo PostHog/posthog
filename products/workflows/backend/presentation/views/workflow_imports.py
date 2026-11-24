@@ -25,6 +25,7 @@ from products.workflows.backend.facade.enums import (
     WorkflowImportStatus,
 )
 from products.workflows.backend.facade.workflow_imports import import_for_workflow
+from products.workflows.backend.presentation.views.storable import storable
 from products.workflows.backend.presentation.views.workflow_import_drafts import import_campaigns
 
 MAX_CAMPAIGNS_PER_IMPORT = 50
@@ -255,7 +256,7 @@ class WorkflowImportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ),
     )
     def create(self, request: ValidatedRequest, **kwargs: Any) -> Response:
-        data = request.validated_data
+        data = storable(dict(request.validated_data))
         user = cast(User, request.user)
         options = ImportOptions(
             snippets=dict(data["snippets"]),
