@@ -367,6 +367,16 @@ class TestResolveQuery(SimpleTestCase):
             ("rate_limited_per_team", {"kind": "ErrorTrackingFingerprintProjectionQuery"}),
             ("direct_warehouse", {"kind": "HogQLQuery", "query": "select 1", "connectionId": "abc"}),
             ("managed_trino", {"kind": "HogQLQuery", "query": "select 1", "executionTarget": "managed_trino"}),
+            (
+                "nested_warehouse_native_metric",
+                {
+                    "kind": "ExperimentQuery",
+                    "metric": {
+                        "metric_type": "mean",
+                        "numerator": {"kind": "ExperimentWarehouseNativeNode", "connection_id": "abc", "query": "x"},
+                    },
+                },
+            ),
         ]
     )
     def test_rejects_a_query_a_batch_cannot_limit_or_cancel(self, _name: str, query: dict) -> None:
