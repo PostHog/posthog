@@ -84,6 +84,10 @@ from products.experiments.backend.facade.contracts import (
 from products.experiments.backend.facade.legacy_migration import migrate_experiment as migrate_legacy_experiment
 from products.experiments.backend.facade.replay import resolve_in_session_exposure_semantics
 from products.experiments.backend.facade.temporal import ExperimentTimeseriesRecalculationWorkflowInputs
+from products.experiments.backend.facade.warehouse_native_access import (
+    validate_warehouse_native_connection_access,
+    warehouse_native_connection_id,
+)
 from products.experiments.backend.llm_metric_templates import build_template, list_templates
 
 # TODO: Route through facade instead of direct import
@@ -1123,6 +1127,8 @@ class EnterpriseExperimentsViewSet(
         every primary metric, because no user can count for those metrics until a window passes.
         """
         experiment: Experiment = self.get_object()
+        # The checks read the stored results and the exposure counts, which came from the warehouse.
+        _check_warehouse_native_result_access(experiment, self.team, request.user)
         health = get_experiment_health(
             team_id=self.team_id,
             experiment_id=experiment.id,
@@ -1580,6 +1586,7 @@ class EnterpriseExperimentsViewSet(
     @action(methods=["GET"], detail=True, required_scopes=["experiment:read"])
     def timeseries_results(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         experiment = self.get_object()
+        _check_warehouse_native_result_access(experiment, self.team, request.user)
         metric_uuid = request.query_params.get("metric_uuid")
 
         if not metric_uuid:
@@ -1604,6 +1611,7 @@ class EnterpriseExperimentsViewSet(
             raise ValidationError("metric is required")
 
         service = ExperimentService(team=self.team, user=request.user)
+        service.assert_user_may_run_warehouse_native_sources(experiment)
         result = service.request_timeseries_recalculation(experiment, metric_uuid=metric.get("uuid") or "")
         is_existing = result.pop("is_existing", False)
 
@@ -1673,6 +1681,7 @@ class EnterpriseExperimentsViewSet(
         )
 
         # request.user is User | AnonymousUser at the DRF level; the viewset enforces auth so it's a User here.
+        ExperimentService(team=self.team, user=request.user).assert_user_may_run_warehouse_native_sources(experiment)
         result = request_recalculation(experiment, cast(User, request.user), trigger)
         # Read without mutating — the serializer surfaces is_existing on the response so clients can detect
         # the idempotent-reuse path without inspecting the HTTP status code.
@@ -1701,6 +1710,7 @@ class EnterpriseExperimentsViewSet(
     )
     def metrics_recalculation_latest(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         experiment: Experiment = self.get_object()
+        _check_warehouse_native_result_access(experiment, self.team, request.user)
         active = get_active_recalculation(experiment)
         active_run = {"id": str(active.id), "status": active.status} if active is not None else None
         recalc = get_latest_recalculation(experiment)
@@ -1749,6 +1759,7 @@ class EnterpriseExperimentsViewSet(
         self, request: Request, recalculation_id: str, *args: Any, **kwargs: Any
     ) -> Response:
         experiment: Experiment = self.get_object()
+        _check_warehouse_native_result_access(experiment, self.team, request.user)
         recalc = get_recalculation_by_id(experiment, recalculation_id)
         if recalc is None:
             return Response({"detail": "Recalculation not found"}, status=404)
@@ -1773,6 +1784,8 @@ class EnterpriseExperimentsViewSet(
         traffic split, so that the comparison of each variant with the control reaches the minimum detectable effect.
         """
         experiment: Experiment = self.get_object()
+        # The target is sized from the stored result of the primary metric, which came from the warehouse.
+        _check_warehouse_native_result_access(experiment, self.team, request.user)
         target = get_running_time_target(
             team_id=self.team.id,
             experiment_id=experiment.id,
@@ -2162,6 +2175,15 @@ class EnterpriseExperimentsViewSet(
         except Exception:
             logger.warning("Failed to evaluate the experiment behavior comparison flag", exc_info=True)
             return False
+
+
+def _check_warehouse_native_result_access(experiment: Experiment, team: Team, user: Any) -> None:
+    """A stored run holds totals read from the customer's warehouse. The reader needs the connection access
+    that the query endpoint asks for, or the run hands out what that endpoint refuses."""
+    connection_id = warehouse_native_connection_id(experiment.exposure_criteria)
+    if connection_id is None:
+        return
+    validate_warehouse_native_connection_access(team, user if isinstance(user, User) else None, connection_id)
 
 
 def _build_run_payload(recalc: ExperimentMetricsRecalculation) -> dict:

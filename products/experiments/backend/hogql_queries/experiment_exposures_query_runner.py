@@ -25,6 +25,7 @@ from posthog.schema import (
     ExperimentExposureQuery,
     ExperimentExposureQueryResponse,
     ExperimentExposureTimeSeries,
+    ExperimentWarehouseNativeExposureConfig,
     IntervalType,
     MultipleVariantHandling,
     SampleRatioMismatch,
@@ -35,6 +36,7 @@ from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, get_query_tags, tag_queries, tags_context
+from posthog.dataclasses import frozen
 from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import QueryRunner
@@ -56,6 +58,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthReaderAccess,
     ExperimentHealthRuleTest,
 )
+from products.experiments.backend.facade.warehouse_native_access import WAREHOUSE_NATIVE_QUERY_STATUS_LABEL_PREFIX
 from products.experiments.backend.health.checks.bias_risk import evaluate_bias_risk
 from products.experiments.backend.health.checks.filtered_exposures import reads_share_kept_by_test_account_filter
 from products.experiments.backend.health.checks.srm import (
@@ -97,12 +100,20 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     aggregates_by_group,
     applies_test_account_filters,
     get_entity_key,
+    get_multiple_variant_handling_from_experiment,
     has_positive_test_account_filter,
+    normalize_to_exposure_criteria,
     rule_exposure_criteria_error,
 )
 from products.experiments.backend.hogql_queries.exposures_precompute import ExposuresPrecompute
 from products.experiments.backend.models.experiment import Experiment, exposure_flag_key
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.experiments.backend.warehouse_native_query_builder import WarehouseNativeQueryBuilder
+from products.experiments.backend.warehouse_native_sources import (
+    refuse_anonymous_warehouse_native_reader,
+    validate_experiment_warehouse_native_sources,
+    validate_warehouse_native_sources_for_runner,
+)
 from products.feature_flags.backend.facade.edits import parse_variants
 
 logger = structlog.get_logger(__name__)
@@ -114,6 +125,17 @@ HEALTH_QUERY_TIMEOUT_SECONDS = 60
 # The page recalculates the exposures on a forced refresh, and on every entry while few users are exposed. The queries
 # that explain a finding must not repeat their scan each time.
 HEALTH_QUERY_CACHE_SECONDS = 60 * 60
+# The exposure health checks read the flag's calls and the exposure events. A warehouse has neither.
+NOT_ON_WAREHOUSE_NATIVE = "Couldn't check because the exposures come from a warehouse, which isn't supported yet"
+
+
+@frozen
+class ExposureDayCount:
+    """The entities first exposed to one variant on one day, as the warehouse counted them."""
+
+    day: date
+    variant: str
+    count: int
 
 
 def build_experiment_exposure_query(experiment: Experiment) -> ExperimentExposureQuery:
@@ -144,10 +166,15 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
     query: ExperimentExposureQuery
     cached_response: CachedExperimentExposureQueryResponse
 
-    def __init__(self, *args, error_event_context: str | None = "ui", **kwargs):
+    def __init__(
+        self, *args, error_event_context: str | None = "ui", bypass_warehouse_access_control: bool = False, **kwargs
+    ):
         super().__init__(*args, **kwargs)
         # Same contract as ExperimentQueryRunner.__init__: tags the terminal error event, and None keeps it silent.
         self.error_event_context = error_event_context
+        # A background run has no user. Without the bypass a project that enforces warehouse table access refuses
+        # the exposure statement, as it would a metric statement.
+        self.bypass_warehouse_access_control = bypass_warehouse_access_control
         # The user id and whether that user may read the flag's history.
         self._flag_history_access: tuple[int, bool] | None = None
         self._reads_precomputed_exposures = False
@@ -159,6 +186,14 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         if not isinstance(feature_flag_key, str) or not feature_flag_key:
             raise ValidationError("feature_flag key is required")
         self.exposure_criteria = self.query.exposure_criteria
+        criteria = normalize_to_exposure_criteria(self.exposure_criteria)
+        exposure_config = criteria.exposure_config if criteria else None
+        # A warehouse-native exposure runs in the customer's warehouse. It has no ClickHouse query and no precompute.
+        self.warehouse_native_exposure: ExperimentWarehouseNativeExposureConfig | None = (
+            exposure_config if isinstance(exposure_config, ExperimentWarehouseNativeExposureConfig) else None
+        )
+        if self.warehouse_native_exposure is not None:
+            refuse_anonymous_warehouse_native_reader(self.user)
 
         try:
             self.experiment = Experiment.objects.get(id=self.query.experiment_id, team=self.team)
@@ -280,7 +315,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         )
 
     def _exposures_precompute_applicable(self) -> bool:
-        return self._exposures_precompute.applicable
+        return self.warehouse_native_exposure is None and self._exposures_precompute.applicable
 
     def _ensure_exposures_precomputed(self, builder: ExperimentQueryBuilder) -> LazyComputationResult:
         return self._exposures_precompute.ensure_precomputed(builder)
@@ -577,6 +612,74 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             else None,
         )
 
+    def _exposure_criteria_dict(self) -> dict[str, Any] | None:
+        return self.exposure_criteria.model_dump(mode="json") if self.exposure_criteria is not None else None
+
+    def _validate_warehouse_native_exposure(self, user: Any) -> str:
+        """The connection id, after the checks a save runs. The connection can be deleted after the save, and the
+        user can lose access to it."""
+        connection_id = validate_experiment_warehouse_native_sources(
+            exposure_criteria=self._exposure_criteria_dict(), metrics=[], team=self.team, user=user
+        )
+        if connection_id is None:
+            raise ValidationError("Warehouse-native sources need a connection_id.")
+        return connection_id
+
+    def _on_user_changed(self) -> None:
+        super()._on_user_changed()
+        if self.warehouse_native_exposure is not None:
+            refuse_anonymous_warehouse_native_reader(self.user)
+
+    def validate_query_runner_access(self, user: User) -> bool:
+        # A cached result is shared by every user of the team, so the connection access check runs before
+        # the cache lookup, not only when the statement runs.
+        if self.warehouse_native_exposure is not None:
+            validate_warehouse_native_sources_for_runner(
+                exposure_criteria=self._exposure_criteria_dict(), metrics=[], team=self.team, user=user
+            )
+        return True
+
+    def query_status_labels(self) -> list[str] | None:
+        # Retrieving an async result skips validate_query_runner_access, so the status carries the connection
+        # for the status endpoint to check.
+        if self.warehouse_native_exposure is None or not self.warehouse_native_exposure.connection_id:
+            return None
+        return [f"{WAREHOUSE_NATIVE_QUERY_STATUS_LABEL_PREFIX}{self.warehouse_native_exposure.connection_id}"]
+
+    def _evaluate_warehouse_native_exposures(
+        self, multiple_variant_handling: MultipleVariantHandling
+    ) -> list[ExposureDayCount]:
+        """Runs the exposure query in the customer's warehouse. One row per day and variant comes back."""
+        assert self.warehouse_native_exposure is not None
+        connection_id = self._validate_warehouse_native_exposure(self.user)
+        statement = WarehouseNativeQueryBuilder(
+            exposure=self.warehouse_native_exposure,
+            variants=tuple(self.variants),
+            date_from=self.date_range_query.date_from(),
+            date_to=self.date_range_query.date_to(),
+            multiple_variant_handling=multiple_variant_handling,
+        ).build_exposures(self.team.timezone)
+        response = execute_hogql_query(
+            query_type="ExperimentExposuresQuery",
+            query=statement,
+            team=self.team,
+            user=self.user,
+            bypass_warehouse_access_control=self.bypass_warehouse_access_control,
+            send_raw_query=True,
+            connection_id=connection_id,
+            timings=self.timings,
+            settings=HogQLGlobalSettings(max_execution_time=600),
+        )
+        return [
+            ExposureDayCount(
+                # The BigQuery client returns a DATE column as a date. A response that went through JSON carries text.
+                day=day if isinstance(day, date) else date.fromisoformat(str(day)[:10]),
+                variant=str(variant),
+                count=int(count),
+            )
+            for day, variant, count in response.results or []
+        ]
+
     @experiment_error_handler
     def _calculate(self) -> ExperimentExposureQueryResponse:
         tag_queries(
@@ -591,32 +694,44 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             experiment_query_group_id=uuid.uuid4(),
         )
 
-        exposure_params = get_exposure_config_params_for_builder(
-            self.exposure_criteria, self.team, self.experiment.start_date
-        )
-        # Set limit to avoid being cut-off by the default 100 rows limit
-        query = self._get_exposure_query(exposure_params)
-        query.limit = ast.Constant(value=QUERY_ROW_LIMIT)
+        exposure_params: ExposureQueryParams | None = None
+        if self.warehouse_native_exposure is not None:
+            multiple_variant_handling = get_multiple_variant_handling_from_experiment(self.exposure_criteria)
+            exposed_by_library = None
+            results = self._fill_date_gaps(
+                [
+                    (row.day, row.variant, row.count)
+                    for row in self._evaluate_warehouse_native_exposures(multiple_variant_handling)
+                ]
+            )
+        else:
+            exposure_params = get_exposure_config_params_for_builder(
+                self.exposure_criteria, self.team, self.experiment.start_date
+            )
+            multiple_variant_handling = exposure_params.multiple_variant_handling
+            # Set limit to avoid being cut-off by the default 100 rows limit
+            query = self._get_exposure_query(exposure_params)
+            query.limit = ast.Constant(value=QUERY_ROW_LIMIT)
 
-        response = execute_hogql_query(
-            query_type="ExperimentExposuresQuery",
-            query=query,
-            team=self.team,
-            user=self.user,
-            timings=self.timings,
-            modifiers=self.modifiers,
-            settings=HogQLGlobalSettings(max_execution_time=600),
-        )
+            response = execute_hogql_query(
+                query_type="ExperimentExposuresQuery",
+                query=query,
+                team=self.team,
+                user=self.user,
+                timings=self.timings,
+                modifiers=self.modifiers,
+                settings=HogQLGlobalSettings(max_execution_time=600),
+            )
 
-        # The precomputed exposures carry no library, and with an activation the timeseries reads none.
-        reads_library = not self._reads_precomputed_exposures and exposure_params.activation_config is None
-        exposed_by_library = _exposed_by_library(response.results) if reads_library else None
-        response.results = self._fill_date_gaps([row[:3] for row in response.results])
+            # The precomputed exposures carry no library, and with an activation the timeseries reads none.
+            reads_library = not self._reads_precomputed_exposures and exposure_params.activation_config is None
+            exposed_by_library = _exposed_by_library(response.results) if reads_library else None
+            results = self._fill_date_gaps([row[:3] for row in response.results])
         variant_series: dict[str, ExperimentExposureTimeSeries] = {}
 
         variant_data: dict[str, dict[str, int]] = {}
         daily_exposures: dict[str, dict[date, int]] = {}
-        for result in response.results:
+        for result in results:
             day, variant, count = result
             if variant not in variant_data:
                 variant_data[variant] = {}
@@ -649,24 +764,28 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         for variant, series in variant_series.items():
             total_exposures[variant] = int(series.exposure_counts[-1]) if series.exposure_counts else 0
 
-        multiple_variant_handling = exposure_params.multiple_variant_handling
         sample_ratio_mismatch = self._calculate_srm(total_exposures)
         bias_risk = self._evaluate_bias_risk(total_exposures, multiple_variant_handling)
-        health = self._evaluate_health(
-            ExposureTotals(
-                total_exposures=total_exposures,
-                multiple_variant_handling=multiple_variant_handling,
-                sample_ratio_mismatch_p_value=sample_ratio_mismatch.p_value if sample_ratio_mismatch else None,
-                sample_ratio_expected=sample_ratio_mismatch.expected if sample_ratio_mismatch else {},
-                daily_exposures=daily_exposures,
-                hours_since_launch=self.experiment.hours_since_launch(read_activity_log=self._can_read_flag_history()),
-                counts_groups=aggregates_by_group(self.group_type_index),
-                filters_test_accounts=applies_test_account_filters(self.team, self.exposure_criteria),
-                has_positive_test_account_filter=has_positive_test_account_filter(self.team),
-                reads_precomputed_exposures=self._reads_precomputed_exposures,
-            ),
-            exposure_params,
-        )
+        if exposure_params is None:
+            health = not_checked_health(EXPOSURE_HEALTH_CHECKS, NOT_ON_WAREHOUSE_NATIVE)
+        else:
+            health = self._evaluate_health(
+                ExposureTotals(
+                    total_exposures=total_exposures,
+                    multiple_variant_handling=multiple_variant_handling,
+                    sample_ratio_mismatch_p_value=sample_ratio_mismatch.p_value if sample_ratio_mismatch else None,
+                    sample_ratio_expected=sample_ratio_mismatch.expected if sample_ratio_mismatch else {},
+                    daily_exposures=daily_exposures,
+                    hours_since_launch=self.experiment.hours_since_launch(
+                        read_activity_log=self._can_read_flag_history()
+                    ),
+                    counts_groups=aggregates_by_group(self.group_type_index),
+                    filters_test_accounts=applies_test_account_filters(self.team, self.exposure_criteria),
+                    has_positive_test_account_filter=has_positive_test_account_filter(self.team),
+                    reads_precomputed_exposures=self._reads_precomputed_exposures,
+                ),
+                exposure_params,
+            )
 
         return ExperimentExposureQueryResponse(
             timeseries=ordered_timeseries,

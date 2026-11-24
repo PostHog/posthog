@@ -16,6 +16,7 @@ from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 from posthog.models import Team
 from posthog.models.activity_logging.activity_log import ActivityLog
 
+from products.data_modeling.backend.facade.enums import MaterializationRunTrigger
 from products.data_modeling.backend.logic.node_frequency import (
     get_declared_pin,
     get_declared_target,
@@ -511,7 +512,7 @@ class TestNodeViewSet(APIBaseTest):
         self._suspend(self.view_node)
         before = suspension_state(self.view_node)
 
-        start_node_materialization(self.view_node, resume=False)
+        start_node_materialization(self.view_node, trigger=MaterializationRunTrigger.ENDPOINT, resume=False)
 
         self.view_node.refresh_from_db()
         self.assertEqual(suspension_state(self.view_node), before)
@@ -531,6 +532,10 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         call_args = mock_client.start_workflow.call_args
         self.assertEqual(call_args[0][0], "data-modeling-execute-dag")
+        workflow_inputs = call_args[0][1]
+        self.assertEqual(workflow_inputs["manually_triggered_by_id"], self.user.pk)
+        self.assertEqual(workflow_inputs["trigger"], "manual")
+        self.assertIsNotNone(workflow_inputs["requested_at"])
 
     @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
     def test_materialize_starts_the_materialize_view_workflow(self, mock_sync_connect):
@@ -544,6 +549,8 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         call_args = mock_client.start_workflow.call_args
         self.assertEqual(call_args[0][0], "data-modeling-materialize-view")
+        self.assertEqual(call_args[0][1]["trigger"], "manual")
+        self.assertIsNotNone(call_args[0][1]["requested_at"])
         self.assertEqual(call_args.kwargs["id"], f"materialize-view-{self.view_node.id}")
         self.assertEqual(call_args.kwargs["id_conflict_policy"], WorkflowIDConflictPolicy.USE_EXISTING)
         self.assertEqual(call_args.kwargs["id_reuse_policy"], WorkflowIDReusePolicy.ALLOW_DUPLICATE)
