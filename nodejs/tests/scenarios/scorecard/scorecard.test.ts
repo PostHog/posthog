@@ -4,6 +4,7 @@ import os from 'os'
 import path from 'path'
 
 import { LoadedCard, load } from '../cards'
+import type { InvariantResult } from '../judge/judge'
 import { RunResult } from '../runner/runner'
 import { FakeProjectApi, TOKEN, startFakeProjectApi } from './fake-project-api'
 import { Provenance, provenanceOf } from './provenance'
@@ -210,28 +211,30 @@ describe('scorecard', () => {
         })
     })
 
-    it('keeps an invariant it could not judge out of the failed ones and lists missing and extra effects apart', () => {
-        const judged: RunResult = {
-            ...RESULT,
-            invariants: [
-                { name: 'no_loss', passed: false, observed: 0, unitIds: [], unjudged: 'the truth could not be read' },
-                {
-                    name: 'at_least_once',
-                    passed: false,
-                    observed: 2,
-                    unitIds: ['run-x-3', 'run-x-7'],
-                    missing: ['run-x-3'],
-                    extra: ['run-x-7'],
-                },
-            ],
-        }
-
-        expect(scorecardOf(judged, SMOKE, PROVENANCE)).toMatchObject({
-            inv_no_loss_unjudged: 'the truth could not be read',
-            inv_at_least_once_missing_ids: ['run-x-3'],
-            inv_at_least_once_extra_ids: ['run-x-7'],
-            invariants_failed: ['at_least_once'],
-        })
+    it.each<[string, InvariantResult, object]>([
+        [
+            'keeps an invariant it could not judge out of the failed ones',
+            { name: 'no_loss', passed: false, observed: 0, unitIds: [], unjudged: 'the truth could not be read' },
+            { inv_no_loss_unjudged: 'the truth could not be read', invariants_failed: [] },
+        ],
+        [
+            'lists the missing and extra effects of a failed invariant apart',
+            {
+                name: 'no_loss',
+                passed: false,
+                observed: 2,
+                unitIds: ['run-x-3', 'run-x-7'],
+                missing: ['run-x-3'],
+                extra: ['run-x-7'],
+            },
+            {
+                inv_no_loss_missing_ids: ['run-x-3'],
+                inv_no_loss_extra_ids: ['run-x-7'],
+                invariants_failed: ['no_loss'],
+            },
+        ],
+    ])('%s', (_story, invariant, expected) => {
+        expect(scorecardOf({ ...RESULT, invariants: [invariant] }, SMOKE, PROVENANCE)).toMatchObject(expected)
     })
 
     it.each<[string, RunResult['ramp'], object]>([

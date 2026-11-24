@@ -9,7 +9,7 @@ import { internalFetch } from '~/common/utils/request'
 import type { ResidentBacklog } from '../backlog/backlog'
 import type { Backlog } from '../cards'
 import { ProviderEdge, TruthRecord, UNIT_EMAIL_DOMAIN, startProviderEdge } from '../provider-edge'
-import { atLeastOnce, noLoss } from './invariants'
+import { atLeastOnce } from './invariants'
 import { FollowUpAnswer, JournalEntry, Judge, RunEvidence, createJudge } from './judge'
 import { edgeTruth } from './truth'
 
@@ -28,6 +28,7 @@ describe('judge', () => {
     let probeTakesMs: number
     let resident: ResidentBacklog | undefined
     let truthFails: string | undefined
+    let truthLoses: number | undefined
     let polls: number
     let probeAnswers: number
     let judge: Judge
@@ -47,7 +48,12 @@ describe('judge', () => {
                 head: (read) => edgeTruth(edge.url).head(read),
                 after: (cursor, read) => {
                     if (truthFails === undefined) {
-                        return edgeTruth(edge.url).after(cursor, read)
+                        return edgeTruth(edge.url)
+                            .after(cursor, read)
+                            .then((page) => ({
+                                ...page,
+                                records: page.records.filter(({ seq }) => seq !== truthLoses),
+                            }))
                     }
                     clockMs += probeTakesMs
                     return Promise.reject(new Error(truthFails))
@@ -86,6 +92,7 @@ describe('judge', () => {
         probeTakesMs = 10
         resident = undefined
         truthFails = undefined
+        truthLoses = undefined
         polls = 0
         probeAnswers = Infinity
         judge = judgeOf()
@@ -97,7 +104,7 @@ describe('judge', () => {
         await edge.close()
     })
 
-    const deliver = (unitId: string, actionId = 'email'): Promise<unknown> =>
+    const deliver = (unitId: string, actionId = 'email', flowId = 'flow-1'): Promise<unknown> =>
         ses
             .send(
                 new SendEmailCommand({
@@ -111,7 +118,7 @@ describe('judge', () => {
                                 {
                                     Name: 'X-PostHog-Tracking-Code',
                                     Value: new EmailTrackingCodeSigner(TRACKING_KEYS, '').generate({
-                                        functionId: 'flow-1',
+                                        functionId: flowId,
                                         id: `invocation-${unitId}`,
                                         teamId: 7,
                                         state: { actionId },
@@ -288,7 +295,7 @@ describe('judge', () => {
                 truth: attempts,
                 fetchRetries: 3,
                 janitorResets: 0,
-                boundary: { truthFrom: 0, horizonAt: 0, unobserved: [] },
+                boundary: { truthFrom: 0, horizon: { seq: 0, at: 0 }, unobserved: [] },
             },
             undefined,
             {}
@@ -507,11 +514,43 @@ describe('judge', () => {
             { passed: true, observed: 0 },
         ],
         [
-            'with a follow-up the intake accepted, accepted twice',
+            'with a follow-up the intake accepted, accepted once from each flow',
+            { ...offered(), followUp: { accepted: true } },
+            async () => {
+                await deliver(UNIT)
+                await deliver(UNIT, 'email', 'follow-up-flow')
+            },
+            {},
+            { passed: true, observed: 0 },
+        ],
+        [
+            'with a follow-up the intake accepted, whose first flow sent twice and follow-up never',
             { ...offered(), followUp: { accepted: true } },
             () => deliverTwice(UNIT),
             {},
-            { passed: true, observed: 0 },
+            {
+                passed: false,
+                observed: 2,
+                violation: `${UNIT} email: accepted from 1 flow by the recovery horizon, expected 2; ${UNIT} email to ${ADDRESS} from flow-1: accepted 2 times, expected 1`,
+                missing: [UNIT],
+                extra: [UNIT],
+            },
+        ],
+        [
+            'sent under an action the journal never listed',
+            offered(),
+            async () => {
+                await deliver(UNIT)
+                await deliver(UNIT, 'sms')
+            },
+            {},
+            {
+                passed: false,
+                observed: 1,
+                violation: `${UNIT} sms to ${ADDRESS}: accepted 1 time, expected 0`,
+                missing: [],
+                extra: [UNIT],
+            },
         ],
         [
             'whose intake reply was lost, accepted once',
@@ -529,7 +568,7 @@ describe('judge', () => {
         ],
         [
             'refused with a status, yet accepted',
-            offered({ accepted: false, status: 503 }),
+            { ...offered({ accepted: false, status: 503 }), kind: 'transactional' },
             () => deliver(UNIT),
             {},
             {
@@ -540,15 +579,15 @@ describe('judge', () => {
             },
         ],
         [
-            'declared skipped and not sent',
-            { ...offered(), expect: { deliveries: ['email'], skipped: ['email'] } },
+            'that expects no email and was sent none',
+            { ...offered(), expect: { deliveries: [] } },
             () => Promise.resolve(),
             {},
             { passed: true, observed: 0 },
         ],
         [
-            'declared skipped, yet accepted',
-            { ...offered(), expect: { deliveries: ['email'], skipped: ['email'] } },
+            'that expects no email, yet was sent one',
+            { ...offered(), expect: { deliveries: [] } },
             () => deliver(UNIT),
             {},
             { passed: false, observed: 1, extra: [UNIT] },
@@ -574,7 +613,17 @@ describe('judge', () => {
                 await rejectNextSend()
                 await deliver(UNIT)
             },
-            { skippedBy: ['ses.reject'] },
+            { skippedBy: [{ fault: 'ses.reject', status: 400 }] },
+            { passed: true, observed: 0 },
+        ],
+        [
+            'retried and accepted after the declared fault answered a status the card does not name',
+            offered(),
+            async () => {
+                answerNextSendWith(503, 'reject')
+                await deliverTwice(UNIT)
+            },
+            { skippedBy: [{ fault: 'ses.reject', status: 400 }] },
             { passed: true, observed: 0 },
         ],
         [
@@ -595,6 +644,28 @@ describe('judge', () => {
         const [result] = await judge.check([{ name: 'no_loss', params }], {}, NO_RESETS)
 
         expect(result).toMatchObject({ name: 'no_loss', ...expected })
+    })
+
+    it.each<[string, () => Promise<unknown>, object]>([
+        [
+            'its only send',
+            () => Promise.resolve(),
+            {
+                passed: false,
+                violation: `${UNIT} email: accepted 0 times by the recovery horizon, expected 1`,
+                missing: [UNIT],
+            },
+        ],
+        ['a resend', () => deliver(UNIT), { passed: true, observed: 0 }],
+    ])('counts nothing the edge accepted after the recovery horizon: %s', async (_story, before, expected) => {
+        judge.record(offered())
+        await before()
+        await judge.converge(20, NEVER_ABORTED)
+        await deliver(UNIT)
+
+        const [result] = await judge.check([{ name: 'no_loss', params: {} }], {}, NO_RESETS)
+
+        expect(result).toMatchObject(expected)
     })
 
     it.each<[string, () => Promise<unknown>, RunEvidence, string]>([
@@ -628,6 +699,16 @@ describe('judge', () => {
             NO_RESETS,
             'the journal is incomplete: the edge accepted run-a-2 email, which the journal never recorded',
         ],
+        [
+            'the truth it read skips a seq',
+            async () => {
+                truthLoses = 1
+                await deliver('run-b-1')
+                await judge.converge(20, NEVER_ABORTED)
+            },
+            NO_RESETS,
+            'the truth skips from seq 0 to 2',
+        ],
     ])('leaves no_loss unjudged when %s', async (_story, act, run, unjudged) => {
         judge.record(offered())
         await deliver(UNIT)
@@ -636,32 +717,6 @@ describe('judge', () => {
         const [result] = await judge.check([{ name: 'no_loss', params: {} }], {}, run)
 
         expect(result).toMatchObject({ name: 'no_loss', passed: false, unjudged })
-    })
-
-    it('leaves no_loss unjudged when the truth it read skips a seq', () => {
-        const accepted = (seq: number): TruthRecord => ({
-            seq,
-            at: new Date().toISOString(),
-            kind: 'webhook',
-            status: 200,
-            unitId: UNIT,
-            actionId: 'webhook',
-            detail: { request: { method: 'POST', host: 'hooks.example.com', path: `/u/${UNIT}/webhook` } },
-        })
-
-        const result = noLoss.check(
-            {
-                journal: [{ ...offered(), expect: { deliveries: ['webhook'] } }],
-                truth: [accepted(1), accepted(3)],
-                fetchRetries: 3,
-                janitorResets: 0,
-                boundary: { truthFrom: 0, horizonAt: 0, unobserved: [] },
-            },
-            undefined,
-            {}
-        )
-
-        expect(result).toMatchObject({ passed: false, unjudged: 'the truth skips from seq 1 to 3' })
     })
 
     const TEAM = 2_100_000_000

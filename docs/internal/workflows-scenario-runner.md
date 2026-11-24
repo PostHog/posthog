@@ -670,6 +670,7 @@ export type TruthRecord = {
   kind: 'ses.send' | 'ses.feedback' | 'webhook'
   unitId?: string // from the recipient or the webhook path
   actionId?: string // from the signed tracking code, or the webhook path
+  flowId?: string // the sending flow, from the signed tracking code
   status: number // what the edge answered; for ses.feedback, what cdp-api answered the edge
   fault?: string // the fault that shaped the answer
   detail: Record<string, unknown>
@@ -791,8 +792,7 @@ export type InvariantResult = {
 export type JournalEntry = {
   // ...
   expect: {
-    deliveries: string[] // action ids
-    skipped?: string[] // action ids the unit is expected not to cause, such as a send to a suppressed recipient
+    deliveries: string[] // action ids; an action left out expects no effect, such as a send to a suppressed recipient
     dueAt?: number // epoch ms the unit's deliveries fall due, for work scheduled later
   }
 }
@@ -800,7 +800,7 @@ export type JournalEntry = {
 
 - **Open** starts reading the truth at the edge's `/_truth/head`, so records from earlier cards never enter this card's evidence.
 - **Converge** polls the truth and the probe until every expected delivery of every accepted unit has a record and no job for the card's teams is unfinished, or the bound passes. A check that finds both only after the bound still counts as not converged. Past the bound the Judge still runs the invariants.
-  The time `converge` returns is the run's recovery horizon. An interrupted `converge` sets none. The job count covers every retry that has not happened yet: webhook steps reschedule their own hogflow row, and a throttled email reschedules until it is sent.
+  The truth `seq` and the time at which `converge` returns are the run's recovery horizon. An interrupted `converge` sets none. The job count covers every retry that has not happened yet: webhook steps reschedule their own hogflow row, and a throttled email reschedules until it is sent.
 - **Invariants.**
   - `at_least_once`: every expected delivery has a 2xx in the truth, with two exceptions.
     - A fault answered its last attempt with a code the caller never retries: for webhooks, a 4xx or 5xx outside `RETRIABLE_STATUS_CODES` in `cdp-fetch.ts`, which the check imports so the two never drift; for SES, a 4xx whose error type is neither `TooManyRequestsException` nor `ThrottlingException`, which the edge records in the truth.
@@ -814,11 +814,12 @@ export type JournalEntry = {
   - `bounced_suppressed`: every unit whose send the `ses.reject` fault bounced has a follow-up that cdp-api refused with 422 `recipient_suppressed`. A follow-up that was not sent, was accepted, could not reach cdp-api or got another answer fails it, and so does a bounced unit with no follow-up.
     It also fails a unit whose follow-up was not sent though its send did not bounce. Two cases are let off: the fault refused the send outright, or the edge took the send without a fault after the run's last bounce, which needs a bounce earlier in the run.
   - `refused_at_intake`: refusals and transport errors the unit did not expect, at or under `gates.refused_at_intake`.
-  - `no_loss`: exactly one accepted effect for each due, eligible unit, action and recipient at the recovery horizon. An accepted effect is a 2xx record in the truth. It lists missing and extra effects apart, with up to 5 unit ids each, and `observed` counts both.
-    - Each journal entry declares what it expects, and the check infers nothing from status codes. A unit the intake accepted expects one effect for each expected delivery, two when its follow-up was accepted too. A unit the intake refused with a status expects none. A unit whose intake could not be reached may have one or none, because the intake may have taken it before the reply was lost.
-    - A delivery in `expect.skipped`, or whose `expect.dueAt` falls after the horizon, expects none. So does a delivery a fault answered when the card names that fault in `params.skippedBy`, such as `skippedBy: [dest.status]` for a status the caller never retries.
+  - `no_loss`: exactly one accepted effect for each due, eligible unit, action and recipient at the recovery horizon. An accepted effect is a 2xx record in the truth at or before the horizon's `seq`, so a send that lands later counts for nothing. It lists missing and extra effects apart, with up to 5 unit ids each, and `observed` counts both.
+    - Each journal entry declares what it expects, and the check infers nothing from status codes. A unit the intake accepted expects one effect for each expected delivery, two when its follow-up was accepted too. Each flow may send once, so the two must come from two flows: a first flow that sends twice is extra, and the missing follow-up is missing. A unit the intake refused with a status expects none. A unit whose intake could not be reached may have one or none, because the intake may have taken it before the reply was lost.
+    - An action the entry leaves out of `expect.deliveries`, or a delivery whose `expect.dueAt` falls after the horizon, expects none. So does a delivery a fault answered with a status the card names in `params.skippedBy`, such as `skippedBy: [{ fault: dest.status, status: 400 }]` for a status the caller never retries. A retried 503 from the same fault keeps its normal expectation.
     - An effect beyond what a unit expects is extra. Unlike `duplicate_sends`, nothing is allowed for jobs the janitor reset, and the check takes no gate.
     - The check is unjudged, and the run `invalid` when nothing else failed, when the last truth read failed, the truth skips a `seq`, `converge` was interrupted, a valve was not observed, or the edge accepted a unit of this run that the journal never recorded. When the only cause is an unobserved valve, the status reason names the valve once.
+    - When the Judge could not read the job count at the deadline, the runner drops `no_loss` with `at_least_once` and `bounced_suppressed`, since deliveries may still have been in flight.
     - No ramp card lists it yet. A ramp judges its losses step by step, and a `no_loss` failure would replace the ramp's break reason.
 
 - **Measurements.** Each has a unit in its definition. Every measurement below but `step_claims_per_second` is better when lower; the definitions do not record that. The runner's sampler scrapes every role's `/_metrics` every 5 seconds from the drive's start to convergence, and `measure(measurements, evidence)` in `judge/measurements.ts` turns the samples and the Judge's evidence into values.
@@ -948,16 +949,16 @@ Cloud scorecards from before `reader_monitoring_interval_seconds` omit it, and t
 **Invariants**, one group per judged invariant, with `<name>` the invariant's name.
 A run that stops before judging has no groups, so a missing group means not judged, never passed:
 
-| Property                 | Type           | Meaning                                                                                                                        |
-| ------------------------ | -------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `inv_<name>_passed`      | boolean        | Whether the invariant held                                                                                                     |
-| `inv_<name>_observed`    | number         | The count it checked, such as missed deliveries                                                                                |
-| `inv_<name>_gate`        | number or null | The card's gate for it, `null` when the card sets none                                                                         |
-| `inv_<name>_violation`   | string or null | The first violation seen, even when the count stays within the gate; `null` when none was seen. Read `_passed` for the verdict |
-| `inv_<name>_ids`         | string[]       | Up to 5 unit ids that violated it                                                                                              |
-| `inv_<name>_unjudged`    | string         | Why the invariant could not judge the run; absent when it judged. An unjudged invariant stays out of `invariants_failed`       |
-| `inv_<name>_missing_ids` | string[]       | For `no_loss`, up to 5 unit ids with fewer accepted effects than expected                                                      |
-| `inv_<name>_extra_ids`   | string[]       | For `no_loss`, up to 5 unit ids with more accepted effects than expected                                                       |
+| Property                 | Type           | Meaning                                                                                                                                                   |
+| ------------------------ | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `inv_<name>_passed`      | boolean        | Whether the invariant held                                                                                                                                |
+| `inv_<name>_observed`    | number         | The count it checked, such as missed deliveries                                                                                                           |
+| `inv_<name>_gate`        | number or null | The card's gate for it, `null` when the card sets none                                                                                                    |
+| `inv_<name>_violation`   | string or null | The first violation seen, even when the count stays within the gate; `null` when none was seen. Read `_passed` for the verdict, unless `_unjudged` is set |
+| `inv_<name>_ids`         | string[]       | Up to 5 unit ids that violated it                                                                                                                         |
+| `inv_<name>_unjudged`    | string         | Why the invariant could not judge the run; absent when it judged. An unjudged invariant stays out of `invariants_failed`                                  |
+| `inv_<name>_missing_ids` | string[]       | For `no_loss`, up to 5 unit ids with fewer accepted effects than expected                                                                                 |
+| `inv_<name>_extra_ids`   | string[]       | For `no_loss`, up to 5 unit ids with more accepted effects than expected                                                                                  |
 
 **Measurements** use the prefix `m_`: `m_<name>` for a single value, `m_<name>_<role>` per role, `m_<name>_<stat>` per statistic, such as `m_delivery_latency_ms_p95`, and `m_<name>_<queue>_<scale>x` per queue and ramp step, such as `m_step_claims_per_second_hogflow_10x`.
 Hyphens in names and roles become underscores, so the CPU time of `cdp-api` is `m_role_cpu_seconds_cdp_api`.

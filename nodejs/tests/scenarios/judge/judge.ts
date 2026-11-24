@@ -24,7 +24,7 @@ export type JournalEntry = {
     offeredAt: number
     step?: number
     answer: IntakeAnswer
-    expect: { deliveries: string[]; skipped?: string[]; dueAt?: number }
+    expect: { deliveries: string[]; dueAt?: number }
     followUp?: FollowUpAnswer
 }
 
@@ -80,7 +80,7 @@ export function createJudge({
     let truth: TruthRecord[] = []
     let cursor = 0
     let truthFrom = 0
-    let horizonAt: number | undefined
+    let horizon: RunBoundary['horizon']
     let teams: number[] = []
     let unread: string | undefined
 
@@ -126,7 +126,7 @@ export function createJudge({
             journal = []
             cursor = await source.head()
             truthFrom = cursor
-            horizonAt = undefined
+            horizon = undefined
             truth = []
             unread = undefined
             teams = [...seed.teamIds]
@@ -147,7 +147,7 @@ export function createJudge({
                 const tookMs = now() - startedAt
                 const converged = polled === 0 && unrecorded.length === 0 && tookMs <= withinMs
                 if (converged || tookMs >= withinMs || signal.aborted) {
-                    horizonAt = signal.aborted ? undefined : now()
+                    horizon = signal.aborted ? undefined : { seq: cursor, at: now() }
                     return {
                         converged,
                         unfinishedJobs: polled ?? null,
@@ -167,7 +167,7 @@ export function createJudge({
                 : undefined
             const boundary = {
                 truthFrom,
-                horizonAt,
+                horizon,
                 unobserved: run.unobserved,
                 ...(unread !== undefined && { unread }),
             }

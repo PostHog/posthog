@@ -80,7 +80,6 @@ jest.mock('~/common/utils/request', () => {
 
 const SMOKE_CARD = path.join(__dirname, '..', 'cards', 'smoke.yaml')
 const SMOKE = load(SMOKE_CARD)
-// No ramp card checks no_loss: the ramp judges its own losses step by step.
 const RAMP_INVARIANTS = SMOKE.card.invariants.filter(({ name }) => name !== 'no_loss')
 const PROCESS_DATABASE_URL = 'postgres://scenario:scenario@127.0.0.1:2/scenario'
 const PROFILE_DATABASE_URL = 'postgres://scenario:scenario@127.0.0.1:1/scenario'

@@ -147,7 +147,7 @@ describe('host-prepare.sh', () => {
                     fetchRetries: 0,
                     resident,
                     janitorResets: 0,
-                    boundary: { truthFrom: 0, horizonAt: 0, unobserved: [] },
+                    boundary: { truthFrom: 0, horizon: { seq: 0, at: 0 }, unobserved: [] },
                 },
                 undefined,
                 {}

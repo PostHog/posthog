@@ -20,7 +20,7 @@ export type JudgeEvidence = {
 
 export type RunBoundary = {
     truthFrom: number
-    horizonAt?: number
+    horizon?: { seq: number; at: number }
     unread?: string
     unobserved: readonly string[]
 }
@@ -354,19 +354,25 @@ type Bounds = { min: number; max: number }
 
 const NONE: Bounds = { min: 0, max: 0 }
 
-const NoLossParams = z.object({ skippedBy: z.array(z.string()).default([]) }).strict()
+const NoLossParams = z
+    .object({
+        skippedBy: z.array(z.object({ fault: z.string(), status: z.number().int() }).strict()).default([]),
+    })
+    .strict()
+
+type SkippedBy = z.infer<typeof NoLossParams>['skippedBy']
 
 function boundsOf(
     { answer, followUp, expect }: JournalEntry,
     actionId: string,
     records: readonly DeliveryRecord[],
     horizonAt: number,
-    skippedBy: readonly string[]
+    skippedBy: SkippedBy
 ): Bounds {
-    const skippedByFault = records.some(
-        ({ status, fault }) => !isAccepted(status) && fault !== undefined && skippedBy.includes(fault)
+    const skippedByFault = records.some(({ status, fault }) =>
+        skippedBy.some((skip) => skip.fault === fault && skip.status === status)
     )
-    if (expect.skipped?.includes(actionId) || (expect.dueAt ?? -Infinity) > horizonAt || skippedByFault) {
+    if (!expect.deliveries.includes(actionId) || (expect.dueAt ?? -Infinity) > horizonAt || skippedByFault) {
         return NONE
     }
     if (!answer.accepted) {
@@ -376,21 +382,39 @@ function boundsOf(
     return { min: due, max: due }
 }
 
-const recipientsOf = ({ kind, detail }: DeliveryRecord): string[] =>
-    kind === 'webhook'
+type Effect = { recipient: string; flowId?: string }
+
+const effectsOf = ({ kind, detail, flowId }: DeliveryRecord): Effect[] =>
+    (kind === 'webhook'
         ? [detail.request?.host ?? '']
         : addressesOf([...(detail.message?.to ?? []), ...(detail.message?.cc ?? []), ...(detail.message?.bcc ?? [])])
+    ).map((recipient) => ({ recipient, flowId }))
 
-type Shortfall = { unitId: string; actionId: string; accepted: number; expected: number }
+type Shortfall = { unitId: string; actionId: string; flows: number; expected: number }
 
-type Excess = Shortfall & { recipient: string }
+type Excess = {
+    unitId: string
+    actionId: string
+    recipient: string
+    flowId?: string
+    accepted: number
+    expected: number
+}
+
+const shortfallOf = ({ unitId, actionId, flows, expected }: Shortfall): string =>
+    expected > 1
+        ? `${unitId} ${actionId}: accepted from ${plural(flows, 'flow')} by the recovery horizon, expected ${expected}`
+        : `${unitId} ${actionId}: accepted ${plural(flows, 'time')} by the recovery horizon, expected ${expected}`
+
+const excessOf = ({ unitId, actionId, recipient, flowId, accepted, expected }: Excess): string =>
+    `${unitId} ${actionId} to ${recipient}${flowId === undefined ? '' : ` from ${flowId}`}: accepted ${plural(accepted, 'time')}, expected ${expected}`
 
 export const noLoss: InvariantDefinition = {
     name: 'no_loss',
     params: NoLossParams,
     check: (evidence, _gate, params) => {
-        const { horizonAt } = evidence.boundary
-        if (horizonAt === undefined) {
+        const { horizon } = evidence.boundary
+        if (horizon === undefined) {
             return unjudgedOf('the run reached no recovery horizon: convergence was interrupted')
         }
         const unjudged = unjudgedNoLoss(evidence)
@@ -398,40 +422,40 @@ export const noLoss: InvariantDefinition = {
             return unjudgedOf(unjudged)
         }
         const { skippedBy } = NoLossParams.parse(params)
-        const byDelivery = recordsByDelivery(evidence.truth)
+        const byHorizon = evidence.truth.filter(({ seq }) => seq <= horizon.seq)
+        const byDelivery = recordsByDelivery(byHorizon)
+        const actionsByUnit = Map.groupBy(byHorizon.filter(isDeliveryRecord), ({ unitId }) => unitId)
         const missing: Shortfall[] = []
         const extra: Excess[] = []
         for (const entry of evidence.journal) {
-            for (const actionId of entry.expect.deliveries) {
-                const { unitId } = entry
+            const { unitId } = entry
+            const seen = (actionsByUnit.get(unitId) ?? []).map(({ actionId }) => actionId)
+            for (const actionId of new Set([...entry.expect.deliveries, ...seen])) {
                 const records = byDelivery.get(deliveryKey(unitId, actionId)) ?? []
-                const { min, max } = boundsOf(entry, actionId, records, horizonAt, skippedBy)
-                const effects = records.filter(({ status }) => isAccepted(status)).flatMap(recipientsOf)
-                const perRecipient = Map.groupBy(effects, (recipient) => recipient)
-                const accepted = Math.max(0, ...[...perRecipient.values()].map(({ length }) => length))
-                if (accepted < min) {
-                    missing.push({ unitId, actionId, accepted, expected: min })
-                }
-                for (const [recipient, { length }] of perRecipient) {
-                    if (length > max) {
-                        extra.push({ unitId, actionId, recipient, accepted: length, expected: max })
+                const { min, max } = boundsOf(entry, actionId, records, horizon.at, skippedBy)
+                const effects = records.filter(({ status }) => isAccepted(status)).flatMap(effectsOf)
+                let flows = 0
+                for (const [recipient, sends] of Map.groupBy(effects, ({ recipient }) => recipient)) {
+                    const byFlow = Map.groupBy(sends, ({ flowId }, i) => flowId ?? i)
+                    flows = Math.max(flows, byFlow.size)
+                    const [flowId, resent] = [...byFlow].find(([, { length }]) => length > 1) ?? []
+                    if (sends.length > max) {
+                        extra.push({ unitId, actionId, recipient, accepted: sends.length, expected: max })
+                    } else if (typeof flowId === 'string' && resent !== undefined) {
+                        extra.push({ unitId, actionId, recipient, flowId, accepted: resent.length, expected: 1 })
                     }
+                }
+                if (flows < min) {
+                    missing.push({ unitId, actionId, flows, expected: min })
                 }
             }
         }
         const observed =
-            missing.reduce((sum, { accepted, expected }) => sum + expected - accepted, 0) +
+            missing.reduce((sum, { flows, expected }) => sum + expected - flows, 0) +
             extra.reduce((sum, { accepted, expected }) => sum + accepted - expected, 0)
         const [lost] = missing
         const [resent] = extra
-        const violation = [
-            lost &&
-                `${lost.unitId} ${lost.actionId}: accepted ${plural(lost.accepted, 'time')} by the recovery horizon, expected ${lost.expected}`,
-            resent &&
-                `${resent.unitId} ${resent.actionId} to ${resent.recipient}: accepted ${plural(resent.accepted, 'time')}, expected ${resent.expected}`,
-        ]
-            .filter(Boolean)
-            .join('; ')
+        const violation = [lost && shortfallOf(lost), resent && excessOf(resent)].filter(Boolean).join('; ')
         return {
             passed: observed === 0,
             observed,

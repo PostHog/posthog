@@ -91,8 +91,10 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
     const faults = new FaultList()
     const trackingSigner = options.trackingKeys ? new EmailTrackingCodeSigner(options.trackingKeys, '') : undefined
 
-    const actionIdOf = (trackingCode: string | undefined): string | undefined =>
-        trackingCode === undefined ? undefined : trackingSigner?.parse(trackingCode)?.actionId
+    const trackedOf = (trackingCode: string | undefined): { actionId?: string; flowId?: string } => {
+        const tracked = trackingCode === undefined ? undefined : trackingSigner?.parse(trackingCode)
+        return { actionId: tracked?.actionId, flowId: tracked?.functionId }
+    }
 
     const sendEmail = (body: unknown): Reply | Silence => {
         const request = readSendEmail(body, options.configurationSets)
@@ -102,7 +104,7 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
         }
         const { message } = request
         const recipients = addressesOf(message.to)
-        const correlation = { unitId: unitIdOf(recipients), actionId: actionIdOf(trackingCodeOf(message)) }
+        const correlation = { unitId: unitIdOf(recipients), ...trackedOf(trackingCodeOf(message)) }
         const fault = faults.takeSes(addressesOf([...message.to, ...(message.cc ?? []), ...(message.bcc ?? [])]))
         if (fault && fault.answer.kind !== 'status' && fault.answer.kind !== 'bounce') {
             truth.append({ kind: 'ses.send', status: 0, fault: fault.name, ...correlation, detail: {} })

@@ -3,7 +3,7 @@ import { nameOf } from '../environment/identity'
 import type { RoleExit } from '../environment/supervisor'
 import type { DriveSummary } from '../generator/generator'
 import { BarResult, unsourced } from '../judge/bars'
-import { atLeastOnce, bouncedSuppressed } from '../judge/invariants'
+import { atLeastOnce, bouncedSuppressed, noLoss } from '../judge/invariants'
 import type { Convergence, InvariantResult } from '../judge/judge'
 import { Baseline, DriveWindow, MIN_BASELINE_SECONDS } from '../judge/measurements'
 import { type Ramp, ratesReasonOf } from '../judge/ramp'
@@ -201,7 +201,7 @@ export const unobservedValvesOf = (timeline: readonly ValveTimelineEntry[], driv
               : []
     )
 
-const CHECKS_OF_SETTLED_DELIVERIES = new Set([atLeastOnce.name, bouncedSuppressed.name])
+const CHECKS_OF_SETTLED_DELIVERIES = new Set([atLeastOnce.name, bouncedSuppressed.name, noLoss.name])
 
 export const judgedInvariantsOf = (
     checked: InvariantResult[],
@@ -321,12 +321,11 @@ function unrampedStatusOf({
     }
     const crashes = exits.filter((exit) => !exitedByValve(exit, timeline)).map((exit) => unexpectedExit(exit, timeline))
     const valves = unobservedValvesOf(timeline, drive)
-    // An invariant the unobserved valves left unjudged names them again, so the reason lists each valve once.
-    const byValves = valves.join('; ')
+    const unjudgedOnlyByValves = valves.join('; ')
     const unobserved = [
         ...valves,
         ...invariants.flatMap(({ name, unjudged }) =>
-            unjudged === undefined || unjudged === byValves ? [] : [`${name} was not judged: ${unjudged}`]
+            unjudged === undefined || unjudged === unjudgedOnlyByValves ? [] : [`${name} was not judged: ${unjudged}`]
         ),
         ...bars.flatMap(({ name, unjudged }) =>
             unjudged === undefined ? [] : [`${name} was not judged: ${unjudged}`]

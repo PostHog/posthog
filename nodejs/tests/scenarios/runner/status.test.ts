@@ -840,10 +840,10 @@ describe('statusOf', () => {
         [
             'keeps every check when the judge read the job count',
             0,
-            ['at_least_once', 'bounced_suppressed', 'duplicate_sends'],
+            ['at_least_once', 'bounced_suppressed', 'duplicate_sends', 'no_loss'],
         ],
     ])('%s', (_story, unfinishedJobs, judged) => {
-        const checked = ['at_least_once', 'bounced_suppressed', 'duplicate_sends'].map(
+        const checked = ['at_least_once', 'bounced_suppressed', 'duplicate_sends', 'no_loss'].map(
             (name): InvariantResult => ({ name, passed: false, observed: 1, unitIds: ['run-1'] })
         )
 
