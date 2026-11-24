@@ -38,7 +38,7 @@ on:
                 type: string
                 default: '[]'
             shared-image-bootstrap:
-                description: 'One approved seed as JSON with channel, revision and digest'
+                description: 'Approved seeds as a JSON object or array of objects with channel, revision and digest'
                 type: string
                 default: ''
 
