@@ -10,6 +10,10 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
+from posthog.models import OrganizationMembership
+
+from products.access_control.backend.models.access_control import AccessControl
 from products.experiments.backend.metric_calculation.config import (
     CALCULATION_KEY_V2_FLAG,
     get_metric_calculation_config,
@@ -27,6 +31,7 @@ from products.experiments.backend.recalculation import (
 from products.experiments.backend.temporal.models import ExperimentMetricsRecalculationWorkflowInputs
 from products.experiments.backend.test.utils import patch_calculation_key_version
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
 
 def _mean_metric(uuid: str) -> dict:
@@ -429,6 +434,77 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         assert resp.status_code == status.HTTP_200_OK, resp.content
         assert resp.json()["status"] == run_status
         assert resp.json()["id"] == str(row.id)
+
+    def test_get_refuses_a_warehouse_native_run_to_a_member_without_connection_access(self):
+        connection = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="bigquery",
+            source_type="BigQuery",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={},
+        )
+        exp = self._launched_experiment(flag_key="warehouse-native")
+        exp.exposure_criteria = {
+            "exposure_config": {
+                "kind": "ExperimentWarehouseNativeExposureConfig",
+                "connection_id": str(connection.id),
+                "query": "SELECT customer_id AS entity_id, variant, exposed_at AS timestamp FROM exposures",
+                "unit": {"unit_type": "customer", "id_namespace": "crm"},
+            }
+        }
+        exp.metrics = [
+            {
+                "uuid": "m1",
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "source": {
+                    "kind": "ExperimentWarehouseNativeNode",
+                    "connection_id": str(connection.id),
+                    "query": "SELECT customer_id AS entity_id, paid_at AS timestamp, amount FROM payments",
+                    "unit": {"unit_type": "customer", "id_namespace": "crm"},
+                    "math": "total",
+                },
+            }
+        ]
+        exp.save()
+        row = ExperimentMetricsRecalculation.objects.create(team=self.team, experiment=exp, status="completed")
+
+        with mock.patch(
+            "products.experiments.backend.warehouse_native_sources.bigquery_direct_query_enabled", return_value=True
+        ):
+            assert self.client.get(self._by_id_url(exp.id, str(row.id))).status_code == status.HTTP_200_OK
+
+            # The stored totals came from the warehouse. A member who may not read the connection gets no run.
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+            ]
+            self.organization.save()
+            OrganizationMembership.objects.filter(user=self.user, organization=self.organization).update(
+                level=OrganizationMembership.Level.MEMBER
+            )
+            AccessControl.objects.create(team=self.team, resource="external_data_source", access_level="none")
+
+            assert self.client.get(self._by_id_url(exp.id, str(row.id))).status_code == status.HTTP_403_FORBIDDEN
+            assert self.client.get(self._latest_url(exp.id)).status_code == status.HTTP_403_FORBIDDEN
+            running_time = self.client.get(f"/api/projects/{self.team.id}/experiments/{exp.id}/running_time_target/")
+            assert running_time.status_code == status.HTTP_403_FORBIDDEN
+            timeseries_results = self.client.get(
+                f"/api/projects/{self.team.id}/experiments/{exp.id}/timeseries_results/?metric_uuid=m1"
+            )
+            assert timeseries_results.status_code == status.HTTP_403_FORBIDDEN
+            health = self.client.get(f"/api/projects/{self.team.id}/experiments/{exp.id}/health/")
+            assert health.status_code == status.HTTP_403_FORBIDDEN
+            # Nor may that member start a run, which would query the warehouse with no user.
+            recalculation = self.client.post(self._post_url(exp.id), {"trigger": "manual"})
+            assert recalculation.status_code == status.HTTP_400_BAD_REQUEST
+            assert "do not have access" in recalculation.json()["detail"]
+            timeseries = self.client.post(
+                f"/api/projects/{self.team.id}/experiments/{exp.id}/recalculate_timeseries/",
+                {"metric": {"uuid": "m1"}},
+                format="json",
+            )
+            assert timeseries.status_code == status.HTTP_400_BAD_REQUEST
+            assert ExperimentMetricsRecalculation.objects.filter(experiment=exp).count() == 1
 
     def test_get_by_id_404_for_unknown_id(self):
         exp = self._launched_experiment()

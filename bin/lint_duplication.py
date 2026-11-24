@@ -82,21 +82,17 @@ def is_test_file(path: str) -> bool:
 def formats_touched(changed_files: set[str]) -> list[str]:
     """Return the jscpd formats a clone in this change set can have.
 
-    Two or more touched formats keep the full scan: a two-format run measured
-    no cheaper than the three-format one. So does any changed file with no
-    extension, which jscpd reads by shebang (`bin/sandbox` is Python) and which
-    the extension lists above therefore cannot place.
+    Any changed file with no extension keeps the full scan, because jscpd reads
+    it by shebang (`bin/sandbox` is Python) and the extension lists above
+    therefore cannot place it.
     """
     if any(not PurePosixPath(path).suffix for path in changed_files):
         return list(FORMAT_EXTENSIONS)
-    touched = [
+    return [
         format_name
         for format_name, extensions in FORMAT_EXTENSIONS.items()
         if any(path.endswith(extensions) for path in changed_files)
     ]
-    if len(touched) <= 1:
-        return touched
-    return list(FORMAT_EXTENSIONS)
 
 
 def clone_language(clone: dict) -> str:
@@ -149,7 +145,18 @@ def write_findings(report_dir: str | None, findings: dict[str, list[dict]]) -> N
 
 
 def run_jscpd(scan_root: Path, out_dir: Path, formats: list[str]) -> list[dict]:
-    """Scan one tree with jscpd and return its clone list."""
+    """Scan one tree in a separate jscpd process for each format.
+
+    jscpd keeps every format's tokens in memory. Separate runs preserve clone
+    detection because jscpd only compares files within one format, while
+    limiting peak memory to the largest format.
+    """
+    return [
+        clone for format_name in formats for clone in run_jscpd_format(scan_root, out_dir / format_name, format_name)
+    ]
+
+
+def run_jscpd_format(scan_root: Path, out_dir: Path, format_name: str) -> list[dict]:
     try:
         proc = subprocess.run(
             [
@@ -157,7 +164,7 @@ def run_jscpd(scan_root: Path, out_dir: Path, formats: list[str]) -> list[dict]:
                 "--yes",
                 f"jscpd@{JSCPD_VERSION}",
                 "--format",
-                ",".join(formats),
+                format_name,
                 "--min-lines",
                 str(SCAN_MIN_LINES),
                 "--min-tokens",
@@ -173,8 +180,8 @@ def run_jscpd(scan_root: Path, out_dir: Path, formats: list[str]) -> list[dict]:
             ],
             capture_output=True,
             text=True,
-            # Two scans must finish inside the CI job's timeout-minutes, or the
-            # job dies before the failure section can post.
+            # Bound each subprocess so a stalled format scan cannot consume the
+            # CI job's entire timeout before it posts the failure section.
             timeout=SCAN_TIMEOUT_SECONDS,
             cwd=scan_root,
         )
@@ -298,7 +305,6 @@ def main() -> int:
 
     baseline = resolve_baseline(args.base, repo)
     print(f"Comparing clones against {baseline}")
-    changed_files = changed_files_between(baseline, "HEAD", repo)
 
     # Read before the scans: they skip the formats this change set cannot clone in.
     changed_files = changed_files_between(baseline, "HEAD", repo)

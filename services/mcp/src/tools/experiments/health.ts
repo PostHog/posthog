@@ -82,6 +82,10 @@ export function exposureHealthOutcome(error: Error | null): ExposureHealthOutcom
     return error instanceof ExperimentNotStartedError ? 'not_started' : 'failed'
 }
 
+export function configHealthNotRun(configOutcome: ConfigHealthOutcome): string[] {
+    return configOutcome === 'failed' || configOutcome === 'timed_out' ? ['The configuration checks did not run.'] : []
+}
+
 /** One sentence per source whose checks did not run, so that the agent does not read a missing check as passed. */
 export function healthNotRun(
     configOutcome: ConfigHealthOutcome,
@@ -89,9 +93,7 @@ export function healthNotRun(
     exposureError: Error | null
 ): string[] {
     return [
-        ...(configOutcome === 'failed' || configOutcome === 'timed_out'
-            ? ['The configuration checks did not run.']
-            : []),
+        ...configHealthNotRun(configOutcome),
         ...(exposureOutcome === 'not_started'
             ? ['The exposure checks did not run: the experiment has not started.']
             : []),
@@ -126,7 +128,7 @@ export function trackHealthReturned(
         configOutcome,
         exposureOutcome,
     }: {
-        toolName: 'experiment-results-get' | 'experiment-health-get'
+        toolName: 'experiment-results-get' | 'experiment-health-get' | 'experiment-launch'
         experimentId: number
         details: ExperimentHealthDetails
         configOutcome: ConfigHealthOutcome

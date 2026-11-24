@@ -4,11 +4,13 @@ import { useEffect, useState } from 'react'
 import { IconArrowLeft } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { htmlSentAsWritten } from '../renderEmailHtml'
 import { EmailBlockFields } from './EmailBlockFields'
 import { EmailPageStyleFields } from './EmailPageStyleFields'
 
 export function EmailStylePanel({ editor, onClose }: { editor: Editor; onClose?: () => void }): JSX.Element {
     const [showPage, setShowPage] = useState(true)
+    const sentAsWritten = htmlSentAsWritten(editor.getJSON()) !== null
 
     useEffect(() => {
         const onSelection = (): void => {
@@ -29,7 +31,12 @@ export function EmailStylePanel({ editor, onClose }: { editor: Editor; onClose?:
     return (
         <div className="flex flex-col gap-2 p-3 overflow-y-auto h-full" data-attr="email-editor-style-panel">
             <div className="flex items-center gap-1">
-                {showPage ? (
+                {sentAsWritten ? (
+                    <span className="text-xs text-secondary flex-1" data-attr="email-editor-no-page-style">
+                        <span>This email is sent exactly as its HTML is written, so page style doesn't apply.</span>
+                        {showPage ? <span> Select the HTML block to edit it.</span> : null}
+                    </span>
+                ) : showPage ? (
                     <h3 className="text-sm font-semibold m-0 flex-1">Page style</h3>
                 ) : (
                     <LemonButton
@@ -48,7 +55,11 @@ export function EmailStylePanel({ editor, onClose }: { editor: Editor; onClose?:
                     </LemonButton>
                 ) : null}
             </div>
-            {showPage ? <EmailPageStyleFields editor={editor} /> : <EmailBlockFields editor={editor} />}
+            {!showPage ? (
+                <EmailBlockFields editor={editor} />
+            ) : sentAsWritten ? null : (
+                <EmailPageStyleFields editor={editor} />
+            )}
         </div>
     )
 }

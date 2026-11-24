@@ -3,7 +3,7 @@
 // dashboards, so that both surfaces report the same numbers. The test fixture in
 // products/feature_flags/backend/test/usage_dashboard_fixtures.py reproduces the total volume and
 // unique calls insights. The function add_enriched_insights_to_feature_flag_dashboard in
-// posthog/helpers/dashboard_templates.py adds the enriched insights.
+// products/feature_flags/backend/usage_dashboard.py adds the enriched insights.
 // Titles differ on purpose: update_feature_flag_dashboard looks tiles up by name, so the Python
 // names are pinned, while these use sentence case. The interval here follows the user's date range
 // rather than the saved dashboards' fixed "day".
