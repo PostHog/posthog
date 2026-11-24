@@ -653,9 +653,16 @@ Expected to show:
         const newCondInput = condInputs[condInputs.length - 1]
         await userEvent.clear(newCondInput)
         await userEvent.type(newCondInput, '$new_event')
+        // Query the input again rather than trusting the reference above. If the row remounted
+        // mid-typing, that reference is a detached element and the live input holds less text.
         await waitFor(() => {
-            if (newCondInput.value !== '$new_event') {
-                throw new Error(`Expected the whole value to be typed, got "${newCondInput.value}"`)
+            const liveInputs = document.querySelectorAll<HTMLInputElement>('input[placeholder="Value..."]')
+            const liveInput = liveInputs[liveInputs.length - 1]
+            if (liveInput.value !== '$new_event') {
+                throw new Error(`Expected the whole value to be typed, got "${liveInput.value}"`)
+            }
+            if (liveInput !== newCondInput || document.activeElement !== liveInput) {
+                throw new Error('The value input remounted or lost focus while typing')
             }
         })
 
