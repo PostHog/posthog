@@ -403,7 +403,8 @@ class ExperimentHealthValueKey(LabeledStrEnum):
         "only_count_matured_users",
         'Whether "Require completed conversion or retention window" is on',
     )
-    PRIMARY_METRIC_COUNT = "primary_metric_count", "Primary metrics that the calculation computes"
+    PRIMARY_METRIC_COUNT = "primary_metric_count", "Primary metrics of the experiment"
+    SECONDARY_METRIC_COUNT = "secondary_metric_count", "Secondary metrics of the experiment"
     WAITING_METRIC_COUNT = (
         "waiting_metric_count",
         "Of the primary metrics, those whose conversion or retention window hasn't passed for any user yet",
@@ -420,6 +421,7 @@ class ExperimentHealthValueKey(LabeledStrEnum):
         "The key of the variant that the feature flag serves to everyone, or null when it serves more than one",
     )
     FLAG_LAST_CALLED_AT = "flag_last_called_at", "When PostHog last recorded a call of the feature flag"
+    FLAG_CALLED = "flag_called", "Whether PostHog has recorded a call of the feature flag"
     SINCE_START_HOURS = (
         "since_start_hours",
         "Hours since the experiment's start date, which can be earlier than the launch",
@@ -474,6 +476,16 @@ class ExperimentHealthValueKey(LabeledStrEnum):
         "traffic_since_at",
         "The start of the window that matched_count counts: 7 days ago, or the launch or the flag's last save if later",
     )
+    HISTORY_SINCE_AT = (
+        "history_since_at",
+        "The start of the feature flag's history that the check reads: the experiment's start date, which can be "
+        "earlier than the launch",
+    )
+    CHANGE_COUNT = (
+        "change_count",
+        "Changes of the feature flag since history_since_at that can move exposed users. The flag history check counts "
+        "every kind, and the other checks count their own kind",
+    )
     CHANGED_AT = "changed_at", "When a change of the feature flag was saved"
     BEFORE_EXPOSURE = (
         "before_exposure",
@@ -501,6 +513,11 @@ class ExperimentHealthValueKey(LabeledStrEnum):
         "Of the feature flag's calls since traffic_since_at that returned a variant, the share that the flag service "
         "evaluated. Only these calls name the release condition that served them, so local evaluation and bootstrapped "
         "values count in no condition",
+    )
+    COHORT_COUNT = "cohort_count", "Cohorts that the exposure criteria filter on"
+    DYNAMIC_COHORT_COUNT = (
+        "dynamic_cohort_count",
+        "Of cohort_count, the dynamic cohorts, whose members the results read at the time of the calculation",
     )
     EVENT = "event", "The name of an event that the check looked up"
     EVENT_RECEIVED = (

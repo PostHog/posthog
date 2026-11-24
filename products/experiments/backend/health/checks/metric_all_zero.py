@@ -9,6 +9,7 @@ the event aren't the people who were exposed.
 """
 
 from collections.abc import Mapping
+from datetime import UTC
 from typing import assert_never
 
 from posthog.schema import FunnelConversionWindowTimeUnit
@@ -29,6 +30,7 @@ from products.experiments.backend.health.skips import (
     RUNS_AFTER_LAUNCH,
     CheckOutcome,
     CheckRows,
+    CheckValues,
     no_calculated_metric,
     not_applicable,
     not_checked,
@@ -66,6 +68,20 @@ class _Worded:
     cause: str | None
     # Without the usual causes, which the finding says once for all the metrics that have no cause.
     detail: str
+
+
+def metric_all_zero_values(ctx: HealthContext) -> CheckValues:
+    calculation = ctx.latest_calculation
+    if ctx.archived or not ctx.is_launched or calculation is None or calculation.metric_count == 0:
+        return {}
+    finished_at = calculation.finished_at
+    if finished_at is None:
+        return {}
+    return {
+        ExperimentHealthValueKey.METRIC_COUNT: calculation.metric_count,
+        ExperimentHealthValueKey.COMPLETED_METRIC_COUNT: calculation.completed_count,
+        ExperimentHealthValueKey.CALCULATED_AT: finished_at.astimezone(UTC).isoformat(),
+    }
 
 
 def metric_all_zero_rows(ctx: HealthContext) -> CheckRows:
