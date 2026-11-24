@@ -272,6 +272,13 @@ class _Builder:
                 trigger["filters"]["properties"] = properties
         else:
             self.audience = properties
+            if properties and self.campaign.get("exit_on_trigger_or_filter_not_matched"):
+                self.note(
+                    NoteLevel.NEEDS_INPUT,
+                    "Customer.io also removes people who stop matching who can enter. The `Audience` step checks that "
+                    "only when they enter, so add the check before each message that needs it.",
+                )
+                self.unfinished.add(TRIGGER_ID)
 
     def _audience_step(self) -> dict[str, Any]:
         return {
@@ -342,6 +349,8 @@ class _Builder:
         on_trigger = bool(self.campaign.get("exit_on_trigger_or_filter_not_matched")) and self.campaign.get("type") in (
             "seg_attr",
             "behavioral",
+            "transactional",
+            "form",
         )
         if on_conversion and on_trigger:
             return "exit_on_trigger_not_matched_or_conversion"
