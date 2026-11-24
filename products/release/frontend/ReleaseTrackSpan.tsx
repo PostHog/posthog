@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { Skeleton, Tooltip, TooltipContent, TooltipTrigger, cn } from '@posthog/quill'
 
@@ -11,6 +11,8 @@ import { Lane, SPAN_LOOK, Scale, spanWidth, x } from './releaseTracks'
 import { ReleaseSpan } from './releaseUtils'
 
 const NARROW = 72
+const SPAN_TARGET_CLASS =
+    'flex w-full cursor-pointer items-center rounded-full px-2 text-[10px] font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30'
 
 export function ReleaseTrackSpan({
     span,
@@ -20,6 +22,7 @@ export function ReleaseTrackSpan({
     thin,
     stickyOffset = 0,
     lane,
+    releaseId,
 }: {
     span: ReleaseSpan
     scale: Scale
@@ -28,8 +31,10 @@ export function ReleaseTrackSpan({
     thin?: boolean
     stickyOffset?: number
     lane?: Lane
+    releaseId?: string
 }): JSX.Element | null {
     const { flagActivity, failedFlagIds } = useValues(releaseCalendarLogic)
+    const { openCalendarItem } = useActions(releaseCalendarLogic)
     const left = x(span.from, scale)
     const width = spanWidth(span, scale)
     const cutLeft = dayjs(span.from).isBefore(scale.start, 'day')
@@ -47,6 +52,11 @@ export function ReleaseTrackSpan({
     }
     const color = SPAN_LOOK[span.kind].color
     const compact = thin || width < NARROW
+    const label = !compact && (
+        <span className="sticky truncate" style={{ left: stickyOffset + 8, maxWidth: width - 16 }}>
+            {span.label}
+        </span>
+    )
     return (
         <Tooltip trackCursorAxis="x">
             <TooltipTrigger render={<div className="absolute flex" style={{ left, width, top, height }} />}>
@@ -62,17 +72,24 @@ export function ReleaseTrackSpan({
                         backgroundColor: `color-mix(in oklab, ${color} ${compact ? 70 : 18}%, transparent)`,
                     }}
                 >
-                    <LinkPrimitive
-                        to={span.href}
-                        aria-label={span.label}
-                        className="flex w-full items-center px-2 text-[10px] font-medium text-foreground"
-                    >
-                        {!compact && (
-                            <span className="sticky truncate" style={{ left: stickyOffset + 8, maxWidth: width - 16 }}>
-                                {span.label}
-                            </span>
-                        )}
-                    </LinkPrimitive>
+                    {lane && releaseId ? (
+                        <button
+                            type="button"
+                            aria-label={`Show details for ${lane.title}`}
+                            className={SPAN_TARGET_CLASS}
+                            onClick={(event) => {
+                                event.stopPropagation()
+                                openCalendarItem(releaseId, lane.key, lane.kind)
+                            }}
+                            data-attr="release-calendar-item"
+                        >
+                            {label}
+                        </button>
+                    ) : (
+                        <LinkPrimitive to={span.href} aria-label={span.label} className={SPAN_TARGET_CLASS}>
+                            {label}
+                        </LinkPrimitive>
+                    )}
                 </div>
                 {compact && !thin && span.label && (
                     <span className="pointer-events-none absolute left-full top-1/2 ml-1.5 -translate-y-1/2 whitespace-nowrap text-[10px] font-medium text-muted-foreground">

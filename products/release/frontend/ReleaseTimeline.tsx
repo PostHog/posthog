@@ -9,6 +9,7 @@ import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
+import { ReleaseCalendarItemPanel } from './ReleaseCalendarItemPanel'
 import { releaseCalendarLogic } from './releaseCalendarLogic'
 import { releaseLogic } from './releaseLogic'
 import { releaseRelatedLogic } from './releaseRelatedLogic'
@@ -117,6 +118,7 @@ function TrackLanesContent({
                         height={20}
                         stickyOffset={stickyOffset}
                         lane={lanes.find((lane) => lane.kind === 'flag')}
+                        releaseId={row.id}
                     />
                 )}
                 {summarySpans.map((span) =>
@@ -130,6 +132,7 @@ function TrackLanesContent({
                             thin
                             stickyOffset={stickyOffset}
                             lane={laneFor(span)}
+                            releaseId={row.id}
                         />
                     ) : (
                         <ReleaseTrackSpan
@@ -140,6 +143,7 @@ function TrackLanesContent({
                             height={SPAN_LOOK[span.kind].height}
                             stickyOffset={stickyOffset}
                             lane={laneFor(span)}
+                            releaseId={row.id}
                         />
                     )
                 )}
@@ -161,6 +165,7 @@ function TrackLanesContent({
                         color={STAGE_COLOR.flag}
                         scale={scale}
                         stickyOffset={stickyOffset}
+                        releaseId={row.id}
                     />
                 ))}
             {open && !lanes.length && <div className="border-t border-border/60" style={{ height: LANE }} />}
@@ -327,6 +332,7 @@ export function ReleaseTimeline(): JSX.Element {
                     />
                 </CalendarStateContext.Provider>
             )}
+            <ReleaseCalendarItemPanel />
         </div>
     )
 }

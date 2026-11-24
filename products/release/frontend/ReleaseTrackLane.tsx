@@ -14,6 +14,7 @@ export function ReleaseTrackLane({
     detailed,
     flush,
     stickyOffset,
+    releaseId,
 }: {
     lane: Lane
     color: string
@@ -21,6 +22,7 @@ export function ReleaseTrackLane({
     detailed?: boolean
     flush?: boolean
     stickyOffset?: number
+    releaseId?: string
 }): JSX.Element {
     const height = laneHeight(detailed)
     return (
@@ -33,6 +35,7 @@ export function ReleaseTrackLane({
                     height={18}
                     stickyOffset={stickyOffset}
                     lane={lane}
+                    releaseId={releaseId}
                 />
             ) : lane.kind === 'flag' ? (
                 <ReleaseRolloutBar
@@ -43,6 +46,7 @@ export function ReleaseTrackLane({
                     height={18}
                     stickyOffset={stickyOffset}
                     lane={lane}
+                    releaseId={releaseId}
                 />
             ) : null}
             {lane.kind === 'flag' && (
@@ -71,6 +75,7 @@ export function ReleaseTrackLane({
                     height={18}
                     stickyOffset={stickyOffset}
                     lane={lane}
+                    releaseId={releaseId}
                 />
             ) : null}
         </div>

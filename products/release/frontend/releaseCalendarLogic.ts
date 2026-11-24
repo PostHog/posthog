@@ -13,15 +13,31 @@ const ACTIVITY_PAGE_SIZE = 100
 const ACTIVITY_MAX_PAGES = 5
 const HISTORY_DAYS = 90
 
+export interface ReleaseCalendarItem {
+    releaseId: string
+    laneKey: string
+}
+
 interface ReleaseCalendarLogicValues {
     currentProjectId: number | null
     expanded: Record<string, true>
+    openItem: ReleaseCalendarItem | null
     flagActivity: Record<number, ActivityLogEntryApi[]>
     failedFlagIds: number[]
 }
 
 interface ReleaseCalendarLogicActions {
     toggleExpanded: (id: string) => { id: string }
+    openCalendarItem: (
+        releaseId: string,
+        laneKey: string,
+        kind: string
+    ) => {
+        releaseId: string
+        laneKey: string
+        kind: string
+    }
+    closeCalendarItem: () => { value: true }
     loadFlagActivity: (flagIds: number[]) => { flagIds: number[] }
     setFlagActivity: (
         flagId: number,
@@ -41,6 +57,8 @@ export const releaseCalendarLogic = kea<releaseCalendarLogicType>([
     connect(() => ({ values: [releaseLogic, ['currentProjectId']] })),
     actions({
         toggleExpanded: (id: string) => ({ id }),
+        openCalendarItem: (releaseId: string, laneKey: string, kind: string) => ({ releaseId, laneKey, kind }),
+        closeCalendarItem: true,
         loadFlagActivity: (flagIds: number[]) => ({ flagIds }),
         setFlagActivity: (flagId: number, entries: ActivityLogEntryApi[]) => ({ flagId, entries }),
         setFlagActivityFailed: (flagId: number) => ({ flagId }),
@@ -54,6 +72,13 @@ export const releaseCalendarLogic = kea<releaseCalendarLogicType>([
                     const { [id]: open, ...rest } = state
                     return open ? rest : { ...state, [id]: true as const }
                 },
+            },
+        ],
+        openItem: [
+            null as ReleaseCalendarItem | null,
+            {
+                openCalendarItem: (_, { releaseId, laneKey }) => ({ releaseId, laneKey }),
+                closeCalendarItem: () => null,
             },
         ],
         flagActivity: [
@@ -121,6 +146,9 @@ export const releaseCalendarLogic = kea<releaseCalendarLogicType>([
                 if (values.expanded[id]) {
                     posthog.capture('release row expanded', { release_id: id })
                 }
+            },
+            openCalendarItem: ({ releaseId, kind }) => {
+                posthog.capture('release calendar item opened', { release_id: releaseId, kind })
             },
             refreshFlagActivity: ({ flagIds }) => {
                 const requested = flagIds.filter((flagId) => cache.requested?.has(flagId))

@@ -40,6 +40,25 @@ describe('releaseCalendarLogic', () => {
         expect(capture.mock.calls).toEqual([['release row expanded', { release_id: 'release-1' }]])
     })
 
+    it('opens one calendar item at a time and counts each open', async () => {
+        const capture = jest.mocked(posthog.capture)
+        capture.mockClear()
+        const logic = releaseCalendarLogic()
+        logic.mount()
+
+        logic.actions.openCalendarItem('release-1', 'flag-1', 'flag')
+        logic.actions.openCalendarItem('release-2', 'survey-9', 'survey')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.openItem).toEqual({ releaseId: 'release-2', laneKey: 'survey-9' })
+
+        logic.actions.closeCalendarItem()
+        expect(logic.values.openItem).toBeNull()
+        expect(capture.mock.calls).toEqual([
+            ['release calendar item opened', { release_id: 'release-1', kind: 'flag' }],
+            ['release calendar item opened', { release_id: 'release-2', kind: 'survey' }],
+        ])
+    })
+
     it('retries a flag whose history failed to load', async () => {
         mockedRetrieve.mockRejectedValueOnce(new Error('offline')).mockResolvedValue(PAGE as never)
         const logic = releaseCalendarLogic()

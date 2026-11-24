@@ -8,6 +8,7 @@ import { dayjs } from 'lib/dayjs'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 
 import { ReleaseAddLinkCombobox } from './ReleaseAddLinkCombobox'
+import { ReleaseCalendarItemPanel } from './ReleaseCalendarItemPanel'
 import { releaseCalendarLogic } from './releaseCalendarLogic'
 import { ReleaseFlagActions, ReleaseVariantWarning, emptyVariantWarning } from './ReleaseFlagActions'
 import { ReleaseLaneRemoveButton } from './ReleaseLaneRemoveButton'
@@ -131,6 +132,7 @@ function TrackLaneCell({ row: lane }: CellContext<Lane, unknown>): JSX.Element {
                 detailed={!stacked}
                 flush
                 stickyOffset={stickyOffset}
+                releaseId={row.id}
             />
             {lane.original.kind === 'flag' && (
                 <FlagHistoryLoader flagId={lane.original.flag.id} onLoad={loadFlagActivity} />
@@ -271,6 +273,7 @@ export function ReleaseTrackCard({ row }: { row: ReleaseRow }): JSX.Element {
                     {canEditReleases && <ReleaseAddLinkCombobox row={row} />}
                 </CardFooter>
             )}
+            <ReleaseCalendarItemPanel />
         </Card>
     )
 }

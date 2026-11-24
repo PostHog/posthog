@@ -12,7 +12,7 @@ import { REVIEW_AFTER_DAYS, ReleaseSpan } from './releaseUtils'
 export const LANE_CARD_CLASS =
     'w-60 max-w-none items-stretch rounded-md border border-border bg-card p-3 text-foreground shadow-[var(--shadow-md)] [&>*:last-child]:hidden'
 
-const KIND_ICON: Record<Lane['kind'] | ReleaseSpan['kind'], string> = {
+export const KIND_ICON: Record<Lane['kind'] | ReleaseSpan['kind'], string> = {
     flag: 'feature_flag',
     experiment: 'experiment',
     experiment_done: 'experiment',

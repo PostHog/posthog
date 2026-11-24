@@ -1,7 +1,10 @@
+import { useActions } from 'kea'
+
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger, cn } from '@posthog/quill'
 
 import { dayjs } from 'lib/dayjs'
 
+import { releaseCalendarLogic } from './releaseCalendarLogic'
 import { LANE_CARD_CLASS, ReleaseLaneCard } from './ReleaseLaneCard'
 import { RolloutStep } from './releaseRollout'
 import { Lane, Scale, rolloutSegments } from './releaseTracks'
@@ -21,6 +24,7 @@ export function ReleaseRolloutBar({
     height,
     stickyOffset = 0,
     lane,
+    releaseId,
 }: {
     steps: RolloutStep[]
     scale: Scale
@@ -29,7 +33,9 @@ export function ReleaseRolloutBar({
     height: number
     stickyOffset?: number
     lane?: Lane
+    releaseId?: string
 }): JSX.Element | null {
+    const { openCalendarItem } = useActions(releaseCalendarLogic)
     const segments = rolloutSegments(steps, scale, dayjs(), lane?.kind === 'flag' && !!lane.flag.archived)
     const end = scale.days * scale.day
     if (!segments.length) {
@@ -47,9 +53,17 @@ export function ReleaseRolloutBar({
                     <Tooltip key={`${step.from}-${index}`} trackCursorAxis="x">
                         <TooltipTrigger
                             render={
-                                <div
+                                <button
+                                    type="button"
+                                    aria-label={lane ? `Show details for ${lane.title}` : undefined}
+                                    onClick={(event) => {
+                                        if (lane && releaseId) {
+                                            event.stopPropagation()
+                                            openCalendarItem(releaseId, lane.key, lane.kind)
+                                        }
+                                    }}
                                     className={cn(
-                                        'absolute flex items-center border-y text-[10px] font-semibold tabular-nums text-foreground',
+                                        'absolute flex cursor-pointer items-center border-y p-0 text-start text-[10px] font-semibold tabular-nums text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30',
                                         dashed && 'border-dashed',
                                         isFirst && 'rounded-l-full border-l',
                                         isLast && 'rounded-r-full border-r'
