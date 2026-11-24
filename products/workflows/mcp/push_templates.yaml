@@ -102,7 +102,7 @@ tools:
     workflows-send-push-batch:
         operation: messaging_send_push_batch_create
         enabled: false
-        disabled_reason: >
-            The confirmation step can't show the recipients or message_data of a batch, so a user would approve up to 100
-            pushes without seeing who gets them or what they say. Agents send one person at a time with
+        disabled_reason:
+            The confirmation step can't show the recipients or message_data of a batch, so a user would approve up
+            to 100 pushes without seeing who gets them or what they say. Agents send one person at a time with
             workflows-send-push until the confirmation can show the batch.
