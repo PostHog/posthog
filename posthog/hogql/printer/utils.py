@@ -42,7 +42,7 @@ from posthog.hogql.transforms.json_property_pushdown import (
     has_rewritable_json_extract,
     rewrite_json_extract_to_property,
 )
-from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
+from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables, take_join_filters
 from posthog.hogql.transforms.logical_property_lowering import lower_property_access
 from posthog.hogql.transforms.materialized_ctes import materialize_repeated_ctes
 from posthog.hogql.transforms.metrics_time_bucket_bounds import add_metrics_time_bucket_bounds
@@ -223,6 +223,9 @@ def prepare_ast_for_printing(
         from posthog.hogql.transforms.trino.normalize import (  # noqa: PLC0415 -- load the optional backend only for Trino compilation
             normalize_trino_ast,
         )
+        from posthog.hogql.transforms.trino.timestamp_ranges import (  # noqa: PLC0415 -- load the optional backend only for Trino compilation
+            add_events_timestamp_ranges,
+        )
         from posthog.hogql.transforms.trino.validate import (  # noqa: PLC0415 — breaks validator → printer package cycle
             validate_trino_context,
             validate_trino_source_ast,
@@ -376,6 +379,7 @@ def prepare_ast_for_printing(
         with context.timings.measure("trino_structural_lowering"):
             # The next resolver pass looks up logical schema keys, which may differ from physical column names.
             node = cast(_T_AST, normalize_trino_ast(node, context, physical_names=False))
+            node = cast(_T_AST, add_events_timestamp_ranges(node, context))
         with context.timings.measure("resolve_types_after_trino_structural_lowering"):
             node = clone_expr(node, clear_types=True)
             node = resolve_types(
@@ -385,6 +389,10 @@ def prepare_ast_for_printing(
                 scopes=[scope.type for scope in stack if scope.type is not None] if stack else None,
                 resolver_factory=resolver_factory,
             )
+
+    # Other dialects take the filters at the entry of `resolve_lazy_tables`. ClickHouse runs the property swapper first.
+    if dialect == "clickhouse":
+        take_join_filters(node, context)
 
     if dialect in SQL_TARGET_DIALECTS:
         with context.timings.measure("resolve_lazy_tables"):
@@ -484,7 +492,7 @@ def prepare_ast_for_printing(
                 clickhouse_property_resolution,
             )
 
-            node = clickhouse_property_resolution(node, context)
+            node = clickhouse_property_resolution(node, context, settings)
 
         if context.order_events_reads_by_sort_key:
             # After property resolution, so the timestamp column is already wrapped and every table type is final.

@@ -1,15 +1,19 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonSkeleton, LemonTable, LemonTableColumn } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSkeleton, LemonTable, LemonTableColumn, Link } from '@posthog/lemon-ui'
 
-import { percentage } from 'lib/utils/numbers'
+import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
 import { PagePerformanceCard } from 'scenes/web-analytics/PagePerformanceCard'
 import { PagePerformanceCardHeader } from 'scenes/web-analytics/PagePerformanceCardHeader'
 
 import type { AEOKeywordReportRowApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
+import { GOOGLE_SEARCH_CONSOLE_DOCS_URL } from '../searchAndAi/searchAndAiQueries'
+import { contentAutopilotKeywordSearchLogic } from './contentAutopilotKeywordSearchLogic'
 import { contentAutopilotKeywordsLogic } from './contentAutopilotKeywordsLogic'
+import type { KeywordSearchImpressions } from './keywordSearchImpressions'
+import { windowRange } from './utils'
 
 type ReportColumn = LemonTableColumn<AEOKeywordReportRowApi, keyof AEOKeywordReportRowApi | undefined>
 
@@ -113,9 +117,69 @@ const COLUMNS: ReportColumn[] = [
     },
 ]
 
+type SearchMetric = keyof KeywordSearchImpressions
+
+const SEARCH_COLUMNS: { metric: SearchMetric; title: string; tooltip: string }[] = [
+    {
+        metric: 'impressions',
+        title: 'Impressions',
+        tooltip:
+            'How often your site appeared on Google for searches that contain this keyword, in this date range. It comes from Google Search Console and counts searches where your site was shown, not every search for the keyword.',
+    },
+    {
+        metric: 'clicks',
+        title: 'Clicks',
+        tooltip: 'Clicks to your site from Google searches that contain this keyword, in this date range.',
+    },
+    {
+        metric: 'searches',
+        title: 'Searches',
+        tooltip: 'Different Google searches that contain this keyword and showed your site, in this date range.',
+    },
+    {
+        metric: 'position',
+        title: 'Search position',
+        tooltip:
+            'Where your top result ranks on Google for searches that contain this keyword, on average, weighted by impressions. 1 is first.',
+    },
+]
+
+/** One sortable column per Search Console number. Null `impressions` means they have not loaded. */
+const searchColumns = (impressions: Record<string, KeywordSearchImpressions> | null): ReportColumn[] =>
+    SEARCH_COLUMNS.map(({ metric, title, tooltip }) => ({
+        title,
+        key: `google_${metric}`,
+        align: 'right',
+        tooltip,
+        // A keyword with no number sorts as the lowest count, and as the worst position.
+        sorter: (a, b) => {
+            const missing = metric === 'position' ? Infinity : 0
+            return (impressions?.[a.keyword]?.[metric] ?? missing) - (impressions?.[b.keyword]?.[metric] ?? missing)
+        },
+        render: (_, row) => {
+            if (!impressions) {
+                return <LemonSkeleton className="ml-auto h-4 w-12" />
+            }
+            const value = impressions[row.keyword]?.[metric] ?? null
+            if (metric === 'position') {
+                return value === null ? (
+                    <span className="text-muted">-</span>
+                ) : (
+                    <span className="tabular-nums">{value.toFixed(1)}</span>
+                )
+            }
+            return <span className="tabular-nums">{humanFriendlyNumber(value ?? 0, 0)}</span>
+        },
+    }))
+
 export const ContentAutopilotKeywordReportTable = (): JSX.Element => {
     const { report, reportLoading, reportError } = useValues(contentAutopilotKeywordsLogic)
     const { loadReport } = useActions(contentAutopilotKeywordsLogic)
+    const { searchTable, searchConsoleMissing, impressions, impressionsFailed } = useValues(
+        contentAutopilotKeywordSearchLogic
+    )
+    // The columns show only for a project with a Search Console source whose numbers loaded or are loading.
+    const columns = searchTable && !impressionsFailed ? [...COLUMNS, ...searchColumns(impressions)] : COLUMNS
 
     return (
         <PagePerformanceCard className="min-w-0">
@@ -132,8 +196,8 @@ export const ContentAutopilotKeywordReportTable = (): JSX.Element => {
                 <LemonSkeleton className="h-32 m-3" />
             ) : report.answers === 0 ? (
                 <p className="m-0 p-3 text-muted" data-attr="content-autopilot-keywords-report-empty">
-                    No answers in the last {report.days} days. Once the daily run checks your prompts, this table shows
-                    how each keyword performs.
+                    No answers {windowRange(report)}. Once the daily run checks your prompts, this table shows how each
+                    keyword performs.
                 </p>
             ) : (
                 <div className="overflow-x-auto" data-attr="content-autopilot-keywords-report">
@@ -143,12 +207,23 @@ export const ContentAutopilotKeywordReportTable = (): JSX.Element => {
                         dataSource={report.keywords}
                         rowKey="keyword"
                         loading={reportLoading}
-                        columns={COLUMNS}
+                        columns={columns}
                         defaultSorting={{ columnKey: 'answer_mention_rate', order: -1 }}
                         footer={
                             <span className="px-3 py-2 text-xs text-muted">
-                                Over {pluralize(report.answers, 'answer')} in the last {report.days} days. A keyword
-                                matches any text that contains it, case ignored.
+                                Over {pluralize(report.answers, 'answer')} {windowRange(report)}. A keyword matches any
+                                text that contains it, case ignored.
+                                {searchConsoleMissing ? (
+                                    <>
+                                        {' '}
+                                        <Link to={GOOGLE_SEARCH_CONSOLE_DOCS_URL} target="_blank">
+                                            Connect Google Search Console
+                                        </Link>{' '}
+                                        to see how often your site appears on Google for each keyword.
+                                    </>
+                                ) : impressionsFailed ? (
+                                    " Couldn't load the Search Console numbers. Reload the page to try again."
+                                ) : null}
                             </span>
                         }
                     />

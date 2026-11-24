@@ -286,6 +286,15 @@ export interface InstrumentationChecklistApi {
     window_days: number
     /** Every check, graded. Checks are always all returned, including the ones that pass. */
     checks: InstrumentationCheckApi[]
+    /**
+     * Ready-made prompt to give a coding agent, listing every check graded 'warning' with its docs link. Null when no check warns.
+     * @nullable
+     */
+    agent_prompt: string | null
+    /** How many checks need no work: those graded 'ok' plus those dismissed. */
+    passing: number
+    /** How many checks were graded, the number `passing` is out of. */
+    total: number
 }
 
 export interface InstrumentationCheckActionApi {
@@ -1687,8 +1696,10 @@ export interface TraceListItemApi {
     totals: TraceNodeStatsApi
     hasError: boolean
     errorCount: number
-    /** Whether the totals, error count and tools were computed from the trace's earliest events only, because the trace has more events than were read. */
+    /** Whether the token counts, error count and tools were computed from only some of the trace's events, because the trace has more events than were read or may have started before the time range read. */
     totalsPartial: boolean
+    /** Whether the cost and latency were computed from only some of the trace's events, because the trace may have started before the time range read. Otherwise they cover the whole trace, even when the token counts are partial. */
+    costAndLatencyPartial: boolean
     /** The step the trace opens on. Null when the totals are partial, because the opening step may be among the events not read. */
     defaultNodeId: string | null
     /** The error text of the trace's earliest failed step that carries one, cut at 200 characters. Null when no failed step carries error text. */
@@ -1882,8 +1893,10 @@ export interface TraceApi {
     totals: TraceNodeStatsApi
     hasError: boolean
     errorCount: number
-    /** Whether the totals, error count and tools were computed from the trace's earliest events only, because the trace has more events than were read. */
+    /** Whether the token counts, error count and tools were computed from only some of the trace's events, because the trace has more events than were read or may have started before the time range read. */
     totalsPartial: boolean
+    /** Whether the cost and latency were computed from only some of the trace's events, because the trace may have started before the time range read. Otherwise they cover the whole trace, even when the token counts are partial. */
+    costAndLatencyPartial: boolean
     person: TracePersonApi | null
     tree: TraceNodeApi[]
     timeline: TraceTimelineRowApi[]
@@ -2356,6 +2369,109 @@ export interface TraceAvailabilityRequestApi {
 export interface TraceAvailabilityApi {
     /** Requested trace IDs readable from AI events or the shared events table. */
     available_trace_ids: string[]
+}
+
+export type TraceMetricBucketSizeApi = (typeof TraceMetricBucketSizeApi)[keyof typeof TraceMetricBucketSizeApi]
+
+export const TraceMetricBucketSizeApi = {
+    Hour: 'hour',
+    Day: 'day',
+} as const
+
+export type TraceMetricKeyApi = (typeof TraceMetricKeyApi)[keyof typeof TraceMetricKeyApi]
+
+export const TraceMetricKeyApi = {
+    Cost: 'cost',
+    Users: 'users',
+    Sessions: 'sessions',
+    Traces: 'traces',
+    ErrorRate: 'error_rate',
+    P95Latency: 'p95_latency',
+} as const
+
+export type TraceMetricChangeUnitApi = (typeof TraceMetricChangeUnitApi)[keyof typeof TraceMetricChangeUnitApi]
+
+export const TraceMetricChangeUnitApi = {
+    Percent: 'percent',
+    Points: 'points',
+    Seconds: 'seconds',
+} as const
+
+export type TraceMetricChangeToneApi = (typeof TraceMetricChangeToneApi)[keyof typeof TraceMetricChangeToneApi]
+
+export const TraceMetricChangeToneApi = {
+    Good: 'good',
+    Bad: 'bad',
+    Neutral: 'neutral',
+} as const
+
+export type TraceMetricStatusApi = (typeof TraceMetricStatusApi)[keyof typeof TraceMetricStatusApi]
+
+export const TraceMetricStatusApi = {
+    Ok: 'ok',
+    NotSetUp: 'not_set_up',
+} as const
+
+export interface TraceMetricLatencyQuantilesApi {
+    /** The median trace latency, in seconds. */
+    p50Seconds: number
+    /** The 99th percentile trace latency, in seconds. */
+    p99Seconds: number
+}
+
+export interface TraceMetricTileApi {
+    /** The metric this tile shows. */
+    key: TraceMetricKeyApi
+    /** The metric's display name. */
+    label: string
+    /** The metric over the date range. Cost is in USD, error rate is a fraction from 0 to 1, p95 latency is in seconds. Null when the range has nothing to compute it from. */
+    value: number | null
+    /** The metric over the period of the same length right before the date range, or null. */
+    previous: number | null
+    /** How far the value moved from the previous period, in `changeUnit`. Null when either side is null, or when a percent change has a previous value of zero. */
+    change: number | null
+    /** The unit of `change`. */
+    changeUnit: TraceMetricChangeUnitApi
+    /** Whether the change is good or bad news. A rising error rate or p95 latency is `bad` and a falling one `good`. Every other metric, and no change, is `neutral`. */
+    changeTone: TraceMetricChangeToneApi
+    /** `not_set_up` when the project has traces in the range but none carries the data this metric needs, such as no cost, no latency, no session or no identified user. */
+    status: TraceMetricStatusApi
+    /** The docs page that explains how to capture this metric. Set only when `status` is `not_set_up`. */
+    docsUrl: string | null
+    /** The text of the link to `docsUrl`, such as Identify users. Set only when `status` is `not_set_up`. */
+    setupLabel: string | null
+    /** One line about the value, such as the number of errored traces. Null on the p95 latency tile, which has `latencyQuantiles` instead, and when the range has nothing to compute it from. */
+    detail: string | null
+    /** The p50 and p99 trace latency over the date range. Set only on the p95 latency tile, and null when the range has no latency. */
+    latencyQuantiles: TraceMetricLatencyQuantilesApi | null
+    /** The metric over the traces that started in each bucket, in the order of `bucketStarts`. Null where a bucket has nothing to compute it from. */
+    series: (number | null)[]
+    /** A HogQL query that returns `series`: one row per bucket, with its start in `bucket` and the metric in `value`. Run it as an SQL insight to explore the same numbers. */
+    insightQuery: string
+}
+
+export interface TraceMetricsApi {
+    /** The start of the date range. */
+    dateFrom: string
+    /** The end of the date range. */
+    dateTo: string
+    /** The start of the previous period the tiles compare against. */
+    previousDateFrom: string
+    /** The end of the previous period, which is `dateFrom`. */
+    previousDateTo: string
+    /** The width of each bucket. */
+    bucketSize: TraceMetricBucketSizeApi
+    /** The start of each hour or day of the date range in the project's time zone, oldest first, with no gaps. */
+    bucketStarts: string[]
+    /** One tile for each metric. */
+    tiles: TraceMetricTileApi[]
+}
+
+export interface TraceMetricsRangeTooLongApi {
+    /** What went wrong, for a person. */
+    detail: string
+    /** A stable code to branch on. */
+    code: 'range_too_long'
 }
 
 export interface TracePageWithBoundsRequestApi {
@@ -3208,6 +3324,16 @@ export interface EvalSuggestionDismissApi {
      * * `too_noisy` - Too noisy
      * * `fixed_cause` - Fixed the cause */
     reason?: EvalSuggestionDismissReasonEnumApi | null
+}
+
+export interface EvalSuggestionSettingsApi {
+    /** Whether the project gets suggestions. While false, the list returns none and the weekly run skips the project. */
+    enabled: boolean
+}
+
+export interface PatchedEvalSuggestionSettingsApi {
+    /** Whether the project gets suggestions. While false, the list returns none and the weekly run skips the project. */
+    enabled?: boolean
 }
 
 /**
@@ -4139,8 +4265,6 @@ export interface PassRateOverviewApi {
     median: number | null
     /** Median pass rate in each period, over evaluations with results in both. Null when none has. */
     medianComparison: PeriodComparisonApi | null
-    /** Median pass rate per bucket, aligned with `buckets`. */
-    medianTrend: (number | null)[]
 }
 
 export interface EvaluationsOverviewApi {
@@ -5470,7 +5594,7 @@ export interface LLMProviderModelsSummaryApi {
     provider: string
     /** How many of this provider's models appear in `models`. */
     model_count: number
-    /** True when this provider's models can only be listed by passing `key_id` for one of the team's provider keys, so `model_count` is 0 until a key is supplied. False means PostHog funds some of the provider's models in the playground. LLM-judge evaluations and LLM taggers always run on one of the team's own provider keys, whatever this value is. */
+    /** True when this provider's models can only be listed by passing `key_id` for one of the team's provider keys, so `model_count` is 0 until a key is supplied. False means PostHog funds some of the provider's models in the playground. LLM-judge evaluations always run on one of the team's own provider keys, whatever this value is. */
     requires_provider_key: boolean
 }
 
@@ -6562,281 +6686,6 @@ export interface LLMPromptResolveResponseApi {
     referenced_by: LLMPromptReferencedByApi[]
 }
 
-/**
- * * `llm` - LLM
- * * `hog` - Hog
- */
-export type TaggerTypeEnumApi = (typeof TaggerTypeEnumApi)[keyof typeof TaggerTypeEnumApi]
-
-export const TaggerTypeEnumApi = {
-    Llm: 'llm',
-    Hog: 'hog',
-} as const
-
-export interface TagDefinitionApi {
-    /**
-     * Tag identifier
-     * @maxLength 100
-     */
-    name: string
-    /**
-     * Description to help the LLM classify
-     * @maxLength 500
-     */
-    description?: string
-}
-
-export interface LLMTaggerConfigApi {
-    /**
-     * Prompt instructing the LLM how to tag generations
-     * @minLength 1
-     */
-    prompt: string
-    /** Available tags the LLM can assign */
-    tags: TagDefinitionApi[]
-    /**
-     * Minimum number of tags to apply
-     * @minimum 0
-     */
-    min_tags?: number
-    /**
-     * Maximum number of tags to apply (null = no limit)
-     * @minimum 1
-     * @nullable
-     */
-    max_tags?: number | null
-}
-
-export interface HogTaggerConfigApi {
-    /**
-     * Hog source code to classify a generation into tags.
-     * @minLength 1
-     */
-    source: string
-    /** Optional tag whitelist. Leave empty to allow any tag returned by the Hog code. */
-    tags?: TagDefinitionApi[]
-}
-
-export type TaggerConfigApi = LLMTaggerConfigApi | HogTaggerConfigApi
-
-export type TaggerConditionApiPropertiesItem = { [key: string]: unknown }
-
-export interface TaggerConditionApi {
-    /**
-     * Stable identifier for this condition
-     * @maxLength 100
-     */
-    id: string
-    /**
-     * Percentage of matching events to apply this condition to
-     * @minimum 0
-     * @maximum 100
-     */
-    rollout_percentage?: number
-    /** Property filters that scope when this condition fires */
-    properties?: TaggerConditionApiPropertiesItem[]
-}
-
-/**
- * * `openai` - Openai
- * * `anthropic` - Anthropic
- * * `gemini` - Gemini
- * * `openrouter` - Openrouter
- * * `fireworks` - Fireworks
- * * `azure_openai` - Azure OpenAI
- * * `together_ai` - Together AI
- * * `minimax` - MiniMax
- * * `openai_compatible` - OpenAI-compatible
- */
-export type LLMCompletionProviderEnumApi =
-    (typeof LLMCompletionProviderEnumApi)[keyof typeof LLMCompletionProviderEnumApi]
-
-export const LLMCompletionProviderEnumApi = {
-    Openai: 'openai',
-    Anthropic: 'anthropic',
-    Gemini: 'gemini',
-    Openrouter: 'openrouter',
-    Fireworks: 'fireworks',
-    AzureOpenai: 'azure_openai',
-    TogetherAi: 'together_ai',
-    Minimax: 'minimax',
-    OpenaiCompatible: 'openai_compatible',
-} as const
-
-/**
- * Nested serializer for model configuration.
- */
-export interface TaggerModelConfigurationApi {
-    /** LLM provider to use for this tagger.
-     *
-     * * `openai` - Openai
-     * * `anthropic` - Anthropic
-     * * `gemini` - Gemini
-     * * `openrouter` - Openrouter
-     * * `fireworks` - Fireworks
-     * * `azure_openai` - Azure OpenAI
-     * * `together_ai` - Together AI
-     * * `minimax` - MiniMax
-     * * `openai_compatible` - OpenAI-compatible */
-    provider: LLMCompletionProviderEnumApi
-    /**
-     * Provider model identifier to use for this tagger.
-     * @maxLength 100
-     */
-    model: string
-    /**
-     * Existing LLM provider key UUID for the current project. Do not invent this value; use a real provider key ID returned by PostHog, or omit/null when no provider key should be pinned.
-     * @nullable
-     */
-    provider_key_id?: string | null
-    /** @nullable */
-    readonly provider_key_name: string | null
-}
-
-export interface TaggerApi {
-    readonly id: string
-    /** @maxLength 400 */
-    name: string
-    description?: string
-    enabled?: boolean
-    tagger_type?: TaggerTypeEnumApi
-    /** Tagger configuration. For tagger_type 'llm': {prompt, tags, min_tags?, max_tags?}. For tagger_type 'hog': {source, tags?}. */
-    tagger_config: TaggerConfigApi
-    /** Conditions that scope when the tagger runs */
-    conditions?: TaggerConditionApi[]
-    model_configuration?: TaggerModelConfigurationApi | null
-    readonly created_at: string
-    readonly updated_at: string
-    readonly created_by: UserBasicApi
-    deleted?: boolean
-    /**
-     * The evaluation that replaced this tagger when it was migrated. Null until then.
-     * @nullable
-     */
-    readonly migrated_to_evaluation_id: string | null
-}
-
-export interface PaginatedTaggerListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: TaggerApi[]
-}
-
-export interface TaggerModelConfigurationWriteApi {
-    /** LLM provider to use for this tagger.
-     *
-     * * `openai` - Openai
-     * * `anthropic` - Anthropic
-     * * `gemini` - Gemini
-     * * `openrouter` - Openrouter
-     * * `fireworks` - Fireworks
-     * * `azure_openai` - Azure OpenAI
-     * * `together_ai` - Together AI
-     * * `minimax` - MiniMax
-     * * `openai_compatible` - OpenAI-compatible */
-    provider: LLMCompletionProviderEnumApi
-    /**
-     * Provider model identifier to use for this tagger.
-     * @maxLength 100
-     */
-    model: string
-    /**
-     * Existing LLM provider key UUID for the current project. Do not invent this value; use a real provider key ID returned by PostHog, or omit/null when no provider key should be pinned.
-     * @nullable
-     */
-    provider_key_id?: string | null
-}
-
-export interface TaggerUpdateApi {
-    /** @maxLength 400 */
-    name: string
-    description?: string
-    enabled?: boolean
-    tagger_type?: TaggerTypeEnumApi
-    /** Tagger configuration. For tagger_type 'llm': {prompt, tags, min_tags?, max_tags?}. For tagger_type 'hog': {source, tags?}. */
-    tagger_config: TaggerConfigApi
-    /** Conditions that scope when the tagger runs */
-    conditions?: TaggerConditionApi[]
-    model_configuration?: TaggerModelConfigurationWriteApi | null
-    deleted?: boolean
-}
-
-export interface PatchedTaggerUpdateApi {
-    /** @maxLength 400 */
-    name?: string
-    description?: string
-    enabled?: boolean
-    tagger_type?: TaggerTypeEnumApi
-    /** Tagger configuration. For tagger_type 'llm': {prompt, tags, min_tags?, max_tags?}. For tagger_type 'hog': {source, tags?}. */
-    tagger_config?: TaggerConfigApi
-    /** Conditions that scope when the tagger runs */
-    conditions?: TaggerConditionApi[]
-    model_configuration?: TaggerModelConfigurationWriteApi | null
-    deleted?: boolean
-}
-
-export interface TestHogTaggerTagApi {
-    /**
-     * Tag identifier to allow in Hog test results.
-     * @maxLength 100
-     */
-    name: string
-    /**
-     * Optional description for the tag.
-     * @maxLength 500
-     */
-    description?: string
-}
-
-export interface TestHogTaggerRequestApi {
-    /**
-     * Hog source code to test. Return a tag name string, a list of tag name strings, or null.
-     * @minLength 1
-     */
-    source: string
-    /**
-     * Number of recent $ai_generation events to test against (1-10, default 5).
-     * @minimum 1
-     * @maximum 10
-     */
-    sample_count?: number
-    /** Optional tag whitelist. Returned tags outside this list are filtered out. */
-    tags?: TestHogTaggerTagApi[]
-}
-
-export interface TestHogTaggerResultItemApi {
-    /** UUID of the sampled $ai_generation event. */
-    event_uuid: string
-    /**
-     * Trace ID if available.
-     * @nullable
-     */
-    trace_id?: string | null
-    /** First 200 characters of the generation input. */
-    input_preview: string
-    /** First 200 characters of the generation output. */
-    output_preview: string
-    /** Tag names returned by the Hog code. */
-    tags: string[]
-    /** Text written to stdout by the Hog code. */
-    reasoning: string
-    /**
-     * Error message if the Hog code failed.
-     * @nullable
-     */
-    error?: string | null
-}
-
-export interface TestHogTaggerResponseApi {
-    /** Per-event Hog tagger test results. */
-    results: TestHogTaggerResultItemApi[]
-    /** Optional message, for example when no recent AI events were found. */
-    message?: string
-}
-
 export type LlmAnalyticsPersonalSpendListParams = {
     /**
      * When set, additionally return a `by_bucket` breakdown: a time-ascending UTC cost series for the scoped product at this bucket size in minutes, with per-bucket cost split into uncached input / output / cache read / cache creation components plus the matching token sums. Supported bucket sizes: 5, 15, 30, 60. The window may span at most 600 buckets of the chosen size (e.g. 50 hours at 5-minute buckets).
@@ -7436,6 +7285,24 @@ export type AiObservabilityTracesRetrieveParams = {
      * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
      */
     timestamp_hint?: string
+}
+
+export type AiObservabilityTracesMetricsListParams = {
+    /**
+     * Start of the date range, as an ISO 8601 date or datetime, a relative date such as -24h or -7d, or all for the past year. Defaults to seven days ago.
+     * @minLength 1
+     */
+    date_from?: string
+    /**
+     * End of the date range, as an ISO 8601 date or datetime or a relative date. A date without a time includes that whole day. Defaults to now.
+     * @minLength 1
+     */
+    date_to?: string
+    /**
+     * Whether to leave out events from the project's test accounts. Defaults to the project's own setting for filtering test accounts.
+     * @nullable
+     */
+    filter_test_accounts?: boolean | null
 }
 
 export type DatasetItemsListParams = {
@@ -8168,42 +8035,4 @@ export type LlmPromptsResolveNameRetrieveParams = {
      * Exact prompt version UUID to resolve. Can be used together with version for extra safety.
      */
     version_id?: string
-}
-
-export type TaggersListParams = {
-    /**
-     * Filter by enabled status
-     */
-    enabled?: boolean
-    /**
-     * Multiple values may be separated by commas.
-     */
-    id__in?: string[]
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * Only the tagger that was migrated to this evaluation
-     */
-    migrated_to_evaluation_id?: string
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-    /**
-     * Ordering
-     *
-     * * `created_at` - Created At
-     * * `-created_at` - Created At (descending)
-     * * `updated_at` - Updated At
-     * * `-updated_at` - Updated At (descending)
-     * * `name` - Name
-     * * `-name` - Name (descending)
-     */
-    order_by?: string[]
-    /**
-     * Search in name or description
-     */
-    search?: string
 }

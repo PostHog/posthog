@@ -98,6 +98,8 @@ class TestStaticCohortReconciliation(BaseTest):
             ("errored_long_ago", 0, 3, {"last_error_at_ago": timedelta(days=2)}, True),
             ("deleted", 0, 3, {"deleted": True}, False),
             ("last_population_failed", 0, 3, {"errors_calculating": 1}, False),
+            ("organization_deactivated", 0, 3, {"organization_is_active": False}, False),
+            ("organization_never_deactivated", 0, 3, {"organization_is_active": None}, True),
         ]
     )
     @patch.object(static_reconciliation, "RECONCILE_MAX_MEMBERS", 250)
@@ -114,6 +116,9 @@ class TestStaticCohortReconciliation(BaseTest):
             if f"{field}_ago" in fields:
                 fields[field] = self.now - fields.pop(f"{field}_ago")
         created_at = fields.pop("created_at", None)
+        if "organization_is_active" in fields:
+            self.organization.is_active = fields.pop("organization_is_active")
+            self.organization.save()
         cohort = self._static_cohort(clickhouse_members=clickhouse_members, count=stored_count, **fields)
         if created_at is not None:
             Cohort.objects.filter(pk=cohort.pk).update(created_at=created_at)
@@ -264,9 +269,10 @@ class TestStaticCohortReconciliation(BaseTest):
         cohort.refresh_from_db()
         self.assertEqual(cohort.count, 1)
 
-    def test_parks_a_complete_cohort_with_duplicate_clickhouse_rows(self) -> None:
+    @parameterized.expand([("duplicate_row", False), ("nil_uuid_row", True)])
+    def test_parks_a_complete_cohort_with_extra_clickhouse_rows(self, _name: str, nil_uuid: bool) -> None:
         person = create_person(team=self.team, distinct_ids=["member"])
-        cohort = self._static_cohort(person_uuids=(person.uuid, person.uuid))
+        cohort = self._static_cohort(person_uuids=(person.uuid, uuid.UUID(int=0) if nil_uuid else person.uuid))
         cohort.insert_users_list_by_uuid_into_pg_only([str(person.uuid)], team_id=self.team.pk)
         Cohort.objects.filter(pk=cohort.pk).update(count=1, last_calculation=self.now - timedelta(days=7))
 

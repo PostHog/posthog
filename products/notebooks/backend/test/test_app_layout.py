@@ -91,6 +91,55 @@ class TestNotebookAppLayout(APIBaseTest):
         response = self.client.patch(url, {"app_revision": 0, "app_draft": LAYOUT}, format="json")
         assert response.status_code == 403
 
+    def test_app_reads_and_writes_resolve_a_remotely_targeted_project(self) -> None:
+        remote_checks: list[tuple[str, str]] = []
+
+        def evaluate_flag(
+            key: str,
+            distinct_id: str,
+            *,
+            groups: dict[str, str] | None = None,
+            only_evaluate_locally: bool = False,
+            **kwargs: Any,
+        ) -> bool | None:
+            if key != "notebook-app-builder":
+                return True
+            if only_evaluate_locally:
+                return None
+            assert groups is not None
+            remote_checks.append((distinct_id, groups["project"]))
+            return distinct_id == self.user.distinct_id and groups["project"] == str(self.team.uuid)
+
+        self.app_flag.side_effect = evaluate_flag
+        notebook = Notebook.objects.create(team=self.team, created_by=self.user)
+        url = f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/"
+        response = self.client.get(url)
+        assert response.status_code == 200
+        assert response.json()["app_revision"] == 0
+        response = self.client.patch(url, {"app_revision": 0, "app_draft": LAYOUT}, format="json")
+        assert response.status_code == 200, response.json()
+        assert response.json()["app_revision"] == 1
+
+        other_team = Team.objects.create(organization=self.organization, name="Other project")
+        other_notebook = Notebook.objects.create(team=other_team, created_by=self.user)
+        response = self.client.patch(
+            f"/api/projects/{other_team.id}/notebooks/{other_notebook.short_id}/",
+            {"app_revision": 0, "app_draft": LAYOUT},
+            format="json",
+        )
+        assert response.status_code == 403, response.json()
+
+        other_user = self.create_user_with_organization(self.organization)
+        self.client.force_login(other_user)
+        response = self.client.get(url)
+        assert response.status_code == 200, response.json()
+        assert "app_draft" not in response.json()
+        assert remote_checks == [
+            (self.user.distinct_id, str(self.team.uuid)),
+            (self.user.distinct_id, str(other_team.uuid)),
+            (other_user.distinct_id, str(self.team.uuid)),
+        ]
+
     def test_draft_and_published_layouts_are_separate_and_reject_stale_writes(self) -> None:
         notebook = Notebook.objects.create(team=self.team, title="App notebook", created_by=self.user)
         url = f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/"

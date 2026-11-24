@@ -1,4 +1,6 @@
-import { LemonBanner, Link, Tooltip } from '@posthog/lemon-ui'
+import { Suspense, lazy } from 'react'
+
+import { LemonBanner, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 import { LLMProviderKeysSettings } from '@posthog/products-ai-observability/frontend/settings/LLMProviderKeysSettings'
 import { ParserRecipesSettings } from '@posthog/products-ai-observability/frontend/settings/ParserRecipesSettings'
 import { AIFeaturesSettings } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/ai_features/AIFeaturesSettings'
@@ -7,6 +9,7 @@ import { AssignmentRules } from '@posthog/products-error-tracking/frontend/scene
 import { GroupingRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/grouping_rules/GroupingRules'
 import { RateLimitSettings } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/rate_limit/RateLimitSettings'
 import { Releases } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/releases/Releases'
+import { ImportWizard } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/sentry_migration/ImportWizard'
 import { SeverityRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/severity_rules/SeverityRules'
 import { SpikeDetectionSettings } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/spike_detection/SpikeDetectionSettings'
 import { SymbolSets } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/SymbolSets'
@@ -23,6 +26,7 @@ import { FEATURE_SUPPORT } from 'lib/components/SupportedPlatforms/featureSuppor
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { PersonalPosthogConnections } from 'lib/integrations/PosthogConnect'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
+import { retryImport } from 'lib/utils/retryImport'
 import { DefaultMinimumDetectableEffect } from 'scenes/experiments/DefaultMinimumDetectableEffect'
 import { GitHub, GitLab, Linear, Slack } from 'scenes/integrations/definitions'
 import { AgentPersonalInstructionsSettings } from 'scenes/settings/environment/AgentPersonalInstructionsSettings'
@@ -49,7 +53,6 @@ import { OrganizationMCPAccess } from 'scenes/settings/organization/Organization
 import { urls } from 'scenes/urls'
 
 import { ConfigScopeEnumApi } from '~/generated/core/api.schemas'
-import { AccessResolutionPreview } from '~/layout/navigation-3000/sidepanel/panels/access_control/ResolutionPreview/AccessResolutionPreview'
 import {
     DefaultRoleSelector,
     RolesAccessControls,
@@ -96,6 +99,7 @@ import { WorkflowsDailyLimitsSettings } from 'products/workflows/frontend/scenes
 import { WorkflowsEmailTrackingConsentSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsEmailTrackingConsentSettings'
 import { WorkflowsEngagementEventsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsEngagementEventsSettings'
 import { WorkflowsFrequencyCapSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsFrequencyCapSettings'
+import { WorkflowsRunLinkTagSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsRunLinkTagSettings'
 import { WorkflowsUtmDefaultsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsUtmDefaultsSettings'
 
 import { SettingScopeTag } from './components/SettingScopeTag'
@@ -229,6 +233,15 @@ import { UpdateEmailPreferences } from './user/UpdateEmailPreferences'
 import { UserDangerZone } from './user/UserDangerZone'
 import { UserDetails } from './user/UserDetails'
 import { WebAnalyticsAchievementsSetting } from './user/WebAnalyticsAchievementsSetting'
+
+// This map ships with the app shell, so the setting's code loads only when its section renders.
+const EvalSuggestionsSettings = lazy(() =>
+    retryImport(() =>
+        import('@posthog/products-ai-observability/frontend/settings/EvalSuggestionsSettings').then((m) => ({
+            default: m.EvalSuggestionsSettings,
+        }))
+    )
+)
 
 export const SETTINGS_MAP: SettingSection[] = [
     // ENVIRONMENT
@@ -735,6 +748,18 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <ParserRecipesSettings />,
                 keywords: ['parser', 'recipe', 'normalize', 'trace', 'provider', 'custom parsing', 'content'],
             },
+            {
+                id: 'ai-observability-eval-suggestions',
+                title: 'Suggested evals',
+                description: 'Up to 3 eval ideas a week at the top of the evaluations page, based on your traces.',
+                component: (
+                    <Suspense fallback={<Spinner />}>
+                        <EvalSuggestionsSettings />
+                    </Suspense>
+                ),
+                flag: 'LLM_ANALYTICS_EVAL_SUGGESTIONS',
+                keywords: ['suggestions', 'suggested evals', 'evaluations', 'evals', 'turn off'],
+            },
         ],
     },
     {
@@ -983,7 +1008,7 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'error-tracking-tag-rules',
                 title: 'Tag rules',
-                description: 'Tag new issues based on rules you define.',
+                description: 'Tag issues based on rules you define.',
                 component: <TagRules />,
                 flag: 'ERROR_TRACKING_ISSUE_TAGS',
                 keywords: ['tag', 'label', 'rule', 'triage', 'categorize'],
@@ -1024,6 +1049,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                 docsUrl: 'https://posthog.com/docs/error-tracking/releases',
                 component: <Releases />,
                 keywords: ['version', 'deploy', 'release', 'regression'],
+            },
+            {
+                id: 'error-tracking-import',
+                title: 'Import from another tool',
+                description:
+                    'Bring filters and rate limits over from another error tracking tool. Review how each setting translates before you import it.',
+                component: <ImportWizard />,
+                flag: 'ERROR_TRACKING_SENTRY_MIGRATION',
+                keywords: ['sentry', 'migrate', 'migration', 'import', 'inbound filter', 'rate limit'],
             },
         ],
     },
@@ -1969,6 +2003,23 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['workflows', 'broadcasts', 'email', 'utm', 'campaign', 'links', 'web analytics'],
             },
             {
+                id: 'workflows-email-run-link-tag',
+                title: 'Connect email clicks to sessions',
+                description:
+                    'Connects each tracked link click in your workflow and broadcast emails to the session it starts on your site, so you can see what the person did next, including the session replay when recording is on. It works for links on the main domain you send email from and on any of its subdomains. For example, when you send from mail.example.com, links to example.com and app.example.com are connected. Your site needs posthog-js. Tracked links carry an extra URL parameter to make the connection.',
+                component: <WorkflowsRunLinkTagSettings />,
+                keywords: [
+                    'workflows',
+                    'broadcasts',
+                    'email',
+                    'links',
+                    'clicks',
+                    'session',
+                    'replay',
+                    'ph_workflow_run',
+                ],
+            },
+            {
                 id: 'workflows-email-tracking-consent',
                 title: 'Email tracking consent',
                 description:
@@ -2651,26 +2702,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'Automatically assign a role to new members when they join the organization. New users will inherit all permissions from this role.',
                 component: <DefaultRoleSelector />,
                 keywords: ['default', 'role', 'new member', 'onboarding'],
-            },
-        ],
-    },
-    {
-        level: 'organization',
-        id: 'organization-access-resolution',
-        title: 'Access resolution preview',
-        flag: 'ACCESS_CONTROL_RESOLUTION_PREVIEW',
-        // Temporary migration surface: reachable only from the access control
-        // settings banner, never from the settings navigation or search
-        hideFromNavigation: true,
-        unavailableFallback: { sectionId: 'organization-roles', label: 'Go to access control settings' },
-        settings: [
-            {
-                id: 'organization-access-resolution-preview',
-                title: 'Access resolution preview',
-                description:
-                    'PostHog is changing how access levels combine: the most specific rule will decide, instead of the highest one. Review what will be different for your organization before the change takes effect.',
-                component: <AccessResolutionPreview />,
-                keywords: ['access control', 'resolution', 'rbac', 'permission', 'override'],
             },
         ],
     },

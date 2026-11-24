@@ -361,6 +361,11 @@ CONSTANCE_CONFIG = {
         "Whether teams are on an allow list to bypass rate limiting. Comma separated list of team-ids",
         str,
     ),
+    "TRANSACTIONAL_EMAIL_RATE_LIMIT_ALLOW_LIST_TEAMS": (
+        get_from_env("TRANSACTIONAL_EMAIL_RATE_LIMIT_ALLOW_LIST_TEAMS", ""),
+        "Comma-separated team IDs that skip the transactional email send rate limits. Unlike RATE_LIMITING_ALLOW_LIST_TEAMS, no other limit is lifted.",
+        str,
+    ),
     "FLAGS_LOG_BODIES_TEAMS": (
         get_from_env("FLAGS_LOG_BODIES_TEAMS", "{}"),
         'Per-team /flags request and response body logging. JSON object mapping team_id (string) to a non-empty list of flag-key wildcard patterns; the response is filtered to flags matching any pattern. "{}" disables logging entirely. Examples: \'{"123": ["my-feature", "checkout-*"]}\' logs only matching flag keys for team 123. To capture every flag (rare, noisy), use [\\"*\\"] explicitly. The Rust feature-flags service polls this every ~60s. Limits: at most 100 teams, 50 patterns per team, 256 bytes per pattern.',
@@ -368,11 +373,11 @@ CONSTANCE_CONFIG = {
     ),
     "FLAG_EVALUATIONS_READS_FORCE_EVENTS": (
         get_from_env("FLAG_EVALUATIONS_READS_FORCE_EVENTS", False, type_cast=str_to_bool),
-        "When on, every organization on flag_evaluations mode 1 reads its flag calls from the events table: the "
+        "When on, every organization on flag_evaluations mode 1, or on mode 2 with its events writes kept, reads its flag calls from the events table: the "
         "feature flag Usage tab, the per-project counts on a flag's Projects tab, event lists filtered to only "
         "$feature_flag_called, the home page flag call and enrollment counts, and HogQL queries. Event pickers and "
         "the actions and cohorts APIs also accept $feature_flag_called again. Use it when the flag_evaluations table "
-        "stops receiving rows. Organizations on mode 2 keep reading flag_evaluations, because ingestion writes no new "
+        "stops receiving rows. Organizations on mode 2 without kept events writes keep reading flag_evaluations, because ingestion writes no new "
         "flag calls to events for their teams. A project that reads the native JSON events table keeps reading flag_evaluations "
         "whatever the mode, because that table holds no flag calls. "
         "Stored modes and the flag_evaluations SQL table stay as they are, so turning it off restores every "
@@ -488,6 +493,13 @@ CONSTANCE_CONFIG = {
         "address is always in or always out of the sample, so Radar gets every login of a sampled account.",
         int,
     ),
+    "TEAM_DELETE_PERSONS_MAX_CONCURRENT_BATCHES": (
+        get_from_env("TEAM_DELETE_PERSONS_MAX_CONCURRENT_BATCHES", 2, type_cast=int),
+        "Persons batches that project and organization deletions run at once across every worker in the region. "
+        "Each batch adds storage read load on the persons writer, which slows down ingestion. "
+        "0 pauses the persons phase of every deletion. A change takes effect within a minute.",
+        int,
+    ),
 }
 
 SETTINGS_ALLOWING_API_OVERRIDE = (
@@ -546,6 +558,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "ALLOW_EXPERIMENTAL_ASYNC_MIGRATIONS",
     "RATE_LIMIT_ENABLED",
     "RATE_LIMITING_ALLOW_LIST_TEAMS",
+    "TRANSACTIONAL_EMAIL_RATE_LIMIT_ALLOW_LIST_TEAMS",
     "FLAGS_LOG_BODIES_TEAMS",
     "FLAG_EVALUATIONS_READS_FORCE_EVENTS",
     "FLAG_EVALUATIONS_UNION_DISABLED",
@@ -565,6 +578,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "REALTIME_COHORT_JOIN_OPEN",
     "WORKOS_RADAR_LOGIN_MODE",
     "WORKOS_RADAR_LOGIN_SAMPLE_PERCENT",
+    "TEAM_DELETE_PERSONS_MAX_CONCURRENT_BATCHES",
 )
 
 # SECRET_SETTINGS can only be updated but will never be exposed through the API (we do store them plain text in the DB)

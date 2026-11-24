@@ -1,6 +1,10 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "node_id": {
+            "description": "Only return the run if it belongs to this cell.",
+            "type": "string"
+        },
         "run_id": {
             "description": "ID of the run, as returned by the run dispatch endpoint.",
             "type": "string"

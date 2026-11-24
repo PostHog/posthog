@@ -45,6 +45,18 @@ body.has-today-phone-layout {
     }
 }
 
+// Snapshots let the layout grow to fit its content, so every item in main's grid row can set main's height. The rail
+// and the sidebar load lazily, so their height would depend on whether they arrived before the capture. Here only the
+// scene sizes the row, and the viewport sets its minimum, as the fixed-height layout does in the app.
+.storybook-test-runner:not(.storybook-viewport-layout) .TodayAppLayout {
+    min-height: 100vh;
+
+    .TodayShell__rail,
+    .TodayShell__sidebar--framed {
+        contain: size;
+    }
+}
+
 // Spans the sidebar and the content, so one soft shadow off their shared top-left edge lifts both above the chrome.
 // It has no fill, so it draws only the shadow outside its box.
 .TodayAppLayout__shadow {
