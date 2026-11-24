@@ -7,6 +7,8 @@ from urllib.parse import quote, unquote
 from products.warehouse_sources.sources.knock.settings import (
     ENDPOINTS_CONFIG,
     KNOCK_BASE_URL,
+    KNOCK_MANAGEMENT_BASE_URL,
+    KNOCK_MANAGEMENT_PAGE_SIZE,
     KNOCK_PAGE_SIZE,
     KnockEndpointConfig,
 )
@@ -43,6 +45,11 @@ NO_FEED_CHANNEL_IDS_ERROR = (
     "Add your channel IDs in the source settings, then sync again."
 )
 
+NO_SERVICE_TOKEN_ERROR = (
+    "The Knock workflows, channels, audiences and audit logs tables need a service token. "
+    "Add a service token in the source settings, then sync again."
+)
+
 
 @dataclasses.dataclass(frozen=True)
 class KnockResumeConfig:
@@ -64,9 +71,9 @@ def parse_key_list(keys: Optional[str]) -> list[str]:
     return list(dict.fromkeys(part.strip() for part in keys.split(",") if part.strip()))
 
 
-def _client_config(api_key: str) -> ClientConfig:
+def _client_config(api_key: str, base_url: str = KNOCK_BASE_URL) -> ClientConfig:
     return {
-        "base_url": KNOCK_BASE_URL,
+        "base_url": base_url,
         "auth": {
             "type": "bearer",
             "token": api_key,
@@ -120,10 +127,19 @@ def _no_child_window(_incremental_field: str) -> Optional[IncrementalConfig]:
     return None
 
 
-def get_resource(endpoint: str, should_use_incremental_field: bool, path: str | None = None) -> EndpointResource:
+def get_resource(
+    endpoint: str, should_use_incremental_field: bool, path: str | None = None, environment: str | None = None
+) -> EndpointResource:
     config = ENDPOINTS_CONFIG[endpoint]
 
-    params: dict[str, Any] = {"page_size": KNOCK_PAGE_SIZE} if config.documents_pagination else {}
+    params: dict[str, Any] = {}
+    if config.management_api:
+        params["limit"] = KNOCK_MANAGEMENT_PAGE_SIZE
+    elif config.documents_pagination:
+        params["page_size"] = KNOCK_PAGE_SIZE
+    params.update(config.params)
+    if config.environment_scoped and environment:
+        params["environment"] = environment
     if should_use_incremental_field and config.incremental_param and config.incremental_fields:
         params[config.incremental_param] = {
             "type": "incremental",
@@ -307,6 +323,8 @@ def knock_source(
     object_collections: Optional[str] = None,
     audience_keys: Optional[str] = None,
     in_app_feed_channel_ids: Optional[str] = None,
+    service_token: Optional[str] = None,
+    environment: Optional[str] = None,
 ) -> SourceResponse:
     endpoint_config = ENDPOINTS_CONFIG[endpoint]
 
@@ -328,10 +346,18 @@ def knock_source(
             raise ValueError(NO_OBJECT_COLLECTIONS_ERROR if endpoint == "objects" else NO_AUDIENCE_KEYS_ERROR)
         items = lambda: _keyed_items(api_key, endpoint, keys, team_id, job_id, resumable_source_manager)
     else:
+        if endpoint_config.management_api:
+            if not service_token:
+                raise ValueError(NO_SERVICE_TOKEN_ERROR)
+            client_config = _client_config(service_token, KNOCK_MANAGEMENT_BASE_URL)
+        else:
+            client_config = _client_config(api_key)
         config: RESTAPIConfig = {
-            "client": _client_config(api_key),
+            "client": client_config,
             "resource_defaults": {},
-            "resources": [get_resource(endpoint, should_use_incremental_field)],
+            "resources": [
+                get_resource(endpoint, should_use_incremental_field, environment=(environment or "").strip() or None)
+            ],
         }
 
         initial_paginator_state: Optional[dict[str, Any]] = None
@@ -371,12 +397,14 @@ def knock_source(
     )
 
 
-def validate_credentials(api_key: str) -> tuple[bool, str | None]:
-    session = make_tracked_session(redact_values=(api_key,))
+def _probe(
+    url: str, token: str, params: dict[str, Any], invalid_message: str, api_name: str
+) -> tuple[bool, str | None]:
+    session = make_tracked_session(redact_values=(token,))
     res = session.get(
-        f"{KNOCK_BASE_URL}/v1/users",
-        headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
-        params={"page_size": 1},
+        url,
+        headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+        params=params,
         timeout=30,
     )
 
@@ -389,6 +417,20 @@ def validate_credentials(api_key: str) -> tuple[bool, str | None]:
             message = res.json().get("message")
         except Exception:
             message = None
-        return False, message or "Invalid Knock API key"
+        return False, message or invalid_message
 
-    return False, f"Knock API returned an unexpected response (HTTP {res.status_code})"
+    return False, f"{api_name} returned an unexpected response (HTTP {res.status_code})"
+
+
+def validate_credentials(api_key: str, service_token: Optional[str] = None) -> tuple[bool, str | None]:
+    valid, error = _probe(f"{KNOCK_BASE_URL}/v1/users", api_key, {"page_size": 1}, "Invalid Knock API key", "Knock API")
+    if not valid or not service_token:
+        return valid, error
+
+    return _probe(
+        f"{KNOCK_MANAGEMENT_BASE_URL}/v1/whoami",
+        service_token,
+        {},
+        "Invalid Knock service token",
+        "Knock Management API",
+    )

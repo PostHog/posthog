@@ -455,14 +455,11 @@ class BillingManager:
         *,
         timeout: tuple[float, float] | None = None,
     ) -> dict[str, Any]:
-        if not organization or not self.license or not self.license.is_v2_license:
+        if not organization:
             return self._get_default_billing_response(organization, timeout=timeout)
 
-        # Get billing info from billing service
-        billing_service_response = self._get_billing(organization, query_params, timeout=timeout)
-
-        customer = cast(dict[str, Any], billing_service_response).get("customer")
-        if not customer:
+        billing_service_response = self._fetch_billing_status_with_customer(organization, query_params, timeout=timeout)
+        if billing_service_response is None:
             return self._get_default_billing_response(organization, timeout=timeout)
 
         # Ensure the license and org are updated with the latest info
@@ -471,6 +468,18 @@ class BillingManager:
 
         if organization and billing_service_response:
             self.update_org_details(organization, billing_service_response, timeout=timeout)
+
+        return self._build_billing_response(organization, billing_service_response, timeout=timeout)
+
+    def _build_billing_response(
+        self,
+        organization: Organization,
+        billing_service_response: BillingStatus,
+        *,
+        timeout: tuple[float, float] | None = None,
+    ) -> dict[str, Any]:
+        if not self.license:  # mypy
+            raise Exception("No license found")
 
         response: dict[str, Any] = {"available_product_features": []}
 
@@ -513,6 +522,45 @@ class BillingManager:
             product["percentage_usage"] = current_usage / usage_limit if usage_limit else 0
 
         return response
+
+    def get_billing_read_only(
+        self,
+        organization: Organization | None,
+        query_params: dict[str, Any] | None = None,
+        *,
+        timeout: tuple[float, float] | None = None,
+    ) -> dict[str, Any]:
+        """Builds the response the way get_billing does, but from the stored organization and license.
+
+        It writes nothing, so a stored todays_usage or license plan that billing has moved past stays in the response.
+        """
+        if not organization:
+            return self._get_default_billing_response(organization, timeout=timeout)
+
+        billing_service_response = self._fetch_billing_status_with_customer(organization, query_params, timeout=timeout)
+        if billing_service_response is None:
+            return self._get_default_billing_response(organization, timeout=timeout)
+
+        return self._build_billing_response(organization, billing_service_response, timeout=timeout)
+
+    def _fetch_billing_status_with_customer(
+        self,
+        organization: Organization,
+        query_params: dict[str, Any] | None,
+        *,
+        timeout: tuple[float, float] | None,
+    ) -> BillingStatus | None:
+        if not self.license or not self.license.is_v2_license:
+            return None
+
+        # Get billing info from billing service
+        billing_service_response = self._get_billing(organization, query_params, timeout=timeout)
+
+        customer = cast(dict[str, Any], billing_service_response).get("customer")
+        if not customer:
+            return None
+
+        return billing_service_response
 
     def update_billing(
         self, organization: Organization, data: dict[str, Any], authorizer_actor: Optional[User] = None

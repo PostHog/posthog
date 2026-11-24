@@ -415,6 +415,17 @@ MCP_TRANSPORT_EVENT_SOURCES = frozenset(
     }
 )
 
+# Surfaces that PostHog runs on a schedule as the owner of an insight, alert or subscription. Their events must not
+# move the owner's last seen time, because the owner did nothing. EXPORT is not in the set, because a person who
+# downloads a file also gets that source.
+AUTOMATED_EVENT_SOURCES = frozenset(
+    {
+        EventSource.CACHE_WARMING,
+        EventSource.ALERT,
+        EventSource.SUBSCRIPTION,
+    }
+)
+
 
 class McpProps(TypedDict):
     mcp_user_agent: str | None
@@ -627,6 +638,13 @@ def get_request_analytics_properties(request) -> AnalyticsProps:
 _tracer = trace.get_tracer(__name__)
 
 
+def _merge_analytics_props(properties: dict, analytics_props: AnalyticsProps) -> dict:
+    merged = {**analytics_props, **properties}
+    if analytics_props["source"] in AUTOMATED_EVENT_SOURCES:
+        merged.setdefault("$update_person_last_seen_at", False)
+    return merged
+
+
 def report_user_action(
     user: User | AnonymousUser | SyntheticUser,
     event: str,
@@ -645,7 +663,7 @@ def report_user_action(
     if request is not None:
         properties = {**get_request_analytics_properties(request), **properties}
     if analytics_props is not None:
-        properties = {**analytics_props, **properties}
+        properties = _merge_analytics_props(properties, analytics_props)
 
     # Synthetic principals (e.g. project secret API keys) have no User row but still carry a
     # distinct_id, so service-authenticated actions are captured instead of silently dropped.
@@ -686,7 +704,7 @@ def report_user_or_team_action(
     if properties is None:
         properties = {}
     if analytics_props is not None:
-        properties = {**analytics_props, **properties}
+        properties = _merge_analytics_props(properties, analytics_props)
 
     # isinstance works through Django's SimpleLazyObject because it proxies __class__
     real_user = user if isinstance(user, User) else None

@@ -2,7 +2,6 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonSelect, LemonSkeleton, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
-import { percentage } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
 import { PagePerformanceCard } from 'scenes/web-analytics/PagePerformanceCard'
 import { PagePerformanceCardHeader } from 'scenes/web-analytics/PagePerformanceCardHeader'
@@ -118,16 +117,6 @@ export const ContentAutopilotKeywordModifiers = (): JSX.Element => {
                                 />
                             ),
                         }}
-                        footer={
-                            <span className="px-3 py-2 text-xs text-muted">
-                                Over {pluralize(modifiers.answers, 'answer')} {windowRange(modifiers)}. Your site is
-                                cited in{' '}
-                                {modifiers.baseline_cited_rate === null
-                                    ? '-'
-                                    : percentage(modifiers.baseline_cited_rate, 0)}{' '}
-                                of them. Expand a group to see its words.
-                            </span>
-                        }
                     />
                 )}
             </div>
