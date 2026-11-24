@@ -160,7 +160,7 @@ class HandlebarsToLiquid:
         for node in nodes:
             if isinstance(node, _Text):
                 for piece in self._text(node.text):
-                    _append(out, self._spend(piece))
+                    _append(out, self._spend(piece, literal=True))
             elif isinstance(node, _Liquid):
                 self._feed(node.printed)
                 _append(out, self._spend(node.liquid))
@@ -170,8 +170,15 @@ class HandlebarsToLiquid:
                 _append(out, self._block(node, frames))
         return "".join(out)
 
-    def _spend(self, chunk: str) -> str:
+    def _attribute_safe(self, liquid: str) -> str:
+        """Liquid for a double-quoted attribute. A double quote in it would end the attribute for an editor that parses
+        the HTML, and a send decodes the entity before it renders the tag."""
+        return liquid.replace('"', "&quot;") if self._html is not None and self._html.state == "dq" else liquid
+
+    def _spend(self, chunk: str, *, literal: bool = False) -> str:
         """Counts what the conversion writes as it goes, so a template whose paths grow with nesting stops early."""
+        if not literal:
+            chunk = self._attribute_safe(chunk)
         self._written += len(chunk)
         if self._written > _MAX_OUTPUT_CHARS:
             raise OutputTooLarge
@@ -185,7 +192,8 @@ class HandlebarsToLiquid:
             elif (piece.liquid or piece.value_path) and self._value_fits(raw=False, in_attribute=piece.in_attribute):
                 self._feed("x")
                 self.converted.append(piece.source)
-                yield self._print(piece.value_path, False) if piece.value_path else piece.liquid or ""
+                liquid = self._print(piece.value_path, False) if piece.value_path else piece.liquid or ""
+                yield self._attribute_safe(liquid)
             else:
                 self.unsupported.append(piece.source)
                 self._feed(piece.source)
@@ -261,7 +269,7 @@ class HandlebarsToLiquid:
         if noted:
             self.unsupported.append(source)
         self._feed(source)
-        return liquid_literal(source)
+        return self._attribute_safe(liquid_literal(source))
 
     # Blocks -----------------------------------------------------------------------------------------------------------
 
@@ -414,7 +422,7 @@ class HandlebarsToLiquid:
         parts = [guard, inverse, opening, body]
         if inverse:
             parts.append(self._spend("{% else %}"))
-            parts.append(self._spend(inverse))
+            parts.append(self._spend(inverse, literal=True))
         return _joined([*parts, self._spend("{% endfor %}{% endif %}")])
 
     def _with(self, block: _Block, frames: tuple[_Frame, ...]) -> str:
@@ -468,7 +476,7 @@ class HandlebarsToLiquid:
                         self.unsupported.append(piece.source)
                         piece = piece.source
                     self._feed(piece)
-                    _append(out, self._spend(_literal_text(piece)))
+                    _append(out, self._spend(_literal_text(piece), literal=True))
             elif isinstance(node, _Liquid):
                 self._feed(node.printed)
                 _append(out, self._spend(node.liquid))

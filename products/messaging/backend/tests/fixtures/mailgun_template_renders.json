@@ -179,7 +179,7 @@
       "q": "\"><img src onerror>&'"
     },
     "engine": "handlebars",
-    "liquid": "<a href=\"https://example.com/?q={{ variables.q | join: \",\" }}\">{{ variables.q | join: \",\" }}</a>",
+    "liquid": "<a href=\"https://example.com/?q={{ variables.q | join: &quot;,&quot; }}\">{{ variables.q | join: \",\" }}</a>",
     "expected": "<a href=\"https://example.com/?q=&quot;&gt;&lt;img src onerror&gt;&amp;&#x27;\">&quot;&gt;&lt;img src onerror&gt;&amp;&#x27;</a>"
   },
   {

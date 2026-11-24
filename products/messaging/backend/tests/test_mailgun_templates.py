@@ -24,7 +24,20 @@ class TestMailgunTemplateConversion(SimpleTestCase):
             ("text", "handlebars", "<p>{{x}}</p>", f"<p>{ESCAPED_X}</p>"),
             ("spaces", "handlebars", "<p>{{ x }}</p>", f"<p>{ESCAPED_X}</p>"),
             ("raw_in_text", "handlebars", "<p>{{{x}}}</p>", '<p>{{ variables.x | join: "," | raw }}</p>'),
-            ("handlebars_link", "handlebars", '<a href="{{x}}">', f'<a href="{ESCAPED_X}">'),
+            (
+                "handlebars_link",
+                "handlebars",
+                '<a href="{{x}}" title="{{#if x}}y{{/if}}">',
+                '<a href="{{ variables.x | join: &quot;,&quot; }}" title="{% if '
+                "variables.x != nil and variables.x != false and variables.x != 0 and variables.x.length != 0 or "
+                'variables.x != empty %}y{% endif %}">',
+            ),
+            (
+                "recipient_variable_in_a_link",
+                "handlebars",
+                '<a href="%recipient.x%" title="z">',
+                '<a href="{{ variables.x | join: &quot;,&quot; }}" title="z">',
+            ),
             (
                 "after_a_style",
                 "handlebars",

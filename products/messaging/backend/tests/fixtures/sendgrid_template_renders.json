@@ -411,7 +411,7 @@
       "q": "\"><script>alert('x')</script>&amp; ü 🦔",
       "safe": "<b>bold</b>"
     },
-    "liquid": "<p>{{ variables.q | join: \",\" }}</p><a href=\"https://example.com/?q={{ variables.q | join: \",\" }}\" title='{{ variables.q | join: \",\" }}'>{{ variables.safe | join: \",\" | raw }}</a>",
+    "liquid": "<p>{{ variables.q | join: \",\" }}</p><a href=\"https://example.com/?q={{ variables.q | join: &quot;,&quot; }}\" title='{{ variables.q | join: \",\" }}'>{{ variables.safe | join: \",\" | raw }}</a>",
     "expected": "<p>&quot;&gt;&lt;script&gt;alert(&#x27;x&#x27;)&lt;/script&gt;&amp;amp; ü 🦔</p><a href=\"https://example.com/?q=&quot;&gt;&lt;script&gt;alert(&#x27;x&#x27;)&lt;/script&gt;&amp;amp; ü 🦔\" title='&quot;&gt;&lt;script&gt;alert(&#x27;x&#x27;)&lt;/script&gt;&amp;amp; ü 🦔'><b>bold</b></a>"
   },
   {
@@ -578,7 +578,7 @@
     "data": {
       "name": "Ann"
     },
-    "liquid": "<a title=\"{{ \"{{\" }}a&quot; &lt;b}} {{ variables.name | join: \",\" }}\">x</a>",
+    "liquid": "<a title=\"{{ &quot;{{&quot; }}a&quot; &lt;b}} {{ variables.name | join: &quot;,&quot; }}\">x</a>",
     "expected": "<a title=\"{{a&quot; &lt;b}} Ann\">x</a>"
   },
   {
