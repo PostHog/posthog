@@ -18,12 +18,10 @@ def collect_posthog_code_thread_messages_activity(
 
     from products.slack_app.backend.services.slack_messages import collect_thread_messages
 
-    # A fork's agent reads the forked thread itself through the requester's Slack MCP, with
-    # the requester's Slack access. A copy read with the bot's access could include
-    # messages the requester cannot see.
-    if inputs.fork_source_channel:
-        return []
-
+    # A forked run reads the thread it answers in, which holds the seed message, and never
+    # the forked thread: the agent reads that one through the requester's Slack MCP. Do
+    # not short-circuit a fork to an empty list. The workflow reads an empty thread as a
+    # retracted prompt and stops without a word.
     integration = require_workspace_integration(inputs.integration_id, inputs.slack_team_id)
     slack = SlackIntegration(integration)
     auth_response = slack.client.auth_test()
