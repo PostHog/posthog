@@ -74,6 +74,17 @@ describe('uiSoundForTarget', () => {
             pressed: '[role="checkbox"]',
             expected: 'toggle-on',
         },
+        {
+            name: 'label beside a quill Switch that is on',
+            element: (
+                <>
+                    <label htmlFor="sounds-switch">Play button sounds</label>
+                    <Switch id="sounds-switch" checked />
+                </>
+            ),
+            pressed: 'label',
+            expected: 'toggle-off',
+        },
         { name: 'plain button', element: <button type="button">Save</button>, pressed: 'button', expected: null },
     ])('a press on $name plays $expected', ({ element, pressed, expected }) => {
         const { container } = render(element)

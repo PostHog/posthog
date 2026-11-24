@@ -13,16 +13,32 @@ const SOUND_NAMES: Record<UiSound, SoundName> = {
 
 const VOLUME = 0.3
 
-let buttonSounds: Promise<typeof import('button-sounds')> | null = null
+type ButtonSounds = typeof import('button-sounds')
 
-function loadButtonSounds(): Promise<typeof import('button-sounds')> {
+let buttonSounds: Promise<ButtonSounds> | null = null
+
+function loadButtonSounds(): Promise<ButtonSounds> {
     if (!buttonSounds) {
-        buttonSounds = import('button-sounds').then((module) => {
-            module.setPath(SOUNDS_PATH)
-            return module
-        })
+        buttonSounds = import('button-sounds').then(
+            (module) => {
+                module.setPath(SOUNDS_PATH)
+                return module
+            },
+            (error) => {
+                // A failed chunk download must not stick for the whole session, so the next press tries again.
+                buttonSounds = null
+                throw error
+            }
+        )
     }
     return buttonSounds
+}
+
+// Sounds are decoration, so a failed download or blocked playback stays silent instead of raising an error.
+function withButtonSounds(use: (module: ButtonSounds) => void): void {
+    loadButtonSounds()
+        .then(use)
+        .catch(() => {})
 }
 
 // A switch plays both of its samples over time, so reaching one loads the pair.
@@ -34,18 +50,22 @@ const WARM_UP_NAMES: Record<UiSound, SoundName[]> = {
 
 /** Downloads the samples a control needs when the pointer reaches it, before the press that plays them. */
 export function warmUpUiSound(sound: UiSound): void {
-    void loadButtonSounds().then(({ load }) => WARM_UP_NAMES[sound].forEach((name) => load(name)))
+    withButtonSounds(({ load }) => WARM_UP_NAMES[sound].forEach((name) => load(name)))
 }
 
 export function playUiSound(sound: UiSound): void {
     const name = SOUND_NAMES[sound]
-    // A pointerup outside the component still releases it, so the release listens on the window.
+    withButtonSounds(({ press }) => press(name, { volume: VOLUME }))
+    // A pointerup outside the component still releases it, so the release listens on the window. A cancelled
+    // gesture, such as a touch that turns into a scroll, never releases, so it removes the listener instead.
+    const gesture = new AbortController()
     window.addEventListener(
         'pointerup',
         () => {
-            void loadButtonSounds().then(({ release }) => release(name, { volume: VOLUME }))
+            gesture.abort()
+            withButtonSounds(({ release }) => release(name, { volume: VOLUME }))
         },
-        { once: true }
+        { signal: gesture.signal }
     )
-    void loadButtonSounds().then(({ press }) => press(name, { volume: VOLUME }))
+    window.addEventListener('pointercancel', () => gesture.abort(), { signal: gesture.signal })
 }

@@ -31,11 +31,30 @@ const CHECKED_SELECTOR = [
     '.LemonCheckbox--checked',
 ].join(', ')
 
+// A quill label sits beside its control, and a press on the label still toggles the control. Base UI points the
+// control at the label with aria-labelledby, because `label.control` finds only the hidden input next to it.
+function labelledControl(target: Element): Element | null {
+    const label = target.closest('label')
+    if (!label) {
+        return null
+    }
+    const labelled = label.id
+        ? Array.from(document.querySelectorAll('[aria-labelledby]')).find((element) =>
+              element.getAttribute('aria-labelledby')?.split(' ').includes(label.id)
+          )
+        : undefined
+    return labelled ?? label.control
+}
+
+function soundingComponent(target: Element): Element | null {
+    return target.closest(SOUNDING_SELECTOR) ?? labelledControl(target)?.closest(SOUNDING_SELECTOR) ?? null
+}
+
 export function uiSoundForTarget(target: EventTarget | null): UiSound | null {
     if (!(target instanceof Element)) {
         return null
     }
-    const component = target.closest(SOUNDING_SELECTOR)
+    const component = soundingComponent(target)
     if (!component || component.matches(DISABLED_SELECTOR)) {
         return null
     }

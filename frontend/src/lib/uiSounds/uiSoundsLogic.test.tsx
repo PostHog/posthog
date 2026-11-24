@@ -9,12 +9,13 @@ import { uiSoundsLogic } from './uiSoundsLogic'
 
 const mockPlayedSounds: string[] = []
 const mockLoadedSounds: string[] = []
+const mockReleasedSounds: string[] = []
 
 jest.mock('button-sounds', () => ({
     setPath: () => {},
     load: (name: string) => mockLoadedSounds.push(name),
     press: (name: string) => mockPlayedSounds.push(name),
-    release: () => {},
+    release: (name: string) => mockReleasedSounds.push(name),
 }))
 
 describe('uiSoundsLogic', () => {
@@ -32,6 +33,7 @@ describe('uiSoundsLogic', () => {
         cleanup()
         mockPlayedSounds.length = 0
         mockLoadedSounds.length = 0
+        mockReleasedSounds.length = 0
     })
 
     it('plays sounds only while the setting is on', async () => {
@@ -85,5 +87,24 @@ describe('uiSoundsLogic', () => {
         // The press resolves after the hover, so the first hover's samples would already be in the list.
         await waitFor(() => expect(mockPlayedSounds).toEqual(['hi75-soft']))
         expect(mockLoadedSounds).toEqual(['lock-closed', 'lock-open'])
+    })
+
+    it('drops the release of a cancelled press, so the next click releases once', async () => {
+        const { container } = render(<LemonButton>Save</LemonButton>)
+        const press = (): boolean =>
+            fireEvent(
+                container.querySelector('.LemonButton')!,
+                new MouseEvent('pointerdown', { bubbles: true, button: 0 })
+            )
+        logic.actions.setUiSoundsEnabled(true)
+
+        press()
+        fireEvent(window, new Event('pointercancel'))
+        press()
+        fireEvent(window, new Event('pointerup'))
+
+        await waitFor(() => expect(mockReleasedSounds).toEqual(['hi75-soft']))
+        await waitFor(() => expect(mockPlayedSounds).toEqual(['hi75-soft', 'hi75-soft']))
+        expect(mockReleasedSounds).toEqual(['hi75-soft'])
     })
 })
