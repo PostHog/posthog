@@ -7,7 +7,7 @@ export interface APIKeyTableRow {
     scopes: string[]
     created_at: string
     created_by?: {
-        email: string
+        email: string | null
         first_name?: string
         last_name?: string
     } | null
@@ -19,7 +19,7 @@ export interface APIKeyTableRow {
 export function formatCreatedBy(user: NonNullable<APIKeyTableRow['created_by']>): string {
     const firstName = user.first_name?.trim()
     if (!firstName) {
-        return user.email
+        return user.email ?? ''
     }
     const lastInitial = user.last_name?.trim().charAt(0)
     return lastInitial ? `${firstName} ${lastInitial.toUpperCase()}.` : firstName

@@ -38,7 +38,7 @@ export interface ReleaseAllOwner {
     uuid: string
     first_name?: string
     last_name?: string
-    email: string
+    email: string | null
 }
 
 export type ReleaseAllTone = 'default' | 'info' | 'success' | 'warning'

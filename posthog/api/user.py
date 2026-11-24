@@ -469,7 +469,7 @@ class UserSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             "password": {"write_only": True},
             # The column is nullable for service accounts only. This serializer edits a person's own profile.
-            "email": {"allow_null": False, "allow_blank": False},
+            "email": {"required": True, "allow_null": False, "allow_blank": False},
         }
 
     def validate_first_name(self, value: str) -> str:

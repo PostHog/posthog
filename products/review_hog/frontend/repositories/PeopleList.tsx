@@ -36,7 +36,7 @@ export function PeopleList({
             {listed.map((person) => (
                 <LemonSnack
                     key={person.id}
-                    title={person.user.email}
+                    title={person.user.email ?? undefined}
                     onClose={canEdit && !disabledReason ? () => onRemove(person) : undefined}
                     data-attr="review-hog-rule-person"
                 >

@@ -87,6 +87,8 @@ class UserBasicSerializer(serializers.ModelSerializer):
             "hedgehog_config",
             "role_at_organization",
         ]
+        # Always present in a response, and null only for a service account without a contact email.
+        extra_kwargs = {"email": {"required": True, "allow_null": True}}
 
     def get_hedgehog_config(self, user: User) -> Optional[dict]:
         if user.hedgehog_config:
