@@ -575,6 +575,13 @@ async def compute_num_partitions(
     return max(min_partitions, min(n, max_partitions))
 
 
+@frozen
+class _EventsQuery:
+    query: str
+    parameters: dict[str, typing.Any]
+    reads_recent_events: bool
+
+
 async def _get_new_events_query(
     *,
     team_id: int,
@@ -586,7 +593,7 @@ async def _get_new_events_query(
     filters: list[dict[str, str | bool | float | list[str | bool | float] | None]] | None,
     extra_query_parameters: dict[str, typing.Any],
     s3_function: str,
-) -> tuple[str, dict[str, typing.Any], bool]:
+) -> _EventsQuery:
     """The export query on the new events tables, its parameters, and whether it reads `events_recent`."""
     # The stored fields of a custom schema read the legacy tables, so a run on the native table recompiles them.
     # TODO: Temporary. Choose the table once up front and compile for it in `resolve_batch_exports_model` instead
@@ -622,7 +629,7 @@ async def _get_new_events_query(
         LOGGER.info("Using events_json table for batch export")
         query = native_events_export_query(fields, filters_str, s3_function=s3_function)
 
-    return query, extra_query_parameters, reads_recent_events
+    return _EventsQuery(query=query, parameters=extra_query_parameters, reads_recent_events=reads_recent_events)
 
 
 async def _get_legacy_events_query(
@@ -635,7 +642,7 @@ async def _get_legacy_events_query(
     filters: list[dict[str, str | bool | float | list[str | bool | float] | None]] | None,
     extra_query_parameters: dict[str, typing.Any],
     s3_function: str,
-) -> tuple[str, dict[str, typing.Any], bool]:
+) -> _EventsQuery:
     """The export query on the legacy events tables, its parameters, and whether it reads `events_recent`."""
     parameters = dict(extra_query_parameters)
     is_backfill = backfill_details is not None
@@ -685,7 +692,7 @@ async def _get_legacy_events_query(
         EXPORT_TO_S3_FROM_EVENTS_RECENT,
         EXPORT_TO_S3_FROM_DISTRIBUTED_EVENTS_RECENT,
     )
-    return query, parameters, reads_recent_events
+    return _EventsQuery(query=query, parameters=parameters, reads_recent_events=reads_recent_events)
 
 
 async def _get_query(
@@ -759,7 +766,7 @@ async def _get_query(
             parameters["include_events"] = []
 
         if batch_exports_read_new_events_table():
-            query, extra_query_parameters, reads_recent_events = await _get_new_events_query(
+            events_query = await _get_new_events_query(
                 team_id=team_id,
                 full_range=full_range,
                 backfill_details=backfill_details,
@@ -771,7 +778,7 @@ async def _get_query(
                 s3_function=s3_function,
             )
         else:
-            query, extra_query_parameters, reads_recent_events = await _get_legacy_events_query(
+            events_query = await _get_legacy_events_query(
                 team_id=team_id,
                 full_range=full_range,
                 backfill_details=backfill_details,
@@ -781,6 +788,9 @@ async def _get_query(
                 extra_query_parameters=extra_query_parameters,
                 s3_function=s3_function,
             )
+        query = events_query.query
+        extra_query_parameters = events_query.parameters
+        reads_recent_events = events_query.reads_recent_events
 
     parameters["team_id"] = team_id
 
