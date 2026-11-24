@@ -380,7 +380,7 @@ A run without a ledger record is `pending` as a whole. A real change that nobody
 When the pull request merges, its approvals land as ledger entries at the position of the merge commit.
 An approval lands only when both of these hold:
 
-- The ledger's hash for the identifier is still the one the reviewer compared against, or the last merge-queue run applied the approval and no merge changed the story after that run's merge-base. If another pull request changed it first, the approval is `conflicted`.
+- The ledger's hash for the identifier is still the one the reviewer compared against, or the last merge-queue run applied the approval and the ledger still holds the picture the queue run read for the story. If another pull request changed it first, the approval is `conflicted`.
 - The last merge-queue run that contained the pull request reproduced the approved picture. If that run rendered the old baseline, the approval is `voided`. A flaky render that somebody approved never becomes the baseline this way.
 
 A quarantined story skips the second check, because bulk approval already skips quarantined snapshots and an approval by identifier is how its entry keeps up.

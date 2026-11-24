@@ -11,7 +11,6 @@ from collections.abc import Iterable
 from uuid import UUID
 
 from django.db import connections, transaction
-from django.db.models import Max
 
 from ..db import WRITER_DB
 from ..facade.enums import BaselineEntrySource, BaselineMode
@@ -98,25 +97,6 @@ def identifiers_with_newer_entries(repo_id: UUID, run_type: str, identifiers: It
         .filter(repo_id=repo_id, run_type=run_type, identifier__in=list(identifiers), position__gt=position)
         .values_list("identifier", flat=True)
         .distinct()
-    )
-
-
-def newest_entry_positions(
-    repo_id: UUID, run_type: str, identifiers: Iterable[str], after_position: int, up_to_position: int
-) -> dict[str, int]:
-    """The position of the newest entry per identifier above `after_position` and at most `up_to_position`."""
-    return dict(
-        BaselineEntry.objects.using(WRITER_DB)
-        .filter(
-            repo_id=repo_id,
-            run_type=run_type,
-            identifier__in=list(identifiers),
-            position__gt=after_position,
-            position__lte=up_to_position,
-        )
-        .values("identifier")
-        .annotate(newest=Max("position"))
-        .values_list("identifier", "newest")
     )
 
 

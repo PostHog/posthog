@@ -88,9 +88,9 @@ class _Landing:
     # means new evidence arrived, and the check has to run again.
     checked_evidence: dict[UUID, str]
     evidence_applies: frozenset[UUID]
-    # The merge-base position of the evidence run, for each approval whose evidence applies and that the
-    # evidence run's overlay applied.
-    evidence_applied_positions: dict[UUID, int]
+    # The ledger hash the evidence run read under the approval, for each approval whose evidence applies
+    # and that the evidence run's overlay applied.
+    evidence_ledger_hashes: dict[UUID, str]
 
     def covers(self, approvals: list[BaselineApproval]) -> bool:
         return all(self.checked_evidence.get(approval.id) == approval.evidence_commit_sha for approval in approvals)
@@ -142,17 +142,15 @@ def landing_order(approvals: list[BaselineApproval]) -> list[BaselineApproval]:
     return ordered
 
 
-def ledger_unchanged_since_evidence(evidence_position: int | None, newest_entry_position: int | None) -> bool:
-    """Whether no landing wrote an entry for the identifier after the evidence run's merge-base position.
+def ledger_holds_what_evidence_read(evidence_ledger_hash: str | None, current_hash: str) -> bool:
+    """Whether the ledger still holds the picture the evidence run read for the story under the approval.
 
-    `evidence_position` is None unless the evidence run's overlay applied the approval. Row 3 then holds
-    for an approval whose base the ledger no longer names: the evidence run compared against the
-    approval and rendered the whole batch over the ledger state that is still there. That lets a
+    `evidence_ledger_hash` is None unless the evidence run's overlay applied the approval. Row 3 then
+    holds for an approval whose base the ledger no longer names: the evidence run compared against the
+    approval and rendered the whole batch over the ledger picture that is still there. That lets a
     stack layer approved over an open layer below it land after another layer of the stack landed alone.
     """
-    if evidence_position is None:
-        return False
-    return newest_entry_position is None or newest_entry_position <= evidence_position
+    return evidence_ledger_hash is not None and evidence_ledger_hash == current_hash
 
 
 def landing_verdict(
@@ -293,39 +291,30 @@ class _LedgerAdvancer:
             )
         return self._evidence_contains[key]
 
-    def _evidence_applied_positions(self, approvals: list[BaselineApproval]) -> dict[UUID, int]:
-        """The merge-base position of each approval's evidence run, for the approvals in that run's overlay.
+    def _evidence_ledger_hashes(self, approvals: list[BaselineApproval]) -> dict[UUID, str]:
+        """The ledger hash each approval's evidence run froze under it, for the approvals in that run's overlay.
 
         Evidence is recorded on every candidate of the run, also on one that a conflict or a stack child
-        left out of the overlay. Only an approval in the overlay was what the run compared against. A
-        position counts only while the ledger still has the run's merge-base there: a seed starts the
-        positions again, and an old position would hide the entries written since.
+        left out of the overlay. Only an approval in the overlay was what the run compared against.
         """
         run_ids = {approval.evidence_run_id for approval in approvals if approval.evidence_run_id is not None}
         if not run_ids:
             return {}
-        records: dict[UUID, baseline_record.BaselineRecord] = {}
+        ledger_hashes_by_run: dict[UUID, dict[UUID, str]] = {}
         for run in Run.objects.using(WRITER_DB).filter(id__in=run_ids).only("id", "metadata"):
             record = baseline_record.record_for_run(run)
             if record is not None:
-                records[run.id] = record
-        ledger_commits = dict(
-            BaselineCommit.objects.using(WRITER_DB)
-            .filter(repo_id=self.repo.id, position__in={record.position for record in records.values()})
-            .values_list("position", "commit_sha")
-        )
-        run_positions: dict[UUID, int] = {}
-        applied_by_run: dict[UUID, set[UUID]] = {}
-        for run_id, record in records.items():
-            if ledger_commits.get(record.position) != record.merge_base_sha:
+                ledger_hashes_by_run[run.id] = {
+                    entry.approval_id: entry.ledger_hash for entry in record.overlay.values()
+                }
+        hashes: dict[UUID, str] = {}
+        for approval in approvals:
+            if approval.evidence_run_id is None:
                 continue
-            run_positions[run_id] = record.position
-            applied_by_run[run_id] = {entry.approval_id for entry in record.overlay.values()}
-        return {
-            approval.id: run_positions[approval.evidence_run_id]
-            for approval in approvals
-            if approval.evidence_run_id in run_positions and approval.id in applied_by_run[approval.evidence_run_id]
-        }
+            overlay = ledger_hashes_by_run.get(approval.evidence_run_id, {})
+            if approval.id in overlay:
+                hashes[approval.id] = overlay[approval.id]
+        return hashes
 
     def plan_landing(self, pr_number: int, merged_head_sha: str) -> _Landing | None:
         """The landing of one merged pull request, or None when GitHub cannot say which evidence applies.
@@ -348,7 +337,7 @@ class _LedgerAdvancer:
             merged_head_sha=merged_head_sha,
             checked_evidence={approval.id: approval.evidence_commit_sha for approval in approvals},
             evidence_applies=frozenset(evidence_applies),
-            evidence_applied_positions=self._evidence_applied_positions(
+            evidence_ledger_hashes=self._evidence_ledger_hashes(
                 [approval for approval in approvals if approval.id in evidence_applies]
             ),
         )
@@ -410,20 +399,6 @@ class _LedgerAdvancer:
         holders |= commit_status.pull_requests_applying(self.repo, touched)
         commit_status.publish_for_pull_requests(self.repo, holders)
 
-    def _entries_since_evidence(
-        self, landing: _Landing, approvals: list[BaselineApproval], position: int, run_types: set[str]
-    ) -> dict[str, dict[str, int]]:
-        """Per run type, the newest entry position of each identifier with evidence, after the oldest evidence position."""
-        with_evidence = [approval for approval in approvals if approval.id in landing.evidence_applied_positions]
-        newest: dict[str, dict[str, int]] = {run_type: {} for run_type in run_types}
-        if not with_evidence:
-            return newest
-        oldest = min(landing.evidence_applied_positions[approval.id] for approval in with_evidence)
-        for run_type in {approval.run_type for approval in with_evidence}:
-            identifiers = {approval.identifier for approval in with_evidence if approval.run_type == run_type}
-            newest[run_type] = ledger.newest_entry_positions(self.repo.id, run_type, identifiers, oldest, position)
-        return newest
-
     def land(self, landing: _Landing, approvals: list[BaselineApproval], position: int, commit_sha: str) -> None:
         """Apply the landing table to each approval, with a fixed number of queries per run type.
 
@@ -451,13 +426,11 @@ class _LedgerAdvancer:
             run_type: ledger.identifiers_with_newer_entries(self.repo.id, run_type, identifiers[run_type], position)
             for run_type in run_types
         }
-        entries_since_evidence = self._entries_since_evidence(landing, approvals, position, run_types)
         landed_by_verdict: dict[tuple[BaselineApprovalState, str], list[UUID]] = {}
         entries: list[BaselineEntry] = []
         closed_without_entry: list[BaselineApproval] = []
         for approval in landing_order(approvals):
             current_hash = current[approval.run_type].get(approval.identifier, "")
-            newest_entry = entries_since_evidence[approval.run_type].get(approval.identifier)
             verdict = landing_verdict(
                 approval,
                 current_hash,
@@ -467,8 +440,8 @@ class _LedgerAdvancer:
                 quarantined=approval.identifier in quarantined[approval.run_type],
                 has_newer_entry=approval.identifier in newer[approval.run_type],
                 position=position,
-                verified_by_evidence=ledger_unchanged_since_evidence(
-                    landing.evidence_applied_positions.get(approval.id), newest_entry
+                verified_by_evidence=ledger_holds_what_evidence_read(
+                    landing.evidence_ledger_hashes.get(approval.id), current_hash
                 ),
             )
             # Stays open and cached, because its own pull request can merge later in this same pass.
@@ -495,7 +468,6 @@ class _LedgerAdvancer:
                 )
                 # A stack child later in the order compares against its parent's hash.
                 current[approval.run_type][approval.identifier] = approval.content_hash
-                entries_since_evidence[approval.run_type][approval.identifier] = position
             logger.info(
                 "visual_review.baseline_approval_landed",
                 repo_id=str(self.repo.id),

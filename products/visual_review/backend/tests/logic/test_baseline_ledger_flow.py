@@ -348,7 +348,7 @@ class TestLedgerFlow:
         assert top.state == BaselineApprovalState.CONFLICTED
         assert _ledger(repo)["Button"] == "g1"
 
-    def test_an_evidence_position_from_before_a_seed_does_not_hide_a_later_landing(self, repo, git, flow) -> None:
+    def test_a_landing_after_a_seed_conflicts_the_stack_top_the_queue_run_applied(self, repo, git, flow) -> None:
         git.open_pull_request(1, git.commit("g1a", SEED))
         approve(repo, 1, "Button", "g1", commit_sha="g1a")
         _queue_run(flow, git, "q1", "g1a", {"Button": "g1", "Card": "c0"})
@@ -362,7 +362,7 @@ class TestLedgerFlow:
         batch = _queue_run(flow, git, "q2", "c3a", {"Button": "b2", "Card": "c0"})
         assert _drift(batch) == (0, 0, 0)
 
-        # The seed starts the positions again, so the batch's merge-base position now names a later commit.
+        # The seed starts the positions again, so the next landing reuses the batch's merge-base position.
         ledger.seed_from_ledger(repo, "m1")
         git.open_pull_request(4, git.commit("u4a", "m1"))
         approve(repo, 4, "Button", "b9", ledger_base_hash="g1", commit_sha="u4a")
@@ -396,3 +396,36 @@ class TestLedgerFlow:
         finalize(flow.run("p2b", {"Button": "b9", "Card": "c0"}, branch="middle", pr_number=2))
 
         assert _last_status(flow, "c3a")[0] != "success"
+
+    def test_a_merge_that_resolves_late_under_the_queue_run_conflicts_the_stack_top(self, repo, git, flow) -> None:
+        git.open_pull_request(1, git.commit("g1a", SEED))
+        approve(repo, 1, "Button", "g1", commit_sha="g1a")
+        _queue_run(flow, git, "q1", "g1a", {"Button": "g1", "Card": "c0"})
+        git.merge(1, "m1", squash=True)
+        ledger_advance.advance(repo)
+
+        git.open_pull_request(4, git.commit("u4a", "m1"))
+        approve(repo, 4, "Button", "b9", ledger_base_hash="g1", commit_sha="u4a")
+        _queue_run(flow, git, "q2", "u4a", {"Button": "b9", "Card": "c0"})
+        # GitHub lists the merge commit before it shows the pull request as merged, so the commit stays unresolved.
+        git.merge(4, "m2", squash=True, shown_as_merged=False)
+        ledger_advance.advance(repo)
+        assert _ledger(repo)["Button"] == "g1"
+
+        git.open_pull_request(2, git.commit("p2a", "g1a"))
+        git.open_pull_request(3, git.commit("c3a", "p2a"))
+        approve(repo, 2, "Button", "b1", effective_base_hash="g1", commit_sha="p2a")
+        top = approve(repo, 3, "Button", "b2", effective_base_hash="b1", commit_sha="c3a")
+        batch = _queue_run(flow, git, "q3", "c3a", {"Button": "b2", "Card": "c0"})
+        assert _drift(batch) == (0, 0, 0)
+
+        git.show_as_merged(4, "m2")
+        ledger_advance.advance(repo)
+        assert _ledger(repo)["Button"] == "b9"
+        git.merge(2, "m3", squash=True)
+        git.merge(3, "m4", squash=True)
+        ledger_advance.advance(repo)
+
+        top.refresh_from_db()
+        assert top.state == BaselineApprovalState.CONFLICTED
+        assert _ledger(repo)["Button"] == "b9"
