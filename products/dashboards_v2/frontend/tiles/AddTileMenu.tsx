@@ -1,5 +1,3 @@
-import { useActions } from 'kea'
-
 import { IconPlus } from '@posthog/icons'
 import {
     Button,
@@ -12,11 +10,10 @@ import {
     DropdownMenuTrigger,
 } from '@posthog/quill'
 
-import { dashboardV2Logic } from '../dashboardV2Logic'
-import { NEW_TILES } from '../widgets/newTiles'
+import { useDashboardV2 } from '../dashboard/dashboardV2Context'
 
 export function AddTileMenu({ gridId, label }: { gridId: string; label?: string }): JSX.Element {
-    const { applyDashboardEdit } = useActions(dashboardV2Logic)
+    const { widgets, onEdit } = useDashboardV2()
     return (
         <DropdownMenu>
             <DropdownMenuTrigger
@@ -36,19 +33,21 @@ export function AddTileMenu({ gridId, label }: { gridId: string; label?: string 
             <DropdownMenuContent align="end">
                 <DropdownMenuGroup>
                     <DropdownMenuLabel>Add a tile</DropdownMenuLabel>
-                    {NEW_TILES.map(({ label: tileLabel, widget }) => (
-                        <DropdownMenuItem
-                            key={tileLabel}
-                            onClick={() => applyDashboardEdit({ edit: 'addTile', grid: gridId, widget })}
-                        >
-                            {tileLabel}
-                        </DropdownMenuItem>
-                    ))}
+                    {widgets.flatMap(({ type, addMenuItems }) =>
+                        addMenuItems.map(({ label: itemLabel, create }) => (
+                            <DropdownMenuItem
+                                key={`${type}-${itemLabel}`}
+                                onClick={() => onEdit({ edit: 'addTile', grid: gridId, widget: create() })}
+                            >
+                                {itemLabel}
+                            </DropdownMenuItem>
+                        ))
+                    )}
                 </DropdownMenuGroup>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                     onClick={() =>
-                        applyDashboardEdit({
+                        onEdit({
                             edit: 'addTile',
                             grid: gridId,
                             widget: { type: 'section', title: 'Untitled section', tiles: [] },
