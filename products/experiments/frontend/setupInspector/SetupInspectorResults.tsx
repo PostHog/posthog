@@ -6,6 +6,7 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { CandidateMetricSection } from './sections/CandidateMetricSection'
 import { IdentitySummarySection } from './sections/IdentitySummarySection'
 import { PreviousExperimentsSection } from './sections/PreviousExperimentsSection'
+import { ProjectTrafficSection } from './sections/ProjectTrafficSection'
 import { SdkProfileSection } from './sections/SdkProfileSection'
 import { SharedMetricsSection } from './sections/SharedMetricsSection'
 import { TargetSurfaceSection } from './sections/TargetSurfaceSection'
@@ -34,6 +35,7 @@ export function SetupInspectorResults(): JSX.Element {
             {identitySummary && <IdentitySummarySection facts={identitySummary} />}
             <TeamDefaultsSection section={setupContext.team_defaults} />
             <SdkProfileSection section={setupContext.sdk_profile} />
+            <ProjectTrafficSection section={setupContext.project_traffic} />
             <TargetSurfaceSection section={setupContext.target_surface} />
             <CandidateMetricSection section={setupContext.candidate_metric} />
             <PreviousExperimentsSection section={setupContext.previous_experiments} />
