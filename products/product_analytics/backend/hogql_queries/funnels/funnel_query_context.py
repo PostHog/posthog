@@ -8,6 +8,7 @@ from posthog.schema import (
     BreakdownType,
     FunnelConversionWindowTimeUnit,
     FunnelsActorsQuery,
+    FunnelsDataWarehouseNode,
     FunnelsFilter,
     FunnelsQuery,
     HogQLQueryModifiers,
@@ -18,7 +19,6 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.hogql_queries.query_context import QueryContext
-from posthog.hogql_queries.utils.entities import is_data_warehouse_node
 from posthog.hogql_queries.utils.timestamp_utils import (
     EARLIEST_EVENT_TIMESTAMP,
     get_earliest_timestamp_from_series,
@@ -67,10 +67,16 @@ class FunnelQueryContext(QueryContext):
     @cached_property
     def earliest_timestamp_fallback(self) -> datetime | None:
         is_all_time = self.query.dateRange is not None and self.query.dateRange.date_from == "all"
-        warehouse_steps = [step for step in self.query.series if is_data_warehouse_node(step)]
+        warehouse_steps = {
+            (step.table_name, step.timestamp_field): step
+            for step in self.query.series
+            if isinstance(step, FunnelsDataWarehouseNode)
+        }
         if not (is_all_time and warehouse_steps):
             return None
-        warehouse_earliest = get_earliest_timestamp_from_series(team=self.team, series=warehouse_steps, user=self.user)
+        warehouse_earliest = get_earliest_timestamp_from_series(
+            team=self.team, series=list(warehouse_steps.values()), user=self.user
+        )
         if warehouse_earliest <= EARLIEST_EVENT_TIMESTAMP:  # 1970 for an empty table, 1980 for an all-NULL column
             return None
         return min(warehouse_earliest, get_earliest_timestamp_unfiltered(self.team))

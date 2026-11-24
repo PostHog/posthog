@@ -244,6 +244,17 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
         assert response.resolved_date_range is not None
         assert response.resolved_date_range.date_from.date() == datetime(2025, 11, 6).date()
 
+    def test_data_warehouse_trends_keeps_recent_periods_past_1000_intervals(self):
+        table_name = self.setup_data_warehouse()
+        query = self._days_of_week_trends_query(table_name, None).model_copy(
+            update={"dateRange": DateRange(date_from="2020-01-01", date_to="2025-11-07")}
+        )
+
+        with time_machine.travel("2025-11-08", tick=False):
+            response = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate()
+
+        assert sum(row["reached_from_step_count"] for row in response.results) == 6
+
     def _days_of_week_trends_query(self, table_name: str, days_of_week: list[int] | None) -> FunnelsQuery:
         node = FunnelsDataWarehouseNode(
             id=table_name,

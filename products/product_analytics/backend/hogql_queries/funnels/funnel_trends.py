@@ -220,11 +220,12 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
 
         fill_query = self._get_fill_query()
 
-        limit = 1_000
+        interval_count = len(self._date_range().all_values())
+        limit = max(1_000, interval_count)
         if self.context.breakdown:
             breakdown_limit = self.get_breakdown_limit()
             if breakdown_limit:
-                limit = breakdown_limit * len(self._date_range().all_values())
+                limit = breakdown_limit * interval_count
 
             not_in_cohort_union = ""
             extra_placeholders: dict[str, ast.Expr] = {}
