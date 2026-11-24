@@ -4223,45 +4223,44 @@ email@example.org,
             created_by=self.user,
         )
 
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/cohorts/{cohort_pk}",
-            data={
-                "name": "cohort A",
-                "filters": {
-                    "properties": {
-                        "type": "OR",
-                        "values": [
-                            {
-                                "key": "$some_prop",
-                                "value": "something",
-                                "type": "person",
-                                "operator": "exact",
-                            },
-                            {
-                                "key": "$pageview",
-                                "event_type": "events",
-                                "time_value": 1,
-                                "time_interval": "day",
-                                "value": "performed_event",
-                                "type": "behavioral",
-                            },
-                        ],
-                    }
-                },
+        behavioral_body = {
+            "name": "cohort A",
+            "filters": {
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "key": "$some_prop",
+                            "value": "something",
+                            "type": "person",
+                            "operator": "exact",
+                        },
+                        {
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "time_value": 1,
+                            "time_interval": "day",
+                            "value": "performed_event",
+                            "type": "behavioral",
+                        },
+                    ],
+                }
             },
-        )
-        self.assertEqual(response.status_code, 400)
-        self.assertLessEqual(
-            {
-                "type": "validation_error",
-                "code": "behavioral_cohort_found",
-                "detail": "This cohort is used in 1 active feature flag(s): This is a cohort-based flag. "
-                "Its criteria include events, so they can't change while these flags use it. "
-                "Remove this cohort, or the cohort that includes it, from these flags, then save again. You can add it back once feature flags can target it.",
-                "attr": "filters",
-            }.items(),
-            response.json().items(),
-        )
+        }
+        for send in (self.client.patch, self.client.put):
+            response = send(f"/api/projects/{self.team.id}/cohorts/{cohort_pk}", data=behavioral_body)
+            self.assertEqual(response.status_code, 400)
+            self.assertLessEqual(
+                {
+                    "type": "validation_error",
+                    "code": "behavioral_cohort_found",
+                    "detail": "This cohort is used in 1 active feature flag(s): This is a cohort-based flag. "
+                    "Its criteria include events, so they can't change while these flags use it. "
+                    "Remove this cohort, or the cohort that includes it, from these flags, then save again. You can add it back once feature flags can target it.",
+                    "attr": "filters",
+                }.items(),
+                response.json().items(),
+            )
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/cohorts/{cohort_pk}",
@@ -9290,6 +9289,7 @@ class TestCohortRealtimeSwitch(APIBaseTest):
     @parameterized.expand(
         [
             ("rename", "event_criterion", {"name": "Renamed"}, {}, None, 200),
+            ("rename_with_put", "event_criterion", {"name": "Renamed"}, {}, None, 200, "put"),
             ("new_description", "event_criterion", {"description": "New description"}, {}, None, 200),
             (
                 "rename_that_nulls_cohort_type",
@@ -9319,6 +9319,7 @@ class TestCohortRealtimeSwitch(APIBaseTest):
         sent_cohort_type: dict,
         new_event: str | None,
         expected_status: int,
+        method: str = "patch",
     ) -> None:
         stamped_at = timezone.now() - timedelta(hours=1)
         editor_leaf = {**_REALTIME_PAGEVIEW_LEAF, "explicit_datetime": "-7d"}
@@ -9343,7 +9344,7 @@ class TestCohortRealtimeSwitch(APIBaseTest):
         if new_event is not None:
             filters["properties"]["values"][0]["values"][0]["key"] = new_event
 
-        response = self.client.patch(
+        response = getattr(self.client, method)(
             f"/api/projects/{self.team.id}/cohorts/{cohort.id}/",
             {**fields, **sent_cohort_type, "filters": filters},
             format="json",

@@ -2096,7 +2096,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         self._validate_warehouse_access(attrs)
         self._validate_no_new_hidden_event_criteria(attrs)
 
-        if self.context["request"].method != "PATCH" or self.instance is None:
+        if self.context["request"].method not in ("PATCH", "PUT") or self.instance is None:
             return attrs
 
         if self._reactivates_static_cohort(attrs):
@@ -2168,7 +2168,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         return str(exc.errors())
 
     def _validate_feature_flag_constraints(self, request_filters: dict, cohort_will_be_static: bool):
-        if self.context["request"].method != "PATCH":
+        if self.context["request"].method not in ("PATCH", "PUT"):
             return
 
         parsed_filter = parse_property_group_data(request_filters.get("properties"))
