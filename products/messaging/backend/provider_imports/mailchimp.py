@@ -109,6 +109,7 @@ TOO_MANY_AUDIENCES_MESSAGE = (
     f"This account has more than {MAX_AUDIENCES} audiences, more than one import takes. Upload the audiences you need "
     "as CSV files instead."
 )
+ACCOUNT_NAME_LENGTH = 200
 OPT_OUT_STEPS = ("audiences", "groups", "cleaned", "complaints")
 _ADDRESS_PARTS = ("addr1", "addr2", "city", "state", "zip", "country")
 MAX_LIST_RESTARTS = 3
@@ -806,12 +807,14 @@ def _carry_to_every_spelling(context: ImportContext, addresses: Iterable[str]) -
 
 def _fetch_contacts(client: MailchimpClient, context: ImportContext) -> Iterator[ImportPage]:
     audiences = _audiences(client)
-    if not audiences:
-        # A key for another, empty account says nothing about who is in the cohort an earlier import filled.
-        yield ImportPage(processed=0, save=lambda: SavedPage(imported=0))
-        return
     if len(audiences) > MAX_AUDIENCES:
         raise ImportTooLarge(TOO_MANY_AUDIENCES_MESSAGE)
+    # A project can import several accounts, and each one's import sets only its own cohort of all contacts.
+    account = client.get("/", {"fields": "account_id,account_name"})
+    account_id = _clean(account.get("account_id"))
+    if not account_id:
+        raise MailchimpAPIError("Mailchimp sent an unexpected response.")
+    account_name = _clean(account.get("account_name")).strip() or account_id
     # Every cohort is set to exactly what was read, so the step reads every audience before it saves, and a retry reads
     # them again.
     run_started = ProviderImportRun.objects.for_team(context.team_id).get(id=context.run_id).created_at
@@ -845,9 +848,9 @@ def _fetch_contacts(client: MailchimpClient, context: ImportContext) -> Iterator
             )
         )
     everyone = ContactList(
-        cohort_name="Mailchimp contacts",
-        cohort_description="Imported from Mailchimp contacts.",
-        source="your Mailchimp contacts",
+        cohort_name=f"Mailchimp contacts, {account_name[:ACCOUNT_NAME_LENGTH]}",
+        cohort_description=f"Imported from Mailchimp contacts of account {account_id}.",
+        source=f'the contacts of the Mailchimp account "{account_name}"',
         rows=contacts.everyone,
         empty_note="No subscribed contacts, so no one is in its cohort.",
         repeats_merged=contacts.repeats_merged,

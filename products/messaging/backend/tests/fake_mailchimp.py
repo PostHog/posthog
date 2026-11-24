@@ -26,6 +26,7 @@ FULL_KEY = "fake-full-access-key-us21"
 EMPTY_KEY = "fake-empty-account-key-us21"
 
 _ROUTES = (
+    ("root", r"/3\.0/"),
     ("ping", r"/3\.0/ping"),
     ("lists", r"/3\.0/lists"),
     ("members", r"/3\.0/lists/(?P<list>[^/]+)/members"),
@@ -94,6 +95,8 @@ class FakeMailchimp:
             return 404, {"title": "Resource Not Found", "status": 404}, {}
         lists = [] if key == EMPTY_KEY else self.data["lists"]
         by_id = {row["id"]: row for row in lists}
+        if route == "root":
+            return 200, dict(self.data.get("account", {"account_id": "acct1", "account_name": "Example Co"})), {}
         if route == "ping":
             return 200, {"health_status": "Everything's Chimpy!"}, {}
         if route == "lists":

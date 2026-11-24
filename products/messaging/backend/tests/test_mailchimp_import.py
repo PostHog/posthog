@@ -449,7 +449,7 @@ class TestMailchimpContacts(ClickhouseTestMixin, TestMailchimpImportBase):
         grace = {"email": "Grace.Hopper@example.com"}
         linus = {"email": "linus@example.com"}
         assert self._staged(run) == {
-            "Mailchimp contacts": {
+            "Mailchimp contacts, Example Co": {
                 "user-ada": ada,
                 "Grace.Hopper@example.com": grace,
                 "linus@example.com": linus,
@@ -476,7 +476,7 @@ class TestMailchimpContacts(ClickhouseTestMixin, TestMailchimpImportBase):
         run = self._import_contacts("new_people")
 
         assert self._staged(run) == {
-            "Mailchimp contacts": {"linus@example.com": {"email": "linus@example.com"}},
+            "Mailchimp contacts, Example Co": {"linus@example.com": {"email": "linus@example.com"}},
             "Weekly newsletter (from Mailchimp)": {"linus@example.com": {"email": "linus@example.com"}},
             "Novedades del producto ñ (from Mailchimp)": {},
         }
@@ -503,14 +503,21 @@ class TestMailchimpContacts(ClickhouseTestMixin, TestMailchimpImportBase):
         run.refresh_from_db()
         assert len(run.progress["contacts"]["people_imports"]) == 3
 
-    def test_an_account_without_audiences_leaves_the_cohort_of_all_contacts_alone(self) -> None:
-        self._close(self._import_contacts("new_people"))
-        self.mailchimp.data["lists"] = []
+    def test_a_second_account_leaves_the_first_accounts_cohort_alone(self) -> None:
+        first = self._import_contacts("new_people")
+        self._close(first)
+        self.mailchimp.data["account"] = {"account_id": "acct2", "account_name": "Example Co"}
+        for audience in self.mailchimp.data["lists"]:
+            audience["id"] = f"{audience['id']}-2"
+            audience["members"] = audience["members"][:1]
 
-        run = self._import_contacts("new_people")
+        second = self._import_contacts("new_people")
 
-        assert run.progress["contacts"]["status"] == "completed"
-        assert "people_imports" not in run.progress["contacts"]
+        cohorts = [
+            {plan["cohort_id"] for plan in run.progress["contacts"]["people_imports"]} for run in (first, second)
+        ]
+        assert all(cohorts)
+        assert cohorts[0].isdisjoint(cohorts[1])
 
     @parameterized.expand(
         [
@@ -563,4 +570,4 @@ class TestMailchimpContacts(ClickhouseTestMixin, TestMailchimpImportBase):
 
         run = self._import_contacts("new_people")
 
-        assert "new@example.com" not in self._staged(run)["Mailchimp contacts"]
+        assert "new@example.com" not in self._staged(run)["Mailchimp contacts, Example Co"]
