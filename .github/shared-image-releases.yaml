@@ -1982,7 +1982,7 @@ images:
             alerts-platform-registrar:
                 repository: posthog-temporal-workers/alerts-platform-registrar
                 filter: alertsPlatformRegistrar
-                bootstrapPolicyDigest: 2b4ee5b03d6134fd025d537e71a39d1a2d49573ad0bb77da3369038d666de0d6
+                bootstrapPolicyDigest: 02654849d6bb3107aecbd7111cd4147ee28d49a4f390ff689ada6087a446df04
             web-analytics:
                 repository: posthog-temporal-workers/web-analytics
                 filter: webAnalyticsWorker
