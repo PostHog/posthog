@@ -354,35 +354,15 @@ type Bounds = { min: number; max: number }
 
 const NONE: Bounds = { min: 0, max: 0 }
 
-const NoLossParams = z
-    .object({
-        skippedBy: z.array(z.object({ fault: z.string(), status: z.number().int() }).strict()).default([]),
-    })
-    .strict()
-
-type SkippedBy = z.infer<typeof NoLossParams>['skippedBy']
-
-function boundsOf(
-    { answer, followUp, expect }: JournalEntry,
-    actionId: string,
-    records: readonly DeliveryRecord[],
-    horizonAt: number,
-    skippedBy: SkippedBy
-): Bounds {
+function boundsOf({ answer, followUp, expect }: JournalEntry, actionId: string, horizonAt: number): Bounds {
     if (!expect.deliveries.includes(actionId) || (expect.dueAt ?? -Infinity) > horizonAt) {
         return NONE
     }
-    const endedFlows = new Set(
-        records
-            .filter(({ status, fault }) => skippedBy.some((skip) => skip.fault === fault && skip.status === status))
-            .map(({ flowId }) => flowId)
-    ).size
     if (!answer.accepted) {
-        return 'transportError' in answer && endedFlows === 0 ? { min: 0, max: 1 } : NONE
+        return 'transportError' in answer ? { min: 0, max: 1 } : NONE
     }
     const flows = followUp !== undefined && 'accepted' in followUp && followUp.accepted ? 2 : 1
-    const due = Math.max(0, flows - endedFlows)
-    return { min: due, max: due }
+    return { min: flows, max: flows }
 }
 
 type Effect = { recipient: string; flowId?: string }
@@ -413,8 +393,8 @@ const excessOf = ({ unitId, actionId, recipient, flowId, accepted, expected }: E
 
 export const noLoss: InvariantDefinition = {
     name: 'no_loss',
-    params: NoLossParams,
-    check: (evidence, _gate, params) => {
+    params: z.object({}).strict(),
+    check: (evidence) => {
         const { horizon } = evidence.boundary
         if (horizon === undefined) {
             return unjudgedOf('the run reached no recovery horizon: convergence was interrupted')
@@ -423,7 +403,6 @@ export const noLoss: InvariantDefinition = {
         if (unjudged !== undefined) {
             return unjudgedOf(unjudged)
         }
-        const { skippedBy } = NoLossParams.parse(params)
         const byHorizon = evidence.truth.filter(({ seq }) => seq <= horizon.seq)
         const byDelivery = recordsByDelivery(byHorizon)
         const actionsByUnit = Map.groupBy(byHorizon.filter(isDeliveryRecord), ({ unitId }) => unitId)
@@ -434,7 +413,7 @@ export const noLoss: InvariantDefinition = {
             const seen = (actionsByUnit.get(unitId) ?? []).map(({ actionId }) => actionId)
             for (const actionId of new Set([...entry.expect.deliveries, ...seen])) {
                 const records = byDelivery.get(deliveryKey(unitId, actionId)) ?? []
-                const { min, max } = boundsOf(entry, actionId, records, horizon.at, skippedBy)
+                const { min, max } = boundsOf(entry, actionId, horizon.at)
                 const effects = records.filter(({ status }) => isAccepted(status)).flatMap(effectsOf)
                 const byRecipient = Map.groupBy(effects, ({ recipient }) => recipient)
                 if (byRecipient.size === 0 && min > 0) {

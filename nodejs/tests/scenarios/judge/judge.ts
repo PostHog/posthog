@@ -140,18 +140,20 @@ export function createJudge({
             const startedAt = now()
             for (;;) {
                 const polled = await read(async () => {
+                    await pullTruth()
+                    const settled = cursor
                     const jobs = await probe.unfinishedJobs({ teams, queues: ['hogflow', 'email'] })
                     await pullTruth()
-                    return jobs
+                    return { jobs, quiet: cursor === settled }
                 })
                 const unrecorded = unrecordedUnits()
                 const tookMs = now() - startedAt
-                const converged = polled === 0 && unrecorded.length === 0 && tookMs <= withinMs
+                const converged = polled?.jobs === 0 && polled.quiet && unrecorded.length === 0 && tookMs <= withinMs
                 if (converged || tookMs >= withinMs || signal.aborted) {
                     horizon = signal.aborted ? undefined : { seq: cursor, at: now() }
                     return {
                         converged,
-                        unfinishedJobs: polled ?? null,
+                        unfinishedJobs: polled?.jobs ?? null,
                         unrecorded,
                         tookMs,
                         ...(unread !== undefined && { unread }),

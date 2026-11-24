@@ -567,17 +567,6 @@ describe('judge', () => {
             },
         ],
         [
-            'with a follow-up the intake accepted, whose follow-up the declared fault ended',
-            { ...offered(), followUp: { accepted: true } },
-            async () => {
-                await deliver(UNIT)
-                await rejectNextSend()
-                await deliver(UNIT, 'email', 'follow-up-flow')
-            },
-            { skippedBy: [{ fault: 'ses.reject', status: 400 }] },
-            { passed: true, observed: 0 },
-        ],
-        [
             'sent under an action the journal never listed',
             offered(),
             async () => {
@@ -648,27 +637,7 @@ describe('judge', () => {
             { passed: false, observed: 1, extra: [UNIT] },
         ],
         [
-            'ended by a fault the card declares the caller never retries',
-            offered(),
-            async () => {
-                await rejectNextSend()
-                await deliver(UNIT)
-            },
-            { skippedBy: [{ fault: 'ses.reject', status: 400 }] },
-            { passed: true, observed: 0 },
-        ],
-        [
-            'retried and accepted after the declared fault answered a status the card does not name',
-            offered(),
-            async () => {
-                answerNextSendWith(503, 'reject')
-                await deliverTwice(UNIT)
-            },
-            { skippedBy: [{ fault: 'ses.reject', status: 400 }] },
-            { passed: true, observed: 0 },
-        ],
-        [
-            'ended by a fault the card does not declare',
+            'ended by a fault the caller never retries',
             offered(),
             async () => {
                 await rejectNextSend()
@@ -709,16 +678,33 @@ describe('judge', () => {
         expect(result).toMatchObject(expected)
     })
 
-    it('counts a resend the edge accepted while convergence read the job count for the last time', async () => {
-        judge.record(offered())
-        await deliver(UNIT)
-        duringProbe = () => deliver(UNIT)
-        await judge.converge(5, NEVER_ABORTED)
+    it.each<[string, () => Promise<unknown>, Array<() => Promise<unknown>>, object]>([
+        ['a resend', () => deliver(UNIT), [() => deliver(UNIT)], { passed: false, observed: 1, extra: [UNIT] }],
+        [
+            'a retried status, then the retry',
+            () => Promise.resolve(),
+            [
+                () => {
+                    answerNextSendWith(503, 'ServiceUnavailable')
+                    return deliver(UNIT)
+                },
+                () => deliver(UNIT),
+            ],
+            { passed: true, observed: 0 },
+        ],
+    ])(
+        'counts what the edge accepted while convergence read a zero job count: %s',
+        async (_story, before, duringCounts, expected) => {
+            judge.record(offered())
+            await before()
+            duringProbe = () => duringCounts.shift()?.() ?? Promise.resolve()
+            const convergence = await judge.converge(100, NEVER_ABORTED)
 
-        const [result] = await judge.check([{ name: 'no_loss', params: {} }], {}, NO_RESETS)
+            const [result] = await judge.check([{ name: 'no_loss', params: {} }], {}, NO_RESETS)
 
-        expect(result).toMatchObject({ passed: false, observed: 1, extra: [UNIT] })
-    })
+            expect({ convergence, result }).toMatchObject({ convergence: { converged: true }, result: expected })
+        }
+    )
 
     it.each<[string, () => Promise<unknown>, RunEvidence, string]>([
         [
