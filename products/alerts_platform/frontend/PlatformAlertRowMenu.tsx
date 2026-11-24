@@ -6,7 +6,7 @@ import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 
 import { PlatformAlertConfigurationApi } from './generated/api.schemas'
-import { SOURCE_KINDS, canEditFromList, canSnoozeFromList, listRowMute } from './platformAlertFormat'
+import { SOURCE_KINDS, canChangeFromList, listRowMute } from './platformAlertFormat'
 import { GROUP_SNOOZE_DURATIONS } from './platformAlertLogic'
 import { platformAlertsLogic } from './platformAlertsLogic'
 
@@ -16,8 +16,9 @@ export function PlatformAlertRowMenu({ configuration }: { configuration: Platfor
 
     const snoozed = listRowMute({ kind: 'alert', configuration }, new Date())?.until != null
     const sourceLabel = SOURCE_KINDS[configuration.source_kind].label
-    const editDisabledReason = canEditFromList(configuration) ? undefined : `Change this alert in ${sourceLabel}`
-    const snoozeDisabledReason = canSnoozeFromList(configuration)
+    const changeable = canChangeFromList(configuration)
+    const editDisabledReason = changeable ? undefined : `Change this alert in ${sourceLabel}`
+    const snoozeDisabledReason = changeable
         ? undefined
         : `${snoozed ? 'Unsnooze' : 'Snooze'} this alert in ${sourceLabel}`
 

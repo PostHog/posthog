@@ -15,8 +15,7 @@ import {
     describeGroup,
     describeInterval,
     describeOverflow,
-    canEditFromList,
-    canSnoozeFromList,
+    canChangeFromList,
     describeSchedule,
     listRowMute,
     groupLabels,
@@ -167,25 +166,17 @@ describe('platformAlertFormat', () => {
         expect(listRowMute(row, new Date('2026-10-05T12:00:00Z'))).toEqual(expected)
     })
 
-    test.each<[string, Partial<PlatformAlertConfigurationApi>, boolean, boolean]>([
-        ['a platform alert with no source row', { owner: 'platform', legacy_configuration_id: null }, true, true],
+    test.each<[string, Partial<PlatformAlertConfigurationApi>, boolean]>([
+        ['a platform alert with no source row', { owner: 'platform', legacy_configuration_id: null }, true],
         [
             'a platform alert that keeps its source row',
             { owner: 'platform', legacy_configuration_id: '0192a5b0-0000-7000-8000-000000000001' },
             true,
-            false,
         ],
-        ['a source alert with no source row', { owner: 'source', legacy_configuration_id: null }, false, false],
-        [
-            'a source alert',
-            { owner: 'source', legacy_configuration_id: '0192a5b0-0000-7000-8000-000000000001' },
-            false,
-            false,
-        ],
-    ])('canEditFromList and canSnoozeFromList: %s', (_, overrides, canEdit, canSnooze) => {
-        const configuration = makeConfiguration(overrides)
-        expect(canEditFromList(configuration)).toEqual(canEdit)
-        expect(canSnoozeFromList(configuration)).toEqual(canSnooze)
+        ['a source alert with no source row', { owner: 'source', legacy_configuration_id: null }, false],
+        ['a source alert', { owner: 'source', legacy_configuration_id: '0192a5b0-0000-7000-8000-000000000001' }, false],
+    ])('canChangeFromList: %s', (_, overrides, expected) => {
+        expect(canChangeFromList(makeConfiguration(overrides))).toEqual(expected)
     })
 
     test.each<[string, Partial<PlatformAlertConfigurationApi>, PlatformAlertStateCount[]]>([

@@ -232,16 +232,8 @@ export function listRowMute(row: PlatformAlertListRow, now: Date): PlatformAlert
     return count ? { kind: 'groupsSnoozed', count } : null
 }
 
-export function canEditFromList(configuration: PlatformAlertConfigurationApi): boolean {
+export function canChangeFromList(configuration: PlatformAlertConfigurationApi): boolean {
     return configuration.owner === PlatformAlertOwnerEnumApi.Platform
-}
-
-function hasSourceRow(configuration: PlatformAlertConfigurationApi): boolean {
-    return configuration.legacy_configuration_id !== null
-}
-
-export function canSnoozeFromList(configuration: PlatformAlertConfigurationApi): boolean {
-    return canEditFromList(configuration) && !hasSourceRow(configuration)
 }
 
 export function describeOverflow(configuration: PlatformAlertConfigurationApi): string | null {
