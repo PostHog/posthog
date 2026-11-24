@@ -90,12 +90,19 @@ def _read_retries() -> Iterator[tuple[int, float]]:
     return enumerate(QUOTA_READ_RETRY_DELAYS_SECONDS, start=1)
 
 
+@frozen
+class _QuotaReadPage:
+    client: QuotaRedisClient
+    next_cursor: int
+    members: list[tuple[bytes, float]]
+
+
 def _read_quota_page(
     client: QuotaRedisClient, key: str, cursor: int, deadline: float, retries: Iterator[tuple[int, float]]
-) -> tuple[QuotaRedisClient, int, list[tuple[bytes, float]]]:
+) -> _QuotaReadPage:
     try:
         next_cursor, page = client.zscan(key, cursor, count=QUOTA_READ_PAGE_SIZE)
-        return client, next_cursor, page
+        return _QuotaReadPage(client=client, next_cursor=next_cursor, members=page)
     except _QUOTA_READ_RETRY_ERRORS as error:
         failure = error
     for attempt, delay in retries:
@@ -108,7 +115,7 @@ def _read_quota_page(
             if retry_client is None:
                 break
             next_cursor, page = retry_client.zscan(key, cursor, count=QUOTA_READ_PAGE_SIZE)
-            return retry_client, next_cursor, page
+            return _QuotaReadPage(client=retry_client, next_cursor=next_cursor, members=page)
         except _QUOTA_READ_RETRY_ERRORS as error:
             failure = error
     raise failure
@@ -124,8 +131,10 @@ def _read_quota_set(
     while True:
         if monotonic() >= deadline:
             raise TimeoutError("Quota Redis run budget exceeded")
-        client, cursor, page = _read_quota_page(client, key, cursor, deadline, retries)
-        scores.update(page)
+        page = _read_quota_page(client, key, cursor, deadline, retries)
+        client = page.client
+        cursor = page.next_cursor
+        scores.update(page.members)
         if cursor == 0:
             return client, scores
 
