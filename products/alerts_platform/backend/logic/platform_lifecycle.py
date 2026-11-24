@@ -149,7 +149,10 @@ def _alerts_for_write(
 
 def _at_rest(now: datetime) -> Q:
     """Rows that hold a slot and nothing else, as `InstanceCheckState.at_rest` reads an instance."""
-    return Q(state=PlatformAlert.State.NOT_FIRING) & (Q(snooze_until__isnull=True) | Q(snooze_until__lte=now))
+    resting = Q(state=PlatformAlert.State.NOT_FIRING) | Q(
+        state=PlatformAlert.State.NO_DATA, firing_started_at__isnull=True
+    )
+    return resting & (Q(snooze_until__isnull=True) | Q(snooze_until__lte=now))
 
 
 # Long enough that a group which resolves and fires again inside a day keeps its cooldown.

@@ -214,10 +214,12 @@ class InstanceCheckState:
     last_seen_at: datetime | None = None
 
     def at_rest(self, now: datetime) -> bool:
-        """Holds a slot and nothing else: not firing, failing or muted."""
-        return self.state == PlatformAlertState.NOT_FIRING.value and (
-            self.snooze_until is None or self.snooze_until <= now
+        """Holds a slot and nothing else: not firing, failing or muted. A group with no data that was
+        not firing counts too, so groups that stop reporting for good do not fill `max_instances`."""
+        resting = self.state == PlatformAlertState.NOT_FIRING.value or (
+            self.state == PlatformAlertState.NO_DATA.value and self.firing_started_at is None
         )
+        return resting and (self.snooze_until is None or self.snooze_until <= now)
 
     @classmethod
     def composed(

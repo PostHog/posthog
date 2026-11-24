@@ -745,6 +745,8 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
         [
             ("idle_past_the_window", {}, False),
             ("firing", {"state": "firing"}, True),
+            ("no_data", {"state": "no_data"}, False),
+            ("no_data_from_a_firing", {"state": "no_data", "was_firing": True}, True),
             ("seen_recently", {"last_seen_hours_ago": 2}, True),
             ("still_snoozed", {"snoozed": True}, True),
             ("check_failed", {"failed": True}, True),
@@ -764,6 +766,7 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
                 state=case.get("state", "not_firing"),
                 last_seen_at=self.cutoff - timedelta(hours=case.get("last_seen_hours_ago", 25)),
                 snooze_until=self.cutoff + timedelta(hours=1) if case.get("snoozed") else None,
+                firing_started_at=self.cutoff - timedelta(hours=30) if case.get("was_firing") else None,
             )
 
         if case.get("failed"):
@@ -1113,6 +1116,15 @@ def _resting(key: str, *, seen_hours_ago: int = 1) -> InstanceCheckState:
             ),
             ("q",),
             GroupAdmission(admitted=frozenset(), overflowed=1),
+            Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("service",), max_instances=2),
+        ),
+        (
+            (
+                InstanceCheckState(grouping_key="x", state="no_data", firing_started_at=_ADMITTED_AT),
+                InstanceCheckState(grouping_key="y", state="no_data"),
+            ),
+            ("q",),
+            GroupAdmission(admitted=frozenset({"q"}), overflowed=0, evicted=frozenset({"y"})),
             Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("service",), max_instances=2),
         ),
         (

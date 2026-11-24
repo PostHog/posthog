@@ -40,7 +40,7 @@ const STATE_LABELS: Record<TimelineState, string> = { ...STATUS_LABELS, pending_
 const STATE_BG: Record<TimelineState, string> = {
     [PlatformAlertStateApi.NotFiring]: 'bg-success',
     [PlatformAlertStateApi.Firing]: 'bg-danger',
-    [PlatformAlertStateApi.NoData]: 'bg-muted',
+    [PlatformAlertStateApi.NoData]: 'bg-warning-dark',
     pending_resolve: 'bg-warning',
     [PlatformAlertStateApi.Errored]: 'bg-warning',
     [PlatformAlertStateApi.Snoozed]: 'bg-muted',

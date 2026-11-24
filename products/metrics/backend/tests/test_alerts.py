@@ -523,6 +523,13 @@ class TestMetricsAlertEvaluation(APIBaseTest):
     def test_a_firing_series_that_stops_shows_no_data_once_and_resolves_when_it_returns_clear(self) -> None:
         with team_scope(self.team.id):
             platform_testing.set_on_missing_data(self.configuration_id, OnMissingData.NOTIFY_NO_DATA)
+        with self.captureOnCommitCallbacks(execute=True):
+            pagerduty = self.client.post(
+                f"/api/projects/{self.team.id}/platform_alerts/{self.configuration_id}/destinations/",
+                {"type": "pagerduty", "pagerduty_routing_key": "0123456789abcdef0123456789abcdef"},
+                format="json",
+            )
+        assert pagerduty.status_code == status.HTTP_201_CREATED, pagerduty.json()
         self.checkpoint.return_value = self.due_at
         self.snuffle.return_value = _response(200, _vector(({"group": "a"}, "2000")))
         fired = self._evaluate()
@@ -531,9 +538,11 @@ class TestMetricsAlertEvaluation(APIBaseTest):
         self._next_check(fired)
         self.checkpoint.return_value = self.due_at
         self.snuffle.return_value = _response(200, _vector())
-        lost = self._evaluate()
+        lost_batch = self._evaluate_batch()
+        (lost,) = lost_batch.outcomes
         assert self._kinds(lost) == {"a": AlertEventKind.NO_DATA}
         assert [group.firing_episode for group in lost.groups] == [fired.groups[0].firing_episode]
+        assert [dict(delivery.incident_actions) for delivery in lost_batch.deliveries] == [{}]
 
         self._next_check(lost)
         self.checkpoint.return_value = self.due_at
@@ -543,7 +552,12 @@ class TestMetricsAlertEvaluation(APIBaseTest):
         self._next_check(still_lost)
         self.checkpoint.return_value = self.due_at
         self.snuffle.return_value = _response(200, _vector(({"group": "a"}, "10")))
-        assert self._kinds(self._evaluate()) == {"a": AlertEventKind.RESOLVED}
+        returned_batch = self._evaluate_batch()
+        (returned,) = returned_batch.outcomes
+        assert self._kinds(returned) == {"a": AlertEventKind.RESOLVED}
+        assert [dict(delivery.incident_actions) for delivery in returned_batch.deliveries] == [
+            {returned.groups[0].grouping_key: IncidentAction.RESOLVE}
+        ]
 
     @parameterized.expand(
         [
