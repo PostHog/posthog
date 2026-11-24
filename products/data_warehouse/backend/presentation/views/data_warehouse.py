@@ -74,7 +74,12 @@ from products.data_warehouse.backend.presentation.pipeline_stats import (
 )
 from products.managed_warehouse.backend.presentation import views as managed_warehouse
 from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by_name
-from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade.models import (
+    COMPANION_OF_KEY,
+    ExternalDataJob,
+    ExternalDataSchema,
+    ExternalDataSource,
+)
 from products.warehouse_sources.backend.facade.types import (
     ExternalDataJobStatus,
     ExternalDataSchemaStatus,
@@ -895,9 +900,10 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         cutoff_time = now - timedelta(days=days)
 
         try:
+            # A run's extra job for a history table is part of the same run, not a run of its own.
             external_jobs = ExternalDataJob.objects.filter(
                 team_id=self.team_id, finished_at__gte=cutoff_time, billable=True
-            )
+            ).exclude(schema_snapshot__has_key=COMPANION_OF_KEY)
 
             external_stats = external_jobs.aggregate(
                 total=Count("id"),
@@ -990,9 +996,16 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                         "failed": external_day["failed"] + modeling_day["failed"],
                     }
 
-            running_external_data_jobs = ExternalDataJob.objects.filter(
-                team_id=self.team_id, status=ExternalDataJobStatus.RUNNING, billable=True, created_at__gte=cutoff_time
-            ).count()
+            running_external_data_jobs = (
+                ExternalDataJob.objects.filter(
+                    team_id=self.team_id,
+                    status=ExternalDataJobStatus.RUNNING,
+                    billable=True,
+                    created_at__gte=cutoff_time,
+                )
+                .exclude(schema_snapshot__has_key=COMPANION_OF_KEY)
+                .count()
+            )
             running_modeling_jobs = DataModelingJob.objects.filter(
                 team_id=self.team_id, status=DataModelingJob.Status.RUNNING, created_at__gte=cutoff_time
             ).count()

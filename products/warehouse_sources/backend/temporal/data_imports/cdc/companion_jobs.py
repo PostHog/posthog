@@ -11,6 +11,8 @@ from typing import TYPE_CHECKING
 from django.db import transaction
 from django.utils import timezone
 
+from products.warehouse_sources.backend.models.external_data_job import COMPANION_OF_KEY
+
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
     from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
@@ -18,7 +20,8 @@ if TYPE_CHECKING:
 # On the schema's own job row: the companion job ids this run opened, so the listing proof can
 # check them by primary key rather than by an unindexed JSON predicate over the schema's history.
 COMPANION_JOB_IDS_KEY = "cdc_companion_job_ids"
-COMPANION_OF_KEY = "companion_of"
+# On a snapshot job's row: the job that bills the rows it seeded into the history table.
+HISTORY_SEED_JOB_KEY = "history_seed_job_id"
 COMPANION_RUN_SUFFIX = "-cdc"
 
 COMPANION_RETIRED_ERROR = "Extraction ended before this table's changes were written"
@@ -139,10 +142,11 @@ def record_companion_job(parent_job_id: str, team_id: int, companion_job_id: str
 
 
 def record_history_seed_job(parent: ExternalDataJob, schema: ExternalDataSchema, rows: int) -> None:
-    """Bill the rows a snapshot seeded into the history table, on a completed job of their own.
+    """Open a job for the rows a snapshot seeded into the history table, completed only with the snapshot job.
 
     Not on the snapshot job: that job's rows bill once per destination, and the history table reaches
-    only the warehouse.
+    only the warehouse. Left Running when the snapshot fails, so it never bills, and the next buffered
+    run retires it with the other orphaned companions.
     """
     from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
     from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import SCD2_APPEND_MODE
@@ -150,21 +154,37 @@ def record_history_seed_job(parent: ExternalDataJob, schema: ExternalDataSchema,
         _build_schema_snapshot,
     )
 
-    ExternalDataJob.objects.create(
-        team_id=parent.team_id,
-        pipeline_id=parent.pipeline_id,
-        schema_id=parent.schema_id,
-        status=ExternalDataJob.Status.COMPLETED,
-        rows_synced=rows,
-        finished_at=timezone.now(),
-        workflow_id=parent.workflow_id,
-        workflow_run_id=None,
-        pipeline_version=parent.pipeline_version,
-        billable=parent.billable is not False,
-        schema_snapshot={
-            **_build_schema_snapshot(schema),
-            "cdc_write_mode": SCD2_APPEND_MODE,
-            COMPANION_OF_KEY: str(parent.id),
-        },
-        destination_ids=[],
+    with transaction.atomic():
+        seed = ExternalDataJob.objects.create(
+            team_id=parent.team_id,
+            pipeline_id=parent.pipeline_id,
+            schema_id=parent.schema_id,
+            status=ExternalDataJob.Status.RUNNING,
+            rows_synced=rows,
+            workflow_id=parent.workflow_id,
+            workflow_run_id=None,
+            pipeline_version=parent.pipeline_version,
+            billable=parent.billable is not False,
+            schema_snapshot={
+                **_build_schema_snapshot(schema),
+                "cdc_write_mode": SCD2_APPEND_MODE,
+                COMPANION_OF_KEY: str(parent.id),
+            },
+            destination_ids=[],
+        )
+        # Under the row lock, like every writer of this snapshot.
+        locked = ExternalDataJob.objects.select_for_update().get(id=parent.id, team_id=parent.team_id)
+        snapshot = {**(locked.schema_snapshot or {}), HISTORY_SEED_JOB_KEY: str(seed.id)}
+        ExternalDataJob.objects.filter(id=parent.id).update(schema_snapshot=snapshot)
+
+
+def complete_history_seed_job(parent: ExternalDataJob) -> None:
+    """Complete the seed job a snapshot opened, now that the snapshot job completed. A no-op when run again."""
+    from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+
+    seed_id = (parent.schema_snapshot or {}).get(HISTORY_SEED_JOB_KEY)
+    if not seed_id:
+        return
+    ExternalDataJob.objects.filter(id=seed_id, team_id=parent.team_id, status=ExternalDataJob.Status.RUNNING).update(
+        status=ExternalDataJob.Status.COMPLETED, finished_at=timezone.now()
     )

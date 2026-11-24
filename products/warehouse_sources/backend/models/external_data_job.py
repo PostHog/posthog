@@ -12,6 +12,9 @@ from posthog.sync import database_sync_to_async
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.types import ExternalDataJobPipelineVersion, ExternalDataJobStatus
 
+# On the job a run opens for each further table it writes, such as a history table: the id of the run's own job.
+COMPANION_OF_KEY = "companion_of"
+
 
 class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     # Kept on the model so the nested names stay unchanged.

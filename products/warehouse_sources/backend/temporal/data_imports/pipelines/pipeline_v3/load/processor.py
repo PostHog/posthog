@@ -39,6 +39,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.companion_jobs import (
     COMPANION_RUN_SUFFIX,
+    complete_history_seed_job,
     run_completed_on_every_table,
     run_ended_on_every_table,
     writes_several_tables,
@@ -750,6 +751,7 @@ def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
             # Failed) after the final batch passed should_process_batch, the staged incremental
             # cursor must not advance past data that was never fully loaded.
             _promote_staged_cursor(export_signal)
+            complete_history_seed_job(model)
             if export_signal.sync_type == "append":
                 # In the same transaction as the cursor, so a later run never finds the marker of
                 # a run whose watermark already covers its rows.
@@ -761,9 +763,7 @@ def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
                 )
 
     if job_completed:
-        # A run that writes several tables reserves rows for each, so the last of its jobs to end clears them.
-        if not writes_several_tables(model) or run_ended_on_every_table(export_signal.job_id, export_signal.team_id):
-            async_to_sync(finish_row_tracking)(export_signal.team_id, export_signal.schema_id)
+        _finish_row_tracking_if_run_ended(model, export_signal)
         if (model.schema_snapshot or {}).get("sync_type") == ExternalDataSchema.SyncType.WEBHOOK:
             _delete_consumed_webhook_files(export_signal)
 
@@ -786,6 +786,25 @@ def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
 
     if job_completed:
         _resume_schedule_after_ad_hoc_run(export_signal)
+
+
+def _finish_row_tracking_if_run_ended(model: ExternalDataJob, export_signal: ExportSignalMessage) -> None:
+    """A run that writes several tables reserves rows for each, so the last of its jobs to end clears them.
+
+    Runs after the completion committed, so it never raises: a missed clear only leaves the reserve until
+    the schema's next run resets it.
+    """
+    try:
+        if writes_several_tables(model) and not run_ended_on_every_table(export_signal.job_id, export_signal.team_id):
+            return
+        async_to_sync(finish_row_tracking)(export_signal.team_id, export_signal.schema_id)
+    except Exception:
+        logger.warning(
+            "completed_run_billing_reserve_not_cleared",
+            external_data_job_id=export_signal.job_id,
+            team_id=export_signal.team_id,
+            exc_info=True,
+        )
 
 
 def _delete_consumed_webhook_files(export_signal: ExportSignalMessage) -> None:

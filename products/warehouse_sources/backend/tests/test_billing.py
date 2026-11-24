@@ -22,7 +22,10 @@ from products.warehouse_sources.backend.models.external_data_destination_deliver
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.temporal.data_imports.cdc.companion_jobs import record_history_seed_job
+from products.warehouse_sources.backend.temporal.data_imports.cdc.companion_jobs import (
+    complete_history_seed_job,
+    record_history_seed_job,
+)
 from products.warehouse_sources.backend.types import ExternalDataJobStatus
 
 PERIOD_BEGIN = datetime(2026, 3, 10, 0, 0, 0, tzinfo=UTC)
@@ -118,20 +121,33 @@ class TestWarehouseRowsBilling(BaseTest):
 
         assert self._report_totals() == {}
 
-    @parameterized.expand([("billable_snapshot", True, {ROWS_SYNCED_USAGE_KEY: 250}), ("free_snapshot", False, {})])
-    def test_a_history_seed_bills_once_whatever_the_snapshot_delivered_to(
-        self, _name: str, billable: bool, expected: dict[str, int]
+    @parameterized.expand(
+        [
+            ("billable_snapshot", True, {ROWS_SYNCED_USAGE_KEY: 200}, {ROWS_SYNCED_USAGE_KEY: 250}),
+            ("free_snapshot", False, {}, {}),
+        ]
+    )
+    def test_a_history_seed_bills_once_and_only_when_its_snapshot_completes(
+        self, _name: str, billable: bool, before_completion: dict[str, int], after_completion: dict[str, int]
     ) -> None:
         snapshot = self._job(
             source_created_at=PERIOD_END - timedelta(days=30), rows=100, billable=billable, destination_ids=["a", "b"]
         )
         schema = ExternalDataSchema.objects.create(team_id=self.team.pk, source=snapshot.pipeline, name="orders")
-        with time_machine.travel(FINISHED_AT, tick=False):
-            record_history_seed_job(snapshot, schema, 50)
+        record_history_seed_job(snapshot, schema, 50)
 
-        totals = {(self.team.pk, usage_key): rows for usage_key, rows in expected.items()}
-        assert self._report_totals() == totals
-        assert self._collector_totals() == totals
+        def totals(expected: dict[str, int]) -> dict[tuple[int, str], int]:
+            return {(self.team.pk, usage_key): rows for usage_key, rows in expected.items()}
+
+        assert self._report_totals() == totals(before_completion)
+
+        snapshot.refresh_from_db()
+        with time_machine.travel(FINISHED_AT, tick=False):
+            complete_history_seed_job(snapshot)
+            complete_history_seed_job(snapshot)
+
+        assert self._report_totals() == totals(after_completion)
+        assert self._collector_totals() == totals(after_completion)
 
     def _deliveries(self, job: ExternalDataJob, *bytes_per_batch: int) -> None:
         destination = ExternalDataDestination.objects.for_team(job.team_id).create(

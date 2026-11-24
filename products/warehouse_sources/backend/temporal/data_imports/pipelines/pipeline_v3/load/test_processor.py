@@ -648,6 +648,7 @@ class TestMarkJobCompleted:
             ("last_table_of_the_run", {"companion_of": "job-0"}, True, True),
         ]
     )
+    @patch(f"{_PROCESSOR}.complete_history_seed_job")
     @patch(f"{_PROCESSOR}.run_completed_on_every_table", return_value=True)
     @patch(f"{_PROCESSOR}.run_ended_on_every_table")
     @patch(f"{_PROCESSOR}.resume_schedule_after_ad_hoc_run")
@@ -672,6 +673,7 @@ class TestMarkJobCompleted:
         _resume: MagicMock,
         mock_run_ended: MagicMock,
         _run_completed: MagicMock,
+        mock_complete_seed: MagicMock,
     ) -> None:
         model = MagicMock()
         model.status = "Completed"
@@ -684,6 +686,8 @@ class TestMarkJobCompleted:
         _mark_job_completed(signal)
 
         assert mock_finish_row_tracking.await_count == (1 if cleared else 0)
+        # A snapshot's history seed bills once the snapshot job completes.
+        mock_complete_seed.assert_called_once_with(model)
 
     @parameterized.expand(
         [
@@ -1139,6 +1143,7 @@ class TestStagedCursorWaitsForTheFinalBatch:
             mock_schema_objects = stack.enter_context(patch(f"{_PROCESSOR}.ExternalDataSchema.objects"))
             stack.enter_context(patch(f"{_PROCESSOR}.run_completed_on_every_table", return_value=True))
             stack.enter_context(patch(f"{_PROCESSOR}.run_ended_on_every_table", return_value=True))
+            stack.enter_context(patch(f"{_PROCESSOR}.complete_history_seed_job"))
             stack.enter_context(
                 patch(
                     f"{_PROCESSOR}.BatchQueue.get_loaded_prefix_sync",
