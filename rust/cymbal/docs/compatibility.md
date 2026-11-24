@@ -3,31 +3,33 @@
 Remote symbol resolution is an internal implementation detail of cymbal.
 It does not change the HTTP contract with the Node.js error-tracking consumer.
 
-## `/v2/process` request and response
+## `/process` with one result for each event
 
-`POST /v2/process` reports one result for each event.
-The request is an array of `AnyEvent`-shaped exception events, the same body `/process` takes.
-The response follows the ingestion response contract in [`common/ingestion-response`](../../common/ingestion-response/README.md), and always carries its `X-PostHog-Ingestion-Response` header.
-The route selects the contract, so the caller does not need to send that header.
+A caller that sends `X-PostHog-Ingestion-Response: 1` to `POST /process` gets one result for each event.
+The request body is the same array of `AnyEvent`-shaped exception events.
+The response follows the ingestion response contract in [`common/ingestion-response`](../../common/ingestion-response/README.md) and carries the same header.
+A cymbal version that does not know the header answers with the array described in the next section and without the header, so the caller picks its parser from the response header.
 
 | `result` | Meaning for cymbal |
 | --- | --- |
 | `ok` | The event was processed. `value` is the same `AnyEvent` shape with updated `properties`. |
 | `drop` | The normal cymbal pipeline dropped the event. `reason` is `suppressed`, `suppressed_by_rule`, `rate_limited_per_issue`, or `rate_limited_project`. |
-| `fail` | The event's own data cannot be processed, such as a payload the resolution service reports as poison. The code is `invalid_input`. |
+| `fail` | The event's own data cannot be processed, such as a malformed event or `properties` that is not an object. The code is `invalid_input`. |
+
+An `ok` event that has `$cymbal_errors` also carries an `error_tracking_exception_processing_errors` warning with those errors.
 
 Cymbal does not answer `retry`.
 A failure that can come from a dependency, such as a database, Kafka, or resolution-pool error, fails the whole request with a 500, as the contract requires.
 
 ## `/process` request and response
 
-`/process` is the contract the Node.js error-tracking consumer uses.
+Without the header, `/process` answers with the contract the Node.js error-tracking consumer uses.
 
 - The caller sends `POST /process` with an array of `AnyEvent`-shaped exception events.
 - Cymbal returns an array with the same length and ordering as the request.
 - Each non-null response entry is the same `AnyEvent` shape with updated `properties`.
 - `null` entries mean the event was suppressed by the normal cymbal pipeline.
-- A slot has no way to report a failed event, so one failed event fails the whole request with a 500.
+- A slot has no way to report a failed event, so one failed event fails the whole request with a 500, and one malformed event rejects the whole body with a 422.
 - Remote resolution only changes how cymbal fills the exception list before properties, grouping, linking, suppression, and alerting continue.
 
 ## Node-side chunking

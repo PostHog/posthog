@@ -2,6 +2,7 @@ use std::{collections::HashMap, fs, sync::Arc};
 
 use axum::{body::Body, http::Request};
 use chrono::{DateTime, Utc};
+use common_ingestion_response::{HEADER as ITEM_RESULTS_HEADER, VERSION as ITEM_RESULTS_VERSION};
 use common_redis::MockRedisClient;
 use common_types::error_tracking::FrameId;
 use cymbal::{
@@ -232,27 +233,34 @@ impl TestHarness {
         .await
     }
 
-    async fn post_events_to<T: DeserializeOwned>(
+    async fn post_body(
         &self,
-        uri: &str,
-        events: Vec<AnyEvent>,
+        item_results: bool,
+        body: JsonValue,
         configure: impl FnOnce(&mut ProcessingConfig),
-    ) -> (StatusCode, T) {
-        utils::get_response_with_config(
+    ) -> (StatusCode, JsonValue) {
+        let (status, response) = utils::get_raw_response_with_config(
             self.db.clone(),
             STORAGE_BUCKET.to_string(),
             || {
-                Request::builder()
+                let mut request = Request::builder()
                     .method("POST")
                     .header("content-type", "application/json")
-                    .uri(uri)
-                    .body(Body::from(serde_json::to_vec(&events).unwrap()))
+                    .uri("/process");
+                if item_results {
+                    request = request.header(ITEM_RESULTS_HEADER, ITEM_RESULTS_VERSION);
+                }
+                request
+                    .body(Body::from(serde_json::to_vec(&body).unwrap()))
                     .unwrap()
             },
             Arc::new(Self::create_s3_mock()),
             configure,
         )
-        .await
+        .await;
+        // A rejected body is plain text, not JSON.
+        let response = serde_json::from_str(&response).unwrap_or(JsonValue::String(response));
+        (status, response)
     }
 
     async fn post_event<T: DeserializeOwned>(&self, event: &AnyEvent) -> (StatusCode, T) {
@@ -732,7 +740,7 @@ async fn suppressed_issue_returns_suppressed_response(db: PgPool) {
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
-async fn v2_reports_why_an_event_was_suppressed(db: PgPool) {
+async fn item_results_report_why_an_event_was_suppressed(db: PgPool) {
     let harness = TestHarness::new(db);
     let input = make_event(vec![make_exception("SuppressedError", "will suppress")]);
 
@@ -741,14 +749,53 @@ async fn v2_reports_why_an_event_was_suppressed(db: PgPool) {
         .suppress_issue(created.take_properties().issue_id())
         .await;
 
-    let (status, body): (_, JsonValue) = harness
-        .post_events_to("/v2/process", vec![input], |_| {})
-        .await;
+    let (status, body) = harness.post_body(true, json!([input]), |_| {}).await;
 
     assert!(status.is_success());
     assert_eq!(
         body,
         json!({ "results": [{ "result": "drop", "reason": "suppressed" }] })
+    );
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn malformed_event_fails_alone_only_for_a_caller_that_takes_item_results(db: PgPool) {
+    let harness = TestHarness::new(db);
+    let valid = make_event(vec![make_exception("Error", "boom")]);
+    let body = json!([{ "uuid": "not-an-event" }, valid]);
+
+    let (status, _) = harness.post_body(false, body.clone(), |_| {}).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+
+    let (status, response) = harness.post_body(true, body, |_| {}).await;
+
+    assert!(status.is_success(), "Expected success, got {status:?}");
+    let results = response["results"].as_array().unwrap();
+    assert_eq!(results.len(), 2);
+    assert_eq!(results[0]["result"], json!("fail"));
+    assert_eq!(results[0]["error"]["code"], json!("invalid_input"));
+    assert_eq!(results[1]["result"], json!("ok"));
+    assert_eq!(results[1]["value"]["uuid"], json!(valid.uuid));
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn item_results_carry_processing_errors_as_an_ingestion_warning(db: PgPool) {
+    let harness = TestHarness::new(db);
+    let input = make_event(vec![]);
+
+    let (status, response) = harness.post_body(true, json!([input]), |_| {}).await;
+
+    assert!(status.is_success(), "Expected success, got {status:?}");
+    let result = &response["results"][0];
+    let errors = &result["value"]["properties"]["$cymbal_errors"];
+    assert!(errors.as_array().is_some_and(|errors| !errors.is_empty()));
+    assert_eq!(
+        result["warnings"],
+        json!([{
+            "type": "error_tracking_exception_processing_errors",
+            "details": { "eventUuid": input.uuid, "errors": errors },
+            "key": input.uuid,
+        }])
     );
 }
 
@@ -766,7 +813,7 @@ fn use_resolution_stub(addr: std::net::SocketAddr) -> impl FnOnce(&mut Processin
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
-async fn poison_event_fails_the_request_on_v1_and_fails_alone_on_v2(db: PgPool) {
+async fn poison_event_fails_alone_only_for_a_caller_that_takes_item_results(db: PgPool) {
     let harness = TestHarness::new(db);
     let events = vec![
         load_static_event("javascript_chunk_id"),
@@ -777,10 +824,10 @@ async fn poison_event_fails_the_request_on_v1_and_fails_alone_on_v2(db: PgPool) 
         kind: ErrorKind::Poison,
     };
 
-    // The caller of `/process` retries the whole batch, so no issue may exist after the 500.
+    // A caller without item results retries the whole batch, so no issue may exist after the 500.
     let (addr, _) = common::spawn_stub_server(poison_after_first()).await;
-    let (status, _): (_, JsonValue) = harness
-        .post_events_to("/process", events.clone(), use_resolution_stub(addr))
+    let (status, _) = harness
+        .post_body(false, json!(events), use_resolution_stub(addr))
         .await;
     assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
     let (issues,): (i64,) = sqlx::query_as("SELECT count(*) FROM posthog_errortrackingissue")
@@ -790,8 +837,8 @@ async fn poison_event_fails_the_request_on_v1_and_fails_alone_on_v2(db: PgPool) 
     assert_eq!(issues, 0);
 
     let (addr, _) = common::spawn_stub_server(poison_after_first()).await;
-    let (status, body): (_, JsonValue) = harness
-        .post_events_to("/v2/process", events, use_resolution_stub(addr))
+    let (status, body) = harness
+        .post_body(true, json!(events), use_resolution_stub(addr))
         .await;
 
     assert!(status.is_success(), "Expected success, got {status:?}");
@@ -810,7 +857,7 @@ async fn poison_event_fails_the_request_on_v1_and_fails_alone_on_v2(db: PgPool) 
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
-async fn v2_fails_the_whole_request_on_a_dependency_failure(db: PgPool) {
+async fn item_results_fail_the_whole_request_on_a_dependency_failure(db: PgPool) {
     let (addr, _) = common::spawn_stub_server(common::ServerBehavior::Happy).await;
     let mut config = ProcessingConfig::init_with_defaults().unwrap();
     use_resolution_stub(addr)(&mut config);
@@ -827,7 +874,8 @@ async fn v2_fails_the_whole_request_on_a_dependency_failure(db: PgPool) {
             Request::builder()
                 .method("POST")
                 .header("content-type", "application/json")
-                .uri("/v2/process")
+                .uri("/process")
+                .header(ITEM_RESULTS_HEADER, ITEM_RESULTS_VERSION)
                 .body(Body::from(serde_json::to_vec(&vec![&event]).unwrap()))
                 .unwrap(),
         )

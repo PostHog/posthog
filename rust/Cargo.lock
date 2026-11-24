@@ -3632,6 +3632,7 @@ dependencies = [
  "common-database",
  "common-dns",
  "common-ingestion-response",
+ "common-ingestion-warnings",
  "common-kafka",
  "common-metrics",
  "common-posthog",

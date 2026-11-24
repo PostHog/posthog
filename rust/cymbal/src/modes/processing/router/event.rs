@@ -1,24 +1,25 @@
 use std::{collections::HashSet, sync::Arc, time::Instant};
 
 use axum::{
-    extract::{Json, State},
+    extract::{rejection::JsonRejection, FromRequest, Json, Request, State},
     http::HeaderMap,
-    response::IntoResponse,
+    response::{IntoResponse, Response},
 };
 
-use common_ingestion_response::{ItemResult, ItemResults};
+use common_ingestion_response::{codes, ItemResult, ItemResults, PerItemResults, Warning};
+use common_ingestion_warnings::WarningType;
 use reqwest::StatusCode;
 use uuid::Uuid;
 
-use serde_json::json;
+use serde_json::{json, Map, Value};
 use tracing::{debug, error, warn};
 
 use crate::{
     app_context::AppContext,
     error::UnhandledError,
     metric_consts::{
-        ERRORS, PROCESS_BATCH_EVENTS, PROCESS_IN_FLIGHT, PROCESS_REQUESTS_TOTAL,
-        PROCESS_REQUEST_DURATION_MS,
+        ERRORS, EVENT_PROCESSING_FAILURES, PROCESS_BATCH_EVENTS, PROCESS_IN_FLIGHT,
+        PROCESS_REQUESTS_TOTAL, PROCESS_REQUEST_DURATION_MS,
     },
     stages::http_pipeline::HttpEventPipeline,
     types::{
@@ -55,6 +56,13 @@ fn get_request_id(headers: &HeaderMap) -> String {
 pub enum ProcessEventsError {
     Unhandled(Arc<UnhandledError>),
     Backpressure,
+    Rejected(JsonRejection),
+}
+
+impl From<JsonRejection> for ProcessEventsError {
+    fn from(rejection: JsonRejection) -> Self {
+        Self::Rejected(rejection)
+    }
 }
 
 impl IntoResponse for ProcessEventsError {
@@ -76,6 +84,7 @@ impl IntoResponse for ProcessEventsError {
                 })),
             )
                 .into_response(),
+            ProcessEventsError::Rejected(rejection) => rejection.into_response(),
         }
     }
 }
@@ -85,22 +94,6 @@ impl IntoResponse for Batch<Option<AnyEvent>> {
         // `Json` serializes straight into the response body, so hand it the events
         // directly rather than first materializing an intermediate `serde_json::Value`.
         (StatusCode::OK, Json(Vec::from(self))).into_response()
-    }
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Route {
-    /// `POST /process`. A slot is the event or `null`, so one failed event fails the request.
-    V1,
-    V2,
-}
-
-impl Route {
-    fn label(self) -> &'static str {
-        match self {
-            Route::V1 => "v1",
-            Route::V2 => "v2",
-        }
     }
 }
 
@@ -122,44 +115,101 @@ fn first_failure(batch: &Batch<ProcessOutcome>) -> Option<(usize, String)> {
 pub async fn process_events(
     State(ctx): State<Arc<AppContext>>,
     headers: HeaderMap,
-    Json(events): Json<Vec<AnyEvent>>,
-) -> Result<Batch<Option<AnyEvent>>, ProcessEventsError> {
-    let batch = run_pipeline(ctx, headers, events, Route::V1).await?;
-    Ok(batch.map(
-        |outcome, ()| match outcome {
-            ProcessOutcome::Ok(event) => Some(event),
-            ProcessOutcome::Dropped(_) | ProcessOutcome::Failed { .. } => None,
-        },
-        &mut (),
-    ))
+    PerItemResults(item_results): PerItemResults,
+    request: Request,
+) -> Result<Response, ProcessEventsError> {
+    if !item_results {
+        // A slot of this response is the event or `null`, so it cannot report a failed event:
+        // a malformed event rejects the body, and a failed event fails the request.
+        let Json(events) = Json::<Vec<AnyEvent>>::from_request(request, &()).await?;
+        let batch = run_pipeline(ctx, headers, events, false).await?;
+        return Ok(batch
+            .map(
+                |outcome, ()| match outcome {
+                    ProcessOutcome::Ok(event) => Some(event),
+                    ProcessOutcome::Dropped(_) | ProcessOutcome::Failed { .. } => None,
+                },
+                &mut (),
+            )
+            .into_response());
+    }
+
+    let Json(bodies) = Json::<Vec<Value>>::from_request(request, &()).await?;
+    let request_items = bodies.len();
+    let mut malformed = Vec::with_capacity(request_items);
+    let mut events = Vec::with_capacity(request_items);
+    for body in bodies {
+        match serde_json::from_value::<AnyEvent>(body) {
+            Ok(event) => {
+                malformed.push(None);
+                events.push(event);
+            }
+            Err(err) => {
+                metrics::counter!(EVENT_PROCESSING_FAILURES, "operator" => "parse_event")
+                    .increment(1);
+                malformed.push(Some(ProcessOutcome::Failed {
+                    code: codes::INVALID_INPUT,
+                    message: format!("malformed event: {err}"),
+                }));
+            }
+        }
+    }
+
+    let mut processed = Vec::from(run_pipeline(ctx, headers, events, true).await?).into_iter();
+    let mut outcomes: Vec<ProcessOutcome> = malformed
+        .into_iter()
+        .filter_map(|failed| failed.or_else(|| processed.next()))
+        .collect();
+    // Outcomes the pipeline should not have returned make the length check below fail.
+    outcomes.extend(processed);
+
+    let results = outcomes.into_iter().map(to_item_result).collect();
+    ItemResults::new(request_items, results)
+        .map(IntoResponse::into_response)
+        .map_err(|err| {
+            ProcessEventsError::Unhandled(Arc::new(UnhandledError::Other(err.to_string())))
+        })
 }
 
-#[axum::debug_handler]
-pub async fn process_events_v2(
-    State(ctx): State<Arc<AppContext>>,
-    headers: HeaderMap,
-    Json(events): Json<Vec<AnyEvent>>,
-) -> Result<ItemResults<AnyEvent>, ProcessEventsError> {
-    let request_items = events.len();
-    let results = Vec::from(run_pipeline(ctx, headers, events, Route::V2).await?)
-        .into_iter()
-        .map(|outcome| match outcome {
-            ProcessOutcome::Ok(event) => ItemResult::ok(event),
-            ProcessOutcome::Dropped(reason) => ItemResult::drop(reason),
-            ProcessOutcome::Failed { code, message } => ItemResult::fail(code, message),
-        })
-        .collect();
-    ItemResults::new(request_items, results).map_err(|err| {
-        ProcessEventsError::Unhandled(Arc::new(UnhandledError::Other(err.to_string())))
-    })
+fn to_item_result(outcome: ProcessOutcome) -> ItemResult<AnyEvent> {
+    match outcome {
+        ProcessOutcome::Ok(event) => match processing_errors_warning(&event) {
+            Some(warning) => ItemResult::ok(event).with_warning(warning),
+            None => ItemResult::ok(event),
+        },
+        ProcessOutcome::Dropped(reason) => ItemResult::drop(reason),
+        ProcessOutcome::Failed { code, message } => ItemResult::fail(code, message),
+    }
+}
+
+/// Ingestion shows the `$cymbal_errors` of a processed event to its team as this warning.
+fn processing_errors_warning(event: &AnyEvent) -> Option<Warning> {
+    let errors = event
+        .properties
+        .get("$cymbal_errors")?
+        .as_array()
+        .filter(|errors| !errors.is_empty())?;
+    let uuid = event.uuid.to_string();
+    let details = Map::from_iter([
+        ("eventUuid".to_string(), Value::String(uuid.clone())),
+        ("errors".to_string(), Value::Array(errors.clone())),
+    ]);
+    Some(
+        Warning::new(
+            WarningType::ErrorTrackingExceptionProcessingErrors.as_str(),
+            details,
+        )
+        .with_key(uuid),
+    )
 }
 
 async fn run_pipeline(
     ctx: Arc<AppContext>,
     headers: HeaderMap,
     events: Vec<AnyEvent>,
-    route: Route,
+    item_results: bool,
 ) -> Result<Batch<ProcessOutcome>, ProcessEventsError> {
+    let item_results_label = if item_results { "true" } else { "false" };
     let _in_flight = ProcessInFlightGuard::start();
     let request_id = get_request_id(&headers);
     let started_at = Instant::now();
@@ -190,7 +240,7 @@ async fn run_pipeline(
                 PROCESS_REQUESTS_TOTAL,
                 "outcome" => "error",
                 "status_class" => "4xx",
-                "route" => route.label()
+                "item_results" => item_results_label
             )
             .increment(1);
             warn!(
@@ -203,13 +253,13 @@ async fn run_pipeline(
         })?;
 
     let slow_log_threshold_ms = ctx.config.process_slow_log_threshold_ms;
-    let pipeline = HttpEventPipeline::new(ctx.clone(), route == Route::V2);
+    let pipeline = HttpEventPipeline::new(ctx.clone(), item_results);
     let input = Batch::from(events);
     let output = pipeline.process(input).await;
 
     let failure = output.as_ref().ok().and_then(first_failure);
-    let output = match (route, &failure) {
-        (Route::V1, Some((_, error))) => Err(UnhandledError::Other(error.clone())),
+    let output = match &failure {
+        Some((_, error)) if !item_results => Err(UnhandledError::Other(error.clone())),
         _ => output,
     };
 
@@ -240,7 +290,7 @@ async fn run_pipeline(
                 PROCESS_REQUESTS_TOTAL,
                 "outcome" => "success",
                 "status_class" => "2xx",
-                "route" => route.label()
+                "item_results" => item_results_label
             )
             .increment(1);
 
@@ -286,7 +336,7 @@ async fn run_pipeline(
                 PROCESS_REQUESTS_TOTAL,
                 "outcome" => "error",
                 "status_class" => "5xx",
-                "route" => route.label()
+                "item_results" => item_results_label
             )
             .increment(1);
 
