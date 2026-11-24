@@ -622,6 +622,15 @@ def flag_version_conflict_message(sent_version: int, current_version: int) -> st
 _GROUP_PROPERTIES = jsonb_array_or_empty("grp->'properties'")
 
 
+def _is_canonical_flag_reference(flag_reference: object) -> bool:
+    # safe_int also accepts "+7", " 7" and "7_0", which the dependent-flag queries never match.
+    if isinstance(flag_reference, bool):
+        return False
+    if isinstance(flag_reference, int):
+        return True
+    return isinstance(flag_reference, str) and re.fullmatch(r"[0-9]+", flag_reference) is not None
+
+
 def _flag_id_key_pattern(flag_id: int) -> str:
     # validation reads a flag reference as an integer, so "007" and "7" name the same flag
     return f"^0*{flag_id}$"
@@ -1834,6 +1843,16 @@ class FeatureFlagSerializer(
         # Fallback to database query if annotation is not available
         return teams_gating_replay_on_flag(feature_flag, key=feature_flag.key).exists()
 
+    def _reactivates_flag(self, attrs: Mapping[str, JsonValue]) -> bool:
+        assert self.instance is not None
+        enabling = attrs.get("active") is True and not self.instance.active
+        # The cohort delete guard skips deleted and archived flags. Once a flag is neither, a writer
+        # that skips this serializer can enable it. Survey resume is one such writer.
+        returning = (self.instance.deleted or self.instance.archived) and not (
+            attrs.get("deleted", self.instance.deleted) or attrs.get("archived", self.instance.archived)
+        )
+        return bool(enabling or returning)
+
     def _validate_reactivated_references(self, attrs: Mapping[str, JsonValue]) -> None:
         """Check stored references when a write turns the flag on or brings it back.
 
@@ -1847,13 +1866,7 @@ class FeatureFlagSerializer(
         if self.instance is None or self.initial_data.get("filters") or self._v2_write:
             return
 
-        enabling = attrs.get("active") is True and not self.instance.active
-        # The cohort delete guard skips deleted and archived flags. Once a flag is neither, a writer
-        # that skips this serializer can enable it. Survey resume is one such writer.
-        returning = (self.instance.deleted or self.instance.archived) and not (
-            attrs.get("deleted", self.instance.deleted) or attrs.get("archived", self.instance.archived)
-        )
-        if not (enabling or returning):
+        if not self._reactivates_flag(attrs):
             return
 
         try:
@@ -1925,8 +1938,9 @@ class FeatureFlagSerializer(
         return attrs
 
     def _validate_dependency_runtimes(self, attrs: dict) -> None:
-        # The check reads only the dependencies this write adds, or all of them when the write changes the runtime.
-        # An edit to a flag that already holds a mismatched dependency therefore still saves.
+        # The check reads only the dependencies this write adds, or all of them when the write changes the runtime
+        # or turns the flag on. An edit to a flag that already holds a mismatched dependency therefore still saves,
+        # and so does turning it off.
         if self._v2_write:
             return
         stored_runtime = self.instance.evaluation_runtime if self.instance is not None else None
@@ -1964,7 +1978,12 @@ class FeatureFlagSerializer(
         stored_filters = (self.instance.filters if self.instance is not None else None) or {}
         stored_dependency_ids = set(flag_dependency_ids(stored_filters))
         checked_ids = set(flag_dependency_ids(attrs.get("get_filters", stored_filters) or {}))
-        if not runtime_changed:
+        reactivating = (
+            self.instance is not None
+            and self._reactivates_flag(attrs)
+            and bool(attrs.get("active", self.instance.active))
+        )
+        if not (runtime_changed or reactivating):
             checked_ids -= stored_dependency_ids
         if not checked_ids:
             return
@@ -1977,15 +1996,17 @@ class FeatureFlagSerializer(
             .order_by("key")
         )
         readable_ids = {dependency.id for dependency in readable}
-        # A flag the caller cannot read looks missing. This covers a stored dependency too, but only when the
-        # runtime changes: an unrelated edit does not check stored dependencies, so it saves.
-        if hidden_ids := checked_ids - readable_ids:
+        # A flag the caller cannot read looks missing. A stored dependency is skipped instead: the caller did not
+        # add it and cannot act on it, so rejecting the write would block it with no way to fix it.
+        if hidden_ids := checked_ids - readable_ids - stored_dependency_ids:
             raise _missing_dependency_error(min(hidden_ids))
         for dependency in readable:
             if _runtime_supports_dependency(runtime, dependency.evaluation_runtime):
                 continue
-            # A dependency the flag already stores fails only because this write changes the runtime.
-            attr = "evaluation_runtime" if dependency.id in stored_dependency_ids else "filters"
+            if dependency.id not in stored_dependency_ids:
+                attr = "filters"
+            else:
+                attr = "evaluation_runtime" if runtime_changed else "active"
             message = (
                 f"Cannot depend on flag (ID: {dependency.id}) because it evaluates "
                 f"{_describe_runtime(dependency.evaluation_runtime)} and this flag evaluates "
@@ -2021,6 +2042,10 @@ class FeatureFlagSerializer(
     def _readable_flags(self, queryset: QuerySet[FeatureFlag]) -> QuerySet[FeatureFlag]:
         """Narrow a flag queryset to the flags the caller can read, as the retrieve and keys endpoints do."""
         request = self.context.get("request")
+        # An approved change was validated against its author's access when submitted, so the approver's own
+        # access does not narrow it.
+        if self.context.get("approval_apply"):
+            return queryset
         user = getattr(request, "user", None)
         if user is not None and user.is_anonymous:
             return queryset.none()
@@ -2840,7 +2865,7 @@ class FeatureFlagSerializer(
         skipped otherwise (a stored reference). A stored reference to a deleted flag still fails, so a caller can
         tell that a hidden flag no longer exists.
         """
-        flag_id = safe_int(flag_reference)
+        flag_id = safe_int(flag_reference) if _is_canonical_flag_reference(flag_reference) else None
         if flag_id is None:
             raise serializers.ValidationError(
                 f"Flag dependencies must reference flag IDs (integers), not flag keys. "

@@ -132,7 +132,6 @@ class TestFeatureFlagDependencyRuntime(APIBaseTest):
                 True,
                 lambda dep_id: {"filters": _depends_on(dep_id, rollout_percentage=50)},
             ),
-            ("reenable", "server", False, lambda _: {"active": True}),
             ("unset_to_all", None, True, lambda _: {"evaluation_runtime": "all"}),
         ]
     )
@@ -233,19 +232,93 @@ class TestFeatureFlagDependencyRuntime(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
 
     @parameterized.expand([("mismatched", "client"), ("compatible", "all")])
-    def test_runtime_change_over_unreadable_stored_dependency_looks_like_a_missing_flag(
-        self, _name: str, hidden_runtime: str
-    ) -> None:
+    def test_runtime_change_skips_an_unreadable_stored_dependency(self, _name: str, hidden_runtime: str) -> None:
         hidden = self._hidden_flag_as_member("hidden_dependency", hidden_runtime)
         dependent = self._flag("dependent", "client", filters=_depends_on(hidden.id))
 
         response = self._patch(dependent, {"evaluation_runtime": "server"})
 
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+    def test_runtime_change_still_rejects_adding_an_unreadable_dependency(self) -> None:
+        hidden = self._hidden_flag_as_member("hidden_dependency", "all")
+        dependent = self._flag("dependent", "client")
+
+        response = self._patch(dependent, {"evaluation_runtime": "server", "filters": _depends_on(hidden.id)})
+
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["detail"] == f"Flag dependency references non-existent flag with ID {hidden.id}"
-        assert "hidden_dependency" not in str(response.json())
+
+    def test_enabling_checks_the_stored_dependencies_runtime(self) -> None:
+        dependency = self._flag("dependency", "all")
+        dependent = self._flag("dependent", "server", filters=_depends_on(dependency.id), active=False)
+        dependency.evaluation_runtime = "client"
+        dependency.save()
+
+        response = self._patch(dependent, {"active": True})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "client-side only" in response.json()["detail"]
         dependent.refresh_from_db()
-        assert dependent.evaluation_runtime == "client"
+        assert not dependent.active
+
+    def test_disabling_ignores_a_mismatched_stored_dependency(self) -> None:
+        dependency = self._flag("dependency", "client")
+        dependent = self._flag("dependent", "server", filters=_depends_on(dependency.id))
+
+        response = self._patch(dependent, {"active": False})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+    def test_enabling_skips_an_unreadable_stored_dependency(self) -> None:
+        hidden = self._hidden_flag_as_member("hidden_dependency", "client")
+        dependent = self._flag("dependent", "server", filters=_depends_on(hidden.id), active=False)
+
+        response = self._patch(dependent, {"active": True})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+    @parameterized.expand([("direct_write", False, False), ("approved_replay", True, True)])
+    def test_approval_replay_does_not_narrow_dependencies_to_the_approvers_access(
+        self, _name: str, approval_apply: bool, expect_valid: bool
+    ) -> None:
+
+        from rest_framework.test import APIRequestFactory
+
+        from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
+
+        hidden = self._hidden_flag_as_member("hidden_dependency", "all")
+        dependent = self._flag("dependent", "all")
+        request = APIRequestFactory().patch("/")
+        request.user = self._create_user("approver@posthog.com", level=1)
+        context = {
+            "request": request,
+            "team": self.team,
+            "team_id": self.team.id,
+            "project_id": self.team.project_id,
+            "get_team": lambda: self.team,
+            "approval_apply": approval_apply,
+        }
+
+        serializer = FeatureFlagSerializer(
+            instance=dependent, data={"filters": _depends_on(hidden.id)}, partial=True, context=context
+        )
+
+        assert serializer.is_valid() is expect_valid, serializer.errors
+
+    @parameterized.expand([("plus_sign", "+{id}"), ("space", " {id}"), ("underscore", "{id}_0"), ("arabic_digit", "٧")])
+    def test_adding_a_non_canonical_flag_reference_is_rejected(self, _name: str, template: str) -> None:
+        target = self._flag("target", "all")
+        dependent = self._flag("dependent", "all")
+        key = template.format(id=target.id)
+        filters = {
+            "groups": [{"properties": [{"key": key, "type": "flag", "value": "true"}], "rollout_percentage": 100}]
+        }
+
+        response = self._patch(dependent, {"filters": filters})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "must reference flag IDs" in response.json()["detail"]
 
     @parameterized.expand(
         [("hidden_flag_is_disabled", 0), ("disabled_flag_behind_it", 1), ("disabled_flag_behind_a_readable_flag", 2)]
