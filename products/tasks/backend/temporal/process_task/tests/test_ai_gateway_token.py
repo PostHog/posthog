@@ -51,6 +51,7 @@ from products.tasks.backend.temporal.process_task import utils
 from products.tasks.backend.temporal.process_task.ai_gateway_token import (
     _PRODUCT_ALLOWED_MODELS,
     AI_CREDITS_BILLED_PRODUCTS,
+    AI_GATEWAY_TOKEN_UNAVAILABLE,
     INTERACTIVE_MINTABLE_PRODUCTS,
     MINTABLE_PRODUCTS,
     PRODUCT_CREDIT_BUCKET,
@@ -1933,6 +1934,8 @@ class TestPosthogCodeSandboxMint:
     ):
         team = self._team(paid=paid)
         mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = routed_products
+        unavailable = AI_GATEWAY_TOKEN_UNAVAILABLE.labels(ai_product="posthog_code", reason=counted_reason)
+        unavailable_before = unavailable._value.get()
         credit_patch = (
             patch(_CREDIT_LOOKUP, side_effect=credit)
             if isinstance(credit, Exception)
@@ -1956,6 +1959,7 @@ class TestPosthogCodeSandboxMint:
             1,
             attributes={"surface": "sandbox", "ai_product": "posthog_code", "reason": counted_reason},
         )
+        assert unavailable._value.get() == unavailable_before + 1
 
     @pytest.mark.django_db
     def test_retry_after_credit_top_up_rechecks_credit_availability(self, mint_settings):

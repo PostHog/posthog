@@ -84,6 +84,7 @@ from products.tasks.backend.metrics import observe_mcp_exclude_tools_over_cap
 from products.tasks.backend.redis import get_tasks_cache
 from products.tasks.backend.temporal.process_task.ai_gateway_token import (
     AI_GATEWAY_TOKEN_MINTS,
+    AI_GATEWAY_TOKEN_UNAVAILABLE,
     MINTABLE_PRODUCTS,
     POSTHOG_CODE_PRODUCT,
     is_slack_origin,
@@ -1949,6 +1950,7 @@ _TRANSIENT_REFUSALS = frozenset(
 
 def gateway_token_unavailable(reason: str, team_id: int, ai_product: str) -> ProcessTaskError:
     record_gateway_token_refusal("sandbox", reason, ai_product=ai_product)
+    AI_GATEWAY_TOKEN_UNAVAILABLE.labels(ai_product=ai_product, reason=reason).inc()
     context: dict[str, Any] = {"team_id": team_id, "ai_product": ai_product, "reason": reason}
     if reason in _TRANSIENT_REFUSALS:
         # Also the run's final error after the last retry, so it can't promise one.
