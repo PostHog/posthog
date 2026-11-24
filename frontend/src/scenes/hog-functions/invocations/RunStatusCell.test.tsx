@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { act, cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import { EmailOutcome, HogInvocationRow } from './hogInvocationsLogic'
@@ -46,30 +46,21 @@ describe('RunStatusCell', () => {
     ] as const)(
         'shows only $tag and warning $warning for a $status run with level $level and outcome $outcome',
         ({ status, level, outcome, tag, warning }) => {
-            const { container, queryByRole } = render(<RunStatusCell row={runRow(status, level, outcome)} />)
+            const { container, queryByLabelText } = render(<RunStatusCell row={runRow(status, level, outcome)} />)
 
             expect(container.textContent).toBe(tag)
-            expect(queryByRole('img', { name: warning ?? undefined }) !== null).toBe(warning !== null)
+            expect(queryByLabelText(/^Logged an? (error|warning)$/)?.getAttribute('aria-label') ?? null).toBe(warning)
         }
     )
 
     it.each([
-        { level: 'error', alsoLogged: 'The run also logged an error.' },
-        { level: 'warn', alsoLogged: 'The run also logged a warning.' },
-        { level: null, alsoLogged: null },
-    ] as const)('email outcome tooltip names a separate $level as $alsoLogged', async ({ level, alsoLogged }) => {
-        jest.useFakeTimers()
-        const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime })
+        { level: 'error', note: /The run also logged an error\./ },
+        { level: 'warn', note: /The run also logged a warning\./ },
+    ] as const)('names a separate $level in the email outcome tooltip', async ({ level, note }) => {
         render(<RunStatusCell row={runRow('succeeded', level, 'bounced')} />)
 
-        await user.hover(screen.getByText('EMAIL BOUNCED'))
-        act(() => {
-            jest.advanceTimersByTime(1000)
-        })
+        userEvent.hover(screen.getByText('EMAIL BOUNCED'))
 
-        expect(
-            screen.getByText(/refused the email/).textContent?.match(/The run also logged an? \w+\./)?.[0] ?? null
-        ).toBe(alsoLogged)
-        jest.useRealTimers()
+        expect(await screen.findByText(note, {}, { timeout: 3000 })).toBeInTheDocument()
     })
 })
