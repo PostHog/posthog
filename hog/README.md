@@ -49,7 +49,10 @@ hog reads the latest release from `https://releases.posthog.com/hog/latest/manif
 ### Notices
 
 A notice is a message the team sends to hogs that are already installed, such as "hog 1 gets no more fixes after June 1, 2027".
-Notices come in the release manifest, so a hog shows them only when update checks are on.
+Notices come two ways, and a notice that comes both ways shows once:
+
+- **The release manifest**, which hog reads only when update checks are on.
+- **The PostHog API**, which adds an `X-PostHog-CLI-Notice` header to its answers for the hog versions a notice names. hog reads it on every command that talks to PostHog, also with update checks off, as in CI with `PostHog/setup-hog`.
 
 | Who runs hog                | What they see, on stderr after the output                                                                                               |
 | --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
@@ -92,6 +95,24 @@ To send a notice, add it to `release/notices.json`. The next release copies the 
 | `upgrade`       | Optional. Adds the update command for the install                        |
 
 `release/release.test.ts` fails a pull request whose `release/notices.json` a hog would skip, and the release stops on one too. To remove a notice, delete it from the file, or let `until` pass.
+
+To send a notice through the API, add a `CliNotice` to `CLI_NOTICES` in `posthog/cli_notices.py`. It reaches every hog that talks to PostHog Cloud once that deploys, and self-hosted instances once they update. The fields are the ones above, with `from` named `from_version`. A notice hog would skip fails at import, so its pull request fails CI:
+
+```python
+CLI_NOTICES: tuple[CliNotice, ...] = (
+    CliNotice(
+        id="hog-1-retiring",
+        level="warning",
+        message="hog 1 gets no more fixes after June 1, 2027. Move to hog 2.",
+        url="https://posthog.com/docs/cli/migrating",
+        below="2.0.0",
+        until=datetime(2027, 6, 1, tzinfo=UTC),
+        upgrade=True,
+    ),
+)
+```
+
+Use the same `id` in both places, so a hog that gets the notice both ways shows it once.
 
 ## Commands
 

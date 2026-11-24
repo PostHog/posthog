@@ -3,7 +3,7 @@ import { z } from 'zod'
 import type { Mode } from '@/core/agent'
 import { parseJsonOrUndefined } from '@/core/json'
 import { hogFile } from '@/core/paths'
-import type { Runtime } from '@/core/runtime'
+import type { Runtime, RuntimeFetch } from '@/core/runtime'
 import type { Telemetry } from '@/core/telemetry'
 
 import {
@@ -58,7 +58,16 @@ export const NoticeList = z
     .catch([])
     .transform((notices) => notices.filter((notice): notice is Notice => notice !== undefined))
 
-export type NoticeChannel = 'manifest'
+export type NoticeChannel = 'manifest' | 'api'
+
+// The PostHog API adds it to its answers for the hog versions a notice names, so a hog with update
+// checks off, such as one in CI, still gets the notice.
+export const API_NOTICE_HEADER = 'X-PostHog-CLI-Notice'
+
+export function noticesFromHeaders(headers: Headers): Notice[] {
+    const value = headers.get(API_NOTICE_HEADER)
+    return value ? (parseJsonOrUndefined(value, NoticeList) ?? []) : []
+}
 
 export interface HogInstall {
     version: string
@@ -126,12 +135,22 @@ export class Notices {
 
     constructor(private readonly runtime: Runtime) {}
 
-    // The first channel to name an id wins, so a notice both channels send shows once.
+    // A notice both channels send shows once, and telemetry credits the channel that named it first.
     add(channel: NoticeChannel, notices: readonly Notice[]): void {
         for (const notice of notices) {
             if (!this.pending.has(notice.id)) {
                 this.pending.set(notice.id, { notice, channel })
             }
+        }
+    }
+
+    // Collects the notices in every answer the wrapped fetch gets, from PostHog or not, because each one
+    // goes through the same checks as a manifest notice.
+    watch(fetchFn: RuntimeFetch): RuntimeFetch {
+        return async (input, init) => {
+            const response = await fetchFn(input, init)
+            this.add('api', noticesFromHeaders(response.headers))
+            return response
         }
     }
 

@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'bun:test'
 
-import { readJson, runHog, type FakeRuntimeOptions } from '@/testing'
+import { readJson, runHog, TEST_CREDENTIALS, type FakeRuntimeOptions } from '@/testing'
 
 import type { Manifest } from './manifest'
-import { appliesTo, NoticeList, type Notice } from './notices'
+import { API_NOTICE_HEADER, appliesTo, NoticeList, type Notice } from './notices'
 
 const LATEST = 'https://releases.posthog.com/hog/latest/manifest.json'
 const TELEMETRY = 'https://us.i.posthog.com/batch/'
@@ -161,5 +161,55 @@ describe('showing notices', () => {
                 }),
             })
         )
+    })
+})
+
+describe('notices from the PostHog API', () => {
+    const QUERY = ['endpoints', 'run', 'by-type']
+
+    function api(header: string, manifest: unknown[] = []): FakeRuntimeOptions['respond'] {
+        const releases = release(manifest)!
+        return (url, body, authorization, headers) =>
+            url === LATEST
+                ? releases(url, body, authorization, headers)
+                : { status: 200, body: { columns: ['n'], results: [[1]] }, headers: { [API_NOTICE_HEADER]: header } }
+    }
+
+    test('shows a notice the API sends, also with update checks off', async () => {
+        const result = await runHog(QUERY, {
+            ...PERSON,
+            env: { ...TEST_CREDENTIALS, NO_COLOR: '1', HOG_NO_UPDATE_CHECK: '1' },
+            respond: api(JSON.stringify([RETIRING])),
+        })
+
+        expect(result.exitCode).toBe(0)
+        expect(result.stderr).toContain(
+            'Warning: hog 1 gets no more fixes after June 1, 2027. Move to hog 2. Run `brew upgrade hog`.'
+        )
+        expect(result.requests.filter((request) => request.url === LATEST)).toEqual([])
+    })
+
+    test('shows a notice the API and the manifest both send once', async () => {
+        const result = await runHog(QUERY, {
+            ...PERSON,
+            env: { ...TEST_CREDENTIALS, NO_COLOR: '1' },
+            respond: api(JSON.stringify([RETIRING]), [RETIRING]),
+        })
+
+        expect(result.stderr.match(/hog 1 gets no more fixes/g)).toHaveLength(1)
+    })
+
+    test.each([
+        ['not JSON', 'soon'],
+        ['a notice that links away', JSON.stringify([{ ...RETIRING, url: 'https://example.com' }])],
+    ])('ignores a header that is %s, and the command still works', async (_name, header) => {
+        const result = await runHog(QUERY, {
+            ...PERSON,
+            env: { ...TEST_CREDENTIALS, NO_COLOR: '1', HOG_NO_UPDATE_CHECK: '1' },
+            respond: api(header),
+        })
+
+        expect(result.exitCode).toBe(0)
+        expect(result.stderr).toBe('')
     })
 })
