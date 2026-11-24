@@ -90,7 +90,7 @@ Read the result against three cases:
 - **Empty (`results: []`)** — no scouts are registered.
   The project isn't enrolled in the scout fleet (or hasn't ticked yet).
   Say so plainly; don't go fishing for runs.
-  Point the user at the Signals scout settings / PostHog Desktop onboarding rather than inventing activity.
+  Point the user at the Signals scout settings rather than inventing activity.
 - **Configs exist but all `enabled: false`** — the fleet is registered but paused.
   Nothing is running.
   Tell the user which scouts exist and that they're all off — and say who switched each one off, which `status` carries: `paused_by_user` means a person (or a launch seed posture) turned it off, `paused_by_system` means an automatic pause with its cause in `pause_reason` (`no_output` / `ignored` / `repeated_failures`).

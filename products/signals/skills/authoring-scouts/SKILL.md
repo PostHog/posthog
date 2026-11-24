@@ -203,7 +203,7 @@ For an **existing scout**, tune with `posthog:scout-config-update` (find the `id
   Each tree carries the repository's full commit history, so a skill body can run `git log`, `git blame`, and `--since` against it without an unshallow fetch first.
   Applies from the scout's next run, and changes are activity-logged.
 - `tags` — free-form labels grouping the fleet, e.g. `["revenue", "on-call"]`. Up to 10 per scout, normalized to lowercase kebab-case (`On Call` → `on-call`) and deduped.
-  Set them at create time: a scout that lands already grouped saves a follow-up edit, and the desktop app's scout list filters on them.
+  Set them at create time: a scout that lands already grouped saves a follow-up edit, and the scout list filters on them.
   Prefer a tag that already exists on the fleet (`-config-list` shows every scout's tags) over minting a near-duplicate — `revenue` and `revenue-analytics` fragment the same group.
   A write **replaces** the set, so send the full desired list, not just the additions.
   Filter the roster with `-config-list`'s `tags` parameter (comma-separated, matches a scout carrying **any** of them).
