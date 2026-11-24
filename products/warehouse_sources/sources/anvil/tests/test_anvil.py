@@ -47,6 +47,10 @@ def _org_page(page_field: str, items: list[dict[str, Any]], page: int = 1, page_
     )
 
 
+def _org_list(list_field: str, items: list[dict[str, Any]]) -> ScriptedResponse:
+    return ScriptedResponse(json={"data": {"organization": {list_field: items}}})
+
+
 def _weld_datas_page(items: list[dict[str, Any]], page: int = 1, page_count: int = 1) -> ScriptedResponse:
     return ScriptedResponse(
         json={"data": {"weld": {"weldDatas": {"page": page, "pageCount": page_count, "items": items}}}}
@@ -134,6 +138,97 @@ class TestOrganizationUsers:
             ("o3", "u1", "viewer"),
         ]
         assert result.saved_states == []
+
+
+class TestOrganizationListEndpoints:
+    @pytest.mark.parametrize(
+        "endpoint,list_field",
+        [("forges", "forges"), ("organization_user_invites", "organizationUserInvites")],
+    )
+    def test_flattens_lists_of_every_organization_in_one_query(self, endpoint: str, list_field: str) -> None:
+        organizations = [
+            {"eid": "o1", list_field: [{"eid": "a1"}, {"eid": "a2"}]},
+            {"eid": "o2", list_field: None},
+            {"eid": "o3", list_field: [{"eid": "a3"}]},
+        ]
+
+        result = _driver().run(
+            endpoint,
+            [ScriptedResponse(json={"data": {"currentUser": {"organizations": organizations}}})],
+        )
+
+        assert result.raised is None
+        assert len(result.requests) == 1
+        assert f"{list_field} {{" in result.requests[0].json()["query"]
+        assert [(row["organizationEid"], row["eid"]) for row in result.rows] == [
+            ("o1", "a1"),
+            ("o1", "a2"),
+            ("o3", "a3"),
+        ]
+
+
+class TestOrganizationOffsetListEndpoints:
+    @pytest.mark.parametrize(
+        "pages,resume_state,expected_offsets,expected_eids",
+        [
+            # 0-based numbering: offset 1 is the second page.
+            ([["t1", "t2"], ["t3"]], None, [None, 1], ["t1", "t2", "t3"]),
+            # 1-based numbering: offset 1 repeats the first page, offset 2 is the second.
+            ([["t1", "t2"], ["t1", "t2"], ["t3"]], None, [None, 1, 2], ["t1", "t2", "t3"]),
+            # A full last page needs one more request to see the end.
+            ([["t1", "t2"], []], None, [None, 1], ["t1", "t2"]),
+            ([["t1"]], None, [None], ["t1"]),
+            # A saved page number would depend on the unknown base, so the parent restarts.
+            ([["t1"]], AnvilResumeConfig(next_offset=3, parent_eid="o1"), [None], ["t1"]),
+        ],
+    )
+    def test_walks_pages_whatever_the_page_numbering_base(
+        self,
+        pages: list[list[str]],
+        resume_state: AnvilResumeConfig | None,
+        expected_offsets: list[int | None],
+        expected_eids: list[str],
+    ) -> None:
+        responses = [_org_eids("o1")] + [_org_list("etchTemplates", [{"eid": eid} for eid in page]) for page in pages]
+
+        with mock.patch("products.warehouse_sources.sources.anvil.anvil.PAGE_SIZE", 2):
+            result = _driver().run("etch_templates", responses, resume_state=resume_state)
+
+        assert result.raised is None
+        assert result.rows == [{"eid": eid, "organizationEid": "o1"} for eid in expected_eids]
+        template_requests = result.requests[1:]
+        assert "etchTemplates(limit: $limit, offset: $offset)" in template_requests[0].json()["query"]
+        assert [request.json()["variables"].get("offset") for request in template_requests] == expected_offsets
+        assert all(request.json()["variables"]["limit"] == 2 for request in template_requests)
+
+    @pytest.mark.parametrize(
+        "pages",
+        [
+            [["t1", "t2"], ["t1", "t2"], ["t1", "t2"]],
+            [["t1", "t2"], ["t3", "t4"], ["t3", "t4"]],
+        ],
+    )
+    def test_page_that_repeats_earlier_rows_raises_instead_of_looping(self, pages: list[list[str]]) -> None:
+        responses = [_org_eids("o1")] + [_org_list("etchTemplates", [{"eid": eid} for eid in page]) for page in pages]
+
+        with mock.patch("products.warehouse_sources.sources.anvil.anvil.PAGE_SIZE", 2):
+            result = _driver().run("etch_templates", responses)
+
+        assert isinstance(result.raised, AnvilAPIError)
+        assert "did not advance" in str(result.raised)
+
+    def test_deleted_organization_is_skipped(self) -> None:
+        result = _driver().run(
+            "etch_templates",
+            [
+                _org_eids("o1", "o2"),
+                ScriptedResponse(json={"data": {"organization": None}}),
+                _org_list("etchTemplates", [{"eid": "t1"}]),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.rows == [{"eid": "t1", "organizationEid": "o2"}]
 
 
 class TestOrganizationPagedEndpoints:
