@@ -174,6 +174,10 @@ class StringArrayDatabaseField(DatabaseField):
         return ""
 
 
+class EnumArrayDatabaseField(StringArrayDatabaseField):
+    """Array(Enum) column. Its default item is 0, which the enum may not define, so ClickHouse or the driver rejects it."""
+
+
 class FloatArrayDatabaseField(DatabaseField):
     def get_constant_type(self) -> "ConstantType":
         from posthog.hogql.ast import ArrayType, FloatType

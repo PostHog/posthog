@@ -1,6 +1,7 @@
 import re
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
+from dataclasses import replace
 from datetime import date, datetime
 from typing import TYPE_CHECKING, ClassVar, Optional, cast
 from uuid import UUID
@@ -15,6 +16,7 @@ from posthog.hogql.database.direct_sql_table import DirectSQLTable
 from posthog.hogql.database.models import (
     DANGEROUS_NoTeamIdCheckTable,
     DatabaseField,
+    EnumArrayDatabaseField,
     EventsRetentionTable,
     SavedQuery,
     StringJSONDatabaseField,
@@ -187,6 +189,18 @@ _JSON_FUNCTIONS_WITH_TRAILING_TYPE = frozenset({"JSONExtract", "JSONExtractKeysA
 def _group_type_index_of_blob(column_name: str) -> int | None:
     group_column_match = re.fullmatch(r"group(\d+)_properties", column_name)
     return int(group_column_match.group(1)) if group_column_match else None
+
+
+# Functions that return the default array item when they find none, and the position of the array they return it from.
+_DEFAULT_ITEM_ARRAY_POSITION: dict[str, int] = {"arrayElement": 0, "arrayFirst": 1, "arrayLast": 1}
+
+
+def _enum_array_as_strings(array: ast.Expr) -> ast.Call:
+    item = ast.Field(chain=["enum_item"], type=ast.LambdaArgumentType(name="enum_item"))
+    return ast.Call(
+        name="arrayMap",
+        args=[ast.Lambda(args=["enum_item"], expr=ast.Call(name="toString", args=[item])), array],
+    )
 
 
 class ClickHousePrinter(BasePrinter):
@@ -1144,7 +1158,44 @@ class ClickHousePrinter(BasePrinter):
             if type_arg.value != "Dynamic" and parse_sql_runtime_type(type_arg.value).family == "unknown":
                 raise QueryError(f"Unsupported type in {node.name}: '{type_arg.value}'")
 
+        position = _DEFAULT_ITEM_ARRAY_POSITION.get(node.name)
+        if position is not None and position < len(node.args) and self._is_enum_array(node.args[position].type):
+            args = list(node.args)
+            args[position] = _enum_array_as_strings(args[position])
+            node = replace(node, args=args)
+
         return super().visit_call(node)
+
+    def visit_array_access(self, node: ast.ArrayAccess) -> str:
+        if self._is_enum_array(node.array.type):
+            node = replace(node, array=_enum_array_as_strings(node.array))
+        return super().visit_array_access(node)
+
+    def _is_enum_array(self, type: ast.Type | None) -> bool:
+        # An array join alias holds one item, not the array.
+        if isinstance(type, ast.FieldAliasType) and not isinstance(type, ast.ArrayJoinAliasType):
+            return self._is_enum_array(type.type)
+        if not isinstance(type, ast.FieldType):
+            return False
+        table_type = type.table_type
+        if isinstance(table_type, ast.CTETableAliasType):
+            table_type = table_type.cte_table_type
+        if isinstance(table_type, ast.CTETableType | ast.SelectQueryAliasType):
+            table_type = table_type.select_query_type
+        if isinstance(table_type, ast.BaseTableType):
+            return isinstance(type.resolve_database_field(self.context), EnumArrayDatabaseField)
+        return self._subquery_column_is_enum_array(table_type, type.name)
+
+    def _subquery_column_is_enum_array(self, query: ast.SelectQueryType | ast.SelectSetQueryType, name: str) -> bool:
+        if isinstance(query, ast.SelectQueryType):
+            return self._is_enum_array(query.columns.get(name))
+        # UNION takes names from the first branch and matches subsequent columns by position.
+        for names in zip(*(branch.columns for branch in query.types)):
+            if names[0] == name:
+                return any(
+                    self._subquery_column_is_enum_array(branch, column) for branch, column in zip(query.types, names)
+                )
+        return False
 
     def visit_array_slice(self, node: ast.ArraySlice):
         array_str = self.visit(node.array)
