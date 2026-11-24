@@ -576,6 +576,10 @@ class LoginSerializer(serializers.Serializer):
 
             raise serializers.ValidationError("Invalid email or password.", code="invalid_credentials")
 
+        if user.is_service_account:
+            # Same answer as a wrong password, so the response does not reveal that the address is a service account.
+            raise serializers.ValidationError("Invalid email or password.", code="invalid_credentials")
+
         if radar_attempt and radar_attempt.attempt_id:
             # Reported when the session signs in, so a login that stops at a second factor is never reported
             remember_login_attempt(
@@ -1530,7 +1534,7 @@ class PasswordResetSerializer(serializers.Serializer):
                 code="email_not_available",
             )
 
-        if user:
+        if user and not user.is_service_account:
             user.requested_password_reset_at = datetime.datetime.now(datetime.UTC)
             user.save()
             token = password_reset_token_generator.make_token(user)
@@ -1554,7 +1558,7 @@ class PasswordResetCompleteSerializer(serializers.Serializer):
             return {"email": "test@posthog.com"}
 
         try:
-            user = User.objects.filter(is_active=True).get(uuid=self.context["view"].kwargs["user_uuid"])
+            user = User.objects.humans().filter(is_active=True).get(uuid=self.context["view"].kwargs["user_uuid"])
         except (User.DoesNotExist, ValidationError):
             capture_exception(
                 Exception("User not found in password reset serializer"),
@@ -1613,7 +1617,7 @@ class PasswordResetCompleteViewSet(NonCreatingViewSetMixin, mixins.RetrieveModel
 
     def get_object(self):
         token = self.request.query_params.get("token")
-        user_uuid = self.kwargs.get("user_uuid")
+        user_uuid = self.kwargs["user_uuid"]
 
         if not token:
             raise serializers.ValidationError({"token": ["This field is required."]}, code="required")
@@ -1623,7 +1627,7 @@ class PasswordResetCompleteViewSet(NonCreatingViewSetMixin, mixins.RetrieveModel
             return {"success": True, "token": token}
 
         try:
-            user = User.objects.filter(is_active=True).get(uuid=user_uuid)
+            user = User.objects.humans().filter(is_active=True).get(uuid=user_uuid)
         except (User.DoesNotExist, ValidationError):
             capture_exception(
                 Exception("User not found in password reset viewset"), {"user_uuid": user_uuid, "token": token}
@@ -1799,11 +1803,13 @@ def social_reauth(
 def social_access_rules_allow(
     strategy: DjangoStrategy, backend: BaseAuth, user: User | None = None, **kwargs: Any
 ) -> None:
-    """Refuse an SSO login for an account that an enforced access rule blocks, before a session starts."""
+    """Refuse an SSO login for a service account or an account that an enforced access rule blocks, before a session starts."""
     if user is None:
         # A new account is checked where it is created: the signup serializer, or the SSO invite
         # and verified-domain joins in posthog/api/signup.py.
         return
+    if user.is_service_account:
+        raise AuthFailed(backend, "Authentication failed.")
     if _sso_access_refused(strategy.request, user):
         raise AuthFailed(backend, SECURITY_REFUSAL_CODE)
 

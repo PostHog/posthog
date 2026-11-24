@@ -17,6 +17,7 @@ from django.conf import settings
 from django.contrib import auth
 from django.contrib.auth import BACKEND_SESSION_KEY, logout
 from django.contrib.auth.middleware import AuthenticationMiddleware as DjangoAuthenticationMiddleware
+from django.contrib.auth.models import AnonymousUser
 from django.core.cache import cache
 from django.core.exceptions import MiddlewareNotUsed
 from django.db import (
@@ -1330,17 +1331,25 @@ def get_impersonated_session_expires_at(request: HttpRequest) -> Optional[dateti
     return min(idle_expiry_time, total_expiry_time)
 
 
+def _human_or_anonymous(user: Any) -> Any:
+    # A service account authenticates with credentials only. Every session read goes through here, so a
+    # login path that fails to refuse one still cannot give it a working browser session.
+    if getattr(user, "is_service_account", False):
+        return AnonymousUser()
+    return user
+
+
 def _get_session_user(request: HttpRequest) -> Any:
     if not hasattr(request, "_cached_user"):
         with User.objects.joining_current_organization():
-            setattr(request, "_cached_user", auth.get_user(request))  # noqa: B010
+            setattr(request, "_cached_user", _human_or_anonymous(auth.get_user(request)))  # noqa: B010
     return getattr(request, "_cached_user")  # noqa: B009
 
 
 async def _aget_session_user(request: HttpRequest) -> Any:
     if not hasattr(request, "_acached_user"):
         with User.objects.joining_current_organization():
-            setattr(request, "_acached_user", await auth.aget_user(request))  # noqa: B010
+            setattr(request, "_acached_user", _human_or_anonymous(await auth.aget_user(request)))  # noqa: B010
     return getattr(request, "_acached_user")  # noqa: B009
 
 

@@ -36,12 +36,14 @@ from rest_framework.exceptions import AuthenticationFailed, PermissionDenied
 from rest_framework.parsers import JSONParser
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
+from social_core.exceptions import AuthFailed
 from social_django.models import UserSocialAuth
 from two_factor.utils import totp_digits
 from two_factor.views.core import REMEMBER_COOKIE_PREFIX
 
 from posthog.api.authentication import (
     password_reset_token_generator,
+    social_access_rules_allow,
     social_grant_staff_to_google_workspace_members,
     social_login_notification,
 )
@@ -81,6 +83,7 @@ from posthog.models.organization_ip_restrictions import OrganizationIPRestrictio
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team.team import Team
+from posthog.models.user import UserType
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.api_keys import create_project_secret_api_key
 from posthog.test.authentication_checks import covers_authentication
@@ -673,6 +676,23 @@ class TestLoginAPI(APIBaseTest):
         mock_is_email_available.assert_called_once()
         # Assert the email was sent.
         mock_send_email_verification.assert_called_once_with(self.user)
+
+    def test_service_account_cant_login_with_a_correct_password(self):
+        User.objects.filter(pk=self.user.pk).update(type=UserType.SERVICE_ACCOUNT)
+
+        response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json(), self.ERROR_INVALID_CREDENTIALS)
+        self.assertEqual(self.client.get("/api/users/@me/").status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_session_of_a_service_account_resolves_to_no_user(self):
+        self.client.force_login(self.user)
+        self.assertEqual(self.client.get("/api/users/@me/").status_code, status.HTTP_200_OK)
+
+        User.objects.filter(pk=self.user.pk).update(type=UserType.SERVICE_ACCOUNT)
+
+        self.assertEqual(self.client.get("/api/users/@me/").status_code, status.HTTP_401_UNAUTHORIZED)
 
     @patch("posthoganalytics.capture")
     def test_user_cant_login_with_incorrect_password(self, mock_capture):
@@ -2374,6 +2394,26 @@ class TestPasswordResetAPI(APIBaseTest):
         self.assertTrue(self.user.check_password(self.CONFIG_PASSWORD))
         self.assertFalse(self.user.check_password("123"))
 
+    def test_service_account_cant_request_or_complete_a_password_reset(self):
+        set_instance_setting("EMAIL_HOST", "localhost")
+        User.objects.filter(pk=self.user.pk).update(type=UserType.SERVICE_ACCOUNT)
+
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True):
+            response = self.client.post("/api/reset/", {"email": self.CONFIG_EMAIL})
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(mail.outbox, [])
+
+        self.user.refresh_from_db()
+        token = password_reset_token_generator.make_token(self.user)
+        self.assertEqual(
+            self.client.get(f"/api/reset/{self.user.uuid}/?token={token}").status_code, status.HTTP_400_BAD_REQUEST
+        )
+        response = self.client.post(f"/api/reset/{self.user.uuid}/", {"token": token, "password": VALID_TEST_PASSWORD})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "invalid_token")
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password(self.CONFIG_PASSWORD))
+
     def test_cant_reset_password_with_no_token(self):
         response = self.client.post(f"/api/reset/{self.user.uuid}/", {"password": "a12345678"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -3606,6 +3646,16 @@ class TestOAuthLoginNotification(APIBaseTest):
 
             social_login_notification(self._build_strategy(rf, ua1, ip1), Backend(), user)
             assert len(mail.outbox) == 0
+
+
+class TestSocialAccessRulesAllow(APIBaseTest):
+    def test_sso_login_is_refused_for_a_service_account(self):
+        self.user.type = UserType.SERVICE_ACCOUNT
+        strategy = MagicMock()
+        strategy.request = RequestFactory().get("/complete/google-oauth2/")
+
+        with self.assertRaises(AuthFailed):
+            social_access_rules_allow(strategy, MagicMock(), user=self.user)
 
 
 class TestSocialGrantStaffToGoogleWorkspaceMembers(TestCase):

@@ -164,14 +164,25 @@ class UserType(models.TextChoices):
     SERVICE_ACCOUNT = "service_account", "Service account"
 
 
+class UserQuerySet(models.QuerySet["User"]):
+    def humans(self) -> "UserQuerySet":
+        return self.filter(type=UserType.HUMAN)
+
+
 class UserManager(BaseUserManager):
     """Define a model manager for User model with no username field."""
 
-    def get_queryset(self):
-        queryset = super().get_queryset().defer(*DEFERED_ATTRS)
+    _queryset_class = UserQuerySet
+
+    # Returns users of every type. A path that must only see people calls `.humans()`.
+    def get_queryset(self) -> UserQuerySet:  # type: ignore[override]
+        queryset = cast(UserQuerySet, super().get_queryset().defer(*DEFERED_ATTRS))
         if _join_current_organization.get():
             queryset = queryset.select_related("current_organization")
         return queryset
+
+    def humans(self) -> UserQuerySet:
+        return self.get_queryset().humans()
 
     @contextmanager
     def joining_current_organization(self) -> Iterator[None]:
@@ -449,6 +460,10 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
             super().save(*args, **kwargs)
         finally:
             self.is_staff = False
+
+    @property
+    def is_service_account(self) -> bool:
+        return self.type == UserType.SERVICE_ACCOUNT
 
     @property
     def is_superuser(self) -> bool:  # type: ignore[override]
