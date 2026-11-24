@@ -132,7 +132,7 @@ describe('scorecard', () => {
                     owners: [],
                     run_id: RUN_ID,
                     card_id: 'smoke',
-                    card_version: 2,
+                    card_version: 3,
                     card_hash: SMOKE.cardHash,
                     profile_name: 'synthetic',
                     profile_hash: SMOKE.profileHash,

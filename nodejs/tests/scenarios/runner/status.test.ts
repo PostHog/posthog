@@ -156,6 +156,15 @@ describe('statusOf', () => {
             'no_loss was not judged: the truth could not be read: socket hang up',
         ],
         [
+            'an invariant could not be judged only because a valve was never observed',
+            {
+                timeline: [{ valve: 'role.kill', target: EMAIL_WORKER, requestedAt: at(0), error: 'never applied' }],
+                invariants: [{ ...UNJUDGED, unjudged: `role.kill on ${EMAIL_WORKER} was not observed: never applied` }],
+            },
+            'invalid',
+            `role.kill on ${EMAIL_WORKER} was not observed: never applied`,
+        ],
+        [
             'an invariant failed while another could not be judged',
             { invariants: [BROKEN, UNJUDGED] },
             'failed',

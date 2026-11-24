@@ -320,10 +320,13 @@ function unrampedStatusOf({
         return { status: 'invalid', statusReason: interrupted }
     }
     const crashes = exits.filter((exit) => !exitedByValve(exit, timeline)).map((exit) => unexpectedExit(exit, timeline))
+    const valves = unobservedValvesOf(timeline, drive)
+    // An invariant the unobserved valves left unjudged names them again, so the reason lists each valve once.
+    const byValves = valves.join('; ')
     const unobserved = [
-        ...unobservedValvesOf(timeline, drive),
+        ...valves,
         ...invariants.flatMap(({ name, unjudged }) =>
-            unjudged === undefined ? [] : [`${name} was not judged: ${unjudged}`]
+            unjudged === undefined || unjudged === byValves ? [] : [`${name} was not judged: ${unjudged}`]
         ),
         ...bars.flatMap(({ name, unjudged }) =>
             unjudged === undefined ? [] : [`${name} was not judged: ${unjudged}`]
