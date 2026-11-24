@@ -4,7 +4,7 @@
 
 ## Disclaimer
 
-The name is the smell. A catch-all `common/` reliably rots into a junk drawer — unscoped, unenforced, imported by everything — i.e. a second monolith with worse boundaries than the first. Unlike `products/*` (guarded by tach + turbo), **nothing mechanically guards what lands here**, so the only thing keeping it honest is this file. The goal for `common/` is to **shrink, not grow.**
+The name is the smell. A catch-all `common/` reliably rots into a junk drawer — unscoped, unenforced, imported by everything — i.e. a second monolith with worse boundaries than the first. Unlike `products/*` (guarded by hoglint + turbo), **nothing mechanically guards what lands here**, so the only thing keeping it honest is this file. The goal for `common/` is to **shrink, not grow.**
 
 ## Before adding anything here
 

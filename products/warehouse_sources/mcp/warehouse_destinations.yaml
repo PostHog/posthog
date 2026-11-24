@@ -100,11 +100,12 @@ tools:
             access keys instead of a username and password; Snowflake takes database, schema, warehouse and optional
             role; BigQuery takes dataset and optional project; Databricks takes http_path, catalog, schema and volume;
             S3 takes bucket, region and optional prefix and compression; Azure Blob takes container_name and optional
-            prefix and compression; MotherDuck takes database and optional schema (default main). Every type except
-            Redshift tests the connection on create, and a failed test returns a 400 that names the field to fix.
-            Redshift has no test, so a wrong target only shows up when the first sync fails. The target cannot change
-            after creation, so confirm it with the user first. A new destination receives nothing until a source is
-            attached with external-data-destinations-add-sources.
+            prefix and compression. For both, the prefix may use {year}, {month}, {day}, {hour}, {minute} and {second}
+            (the sync's start, in UTC) and {table}. MotherDuck takes database and optional schema (default main). Every
+            type except Redshift tests the connection on create, and a failed test returns a 400 that names the field to
+            fix. Redshift has no test, so a wrong target only shows up when the first sync fails. The target cannot
+            change after creation, so confirm it with the user first. A new destination receives nothing until a source
+            is attached with external-data-destinations-add-sources.
         feature_flag: warehouse-multi-destination
     external-data-destinations-delete:
         operation: external_data_destinations_destroy

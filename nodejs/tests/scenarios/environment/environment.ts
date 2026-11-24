@@ -31,6 +31,7 @@ import {
 } from './roles'
 import {
     Hogli,
+    ProbeFailure,
     STACK,
     cyclotronUrlOf,
     deleteUnfinishedJobs,
@@ -67,7 +68,7 @@ export interface Environment {
     role(name: Role): RoleHandle
     roles(): RoleHandle[]
     actuate(action: Action): Promise<Actuation>
-    dependencyHealth(): Promise<{ healthy: boolean; down: string[] }>
+    dependencyHealth(): Promise<{ healthy: boolean; down: ProbeFailure[] }>
     exits(): RoleExit[]
     groupLag(group: string): Promise<number>
     wiring(signal: AbortSignal): Promise<Wiring>

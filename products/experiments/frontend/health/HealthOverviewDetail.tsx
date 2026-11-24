@@ -8,7 +8,12 @@ import { BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL } from 'scene
 import { type Noun, groupsModel } from '~/models/groupsModel'
 import type { ExperimentExposureQueryResponse } from '~/queries/schema/schema-general'
 
-import type { EvaluationRuntimeEnumApi, ExperimentHealthSetupApi } from '../generated/api.schemas'
+import type {
+    EvaluationRuntimeEnumApi,
+    ExperimentHealthExposureSetupApi,
+    ExperimentHealthSetupApi,
+} from '../generated/api.schemas'
+import { healthAnalysisReadings } from './healthAnalysisReadings'
 import { HEALTH_CHECK_STATUS_DISPLAY } from './healthCheckStatusDisplay'
 import type { HealthReading } from './healthCheckValues'
 import { type HealthPanelCheck, countHealthChecks } from './healthPanelChecks'
@@ -41,21 +46,40 @@ function releaseConditionsText(
         return 'None'
     }
     if (conditions.length > MAX_LISTED_CONDITIONS) {
-        return `${conditions.length} condition sets`
+        const overrides = conditions.filter(({ variant }) => variant !== null).length
+        return overrides > 0
+            ? `${conditions.length} condition sets, ${overrides} with a variant override`
+            : `${conditions.length} condition sets`
     }
-    const sets = conditions.map(({ rollout_percentage, property_count, aggregation_group_type_index }) => {
+    const sets = conditions.map(({ rollout_percentage, property_count, aggregation_group_type_index, variant }) => {
         const entities = pluralOf(aggregation_group_type_index)
         const matching = property_count > 0 ? ` matching ${pluralize(property_count, 'filter')}` : ''
+        const override = variant !== null ? ` get "${variant}"` : ''
         if (rollout_percentage >= 100) {
-            return `all ${entities}${matching}`
+            return `all ${entities}${matching}${override}`
         }
         const share = Math.round(rollout_percentage * 100) / 100
-        return `${share}% of ${matching ? entities : `all ${entities}`}${matching}`
+        return `${share}% of ${matching ? entities : `all ${entities}`}${matching}${override}`
     })
     // Numbered as on the flag page, because the sets are the stored configuration, not the users they reach.
     return sets.length === 1
         ? capitalizeFirstLetter(sets[0])
-        : sets.map((set, index) => `Set ${index + 1}: ${set}`).join(' · ')
+        : sets
+              .map(
+                  (set, index) =>
+                      `Set ${index + 1}${conditions[index].reachable === false ? ' (serves nobody)' : ''}: ${set}`
+              )
+              .join(' · ')
+}
+
+function exposureEventText({ event, action, activation }: ExperimentHealthExposureSetupApi): string {
+    if (action !== null) {
+        return `${action} (action)`
+    }
+    if (event !== null) {
+        return event
+    }
+    return activation !== null ? `Feature flag called, then ${activation}` : 'Feature flag called'
 }
 
 function librarySharesText(exposedByLibrary: Record<string, number>): string | null {
@@ -112,6 +136,7 @@ function buildSetupReadings(
                   },
               ]
             : []),
+        ...(setup.exposure ? [{ label: 'Exposure event', text: exposureEventText(setup.exposure) }] : []),
         // The exposure counts aggregate by the flag's own group type, not by a condition set's.
         ...(libraryShares
             ? [{ label: `Exposed ${pluralOf(setup.aggregation_group_type_index)} by SDK`, text: libraryShares }]
@@ -194,6 +219,12 @@ export function HealthOverviewDetail({
             {setup && (
                 <HealthPanelSection title="Setup">
                     <HealthReadingList readings={setupReadings} />
+                </HealthPanelSection>
+            )}
+            {/* A server from before the analysis was reported sends none, for example while a deploy rolls out. */}
+            {setup?.analysis && (
+                <HealthPanelSection title="Analysis">
+                    <HealthReadingList readings={healthAnalysisReadings(setup.analysis)} />
                 </HealthPanelSection>
             )}
         </div>

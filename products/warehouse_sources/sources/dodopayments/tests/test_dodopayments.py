@@ -90,6 +90,8 @@ class TestRequestParams:
             ("payments", "created_at_gte"),
             ("subscriptions", "created_at_gte"),
             ("balance_ledger_entries", "created_at_gte"),
+            ("invoices", "created_at_gte"),
+            ("blocklisted_customers", "created_at_gte"),
             # Usage events filter on `start`, not `created_at_gte`.
             ("events", "start"),
         ],
@@ -272,6 +274,34 @@ class TestFanout:
                 {"customer_id": "cus_1"},
                 {"customer_id": "cus_1", "discount_id": "dsc_1"},
             ),
+            # Event rows carry no invoice id, so it must come from the parent.
+            (
+                "invoice_events",
+                {"invoice_id": "inv_1", "created_at": "2024-05-01T00:00:00Z", "status": "paid"},
+                "/billing/invoices/inv_1/events",
+                {"event_id": "evt_1", "event_type": "sent", "actor": "system", "created_at": "2024-05-02T00:00:00Z"},
+                {
+                    "event_id": "evt_1",
+                    "event_type": "sent",
+                    "actor": "system",
+                    "created_at": "2024-05-02T00:00:00Z",
+                    "invoice_id": "inv_1",
+                },
+            ),
+            # The subscription id sits beside `items` in the body, so it must come from the parent.
+            (
+                "subscription_credit_usage",
+                {"subscription_id": "sub_1", "created_at": "2024-05-01T00:00:00Z"},
+                "/subscriptions/sub_1/credit-usage",
+                {"credit_entitlement_id": "cde_1", "balance": "10", "overage": "0", "limit_reached": False},
+                {
+                    "credit_entitlement_id": "cde_1",
+                    "balance": "10",
+                    "overage": "0",
+                    "limit_reached": False,
+                    "subscription_id": "sub_1",
+                },
+            ),
             # The parent field is the entitlement's own `id`, bound into a path placeholder also named `id`.
             (
                 "entitlement_grants",
@@ -293,7 +323,9 @@ class TestFanout:
         result = _driver().run(endpoint, [_response([parent_row]), _response([child_row])])
 
         assert result.raised is None
-        parent_path = "/" + child_path.split("/")[1]
+        fanout = DODOPAYMENTS_ENDPOINTS[endpoint].fanout
+        assert fanout is not None
+        parent_path = DODOPAYMENTS_ENDPOINTS[fanout.parent_name].path
         assert result.paths == [parent_path, child_path]
         assert result.rows == [expected_row]
 

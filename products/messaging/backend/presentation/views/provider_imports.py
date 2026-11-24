@@ -173,7 +173,7 @@ class StartProviderImportSerializer(serializers.Serializer):
         required=False,
         write_only=True,
         max_length=512,
-        help_text="The provider's API key. For Customer.io, an App API key: leave it out to reuse the stored key. For Resend, a full access key. For Postmark, a server token or the account token. For SendGrid, a key with read access to the selected steps. For Mailgun, an account key that can read suppressions. PostHog deletes a Resend, Postmark, SendGrid or Mailgun key when the run ends, so send it every time.",
+        help_text="The provider's API key. For Customer.io, an App API key: leave it out to reuse the stored key. For Resend, a full access key. For Postmark, a server token or the account token. For SendGrid, a key with read access to the selected steps. For Mailgun, an account key that can read suppressions. For Mailchimp, a Marketing API key ending in its data center, such as -us21. PostHog deletes a Resend, Postmark, SendGrid, Mailgun or Mailchimp key when the run ends, so send it every time.",
     )
     settings = serializers.DictField(
         child=serializers.CharField(max_length=64),
@@ -189,8 +189,8 @@ class ProviderUnavailable(APIException):
 
 class ProviderImportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """
-    Background imports from other messaging tools, such as Customer.io, Resend, SendGrid and Mailgun suppressions and
-    unsubscribes.
+    Background imports from other messaging tools, such as Customer.io, Resend, SendGrid, Mailgun and Mailchimp
+    suppressions and unsubscribes.
 
     A run executes outside the request, so a long provider list does not time out. Poll a run to show its progress.
     """
@@ -291,13 +291,6 @@ class ProviderImportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         except ProviderImportUnavailable as e:
             raise ProviderUnavailable(str(e)) from e
 
-        report_user_action(
-            request.user,
-            "messaging provider import started",
-            {"provider": run.provider, "steps": [step.key for step in run.steps]},
-            team=self.team,
-            request=request,
-        )
         report_user_action(
             request.user,
             "workflows import run",

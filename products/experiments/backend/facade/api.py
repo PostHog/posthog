@@ -29,8 +29,7 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.actions.backend.facade.api import get_actions
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.flag_enrollment import enrolled_people_by_flag
-from products.experiments.backend.health.inputs_payload import health_inputs_payload
-from products.experiments.backend.health.loader import evaluate_experiment_health, load_experiment_health_inputs
+from products.experiments.backend.health.loader import evaluate_experiment_health
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
     exposure_nodes_without_copies,
@@ -221,18 +220,6 @@ def get_experiment_health(
     return evaluate_experiment_health(
         team_id=team_id, experiment_id=experiment_id, reader_access=reader_access, user=user
     )
-
-
-def get_experiment_health_inputs(
-    *, team_id: int, experiment_id: int, reader_access: ExperimentHealthReaderAccess, user: User | None
-) -> dict[str, Any]:
-    """Everything the health checks read for the reader, as plain data in the shape of the staff `health_inputs`
-    response: the checks' context, the exposure query's answer that the exposure checks read, and the project's
-    experiment defaults and SDK profile."""
-    inputs = load_experiment_health_inputs(
-        team_id=team_id, experiment_id=experiment_id, reader_access=reader_access, user=user
-    )
-    return health_inputs_payload(inputs)
 
 
 def get_stored_primary_result(*, team_id: int, experiment_id: int, user_id: int | None) -> StoredPrimaryResult | None:

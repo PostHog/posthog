@@ -245,6 +245,15 @@
     visibility: visible;
 }
 
+// Opacity, not visibility, so keyboard users can still tab to it. InsightCard.scss reveals it on hover.
+.CardMeta__copy-link {
+    opacity: 0;
+
+    &:focus-visible {
+        opacity: 1;
+    }
+}
+
 // On compact tiles too narrow to fit the icon without overlapping the title, keep it hidden
 // even on hover — refresh stays available in the "⋯" menu. The container is only established in
 // compact mode, so this never applies to the non-compact (saved insights) layout.

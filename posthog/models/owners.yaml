@@ -2,7 +2,7 @@ version: 1
 owners: []
 rules:
     - match: '/action/'
-      owners: team-product-analytics
+      owners: team-analytics
     - match: '/activity_logging/'
       owners: team-platform-features
     # Registering an activity-log tuning module is mechanical, and the activity log's owners
@@ -15,7 +15,7 @@ rules:
     - match: '/ai_events/'
       owners: team-ai-observability
     - match: '/channel_type/'
-      owners: team-web-analytics
+      owners: team-analytics
     - match: '/comment/'
       owners: conversations
     - match: '/messaging.py'
@@ -33,7 +33,7 @@ rules:
     - match: '/sessions/'
       owners: team-analytics-platform
     - match: '/web_preaggregated/'
-      owners: team-web-analytics
+      owners: team-analytics
     - match:
           - '/file_system/test/test_*.py'
       owners: platform-ux
@@ -50,4 +50,4 @@ rules:
     - match:
           - '/exchange_rate/test/test_*.py'
           - '/person_group_membership/test/test_*.py'
-      owners: team-web-analytics
+      owners: team-analytics

@@ -7,6 +7,7 @@ instead of manually copy-pasting records.
 See https://www.domainconnect.org/ for the protocol specification.
 """
 
+import re
 import base64
 import logging
 from collections.abc import Callable
@@ -36,6 +37,8 @@ from posthog.cloud_utils import is_cloud
 from posthog.security.oob_domains import matched_oob_domain
 
 logger = logging.getLogger(__name__)
+_DMARC_RECORD = re.compile(r"[vV]\s*=\s*DMARC1(\s|;|\Z)")
+_DOMAIN_PARTS = tldextract.TLDExtract(suffix_list_urls=(), include_psl_private_domains=True)
 
 # Maps _domainconnect TXT record values (provider endpoints) to display names.
 # Display names must match DomainConnectProviderName in schema-general.ts — run
@@ -408,9 +411,17 @@ def _dmarc_absence_confirmed(domain: str) -> bool:
         logger.info("security.oob_domain_seen domain=%s guard=domain_connect", oob_domain)
         # Same answer as a lookup that failed: absence is not confirmed, so no caller claims it.
         return False
+    return all(_no_dmarc_record_at(name) for name in dict.fromkeys((domain, organizational_domain(domain))))
+
+
+def organizational_domain(domain: str) -> str:
+    return _DOMAIN_PARTS(domain).top_domain_under_public_suffix or domain
+
+
+def _no_dmarc_record_at(domain: str) -> bool:
     try:
         answers = dns.resolver.resolve(f"_dmarc.{domain}", "TXT", lifetime=5)
-        return not any(_txt_value(rdata).lower().startswith("v=dmarc1") for rdata in answers)
+        return not any(_DMARC_RECORD.match(_txt_value(rdata)) for rdata in answers)
     except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer):
         return True
     except Exception:

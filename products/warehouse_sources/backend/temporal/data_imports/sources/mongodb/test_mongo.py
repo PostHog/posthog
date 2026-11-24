@@ -370,6 +370,14 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
             # documents forever, so it must be classified non-retryable.
             ("document_missing_id", MONGO_DOCUMENT_MISSING_ID_ERROR),
             ("dns_failure", "The DNS query name does not exist: example.mongodb.net."),
+            # dnspython's NoAnswer: the SRV name resolves but the zone has no `_mongodb._tcp` SRV
+            # record, distinct from the NXDOMAIN case above. A host that never publishes one (e.g.
+            # a non-Atlas endpoint used with mongodb+srv://) fails this way on every retry.
+            (
+                "srv_no_answer",
+                "The DNS response does not contain an answer to the question: "
+                "_mongodb._tcp.cluster0.example.mongodb.net. IN SRV",
+            ),
             ("ssl_failure", "SSL handshake failed: certificate verify failed"),
             # pymongo InvalidURI raised before any network call when credentials in the connection
             # string contain unescaped reserved characters — a malformed string the user must fix.
@@ -518,6 +526,11 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
             ("atlas_bad_auth", "bad auth", "password"),
             ("dns_name_not_found", "Name or service not known", "resolved"),
             ("srv_dns_name_not_found", "The DNS query name does not exist", "resolved"),
+            (
+                "srv_no_answer",
+                "The DNS response does not contain an answer to the question",
+                "mongodb+srv://",
+            ),
             ("atlas_sql_endpoint", "query.mongodb.net", "connection string"),
             ("unescaped_credentials", "must be escaped according to RFC 3986", "connection string"),
             ("document_missing_id", "one of its documents has no _id field", "view"),
