@@ -97,7 +97,11 @@ from products.ai_observability.backend.dataset_service import (
     update_dataset_item,
 )
 from products.ai_observability.backend.models.datasets import Dataset, DatasetItemVersion, DatasetRevision
-from products.ai_observability.backend.presentation.project_keys import AIObservabilityProjectKeyMixin, attribution_user
+from products.ai_observability.backend.presentation.project_keys import (
+    AIObservabilityProjectKeyMixin,
+    attribution_user,
+    project_key_id,
+)
 from products.ai_observability.backend.resource_tags import ResourceTags
 from products.exports.backend.facade.api import get_export_asset_content_response
 
@@ -245,6 +249,7 @@ class DatasetReadSerializer(ResourceTagsReadSerializer, UserAccessControlSeriali
             "created_at",
             "updated_at",
             "created_by",
+            "created_by_project_key_id",
             "team_id",
             "user_access_level",
         ]
@@ -343,7 +348,17 @@ class DatasetRevisionReadSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = DatasetRevision
-        fields = ["id", "dataset_id", "revision", "created_at", "created_by", "team_id", "expires_at", "expiring_soon"]
+        fields = [
+            "id",
+            "dataset_id",
+            "revision",
+            "created_at",
+            "created_by",
+            "created_by_project_key_id",
+            "team_id",
+            "expires_at",
+            "expiring_soon",
+        ]
         read_only_fields = fields
 
     @extend_schema_field(serializers.DateTimeField(allow_null=True))
@@ -414,12 +429,18 @@ class DatasetItemReadSerializer(serializers.ModelSerializer):
         read_only=True,
         allow_null=True,
     )
+    created_by_project_key_id = serializers.CharField(
+        source="dataset_item.created_by_project_key_id", read_only=True, allow_null=True
+    )
     version_created_at = serializers.DateTimeField(
         source="created_at",
         read_only=True,
         help_text="When this immutable version was created.",
     )
     version_created_by = UserBasicSerializer(source="created_by", read_only=True, allow_null=True)
+    version_created_by_project_key_id = serializers.CharField(
+        source="created_by_project_key_id", read_only=True, allow_null=True
+    )
     team_id = serializers.IntegerField(read_only=True, help_text="Project that owns the item.")
 
     class Meta:
@@ -443,8 +464,10 @@ class DatasetItemReadSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
             "created_by",
+            "created_by_project_key_id",
             "version_created_at",
             "version_created_by",
+            "version_created_by_project_key_id",
             "team_id",
         ]
         read_only_fields = fields
@@ -906,6 +929,7 @@ class DatasetViewSet(AIObservabilityProjectKeyMixin, AccessControlViewSetMixin, 
                 dataset = create_dataset(
                     team=self.team,
                     created_by=attribution_user(request),
+                    created_by_project_key_id=project_key_id(request),
                     max_datasets=max_datasets,
                     name=data["name"],
                     description=data["description"],
@@ -1328,6 +1352,7 @@ class DatasetItemViewSet(AIObservabilityProjectKeyMixin, GenericViewSet):
                 team_id=self.team.id,
                 dataset_id=dataset.id,
                 created_by=attribution_user(request),
+                created_by_project_key_id=project_key_id(request),
                 input=data["input"],
                 expected_output=data["expected_output"],
                 source_output=data["source_output"],
@@ -1366,6 +1391,7 @@ class DatasetItemViewSet(AIObservabilityProjectKeyMixin, GenericViewSet):
                 dataset_id=current.dataset_item.dataset_id,
                 item_id=current.dataset_item_id,
                 created_by=attribution_user(request),
+                created_by_project_key_id=project_key_id(request),
                 base_version=data["base_version"],
                 input=data.get("input", UNSET),
                 expected_output=data.get("expected_output", UNSET),
@@ -1397,6 +1423,7 @@ class DatasetItemViewSet(AIObservabilityProjectKeyMixin, GenericViewSet):
                 dataset_id=current.dataset_item.dataset_id,
                 item_id=current.dataset_item_id,
                 created_by=attribution_user(request),
+                created_by_project_key_id=project_key_id(request),
                 base_version=serializer.validated_data["base_version"],
             )
         except (DatasetMutationConflict, DatasetLimitExceeded) as error:
@@ -1425,6 +1452,7 @@ class DatasetItemViewSet(AIObservabilityProjectKeyMixin, GenericViewSet):
                 dataset_id=current.dataset_item.dataset_id,
                 item_id=current.dataset_item_id,
                 created_by=attribution_user(request),
+                created_by_project_key_id=project_key_id(request),
                 base_version=serializer.validated_data["base_version"],
                 source_version=serializer.validated_data.get("source_version"),
             )

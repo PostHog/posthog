@@ -2,6 +2,7 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 
 import type { UserBasicType } from '~/types'
 
+import { ProjectKeyLabel } from '../components/ProjectKeyLabel'
 import type { ScoreDefinitionApi } from '../generated/api.schemas'
 
 export function ScorerActor({
@@ -15,7 +16,7 @@ export function ScorerActor({
         return <ProfilePicture user={user as UserBasicType} size="md" showName />
     }
     if (projectKeyId) {
-        return <span title={projectKeyId}>Project key · {projectKeyId.slice(-8)}</span>
+        return <ProjectKeyLabel id={projectKeyId} />
     }
     return <span className="text-muted">Unknown</span>
 }

@@ -383,14 +383,16 @@ class BaseTraceReviewWriteSerializer(serializers.Serializer):
             for score in scores
         }
 
-    def _clear_pending_queue_item(self, *, team: Team, trace_id: str, queue_id: str | None) -> None:
+    def _clear_pending_queue_item(self, *, team: Team, trace_id: str, queue_id: str | None) -> Change | None:
         pending_items = ReviewQueueItem.objects.select_for_update().filter(team=team, trace_id=trace_id, deleted=False)
         if queue_id:
             pending_items = pending_items.filter(queue_id=queue_id)
 
         pending_item = pending_items.first()
-        if pending_item is not None:
-            pending_item.soft_delete()
+        if pending_item is None:
+            return None
+        pending_item.soft_delete()
+        return Change(type="TraceReview", action="changed", field="pending_queue_item", before=str(pending_item.pk))
 
     @transaction.atomic
     def create(self, validated_data: dict[str, Any]) -> TraceReview:
@@ -415,9 +417,16 @@ class BaseTraceReviewWriteSerializer(serializers.Serializer):
         except IntegrityError as err:
             raise serializers.ValidationError({"trace_id": "An active review already exists for this trace."}) from err
 
-        self._clear_pending_queue_item(team=team, trace_id=review.trace_id, queue_id=queue_id)
+        queue_change = self._clear_pending_queue_item(team=team, trace_id=review.trace_id, queue_id=queue_id)
         self._replace_scores(review, resolved_scores)
-        log_project_key_activity(request, team=team, scope="TraceReview", item_id=review.pk, activity="created")
+        log_project_key_activity(
+            request,
+            team=team,
+            scope="TraceReview",
+            item_id=review.pk,
+            activity="created",
+            changes=[queue_change] if queue_change else None,
+        )
         return review
 
     @transaction.atomic
@@ -431,7 +440,7 @@ class BaseTraceReviewWriteSerializer(serializers.Serializer):
         validated_data.pop("trace_id", None)
 
         instance = get_object_or_404(TraceReview.objects.select_for_update(), team=team, pk=instance.pk, deleted=False)
-        self._clear_pending_queue_item(team=team, trace_id=instance.trace_id, queue_id=queue_id)
+        queue_change = self._clear_pending_queue_item(team=team, trace_id=instance.trace_id, queue_id=queue_id)
         if review_user is None:
             changes = []
             if "comment" in validated_data and validated_data["comment"] != instance.comment:
@@ -440,15 +449,19 @@ class BaseTraceReviewWriteSerializer(serializers.Serializer):
                 changes.append(Change(type="TraceReview", action="changed", field="scores"))
             else:
                 resolved_scores = None
-            if not changes:
-                return instance
-            if instance.reviewed_by_id is not None:
+            review_changed = bool(changes)
+            if review_changed and instance.reviewed_by_id is not None:
                 changes.append(
                     Change(type="TraceReview", action="changed", field="reviewed_by", before=instance.reviewed_by_id)
                 )
-            log_project_key_activity(
-                request, team=team, scope="TraceReview", item_id=instance.pk, activity="updated", changes=changes
-            )
+            if queue_change:
+                changes.append(queue_change)
+            if changes:
+                log_project_key_activity(
+                    request, team=team, scope="TraceReview", item_id=instance.pk, activity="updated", changes=changes
+                )
+            if not review_changed:
+                return instance
 
         if "comment" in validated_data:
             instance.comment = validated_data["comment"]

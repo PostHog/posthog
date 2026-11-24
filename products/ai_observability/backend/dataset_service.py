@@ -345,7 +345,9 @@ def _check_base_version(*, current_version: DatasetItemVersion, base_version: in
         )
 
 
-def _create_revision(*, dataset: Dataset, created_by: User | None) -> DatasetRevision:
+def _create_revision(
+    *, dataset: Dataset, created_by: User | None, created_by_project_key_id: str | None
+) -> DatasetRevision:
     if dataset.current_revision_id is not None:
         DatasetRevision.objects.for_team(dataset.team_id, canonical=True).filter(id=dataset.current_revision_id).update(
             last_used_at=timezone.now()
@@ -361,6 +363,7 @@ def _create_revision(*, dataset: Dataset, created_by: User | None) -> DatasetRev
         dataset=dataset,
         revision=latest_revision_number + 1,
         created_by=created_by,
+        created_by_project_key_id=created_by_project_key_id,
     )
 
 
@@ -369,6 +372,7 @@ def _create_item_version(
     dataset: Dataset,
     item: DatasetItem,
     created_by: User | None,
+    created_by_project_key_id: str | None,
     version_number: int,
     archived: bool,
     content: _DatasetItemContent,
@@ -422,7 +426,9 @@ def _create_item_version(
             ),
         )
 
-    revision = _create_revision(dataset=dataset, created_by=created_by)
+    revision = _create_revision(
+        dataset=dataset, created_by=created_by, created_by_project_key_id=created_by_project_key_id
+    )
     version = DatasetItemVersion.objects.for_team(dataset.team_id, canonical=True).create(
         team_id=dataset.team_id,
         dataset=dataset,
@@ -438,6 +444,7 @@ def _create_item_version(
         source_event_id=content.source_event_id,
         source_timestamp=content.source_timestamp,
         created_by=created_by,
+        created_by_project_key_id=created_by_project_key_id,
     )
 
     item.current_version = version
@@ -492,6 +499,7 @@ def create_dataset(
     *,
     team: Team,
     created_by: User | None,
+    created_by_project_key_id: str | None = None,
     name: str,
     description: str = "",
     metadata: dict[str, JSONValue] | None = None,
@@ -521,6 +529,7 @@ def create_dataset(
         return Dataset.objects.for_team(team.id, canonical=True).create(
             team=team,
             created_by=created_by,
+            created_by_project_key_id=created_by_project_key_id,
             name=normalized_name,
             description=description,
             metadata=normalized_metadata,
@@ -613,6 +622,7 @@ def create_dataset_item(
     team_id: int,
     dataset_id: UUID,
     created_by: User | None,
+    created_by_project_key_id: str | None = None,
     input: JSONValue,
     expected_output: JSONValue = None,
     source_output: JSONValue = None,
@@ -694,11 +704,13 @@ def create_dataset_item(
         dataset=dataset,
         client_item_id=client_item_id,
         created_by=created_by,
+        created_by_project_key_id=created_by_project_key_id,
     )
     version = _create_item_version(
         dataset=dataset,
         item=item,
         created_by=created_by,
+        created_by_project_key_id=created_by_project_key_id,
         version_number=1,
         archived=False,
         content=content,
@@ -713,6 +725,7 @@ def update_dataset_item(
     dataset_id: UUID,
     item_id: UUID,
     created_by: User | None,
+    created_by_project_key_id: str | None = None,
     base_version: int,
     input: JSONValue | _Unset = UNSET,
     expected_output: JSONValue | _Unset = UNSET,
@@ -756,6 +769,7 @@ def update_dataset_item(
         dataset=dataset,
         item=item,
         created_by=created_by,
+        created_by_project_key_id=created_by_project_key_id,
         version_number=current_version.version + 1,
         archived=False,
         content=next_content,
@@ -770,6 +784,7 @@ def archive_dataset_item(
     dataset_id: UUID,
     item_id: UUID,
     created_by: User | None,
+    created_by_project_key_id: str | None = None,
     base_version: int,
 ) -> DatasetItemMutationResult:
     dataset = _lock_dataset(team_id=team_id, dataset_id=dataset_id)
@@ -793,6 +808,7 @@ def archive_dataset_item(
         dataset=dataset,
         item=item,
         created_by=created_by,
+        created_by_project_key_id=created_by_project_key_id,
         version_number=current_version.version + 1,
         archived=True,
         content=_DatasetItemContent.from_version(current_version),
@@ -808,6 +824,7 @@ def restore_dataset_item(
     dataset_id: UUID,
     item_id: UUID,
     created_by: User | None,
+    created_by_project_key_id: str | None = None,
     base_version: int,
     source_version: int | None = None,
 ) -> DatasetItemMutationResult:
@@ -849,6 +866,7 @@ def restore_dataset_item(
         dataset=dataset,
         item=item,
         created_by=created_by,
+        created_by_project_key_id=created_by_project_key_id,
         version_number=current_version.version + 1,
         archived=False,
         content=restored_content,

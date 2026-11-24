@@ -39151,9 +39151,13 @@ export namespace Schemas {
          */
       readonly updated_at: string | null;
       readonly created_by: UserBasic | null;
+      /** @nullable */
+      readonly created_by_project_key_id: string | null;
       /** When this immutable version was created. */
       readonly version_created_at: string;
       readonly version_created_by: UserBasic | null;
+      /** @nullable */
+      readonly version_created_by_project_key_id: string | null;
       /** Project that owns the item. */
       readonly team_id: number;
     }
@@ -39210,6 +39214,8 @@ export namespace Schemas {
       /** @nullable */
       readonly updated_at: string | null;
       readonly created_by: UserBasic | null;
+      /** @nullable */
+      readonly created_by_project_key_id: string | null;
       /** Project that owns the dataset. */
       readonly team_id: number;
       /**
@@ -39256,6 +39262,8 @@ export namespace Schemas {
       readonly revision: number;
       readonly created_at: string;
       readonly created_by: UserBasic | null;
+      /** @nullable */
+      readonly created_by_project_key_id: string | null;
       /** Project that owns the revision. */
       readonly team_id: number;
       /**

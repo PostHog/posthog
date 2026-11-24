@@ -1,5 +1,5 @@
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from posthog.models import OrganizationMembership, Team
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -50,6 +50,8 @@ class TestAIObservabilityProjectKeys(APIBaseTest):
             == writer["id"]
         )
         trace_id = "scored-trace"
+        queue = ReviewQueue.objects.create(team=self.team, name="Ready to review")
+        pending = ReviewQueueItem.objects.create(team=self.team, queue=queue, trace_id=trace_id)
         review = self.client.post(
             reviews,
             {"trace_id": trace_id, "scores": [{"definition_id": definition.data["id"], "boolean_value": True}]},
@@ -81,10 +83,12 @@ class TestAIObservabilityProjectKeys(APIBaseTest):
             ("created", "project_secret_key", writer["id"], False),
             ("deleted", "project_secret_key", writer["id"], False),
         ]
-        assert (
-            ActivityLogSerializer(audit.get(activity="created")).data["user"]["first_name"]
-            == f"Project key {writer['id']}"
-        )
+        created = audit.get(activity="created")
+        assert ActivityLogSerializer(created).data["user"]["first_name"] == f"Project key {writer['id']}"
+        assert created.detail is not None
+        assert [(change["field"], change["before"]) for change in created.detail["changes"]] == [
+            ("pending_queue_item", str(pending.pk))
+        ]
 
     def test_project_key_scorer_edits_attribute_metadata_and_immutable_versions(self) -> None:
         key = self._issue("Scorer editor", ["ai_observability:write"])
@@ -161,21 +165,29 @@ class TestAIObservabilityProjectKeys(APIBaseTest):
         same = self.client.patch(url, {"queue_id": str(other_queue.pk)}, format="json")
         assert same.status_code == 200, same.data
         assert ReviewQueueItem.objects.filter(team=self.team, pk=pending.pk, deleted=False).exists()
+        assert not logs.exists()
         for payload in ({}, {"comment": "Human review", "scores": [score]}):
             same = self.client.patch(url, payload, format="json")
             assert same.status_code == 200, same.data
             assert same.data == original.data
         pending.refresh_from_db()
         assert pending.deleted
-        assert not logs.exists()
+        removal = logs.get()
+        assert removal.activity == "updated"
+        assert removal.credential_id == key["id"]
+        assert removal.detail is not None
+        assert [(change["field"], change["before"]) for change in removal.detail["changes"]] == [
+            ("pending_queue_item", str(pending.pk))
+        ]
 
+        requeued = ReviewQueueItem.objects.create(team=self.team, queue=queue, trace_id="reviewed")
         edited = self.client.patch(
             url, {"comment": "Revised", "scores": [{**score, "boolean_value": False}]}, format="json"
         )
         assert edited.status_code == 200, edited.data
         assert edited.data["reviewed_by"] is None
         assert edited.data["scores"][0]["boolean_value"] is False
-        log = logs.get()
+        log = logs.exclude(pk=removal.pk).get()
         assert log.credential_type == "project_secret_key"
         assert log.credential_id == key["id"]
         assert log.detail is not None
@@ -183,7 +195,54 @@ class TestAIObservabilityProjectKeys(APIBaseTest):
             "comment": None,
             "scores": None,
             "reviewed_by": self.user.id,
+            "pending_queue_item": str(requeued.pk),
         }
+
+    @patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True)
+    def test_dataset_history_identifies_the_writer_of_each_version(self, _flag: MagicMock) -> None:
+        creator = self._issue("Dataset creator", ["dataset:write"])
+        editor = self._issue("Dataset editor", ["dataset:write"])
+        datasets = f"{self.project_url}/datasets/"
+        items = f"{self.project_url}/dataset_items/"
+        self._use(creator)
+        dataset = self.client.post(datasets, {"name": "Answer quality"})
+        assert dataset.status_code == 201, dataset.data
+        assert dataset.data["created_by"] is None
+        assert dataset.data["created_by_project_key_id"] == creator["id"]
+        item = self.client.post(items, {"dataset": dataset.data["id"], "input": "First item"}, format="json")
+        assert item.status_code == 201, item.data
+        url = f"{items}{item.data['id']}/"
+        self._use(editor)
+        assert self.client.patch(url, {"base_version": 1, "input": "Edited"}, format="json").status_code == 200
+        assert self.client.post(url + "archive/", {"base_version": 2}, format="json").status_code == 200
+        self._use(creator)
+        assert self.client.post(url + "restore/", {"base_version": 3}, format="json").status_code == 200
+        self.client.credentials()
+        self.client.force_login(self.user)
+        assert self.client.patch(url, {"base_version": 4, "input": "Final"}, format="json").status_code == 200
+
+        history = self.client.get(url + "versions/").data["results"]
+        revisions = self.client.get(f"{datasets}{dataset.data['id']}/revisions/").data["results"]
+        expected_actors = [
+            (5, self.user.id, None),
+            (4, None, creator["id"]),
+            (3, None, editor["id"]),
+            (2, None, editor["id"]),
+            (1, None, creator["id"]),
+        ]
+        assert [
+            (
+                row["version"],
+                row["version_created_by"] and row["version_created_by"]["id"],
+                row["version_created_by_project_key_id"],
+            )
+            for row in history
+        ] == expected_actors
+        assert [
+            (row["revision"], row["created_by"] and row["created_by"]["id"], row["created_by_project_key_id"])
+            for row in revisions
+        ] == expected_actors
+        assert all(row["created_by"] is None and row["created_by_project_key_id"] == creator["id"] for row in history)
 
     def test_project_keys_can_read_dataset_snapshots_but_exports_require_a_user(self) -> None:
         writer = self._issue("Dataset writer", ["dataset:write"])
