@@ -284,13 +284,17 @@ Events include a generated request ID, trusted run identity when authorization s
 They exclude tokens, raw URLs, headers and bodies.
 Prometheus counters distinguish unavailable authorization, rejected identity, relay transport failures and reload failures.
 
-Each request reserves room for both events before authorization.
-A full queue returns 503 without running the operation.
-An output error stops new admissions and makes readiness and liveness fail until restart.
-The `egress_audit_export_failed` gauge is 1 after an output error and 0 otherwise.
+Each request passing the rate limiter reserves room for both events before authorization.
+
+| Failure                                 | Behavior                                                                                                                                  |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| Output stalls and the queue fills       | New admissions receive 503 and increment `egress_audit_rejected_total`. Health checks stay healthy; admission resumes when output drains. |
+| Output returns an error                 | New admissions receive 503, readiness and liveness fail, and `egress_audit_export_failed` becomes 1 until restart.                        |
+| Collector or log storage is unavailable | Successful stdout writes do not acknowledge central delivery. Recovery and loss depend on collector buffering and node-log retention.     |
+
 Configure the supervisor to restart on liveness failure and send SIGTERM for normal shutdown.
 Queue pressure and planned draining do not fail liveness.
-Shutdown attempts to drain accepted events; a crash or drain timeout can lose buffered events.
+Shutdown attempts to drain accepted events; an output error, crash or drain timeout can lose buffered events.
 This is bounded asynchronous output, not a durable audit guarantee. Deployment must connect stdout to the regional log collector.
 
 ## Adapter contract
