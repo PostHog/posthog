@@ -10,10 +10,10 @@ a backfill has to prepare before flags can read it, and one that matches on pers
 which flags read straight off the person and can therefore always target. A cohort with neither
 gets no state, so nothing claims an answer the flag API does not enforce.
 
-Every state comes from a row that exists, and from one per backfill kind the cohort needs. A kind
-whose backfill was refused, lost, or never triggered has no run and no queued task, so the cohort
-reads as ``needs_attention`` and never as ``building``, however well its other kind is going: the
-filters changing is not evidence that anything is rebuilding.
+Every state comes from a row that exists, and from one per backfill kind the cohort needs and has
+not stamped yet. A kind whose backfill was refused, lost, or never triggered has no run and no
+queued task, so the cohort reads as ``needs_attention`` and never as ``building``, however well its
+other kind is going: the filters changing is not evidence that anything is rebuilding.
 """
 
 from collections import defaultdict
@@ -177,13 +177,16 @@ def _history_limit_to_report(
     return plan_history_days()
 
 
-def _required_backfill_kinds(cohort: Cohort) -> set[str]:
-    """The backfill kinds this cohort's current filters need stamped before flags can target it.
+def _pending_backfill_kinds(cohort: Cohort) -> set[str]:
+    """The backfill kinds this cohort's current filters need and that have not stamped yet.
 
-    The same mapping `is_flag_compatible` gates on. A cohort can still be participating in an
-    active run for a kind its filters no longer use, and that run decides nothing about it.
+    A stamped kind is finished. Its debounce key has expired, and its run has left the active statuses
+    unless it is a team run held for other cohorts, so asking it for a live run or a queued task would
+    read a healthy build of the other kind as one nothing is carrying.
+    A cohort can still be participating in an active run for a kind its filters no longer use, and
+    that run decides nothing about it.
     """
-    return set(cohort._required_backfill_stamps())
+    return {kind for kind, stamp in cohort._required_backfill_stamps().items() if stamp is None}
 
 
 def _percent_complete(chunks: Mapping[str, Any] | None) -> int | None:
@@ -295,9 +298,9 @@ class _KindProgress:
 
 
 def _live_run_per_kind(
-    participations: Sequence[CohortBackfillRunCohort], required_kinds: set[str]
+    participations: Sequence[CohortBackfillRunCohort], pending_kinds: set[str]
 ) -> dict[str, CohortBackfillRun]:
-    """The newest live run per backfill kind, among the kinds a cohort's current filters still need.
+    """The newest live run per backfill kind, among the kinds a cohort still has to stamp.
 
     A cohort can hold two live participations of one kind at once, its own run and the team's, and
     it can hold participations for a kind its filters no longer use, which decide nothing about it.
@@ -305,29 +308,30 @@ def _live_run_per_kind(
     per_kind: dict[str, CohortBackfillRun] = {}
     for participation in participations:  # newest run first
         kind = participation.run.backfill_kind
-        if kind in required_kinds and kind not in per_kind:
+        if kind in pending_kinds and kind not in per_kind:
             per_kind[kind] = participation.run
     return per_kind
 
 
 def _cohort_progress(
     cohort_id: int,
-    required_kinds: set[str],
+    pending_kinds: set[str],
     live_runs: dict[str, CohortBackfillRun],
     queued: dict[tuple[int, str], str],
 ) -> list[_KindProgress] | None:
-    """One progress record per required backfill kind, or None when nothing is building the cohort.
+    """One progress record per pending backfill kind, or None when nothing is building the cohort.
 
-    A cohort is ready only once every kind its filters need has finished, so every one of them has
-    to be moving for the cohort to read as a build in progress. One kind seeding while the other
-    was refused, lost or never triggered is a cohort nothing is carrying to ready, and reporting it
-    as preparing would leave a progress bar running against a build that is not coming.
+    A cohort is ready only once every kind its filters need has finished, so every kind that has not
+    stamped yet has to be moving for the cohort to read as a build in progress. One kind seeding
+    while the other was refused, lost or never triggered is a cohort nothing is carrying to ready,
+    and reporting it as preparing would leave a progress bar running against a build that is not
+    coming.
 
     A run that has started outranks the debounce key for its kind: the key survives until the
     countdown it was set for expires, so both records exist for as long as the task takes to run.
     """
     progress: list[_KindProgress] = []
-    for kind in sorted(required_kinds):
+    for kind in sorted(pending_kinds):
         run = live_runs.get(kind)
         if _has_phase(run):
             progress.append(_KindProgress(phase=_PHASE_BY_RUN_STATUS[run.status], trigger=run.trigger_kind, run=run))
@@ -385,18 +389,17 @@ def _resolve_for_team(team_id: int, cohorts: Sequence[Cohort]) -> dict[int, Coho
     participations = _active_participations_per_cohort(
         team_id, [cohort.id for cohort in pending], statuses=ACTIVE_COHORT_BACKFILL_RUN_STATUSES
     )
-    required_kinds = {cohort.id: _required_backfill_kinds(cohort) for cohort in pending}
+    pending_kinds = {cohort.id: _pending_backfill_kinds(cohort) for cohort in pending}
     live_runs = {
-        cohort.id: _live_run_per_kind(participations.get(cohort.id, []), required_kinds[cohort.id])
-        for cohort in pending
+        cohort.id: _live_run_per_kind(participations.get(cohort.id, []), pending_kinds[cohort.id]) for cohort in pending
     }
 
-    # A kind whose live run has a phase is progressing on its own evidence. Every other required
+    # A kind whose live run has a phase is progressing on its own evidence. Every other pending
     # kind has to be found in the debounce key: a run parked on an operator (`blocked`) has no
     # phase, and a kind with no live run at all may still have a task waiting out its countdown.
     # Asking about nothing else keeps a page whose builds are all running free of a round trip.
     unresolved = {
-        cohort.id: {kind for kind in required_kinds[cohort.id] if not _has_phase(live_runs[cohort.id].get(kind))}
+        cohort.id: {kind for kind in pending_kinds[cohort.id] if not _has_phase(live_runs[cohort.id].get(kind))}
         for cohort in pending
     }
     queued = _queued_triggers([(cohort.id, kind) for cohort in pending for kind in sorted(unresolved[cohort.id])])
@@ -408,7 +411,7 @@ def _resolve_for_team(team_id: int, cohorts: Sequence[Cohort]) -> dict[int, Coho
             # The lookup that would say whether a build is queued is unavailable, so this cohort
             # gets no state rather than one asserting that nothing is preparing it.
             continue
-        progress = _cohort_progress(cohort.id, required_kinds[cohort.id], live_runs[cohort.id], queued or {})
+        progress = _cohort_progress(cohort.id, pending_kinds[cohort.id], live_runs[cohort.id], queued or {})
         if progress is None:
             needs_attention.append(cohort)
             continue
@@ -442,7 +445,7 @@ def _resolve_for_team(team_id: int, cohorts: Sequence[Cohort]) -> dict[int, Coho
         readiness[cohort_id] = CohortRealtimeReadiness(
             state=(
                 CohortRealtimeState.REBUILDING
-                # Any required kind's build being an edit makes the whole thing a rebuild: both
+                # Any pending kind's build being an edit makes the whole thing a rebuild: both
                 # kinds are asked for together, and the edit is the one with a consequence for flags.
                 if any(
                     progress.trigger == CohortBackfillTrigger.COHORT_EDITED
