@@ -259,7 +259,7 @@ class TestMailgunImport(BaseTest):
             )
         )
         assert templates["welcome"].content["email"]["design"]["body"]["rows"]
-        assert templates[DOMAIN_WELCOME].content["email"]["html"].startswith("&lt;p&gt;Hi")
+        assert "<p>Hi {% if go_value1" in templates[DOMAIN_WELCOME].content["email"]["html"]
         assert "Hallo" in templates[EU_WELCOME].content["email"]["html"]
         assert not any("Old hello" in row.content["email"]["html"] for row in templates.values())
 

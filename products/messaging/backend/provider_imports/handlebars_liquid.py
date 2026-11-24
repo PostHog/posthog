@@ -149,10 +149,14 @@ class HandlebarsToLiquid:
 
     def convert(self, nodes: tuple[object, ...]) -> str:
         converted = self._nodes(nodes, (_Frame(this="variables"),))
+        return self._within_limit(converted)
+
+    @staticmethod
+    def _within_limit(liquid: str) -> str:
         # Liquid counts length in UTF-16 units, so a character outside the basic plane counts twice.
-        if len(converted.encode("utf-16-le")) // 2 > _MAX_OUTPUT_CHARS:
+        if len(liquid.encode("utf-16-le")) // 2 > _MAX_OUTPUT_CHARS:
             raise OutputTooLarge
-        return converted
+        return liquid
 
     # Nodes ------------------------------------------------------------------------------------------------------------
 

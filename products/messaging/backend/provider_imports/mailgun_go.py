@@ -207,7 +207,7 @@ class GoToLiquid(HandlebarsToLiquid):
     def convert_go(self, text: str) -> str:
         converted = self.convert(_Parser(text).parse())
         setup = "".join(f"{{% assign {kind} = {path} | json | slice: 0 %}}" for path, kind in self._kinds.items())
-        return self._spend(setup, literal=True) + converted
+        return self._within_limit(setup + converted)
 
     def _print(self, value: str, raw: bool, *, may_be_a_list: bool = True) -> str:
         if value.startswith("forloop."):

@@ -252,12 +252,16 @@ class TestMailgunTemplateConversion(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("many_values", "<p>{{x}}</p>" * 60_000),
-            ("long_in_liquid_units", "🧾" * 2_500_001),
+            ("many_values", "handlebars", "<p>{{x}}</p>" * 60_000),
+            ("long_in_liquid_units", "handlebars", "🧾" * 2_500_001),
+            # The converted body fits, and the setup before it doesn't.
+            ("long_after_go_setup", "go", "🧾" * 2_499_723 + "{{.x}}"),
         ]
     )
-    def test_a_template_that_converts_too_large_stays_plain_text(self, _name: str, source: str) -> None:
-        converted = convert_text(source)
+    def test_a_template_that_converts_too_large_stays_plain_text(
+        self, _name: str, engine: mailgun_templates.Engine, source: str
+    ) -> None:
+        converted = convert_text(source, engine=engine)
 
         assert converted.too_large
         assert "variables." not in converted.text
