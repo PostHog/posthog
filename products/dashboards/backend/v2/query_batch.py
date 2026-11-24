@@ -11,7 +11,6 @@ import math
 import asyncio
 from collections.abc import AsyncIterator, Callable, Iterator, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
-from contextlib import nullcontext
 from contextvars import copy_context
 from datetime import datetime
 from functools import partial
@@ -50,7 +49,7 @@ from posthog.models.user import User
 from posthog.renderers import SafeJSONRenderer
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
-from products.dashboards.backend.facade.contracts import QueryBatchInput
+from products.dashboards.backend.facade.contracts import QueryBatchBusy, QueryBatchInput
 from products.dashboards.backend.facade.enums import QueryBatchLanguage
 from products.dashboards.backend.v2.cached_tiles import planned_cache_reads
 
@@ -66,6 +65,36 @@ MAX_UNREAD_LINES = WORKERS_PER_BATCH
 CANCEL_RETRY_SECONDS = 2.0
 CANCEL_WINDOW_SECONDS = 120.0
 _batch_slots = BoundedSemaphore(MAX_CONCURRENT_BATCHES)
+MAX_BATCHES_PER_TEAM = 3
+MAX_CONCURRENT_CACHE_READS = 8
+CACHE_READ_WAIT_SECONDS = 10.0
+MAX_STREAM_SECONDS = 600.0
+_cache_read_slots = BoundedSemaphore(MAX_CONCURRENT_CACHE_READS)
+_team_batches: dict[int, int] = {}
+_team_batches_lock = Lock()
+
+
+def _admit_batch(team_id: int) -> bool:
+    # A per-team share below the process cap, so one team's slow readers cannot hold every slot.
+    with _team_batches_lock:
+        if _team_batches.get(team_id, 0) >= MAX_BATCHES_PER_TEAM:
+            return False
+        if not _batch_slots.acquire(blocking=False):
+            return False
+        _team_batches[team_id] = _team_batches.get(team_id, 0) + 1
+        return True
+
+
+def _release_batch(team_id: int) -> None:
+    with _team_batches_lock:
+        count = _team_batches.get(team_id, 0) - 1
+        if count > 0:
+            _team_batches[team_id] = count
+        else:
+            _team_batches.pop(team_id, None)
+        _batch_slots.release()
+
+
 REFRESH_WORKERS = 2
 MAX_QUEUED_REFRESHES = 16
 _refresh_pool = ThreadPoolExecutor(max_workers=REFRESH_WORKERS, thread_name_prefix="dashboard-query-batch-refresh")
@@ -74,6 +103,7 @@ _refresh_slots = BoundedSemaphore(MAX_QUEUED_REFRESHES)
 _FAILED = "The query failed."
 _THROTTLED = "Too many queries are running for this organization. Try again shortly."
 _BUSY = "Too many dashboards are loading at once. Try again shortly."
+_TIMED_OUT = "The dashboard took too long to load. Try again."
 _TOO_LARGE = "The cached results in this request are too large to send together. Request fewer panels at once."
 _INTERVAL_KINDS = frozenset({"TrendsQuery", "StickinessQuery", "LifecycleQuery", "FunnelsQuery"})
 _WRAPPER_KINDS = frozenset({"InsightVizNode", "DataVisualizationNode", "DataTableNode"})
@@ -192,13 +222,23 @@ def _miss_line(index: int, cache_key: Optional[str]) -> dict[str, Any]:
     }
 
 
-def _served_key(planned: PlannedQuery, item: QueryBatchInput) -> tuple[str, bool, bool, str]:
-    # The cache key leaves out series names, which a hit patches per query, so the query is part of the key.
-    return (
-        planned.cache_key,
-        item.swr,
-        item.cache_only,
-        json.dumps(planned.upgraded_query, sort_keys=True, default=str),
+@frozen
+class _ServedKey:
+    """Panels with equal keys can share one rendered hit. The cache key leaves out series names, which a hit patches
+    per query, so the query is part of the key."""
+
+    cache_key: str
+    swr: bool
+    cache_only: bool
+    query: str
+
+
+def _served_key(planned: PlannedQuery, item: QueryBatchInput) -> _ServedKey:
+    return _ServedKey(
+        cache_key=planned.cache_key,
+        swr=item.swr,
+        cache_only=item.cache_only,
+        query=json.dumps(planned.upgraded_query, sort_keys=True, default=str),
     )
 
 
@@ -214,25 +254,21 @@ def _error_line(index: int, error: Exception, *, team: Team) -> dict[str, Any]:
     return {"i": index, "error": message}
 
 
-def _refresh_all(
-    *, team: Team, user: User, dashboard_id: Optional[int], is_query_service: bool, queries: list[ResolvedQuery]
-) -> None:
+def _refresh_all(*, team: Team, user: User, dashboard_id: Optional[int], queries: list[ResolvedQuery]) -> None:
     # The stale results are already in the response. The async path recomputes them for the next read.
     try:
         for query in queries:
             try:
-                with tags_context(api_queries_budgeted=True) if is_query_service else nullcontext():
-                    process_query_dict(
-                        team,
-                        query.query,
-                        dashboard_filters_json=query.filters,
-                        variables_override_json=query.variables,
-                        limit_context=None if is_query_service else _limit_context(query.query),
-                        execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
-                        user=user,
-                        dashboard_id=dashboard_id,
-                        is_query_service=is_query_service,
-                    )
+                process_query_dict(
+                    team,
+                    query.query,
+                    dashboard_filters_json=query.filters,
+                    variables_override_json=query.variables,
+                    limit_context=_limit_context(query.query),
+                    execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE,
+                    user=user,
+                    dashboard_id=dashboard_id,
+                )
             except Exception:
                 logger.warning("dashboard_v2_query_batch_refresh_failed", team_id=team.pk, exc_info=True)
     finally:
@@ -255,10 +291,8 @@ class QueryBatch:
         inputs: Sequence[QueryBatchInput],
         dashboard_id: Optional[int],
         client_query_id: str,
-        is_query_service: bool = False,
     ) -> None:
         self._team = team
-        self._is_query_service = is_query_service
         self._user = user
         self._dashboard_id = dashboard_id
         self._client_query_id = client_query_id
@@ -280,7 +314,13 @@ class QueryBatch:
         self._lock = Lock()
         self._idle = Event()
         self._unread = Semaphore(MAX_UNREAD_LINES)
-        self._read_cache(inputs)
+        # Planning and cache reads are bounded too, so cache-only batches cannot pile up CPU and cache I/O.
+        if not _cache_read_slots.acquire(timeout=CACHE_READ_WAIT_SECONDS):
+            raise QueryBatchBusy()
+        try:
+            self._read_cache(inputs)
+        finally:
+            _cache_read_slots.release()
 
     def _read_cache(self, inputs: Sequence[QueryBatchInput]) -> None:
         resolved: dict[int, ResolvedQuery] = {}
@@ -298,7 +338,7 @@ class QueryBatch:
                 query.query,
                 dashboard_filters_json=query.filters,
                 variables_override_json=query.variables,
-                limit_context=self._limit_context(query.query),
+                limit_context=_limit_context(query.query),
                 user=self._user,
                 user_access_control=user_access_control,
                 allow_raw_results=False,
@@ -306,7 +346,7 @@ class QueryBatch:
 
         to_run: list[int] = []
         to_refresh: list[int] = []
-        served: dict[tuple[str, bool, bool, str], bytes] = {}
+        served: dict[_ServedKey, bytes] = {}
         indices = list(resolved)
         for chunk_start in range(0, len(indices), CACHE_READ_CHUNK):
             chunk = indices[chunk_start : chunk_start + CACHE_READ_CHUNK]
@@ -330,7 +370,7 @@ class QueryBatch:
         plan: Callable[[int], PlannedQuery | None],
         to_run: list[int],
         to_refresh: list[int],
-        served: dict[tuple[str, bool, bool, str], bytes],
+        served: dict[_ServedKey, bytes],
     ) -> None:
         duplicates: dict[int, bytes] = {}
 
@@ -350,7 +390,7 @@ class QueryBatch:
             for index in chunk:
                 item = inputs[index]
                 if index in duplicates:
-                    self.ready.append((index, duplicates[index]))
+                    self._add_shared(index, duplicates[index])
                     continue
                 planned = planned_queries.get(index)
                 if planned is None:
@@ -365,7 +405,7 @@ class QueryBatch:
                     continue
                 same_entry = _served_key(planned, item)
                 if same_entry in served:
-                    self.ready.append((index, served[same_entry]))
+                    self._add_shared(index, served[same_entry])
                     continue
                 try:
                     response = run_planned_query(
@@ -403,13 +443,17 @@ class QueryBatch:
         self._ready_bytes += len(body)
         return body
 
+    def _add_shared(self, index: int, body: bytes) -> None:
+        # Shared in memory but written once per panel, so it counts against the budget each time.
+        if self._ready_bytes + len(body) > MAX_READY_BYTES:
+            self._add_ready({"i": index, "error": _TOO_LARGE})
+            return
+        self.ready.append((index, body))
+        self._ready_bytes += len(body)
+
     def _ready_lines(self) -> Iterator[bytes]:
         for index, body in self.ready:
             yield b'{"i":%d,' % index + body[1:] + b"\n"
-
-    def _limit_context(self, query: dict[str, Any]) -> Optional[LimitContext]:
-        # `/query` keeps API-key callers on the default limit.
-        return None if self._is_query_service else _limit_context(query)
 
     def _dispatch_refreshes(self) -> None:
         # After the cached lines are written, so a stale board is not held back by its own refreshes.
@@ -426,7 +470,6 @@ class QueryBatch:
             team=self._team,
             user=self._user,
             dashboard_id=self._dashboard_id,
-            is_query_service=self._is_query_service,
             queries=queries,
         )
         try:
@@ -443,12 +486,11 @@ class QueryBatch:
                 query.query,
                 dashboard_filters_json=query.filters,
                 variables_override_json=query.variables,
-                limit_context=self._limit_context(query.query),
+                limit_context=_limit_context(query.query),
                 execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
                 user=self._user,
                 query_id=query_id,
                 dashboard_id=self._dashboard_id,
-                is_query_service=self._is_query_service,
             )
         except Exception as e:
             return _error_line(index, e, team=self._team)
@@ -473,11 +515,7 @@ class QueryBatch:
                 if self._cancelled:
                     return
                 self._active.add(query_id)
-            tags: dict[str, Any] = {"team_id": self._team.pk, "client_query_id": query_id}
-            if self._is_query_service:
-                # Debits the team's API queries budget and enforces it, as `/query` does for API keys.
-                tags["api_queries_budgeted"] = True
-            with tags_context(**tags):
+            with tags_context(team_id=self._team.pk, client_query_id=query_id):
                 line = job()
             # Waits while the client is behind, so a slow reader holds a few results, not every finished one.
             while not self._unread.acquire(timeout=1.0):
@@ -494,7 +532,7 @@ class QueryBatch:
     def _start(self) -> bool:
         if not self._jobs:
             return True
-        self._admitted = _batch_slots.acquire(blocking=False)
+        self._admitted = _admit_batch(self._team.pk)
         if not self._admitted:
             return False
         self._pool = ThreadPoolExecutor(max_workers=WORKERS_PER_BATCH, thread_name_prefix="dashboard-query-batch")
@@ -521,7 +559,7 @@ class QueryBatch:
             # A running query keeps its thread after a disconnect, so the slot is freed when the last one ends.
             remaining = [future for future in self._futures if not future.done()]
             if not remaining:
-                _batch_slots.release()
+                _release_batch(self._team.pk)
             else:
                 pending = [len(remaining)]
                 counter_lock = Lock()
@@ -531,7 +569,7 @@ class QueryBatch:
                         pending[0] -= 1
                         last = pending[0] == 0
                     if last:
-                        _batch_slots.release()
+                        _release_batch(self._team.pk)
 
                 for future in remaining:
                     future.add_done_callback(done)
@@ -553,6 +591,10 @@ class QueryBatch:
     def _encode(line: dict[str, Any]) -> bytes:
         return SafeJSONRenderer().render(line) + b"\n"
 
+    def _timed_out_lines(self, pending: set[int]) -> Iterator[bytes]:
+        for index in sorted(pending):
+            yield self._encode({"i": index, "error": _TIMED_OUT})
+
     def _busy_lines(self) -> Iterator[bytes]:
         for index, _query_id, _job in self._jobs:
             yield self._encode({"i": index, "error": _BUSY})
@@ -564,16 +606,20 @@ class QueryBatch:
             yield from self._busy_lines()
             return
         complete = False
+        deadline = monotonic() + MAX_STREAM_SECONDS
+        pending = {index for index, _query_id, _job in self._jobs}
         try:
-            remaining = len(self._jobs)
-            while remaining:
+            while pending:
+                if monotonic() >= deadline:
+                    yield from self._timed_out_lines(pending)
+                    return
                 try:
                     line = self._queue.get(timeout=HEARTBEAT_SECONDS)
                 except Empty:
                     # Proxies close a response that sends nothing for a while, which would end the batch early.
                     yield b"\n"
                     continue
-                remaining -= 1
+                pending.discard(line["i"])
                 yield self._encode(line)
                 self._unread.release()
             complete = True
@@ -591,15 +637,20 @@ class QueryBatch:
                 yield chunk
             return
         complete = False
+        deadline = monotonic() + MAX_STREAM_SECONDS
+        pending = {index for index, _query_id, _job in self._jobs}
         try:
-            remaining = len(self._jobs)
-            while remaining:
+            while pending:
+                if monotonic() >= deadline:
+                    for chunk in self._timed_out_lines(pending):
+                        yield chunk
+                    return
                 try:
                     line = await asyncio.wait_for(self._async_queue.get(), timeout=HEARTBEAT_SECONDS)
                 except TimeoutError:
                     yield b"\n"
                     continue
-                remaining -= 1
+                pending.discard(line["i"])
                 yield self._encode(line)
                 self._unread.release()
             complete = True

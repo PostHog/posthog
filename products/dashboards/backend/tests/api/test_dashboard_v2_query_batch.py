@@ -14,7 +14,9 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
+from posthog.models import PersonalAPIKey
 from posthog.models.organization import OrganizationMembership
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
@@ -155,6 +157,22 @@ class TestQueryBatchCacheReads(_QueryBatchMixin, APIBaseTest):
         response = self._batch([_insight("$pageview", cacheOnly=True)], **body)
 
         self.assertEqual(response.status_code, expected, response.content)
+
+    def test_refuses_a_personal_api_key(self) -> None:
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="batch", user=self.user, secure_value=hash_key_value(value), scopes=["query:read"]
+        )
+        self.client.logout()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/dashboard_v2/query_batch/",
+            {"queries": [_insight("$pageview", cacheOnly=True)]},
+            format="json",
+            headers={"Authorization": f"Bearer {value}"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
 
     def test_a_query_that_raises_still_ends_the_stream_with_an_error_line(self) -> None:
         with patch("products.dashboards.backend.v2.query_batch.process_query_dict", side_effect=RuntimeError("boom")):
