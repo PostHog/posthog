@@ -1,0 +1,20 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "content": {
+            "description": "The note. Say what you found and what you need.",
+            "maxLength": 8000,
+            "type": "string"
+        },
+        "id": {
+            "pattern": "^[0-9a-f-]{36}$",
+            "type": "string"
+        },
+        "to_hog_id": {
+            "description": "ID of the hog to send the note to. Find it with hogs-list.",
+            "type": "string"
+        }
+    },
+    "required": ["id", "to_hog_id", "content"],
+    "type": "object"
+}

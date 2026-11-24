@@ -1607,6 +1607,7 @@ export interface PaginatedTaskListItemListApi {
 /**
  * * `onboarding` - Onboarding
  * * `account_audit` - Account audit
+ * * `hogs` - Hogs
  * * `error_tracking` - Error Tracking
  * * `eval_clusters` - Eval Clusters
  * * `user_created` - User Created
@@ -1640,6 +1641,7 @@ export type TaskOriginProductEnumApi = (typeof TaskOriginProductEnumApi)[keyof t
 export const TaskOriginProductEnumApi = {
     Onboarding: 'onboarding',
     AccountAudit: 'account_audit',
+    Hogs: 'hogs',
     ErrorTracking: 'error_tracking',
     EvalClusters: 'eval_clusters',
     UserCreated: 'user_created',
@@ -1810,6 +1812,7 @@ export interface TaskCreateApi {
      *
      * * `onboarding` - Onboarding
      * * `account_audit` - Account audit
+     * * `hogs` - Hogs
      * * `error_tracking` - Error Tracking
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
@@ -2121,6 +2124,7 @@ export interface TaskWriteApi {
      *
      * * `onboarding` - Onboarding
      * * `account_audit` - Account audit
+     * * `hogs` - Hogs
      * * `error_tracking` - Error Tracking
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
@@ -2266,6 +2270,7 @@ export interface PatchedTaskWriteApi {
      *
      * * `onboarding` - Onboarding
      * * `account_audit` - Account audit
+     * * `hogs` - Hogs
      * * `error_tracking` - Error Tracking
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
@@ -5386,6 +5391,7 @@ export interface SlackThreadContextResponseApi {
  * * `experiments` - experiments
  * * `feature_flags` - feature_flags
  * * `hogdesk` - hogdesk
+ * * `hogs` - hogs
  * * `image_builder` - image_builder
  * * `knowledge_writer` - knowledge_writer
  * * `loop` - loop
@@ -5418,6 +5424,7 @@ export const TaskListSourceEnumApi = {
     Experiments: 'experiments',
     FeatureFlags: 'feature_flags',
     Hogdesk: 'hogdesk',
+    Hogs: 'hogs',
     ImageBuilder: 'image_builder',
     KnowledgeWriter: 'knowledge_writer',
     Loop: 'loop',
@@ -5627,6 +5634,7 @@ export type SandboxCustomImagesListParams = {
      *
      * * `onboarding` - Onboarding
      * * `account_audit` - Account audit
+     * * `hogs` - Hogs
      * * `error_tracking` - Error Tracking
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
@@ -5665,6 +5673,7 @@ export type SandboxCustomImagesListOriginProduct =
 export const SandboxCustomImagesListOriginProduct = {
     Onboarding: 'onboarding',
     AccountAudit: 'account_audit',
+    Hogs: 'hogs',
     ErrorTracking: 'error_tracking',
     EvalClusters: 'eval_clusters',
     UserCreated: 'user_created',
@@ -5815,6 +5824,7 @@ export type TasksListParams = {
      *
      * * `onboarding` - Onboarding
      * * `account_audit` - Account audit
+     * * `hogs` - Hogs
      * * `error_tracking` - Error Tracking
      * * `eval_clusters` - Eval Clusters
      * * `user_created` - User Created
@@ -5978,6 +5988,7 @@ export type TasksListExcludeOriginProduct =
 export const TasksListExcludeOriginProduct = {
     Onboarding: 'onboarding',
     AccountAudit: 'account_audit',
+    Hogs: 'hogs',
     ErrorTracking: 'error_tracking',
     EvalClusters: 'eval_clusters',
     UserCreated: 'user_created',
@@ -6039,6 +6050,7 @@ export const TasksListPrState = {
  * * `experiments` - experiments
  * * `feature_flags` - feature_flags
  * * `hogdesk` - hogdesk
+ * * `hogs` - hogs
  * * `image_builder` - image_builder
  * * `knowledge_writer` - knowledge_writer
  * * `loop` - loop
@@ -6071,6 +6083,7 @@ export const TasksListSourcesItem = {
     Experiments: 'experiments',
     FeatureFlags: 'feature_flags',
     Hogdesk: 'hogdesk',
+    Hogs: 'hogs',
     ImageBuilder: 'image_builder',
     KnowledgeWriter: 'knowledge_writer',
     Loop: 'loop',

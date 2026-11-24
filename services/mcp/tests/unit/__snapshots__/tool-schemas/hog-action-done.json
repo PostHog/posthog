@@ -1,0 +1,20 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "action_id": {
+            "description": "ID of the approved action you carried out.",
+            "type": "string"
+        },
+        "id": {
+            "pattern": "^[0-9a-f-]{36}$",
+            "type": "string"
+        },
+        "result": {
+            "description": "What happened, with a link when there is one.",
+            "maxLength": 2000,
+            "type": "string"
+        }
+    },
+    "required": ["id", "action_id", "result"],
+    "type": "object"
+}

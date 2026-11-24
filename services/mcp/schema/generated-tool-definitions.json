@@ -8838,6 +8838,246 @@
             "readOnlyHint": false
         }
     },
+    "hog-action-done": {
+        "description": "For hogs only. Record that you carried out an approved action, and what happened. It fails for an action that was not approved.",
+        "category": "Hogs",
+        "feature": "hogs",
+        "summary": "Record a completed action",
+        "title": "Record a completed action",
+        "required_scopes": ["task:write"],
+        "api_operations": ["POST /api/projects/{project_id}/hogs/{id}/actions/done/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "hog-actions-list": {
+        "description": "List the actions a hog has proposed, newest first, with whether each was approved or denied.",
+        "category": "Hogs",
+        "feature": "hogs",
+        "summary": "List a hog's proposed actions",
+        "title": "List a hog's proposed actions",
+        "required_scopes": ["task:read"],
+        "api_operations": ["GET /api/projects/{project_id}/hogs/{id}/actions/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "hog-done": {
+        "description": "For hogs only. Say that you have stopped working for now. Call it last on every wake, whether or not you messaged your owner, so your chat stops showing you as working.",
+        "category": "Hogs",
+        "feature": "hogs",
+        "summary": "Stop working",
+        "title": "Stop working",
+        "required_scopes": ["task:write"],
+        "api_operations": ["POST /api/projects/{project_id}/hogs/{id}/done/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "hog-propose-action": {
+        "description": "For hogs only. Call this before you send, post, create, change or delete anything outside PostHog. Read the status it returns. approved: do it now, then call hog-action-done. pending: your owner has been asked, so do not do it, call hog-done and stop. denied: do not do it.",
+        "category": "Hogs",
+        "feature": "hogs",
+        "summary": "Ask before acting outside PostHog",
+        "title": "Ask before acting outside PostHog",
+        "required_scopes": ["task:write"],
+        "api_operations": ["POST /api/projects/{project_id}/hogs/{id}/actions/propose/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "hog-report": {
+        "description": "For hogs only. Publish a finding as a card in your owner's chat: something they should act on, written so they can decide in ten seconds. One finding per report. Call hog-reports-list first so you never publish what is already open or what they dismissed. Publishing the same title twice returns the first report.",
+        "category": "Hogs",
+        "feature": "hogs",
+        "summary": "Publish a report",
+        "title": "Publish a report",
+        "required_scopes": ["task:write"],
+        "api_operations": ["POST /api/projects/{project_id}/hogs/{id}/reports/create/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "hog-reports-list": {
+        "description": "List the reports a hog has published, open ones first, with what the owner did with each (resolved or dismissed, and why).",
+        "category": "Hogs",
+        "feature": "hogs",
+        "summary": "List a hog's reports",
+        "title": "List a hog's reports",
+        "required_scopes": ["task:read"],
+        "api_operations": ["GET /api/projects/{project_id}/hogs/{id}/reports/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "hog-say": {
+        "description": "For hogs only. Send a chat message to your owner. This is the only way anything you do reaches them: they never see your reasoning, tool calls or final answer. Send one short message with the conclusion first. Stay silent when there is nothing they need to know or decide.",
+        "category": "Hogs",
+        "feature": "hogs",
+        "summary": "Message your owner",
+        "title": "Message your owner",
+        "required_scopes": ["task:write"],
+        "api_operations": ["POST /api/projects/{project_id}/hogs/{id}/say/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "hog-schedule-create": {
+        "description": "For hogs only. Schedule yourself to wake later. Set run_at for a single wake or cron_expression (5 fields, UTC, at most every 15 minutes) for a repeating one, never both. The prompt is a note to your future self about what to check. Call hog-schedules-list first so you never add a duplicate.",
+        "category": "Hogs",
+        "feature": "hogs",
+        "summary": "Schedule a future wake",
+        "title": "Schedule a future wake",
+        "required_scopes": ["task:write"],
+        "api_operations": ["POST /api/projects/{project_id}/hogs/{id}/schedules/create/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "hog-schedule-delete": {
+        "description": "For hogs only. Delete one of your schedules so it stops waking you.",
+        "category": "Hogs",
+        "feature": "hogs",
+        "summary": "Delete a schedule",
+        "title": "Delete a schedule",
+        "required_scopes": ["task:write"],
+        "api_operations": ["POST /api/projects/{project_id}/hogs/{id}/schedules/delete/"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "hog-schedules-list": {
+        "description": "List the schedules that will wake a hog, with the next time each one fires.",
+        "category": "Hogs",
+        "feature": "hogs",
+        "summary": "List a hog's schedules",
+        "title": "List a hog's schedules",
+        "required_scopes": ["task:read"],
+        "api_operations": ["GET /api/projects/{project_id}/hogs/{id}/schedules/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "hog-tell": {
+        "description": "For hogs only. Send a note from you to another hog owned by the same person. The other hog wakes and reads it. Use it to hand over something that belongs to their responsibility. Find hog IDs with hogs-list. The owner does not see these notes.",
+        "category": "Hogs",
+        "feature": "hogs",
+        "summary": "Send a note to another hog",
+        "title": "Send a note to another hog",
+        "required_scopes": ["task:write"],
+        "api_operations": ["POST /api/projects/{project_id}/hogs/{id}/tell/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "hog-trigger-create": {
+        "description": "For hogs only. Create a trigger: an address that wakes you when an outside system posts an event to it. The instructions are a note to your future self about what to check when one arrives. Give your owner the fire_path it returns so they can point a webhook or a workflow step at it. Call hog-triggers-list first so you never add a duplicate.",
+        "category": "Hogs",
+        "feature": "hogs",
+        "summary": "Create an event trigger",
+        "title": "Create an event trigger",
+        "required_scopes": ["task:write"],
+        "api_operations": ["POST /api/projects/{project_id}/hogs/{id}/triggers/create/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "hog-trigger-delete": {
+        "description": "For hogs only. Delete one of your triggers so it stops waking you.",
+        "category": "Hogs",
+        "feature": "hogs",
+        "summary": "Delete a trigger",
+        "title": "Delete a trigger",
+        "required_scopes": ["task:write"],
+        "api_operations": ["POST /api/projects/{project_id}/hogs/{id}/triggers/delete/"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "hog-triggers-list": {
+        "description": "List the triggers that wake a hog on an outside event, with how often each has fired.",
+        "category": "Hogs",
+        "feature": "hogs",
+        "summary": "List a hog's triggers",
+        "title": "List a hog's triggers",
+        "required_scopes": ["task:read"],
+        "api_operations": ["GET /api/projects/{project_id}/hogs/{id}/triggers/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "hog-update": {
+        "description": "Update a hog. A hog calls this on itself to save its responsibility (its charter), to replace its memory (notes for its future self, since its sandbox does not outlive a wake), or to set its status to active once it has a charter.",
+        "category": "Hogs",
+        "feature": "hogs",
+        "summary": "Update a hog",
+        "title": "Update a hog",
+        "required_scopes": ["task:write"],
+        "api_operations": ["PATCH /api/projects/{project_id}/hogs/{id}/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "hogs-list": {
+        "description": "List the hogs (persistent agents) the current person runs, with each one's responsibility and status. A hog uses it to find which other hog owns an area before sending a note with hog-tell.",
+        "category": "Hogs",
+        "feature": "hogs",
+        "summary": "List hogs",
+        "title": "List hogs",
+        "required_scopes": ["task:read"],
+        "api_operations": ["GET /api/projects/{project_id}/hogs/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "identity-provider-configs-create-execute": {
         "description": "Step 2 of 2 for create identity provider configuration. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Create an organization identity provider configuration for SAML, OIDC, SCIM, or XAA (ID-JAG). Set `config_scope` to `saml`, `oidc`, `scim`, or `xaa`. Use `domain_scope: selected` with `organization_domain_ids` to link specific organization domains, or `domain_scope: all` to cover all verified organization domains. SAML uses `saml_entity_id`, `saml_acs_url`, and `saml_x509_cert`; OIDC uses `oidc_issuer_url`, `oidc_client_id`, and `oidc_client_secret`; SCIM can be enabled with `scim_enabled`; XAA uses `id_jag_issuer_url` with optional JWKS and allowed-client settings. The create call requires explicit user confirmation before execution.",
         "category": "Core",

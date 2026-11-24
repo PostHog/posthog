@@ -1,0 +1,22 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "pattern": "^[0-9a-f-]{36}$",
+            "type": "string"
+        },
+        "instructions": {
+            "default": "",
+            "description": "A note to your future self: what to check when an event arrives, and what is worth reporting.",
+            "maxLength": 4000,
+            "type": "string"
+        },
+        "name": {
+            "description": "What sends these events, such as Deploy finished.",
+            "maxLength": 120,
+            "type": "string"
+        }
+    },
+    "required": ["id", "name"],
+    "type": "object"
+}

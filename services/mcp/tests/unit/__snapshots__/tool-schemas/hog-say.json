@@ -1,0 +1,16 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "content": {
+            "description": "The message text.",
+            "maxLength": 8000,
+            "type": "string"
+        },
+        "id": {
+            "pattern": "^[0-9a-f-]{36}$",
+            "type": "string"
+        }
+    },
+    "required": ["id", "content"],
+    "type": "object"
+}

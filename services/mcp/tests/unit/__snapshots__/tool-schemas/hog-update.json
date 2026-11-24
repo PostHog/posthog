@@ -1,0 +1,40 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "color": {
+            "description": "Avatar background as a hex color.",
+            "maxLength": 16,
+            "type": "string"
+        },
+        "emoji": {
+            "description": "Emoji shown as the avatar.",
+            "maxLength": 16,
+            "type": "string"
+        },
+        "id": {
+            "pattern": "^[0-9a-f-]{36}$",
+            "type": "string"
+        },
+        "memory": {
+            "description": "Notes the hog keeps for its future self. Replaces the whole memory.",
+            "maxLength": 20000,
+            "type": "string"
+        },
+        "name": {
+            "description": "The hog's display name.",
+            "maxLength": 80,
+            "type": "string"
+        },
+        "responsibility": {
+            "description": "The hog's charter: what it owns, what is worth reporting, and how often it checks.",
+            "type": "string"
+        },
+        "status": {
+            "description": "setup until the hog has a charter, then active. paused stops every wake.\n\n* `setup` - Setup\n* `active` - Active\n* `paused` - Paused",
+            "enum": ["setup", "active", "paused"],
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}
