@@ -50,11 +50,11 @@ PUSH_REFUSALS: dict[str, tuple[type[TransactionalEmailError], str]] = {
     "quota_limited": (QuotaLimited, "The project is over its quota for push notifications."),
     "idempotency_key_in_flight": (
         IdempotencyKeyInFlight,
-        "A request with this Idempotency-Key is still being processed. Retry in a few seconds.",
+        "A request with this idempotency key is still being processed. Retry in a few seconds.",
     ),
     "idempotency_key_reused": (
         IdempotencyKeyReused,
-        "This Idempotency-Key was already used for a different request. Use a new key for a new notification.",
+        "This idempotency key was already used for a different notification. Use a new key for a new notification.",
     ),
     "not_sendable": (
         TransactionalPushPaused,
