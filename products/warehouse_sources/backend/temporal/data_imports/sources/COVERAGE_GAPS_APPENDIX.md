@@ -9300,7 +9300,7 @@ Re-audited 2026-11-19 against <https://loops.so/docs/openapi.json>: no new gaps 
 
 ## Lovable — gaps
 
-Today (9): `ProjectAnalytics`, `ProjectPiiLabels`, `ProjectSecurityScanFindings`, `ProjectSecurityScans`, `Projects`, `WorkspaceAnalytics`, `WorkspaceGroups`, `WorkspaceMembers`, `Workspaces`
+Today (11): `ProjectAnalytics`, `ProjectAnalyticsBreakdowns`, `ProjectPiiLabels`, `ProjectSecurityScanFindings`, `ProjectSecurityScans`, `Projects`, `WorkspaceAnalytics`, `WorkspaceGroups`, `WorkspaceMembers`, `WorkspaceSecurityInsightProjects`, `Workspaces`
 
 Diffed against: <https://api.lovable.dev/v1/openapi.yaml>
 
@@ -9308,8 +9308,8 @@ Diffed against: <https://api.lovable.dev/v1/openapi.yaml>
 - [x] `Project analytics (GET /v1/projects/{project_id}/analytics)` — measure published website traffic and visitors over time (high)
 - [x] `Security scan findings (GET /v1/projects/{project_id}/security-scans/{scan_id}/findings)` — analyze vulnerability details and remediation states absent from scan metadata (high)
 - [x] `Workspace analytics (GET /v1/workspaces/{workspace_id}/analytics)` — measure workspace traffic, including historical visits to deleted projects (medium)
-- [ ] `Project analytics breakdowns (GET /v1/projects/{project_id}/analytics/breakdowns)` — analyze traffic by page, referring domain, device type, and country (medium)
-- [ ] `Workspace security project inventory (GET /v1/workspaces/{workspace_id}/security-center/insights/projects)` — compare project review priorities, finding counts, and activity across a workspace (medium)
+- [x] `Project analytics breakdowns (GET /v1/projects/{project_id}/analytics/breakdowns)` — analyze traffic by page, referring domain, device type, and country (medium)
+- [x] `Workspace security project inventory (GET /v1/workspaces/{workspace_id}/security-center/insights/projects)` — compare project review priorities, finding counts, and activity across a workspace (medium)
 
 Note: Parsed the official OpenAPI YAML for stable version 2026-09-11 and compared it with the default source catalog. Legacy credit history and collaborators exist in the older source catalog but are absent from this stable reference. Groups and scan findings need parent fan-out; analytics require date windows and Business access, while security inventory requires Enterprise. Excluded publishing operations, status polling, and transient realtime analytics.
 
