@@ -7,6 +7,7 @@ from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.project import Project
 from posthog.models.team.team import Team
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.user import User
@@ -141,6 +142,7 @@ class TestProvisioningResources(ProvisioningTestBase):
         self.organization_membership.save()
         self.team.name = "Bootstrap project"
         self.team.save()
+        Project.objects.filter(id=self.team.id).update(name="Bootstrap project")
         TeamProvisioningConfig.objects.create(team=self.team, application=self.partner)
         token = self._bearer_token_with_scopes(scopes)
 
@@ -153,6 +155,7 @@ class TestProvisioningResources(ProvisioningTestBase):
         assert res.status_code == 200, res.content
         assert res.json()["id"] == str(self.team.id)
         assert Team.objects.get(id=self.team.id).name == expected_name
+        assert Project.objects.get(id=self.team.id).name == expected_name
 
     def test_new_project_id_resolves_to_a_concurrent_claim_of_the_same_project_id(self) -> None:
         self._set_organization_features([])
@@ -177,6 +180,7 @@ class TestProvisioningResources(ProvisioningTestBase):
             ("null", None),
             ("empty", ""),
             ("too_long", "x" * 201),
+            ("null_character", "Partner\x00app"),
         ]
     )
     def test_create_resource_rejects_invalid_project_name_without_claiming(

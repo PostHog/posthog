@@ -9,6 +9,7 @@ from django.db.models import Q
 
 from posthog.models.oauth import OAuthAccessToken
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.project import Project
 from posthog.models.team.team import Team
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.user import User
@@ -200,7 +201,11 @@ def resolve_or_create_project_team(
             and _user_can_administer_team(user, claimed_team)
         ):
             claimed_team.name = configuration["project_name"]
-            claimed_team.save(update_fields=["name"])
+            # The projects API and project picker read Project.name, so it has to change with the
+            # team. The id filter matches only when the claimed team is its project's main team.
+            with transaction.atomic():
+                claimed_team.save(update_fields=["name"])
+                Project.objects.filter(id=claimed_team.id).update(name=claimed_team.name)
         return ensure_team_in_token_scopes(access_token, scoped_teams, claimed_team)
 
     # A concurrent request with the same project_id can claim the team first. Its mapping is

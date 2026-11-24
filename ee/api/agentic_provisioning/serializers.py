@@ -172,8 +172,11 @@ class ResourceCreateSerializer(serializers.Serializer):
             attrs["configuration"] = {}
 
         project_name = attrs["configuration"].get("project_name")
+        # Postgres cannot store a NUL character in a text column.
         if "project_name" in attrs["configuration"] and (
-            not isinstance(project_name, str) or not 0 < len(project_name) <= PROJECT_NAME_MAX_LENGTH
+            not isinstance(project_name, str)
+            or not 0 < len(project_name) <= PROJECT_NAME_MAX_LENGTH
+            or "\x00" in project_name
         ):
             raise serializers.ValidationError({"configuration": INVALID_PROJECT_NAME_MESSAGE})
 
