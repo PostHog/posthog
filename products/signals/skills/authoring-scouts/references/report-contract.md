@@ -499,7 +499,7 @@ Otherwise resolve a `github_login`, cheapest source first:
 2. **Inbox precedent.** `inbox-reports-list` for a similar/related report on the same surface (same `source_product`, plus a free-text `search` for the area), then `inbox-reports-retrieve` / `inbox-report-artefacts-list` to see who comparable reports were routed to.
    Reuse that reviewer for the same area — the safest general recipe, available to every scout.
 3. **CODEOWNERS / git** (only if the scout has a repo checkout).
-   `.github/CODEOWNERS` for the owning path, or the last `git log` author for the file.
+   Check `.github/CODEOWNERS` for the owning path. Use `git blame` on the affected lines or `git log -S'<symbol-or-literal>' -- <file>` to find who introduced the behavior, then inspect substantive changes to the file when no exact author remains active.
    Neither hands you a reviewer directly: CODEOWNERS entries are often **team** slugs (`@your-org/team-name`) and `git log` gives a name + email. A reviewer is always an individual, so resolve either to people with `scout-members-list` before you write it.
 4. **`scout-members-list`** — the in-run roster lookup, for the cold-start case where the cheaper paths above don't resolve an owner, and the way a team slug becomes reviewers.
    It returns this project's members, each with `user_uuid`, email, name, a resolved `github_login`, and the `teams` they're on. Pass `search=` to narrow by name or email. Match the owner and route with `user_uuid`.
@@ -507,8 +507,8 @@ Otherwise resolve a `github_login`, cheapest source first:
 
 **Resolving a team slug to reviewers.** Call `scout-members-list` with `team=<slug>` (bare slug, no `@your-org/` prefix, case-insensitive). It returns the members of that team with its maintainers first, so:
 
-- Take the **first 1 to 3** rows and route them. Three is the cap `suggested_reviewers` enforces anyway, and past the maintainers the order carries no ownership signal, so a longer list dilutes rather than widens.
-- Prefer **one** reviewer when a maintainer is clearly the owner of the area. Add the next one or two only when the work spans the team.
+- Check the rows against the affected behavior. Roster order and maintainer status alone do not establish ownership.
+- Route up to **three** supported reviewers when the work spans several responsibilities. If no exact owner is known, route only the team member with the strongest relevant activity as a best match; use maintainer status only as a tie-breaker.
 - Route each with `user_uuid`, the same as any other reviewer.
 
 Two things the roster can't tell you, which change what you should do rather than what you should report:
@@ -516,7 +516,8 @@ Two things the roster can't tell you, which change what you should do rather tha
 - **A slug with no rows means "not synced here", not "no such team".** The GitHub `teams` and `team_members` schemas are off by default and need the organization Members permission, so coverage is partial on most projects. The tool returns an error saying which case it hit. Fall back to matching the owner by name or email, and don't write a report claiming the team doesn't exist.
 - **The roster is a snapshot, so it can lag the live team.** Someone who joined or left since the last sync is wrong here. Treat a surprising result as stale data, and cross-check against a recent author or an inbox precedent before routing on it alone.
 
-**If you can't confidently identify a reviewer, leave `suggested_reviewers` empty** — the report still surfaces for a human to grab.
+**For a code report, use one best match when exact ownership is unknown.** Prefer a project member who authored a substantive change to the affected file. If none qualifies, use one member of the team that owns the path or product. Start the reason with `Best match:` and name the signal. Leave `suggested_reviewers` empty only when no relevant signal exists or human corrections exclude every candidate.
+For a report without code evidence, route to the most plausible owner from the affected entity, the skill body, or a human correction.
 **Never guess a handle**: a wrong login mis-assigns the report (or silently fails to assign), which is worse than leaving it open.
 And remember `edit_report` can set reviewers on a report later — so a report that surfaced routed to no one isn't stuck; once you resolve an owner, edit it in (which also re-runs autostart).
 

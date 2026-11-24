@@ -13,6 +13,7 @@ from uuid import UUID
 from django.conf import settings
 
 import structlog
+import posthoganalytics
 
 from posthog.models.team.team import Team
 from posthog.ph_client import feature_enabled_or_false
@@ -107,6 +108,30 @@ def organization_inbox_card_links_enabled(organization_id: UUID) -> bool:
 
 def team_research_reviewer_selection_enabled(team_id: int) -> bool:
     return _team_flag_enabled(RESEARCH_REVIEWER_SELECTION_FLAG, team_id)
+
+
+def team_may_be_in_research_reviewer_selection(team_id: int) -> bool:
+    """Whether the team could be in the reviewer-selection trial, for a caller whose safe side is "yes".
+
+    Autostart excludes scout picks from the task identity inside the trial, so a team read or flag
+    read that fails, or a flag with no value, must count as in the trial. Only an explicit `False`
+    from the flag service rules the team out.
+    """
+    if settings.DEBUG:
+        return True
+    try:
+        organization_id = Team.objects.values_list("organization_id", flat=True).get(id=team_id)
+        enabled = posthoganalytics.feature_enabled(
+            RESEARCH_REVIEWER_SELECTION_FLAG,
+            str(organization_id),
+            groups={"organization": str(organization_id)},
+            group_properties={"organization": {"id": str(organization_id)}},
+            send_feature_flag_events=False,
+        )
+    except Exception:
+        logger.warning("signals reviewer selection flag check failed", team_id=team_id, exc_info=True)
+        return True
+    return enabled is not False
 
 
 def team_research_assignee_evidence_enabled(team_id: int) -> bool:

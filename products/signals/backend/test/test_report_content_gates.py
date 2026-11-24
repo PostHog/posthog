@@ -12,6 +12,7 @@ from products.signals.backend.report_content_gates import (
     organization_report_metrics_enabled,
     organization_report_monitoring_enabled,
     team_first_report_email_enabled,
+    team_may_be_in_research_reviewer_selection,
     team_report_metrics_enabled,
     team_report_monitoring_enabled,
     team_research_assignee_evidence_enabled,
@@ -121,3 +122,30 @@ class TestReportContentGates(SimpleTestCase):
 
         team_lookup.assert_not_called()
         evaluate.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("flag_off", None, False, False),
+            ("flag_on", None, True, True),
+            ("flag_without_value", None, None, True),
+            ("flag_service_error", None, RuntimeError("unavailable"), True),
+            ("team_read_error", RuntimeError("unavailable"), False, True),
+        ]
+    )
+    @override_settings(DEBUG=False)
+    def test_reviewer_selection_trial_counts_an_unknown_read_as_in_the_trial(
+        self, _name: str, team_error: Exception | None, flag: bool | None | Exception, expected: bool
+    ) -> None:
+        with (
+            patch(_TEAM_LOOKUP) as team_lookup,
+            patch.object(
+                posthoganalytics,
+                "feature_enabled",
+                **({"side_effect": flag} if isinstance(flag, Exception) else {"return_value": flag}),
+            ),
+        ):
+            team_lookup.return_value.get.return_value = UUID("00000000-0000-0000-0000-000000000001")
+            if team_error is not None:
+                team_lookup.return_value.get.side_effect = team_error
+
+            assert team_may_be_in_research_reviewer_selection(7) is expected

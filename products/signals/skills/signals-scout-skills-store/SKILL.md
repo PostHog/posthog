@@ -152,7 +152,7 @@ For each non-compliant skill, the call is **edit an existing report, author a ne
   `actionability`: `immediately_actionable` when the fix is a copy-ready `skill-update` (dead links, a description rewrite, secret removal); `requires_human_input` when the call isn't yours to make (which near-duplicate to keep, a credential that must be rotated in an external system — say plainly it should be rotated, not just removed).
   Set `priority` + `priority_explanation`: **P3** by default; **P2** when the skill is effectively broken for its consumers (dead links to the files carrying its actual substance, a description so empty discovery can't match it) or when a credential is committed.
   Route `suggested_reviewers` to the skill's author — `skill-get`'s `created_by` carries the `uuid`; pass it as `{user_uuid}` (fall back to `scout-members-list` when `created_by` is missing, and re-file without reviewers if the call is rejected on an unlinked user — a reviewer-validation rejection persists nothing).
-  Cache the resolved owner under `reviewer:skills_store:<skill-name>`; leave reviewers empty rather than guess.
+  Cache the resolved owner under `reviewer:skills_store:<skill-name>`. If no exact owner is known, use the harness's one-person best-match fallback. Leave reviewers empty only when no relevant signal exists or a human correction excludes every candidate.
   After authoring, write the `report:skills_store:<skill-name>` pointer with the `report_id` so the next run edits instead of duplicating, and update the `dedupe:` entry.
 - **Cap authoring at ~3 reports per run**, worst offenders first.
   One sharp report beats a pile of nits.

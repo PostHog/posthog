@@ -18,3 +18,7 @@ SCRATCHPAD_REVISIONS_PER_KEY = 10
 # `SignalScratchpadRevision.changed_by_identity` of the daily sweep that expires `report:` pointers to a gone
 # report. A scout that reads the expired entry sees this name, so it can tell the sweep from another scout.
 REPORT_POINTER_SWEEP_IDENTITY = "system:report-pointer-sweep"
+
+# A scout starts a reviewer's `reason` with this when no evidence ties anyone to the affected behavior.
+# Such a pick routes the report, but autostart never runs as that reviewer.
+BEST_MATCH_REASON_PREFIX = "Best match:"
