@@ -210,7 +210,13 @@ describe('humanizeActivity', () => {
         expect(text(result.summary?.action)).toBe(action)
     })
 
-    it.each<{ name: string; before: unknown; after: unknown; expected: string[]; unexpected?: string[] }>([
+    it.each<{
+        name: string
+        before: Record<string, any> | null
+        after: Record<string, any> | null
+        expected: string[]
+        unexpected?: string[]
+    }>([
         {
             name: 'mobile masking turned on',
             before: { maskAllInputs: true, mobile: { maskAllImages: true } },
