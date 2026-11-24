@@ -17,11 +17,9 @@ from posthog.models.team.team import Team
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.constants import MAX_GROUP_KEY_LENGTH, MAX_GROUP_TITLE_LENGTH, MAX_GROUPS
+from products.dashboards.backend.facade.contracts import MAX_DASHBOARD_TEMPLATES_PER_ORGANIZATION
+from products.dashboards.backend.logic.template_library import organization_dashboard_template_limit_detail
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
-from products.dashboards.backend.presentation.views.dashboard_templates import (
-    MAX_DASHBOARD_TEMPLATES_PER_ORGANIZATION,
-    organization_dashboard_template_limit_detail,
-)
 
 
 def assert_template_equals(received, expected):
@@ -74,7 +72,7 @@ def ensure_baseline_global_dashboard_templates() -> None:
 
 
 def _listable_dashboard_template_db_count(team_pk: int) -> int:
-    """Rows visible on default dashboard_templates list (mirrors `dangerously_get_queryset` without scope=)."""
+    """Rows visible on default dashboard_templates list (mirrors `_visible_templates` without scope=)."""
     return DashboardTemplate.objects.filter(Q(scope=DashboardTemplate.Scope.GLOBAL) | Q(team_id=team_pk)).count()
 
 
@@ -247,6 +245,15 @@ class TestDashboardTemplates(APIBaseTest):
             == "A dashboard template with this name already exists for this project."
         )
 
+    @parameterized.expand([("empty", {"tiles": []}), ("missing", {})])
+    def test_create_dashboard_template_without_tiles_returns_bad_request(self, _name: str, tiles: dict) -> None:
+        body = {key: value for key, value in variable_template.items() if key != "tiles"}
+
+        response = self.client.post(f"/api/projects/{self.team.pk}/dashboard_templates", {**body, **tiles})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["detail"] == "You need to provide tiles for the template."
+
     def test_create_dashboard_template_duplicate_name_for_soft_deleted(self) -> None:
         n0 = DashboardTemplate.objects_including_soft_deleted.count()
         # create first template (soft deleted)
@@ -359,6 +366,22 @@ class TestDashboardTemplates(APIBaseTest):
         assert get_updated_response.status_code == status.HTTP_200_OK, get_updated_response
 
         assert get_template_from_response(get_updated_response, id)["scope"] == "team"
+
+        blank_response = self.client.patch(f"/api/projects/{self.team.pk}/dashboard_templates/{id}", {"scope": ""})
+        assert blank_response.status_code == status.HTTP_200_OK, blank_response.json()
+
+        get_updated_response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates")
+        assert get_updated_response.status_code == status.HTTP_200_OK, get_updated_response
+        assert get_template_from_response(get_updated_response, id)["scope"] == ""
+
+        DashboardTemplate.objects.filter(id=id).update(scope="not_a_scope")
+
+        list_response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates")
+        assert list_response.status_code == status.HTTP_200_OK, list_response.json()
+        assert get_template_from_response(list_response, id)["scope"] == "not_a_scope"
+        retrieve_response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates/{id}")
+        assert retrieve_response.status_code == status.HTTP_200_OK, retrieve_response.json()
+        assert retrieve_response.json()["scope"] == "not_a_scope"
 
     def test_staff_can_narrow_built_in_style_global_template_to_current_team(self) -> None:
         tpl = DashboardTemplate.objects.create(

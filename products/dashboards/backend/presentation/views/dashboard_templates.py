@@ -1,49 +1,38 @@
-from collections.abc import Iterator
-from typing import Any, NoReturn, cast
+from collections.abc import Callable
+from typing import Any, cast
 from uuid import UUID
 
-from django.db import IntegrityError
-from django.db.models import Q
-from django.db.models.expressions import OrderBy
-from django.db.models.functions import Lower
 from django.utils.decorators import method_decorator
 from django.views.decorators.cache import cache_page
 
-import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
 from rest_framework import request, response, serializers, status, viewsets
 from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
-from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
+from posthog.api.routing import PathParameter, TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.event_usage import report_user_action
-from posthog.exceptions_capture import capture_exception
-from posthog.helpers.full_text_search import build_rank
-from posthog.models.resource_transfer.visitors.insight import InsightVisitor
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.user_permissions import UserPermissions
 from posthog.utils import str_to_bool
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.dashboards.backend.customization import validate_template_groups
-from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
+from products.dashboards.backend.facade import api, contracts
+from products.dashboards.backend.facade.enums import DashboardTemplateOrdering, DashboardTemplateScope
 from products.dashboards.backend.presentation.dashboard_template_json_schema_parser import dashboard_template_schema
 from products.dashboards.backend.presentation.views.dashboard import DashboardCustomizationSerializer
 
-logger = structlog.get_logger(__name__)
-
-# arbitary limit, just to prevent abuse
-MAX_DASHBOARD_TEMPLATES_PER_ORGANIZATION = 100
-
 _NON_STAFF_ALLOWED_PATCH_KEYS = frozenset({"template_name", "dashboard_description", "tags", "deleted", "scope"})
 _NON_STAFF_FORBIDDEN_CREATE_FIELDS = frozenset({"availability_contexts", "image_url"})
-_NON_STAFF_ALLOWED_SCOPES = frozenset({DashboardTemplate.Scope.ONLY_TEAM, DashboardTemplate.Scope.ORGANIZATION})
+_NON_STAFF_ALLOWED_SCOPES = frozenset({DashboardTemplateScope.ONLY_TEAM, DashboardTemplateScope.ORGANIZATION})
 
 
 def _non_staff_allowed_scopes_display() -> str:
@@ -51,88 +40,27 @@ def _non_staff_allowed_scopes_display() -> str:
     return " or ".join(sorted(str(scope.value) for scope in _NON_STAFF_ALLOWED_SCOPES))
 
 
-def organization_dashboard_template_limit_detail() -> str:
-    return (
-        f"Your organization has reached the limit of {MAX_DASHBOARD_TEMPLATES_PER_ORGANIZATION} dashboard templates. "
-        "Delete a template before creating or restoring another."
-    )
+def _raise_for_rejection[T](call: Callable[[], T]) -> T:
+    """Run a facade call, and answer its refusal with a 404 or with the 400 a serializer error gives."""
+    try:
+        return call()
+    except contracts.DashboardTemplateNotFound:
+        raise NotFound()
+    except contracts.DashboardTemplateWriteRejected as rejected:
+        if rejected.field is None:
+            raise ValidationError(detail=rejected.message, code=rejected.code)
+        raise ValidationError({rejected.field: [rejected.message]}, code=rejected.code)
 
 
-def count_active_dashboard_templates_for_organization(organization_id: UUID) -> int:
-    """Non-deleted templates whose team belongs to the organization (excludes global rows with no team)."""
-    return DashboardTemplate.objects.filter(team__organization_id=organization_id).count()
+def _item_count(value: object) -> int:
+    return len(value) if isinstance(value, list | dict) else 0
 
 
-def enforce_organization_dashboard_template_limit(*, organization_id: UUID) -> None:
-    if count_active_dashboard_templates_for_organization(organization_id) >= MAX_DASHBOARD_TEMPLATES_PER_ORGANIZATION:
-        raise ValidationError(detail=organization_dashboard_template_limit_detail())
-
-
-def _dashboard_template_list_order_by(ordering: str | None) -> list[Any]:
-    """Featured rows first, then order by `template_name` or `created_at` (when `ordering` requests it)."""
-    # Neither template_name nor created_at is unique across the visible templates, so each order needs `id`
-    # to page reliably. The `id` direction mirrors the column above it.
-    if ordering == "-template_name":
-        return ["-is_featured", OrderBy(Lower("template_name"), descending=True), "-id"]
-    if ordering == "created_at":
-        return ["-is_featured", "created_at", "id"]
-    if ordering == "-created_at":
-        return ["-is_featured", "-created_at", "-id"]
-    return ["-is_featured", Lower("template_name"), "id"]
-
-
-def _collect_warehouse_table_names(node: Any) -> set[str]:
-    """Recursively collect `DataWarehouseNode.table_name` values from a query JSON tree."""
-    names: set[str] = set()
-    if isinstance(node, dict):
-        if node.get("kind") == "DataWarehouseNode":
-            table_name = node.get("table_name")
-            if isinstance(table_name, str) and table_name:
-                names.add(table_name)
-        for value in node.values():
-            names |= _collect_warehouse_table_names(value)
-    elif isinstance(node, list):
-        for item in node:
-            names |= _collect_warehouse_table_names(item)
-    return names
-
-
-def detect_non_portable_references(tiles: list[Any]) -> dict[str, Any]:
-    """Project-scoped references in template tiles that may not resolve when used in another project.
-
-    Events and properties are portable (matched by name), so they are not reported.
-    """
-    action_ids: set[int] = set()
-    cohort_ids: set[int] = set()
-    warehouse_tables: set[str] = set()
-    for tile in tiles:
-        if not isinstance(tile, dict):
-            continue
-        query = tile.get("query")
-        if not isinstance(query, dict):
-            continue
-        try:
-            action_ids |= InsightVisitor._extract_action_ids(None, query)
-            cohort_ids |= InsightVisitor._extract_cohort_ids(None, query)
-        except (ValueError, TypeError) as exc:
-            # Detection is best-effort; a malformed tile must never break serialization.
-            logger.warning("dashboard_template_non_portable_reference_detection_failed", exc_info=exc)
-            capture_exception(exc)
-        warehouse_tables |= _collect_warehouse_table_names(query)
-    return {
-        "actions": len(action_ids),
-        "cohorts": len(cohort_ids),
-        "warehouse_tables": sorted(warehouse_tables),
-    }
-
-
-def _tiles_without_agent_context(tiles: Any) -> Any:
-    if not isinstance(tiles, list):
-        return tiles
-    return [
-        {key: value for key, value in tile.items() if key != "agent_context"} if isinstance(tile, dict) else tile
-        for tile in tiles
-    ]
+class DashboardTemplatePagination(FacadeLimitOffsetPagination):
+    def get_schema_operation_parameters(self, view: Any) -> list[dict[str, Any]]:
+        # Like DefaultLimitOffsetPagination, this caps `limit` at `max_limit` but keeps DRF's schema, which
+        # states no maximum, so clients generated from the schema keep accepting a larger limit.
+        return LimitOffsetPagination.get_schema_operation_parameters(self, view)
 
 
 class CustomerDashboardTemplateWritePermission(BasePermission):
@@ -154,18 +82,18 @@ class CustomerDashboardTemplateWritePermission(BasePermission):
         user = request.user
         if getattr(user, "is_staff", False):
             return True
-        if not isinstance(obj, DashboardTemplate):
+        if not isinstance(obj, contracts.DashboardTemplate):
             return False
-        if obj.scope in (DashboardTemplate.Scope.GLOBAL, DashboardTemplate.Scope.FEATURE_FLAG):
+        if obj.scope in (DashboardTemplateScope.GLOBAL, DashboardTemplateScope.FEATURE_FLAG):
             return False
         view_team_id = getattr(view, "team_id", None)
         if view_team_id is None:
             return False
-        if obj.scope == DashboardTemplate.Scope.ONLY_TEAM and obj.team_id is not None and obj.team_id != view_team_id:
+        if obj.scope == DashboardTemplateScope.ONLY_TEAM and obj.team_id is not None and obj.team_id != view_team_id:
             return False
         # Org-scoped templates are readable org-wide, but rename/delete/demote is restricted to the owning
         # project's editors. Every org row keeps its creating team_id, so ownership is always derivable.
-        if obj.scope == DashboardTemplate.Scope.ORGANIZATION and obj.team_id != view_team_id:
+        if obj.scope == DashboardTemplateScope.ORGANIZATION and obj.team_id != view_team_id:
             return False
         return True
 
@@ -183,8 +111,16 @@ class NonPortableReferencesSerializer(serializers.Serializer):
     )
 
 
-class DashboardTemplateSerializer(serializers.ModelSerializer):
-    created_by = UserBasicSerializer(read_only=True)
+# The fields keep the types, limits and help texts that the model gave them when this was a ModelSerializer,
+# so the OpenAPI schema and the generated clients do not change.
+class DashboardTemplateSerializer(serializers.Serializer):
+    id = serializers.UUIDField(read_only=True)
+    template_name = serializers.CharField(max_length=400, allow_null=True, allow_blank=True, required=False)
+    dashboard_description = serializers.CharField(max_length=400, allow_null=True, allow_blank=True, required=False)
+    dashboard_filters = serializers.JSONField(allow_null=True, required=False)
+    tags = serializers.ListField(child=serializers.CharField(max_length=255), allow_null=True, required=False)
+    tiles = serializers.JSONField(allow_null=True, required=False)
+    variables = serializers.JSONField(allow_null=True, required=False)
     customization = DashboardCustomizationSerializer(
         required=False,
         allow_null=True,
@@ -192,6 +128,20 @@ class DashboardTemplateSerializer(serializers.ModelSerializer):
             "Display settings that a dashboard made from this template starts with: tile spacing, layout "
             "compaction, and the tile groups that tiles join through their group_key."
         ),
+    )
+    deleted = serializers.BooleanField(allow_null=True, required=False)
+    created_at = serializers.DateTimeField(read_only=True, allow_null=True)
+    created_by = UserBasicSerializer(read_only=True)
+    image_url = serializers.CharField(max_length=8201, allow_null=True, allow_blank=True, required=False)
+    team_id = serializers.IntegerField(read_only=True, allow_null=True)
+    scope = serializers.ChoiceField(
+        choices=DashboardTemplateScope.choices, allow_null=True, allow_blank=True, required=False
+    )
+    availability_contexts = serializers.ListField(
+        child=serializers.CharField(max_length=255), allow_null=True, required=False
+    )
+    is_featured = serializers.BooleanField(
+        required=False, help_text="Manually curated; used to highlight templates in the UI."
     )
     non_portable_references = serializers.SerializerMethodField(
         help_text=(
@@ -201,59 +151,21 @@ class DashboardTemplateSerializer(serializers.ModelSerializer):
         ),
     )
 
-    class Meta:
-        model = DashboardTemplate
-        fields = [
-            "id",
-            "template_name",
-            "dashboard_description",
-            "dashboard_filters",
-            "tags",
-            "tiles",
-            "variables",
-            "customization",
-            "deleted",
-            "created_at",
-            "created_by",
-            "image_url",
-            "team_id",
-            "scope",
-            "availability_contexts",
-            "is_featured",
-            "non_portable_references",
-        ]
-
-    def _handle_integrity_error(self, exc: IntegrityError) -> NoReturn:
-        error_str = str(exc)
-        if "unique_template_name_per_team" in error_str:
-            raise ValidationError(
-                detail="A dashboard template with this name already exists for this project.",
-                code="unique_template_name_per_team",
-            ) from exc
-        raise exc
-
-    def _request_user_is_staff(self) -> bool:
-        request = self.context.get("request")
-        user = getattr(request, "user", None) if request else None
-        return bool(user and user.is_authenticated and user.is_staff)
-
-    def to_representation(self, instance: DashboardTemplate) -> dict[str, Any]:
-        representation = super().to_representation(instance)
-        get_team = self.context.get("get_team")
-        team = get_team() if callable(get_team) else instance.team
-        ai_data_processing_approved = bool(team and team.organization.is_ai_data_processing_approved)
-        if instance.scope != DashboardTemplate.Scope.ONLY_TEAM or not ai_data_processing_approved:
-            representation["tiles"] = _tiles_without_agent_context(representation.get("tiles"))
-        return representation
+    def to_representation(self, instance: contracts.DashboardTemplate) -> dict[str, Any]:
+        team = self.context["get_team"]()
+        shown = api.dashboard_template_for_display(
+            instance, ai_data_processing_approved=bool(team.organization.is_ai_data_processing_approved)
+        )
+        return super().to_representation(shown)
 
     @extend_schema_field(NonPortableReferencesSerializer)
-    def get_non_portable_references(self, obj: DashboardTemplate) -> dict[str, Any] | None:
+    def get_non_portable_references(self, obj: contracts.DashboardTemplate) -> dict[str, Any] | None:
         # O(tiles) per row, so only compute when a single template is fetched (retrieve). List responses — the
         # dashboard chooser and the management table — return null and fetch references on demand when promoting.
         view = self.context.get("view")
         if view is None or getattr(view, "action", None) != "retrieve":
             return None
-        return detect_non_portable_references(obj.tiles or [])
+        return NonPortableReferencesSerializer(api.dashboard_template_non_portable_references(obj)).data
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         request = self.context.get("request")
@@ -283,7 +195,7 @@ class DashboardTemplateSerializer(serializers.ModelSerializer):
         if not is_staff:
             if self.instance is None:
                 # Create: default to team scope; allow team or organization, reject global / feature-flag.
-                requested_scope = attrs.get("scope") or initial.get("scope") or DashboardTemplate.Scope.ONLY_TEAM
+                requested_scope = attrs.get("scope") or initial.get("scope") or DashboardTemplateScope.ONLY_TEAM
                 if requested_scope not in _NON_STAFF_ALLOWED_SCOPES:
                     raise ValidationError(
                         {"scope": [f"Project templates can only use {_non_staff_allowed_scopes_display()} scope."]},
@@ -305,102 +217,10 @@ class DashboardTemplateSerializer(serializers.ModelSerializer):
                     )
                 attrs["scope"] = requested_scope
 
-        validate_template_groups(attrs.get("customization"), attrs.get("tiles"))
-        self._validate_unique_organization_template_name(attrs)
         return attrs
 
-    def _validate_unique_organization_template_name(self, attrs: dict[str, Any]) -> None:
-        """Organization-scoped templates must have a unique name within their organization."""
-        effective_scope = attrs.get("scope") or (self.instance.scope if self.instance is not None else None)
-        if effective_scope != DashboardTemplate.Scope.ORGANIZATION:
-            return
-        template_name = attrs.get("template_name")
-        if template_name is None and self.instance is not None:
-            template_name = self.instance.template_name
-        if not template_name:
-            return
-        if self.instance is not None and self.instance.team_id is not None:
-            team_id = self.instance.team_id
-        else:
-            team_id = self.context.get("team_id")
-        if team_id is None:
-            return
-        org_id = Team.objects.filter(pk=team_id).values_list("organization_id", flat=True).first()
-        if org_id is None:
-            return
-        clashing = DashboardTemplate.objects.filter(
-            scope=DashboardTemplate.Scope.ORGANIZATION,
-            team__organization_id=org_id,
-            template_name=template_name,
-        )
-        if self.instance is not None:
-            clashing = clashing.exclude(pk=self.instance.pk)
-        if clashing.exists():
-            raise ValidationError(
-                {"template_name": ["An organization template with this name already exists in this organization."]},
-                code="unique_org_template_name",
-            )
-
-    def create(self, validated_data: dict, *args, **kwargs) -> DashboardTemplate:
-        if not validated_data["tiles"]:
-            raise ValidationError(detail="You need to provide tiles for the template.")
-
-        # default scope is team
-        if not validated_data.get("scope"):
-            validated_data["scope"] = DashboardTemplate.Scope.ONLY_TEAM
-
-        if validated_data["scope"] != DashboardTemplate.Scope.ONLY_TEAM:
-            validated_data["tiles"] = _tiles_without_agent_context(validated_data.get("tiles"))
-
-        team_id = self.context["team_id"]
-        validated_data["team_id"] = team_id
-        org_id = Team.objects.filter(pk=team_id).values_list("organization_id", flat=True).first()
-        if org_id is not None:
-            enforce_organization_dashboard_template_limit(organization_id=cast(UUID, org_id))
-        try:
-            return super().create(validated_data, *args, **kwargs)
-        except IntegrityError as exc:
-            self._handle_integrity_error(exc)
-
-    def update(self, instance: DashboardTemplate, validated_data: dict, *args, **kwargs) -> DashboardTemplate:
-        will_restore = validated_data.get("deleted") is False and bool(instance.deleted)
-        if will_restore and instance.team_id is not None:
-            org_id = Team.objects.filter(pk=instance.team_id).values_list("organization_id", flat=True).first()
-            if org_id is not None:
-                enforce_organization_dashboard_template_limit(organization_id=cast(UUID, org_id))
-
-        # Staff: global rows with no team become team-scoped to the project issuing the PATCH.
-        if self._request_user_is_staff():
-            scope_to = validated_data.get("scope")
-            if (
-                scope_to in (DashboardTemplate.Scope.ONLY_TEAM, "team")
-                and instance.scope == DashboardTemplate.Scope.GLOBAL
-                and instance.team_id is None
-            ):
-                context_team_id = self.context.get("team_id")
-                if context_team_id is None:
-                    raise ValidationError(detail="Cannot set team scope without a project context.")
-                validated_data["team_id"] = context_team_id
-
-        if not self._request_user_is_staff():
-            # `scope` is intentionally allowed through (validated as a team <-> organization transition above).
-            validated_data.pop("team_id", None)
-            validated_data.pop("tiles", None)
-            validated_data.pop("variables", None)
-            validated_data.pop("customization", None)
-            validated_data.pop("dashboard_filters", None)
-            validated_data.pop("is_featured", None)
-            validated_data.pop("availability_contexts", None)
-            validated_data.pop("image_url", None)
-
-        effective_scope = validated_data.get("scope", instance.scope)
-        if effective_scope != DashboardTemplate.Scope.ONLY_TEAM:
-            validated_data["tiles"] = _tiles_without_agent_context(validated_data.get("tiles", instance.tiles))
-
-        try:
-            return super().update(instance, validated_data, *args, **kwargs)
-        except IntegrityError as exc:
-            self._handle_integrity_error(exc)
+    def to_write(self) -> contracts.DashboardTemplateWrite:
+        return contracts.DashboardTemplateWrite(fields_set=frozenset(self.validated_data), **self.validated_data)
 
 
 class CopyDashboardTemplateSerializer(serializers.Serializer):
@@ -409,35 +229,13 @@ class CopyDashboardTemplateSerializer(serializers.Serializer):
     )
 
 
-def _iter_copy_name_candidates(base_name: str) -> Iterator[str]:
-    yield base_name
-    yield f"{base_name} (copy)"
-    n = 2
-    while True:
-        yield f"{base_name} (copy {n})"
-        n += 1
-
-
-def _pick_unique_template_name_for_copy(*, team_id: int, base_name: str) -> str:
-    """Resolves `template_name` collisions on the target team by suffixing `(copy)`, `(copy 2)`, …"""
-    max_attempts = 50
-    candidates = _iter_copy_name_candidates(base_name)
-    for _ in range(max_attempts):
-        name = next(candidates)
-        if not DashboardTemplate.objects.filter(team_id=team_id, template_name=name).exists():
-            return name
-    raise ValidationError(
-        detail="Could not find an available template name after multiple attempts. Rename the source template and try again.",
-        code="template_name_exhausted",
-    )
-
-
-def _assert_user_can_read_source_for_copy(*, user: User, source_team: Team) -> None:
+def _assert_user_can_read_source_for_copy(*, user: User, source_team_id: int) -> None:
     if user.is_staff:
         return
     up = UserPermissions(user=user)
-    if source_team.id not in up.team_ids_visible_for_user:
+    if source_team_id not in up.team_ids_visible_for_user:
         raise NotFound()
+    source_team = Team.objects.get(pk=source_team_id)
     uac = UserAccessControl(
         user=user,
         team=source_team,
@@ -496,55 +294,130 @@ def _assert_user_can_read_source_for_copy(*, user: User, source_team: Team) -> N
         ],
     ),
 )
-class DashboardTemplateViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+class DashboardTemplateViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.GenericViewSet):
     scope_object = "dashboard_template"
     permission_classes = [CustomerDashboardTemplateWritePermission]
     serializer_class = DashboardTemplateSerializer
-    queryset = DashboardTemplate.objects.all()
+    pagination_class = DashboardTemplatePagination
+    path_parameters = {
+        "pk": PathParameter(type=UUID, description="A UUID string identifying this dashboard template."),
+    }
+    # No access rule names one template, so AccessControlPermission checks templates at the resource level only.
+    records_have_object_access_rules = False
 
-    def perform_create(self, serializer):
-        user = self.request.user if self.request.user.is_authenticated else None
-        instance = serializer.save(created_by=user)
-        if instance.scope != DashboardTemplate.Scope.GLOBAL and isinstance(user, User):
+    def _filters(self) -> contracts.DashboardTemplateFilters:
+        """The list query params narrow every route, including a retrieve or an update."""
+        params = self.request.query_params
+        scope = params.get("scope")
+        ordering = params.get("ordering")
+        is_featured = params.get("is_featured")
+        return contracts.DashboardTemplateFilters(
+            scope=DashboardTemplateScope(scope) if scope in DashboardTemplateScope.values else None,
+            search=params.get("search"),
+            ordering=DashboardTemplateOrdering(ordering)
+            if ordering and ordering in DashboardTemplateOrdering
+            else None,
+            is_featured=str_to_bool(is_featured) if is_featured is not None else None,
+        )
+
+    def read_object(self) -> contracts.DashboardTemplate | None:
+        return api.get_dashboard_template(
+            team_id=self.team_id,
+            organization_id=self.team.organization_id,
+            template_id=self.kwargs["pk"],
+            filters=self._filters(),
+            include_deleted=self.request.method not in SAFE_METHODS,
+        )
+
+    @extend_schema(responses={200: DashboardTemplateSerializer(many=True)})
+    def list(self, request: Request, **kwargs) -> response.Response:
+        filters = self._filters()
+        return facade_page_response(
+            self,
+            lambda page: api.list_dashboard_templates(
+                team_id=self.team_id, organization_id=self.team.organization_id, filters=filters, page=page
+            ),
+        )
+
+    @extend_schema(responses={200: DashboardTemplateSerializer})
+    def retrieve(self, request: Request, pk: UUID, **kwargs) -> response.Response:
+        return response.Response(self.get_serializer(self.get_object()).data)
+
+    @extend_schema(request=DashboardTemplateSerializer, responses={201: DashboardTemplateSerializer})
+    def create(self, request: Request, **kwargs) -> response.Response:
+        serializer = cast(DashboardTemplateSerializer, self.get_serializer(data=request.data))
+        serializer.is_valid(raise_exception=True)
+        user = request.user if isinstance(request.user, User) else None
+        template = _raise_for_rejection(
+            lambda: api.create_dashboard_template(
+                team_id=self.team_id,
+                organization_id=self.team.organization_id,
+                created_by_id=user.id if user is not None else None,
+                write=serializer.to_write(),
+            )
+        )
+        if template.scope != DashboardTemplateScope.GLOBAL and user is not None:
             report_user_action(
                 user,
                 "dashboard project template created",
                 properties={
-                    "template_id": str(instance.id),
-                    "scope": instance.scope or "",
-                    "team_id": instance.team_id,
+                    "template_id": str(template.id),
+                    "scope": str(template.scope or ""),
+                    "team_id": template.team_id,
                     "organization_id": self.organization_id,
                     "is_staff": bool(user.is_staff),
-                    "created_by_id": instance.created_by_id,
-                    "template_name": instance.template_name,
-                    "tile_count": len(instance.tiles or []),
-                    "variable_count": len(instance.variables or []),
+                    "created_by_id": template.created_by_id,
+                    "template_name": template.template_name,
+                    "tile_count": _item_count(template.tiles),
+                    "variable_count": _item_count(template.variables),
                 },
                 team=self.team,
                 organization=self.organization,
-                request=self.request,
+                request=request,
             )
+        return response.Response(self.get_serializer(template).data, status=status.HTTP_201_CREATED)
 
-    def perform_update(self, serializer):
-        scope_before = serializer.instance.scope
-        instance = serializer.save()
-        user = self.request.user if self.request.user.is_authenticated else None
-        if instance.scope != scope_before and isinstance(user, User):
+    @extend_schema(request=DashboardTemplateSerializer, responses={200: DashboardTemplateSerializer})
+    def update(self, request: Request, pk: UUID, **kwargs) -> response.Response:
+        return self._update(request, partial=False)
+
+    @extend_schema(request=DashboardTemplateSerializer, responses={200: DashboardTemplateSerializer})
+    def partial_update(self, request: Request, pk: UUID, **kwargs) -> response.Response:
+        return self._update(request, partial=True)
+
+    def _update(self, request: Request, *, partial: bool) -> response.Response:
+        template: contracts.DashboardTemplate = self.get_object()
+        serializer = cast(
+            DashboardTemplateSerializer, self.get_serializer(template, data=request.data, partial=partial)
+        )
+        serializer.is_valid(raise_exception=True)
+        updated = _raise_for_rejection(
+            lambda: api.update_dashboard_template(
+                team_id=self.team_id,
+                organization_id=self.team.organization_id,
+                template_id=template.id,
+                filters=self._filters(),
+                write=serializer.to_write(),
+            )
+        )
+        user = request.user
+        if updated.scope != template.scope and isinstance(user, User):
             report_user_action(
                 user,
                 "dashboard template scope changed",
                 properties={
-                    "template_id": str(instance.id),
-                    "from_scope": scope_before or "",
-                    "to_scope": instance.scope or "",
-                    "team_id": instance.team_id,
+                    "template_id": str(updated.id),
+                    "from_scope": str(template.scope or ""),
+                    "to_scope": str(updated.scope or ""),
+                    "team_id": updated.team_id,
                     "organization_id": self.organization_id,
                     "is_staff": bool(user.is_staff),
                 },
                 team=self.team,
                 organization=self.organization,
-                request=self.request,
+                request=request,
             )
+        return response.Response(self.get_serializer(updated).data)
 
     @method_decorator(cache_page(60 * 2))  # cache for 2 minutes
     @action(methods=["GET"], detail=False)
@@ -570,62 +443,20 @@ class DashboardTemplateViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, views
         source_template_id = cast(UUID, body.validated_data["source_template_id"])
 
         target_team = self.team
-        target_team_id = target_team.id
         target_org_id = cast(UUID, target_team.organization_id)
-
-        source = DashboardTemplate.objects_including_soft_deleted.filter(id=source_template_id).first()
-        if source is None or source.deleted:
-            raise NotFound()
-
-        if source.scope == DashboardTemplate.Scope.GLOBAL:
-            raise ValidationError(
-                {"source_template_id": ["Only project-scoped templates can be copied to another project."]}
+        source = _raise_for_rejection(
+            lambda: api.dashboard_template_copy_source(
+                team_id=target_team.id, organization_id=target_org_id, source_template_id=source_template_id
             )
-        if source.scope == DashboardTemplate.Scope.FEATURE_FLAG:
-            raise ValidationError(
-                {"source_template_id": ["Feature-flag templates cannot be copied with this endpoint."]}
-            )
-        if source.scope != DashboardTemplate.Scope.ONLY_TEAM or source.team_id is None:
-            raise ValidationError(
-                {"source_template_id": ["Only project-scoped templates can be copied to another project."]}
-            )
-
-        if source.team_id == target_team_id:
-            raise ValidationError({"source_template_id": ["Source and destination must be different projects."]})
-
-        source_team = Team.objects.filter(pk=source.team_id).first()
-        if source_team is None:
-            raise NotFound()
-        if source_team.organization_id != target_org_id:
-            raise NotFound()
+        )
 
         user = cast(User, request.user)
-        _assert_user_can_read_source_for_copy(user=user, source_team=source_team)
+        _assert_user_can_read_source_for_copy(user=user, source_team_id=cast(int, source.team_id))
 
-        enforce_organization_dashboard_template_limit(organization_id=target_org_id)
-
-        base_name = (source.template_name or "").strip() or "Untitled template"
-        unique_name = _pick_unique_template_name_for_copy(team_id=target_team_id, base_name=base_name)
-
-        new_instance = DashboardTemplate.objects.create(
-            team_id=target_team_id,
-            template_name=unique_name,
-            dashboard_description=source.dashboard_description,
-            # TODO(analytics-platform): dashboard_filters and variables are copied verbatim; both can embed
-            # project-scoped references (e.g. cohort IDs in filter properties; variable defaults for events,
-            # actions, or properties) that do not exist or differ on the target project. Tile queries have the
-            # same class of issue. Consider validation and/or ID rewriting (cf. resource_transfer visitors).
-            dashboard_filters=source.dashboard_filters,
-            tiles=source.tiles or [],
-            variables=source.variables,
-            customization=source.customization,
-            tags=source.tags or [],
-            scope=DashboardTemplate.Scope.ONLY_TEAM,
-            is_featured=False,
-            image_url=None,
-            availability_contexts=None,
-            deleted=False,
-            created_by=user if user.is_authenticated else None,
+        new_template = _raise_for_rejection(
+            lambda: api.copy_dashboard_template(
+                team_id=target_team.id, organization_id=target_org_id, source=source, created_by_id=user.id
+            )
         )
 
         report_user_action(
@@ -633,78 +464,18 @@ class DashboardTemplateViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, views
             "dashboard project template copied between projects",
             properties={
                 "source_template_id": str(source.id),
-                "new_template_id": str(new_instance.id),
+                "new_template_id": str(new_template.id),
                 "source_team_id": source.team_id,
-                "target_team_id": target_team_id,
+                "target_team_id": target_team.id,
                 "organization_id": str(self.organization_id),
-                "template_name": unique_name,
-                "tile_count": len(new_instance.tiles or []),
-                "variable_count": len(new_instance.variables or []),
+                "template_name": new_template.template_name,
+                "tile_count": _item_count(new_template.tiles),
+                "variable_count": _item_count(new_template.variables),
             },
             team=self.team,
             organization=self.organization,
             request=request,
         )
 
-        serializer = DashboardTemplateSerializer(new_instance, context=self.get_serializer_context())
+        serializer = DashboardTemplateSerializer(new_template, context=self.get_serializer_context())
         return response.Response(serializer.data, status=status.HTTP_201_CREATED)
-
-    def dangerously_get_queryset(self):
-        # NOTE: we use the dangerous version as we want to bypass the team/org scoping and do it here instead depending on the scope
-        filters = self.request.GET.dict()
-        scope = filters.pop("scope", None)
-        search = filters.pop("search", None)
-        ordering = self.request.GET.get("ordering")
-
-        # Organization-scoped templates are visible to every team in the same organization. The org arm must
-        # always be AND-ed with `team__organization_id` so it never leaks templates from other organizations.
-        org_id = self.organization_id
-
-        # if scope is feature flag, then only return feature flag templates
-        # they're implicitly global, so they are not associated with any teams
-        if scope == DashboardTemplate.Scope.FEATURE_FLAG:
-            query_condition = Q(scope=DashboardTemplate.Scope.FEATURE_FLAG)
-        elif scope == DashboardTemplate.Scope.GLOBAL:
-            query_condition = Q(scope=DashboardTemplate.Scope.GLOBAL)
-        elif scope == DashboardTemplate.Scope.ONLY_TEAM:
-            query_condition = Q(team_id=self.team_id) & Q(scope=DashboardTemplate.Scope.ONLY_TEAM)
-        elif scope == DashboardTemplate.Scope.ORGANIZATION:
-            query_condition = Q(scope=DashboardTemplate.Scope.ORGANIZATION) & Q(team__organization_id=org_id)
-        # otherwise we are in the new dashboard context so show global, organization, and this team's templates
-        else:
-            query_condition = (
-                Q(team_id=self.team_id)
-                | Q(scope=DashboardTemplate.Scope.GLOBAL)
-                | (Q(scope=DashboardTemplate.Scope.ORGANIZATION) & Q(team__organization_id=org_id))
-            )
-
-        # Include soft-deleted rows for retrieve/update so PATCH `{deleted: false}` (undo) can resolve the object.
-        # The default manager excludes `deleted=True`, which made undo 404 after soft delete.
-        qs = DashboardTemplate.objects_including_soft_deleted.filter(query_condition)
-
-        is_featured_raw = self.request.query_params.get("is_featured")
-        if is_featured_raw is not None:
-            is_featured = str_to_bool(is_featured_raw)
-            qs = qs.filter(is_featured=is_featured)
-            # Feature-flag templates are tied to team_id but belong in `?scope=feature_flag` lists only;
-            # featured carousels use `?is_featured=true` without that scope and must not surface them.
-            if is_featured and scope != DashboardTemplate.Scope.FEATURE_FLAG:
-                qs = qs.exclude(scope=DashboardTemplate.Scope.FEATURE_FLAG)
-
-        # weighted full-text search
-        if isinstance(search, str):
-            qs = qs.annotate(
-                rank=build_rank({"template_name": "A", "dashboard_description": "C", "tags": "B"}, search),
-            )
-            qs = qs.filter(rank__gt=0.05)
-            qs = qs.order_by("-is_featured", "-rank", Lower("template_name"), "id")
-        else:
-            qs = qs.order_by(*_dashboard_template_list_order_by(ordering))
-
-        # Soft-deleted rows stay resolvable only for unsafe methods, so PATCH `{deleted: false}` (undo) by the
-        # owning project still works. Safe reads (list + retrieve) exclude them, so a sibling project that
-        # captured the UUID can't GET an organization template after its owning project deleted it.
-        if self.request.method in SAFE_METHODS:
-            qs = qs.exclude(deleted=True)
-
-        return qs
