@@ -202,6 +202,8 @@ export interface StaffTeamConfigApi {
      * * `1` - Legacy
      * * `2` - Explicit */
     property_matching_version: PropertyMatchingVersionEnumApi
+    /** Whether a property whose value is null counts as not set for the is_set and is_not_set operators, as it does in insights and cohorts. False means a null value counts as set. */
+    null_counts_as_not_set: boolean
     /**
      * Per-team override for the maximum number of feature flags this team may create, or null when the team uses the global default.
      * @nullable
@@ -234,6 +236,8 @@ export interface StaffTeamConfigMutationApi {
      * * `1` - Legacy
      * * `2` - Explicit */
     property_matching_version?: PropertyMatchingVersionEnumApi
+    /** New value for the team's null_counts_as_not_set setting. True makes a property whose value is null count as not set for is_set and is_not_set, which changes the results of flags that use those operators on null values. Omit to leave it unchanged. */
+    null_counts_as_not_set?: boolean
     /**
      * New per-team flag-count limit (1-20,000). Send null to clear the override so the team falls back to the global default. Omit to leave it unchanged.
      * @minimum 1
