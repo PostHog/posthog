@@ -20,6 +20,7 @@ import { EmailDocumentPreview } from './components/EmailDocumentPreview'
 import { imageNode, insertBlockOption } from './components/emailEditorActions'
 import { EmailEditorFeedback } from './components/EmailEditorFeedback'
 import { EmailEditorSwitch } from './components/EmailEditorSwitch'
+import { EmailHtmlView } from './components/EmailHtmlView'
 import { EmailImagePickerModal, PickedEmailImage } from './components/EmailImagePickerModal'
 import { EmailInsertToolbar } from './components/EmailInsertToolbar'
 import { EmailOwnPlainTextNotice } from './components/EmailOwnPlainTextNotice'
@@ -41,7 +42,7 @@ import { renderEmailHtml, safeEmailDoc } from './renderEmailHtml'
 const PLACEHOLDER = 'Write something, type / for blocks or {{ for variables'
 const NARROW_WIDTH = 900
 
-type Mode = 'edit' | 'preview'
+type Mode = 'edit' | 'preview' | 'html'
 
 function firstImageFile(files: FileList | null | undefined): File | null {
     return Array.from(files ?? []).find((file) => file.type.startsWith('image/')) ?? null
@@ -343,6 +344,8 @@ export function EmailDocumentEditor(): JSX.Element {
 
     const doc = editor.getJSON()
     const page = resolvePageStyle(doc.attrs?.page)
+    // A modal that only saves on Save holds its edits in the canvas, so its stored html is behind what it would save.
+    const commitsLive = logicProps.liveChanges || logicProps.layout === 'inline'
     const html = mode === 'preview' ? renderEmailHtml(doc) : ''
 
     return (
@@ -383,6 +386,9 @@ export function EmailDocumentEditor(): JSX.Element {
                         options={[
                             { value: 'edit', label: 'Edit', 'data-attr': 'email-editor-mode-edit' },
                             { value: 'preview', label: 'Preview', 'data-attr': 'email-editor-mode-preview' },
+                            ...(commitsLive
+                                ? [{ value: 'html' as const, label: 'HTML', 'data-attr': 'email-editor-mode-html' }]
+                                : []),
                         ]}
                     />
                     {mode === 'edit' ? (
@@ -425,7 +431,9 @@ export function EmailDocumentEditor(): JSX.Element {
                         </LemonButton>
                     ) : null}
                 </div>
-                {mode === 'preview' ? (
+                {mode === 'html' ? (
+                    <EmailHtmlView />
+                ) : mode === 'preview' ? (
                     <EmailDocumentPreview
                         html={html}
                         liquid={
