@@ -35,6 +35,8 @@ export type SurveyFeatureRequirement = {
     feature: string
     docsUrl?: string
     unsupportedSdks: UnsupportedSdk[]
+    /** Printed under the generated SDK feature support table, for requirements a version number can't express. */
+    docsNotes?: string[]
 }
 
 /**
@@ -101,6 +103,9 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
             posthog_flutter: '5.56.0',
         },
         unsupportedSdks: [{ sdk: 'posthog-react-native', issue: 'https://github.com/PostHog/posthog-js/issues/2959' }],
+        docsNotes: [
+            'Android applies the survey font from `posthog-android-surveys-compose` 1.1.0. Earlier versions of the module ignore it, including those that run with `posthog-android` 4.0.3.',
+        ],
         check: (s) => s.appearance?.fontFamily !== undefined && s.appearance?.fontFamily !== 'inherit',
     },
     {
@@ -307,7 +312,7 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
         feature: 'Shuffle choice options',
         sdkVersions: {
             'posthog-js': '1.131.5',
-            'posthog-react-native': '4.68.0',
+            'posthog-react-native': '4.77.1', // 4.68.0-4.77.0 shuffled choices but submitted the wrong option
             'posthog-ios': '3.76.0',
             'posthog-android': '3.66.0', // via posthog-android-surveys-compose UI module 0.2.2
             posthog_flutter: '5.44.1',
