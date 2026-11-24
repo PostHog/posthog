@@ -389,6 +389,22 @@ describe('inboxSceneLogic routing', () => {
             expect(logic.values.scoutsInAutomate).toBe(inAutomate)
         })
 
+        it.each([
+            { opened: 'from the Automate pane', firstPath: urls.workflows(), tab: 'reports' },
+            { opened: 'as a tab of the inbox', firstPath: urls.inbox('reports'), tab: 'scouts' },
+        ])('opens $tab from the bare inbox URL after Scouts opened $opened', ({ firstPath, tab }) => {
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+                [FEATURE_FLAGS.DATA_AREA]: true,
+            })
+            mountLogic()
+            router.actions.push(firstPath)
+            router.actions.push(urls.inbox('scouts'))
+            router.actions.push(urls.inbox())
+            expect(logic.values.activeTab).toBe(tab)
+            expect(logic.values.scoutsInAutomate).toBe(false)
+        })
+
         it('leaves the tab on its default for a bare scout URL', () => {
             mountLogic()
             router.actions.push(urls.inboxScout('signals-scout-web-vitals'))
