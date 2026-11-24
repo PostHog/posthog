@@ -12469,7 +12469,7 @@ Re-audited 2026-11-19 against <https://api.replicate.com/openapi.json>: no new g
 
 ## ReplyIo — gaps
 
-Today (19): `account_lists`, `accounts`, `contact_lists`, `contacts`, `custom_fields`, `email_accounts`, `email_activity`, `email_template_folders`, `email_templates`, `inbox_threads`, `linkedin_accounts`, `meetings`, `sequence_contacts`, `sequence_folder_sequences`, `sequence_folders`, `sequence_steps`, `sequences`, `tasks`, `team_users`
+Today (23): `account_lists`, `accounts`, `call_activity`, `contact_lists`, `contacts`, `custom_fields`, `email_accounts`, `email_activity`, `email_template_folders`, `email_templates`, `inbox_categories`, `inbox_messages`, `inbox_threads`, `linkedin_accounts`, `linkedin_activity`, `meetings`, `sequence_contacts`, `sequence_folder_sequences`, `sequence_folders`, `sequence_steps`, `sequences`, `tasks`, `team_users`
 
 Diffed against: <https://docs.reply.io/llms.txt>
 
@@ -12479,10 +12479,10 @@ Diffed against: <https://docs.reply.io/llms.txt>
 - [x] `reports/list-meetings` — booked meetings, the outcome metric outreach performance is judged on (high). Added as `meetings`, a full refresh of the all-time report including meetings booked outside sequences. The report has no row ID, so the key is the user, booking time, contact name and channel
 - ~~`sequences/get-stats-for-all-sequences` — vendor-computed per-sequence delivery and reply rates (high)~~ — skipped: the endpoint accepts only a window of 31 days or less (`lastWeek`, `lastMonth`, or `from`/`to`), so each sync would overwrite the table with a rolling total, and the email figures already follow from `email_activity`
 - [x] `user-account/list-team-users` — lookup resolving the owner/user IDs carried on contacts, accounts, sequences and tasks (high). Added as `team_users`, one row per user per team
-- [ ] `inbox/list-messages-in-an-inbox-thread` — message-level rows under the inbox_threads already synced (medium)
-- [ ] `inbox/list-inbox-categories` — lookup for the category IDs assigned to inbox threads (medium)
-- [ ] `reports/list-call-activity` — call outcomes and durations, the phone channel equivalent of email activity (medium)
-- [ ] `reports/list-linkedin-activity` — LinkedIn connect/message/InMail events for multichannel sequences (medium)
+- [x] `inbox/list-messages-in-an-inbox-thread` — message-level rows under the inbox_threads already synced (medium). Added as `inbox_messages`, one walk per thread at 100 messages a page. LinkedIn messages have a null `messageId`, so the key is the thread, time and direction
+- [x] `inbox/list-inbox-categories` — lookup for the category IDs assigned to inbox threads (medium). Added as `inbox_categories`
+- [x] `reports/list-call-activity` — call outcomes and durations, the phone channel equivalent of email activity (medium). Added as `call_activity`, a full refresh of the all-time report including calls outside sequences
+- [x] `reports/list-linkedin-activity` — LinkedIn connect/message/InMail events for multichannel sequences (medium). Added as `linkedin_activity`, a full refresh of the all-time report. The report has no row ID, so the key is the sender account, contact profile URL, action time and action type
 - [x] `sequence-folders/list-all-sequence-folders` — lookup grouping sequences into folders for team-level rollups (medium). Added as `sequence_folders`. Reply lists only the folders of the user who owns the API key
 - [x] `sequence-folders/list-sequences-in-a-folder` — membership table joining folders to sequences; sequence rows carry no folder ID, so the folder lookup cannot be joined without it. Added as `sequence_folder_sequences`, one walk per folder
 - [x] `linkedin-accounts/list-linkedin-accounts` — sending-account dimension for LinkedIn, mirroring email_accounts which is already synced (medium). Added as `linkedin_accounts`
