@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useState } from 'react'
 
 import { EmailSides } from '../../emailDocument'
@@ -9,6 +9,8 @@ const UNEVEN = { top: 1, right: 2, bottom: 3, left: 4 }
 
 describe('EmailSidesField', () => {
     let saved: EmailSides | undefined
+
+    afterEach(cleanup)
 
     function Field({ start }: { start: EmailSides }): JSX.Element {
         const [value, setValue] = useState<EmailSides | undefined>(start)
@@ -38,5 +40,12 @@ describe('EmailSidesField', () => {
         fireEvent.change(input, { target: { value: '7' } })
         expect(saved).toEqual(retyped)
         expect(input.value).toBe('7')
+    })
+
+    it('keeps the four sides open when editing makes them equal', () => {
+        render(<Field start={{ ...EVEN, right: 2 }} />)
+        fireEvent.change(screen.getByLabelText('Padding Right'), { target: { value: '12' } })
+        expect(saved).toEqual(EVEN)
+        expect(screen.getByLabelText('Padding Right')).toBeTruthy()
     })
 })
