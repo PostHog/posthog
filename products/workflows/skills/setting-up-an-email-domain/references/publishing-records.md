@@ -13,7 +13,7 @@ Before writing anything, list the existing records at each name you are about to
 | MAIL FROM (MX)         | `<mail_from>.<domain>`           | Add it with the given priority. The name must have no other MX record, or the MAIL FROM check fails.                                                                                     |
 | MAIL FROM SPF (TXT)    | `<mail_from>.<domain>`           | Add it, merging into an existing SPF record at that name the same way as above.                                                                                                          |
 | Organization (TXT)     | `_posthog-verification.<domain>` | Add it when the status lists it. It proves your organization owns a domain another organization also claims, and Domain Connect does not publish it.                                     |
-| DMARC (TXT)            | `_dmarc.<domain>`                | Add it only if no `v=DMARC1` record exists. If one exists, leave it alone: it is the domain owner's policy, and a second DMARC record invalidates both.                                  |
+| DMARC (TXT)            | `_dmarc.<domain>`                | Never add, change or delete it yourself: it is the domain owner's policy. Give the person the suggested record and let them decide.                                                      |
 
 `<domain>` is the sending domain, for example `mail.example.com`, which may sit inside the zone `example.com`.
 Names from the tool are fully qualified; convert them to the form your DNS tool expects, usually relative to the zone.

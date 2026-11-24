@@ -77,15 +77,17 @@ tools:
             approve the records there; nothing changes until they approve. The URL publishes the email provider's
             records only. After approval, read integrations-email-status-retrieve with refresh=true, as on every read
             below. Before adding any record it lists as pending, such as an organization TXT record, confirm at the DNS
-            host that the record is missing, since a lookup can lag and a second SPF or DMARC record breaks both. Then
-            poll the status until it is verified, and call integrations-email-verify-create once. On not_started, call
-            integrations-email-verify-create once, then read the status to get the records to publish. On failed, fix
-            the records first, then call integrations-email-verify-create. After about 15 minutes without verified, stop
-            polling and call integrations-email-verify-create once; it also starts any setup the email provider is
-            missing. If it returns success, the sender is ready. Otherwise read the status, publish any record it lists
-            as pending, and tell the person the sender is not verified yet, which records are still pending, and that
-            they can ask you to check again later. The setting-up-an-email-domain skill has the details. If this tool
-            returns an error, fall back to adding the records from integrations-email-status-retrieve by hand.
+            host that the record is missing, since a lookup can lag and a second SPF record breaks SPF. Never add,
+            change or delete a DMARC record yourself: when DMARC is pending, show the person the suggested record and
+            let them decide, as the setting-up-an-email-domain skill says. Then poll the status until it is verified,
+            and call integrations-email-verify-create once. On not_started, call integrations-email-verify-create once,
+            then read the status to get the records to publish. On failed, fix the records first, then call
+            integrations-email-verify-create. After about 15 minutes without verified, stop polling and call
+            integrations-email-verify-create once; it also starts any setup the email provider is missing. If it returns
+            success, the sender is ready. Otherwise read the status, publish any record other than DMARC it lists as
+            pending, and tell the person the sender is not verified yet, which records are still pending, and that they
+            can ask you to check again later. The setting-up-an-email-domain skill has the details. If this tool returns
+            an error, fall back to adding the records from integrations-email-status-retrieve by hand.
         exclude_params:
             - context
             - proxy_record_id

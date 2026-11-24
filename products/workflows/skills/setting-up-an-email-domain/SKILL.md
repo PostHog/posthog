@@ -79,26 +79,24 @@ Pick the first path that works:
    You cannot approve it yourself. Give the URL to the person and say what will happen: they sign in at their DNS host (for example Cloudflare), review the records and approve. Nothing changes until they approve.
    If the domain already has a DMARC record, the URL leaves it out and keeps the existing policy.
    The URL publishes the email provider's records only. After the person approves, call `integrations-email-status-retrieve` with `refresh=true`.
-   Publish any record that is still `pending`, such as an `organization` TXT record, through path 2 or 3, but first confirm at the DNS host that the record is missing, and for DMARC that the parent domain has no `_dmarc` record either.
-   A lookup can lag behind the approval, and a second SPF or DMARC record breaks both.
+   Publish any record other than DMARC that is still `pending`, such as an `organization` TXT record, through path 2 or 3, but first confirm at the DNS host that the record is missing.
+   A lookup can lag behind the approval, and a second SPF record breaks SPF.
 2. **Your own DNS tools.**
    If you can manage the domain's DNS (a DNS provider MCP server, CLI or API you are authorized to use), add the missing records yourself.
    Read [references/publishing-records.md](references/publishing-records.md) first: it covers the records that must be merged, not duplicated.
 3. **Hand the records to the person.**
    List the records that are still `pending`, as a table with type, name, value and priority.
-   Mark the DMARC record as needed only when the domain has no `_dmarc` record yet: look it up if you can, otherwise ask the person to check their DNS host before adding it.
+   Leave DMARC out of the table and handle it as the paragraph after this list says.
    For each SPF record, look up the existing `v=spf1` record at that name.
    If one exists, give the one merged value to replace it with, as [references/publishing-records.md](references/publishing-records.md) describes.
    If you cannot read it, ask the person for its current value first.
    Tell them to edit that record, never to add a second one.
    Mention that many DNS hosts append the domain to the name field, so they enter `_amazonses.mail` rather than `_amazonses.mail.example.com` when the zone is `example.com`.
 
-When you publish records yourself or hand them over, never create a second `_dmarc` record.
-If the domain already has one, the DMARC record shows as `verified`; keep it.
-A `pending` DMARC record can also mean the lookup timed out, so before adding one, confirm that neither the sending domain nor its parent domain, such as `_dmarc.example.com` for `mail.example.com`, has a `_dmarc` record.
-PostHog also lists DMARC as `pending` when the `_dmarc` record at the sending domain has no `p=` tag right after `v=DMARC1;`, and waiting never fixes it.
-Ask the person to edit that record: keep its policy and every other tag, and move the `p=` tag right after `v=DMARC1;`.
-If it has no `p=` tag at all, ask them which policy they want before you suggest one.
+DMARC is the domain owner's policy, so never add, change or delete a `_dmarc` record yourself, on any path.
+If the DMARC record shows as `verified`, the domain already has a policy; keep it.
+If it is `pending`, tell the person and let them decide: give them the suggested record, and the `_dmarc` records you can see at the sending domain and at its parent domain, such as `_dmarc.example.com` for `mail.example.com`.
+A `pending` DMARC record can mean no policy exists, the lookup timed out, or an existing record has a form PostHog cannot read, such as no `p=` tag right after `v=DMARC1;`.
 
 ### 5. Poll, then verify once
 
@@ -112,7 +110,7 @@ Call `integrations-email-status-retrieve` with `refresh=true` after the records 
 
 After about 15 minutes without `verified`, stop polling and call `integrations-email-verify-create` once, since it also starts any setup the email provider is missing, such as DKIM.
 If it returns `success`, the sender is ready: go to step 6.
-Otherwise call `integrations-email-status-retrieve` with `refresh=true` and publish or fix any record it lists as `pending`, as in step 4, including a `_dmarc` record without a policy.
+Otherwise call `integrations-email-status-retrieve` with `refresh=true` and publish any record other than DMARC it lists as `pending`, as in step 4; leave a `pending` DMARC record to the person, as step 4 says.
 Then tell the person the sender is not verified yet: name each record still `pending` and the exact name it must be published at, since a record under the wrong name never resolves, and say they can ask you to check again later or verify the sender in PostHog.
 
 ### 6. Wrap up
