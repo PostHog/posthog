@@ -26,10 +26,7 @@ use crate::{
         FLAG_REQUESTS_COUNTER, FLAG_REQUESTS_LATENCY, FLAG_REQUEST_BLOCKED_COUNTER,
         FLAG_REQUEST_FAULTS_COUNTER,
     },
-    team::{
-        request_lists::{BlockReason, CallerHost},
-        team_models::Team,
-    },
+    team::{request_lists::CallerHost, team_models::Team},
     utils::forwarded_for,
 };
 use std::collections::HashMap;
@@ -155,9 +152,7 @@ fn refuse_by_request_lists(context: &RequestContext, team: &Team) -> bool {
     };
     with_canonical_log(|log| {
         log.request_blocked_by = Some(reason);
-        if matches!(reason, BlockReason::IpNotAllowed) {
-            log.edge_ip = edge_ip;
-        }
+        log.edge_ip = edge_ip;
     });
     inc(
         FLAG_REQUEST_BLOCKED_COUNTER,

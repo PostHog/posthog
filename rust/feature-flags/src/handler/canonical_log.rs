@@ -336,7 +336,7 @@ pub struct FlagsCanonicalLogLine {
     /// Set when the team's request lists refused the request before billing and
     /// evaluation.
     pub request_blocked_by: Option<BlockReason>,
-    /// The address that `ip_not_allowed` compared. `ip` can be an address the caller wrote.
+    /// The trusted address of a request the lists refused. `ip` can be an address the caller wrote.
     pub edge_ip: Option<IpAddr>,
 }
 

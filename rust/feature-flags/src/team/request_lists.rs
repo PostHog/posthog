@@ -74,7 +74,6 @@ impl From<Vec<String>> for HostList {
             entries
                 .into_iter()
                 .map(|entry| entry.trim().trim_end_matches('.').to_ascii_lowercase())
-                .filter(|entry| !entry.is_empty())
                 .collect(),
         )
     }
@@ -87,18 +86,23 @@ impl From<HostList> for Vec<String> {
 }
 
 impl HostList {
+    /// Counts blank entries, which match no host, so an allowed list of blank entries refuses
+    /// every host.
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
 
     /// `host` must already be lowercase, as [`origin_host`] returns it.
     pub fn matches(&self, host: &str) -> bool {
-        self.0.iter().any(|entry| {
-            host == entry
-                || (host.len() > entry.len()
-                    && host.ends_with(entry.as_str())
-                    && host.as_bytes()[host.len() - entry.len() - 1] == b'.')
-        })
+        self.0
+            .iter()
+            .filter(|entry| !entry.is_empty())
+            .any(|entry| {
+                host == entry
+                    || (host.len() > entry.len()
+                        && host.ends_with(entry.as_str())
+                        && host.as_bytes()[host.len() - entry.len() - 1] == b'.')
+            })
     }
 }
 
@@ -295,20 +299,28 @@ mod tests {
         assert!(!list.matches("203.0.113.1".parse().unwrap()));
     }
 
-    #[test]
-    fn allowed_ips_without_a_valid_entry_refuse_every_caller() {
-        let (no_hosts, no_ips, allowed_ips) = (hosts(&[]), ips(&[]), ips(&["not-an-ip"]));
+    #[rstest]
+    #[case::blank_hosts(&["", " . "], &[], BlockReason::HostNotAllowed)]
+    #[case::invalid_ips(&[], &["not-an-ip"], BlockReason::IpNotAllowed)]
+    fn allowed_list_without_a_valid_entry_refuses_the_caller(
+        #[case] allowed_hosts: &[&str],
+        #[case] allowed_ips: &[&str],
+        #[case] expected: BlockReason,
+    ) {
+        let (no_hosts, no_ips) = (hosts(&[]), ips(&[]));
+        let (allowed_hosts, allowed_ips) = (hosts(allowed_hosts), ips(allowed_ips));
         let lists = RequestLists {
             blocked_hosts: &no_hosts,
             blocked_ips: &no_ips,
-            allowed_hosts: &no_hosts,
+            allowed_hosts: &allowed_hosts,
             allowed_ips: &allowed_ips,
         };
 
         let edge_ip = Some("203.0.113.7".parse().unwrap());
-        let reason = lists.check(CallerHost::Absent, std::iter::empty(), edge_ip);
+        let host = CallerHost::Named("example.com");
+        let reason = lists.check(host, std::iter::empty(), edge_ip);
 
-        assert_eq!(reason, Some(BlockReason::IpNotAllowed));
+        assert_eq!(reason, Some(expected));
     }
 
     #[rstest]
