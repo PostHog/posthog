@@ -10208,6 +10208,12 @@ export interface CustomerAnalyticsConfig {
     payment_event: EventsNode | ActionsNode
     account_group_type_index?: integer | null
     default_pinned_properties?: CustomerAnalyticsPinnedProperty[]
+    role_default_pinned_properties?: CustomerAnalyticsRoleDefaultPinnedProperties[]
+}
+
+export interface CustomerAnalyticsRoleDefaultPinnedProperties {
+    role_id: string
+    pinned_properties: CustomerAnalyticsPinnedProperty[]
 }
 
 /**
