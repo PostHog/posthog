@@ -26,7 +26,12 @@ from pymongo.collection import Collection
 from pymongo.cursor import Cursor
 from pymongo.database import Database
 from pymongo.errors import CursorNotFound, ExecutionTimeout, OperationFailure, PyMongoError, ServerSelectionTimeoutError
-from pymongo.monitoring import ServerClosedEvent, ServerDescriptionChangedEvent, ServerListener, ServerOpeningEvent
+from pymongo.monitoring import (
+    ServerHeartbeatFailedEvent,
+    ServerHeartbeatListener,
+    ServerHeartbeatStartedEvent,
+    ServerHeartbeatSucceededEvent,
+)
 from pymongo.pool_options import PoolOptions
 from pymongo.server_description import ServerDescription
 from pymongo.uri_parser import parse_uri, split_options
@@ -34,6 +39,7 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
+from posthog.security.oob_domains import OOB_DOMAIN_REFUSAL
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import DEFAULT_CHUNK_SIZE
@@ -48,6 +54,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
     HostNotAllowedError,
     TemporaryHostResolutionError,
     _is_host_safe,
+    check_oob_domain,
     check_resolved_addresses,
     log_connection_open,
 )
@@ -311,24 +318,34 @@ def _coerce_object_id_cursor(last_value: Any) -> Any:
 _UNREACHABLE_CLUSTER_ERRORS = (ServerSelectionTimeoutError, HostNotAllowedError)
 
 
-class _OutboundHostPolicy(ServerListener):
+class _OutboundHostPolicy(ServerHeartbeatListener):
     """Carries a client's team to `_create_checked_connection`.
 
     pymongo gives the client's event listeners to the connection pools of its monitors and of its
-    operations, so every socket the client opens can find the team here.
+    operations, so every socket the client opens can find the team here. A heartbeat listener is
+    used because pymongo publishes those events directly. A server or topology listener makes the
+    client queue one event per seed in a 100-entry queue, and a larger SRV answer blocks the
+    client's construction.
     """
 
     def __init__(self, team_id: int) -> None:
         self.team_id = team_id
 
-    def opened(self, event: ServerOpeningEvent) -> None:
+    def started(self, event: ServerHeartbeatStartedEvent) -> None:
         pass
 
-    def description_changed(self, event: ServerDescriptionChangedEvent) -> None:
+    def succeeded(self, event: ServerHeartbeatSucceededEvent) -> None:
         pass
 
-    def closed(self, event: ServerClosedEvent) -> None:
+    def failed(self, event: ServerHeartbeatFailedEvent) -> None:
         pass
+
+
+def _refuse_oob_domain(host: str, team_id: int) -> None:
+    # A lookup of an out-of-band interaction domain already reaches whoever runs it, so this runs
+    # before any DNS lookup of the host.
+    if check_oob_domain(host, team_id) is not None:
+        raise HostNotAllowedError(f"{DATABASE_HOST_NOT_ALLOWED_ERROR}: {OOB_DOMAIN_REFUSAL}")
 
 
 _pymongo_create_connection = pool_shared._create_connection
@@ -350,15 +367,19 @@ def _create_checked_connection(address: tuple[str, int | None], options: PoolOpt
         return _pymongo_create_connection(address, options)
 
     host, port = address
+    _refuse_oob_domain(host, policy.team_id)
     is_unix_socket = host.endswith(".sock")
-    addresses: list[str] = []
+    # The policy checks the bare address. A link-local IPv6 address only routes through the
+    # interface that getaddrinfo returns beside it, so the dial target keeps that scope.
+    dial_targets: dict[str, str] = {}
     if not is_unix_socket:
         family = socket.AF_UNSPEC if socket.has_ipv6 and host != "localhost" else socket.AF_INET
         for *_, sockaddr in socket.getaddrinfo(host, port, family=family, type=socket.SOCK_STREAM):
-            if sockaddr[0] not in addresses:
-                addresses.append(str(sockaddr[0]))
+            checked_address = str(sockaddr[0])
+            scope_id = sockaddr[3] if len(sockaddr) == 4 else 0
+            dial_targets.setdefault(checked_address, f"{checked_address}%{scope_id}" if scope_id else checked_address)
 
-    resolution = check_resolved_addresses(host, addresses, policy.team_id, port=port)
+    resolution = check_resolved_addresses(host, list(dial_targets), policy.team_id, port=port)
     if resolution.connect_host is None:
         raise HostNotAllowedError(
             f"{DATABASE_HOST_NOT_ALLOWED_ERROR}: {resolution.error or DATABASE_HOST_NOT_ALLOWED_GUIDANCE}"
@@ -369,7 +390,7 @@ def _create_checked_connection(address: tuple[str, int | None], options: PoolOpt
     error: OSError | None = None
     for checked_address in resolution.addresses:
         try:
-            return _pymongo_create_connection((checked_address, port), options)
+            return _pymongo_create_connection((dial_targets.get(checked_address, checked_address), port), options)
         except OSError as e:
             error = e
     raise error or OSError(f"{host}: no address to connect to")
@@ -558,6 +579,8 @@ def mongo_client(connection_string: str, team_id: int, tls_ca_file: str | None =
         "unicode_decode_error_handler": "replace",
     }
     checked_connection_string = _checked_connection_string(connection_string)
+    if checked_connection_string.startswith("mongodb+srv://"):
+        _refuse_oob_domain(urlparse(checked_connection_string).hostname or "", team_id)
     # The client's monitor dials the seed as soon as the client opens, so check before it exists.
     # `parse_uri` makes the same SRV and TXT lookups as the client, without opening a connection.
     _check_single_seed(parse_uri(checked_connection_string, warn=True)["nodelist"], team_id)

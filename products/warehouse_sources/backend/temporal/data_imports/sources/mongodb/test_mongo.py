@@ -2,6 +2,7 @@ import uuid
 import base64
 import socket
 import datetime
+import threading
 import contextlib
 from collections.abc import Callable, Iterable, Iterator
 from typing import Any, cast
@@ -230,6 +231,66 @@ class TestSafeServerSelector(SimpleTestCase):
 
             with connection:
                 assert connection.getpeername() == ("127.0.0.1", port)
+
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_socket_path_refuses_an_out_of_band_domain_without_looking_it_up(self):
+        client: MongoClient = MongoClient(
+            "mongodb://db.example.com/?tls=true", connect=False, event_listeners=[_OutboundHostPolicy(999)]
+        )
+        try:
+            with patch("socket.getaddrinfo") as getaddrinfo, pytest.raises(HostNotAllowedError):
+                pool_shared._create_connection(("db.oast.fun", 27017), client.options.pool_options)
+        finally:
+            client.close()
+
+        getaddrinfo.assert_not_called()
+
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_client_refuses_an_out_of_band_srv_name_without_looking_it_up(self):
+        resolver = MagicMock()
+        with patch("pymongo.synchronous.uri_parser._SrvResolver", resolver), pytest.raises(HostNotAllowedError):
+            with mongo_client("mongodb+srv://user:pw@cluster.oast.fun/db", team_id=999):
+                pass
+
+        resolver.assert_not_called()
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins.is_cloud", return_value=False
+    )
+    def test_socket_keeps_the_interface_scope_of_a_link_local_address(self, _mock_is_cloud):
+        link_local = [(socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("fe80::1", 27017, 0, 3))]
+        client: MongoClient = MongoClient(
+            "mongodb://db.example.com/?tls=true", connect=False, event_listeners=[_OutboundHostPolicy(999)]
+        )
+        try:
+            with (
+                patch("socket.getaddrinfo", return_value=link_local),
+                patch(f"{_MONGO_MODULE}._pymongo_create_connection") as dial,
+            ):
+                pool_shared._create_connection(("db.example.com", 27017), client.options.pool_options)
+        finally:
+            client.close()
+
+        assert dial.call_args.args[0] == ("fe80::1%3", 27017)
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins.is_cloud", return_value=False
+    )
+    def test_client_opens_when_the_srv_answer_lists_more_hosts_than_the_event_queue_holds(self, _mock_is_cloud):
+        resolver = MagicMock()
+        resolver.return_value.get_hosts.return_value = [("127.0.0.1", port) for port in range(1, 102)]
+        resolver.return_value.get_options.return_value = ""
+        opened = threading.Event()
+
+        def open_client() -> None:
+            with mongo_client("mongodb+srv://user:pw@cluster0.example.com/db", team_id=999):
+                opened.set()
+
+        with patch("pymongo.synchronous.uri_parser._SrvResolver", resolver):
+            thread = threading.Thread(target=open_client, daemon=True)
+            thread.start()
+            assert opened.wait(timeout=30), "the client never finished opening"
+            thread.join(timeout=30)
 
     def test_client_checks_the_srv_hosts_even_when_the_string_defers_the_lookup(self):
         resolver = MagicMock()
