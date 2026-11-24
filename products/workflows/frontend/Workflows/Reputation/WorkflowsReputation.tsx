@@ -565,8 +565,8 @@ function SendingAllowanceCard({ allowance }: { allowance: EmailSendingAllowanceA
     return (
         <div className="@container border rounded p-4 bg-surface-primary" data-attr="workflows-sending-allowance">
             <div className="flex flex-wrap items-center justify-between gap-2">
-                <h3 className="mb-0 flex items-center gap-1">
-                    Sending allowance
+                <div className="flex items-center gap-1">
+                    <h3 className="mb-0">Sending allowance</h3>
                     <Tooltip
                         openOnClick
                         title="Every project shares PostHog's sending infrastructure, so new senders start with a small daily allowance that grows with a clean sending record. Emails above the allowance are not dropped, they are sent later."
@@ -575,7 +575,7 @@ function SendingAllowanceCard({ allowance }: { allowance: EmailSendingAllowanceA
                             <IconInfo className="text-secondary text-base" />
                         </button>
                     </Tooltip>
-                </h3>
+                </div>
                 {canRequestSendingTierIncrease && (
                     <Link
                         onClick={() => requestSendingTierIncrease(allowance)}

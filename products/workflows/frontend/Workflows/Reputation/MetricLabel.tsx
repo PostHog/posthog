@@ -13,7 +13,7 @@ export function MetricLabel({
         <Tooltip title={tooltip} openOnClick>
             <button
                 type="button"
-                className="text-secondary text-xs border-b border-dotted border-current inline-block cursor-default"
+                className="text-secondary text-xs border-b border-dotted border-current inline-block cursor-default text-left"
             >
                 {label}
             </button>
