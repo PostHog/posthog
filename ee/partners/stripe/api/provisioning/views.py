@@ -954,11 +954,13 @@ class ResourceRemoveView(StripeResourceAPIView):
             capture_provisioning_event("resource_removed", "error", team_id=team_id, error_code="remove_config_failed")
             raise SpecError("remove_failed", "Failed to remove resource", resource_id=resource_id, status=500)
 
-        remove_team_from_token_scopes(access_token, team_id)
+        # One transaction, so a failed key deletion undoes the scope change and a retry passes the scope check.
+        with transaction.atomic():
+            remove_team_from_token_scopes(access_token, team_id)
 
-        # After the scope change, so a mint that locked a token before it has committed its key.
-        if access_token.application is not None:
-            delete_provisioned_pats(access_token.application, team_id=team_id)
+            # After the scope change, so a mint that locked a token before it has committed its key.
+            if access_token.application is not None:
+                delete_provisioned_pats(access_token.application, team_id=team_id)
 
         capture_provisioning_event("resource_removed", "success", team_id=team_id)
 

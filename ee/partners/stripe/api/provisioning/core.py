@@ -683,10 +683,11 @@ def delete_provisioned_pats(app: OAuthApplication, *, team_id: int) -> int:
     The partner holds every key it minted for the project, whichever member it connected as,
     so removing the resource or rotating its credentials ends all of them.
 
-    A key ``app`` minted whose owner removed its project restriction still reaches the
-    project, so it is deleted too when its organization restriction covers the project's
-    organization, or when it has no organization restriction and its owner belongs to that
-    organization.
+    A key reaches the project when its project restriction names the project, or when it has
+    no project restriction, and in both cases its organization restriction must cover the
+    project's organization, the same intersection authentication applies. A key with no
+    organization restriction and no project restriction reaches the project only when its
+    owner belongs to the project's organization.
 
     Deletes key by key so the activity log records each deletion. The deletions are actions of
     the project's organization, so a row in another organization the key reaches names no actor.
@@ -698,10 +699,14 @@ def delete_provisioned_pats(app: OAuthApplication, *, team_id: int) -> int:
     if organization_id is not None:
         no_team_restriction = Q(scoped_teams=[]) | Q(scoped_teams__isnull=True)
         no_organization_restriction = Q(scoped_organizations=[]) | Q(scoped_organizations__isnull=True)
-        covers_organization = Q(scoped_organizations__contains=[str(organization_id)]) | (
-            no_organization_restriction & Q(user__organization_membership__organization_id=organization_id)
+        restricted_to_organization = Q(scoped_organizations__contains=[str(organization_id)])
+        in_scope = (in_scope & (no_organization_restriction | restricted_to_organization)) | (
+            no_team_restriction
+            & (
+                restricted_to_organization
+                | (no_organization_restriction & Q(user__organization_membership__organization_id=organization_id))
+            )
         )
-        in_scope |= no_team_restriction & covers_organization
         acting_organization = OrganizationAdminKeyActionContext(str(organization_id))
 
     keys = PersonalAPIKey.objects.filter(provisioned_by=app).filter(in_scope).distinct()
@@ -749,16 +754,20 @@ def maybe_create_provisioned_pat(
     ``replace_existing`` first deletes every key ``app`` minted earlier for the team, in the
     same transaction as the mint. It deletes them even when no new key is minted, including
     when the bearer row is gone, because an ordinary token refresh also deletes that row.
-    A rotation therefore always ends the earlier keys.
+    A rotation therefore always ends the earlier keys. It locks every access token ``app``
+    holds for the team, not only the bearer, so two rotations through different bearers run
+    one after the other and the later one deletes the key the earlier one returned.
     """
     pat_scopes = [s for s in (granted_scope or "").split() if s] or list(STRIPE_CONTRACTED_SCOPES)
 
     with transaction.atomic():
-        # The token lock comes before the key deletion, in the order the revocation paths lock rows.
-        bearer_covers_team = access_token is None or _lock_access_token_for_team(access_token, team.id)
-
+        # The token locks come before the key deletion, in the order the revocation paths lock rows.
         if replace_existing and app is not None:
+            locked_token_ids = _lock_app_access_tokens_for_team(app, team.id)
+            bearer_covers_team = access_token is None or access_token.pk in locked_token_ids
             delete_provisioned_pats(app, team_id=team.id)
+        else:
+            bearer_covers_team = access_token is None or _lock_access_token_for_team(access_token, team.id)
 
         if not bearer_covers_team:
             return None
@@ -769,6 +778,16 @@ def maybe_create_provisioned_pat(
 def _lock_access_token_for_team(access_token: OAuthAccessToken, team_id: int) -> bool:
     locked = OAuthAccessToken.objects.select_for_update().filter(pk=access_token.pk, scoped_teams__contains=[team_id])
     return locked.values_list("pk", flat=True).first() is not None
+
+
+def _lock_app_access_tokens_for_team(app: OAuthApplication, team_id: int) -> set[int]:
+    # Primary key order, the same order resource removal locks these rows in, so the two cannot deadlock.
+    locked = (
+        OAuthAccessToken.objects.select_for_update()
+        .filter(application=app, scoped_teams__contains=[team_id])
+        .order_by("pk")
+    )
+    return set(locked.values_list("pk", flat=True))
 
 
 def _mint_provisioned_pat(

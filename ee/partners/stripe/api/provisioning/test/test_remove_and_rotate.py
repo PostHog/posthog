@@ -140,13 +140,20 @@ class TestRemoveAndRotate(StripeProvisioningTestBase):
         assert unrestricted_api_key
         unrestricted_pat = PersonalAPIKey.objects.filter(provisioned_by=self.stripe_app).latest("created_at")
         PersonalAPIKey.objects.filter(id=unrestricted_pat.id).update(scoped_teams=[], scoped_organizations=[])
+        assert maybe_create_provisioned_pat(self.user, self.team, self.stripe_app, "query:read")
+        team_in_other_organization_pat = PersonalAPIKey.objects.filter(provisioned_by=self.stripe_app).latest(
+            "created_at"
+        )
+        PersonalAPIKey.objects.filter(id=team_in_other_organization_pat.id).update(
+            scoped_organizations=[str(Organization.objects.create(name="Other org").id)]
+        )
 
         res = self._post_signed_with_bearer(f"{RESOURCES_URL}/{self.team.id}/remove", token=token)
         assert res.status_code == 200
         assert res.json() == {"status": "removed", "id": str(self.team.id)}
         assert not TeamProvisioningConfig.objects.filter(team=self.team).exists()
         assert not PersonalAPIKey.objects.filter(id__in=[provisioned_pat.id, unrestricted_pat.id]).exists()
-        assert PersonalAPIKey.objects.filter(id=own_key.id).exists()
+        assert PersonalAPIKey.objects.filter(id__in=[own_key.id, team_in_other_organization_pat.id]).count() == 2
 
         # The team left the token's scope; since it was the only scoped team the
         # token itself is gone, so further calls are unauthorized.

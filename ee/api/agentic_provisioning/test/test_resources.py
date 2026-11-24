@@ -761,15 +761,19 @@ class TestProvisioningResourceRemove(ProvisioningTestBase):
             access_token=sibling_at,
             scoped_teams=[self.team.id, 99999],
         )
-        for _ in range(4):
+        for _ in range(5):
             assert maybe_create_provisioned_pat(sibling_user, self.team, access_token.application, "query:read")
-        unrestricted_key, fully_unrestricted_key, other_organization_key = PersonalAPIKey.objects.filter(
-            provisioned_by=access_token.application
-        )[:3]
+        unrestricted_key, fully_unrestricted_key, other_organization_key, team_in_other_organization_key = (
+            PersonalAPIKey.objects.filter(provisioned_by=access_token.application)[:4]
+        )
+        other_organization_id = str(Organization.objects.create(name="Other org").id)
         PersonalAPIKey.objects.filter(id=unrestricted_key.id).update(scoped_teams=[])
         PersonalAPIKey.objects.filter(id=fully_unrestricted_key.id).update(scoped_teams=[], scoped_organizations=[])
         PersonalAPIKey.objects.filter(id=other_organization_key.id).update(
-            scoped_teams=[], scoped_organizations=[str(Organization.objects.create(name="Other org").id)]
+            scoped_teams=[], scoped_organizations=[other_organization_id]
+        )
+        PersonalAPIKey.objects.filter(id=team_in_other_organization_key.id).update(
+            scoped_organizations=[other_organization_id]
         )
         own_key = mint_personal_api_key(
             sibling_user,
@@ -791,7 +795,7 @@ class TestProvisioningResourceRemove(ProvisioningTestBase):
         assert self.team.id not in (sibling_at.scoped_teams or [])
         assert self.team.id not in (sibling_rt.scoped_teams or [])
         surviving_ids = set(PersonalAPIKey.objects.filter(user=sibling_user).values_list("id", flat=True))
-        assert surviving_ids == {own_key.id, other_organization_key.id}
+        assert surviving_ids == {own_key.id, other_organization_key.id, team_in_other_organization_key.id}
 
     def test_remove_names_no_actor_in_another_organization_a_partner_key_reaches(self) -> None:
         token = self._get_bearer_token()
