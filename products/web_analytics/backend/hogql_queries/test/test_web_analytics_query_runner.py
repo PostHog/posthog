@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import time_machine
@@ -6,7 +6,9 @@ from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
     _create_event,
+    _create_flag_evaluations,
     _create_person,
+    flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
 from unittest import mock
@@ -36,6 +38,8 @@ from posthog.models.scoping import team_scope
 
 from products.actions.backend.facade.testing import create_action
 from products.data_tools.backend.models.expression import DataWarehouseExpression
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
+from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import compute_shape_key
 from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
@@ -341,6 +345,78 @@ class TestWebAnalyticsDatabaseBuild(ClickhouseTestMixin, APIBaseTest):
             runner.calculate()
 
         assert create_for.called == builds_full_database
+
+
+class TestFlagCallConversionGoalOnFlagEvaluationsOnly(ClickhouseTestMixin, APIBaseTest):
+    @parameterized.expand(
+        [
+            ("overview_custom_event_goal", "overview", "custom_event"),
+            ("overview_action_goal", "overview", "action"),
+            ("stats_table_custom_event_goal", "stats_table", "custom_event"),
+            ("stats_table_action_goal", "stats_table", "action"),
+        ]
+    )
+    def test_counts_flag_calls_that_only_flag_evaluations_holds(self, _name: str, kind: str, goal: str) -> None:
+        OrganizationFeatureFlagsConfig.objects.update_or_create(
+            organization=self.organization,
+            defaults={"flag_evaluations_mode": FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY},
+        )
+        person = _create_person(team_id=self.team.pk, distinct_ids=["visitor"])
+        timestamp = datetime.now(UTC) - timedelta(hours=1)
+        page = {
+            "$session_id": "0190a8d1-3f7a-7b00-8000-000000000001",
+            "$pathname": "/",
+            "$current_url": "https://example.com/",
+            "$host": "example.com",
+        }
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="visitor",
+            person_id=person.uuid,
+            timestamp=timestamp,
+            properties=page,
+        )
+        flush_persons_and_events()
+        _create_flag_evaluations(
+            self.team.pk,
+            "checkout-flag",
+            timestamp=timestamp + timedelta(minutes=1),
+            distinct_id="visitor",
+            person_id=person.uuid,
+            properties=page,
+        )
+
+        conversion_goal: ActionConversionGoal | CustomEventConversionGoal
+        if goal == "action":
+            action = create_action(team=self.team, name="Flag called", steps_json=[{"event": "$feature_flag_called"}])
+            conversion_goal = ActionConversionGoal(actionId=action.id)
+        else:
+            conversion_goal = CustomEventConversionGoal(customEventName="$feature_flag_called")
+        date_range = DateRange(date_from="-7d")
+
+        if kind == "overview":
+            overview = WebOverviewQueryRunner(
+                team=self.team,
+                query=WebOverviewQuery(dateRange=date_range, properties=[], conversionGoal=conversion_goal),
+            ).calculate()
+            values = {item.key: item.value for item in overview.results}
+            assert (values["total conversions"], values["unique conversions"]) == (1, 1)
+        else:
+            stats = WebStatsTableQueryRunner(
+                team=self.team,
+                query=WebStatsTableQuery(
+                    dateRange=date_range,
+                    properties=[],
+                    breakdownBy=WebStatsBreakdown.PAGE,
+                    conversionGoal=conversion_goal,
+                ),
+            ).calculate()
+            assert stats.columns is not None
+            (row,) = stats.results
+            total = row[stats.columns.index("context.columns.total_conversions")]
+            unique = row[stats.columns.index("context.columns.unique_conversions")]
+            assert (total[0], unique[0]) == (1, 1)
 
 
 class TestWebAnalyticsQueryExecutedEvent(ClickhouseTestMixin, APIBaseTest):
