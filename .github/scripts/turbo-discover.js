@@ -577,12 +577,32 @@ function readImportMap(file) {
     }
 }
 
+// Celery's `app.autodiscover_tasks()` imports each installed app's `tasks` module by name, so no
+// import names it: a `backend/tasks.py` file, or the modules of a `backend/tasks/` package. A
+// task's registered name comes from its module, and a core test snapshots every name.
+function celeryTaskModules(product, repoRoot) {
+    const backend = path.join(PRODUCTS_DIR, product, 'backend')
+    const found = []
+    if (fs.existsSync(path.join(repoRoot, backend, 'tasks.py'))) {
+        found.push(`${backend}/tasks.py`)
+    }
+    const dir = path.join(repoRoot, backend, 'tasks')
+    if (fs.existsSync(dir) && fs.statSync(dir).isDirectory()) {
+        for (const name of fs.readdirSync(dir)) {
+            if (name.endsWith('.py')) {
+                found.push(`${backend}/tasks/${name}`)
+            }
+        }
+    }
+    return found
+}
+
 // Code outside a product runs more of the product than the files it imports: each of those
 // files runs what it imports in turn. So a product's watched set grows by every file of the
-// product that is reachable inside it from a file code outside imports, or from a watched file.
-// The map holds every import, a function-local one too, so the closure follows those as well.
-// Without a map no product counts as isolated.
-function closeWatchedSets(watched, fileMap) {
+// product that is reachable inside it from a file code outside imports, from a watched file, or
+// from a Celery task module. The map holds every import, a function-local one too, so the
+// closure follows those as well. Without a map no product counts as isolated.
+function closeWatchedSets(watched, fileMap, repoRoot = process.cwd()) {
     if (watched.status !== 'ok') {
         return watched
     }
@@ -613,7 +633,7 @@ function closeWatchedSets(watched, fileMap) {
     const closed = new Map()
     for (const [product, files] of watched.watched) {
         const reached = new Set()
-        const queue = [...files, ...(importedFromOutside.get(product) ?? [])]
+        const queue = [...files, ...(importedFromOutside.get(product) ?? []), ...celeryTaskModules(product, repoRoot)]
         while (queue.length > 0) {
             const file = queue.pop()
             if (reached.has(file)) {
@@ -644,7 +664,7 @@ function runHoglint(repoRoot) {
             { ...TURBO_EXEC_OPTS, cwd: repoRoot, timeout: HOGLINT_TIMEOUT_MS }
         )
         const fileMap = readImportMap(mapFile)
-        const watched = closeWatchedSets(parseWatchedAnswer(fs.readFileSync(watchedFile, 'utf-8')), fileMap)
+        const watched = closeWatchedSets(parseWatchedAnswer(fs.readFileSync(watchedFile, 'utf-8')), fileMap, repoRoot)
         return { graph: fileMap === null ? null : productGraphFromImportMap(fileMap), watched }
     } catch (e) {
         console.error(

@@ -615,6 +615,19 @@ test('a product file that outside code reaches through the product runs Django, 
     assert.equal(decideCanvas({ watched: unread }).runLegacyReason, 'watched_unavailable')
 })
 
+// Celery loads a product's task modules by name, so no import edge reaches them.
+test('a change to a Celery task module of an isolated product runs Django', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tasks-'))
+    fs.mkdirSync(path.join(root, 'products/canvas/backend/tasks'), { recursive: true })
+    fs.writeFileSync(path.join(root, 'products/canvas/backend/tasks/__init__.py'), '')
+    fs.writeFileSync(path.join(root, 'products/canvas/backend/tasks/sync.py'), '')
+    const closed = closeWatchedSets(parseWatchedAnswer(watchedAnswer()), {}, root)
+    for (const file of ['products/canvas/backend/tasks/sync.py', 'products/canvas/backend/tasks/__init__.py']) {
+        assert.equal(decideCanvas({ watched: closed, changedFiles: [file] }).runLegacy, true, file)
+    }
+    fs.rmSync(root, { recursive: true, force: true })
+})
+
 // Each case is an answer the diff cannot be judged by, so every product and Django run.
 test('a missing answer, a failed level or a change to hoglint itself widens to every product', () => {
     const cases = [
