@@ -8,6 +8,7 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -50,14 +51,17 @@ const teamWithLinkTagging = (enabled: boolean | undefined): TeamType => ({
 
 describe('ImpactFunnelCard', () => {
     let answer: [number, unknown]
+    let requestedEvents: (string | null)[]
 
     beforeEach(() => {
         localStorage.clear()
+        requestedEvents = []
         useMocks({
             get: {
                 '/api/projects/:team_id/transactional_email_log/impact/': ({ request }) => {
                     const [status, body] = answer
                     const named = new URL(request.url).searchParams.get('event')
+                    requestedEvents.push(named)
                     return [status, named ? body : { ...(body as object), after_click: null, without_click: null }]
                 },
             },
@@ -102,6 +106,45 @@ describe('ImpactFunnelCard', () => {
             )
         }
     )
+
+    it('keeps the conversion count beside the link tracking prompt once an event is picked', async () => {
+        initKeaTests(true, teamWithLinkTagging(false))
+        answer = [200, { ...IMPACT, after_click: { sends: 2, converted: 1 } }]
+        renderCard()
+        emailImpactLogic({ workflowId: 'workflow-1' }).actions.setEvent('plan upgraded')
+
+        const conversionStep = (await screen.findByTestId('email-impact-bar-converted')).closest('li')
+        expect(conversionStep).toHaveTextContent('plan upgraded150%')
+        expect(screen.getByText('Turn on for project')).toBeInTheDocument()
+        expect(screen.queryByText('Started a session')).not.toBeInTheDocument()
+    })
+
+    it('keeps waiting on its own save when another team setting saves', async () => {
+        const capture = jest.spyOn(posthog, 'capture')
+        const team = teamWithLinkTagging(false)
+        useMocks({
+            patch: {
+                '/api/projects/:id': async ({ request }) => {
+                    const patch = (await request.json()) as Partial<TeamType>
+                    if (patch.workflows_config) {
+                        await new Promise(() => {})
+                    }
+                    return [200, { ...team, ...patch }]
+                },
+            },
+        })
+        initKeaTests(true, team)
+        answer = [200, IMPACT]
+        renderCard()
+
+        fireEvent.click(await screen.findByText('Turn on for project'))
+        teamLogic.actions.updateCurrentTeam({ timezone: 'Europe/Berlin' })
+        await expectLogic(teamLogic).toDispatchActions(['updateCurrentTeamSuccess'])
+
+        expect(screen.getByText('Turn on for project').closest('button')).toHaveAttribute('aria-disabled', 'false')
+        expect(screen.getByText('Link tracking is off')).toBeInTheDocument()
+        expect(capture).not.toHaveBeenCalledWith('transactional email impact link tracking turned on')
+    })
 
     it.each([
         ['turns it on for the project and shows both steps again', [200, null], 'Not measured yet', true],
@@ -169,9 +212,7 @@ describe('ImpactFunnelCard', () => {
         expect(button).toHaveAttribute('aria-disabled', 'true')
         fireEvent.click(button as HTMLButtonElement)
 
-        const logic = emailImpactLogic({ workflowId: 'workflow-1' })
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.linkTrackingTurningOn).toBe(false)
+        await expectLogic(teamLogic).toFinishAllListeners()
         expect(screen.getByText('Link tracking is off')).toBeInTheDocument()
         expect(patches).toEqual([])
     })
@@ -193,7 +234,7 @@ describe('ImpactFunnelCard', () => {
         fireEvent.click(await screen.findByText('plan upgraded'))
 
         expect(await screen.findByText('From send to "plan upgraded"')).toBeInTheDocument()
-        expect(emailImpactLogic({ workflowId: 'workflow-1' }).values.event).toBe('plan upgraded')
+        await waitFor(() => expect(requestedEvents).toContain('plan upgraded'))
         expect(capture).toHaveBeenCalledWith('transactional email impact event picked', {
             source: 'funnel',
             cleared: false,

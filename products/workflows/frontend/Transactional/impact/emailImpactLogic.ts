@@ -188,6 +188,10 @@ async function settledOrTimedOut(query: Promise<unknown>, ms: number): Promise<v
     }
 }
 
+function turnsOnLinkTracking(payload: Partial<TeamType> | undefined): boolean {
+    return payload?.workflows_config?.email_workflow_run_link_tag_enabled === true
+}
+
 export const emailImpactLogic = kea<emailImpactLogicType>([
     props({} as EmailImpactLogicProps),
     key((props) => props.workflowId),
@@ -216,6 +220,9 @@ export const emailImpactLogic = kea<emailImpactLogicType>([
             false,
             {
                 turnOnLinkTracking: () => true,
+                // teamLogic's loader cancels a save when another one starts, so only the latest save
+                // ever succeeds or fails.
+                updateCurrentTeam: (turningOn, payload) => turningOn && turnsOnLinkTracking(payload),
                 updateCurrentTeamSuccess: () => false,
                 updateCurrentTeamFailure: () => false,
             },

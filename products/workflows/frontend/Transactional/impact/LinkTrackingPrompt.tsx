@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
 import { LemonButton } from '@posthog/lemon-ui'
@@ -7,7 +8,7 @@ import { TeamMembershipLevel } from 'lib/constants'
 
 import { emailImpactLogic } from './emailImpactLogic'
 
-export function LinkTrackingPrompt(): JSX.Element {
+export function LinkTrackingPrompt({ spansConversion }: { spansConversion: boolean }): JSX.Element {
     const { linkTrackingTurningOn } = useValues(emailImpactLogic)
     const { turnOnLinkTracking } = useActions(emailImpactLogic)
     const restrictedReason = useRestrictedArea({
@@ -17,7 +18,10 @@ export function LinkTrackingPrompt(): JSX.Element {
 
     return (
         <li
-            className="col-span-2 min-h-28 rounded bg-surface-secondary flex flex-col items-center justify-center gap-2 p-3 text-center"
+            className={clsx(
+                'min-h-28 min-w-0 rounded bg-surface-secondary flex flex-col items-center justify-center gap-2 p-2 text-center',
+                spansConversion && 'col-span-2'
+            )}
             data-attr="email-impact-link-tracking-prompt"
         >
             <span className="font-semibold">Link tracking is off</span>
@@ -25,6 +29,8 @@ export function LinkTrackingPrompt(): JSX.Element {
             <LemonButton
                 type="primary"
                 size="small"
+                className="max-w-full"
+                center
                 loading={linkTrackingTurningOn}
                 disabledReason={restrictedReason}
                 onClick={() => turnOnLinkTracking()}

@@ -8,10 +8,8 @@ import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopov
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 
 import { emailImpactLogic } from './emailImpactLogic'
-import { ImpactStep, ImpactStepKey, stepBarPercents } from './impactSteps'
+import { ImpactStep, stepBarPercents } from './impactSteps'
 import { LinkTrackingPrompt } from './LinkTrackingPrompt'
-
-const STEPS_REPLACED_BY_LINK_TRACKING_PROMPT: ImpactStepKey[] = ['session', 'converted']
 
 export function ImpactFunnel({
     steps,
@@ -21,10 +19,18 @@ export function ImpactFunnel({
     showsLinkTrackingPrompt: boolean
 }): JSX.Element {
     const barPercents = stepBarPercents(steps)
+    const promptSpansConversion =
+        showsLinkTrackingPrompt && !!steps.find((step) => step.key === 'converted')?.missingFixedByEvent
     return (
         <ol className="m-0 p-0 list-none grid grid-cols-6 gap-2" data-attr="email-impact-funnel">
-            {steps.map((step, index) =>
-                showsLinkTrackingPrompt && STEPS_REPLACED_BY_LINK_TRACKING_PROMPT.includes(step.key) ? null : (
+            {steps.map((step, index) => {
+                if (showsLinkTrackingPrompt && step.key === 'session') {
+                    return <LinkTrackingPrompt key={step.key} spansConversion={promptSpansConversion} />
+                }
+                if (promptSpansConversion && step.key === 'converted') {
+                    return null
+                }
+                return (
                     <li key={step.key} className="flex flex-col gap-1 min-w-0">
                         <StepBar step={step} percent={barPercents[index]} />
                         <span className="text-xs text-secondary truncate" title={step.label}>
@@ -34,8 +40,7 @@ export function ImpactFunnel({
                         <StepShare step={step} />
                     </li>
                 )
-            )}
-            {showsLinkTrackingPrompt && <LinkTrackingPrompt />}
+            })}
         </ol>
     )
 }

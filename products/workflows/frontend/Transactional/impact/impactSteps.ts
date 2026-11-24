@@ -26,9 +26,6 @@ export interface ImpactLift {
     notClicked: number | null
 }
 
-const LINK_TAGGING_OFF_DETAIL =
-    "PostHog follows a click into your product through a tag on the email's links. Connecting email clicks to sessions is off in this project's settings, so clicks aren't connected to the sessions they start. Conversions still count, because they go through the person on each send."
-
 const SESSIONS_NOT_MEASURED_DETAIL =
     "Link tagging connects clicks to the sessions they start, but this funnel doesn't count those sessions yet. Conversions still count, because they go through the person on each send."
 
@@ -44,12 +41,7 @@ function sessionStep(impact: TransactionalEmailImpactApi, linkTagging: LinkTaggi
         case 'on':
             return { ...step, missing: 'Not measured yet', missingDetail: SESSIONS_NOT_MEASURED_DETAIL }
         case 'off':
-            return {
-                ...step,
-                missing: 'Needs link tagging',
-                missingDetail: LINK_TAGGING_OFF_DETAIL,
-                missingFixedByLinkTagging: true,
-            }
+            return { ...step, missingFixedByLinkTagging: true }
         case 'sensitive-email':
             return { ...step, missing: 'Not measured', missingDetail: SENSITIVE_EMAIL_DETAIL }
     }
