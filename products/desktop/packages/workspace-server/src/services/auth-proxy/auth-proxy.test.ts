@@ -520,7 +520,7 @@ describe("AuthProxyService gateway sessions", () => {
   async function session(projectId = 42): Promise<string> {
     return service.startGatewaySession({
       projectId,
-      legacyGatewayUrl: "https://gateway.us.posthog.com/posthog_code",
+      aiGatewayUrl: "https://ai-gateway.us.posthog.com",
     });
   }
 
@@ -1165,8 +1165,8 @@ describe("AuthProxyService gateway sessions", () => {
     );
   });
 
-  it("still lists models on the legacy gateway while blocked", async () => {
-    authFetch.mockResolvedValue(new Response('{"data":[]}'));
+  it("still lists models on Go, with no credential, while blocked", async () => {
+    goFetch.mockResolvedValue(new Response('{"data":[]}'));
     const proxyUrl = await session();
     source.getRoute.mockResolvedValue({
       mode: "blocked",
@@ -1175,12 +1175,17 @@ describe("AuthProxyService gateway sessions", () => {
       status: 402,
     });
 
-    const res = await fetch(`${proxyUrl}/v1/models`);
+    const res = await fetch(`${proxyUrl}/v1/models`, {
+      headers: { authorization: "Bearer client-secret", "x-kept": "1" },
+    });
 
     expect(res.status).toBe(200);
-    expect(authFetch.mock.calls[0][0]).toBe(
-      "https://gateway.us.posthog.com/posthog_code/v1/models",
+    expect(await res.json()).toEqual({ data: [] });
+    expect(goFetch.mock.calls[0]?.[0]).toBe(
+      "https://ai-gateway.us.posthog.com/v1/models",
     );
+    expect(callInit(0).headers).toEqual({ accept: "application/json" });
+    expect(authFetch).not.toHaveBeenCalled();
   });
 
   const blocked = (reason: string, status: 401 | 402 | 403 | 429 | 503) => () =>
@@ -1295,29 +1300,8 @@ describe("AuthProxyService gateway sessions", () => {
     expect(res.headers["x-kept"]).toBe("1");
   });
 
-  it("strips Connection-named headers on the legacy models listing", async () => {
-    authFetch.mockResolvedValue(new Response("legacy"));
-    source.getRoute.mockResolvedValue({
-      mode: "blocked",
-      reason: "credit_bucket_exhausted",
-      detail: "limit",
-      status: 402,
-    });
-    const proxyUrl = await session();
-
-    await rawPost(`${proxyUrl}/v1/models`, {
-      connection: "close, x-hop",
-      "x-hop": "1",
-      "x-kept": "1",
-    });
-
-    const [, init] = authFetch.mock.calls[0];
-    expect(init.headers).not.toHaveProperty("x-hop");
-    expect(init.headers["x-kept"]).toBe("1");
-  });
-
-  it("refuses an upstream redirect on the legacy models listing", async () => {
-    authFetch.mockResolvedValue(
+  it("refuses an upstream redirect on the blocked models listing", async () => {
+    goFetch.mockResolvedValue(
       new Response(null, {
         status: 302,
         headers: { location: "https://evil.example" },

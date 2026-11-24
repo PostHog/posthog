@@ -67,8 +67,6 @@ export class AuthProxyService {
       log: this.log,
       fetchImpl: fetchImpl ?? ((url, init) => fetch(url, init)),
       source: () => this.requireSource(),
-      forwardLegacy: (url, options, res, abort) =>
-        this.forwardRequest(url, options, res, abort),
     });
   }
 
@@ -89,14 +87,14 @@ export class AuthProxyService {
    */
   async startGatewaySession(input: {
     projectId: number;
-    legacyGatewayUrl: string;
+    aiGatewayUrl: string;
     headers?: Record<string, string>;
   }): Promise<string> {
     this.requireSource();
-    return this.register(["session", input.projectId, input.legacyGatewayUrl], {
+    return this.register(["session", input.projectId, input.aiGatewayUrl], {
       kind: "session",
       projectId: input.projectId,
-      legacyGatewayUrl: input.legacyGatewayUrl,
+      aiGatewayUrl: input.aiGatewayUrl,
       headers: { ...(input.headers ?? {}) },
     });
   }

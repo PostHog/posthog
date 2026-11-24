@@ -484,7 +484,7 @@ describe("AgentService", () => {
     });
   });
 
-  it("lists models from the legacy gateway when the proxy cannot start", async () => {
+  it("lists models from the Go gateway without a bearer when the proxy cannot start", async () => {
     deps.agentAuthAdapter.ensureGatewayProxy.mockRejectedValueOnce(
       new Error("PostHog session ended"),
     );
@@ -492,8 +492,8 @@ describe("AgentService", () => {
     await service.getPreviewConfigOptions("https://us.posthog.com", "claude");
 
     expect(fetchGatewayModels).toHaveBeenCalledWith({
-      gatewayUrl: "https://gateway.example.com",
-      authToken: "gateway-token",
+      gatewayUrl: "https://ai-gateway.us.posthog.com",
+      authToken: undefined,
       projectId: 1,
     });
   });

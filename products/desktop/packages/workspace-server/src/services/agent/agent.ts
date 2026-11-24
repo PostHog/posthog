@@ -45,7 +45,6 @@ import {
   getAvailableModes,
 } from "@posthog/agent/execution-mode";
 import { fetchGatewayModels } from "@posthog/agent/gateway-models";
-import { getLlmGatewayUrl } from "@posthog/agent/posthog-api";
 import {
   findPrUrls,
   wasCreatedByLogin,
@@ -86,6 +85,7 @@ import {
   buildProviderModelGroups,
   type CloudRegion,
   type ExecutionMode,
+  getAiGatewayUrl,
   isAuthError,
   type ModelAccess,
   readAgentToolName,
@@ -2723,9 +2723,10 @@ For git operations while detached:
         });
       }
     }
+    // Go serves its model list without auth, so no bearer is sent.
     return {
-      gatewayUrl: getLlmGatewayUrl(apiHost),
-      authToken,
+      gatewayUrl: getAiGatewayUrl(apiHost),
+      authToken: undefined,
       projectId: projectId ?? undefined,
     };
   }

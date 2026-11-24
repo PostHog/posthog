@@ -255,7 +255,7 @@ export class Agent {
       claudeGatewayEnv,
       claudeMachineAuth: claudeSubscription ? machineClaudeAuth() : undefined,
       claudeModelsGatewayUrl: claudeSubscription
-        ? this.posthogAPI?.getLlmGatewayUrl()
+        ? this.posthogAPI?.getAiGatewayUrl()
         : undefined,
       contextWiki: options.contextWiki,
       codexOptions:

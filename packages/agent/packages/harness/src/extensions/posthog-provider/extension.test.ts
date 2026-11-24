@@ -1,7 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import posthogProvider, { createPosthogProviderExtension } from "./extension";
-import { getLlmGatewayUrl } from "./gateway";
 import { POSTHOG_PROVIDER_NAME } from "./provider";
 
 function fakeApi(): ExtensionAPI {
@@ -35,7 +34,7 @@ describe("createPosthogProviderExtension", () => {
     const [name, config] = (pi.registerProvider as ReturnType<typeof vi.fn>)
       .mock.calls[0];
     expect(name).toBe(POSTHOG_PROVIDER_NAME);
-    expect(config.baseUrl).toBe(getLlmGatewayUrl("us"));
+    expect(config.baseUrl).toBe("https://ai-gateway.us.posthog.com");
     expect(config.models?.length).toBeGreaterThan(0);
   });
 

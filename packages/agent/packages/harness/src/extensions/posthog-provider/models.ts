@@ -3,7 +3,7 @@ import { getBuiltinModels } from "@earendil-works/pi-ai/providers/all";
 import type { ProviderModelConfig } from "@earendil-works/pi-coding-agent";
 import { type CloudRegion, isModalModelId } from "@posthog/agent-contracts";
 import { buildPosthogProjectHeaderRecord } from "@posthog/agent-contracts/posthog-property-headers";
-import { getLlmGatewayUrl } from "./gateway";
+import { getGatewayBaseUrl } from "./gateway";
 
 export const DEFAULT_MODEL = "claude-opus-5-5";
 
@@ -121,12 +121,12 @@ function supportsVision(
 /**
  * The gateway URL a model of the given pi `api` should be routed through for
  * a given region. OpenAI-compatible models are served off the gateway's `/v1`
- * surface; Anthropic Messages is served off the product root.
+ * surface; Anthropic Messages is served off the root.
  */
 export function gatewayBaseUrlForApi(
   api: string,
   region: CloudRegion,
-  baseUrl = getLlmGatewayUrl(region),
+  baseUrl = getGatewayBaseUrl(region),
 ): string {
   const normalizedBaseUrl = baseUrl.replace(/\/$/, "");
   if (!api.startsWith("openai-") || normalizedBaseUrl.endsWith("/v1")) {
@@ -423,7 +423,7 @@ export async function resolveModelConfigs(
   }
 
   const models = await fetchPosthogGatewayModels(
-    baseUrl ?? getLlmGatewayUrl(region),
+    baseUrl ?? getGatewayBaseUrl(region),
     apiKey,
     projectId,
   );

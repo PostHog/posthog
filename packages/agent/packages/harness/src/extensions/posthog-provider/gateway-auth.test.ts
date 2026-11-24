@@ -1,6 +1,5 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
-import { getLlmGatewayUrl } from "./gateway";
 import { resolveGatewayAuth, tryResolveGatewayAuth } from "./gateway-auth";
 
 function fakeCtx(apiKey: string | undefined): ExtensionContext {
@@ -18,9 +17,9 @@ describe("resolveGatewayAuth", () => {
       fakeCtx("pha_from_registry"),
     );
     expect(auth).toEqual({
-      baseUrl: getLlmGatewayUrl("us"),
+      baseUrl: "https://ai-gateway.us.posthog.com",
       apiKey: "pha_static",
-      headers: {},
+      headers: { "X-PostHog-Product": "posthog_code" },
     });
   });
 
@@ -47,9 +46,9 @@ describe("resolveGatewayAuth", () => {
       fakeCtx("pha_from_registry"),
     );
     expect(auth).toEqual({
-      baseUrl: getLlmGatewayUrl("eu"),
+      baseUrl: "https://ai-gateway.eu.posthog.com",
       apiKey: "pha_from_registry",
-      headers: {},
+      headers: { "X-PostHog-Product": "posthog_code" },
     });
   });
 
@@ -75,9 +74,9 @@ describe("tryResolveGatewayAuth", () => {
       fakeCtx(undefined),
     );
     expect(auth).toEqual({
-      baseUrl: getLlmGatewayUrl("us"),
+      baseUrl: "https://ai-gateway.us.posthog.com",
       apiKey: "pha_static",
-      headers: {},
+      headers: { "X-PostHog-Product": "posthog_code" },
     });
   });
 });

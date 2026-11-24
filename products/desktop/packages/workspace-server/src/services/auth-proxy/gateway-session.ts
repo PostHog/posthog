@@ -34,7 +34,8 @@ export type FetchLike = (url: string, init: RequestInit) => Promise<Response>;
 export interface SessionTarget {
   kind: "session";
   projectId: number;
-  legacyGatewayUrl: string;
+  /** Go gateway origin that lists models while the route is blocked. */
+  aiGatewayUrl: string;
   headers: Record<string, string>;
 }
 
@@ -75,7 +76,7 @@ function isSessionHeader(lower: string): boolean {
   );
 }
 
-/** Serves session targets: Go under a per-request credential, else legacy. */
+/** Serves session targets on Go under a per-request credential. */
 export class GatewaySessionHandler {
   private readonly modes = new WeakMap<
     SessionTarget,
@@ -87,12 +88,6 @@ export class GatewaySessionHandler {
       log: ScopedLogger;
       fetchImpl: FetchLike;
       source: () => GatewayCredentialSource;
-      forwardLegacy: (
-        url: URL,
-        options: RequestInit,
-        res: http.ServerResponse,
-        abort: AbortController,
-      ) => Promise<void>;
     },
   ) {}
 
@@ -163,13 +158,7 @@ export class GatewaySessionHandler {
     );
     // Listing models is read-only, so a blocked org still sees the picker.
     if (credential.mode === "blocked" && path === "/v1/models") {
-      this.forwardOnLegacy(
-        target,
-        { path, search, method, body },
-        req,
-        res,
-        abort,
-      );
+      await this.listModelsUnauthenticated(target, search, res, abort);
       return;
     }
     if (credential.mode === "blocked") {
@@ -374,40 +363,56 @@ export class GatewaySessionHandler {
     }
   }
 
-  private forwardOnLegacy(
+  /**
+   * Go serves `/v1/models` without auth, so the blocked route sends no bearer
+   * and no client header: a blocked credential has nothing worth forwarding.
+   */
+  private async listModelsUnauthenticated(
     target: SessionTarget,
-    request: {
-      path: string;
-      search: string;
-      method: string;
-      body: Body | undefined;
-    },
-    req: http.IncomingMessage,
+    search: string,
     res: http.ServerResponse,
     abort: AbortController,
-  ): void {
-    const { path, search, method, body } = request;
-    const base = target.legacyGatewayUrl.replace(/\/+$/, "");
-    const url = new URL(`${base}${path}${search}`);
-    const headers: Record<string, string> = {};
-    const stripped = strippedRequestHeaders(req.headers.connection);
-    for (const [key, value] of Object.entries(req.headers)) {
-      const lower = key.toLowerCase();
-      if (stripped.has(lower) || typeof value !== "string") {
-        continue;
+  ): Promise<void> {
+    const base = target.aiGatewayUrl.replace(/\/+$/, "");
+    let timedOut = false;
+    try {
+      const timer = setTimeout(() => {
+        timedOut = true;
+        abort.abort();
+      }, PROXY_TIMEOUTS.headersMs);
+      let response: Response;
+      try {
+        response = await this.deps.fetchImpl(`${base}/v1/models${search}`, {
+          method: "GET",
+          headers: { accept: "application/json" },
+          redirect: "manual",
+          signal: abort.signal,
+        });
+      } finally {
+        clearTimeout(timer);
       }
-      headers[lower] = value;
+      if (response.status >= 300 && response.status < 400) {
+        void response.body?.cancel().catch(() => {});
+        jsonError(res, 502, {
+          type: "api_error",
+          message: "Unexpected redirect from the PostHog gateway",
+        });
+        return;
+      }
+      res.writeHead(response.status, responseHeaders(response));
+      await streamBodyToResponse(response.body, res, { bytesWritten: 0 });
+    } catch (err) {
+      if (abort.signal.aborted && !timedOut) return;
+      this.deps.log.error("Gateway model list error", {
+        timedOut,
+        errorDetail: serializeError(err),
+      });
+      if (!res.headersSent) {
+        jsonError(res, 502, { type: "api_error", message: "Proxy error" });
+        return;
+      }
+      res.end();
     }
-    for (const [key, value] of Object.entries(target.headers)) {
-      headers[key.toLowerCase()] = value;
-    }
-    headers["x-posthog-project-id"] = String(target.projectId);
-    void this.deps.forwardLegacy(
-      url,
-      { method, headers, body, signal: abort.signal },
-      res,
-      abort,
-    );
   }
 }
 

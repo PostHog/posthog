@@ -1,6 +1,7 @@
 import {
   API_DOWNLOAD_TIMEOUT_MS,
   API_TRANSFER_TIMEOUT_MS,
+  getAiGatewayUrl,
   type McpServerConnection,
   type McpToolApprovalState,
   type McpToolPolicy,
@@ -129,6 +130,10 @@ export class PostHogAPIClient {
 
   getLlmGatewayUrl(): string {
     return getLlmGatewayUrl(this.baseUrl);
+  }
+
+  getAiGatewayUrl(): string {
+    return getAiGatewayUrl(this.baseUrl);
   }
 
   /**

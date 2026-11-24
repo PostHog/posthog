@@ -66,6 +66,7 @@ export {
   formatGatewayModelName,
   formatModelId,
   type GatewayModel,
+  getAiGatewayUrl,
   getClaudeModelRecency,
   getCloudTaskGatewayUrl,
   getProviderName,

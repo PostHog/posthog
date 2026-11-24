@@ -120,6 +120,31 @@ export function getCloudTaskGatewayUrl(posthogHost: string): string {
   return `${gatewayBaseUrl}/posthog_code`;
 }
 
+/**
+ * The Go AI gateway origin for a PostHog host, with no path. A custom cloud's
+ * own gateway wins for its host, because a PostHog Cloud gateway cannot
+ * authenticate a token that instance issued.
+ */
+export function getAiGatewayUrl(posthogHost: string): string {
+  const url = new URL(posthogHost);
+  const custom = getCustomCloud();
+
+  if (custom?.gatewayUrl && isCustomCloudHost(posthogHost)) {
+    return custom.gatewayUrl;
+  }
+  if (url.hostname === "localhost" || url.hostname === "127.0.0.1") {
+    return "http://localhost:8080";
+  }
+  if (url.hostname === "host.docker.internal") {
+    return "http://host.docker.internal:8080";
+  }
+  if (url.hostname === "app.dev.posthog.dev") {
+    return "https://ai-gateway.dev.posthog.dev";
+  }
+  const region = url.hostname.match(/^(us|eu)\.posthog\.com$/)?.[1] ?? "us";
+  return `https://ai-gateway.${region}.posthog.com`;
+}
+
 function isGatewayModel(value: unknown): value is Partial<GatewayModel> & {
   id: string;
 } {

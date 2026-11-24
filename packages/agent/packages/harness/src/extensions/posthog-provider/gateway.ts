@@ -1,24 +1,36 @@
-import { type CloudRegion, getCustomCloud } from "@posthog/agent-contracts";
+import {
+  type CloudRegion,
+  getAiGatewayUrl,
+  getCloudUrlFromRegion,
+  getCustomCloud,
+} from "@posthog/agent-contracts";
 
 export const GATEWAY_PRODUCT = "posthog_code";
 
-const GATEWAY_HOSTS: Record<CloudRegion, string> = {
-  us: "https://gateway.us.posthog.com",
-  eu: "https://gateway.eu.posthog.com",
-  dev: "http://localhost:3308",
-  "dev-cloud": "https://gateway.dev.posthog.dev",
-  custom: "https://gateway.us.posthog.com",
-};
+const PRODUCT_HEADER = "X-PostHog-Product";
 
 export function getGatewayBaseUrl(region: CloudRegion): string {
-  if (region === "custom") {
-    return getCustomCloud()?.gatewayUrl ?? GATEWAY_HOSTS.custom;
-  }
-  return GATEWAY_HOSTS[region];
+  return getAiGatewayUrl(
+    getCloudUrlFromRegion(region) || getCloudUrlFromRegion("us"),
+  );
 }
 
-export function getLlmGatewayUrl(region: CloudRegion): string {
-  return `${getGatewayBaseUrl(region)}/${GATEWAY_PRODUCT}`;
+/**
+ * The Go gateway has no product route, so a call on the default base names
+ * its product in a header. A caller that passes its own base also owns the
+ * attribution headers.
+ */
+export function gatewayHeaders(options: {
+  baseUrl?: string;
+  headers?: Record<string, string>;
+}): Record<string, string> | undefined {
+  if (options.baseUrl) return options.headers;
+  const named = Object.keys(options.headers ?? {}).some(
+    (key) => key.toLowerCase() === PRODUCT_HEADER.toLowerCase(),
+  );
+  return named
+    ? options.headers
+    : { [PRODUCT_HEADER]: GATEWAY_PRODUCT, ...options.headers };
 }
 
 /**

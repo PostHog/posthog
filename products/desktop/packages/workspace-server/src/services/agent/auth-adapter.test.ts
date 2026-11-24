@@ -173,7 +173,7 @@ describe("AgentAuthAdapter", () => {
       });
       expect(authProxy.startGatewaySession).toHaveBeenCalledWith({
         projectId: 1,
-        legacyGatewayUrl: "https://gateway.example.com",
+        aiGatewayUrl: "https://ai-gateway.us.posthog.com",
         headers: undefined,
       });
     });

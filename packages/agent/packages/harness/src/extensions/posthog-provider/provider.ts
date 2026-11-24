@@ -10,7 +10,8 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { CloudRegion } from "@posthog/agent-contracts";
 import {
-  getLlmGatewayUrl,
+  gatewayHeaders,
+  getGatewayBaseUrl,
   resolveExplicitRegion,
   resolveRegion,
 } from "./gateway";
@@ -85,10 +86,11 @@ export function buildPosthogProvider(
 ): ProviderConfig {
   const region = resolveRegion(options.region);
   const explicitRegion = resolveExplicitRegion(options.region);
-  const baseUrl = options.baseUrl ?? getLlmGatewayUrl(region);
+  const baseUrl = options.baseUrl ?? getGatewayBaseUrl(region);
+  const headers = gatewayHeaders(options);
   const routedModels = models.map((model) => ({
     ...model,
-    headers: options.headers,
+    headers,
     baseUrl: gatewayBaseUrlForApi(
       model.api ?? "anthropic-messages",
       region,
@@ -100,7 +102,7 @@ export function buildPosthogProvider(
     baseUrl,
     api: "anthropic-messages",
     models: routedModels,
-    headers: options.headers,
+    headers,
     oauth: {
       name: "PostHog",
       login: (callbacks) => loginPosthog(callbacks, explicitRegion),

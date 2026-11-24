@@ -10,6 +10,7 @@ import { getLlmGatewayUrl } from "@posthog/agent/posthog-api";
 import { ROOT_LOGGER, type RootLogger } from "@posthog/di/logger";
 import {
   type CloudRegion,
+  getAiGatewayUrl,
   getCloudUrlFromRegion,
   type McpServerConnection,
 } from "@posthog/shared";
@@ -171,6 +172,7 @@ export class DesktopPiRpcClientFactory implements PiRpcClientFactory {
       authProxy: this.authProxy,
       source: this.gatewaySource,
       legacyGatewayUrl: getLlmGatewayUrl(getCloudUrlFromRegion(region)),
+      aiGatewayUrl: getAiGatewayUrl(getCloudUrlFromRegion(region)),
       projectId,
       headers: buildPosthogScopedPropertyHeaderRecord(
         {

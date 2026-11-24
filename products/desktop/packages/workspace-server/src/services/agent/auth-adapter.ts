@@ -5,6 +5,7 @@ import {
 } from "@posthog/agent/adapters/claude/mcp/tool-metadata";
 import { getLlmGatewayUrl } from "@posthog/agent/posthog-api";
 import {
+  getAiGatewayUrl,
   isCustomCloudHost,
   type McpServerConnection,
   type McpToolPolicy,
@@ -247,6 +248,7 @@ export class AgentAuthAdapter {
       authProxy: this.authProxy,
       source: this.gatewaySource,
       legacyGatewayUrl: getLlmGatewayUrl(apiHost),
+      aiGatewayUrl: getAiGatewayUrl(apiHost),
       projectId,
       awaitRecheck: options.awaitRecheck,
     });
