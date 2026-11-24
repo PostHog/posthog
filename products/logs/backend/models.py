@@ -314,16 +314,14 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
     consecutive_failures = models.PositiveIntegerField(default=0)
     first_enabled_at = models.DateTimeField(null=True, blank=True)
 
-    # The platform's copy records the same owner, and only the cutover and rollback commands
-    # write the two, so each stack can decide from its own row.
+    # The platform's copy records the same owner. Only a create's handover writes the two.
     owner = models.CharField(
         max_length=16,
         choices=PlatformAlertOwner.choices,
         default=PlatformAlertOwner.SOURCE.value,
         db_default=PlatformAlertOwner.SOURCE.value,
     )
-    # Where the legacy shadow of a platform-owned row starts. An alert created in a team already
-    # cut over takes the team's cutover time, which can be before its own `created_at`.
+    # When the platform took the alert. The logs API reads the logs row's check history only from before then.
     owner_changed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
@@ -337,8 +335,7 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
 
     @property
     def platform_owned(self) -> bool:
-        """The platform evaluates and delivers this alert. The logs stack may still evaluate it to
-        compare, but it sends nothing for it."""
+        """The platform evaluates and delivers this alert, and the logs stack does not check it."""
         return self.owner == PlatformAlertOwner.PLATFORM
 
     @property
@@ -350,12 +347,12 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
     def from_platform_view(
         cls, view: PlatformAlertConfigurationView, *, team_id: int, now: datetime
     ) -> LogsAlertConfiguration:
-        """An unsaved alert that presents a platform alert with no logs row the way a logs row does.
-        Its `save` and `delete` raise, because every write goes to the platform."""
+        """An unsaved alert that presents a platform alert with no logs row the way a logs row does, under
+        the id its clients know it by. Its `save` and `delete` raise, because every write goes to the platform."""
         condition = view.source_config[SOURCE_CONDITION_KEY]
         snoozed = view.snooze_until is not None and view.snooze_until > now
         alert = cls(
-            id=view.id,
+            id=view.destination_alert_id,
             team_id=team_id,
             name=view.name,
             enabled=view.enabled,

@@ -203,11 +203,11 @@ class TestGetForecast:
         result = _driver().run(
             "forecast",
             [ScriptedResponse(json={"jobId": "job-1"})]
-            + [ScriptedResponse(json={"job": {"id": "job-1", "status": "STARTED"}})] * 60,
+            + [ScriptedResponse(json={"job": {"id": "job-1", "status": "STARTED"}})] * 61,
         )
 
         assert isinstance(result.raised, ClariRetryableError)
-        assert result.paths.count("/v4/export/jobs/job-1") == 60
+        assert result.paths.count("/v4/export/jobs/job-1") == 61
 
     def test_missing_job_id_in_create_response_raises(self) -> None:
         result = _driver().run("forecast", [ScriptedResponse(json={"unexpected": True})])

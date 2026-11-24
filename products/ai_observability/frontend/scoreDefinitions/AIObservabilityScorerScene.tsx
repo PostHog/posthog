@@ -4,11 +4,9 @@ import { IconArrowLeft, IconEllipsis } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonMenu, LemonTag } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason, getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -52,15 +50,12 @@ export function AIObservabilityScorerScene(): JSX.Element {
         addOption,
         removeOption,
     } = useActions(scorerLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const editDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.LlmAnalytics,
         AccessControlLevel.Editor
     )
-    const showHistory =
-        !!featureFlags[FEATURE_FLAGS.AI_OBSERVABILITY_OFFLINE_EVALUATIONS] &&
-        !getProductAccessDisabledReason({ sceneKey: Scene.AIObservabilityOfflineScorerHistory })
+    const showHistory = !getProductAccessDisabledReason({ sceneKey: Scene.AIObservabilityOfflineScorerHistory })
 
     if (definitionLoading || (!isNew && !definition && !loadError)) {
         return (

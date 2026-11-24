@@ -70,7 +70,7 @@ tools:
                 description:
                     Identifier used to bucket users into rollout percentages and variants — `distinct_id` (user ID, the
                     default) or `device_id`. Using `device_id` is incompatible with `ensure_experience_continuity=true`.
-        hooks: featureFlags/conditionIdHooks
+        hooks: featureFlags/createFeatureFlagHooks
     delete-feature-flag:
         operation: feature_flags_partial_update
         enabled: true
@@ -301,8 +301,9 @@ tools:
         param_overrides:
             search:
                 description:
-                    Search by feature flag key or name (case-insensitive). Use this to find the flag ID for get/update/delete
-                    tools.
+                    Search by feature flag key or name (case-insensitive). Spaces, underscores, and hyphens count as the same
+                    separator. The words of the term must appear together and in order, so a shorter term matches more
+                    flags. Use this to find the flag ID for get/update/delete tools.
             active:
                 description:
                     Filter by flag state. `"true"` returns enabled flags, `"false"` returns disabled flags, and `"STALE"`

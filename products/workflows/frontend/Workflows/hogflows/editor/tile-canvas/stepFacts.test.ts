@@ -116,8 +116,8 @@ describe('stepFacts', () => {
         ['an AI task', aiTask, 'Answer the question', 'Answer with links to the docs.'],
         [
             'a scout',
-            fn('investigate', 'template-posthog-run-scout', { skill_name: 'incident-investigator' }),
-            'Run the incident investigator scout',
+            fn('investigate', 'template-posthog-run-scout', { skill_name: 'signals-scout-apm' }),
+            'Run the APM scout',
             undefined,
         ],
         [
@@ -251,6 +251,37 @@ describe('stepFacts', () => {
         expect(stepFacts(workflow([action]), action).fields).toContainEqual(['Waits for', waitsFor])
     })
 
+    it('describes a split path whose condition joins filter groups', () => {
+        const plan = (value: string): Config => ({ key: 'plan', type: 'person', value: [value], operator: 'exact' })
+        const groupedSplit = step('by_plan', 'conditional_branch', {
+            conditions: [
+                {
+                    name: 'Paid or enterprise',
+                    filters: {
+                        properties: {
+                            type: 'OR',
+                            values: [
+                                {
+                                    type: 'AND',
+                                    values: [plan('pro'), { key: 'country', type: 'person', value: ['US'] }],
+                                },
+                                { type: 'AND', values: [plan('enterprise')] },
+                                { type: 'AND', values: [] },
+                            ],
+                        },
+                    },
+                },
+            ],
+        })
+
+        const presentation = stepView(workflow([groupedSplit]), groupedSplit).presentation
+
+        expect(presentation).toMatchObject({
+            key: undefined,
+            paths: [{ rule: '(plan is pro and country is US) or plan is enterprise' }, { rule: 'Everyone else' }],
+        })
+    })
+
     it.each([
         ['a yes or no', 'beta', true, 'Set beta to true'],
         ['a number', 'seats', 3, 'Set seats to 3'],
@@ -259,6 +290,56 @@ describe('stepFacts', () => {
         const action = fn('mark', 'template-posthog-update-person-properties', { set_properties: { [key]: value } })
 
         expect(stepFacts(workflow([action]), action).headline).toBe(headline)
+    })
+
+    const LOGIC_SUBJECT = "{% if person.properties.role == 'founder' %}Ask the team{% else %}See stuck users{% endif %}"
+    const FOUNDER = { id: 'p', properties: { role: 'founder' } }
+
+    it.each([
+        ['falls back to the step name without a person', LOGIC_SUBJECT, undefined, 'liquid', 'Pitch by role'],
+        ['renders the branch for the preview person', LOGIC_SUBJECT, FOUNDER, 'liquid', 'Ask the team'],
+        [
+            'falls back to the step name when the logic renders nothing',
+            "{% if person.properties.role == 'engineer' %}Ship it{% endif %}",
+            FOUNDER,
+            'liquid',
+            'Pitch by role',
+        ],
+        ['leaves a hog template as plain words', 'Hi {person.properties.first_name}', FOUNDER, 'hog', 'Hi first name'],
+        [
+            'treats a template with no engine as hog',
+            'Hi {person.properties.first_name}',
+            FOUNDER,
+            undefined,
+            'Hi first name',
+        ],
+    ])('reads an email subject: %s', (_, subject, person, templating, headline) => {
+        const action = step(
+            'pitch',
+            'function_email',
+            { template_id: 'template-email', inputs: { email: { value: { subject, html: '<p>Hi</p>' }, templating } } },
+            'Pitch by role'
+        )
+
+        expect(stepFacts(workflow([action]), action, undefined, person).headline).toBe(headline)
+    })
+
+    it('shows later subjects as plain words once a pass has spent its render budget', () => {
+        let now = 10_000
+        jest.spyOn(Date, 'now').mockImplementation(() => (now += 400))
+        const slow = (id: string): HogFlowAction =>
+            step(id, 'function_email', {
+                template_id: 'template-email',
+                inputs: {
+                    email: { value: { subject: 'Hi {{ person.properties.role }}', html: '' }, templating: 'liquid' },
+                },
+            })
+        const [first, second] = [slow('first'), slow('second')]
+        const flow = workflow([first, second])
+
+        expect(stepFacts(flow, first, undefined, FOUNDER).headline).toBe('Hi founder')
+        expect(stepFacts(flow, second, undefined, FOUNDER).headline).toBe('Hi role')
+        jest.restoreAllMocks()
     })
 
     it('reads a step once for all its tiles, and again when its paths change', () => {

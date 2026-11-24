@@ -52,7 +52,7 @@ from products.cdp.backend.api.hog_function_template import HogFunctionTemplateSe
 from products.cdp.backend.filters import DATA_WAREHOUSE_SOURCES
 from products.cdp.backend.internal_events import (
     INTERNAL_EVENT_READ_SCOPES,
-    generic_api_editable_alert_scope,
+    generic_api_editable_alert_scopes,
     internal_event_read_scope,
     is_managed_alert_internal_event,
     is_reserved_internal_event,
@@ -80,6 +80,7 @@ from products.cdp.backend.services.destination_test_runs import (
     sends_real_requests,
     without_request_origins,
 )
+from products.cdp.backend.services.hog_function_content import comparable_content
 from products.cdp.backend.services.icons import CDPIconsService
 from products.cdp.backend.site_functions import get_transpiled_function
 from products.cdp.backend.validation import (
@@ -260,48 +261,6 @@ def _worker_error_messages(response: requests.Response) -> list[str]:
                 return [str(value)]
     text = (response.text or "").strip()
     return [text] if text else [f"The worker returned {response.status_code}."]
-
-
-def _without(value: Any, keys: tuple[str, ...]) -> Any:
-    return {k: v for k, v in value.items() if k not in keys} if isinstance(value, dict) else value
-
-
-def _inputs_without_derived(inputs: Any) -> Any:
-    if not isinstance(inputs, dict):
-        return inputs
-    return {
-        key: _without(value, ("bytecode", "bytecode_contract", "transpiled", "order")) for key, value in inputs.items()
-    }
-
-
-def comparable_content(content: dict) -> dict:
-    """A config snapshot with the values validation derives from it dropped: filter and input
-    bytecode, the runtime stamp beside it, transpiled JS, input ordering.
-
-    A background re-save can change those on its own without the config changing at all — most often
-    `refresh_affected_hog_functions` recompiling filter bytecode after an action or cohort edit — so
-    comparing them would version a plain rename.
-    """
-    filter_derived = ("bytecode", "bytecode_error", "bytecode_contract", "transpiled")
-    mappings = content.get("mappings")
-    return {
-        **content,
-        "filters": _without(content.get("filters"), filter_derived),
-        "inputs": _inputs_without_derived(content.get("inputs")),
-        "masking": _without(content.get("masking"), ("bytecode",)),
-        "mappings": [
-            {
-                **mapping,
-                "filters": _without(mapping.get("filters"), filter_derived),
-                "inputs": _inputs_without_derived(mapping.get("inputs")),
-            }
-            if isinstance(mapping, dict)
-            else mapping
-            for mapping in mappings
-        ]
-        if isinstance(mappings, list)
-        else mappings,
-    }
 
 
 def explicit_secret_input_keys(raw_inputs: Any) -> set[str]:
@@ -776,7 +735,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             # the function stays editable here.
             current_markers = _managed_alert_markers(current_filters)
             if current_markers is not None and not all(
-                generic_api_editable_alert_scope(event_id) for event_id, _ in current_markers[0]
+                generic_api_editable_alert_scopes(event_id) for event_id, _ in current_markers[0]
             ):
                 raise serializers.ValidationError(
                     {"filters": "Alert notification destinations are managed through the alert API."}
@@ -1233,14 +1192,15 @@ class HogFunctionViewSet(
     log_source = "hog_function"
     app_source = "hog_function"
 
-    def _editable_alert_scope(self) -> Optional[str]:
-        """The owning product's scope object when this request writes to an alert destination."""
+    def _editable_alert_scopes(self) -> list[tuple[str, ...]]:
+        """The scope objects of each product that owns an alert event this request's destination follows,
+        when the request writes to it. A destination on several products' events needs every product's."""
         # The draft actions (restore_revision, then publish) and rerun also change or replay what the
         # destination delivers, so every write action needs the scope.
         hog_function_id = self.kwargs.get("pk")
         if self.action not in self.scope_object_write_actions or not hog_function_id:
-            return None
-        if not hasattr(self, "_cached_editable_alert_scope"):
+            return []
+        if not hasattr(self, "_cached_editable_alert_scopes"):
             try:
                 filters = (
                     HogFunction.objects.filter(team_id=self.team_id, id=str(hog_function_id))
@@ -1250,13 +1210,13 @@ class HogFunctionViewSet(
             except (ValueError, DjangoValidationError):
                 filters = None
             scopes = {
-                generic_api_editable_alert_scope(event_filter.get("id"))
+                generic_api_editable_alert_scopes(event_filter.get("id"))
                 for event_filter in (filters or {}).get("events") or []
                 if isinstance(event_filter, dict)
             }
-            scopes.discard(None)
-            self._cached_editable_alert_scope = next(iter(scopes), None) if len(scopes) == 1 else None
-        return self._cached_editable_alert_scope
+            scopes.discard(())
+            self._cached_editable_alert_scopes = sorted(scopes)
+        return self._cached_editable_alert_scopes
 
     def _internal_event_read_scopes(self, request: Request) -> list[str]:
         """Scope objects of the product data this request lets the destination send or show."""
@@ -1304,11 +1264,11 @@ class HogFunctionViewSet(
 
     def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
         super().initial(request, *args, **kwargs)
-        alert_scope = self._editable_alert_scope()
-        if alert_scope and not self.user_access_control.check_access_level_for_resource(
-            cast(APIScopeObject, alert_scope), required_level="editor"
-        ):
-            raise PermissionDenied(f"Editing this alert destination requires {alert_scope} write access.")
+        for resource in sorted({scope for scopes in self._editable_alert_scopes() for scope in scopes}):
+            if not self.user_access_control.check_access_level_for_resource(
+                cast(APIScopeObject, resource), required_level="editor"
+            ):
+                raise PermissionDenied(f"Editing this alert destination requires {resource} write access.")
         for read_scope in self._internal_event_read_scopes(request):
             if not self.user_access_control.check_access_level_for_resource(
                 cast(APIScopeObject, read_scope), required_level="viewer"
@@ -1322,11 +1282,9 @@ class HogFunctionViewSet(
         deleted_history_read = self.action in REVISION_READ_ACTIONS and self._target_is_deleted()
         writes = self.action in self.scope_object_write_actions or deleted_history_read
         required_scopes = ["hog_function:write" if writes else "hog_function:read"]
-        # A managed alert destination is also gated by the owning product's write scope, so a
-        # token that cannot configure the alert cannot redirect its notifications either.
-        alert_scope = self._editable_alert_scope()
-        if alert_scope:
-            required_scopes.append(f"{alert_scope}:write")
+        # A managed alert destination is also gated by the write scopes of every product that owns one
+        # of its events, so a token that cannot configure the alert cannot redirect its notifications either.
+        required_scopes += sorted({f"{scope}:write" for scopes in self._editable_alert_scopes() for scope in scopes})
         # A destination on an internal event that carries product data can send or show that data.
         required_scopes += [f"{scope}:read" for scope in self._internal_event_read_scopes(request)]
         # Rerun re-executes stored invocations — it replays up to 30 days of
@@ -1836,6 +1794,12 @@ class HogFunctionViewSet(
             except HogFunction.DoesNotExist:
                 locked = None
                 before_update = None
+
+            # The serializer saves the instance it loaded before this lock. A delete that committed in
+            # between, such as a queryset update that retires an alert's destinations, would be undone
+            # by that save writing `deleted=False` back, so only an explicit undelete may proceed.
+            if locked is not None and locked.deleted and serializer.validated_data.get("deleted") is not False:
+                raise exceptions.NotFound()
 
             route_to_draft = route_to_draft and locked is not None
 

@@ -32,7 +32,7 @@ const INTERVAL_LADDER: [string, number, string][] = [
 const TARGET_BUCKET_COUNT = 60
 const MAX_BUCKET_COUNT = 500
 
-const COUNTER_FUNCTIONS: ReadonlySet<MetricsAggregation> = new Set(['rate', 'increase'])
+const COUNTER_FUNCTIONS: ReadonlySet<MetricsAggregation> = new Set(['rate', 'increase', 'count_rate', 'count_increase'])
 const FORMULA_OPERATORS = /[\s()+-]+/
 
 // The backend resolves the range with `exact_timerange`, so a relative date is a rolling window from now.

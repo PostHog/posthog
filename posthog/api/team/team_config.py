@@ -70,8 +70,6 @@ class CachingTeamSerializer(serializers.ModelSerializer):
             "capture_performance_opt_in",
             "capture_console_log_opt_in",
             "extra_settings",
-            "secret_api_token",
-            "secret_api_token_backup",
             "session_recording_opt_in",
             "session_recording_sample_rate",
             "session_recording_minimum_duration_milliseconds",
@@ -378,6 +376,15 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
         ),
     )
 
+    email_workflow_run_link_tag_enabled = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Whether tracked links in emails this project sends get a ph_workflow_run parameter with "
+            "the send's run ID. When the landing page runs posthog-js, the parameter links each click "
+            "to the session it starts. Links with click tracking turned off never get it. On by default."
+        ),
+    )
+
     class Meta:
         model = TeamWorkflowsConfig
         fields = [
@@ -385,6 +392,7 @@ class TeamWorkflowsConfigSerializer(serializers.ModelSerializer, UserAccessContr
             "email_tracking_consent_mode",
             "email_utm_tags_enabled",
             "email_utm_params",
+            "email_workflow_run_link_tag_enabled",
             "workflow_task_rate_limit_per_day",
             "workflow_task_team_rate_limit_per_day",
             "replay_vision_scan_rate_limit_per_day",

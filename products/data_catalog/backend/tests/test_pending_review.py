@@ -12,20 +12,30 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.access_control.backend.models.access_control import AccessControl
 from products.data_catalog.backend.facade.enums import CertificationStatus, MetricStatus, RelationshipStatus
-from products.data_catalog.backend.logic.metrics import metrics_for_team
+from products.data_catalog.backend.logic.metrics import metrics_for_team, metrics_visible_to_user
 from products.data_catalog.backend.logic.pending_review import (
     PendingKind,
     build_org_pending_reviews,
     build_team_pending_review,
 )
 from products.data_catalog.backend.models import Metric, RelationshipProposal, TableCertification
-from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import (
+    DAG,
+    DataModelingJob,
+    DataModelingJobEngine,
+    DataWarehouseSavedQuery,
+    Node,
+    NodeType,
+)
 
 _PENDING_REVIEW = "products.data_catalog.backend.logic.pending_review"
 
@@ -165,14 +175,83 @@ class TestPendingReviewAPI(APIBaseTest):
         _certification(self.team, "proposed_view")
         _certification(self.team, "certified_view", status=CertificationStatus.CERTIFIED)
 
+        responses = [self.client.get(f"/api/projects/{self.team.id}/data_catalog/pending_review/") for _ in range(2)]
+
+        assert [response.json() for response in responses] == [
+            {"metrics": 1, "relationships": 1, "certifications": 1}
+        ] * 2
+        create_database.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("a_new_proposal_gets_a_fresh_table_check", "add", 1),
+            ("a_reviewed_proposal_keeps_the_cached_table_check", "review", 2),
+        ]
+    )
+    @patch("products.data_catalog.backend.logic.metrics.Database.create_for")
+    def test_count_after_table_access_is_revoked(
+        self, _name: str, change: str, expected_count: int, create_database: MagicMock
+    ) -> None:
+        create_database.return_value = MagicMock(_denied_tables=set())
+        _metric(self.team, "reads_no_table")
+        _metric(self.team, "on_source", referenced_table_names=["restricted_source"])
+        reviewed_later = _metric(self.team, "also_on_source", referenced_table_names=["restricted_source"])
+        url = f"/api/projects/{self.team.id}/data_catalog/pending_review/"
+        count_before = self.client.get(url).json()["metrics"]
+
+        create_database.return_value = MagicMock(_denied_tables={"restricted_source"})
+        if change == "add":
+            _metric(self.team, "new_on_source", referenced_table_names=["restricted_source"])
+        else:
+            Metric.objects.unscoped().filter(id=reviewed_later.id).update(status=MetricStatus.APPROVED)
+
+        assert (count_before, self.client.get(url).json()["metrics"]) == (3, expected_count)
+
+    @patch("posthog.utils.cache")
+    @patch("products.data_catalog.backend.logic.metrics.Database.create_for")
+    def test_counts_metrics_when_the_cache_is_unavailable(self, create_database: MagicMock, cache: MagicMock) -> None:
+        create_database.return_value = MagicMock(_denied_tables={"restricted_source"})
+        cache.get.side_effect = ConnectionError
+        cache.set.side_effect = ConnectionError
+        _metric(self.team, "proposed_one")
+        _metric(self.team, "on_denied_table", referenced_table_names=["restricted_source"])
+
         response = self.client.get(f"/api/projects/{self.team.id}/data_catalog/pending_review/")
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert response.json() == {"metrics": 1, "relationships": 1, "certifications": 1}
+        assert response.json()["metrics"] == 1
+
+    @patch("products.data_catalog.backend.logic.metrics.system_table_denials", return_value=frozenset())
+    @patch("products.data_catalog.backend.logic.metrics.Database.create_for")
+    def test_count_follows_a_change_of_membership_level(
+        self, create_database: MagicMock, _system_table_denials: MagicMock
+    ) -> None:
+        create_database.return_value = MagicMock(_denied_tables={"restricted_source"})
+        _metric(self.team, "on_denied_table", referenced_table_names=["restricted_source"])
+        url = f"/api/projects/{self.team.id}/data_catalog/pending_review/"
+
+        counts = []
+        for level in (OrganizationMembership.Level.ADMIN, OrganizationMembership.Level.MEMBER):
+            self.organization_membership.level = level
+            self.organization_membership.save()
+            counts.append(self.client.get(url).json()["metrics"])
+
+        assert counts == [1, 0]
+
+    @patch("products.data_catalog.backend.logic.metrics.Database.create_for")
+    def test_metric_added_after_the_table_check_stays_hidden(self, create_database: MagicMock) -> None:
+        create_database.return_value = MagicMock(_denied_tables={"restricted_source"})
+        _metric(self.team, "reads_no_table")
+        visible = metrics_visible_to_user(self.team, self.user, UserAccessControl(user=self.user, team=self.team))
+
+        _metric(self.team, "on_denied_table", referenced_table_names=["restricted_source"])
+
+        assert [metric.name for metric in visible] == ["reads_no_table"]
 
     @parameterized.expand(
         [
             ("member_with_nothing_proposed", OrganizationMembership.Level.MEMBER, [], 0),
+            ("member_with_proposals_that_read_no_table", OrganizationMembership.Level.MEMBER, [[], []], 2),
             ("admin", OrganizationMembership.Level.ADMIN, [["safe_source"], ["system.restricted"]], 1),
         ]
     )
@@ -218,6 +297,72 @@ class TestPendingReviewAPI(APIBaseTest):
         )
 
         assert response.status_code == expected_status, response.json()
+
+
+class TestCatalogAttentionAPI(APIBaseTest):
+    def _failing_model(self) -> None:
+        view = DataWarehouseSavedQuery.objects.create(team=self.team, name="orders", query={"kind": "HogQLQuery"})
+        dag = DAG.objects.create(team=self.team, name=f"posthog_{self.team.id}")
+        Node.objects.create(team=self.team, dag=dag, saved_query=view, type=NodeType.VIEW)
+        DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=view,
+            status=DataModelingJob.Status.FAILED,
+            engine=DataModelingJobEngine.CLICKHOUSE,
+        )
+
+    @parameterized.expand(
+        [
+            ("everything_readable", None, {"metrics": 1, "relationships": 1, "certifications": 1}, 1),
+            ("catalog_denied", "data_catalog", {"metrics": 0, "relationships": 0, "certifications": 0}, 1),
+            ("warehouse_denied", "warehouse_objects", {"metrics": 1, "relationships": 1, "certifications": 1}, 0),
+        ]
+    )
+    @patch("products.data_catalog.backend.logic.metrics.Database.create_for")
+    def test_counts_each_part_the_caller_can_read(
+        self,
+        _name: str,
+        denied_resource: str | None,
+        pending_review: dict[str, int],
+        failing_models: int,
+        create_database: MagicMock,
+    ) -> None:
+        create_database.return_value = MagicMock(_denied_tables=set())
+        _metric(self.team, "proposed_one")
+        _relationship(self.team, "fp_proposed")
+        _certification(self.team, "proposed_view")
+        self._failing_model()
+        if denied_resource is not None:
+            self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL, "name": "access"}]
+            self.organization.save(update_fields=["available_product_features"])
+            AccessControl.objects.create(team=self.team, resource=denied_resource, access_level="none")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/data_catalog/attention/")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == {"pending_review": pending_review, "failing_models": failing_models}
+
+    @patch("products.data_catalog.backend.logic.metrics.Database.create_for", side_effect=ValueError("broken view"))
+    def test_counts_failing_models_when_the_review_counts_fail(self, _create_database: MagicMock) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        _metric(self.team, "on_source", referenced_table_names=["orders_source"])
+        self._failing_model()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/data_catalog/attention/")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json() == {"pending_review": None, "failing_models": 1}
+
+    def test_personal_api_key_cannot_read_it(self) -> None:
+        raw_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="k", user=self.user, secure_value=hash_key_value(raw_key), scopes=["*"])
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/data_catalog/attention/", HTTP_AUTHORIZATION=f"Bearer {raw_key}"
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
 
 
 class TestMetricAvailabilityAPI(APIBaseTest):

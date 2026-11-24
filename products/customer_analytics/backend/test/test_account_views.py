@@ -1,22 +1,29 @@
 import json
+from pathlib import Path
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.hogql.database.database import Database
+
 from posthog.constants import AvailableFeature
-from posthog.models import OrganizationMembership, Team, User
+from posthog.models import OrganizationMembership, PersonalAPIKey, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.customer_analytics.backend.logic.account_views import (
     InvalidAccountViewContent,
     validate_account_view_content,
+    validate_sql_query_widget_config,
 )
 from products.customer_analytics.backend.models import Account, AccountView
+from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 
 
 def account_view_content(*components: str) -> dict:
@@ -32,6 +39,29 @@ def account_view_content(*components: str) -> dict:
 
 
 class TestAccountViewContentValidation(SimpleTestCase):
+    @parameterized.expand([(50, True), (51, False)])
+    def test_component_count_limit(self, count: int, valid: bool) -> None:
+        content = account_view_content(*(f'<Usage nodeId="usage-{index}" />' for index in range(count)))
+        if valid:
+            validate_account_view_content(content)
+        else:
+            with self.assertRaises(InvalidAccountViewContent) as error:
+                validate_account_view_content(content)
+            assert error.exception.errors == ["Account views support up to 50 components."]
+
+    @parameterized.expand([(10, True), (11, False)])
+    def test_sql_component_count_limit(self, count: int, valid: bool) -> None:
+        config = json.dumps({"query": "SELECT name FROM system.accounts WHERE external_id = {account_external_id}"})
+        content = account_view_content(
+            *(f'<SqlQuery nodeId="sql-{index}" config={{{config}}} />' for index in range(count))
+        )
+        if valid:
+            validate_account_view_content(content)
+        else:
+            with self.assertRaises(InvalidAccountViewContent) as error:
+                validate_account_view_content(content)
+            assert error.exception.errors == ["Account views support up to 10 SQL query components."]
+
     @parameterized.expand(
         [
             ("unknown_native_key", {"properties": [{"kind": "account", "key": "arbitrary_key"}]}),
@@ -80,6 +110,7 @@ class TestAccountViewContentValidation(SimpleTestCase):
                 "Recent recordings",
             ),
             ('<Automations nodeId="automations-one" span={6} />', "Automations"),
+            ('<Context nodeId="context-one" span={12} />', "Context"),
             ('<DotMatrix nodeId="matrix-one" span={6} />', "Dot matrix"),
         ]
     )
@@ -147,6 +178,83 @@ class TestAccountViewContentValidation(SimpleTestCase):
         content = account_view_content(f'<DotMatrix nodeId="matrix-one" config={{{json.dumps(config)}}} />')
         self.assertEqual(validate_account_view_content(content), (content, "Dot matrix"))
 
+    @parameterized.expand(
+        [
+            *[
+                (
+                    case["name"],
+                    {"query": case["query"]},
+                    None
+                    if case["valid"]
+                    else case.get("error", "SQL query must filter by {account_external_id} in every SELECT's WHERE."),
+                )
+                for case in json.loads(
+                    (Path(__file__).parents[2] / "frontend/components/Accounts/accountSqlQuery.test.json").read_text()
+                )
+            ],
+            (
+                "invalid_sql",
+                {"query": "select * from engagements where"},
+                "Enter a valid SQL query.",
+            ),
+            ("blank", {"query": "  "}, "SQL query config needs a query."),
+            ("not_a_string", {"query": 1}, "SQL query config needs a query."),
+            (
+                "extra_field",
+                {"query": "select {account_external_id}", "limit": 10},
+                "SQL query config must contain only a query and optional visualization settings.",
+            ),
+        ]
+    )
+    def test_sql_query_config(self, _name: str, config: dict, expected_error: str | None) -> None:
+        content = account_view_content(f'<SqlQuery nodeId="sql-one" config={{{json.dumps(config)}}} />')
+        if expected_error is None:
+            assert validate_account_view_content(content) == (content, "SQL query")
+        else:
+            with self.assertRaises(InvalidAccountViewContent) as context:
+                validate_account_view_content(content)
+            assert context.exception.errors == [f"Component 1: {expected_error}"]
+
+    @parameterized.expand(
+        [
+            (20, ["_H", 1, 32, "input", 1, 1, 32, "value", 1, 1, 11, 38], None),
+            (
+                21,
+                ["_H", 1, 32, "input", 1, 1, 32, "value", 1, 1, 11, 38],
+                "SQL tables support up to 20 conditional formatting rules. Remove extra rules.",
+            ),
+            (1, ["bad"], "SQL conditional formatting bytecode is invalid. Recreate the formatting rule."),
+            (1, ["_H", 1], "SQL conditional formatting bytecode is invalid. Recreate the formatting rule."),
+            (1, ["_H", 1, 39, -2], "SQL conditional formatting bytecode is invalid. Recreate the formatting rule."),
+            (
+                1,
+                ["_H", 1, *([0] * 255)],
+                "SQL conditional formatting bytecode is invalid. Recreate the formatting rule.",
+            ),
+        ]
+    )
+    def test_sql_formatting_limits(self, count: int, bytecode: list, expected_error: str | None) -> None:
+        config = {
+            "query": "SELECT name FROM system.accounts WHERE external_id = {account_external_id}",
+            "visualization": {
+                "display": "ActionsTable",
+                "tableSettings": {
+                    "conditionalFormatting": [
+                        {
+                            "id": str(index),
+                            "columnName": "name",
+                            "input": "example",
+                            "color": "#FFADAD",
+                            "templateId": "equals",
+                            "bytecode": bytecode,
+                        }
+                        for index in range(count)
+                    ]
+                },
+            },
+        }
+        assert validate_sql_query_widget_config(config) == ([] if expected_error is None else [expected_error])
+
     def test_rejects_span_outside_twelve_columns(self) -> None:
         with self.assertRaises(InvalidAccountViewContent) as context:
             validate_account_view_content(account_view_content('<Usage nodeId="usage-one" span={13} />'))
@@ -155,6 +263,98 @@ class TestAccountViewContentValidation(SimpleTestCase):
 
 
 class TestAccountViews(APIBaseTest):
+    def test_sql_widgets_share_one_catalog_per_save(self) -> None:
+        content = account_view_content(
+            *(
+                f'<SqlQuery nodeId="sql-{index}" config={{{json.dumps({"query": query})}}} />'
+                for index, query in enumerate(
+                    [
+                        "SELECT name FROM system.accounts WHERE external_id = {account_external_id}",
+                        "SELECT external_id FROM system.accounts WHERE external_id = {account_external_id}",
+                    ]
+                )
+            )
+        )
+        with patch.object(Database, "create_for", wraps=Database.create_for) as create_catalog:
+            response = self.client.post(self.endpoint, {"name": "SQL view", "content": content}, format="json")
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert create_catalog.call_count == 1
+        assert AccountView.objects.for_team(self.team.id).get(id=response.json()["id"]).content == content
+
+    def test_sql_validation_deadline_prevents_saving(self) -> None:
+        content = account_view_content(
+            *(
+                f'<SqlQuery nodeId="sql-{index}" config={{{json.dumps({"query": f"SELECT name FROM system.accounts WHERE external_id = {{account_external_id}} LIMIT {index + 1}"})}}} />'
+                for index in range(3)
+            )
+        )
+        with patch("products.customer_analytics.backend.logic.account_views.monotonic", side_effect=[0, 0, 0, 3, 3, 6]):
+            response = self.client.post(self.endpoint, {"name": "SQL view", "content": content}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "SQL validation took too long" in str(response.json())
+        assert not AccountView.objects.for_team(self.team.id).filter(name="SQL view").exists()
+
+    @parameterized.expand([(False, status.HTTP_403_FORBIDDEN), (True, status.HTTP_201_CREATED)])
+    def test_sql_widget_writes_require_query_scope(self, can_query: bool, expected_status: int) -> None:
+        view = self._create()
+        content = account_view_content(
+            '<SqlQuery nodeId="sql-one" config={{"query":"SELECT name FROM system.accounts WHERE external_id = {account_external_id}"}} />'
+        )
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="Account view editor",
+            secure_value=hash_key_value(token),
+            scopes=["account:read", "account:write", *(["query:read"] if can_query else [])],
+        )
+        self.client.logout()
+        response = self.client.post(
+            self.endpoint,
+            {"name": "SQL view", "content": content},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        assert response.status_code == expected_status, response.json()
+
+        response = self.client.patch(
+            f"{self.endpoint}{view['id']}/",
+            {"version": view["version"], "content": content},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        assert response.status_code == (status.HTTP_200_OK if can_query else status.HTTP_403_FORBIDDEN), response.json()
+        saved = AccountView.objects.for_team(self.team.id).get(id=view["id"])
+        assert saved.content == (content if can_query else view["content"])
+
+    def test_sql_widget_write_checks_referenced_resources(self) -> None:
+        credential = DataWarehouseCredential.objects.create(
+            team=self.team, access_key="example-key", access_secret="example-secret"
+        )
+        table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name="example_engagements",
+            format="Parquet",
+            credential=credential,
+            url_pattern="https://example.com/data/*",
+            columns={"account_id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True}},
+        )
+        self.client.force_login(self.editor)
+        content = account_view_content(
+            '<SqlQuery nodeId="sql-one" config={{"query":"SELECT account_id FROM example_engagements WHERE account_id = {account_external_id}"}} />'
+        )
+        membership = OrganizationMembership.objects.get(user=self.editor, organization=self.organization)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="warehouse_table",
+            resource_id=str(table.id),
+            access_level="none",
+            organization_member=membership,
+        )
+        with patch("posthog.hogql.database.database._evaluate_warehouse_access_control_flag", return_value=True):
+            response = self.client.post(self.endpoint, {"name": "SQL view", "content": content}, format="json")
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert not AccountView.objects.for_team(self.team.id).filter(name="SQL view").exists()
+
     def setUp(self) -> None:
         super().setUp()
         self.organization.available_product_features = [

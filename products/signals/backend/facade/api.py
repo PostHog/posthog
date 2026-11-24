@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Q, QuerySet
+from django.db.models import Func, Q, QuerySet, Value
 from django.utils import timezone
 
 import pydantic
@@ -52,6 +52,7 @@ from products.signals.backend.activity_summary.search import (
 )
 from products.signals.backend.anomaly_scores import search as anomaly_search
 from products.signals.backend.anomaly_scores.search import (
+    VIEWED_WITHIN_DAYS as VIEWED_WITHIN_DAYS,
     AnomalyDashboardNotFound as AnomalyDashboardNotFound,
     AnomalyGroupBy as AnomalyGroupBy,
     AnomalyHistoryFilters as AnomalyHistoryFilters,
@@ -60,11 +61,15 @@ from products.signals.backend.anomaly_scores.search import (
     AnomalyOrder as AnomalyOrder,
     AnomalySearchFilters as AnomalySearchFilters,
     AnomalySearchResult as AnomalySearchResult,
+    AnomalySeriesPoints as AnomalySeriesPoints,
+    AnomalySeriesRef as AnomalySeriesRef,
 )
 from products.signals.backend.artefact_schemas import (
+    SIGNALS_PRODUCT,
     # Re-exported so the Slack mention handler can label the task it starts from a report's
     # notification thread without naming the relationship vocabulary itself.
     TASK_RUN_TYPE_DISCUSSION as TASK_RUN_TYPE_DISCUSSION,
+    TASK_RUN_TYPE_IMPLEMENTATION,
 )
 from products.signals.backend.briefing_reports import (
     IMPLEMENTATION_PR_STATES as IMPLEMENTATION_PR_STATES,
@@ -90,6 +95,7 @@ from products.signals.backend.inbox_summary import (
 from products.signals.backend.models import (
     SignalReport,
     SignalReportPullRequest,
+    SignalReportSlackThread,
     SignalScoutConfig,
     SignalScoutRun,
     SignalSourceConfig,
@@ -325,6 +331,13 @@ def search_anomalies(*, team: Team, user: User, filters: AnomalySearchFilters, n
     return anomaly_search.search(team, user, filters, now)
 
 
+def get_anomaly_series_points(
+    *, team: Team, user: User, series: Sequence[AnomalySeriesRef], now: datetime
+) -> list[AnomalySeriesPoints]:
+    """The chart points of each requested series the user can read, over the chart window of its interval."""
+    return anomaly_search.chart_points(team, user, series, now)
+
+
 def get_anomaly_insight_history(
     *, team: Team, user: User, filters: AnomalyHistoryFilters, now: datetime
 ) -> AnomalyInsightHistory | None:
@@ -513,6 +526,79 @@ def remove_reviewer_from_slack(
         logger.exception("signals_remove_reviewer_from_slack_failed", report_id=report_id, team_id=team_id)
         return "failed"
     return "removed" if removed else "not_reviewer"
+
+
+def report_slack_thread_pr_notified(
+    *, team_id: int, slack_workspace_id: str, channel: str, thread_ts: str, pr_url: str
+) -> bool:
+    return (
+        SignalReportSlackThread.objects.for_team(team_id)
+        .filter(
+            slack_workspace_id=slack_workspace_id,
+            channel=channel,
+            thread_ts=thread_ts,
+            notified_pr_urls__contains=[pr_url],
+        )
+        .exists()
+    )
+
+
+def mark_report_slack_thread_pr_notified(
+    *, team_id: int, slack_workspace_id: str, channel: str, thread_ts: str, pr_url: str
+) -> None:
+    SignalReportSlackThread.objects.for_team(team_id).filter(
+        slack_workspace_id=slack_workspace_id, channel=channel, thread_ts=thread_ts
+    ).exclude(notified_pr_urls__contains=[pr_url]).update(
+        notified_pr_urls=Func("notified_pr_urls", Value(pr_url), function="array_append")
+    )
+
+
+def notify_implementation_prs_opened(
+    team_id: int, task_id: str, pr_urls: list[str], *, run_id: str | None = None
+) -> None:
+    from products.signals.backend.implementation_pr_notification_tasks import (  # noqa: PLC0415 - avoids the signals/tasks facade cycle
+        deliver_implementation_pr_notifications,
+    )
+    from products.signals.backend.slack_report_threads import eligible_implementation_pr_urls  # noqa: PLC0415
+
+    try:
+        urls = eligible_implementation_pr_urls(team_id=team_id, task_id=task_id, pr_urls=pr_urls)
+        if urls:
+            transaction.on_commit(
+                lambda: deliver_implementation_pr_notifications.delay(
+                    team_id=team_id, task_id=task_id, pr_urls=urls, run_id=run_id
+                )
+            )
+    except Exception:
+        logger.exception("signals_inbox_pr_notification_failed", team_id=team_id, task_id=task_id)
+
+
+def notify_implementation_pr_opened(team_id: int, task_id: str, pr_url: str) -> None:
+    notify_implementation_prs_opened(team_id, task_id, [pr_url])
+
+
+def notify_report_slack_thread_created(team_id: int, report_id: str) -> None:
+    from products.signals.backend.models import (
+        SignalReport,  # noqa: PLC0415 - keeps model imports off the facade import path
+    )
+    from products.tasks.backend.facade.api import (
+        get_pull_requests_for_tasks,  # noqa: PLC0415 - avoids the signals/tasks facade cycle
+    )
+
+    try:
+        task_ids = [
+            run.task_id
+            for run in SignalReport.associated_task_runs(
+                team_id=team_id, report_id=report_id, product=SIGNALS_PRODUCT, type=TASK_RUN_TYPE_IMPLEMENTATION
+            )
+        ]
+        for task_id, pull_requests in get_pull_requests_for_tasks(team_id, task_ids).items():
+            for run_id in dict.fromkeys(pr.run_id for pr in pull_requests):
+                notify_implementation_prs_opened(
+                    team_id, task_id, [pr.url for pr in pull_requests if pr.run_id == run_id], run_id=run_id
+                )
+    except Exception:
+        logger.exception("signals_inbox_existing_pr_notification_failed", team_id=team_id, report_id=report_id)
 
 
 def report_id_for_slack_thread(*, team_id: int, slack_workspace_id: str, channel: str, thread_ts: str) -> str | None:

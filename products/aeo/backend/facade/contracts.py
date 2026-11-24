@@ -79,6 +79,9 @@ PROMPT_VERSION_DESCRIPTION_MAX_LENGTH = 400
 MAX_RANKED_COMPETITORS = 10
 MAX_RANKED_DOMAINS = 20
 MAX_RANKED_PAGES = 20
+MAX_MOVERS = 5
+# One answer in a window would read as a rate of 0 or 100%, so a mover needs a few answers in each.
+MIN_MOVER_ANSWERS = 3
 
 
 class BrandedSegment(LabeledStrEnum):
@@ -325,7 +328,7 @@ class PromptSetSearch:
 
 @frozen
 class PromptSetOverview:
-    """How the whole prompt set did over the last `days` days, against the `days` days before."""
+    """How the whole prompt set did from `window_from` to `window_to`, against the `days` days before."""
 
     days: int
     window_from: dt.date
@@ -482,6 +485,21 @@ class BrandNotFoundError(Exception):
     pass
 
 
+# "-90d" counts today too, so the longest relative range has 91 days.
+MAX_WINDOW_DAYS = 91
+# The window the page opens on, and so the one the stored results are kept ready for.
+DEFAULT_DATE_FROM = "-30d"
+KEYWORD_DEFAULT_DATE_FROM = "-7d"
+
+
+class InvalidDateRangeError(Exception):
+    """`date_from` or `date_to` cannot be read, or the range is too long. The message is safe to show the user."""
+
+    def __init__(self, field: str, message: str) -> None:
+        super().__init__(message)
+        self.field = field
+
+
 class BrandCreateError(Exception):
     """The brand cannot be added. The message is safe to show the user."""
 
@@ -626,8 +644,8 @@ class RankedPage:
 
 @frozen
 class PromptSetRankings:
-    """Brand visibility against competitors, and the domains and pages the engines cite, over the
-    last `days` days."""
+    """Brand visibility against competitors, and the domains and pages the engines cite, from
+    `window_from` to `window_to`."""
 
     days: int
     window_from: dt.date
@@ -641,6 +659,54 @@ class PromptSetRankings:
     daily: tuple[RankedBrandDay, ...]
     top_domains: tuple[RankedDomain, ...]
     top_pages: tuple[RankedPage, ...]
+
+
+@frozen
+class PromptMover:
+    """A prompt whose mention rate changed between the current window and the window before."""
+
+    prompt_id: str
+    prompt: str
+    topic: str
+    answers: int
+    mentioned: int
+    mention_rate: float
+    previous_answers: int
+    previous_mentioned: int
+    previous_mention_rate: float
+    change: float
+
+
+@frozen
+class PageMover:
+    """A page on an own domain whose citation rate changed between the current window and the window before."""
+
+    url: str
+    answers_citing: int
+    citation_rate: float
+    previous_answers_citing: int
+    previous_citation_rate: float
+    change: float
+
+
+@frozen
+class PromptSetMovers:
+    """The prompts and own pages that gained and lost the most between `window_from` to `window_to` and
+    the `days` days before."""
+
+    days: int
+    window_from: dt.date
+    window_to: dt.date
+    branded: BrandedSegment
+    engine: str | None
+    topic: str | None
+    answers: int
+    previous_answers: int
+    min_answers: int
+    prompt_gainers: tuple[PromptMover, ...]
+    prompt_losers: tuple[PromptMover, ...]
+    page_gainers: tuple[PageMover, ...]
+    page_losers: tuple[PageMover, ...]
 
 
 MAX_KEYWORD_MODIFIERS = 50

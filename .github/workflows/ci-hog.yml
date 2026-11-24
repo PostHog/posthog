@@ -6,6 +6,8 @@ on:
     pull_request:
         paths:
             - 'hog/**'
+            # hog-worker pins the crates posthog-cli resolves here, and a test holds the two together.
+            - 'cli/Cargo.lock'
             # hog imports its types from the MCP package's CLI library.
             - 'services/mcp/src/cli/library-types.ts'
             # The lockfile and the workspace catalog decide which dependencies hog installs.
@@ -26,7 +28,7 @@ jobs:
     hog:
         name: hog typecheck, tests and lint
         runs-on: ubuntu-24.04
-        timeout-minutes: 15
+        timeout-minutes: 20
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -35,28 +37,58 @@ jobs:
                       /*
                       !/*/
                       /hog/
+                      /cli/Cargo.lock
                       /services/mcp/
                       /tools/openapi-codegen/
                       /packages/llm-normalizer/
                       /packages/quill/
                       /.github/actions/pnpm-install/
                       /.github/actions/setup-pnpm/
+                      /.github/actions/setup-rust/
                       /patches/
                       /.husky/
                       /bin/fix-rdkafka-paths
                   sparse-checkout-cone-mode: false
 
-            # The root package brings oxlint. `@posthog/hog...` brings hog and the workspace
+            # The root package brings oxlint. `hog...` brings hog and the workspace
             # packages it depends on.
             - name: Install pnpm dependencies
               uses: ./.github/actions/pnpm-install
               with:
-                  install-command: pnpm --filter=@posthog/root --filter='@posthog/hog...' install --frozen-lockfile
+                  install-command: pnpm --filter=@posthog/root --filter='hog...' install --frozen-lockfile
 
             - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
               with:
                   # The version the flox environment pins for hog.
                   bun-version: 1.4.2
+
+            # hog-worker is the Rust program in hog/worker/ that does hog's file work. The tests run
+            # hog against it, so it is built before them.
+            - name: Read the Rust version hog-worker builds with
+              id: rust
+              run: echo "version=$(sed -n 's/^channel = "\(.*\)"$/\1/p' hog/worker/rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
+
+            - name: Install Rust
+              uses: ./.github/actions/setup-rust
+              with:
+                  toolchain: ${{ steps.rust.outputs.version }}
+                  components: clippy, rustfmt
+
+            - name: Check hog-worker formatting
+              working-directory: hog/worker
+              run: cargo fmt -- --check
+
+            - name: Lint hog-worker
+              working-directory: hog/worker
+              run: cargo clippy --locked --all-targets -- -D warnings
+
+            - name: Test hog-worker
+              working-directory: hog/worker
+              run: cargo test --locked
+
+            - name: Build hog-worker
+              working-directory: hog
+              run: pnpm run build:worker
 
             - name: Typecheck
               working-directory: hog

@@ -28,6 +28,7 @@ import {
     buildKPIs,
     rankToolsByErrorRate,
     rankToolsByP95,
+    toolRowsFromRankings,
     deltaPct,
     mcpDashboardOverviewLogic,
     pickNotableSessions,
@@ -159,6 +160,7 @@ describe('mcpDashboardOverviewLogic', () => {
             'Linear',
             'LibreChat',
             'Pi',
+            'Oh My Pi',
             'Kimchi',
             'Antigravity',
             'Poke',
@@ -166,6 +168,24 @@ describe('mcpDashboardOverviewLogic', () => {
             'Kiro',
             'Desktop Commander',
             'PostHog CLI',
+            'PostHog Wizard',
+            'PostHog WebMCP',
+            'PostHog Harness',
+            'Devin',
+            'Amp',
+            'Copilot CLI',
+            'Gemini CLI',
+            'OpenClaw',
+            'Hermes Agent',
+            'MCPorter',
+            'Executor',
+            'Paperclip',
+            'Perplexity',
+            'Cloudflare MCP Portal',
+            'Vercel AI SDK',
+            'LangChain',
+            'Python MCP SDK',
+            'Rust MCP SDK',
         ]
 
         it.each(EXPECTED_HARNESS_LABELS)('HARNESS_BY_LABEL has an entry for backend label %s', (label) => {
@@ -269,9 +289,9 @@ describe('mcpDashboardOverviewLogic', () => {
     describe('buildKPIs', () => {
         it('splits current vs prior buckets and computes values, deltas, and sparklines', () => {
             const rows: BucketRow[] = [
-                { bucket: '2024-01-09', sessions: 20, tool_calls: 200, errors: 15, p95: 300 },
-                { bucket: '2024-01-08', sessions: 10, tool_calls: 100, errors: 5, p95: 200 },
-                { bucket: '2024-01-01', sessions: 5, tool_calls: 50, errors: 5, p95: 150 },
+                { bucket: '2024-01-09', sessions: 20, tool_calls: 200, errors: 15, p95: 300, users: 12 },
+                { bucket: '2024-01-08', sessions: 10, tool_calls: 100, errors: 5, p95: 200, users: 9 },
+                { bucket: '2024-01-01', sessions: 5, tool_calls: 50, errors: 5, p95: 150, users: 4 },
             ]
             const kpis = buildKPIs(rows, '2024-01-08')
 
@@ -290,6 +310,7 @@ describe('mcpDashboardOverviewLogic', () => {
                 sparkline: [100, 200],
             })
             expect(kpis.p95LatencyMs).toMatchObject({ sparkline: [200, 300], goodDirection: 'down' })
+            expect(kpis.users).toMatchObject({ value: 0, sparkline: [9, 12], goodDirection: 'up' })
             expect(kpis.errorRatePct).toMatchObject({
                 value: (20 / 300) * 100,
                 previousValue: 10,
@@ -298,12 +319,34 @@ describe('mcpDashboardOverviewLogic', () => {
         })
 
         it('returns null deltas when there is no prior-period data', () => {
-            const rows: BucketRow[] = [{ bucket: '2024-01-08', sessions: 10, tool_calls: 100, errors: 0, p95: 200 }]
+            const rows: BucketRow[] = [
+                { bucket: '2024-01-08', sessions: 10, tool_calls: 100, errors: 0, p95: 200, users: 3 },
+            ]
             expect(buildKPIs(rows, '2024-01-08').sessions.deltaPct).toBeNull()
         })
     })
 
     describe('ranking tools', () => {
+        it('reads rows cached before the rankings existed', () => {
+            expect(toolRowsFromRankings([['search_docs', 4, 1, 25, 120]])).toEqual([
+                { tool: 'search_docs', total_calls: 4, errors: 1, error_rate_pct: 25, p95_duration_ms: 120 },
+            ])
+        })
+
+        it('keeps one row per tool when a tool tops several rankings', () => {
+            const rows = toolRowsFromRankings([
+                ['search_docs', 400, 40, 10, 2500, 'calls'],
+                ['list_flags', 300, 0, 0, 80, 'calls'],
+                ['search_docs', 400, 40, 10, 2500, 'error_rate'],
+                ['search_docs', 400, 40, 10, 2500, 'p95'],
+            ])
+
+            expect(rows).toEqual([
+                { tool: 'search_docs', total_calls: 400, errors: 40, error_rate_pct: 10, p95_duration_ms: 2500 },
+                { tool: 'list_flags', total_calls: 300, errors: 0, error_rate_pct: 0, p95_duration_ms: 80 },
+            ])
+        })
+
         const tool = (name: string, total_calls: number, error_rate_pct: number, p95_duration_ms = 0): ToolRow => ({
             tool: name,
             total_calls,
@@ -502,18 +545,29 @@ describe('mcpDashboardOverviewLogic', () => {
         ])('maps the period totals columns to the users and p95 metrics: $rows', async ({ rows, users, p95 }) => {
             mockSections((section) => (section === MCPDashboardSection.PeriodTotals ? rows : []))
             const logic = await mountDashboard()
+            logic.actions.sectionsLoaded({
+                [MCPDashboardSection.Kpis]: {
+                    results: [
+                        ['2024-01-08', 10, 100, 5, 700, 9],
+                        ['2024-01-09', 20, 200, 15, 800, 12],
+                    ],
+                    currentStartBucket: '2024-01-08',
+                },
+            })
 
             const [value, previousValue, delta] = users
-            expect(logic.values.periodTotals.users).toMatchObject({
+            expect(logic.values.headlineKpis.users).toMatchObject({
                 value,
                 previousValue,
                 deltaPct: delta,
+                sparkline: [9, 12],
                 goodDirection: 'up',
             })
             expect(logic.values.headlineKpis.p95LatencyMs).toMatchObject({
                 value: p95[0],
                 previousValue: p95[1],
                 deltaPct: p95[2],
+                sparkline: [700, 800],
                 goodDirection: 'down',
             })
         })
@@ -538,7 +592,7 @@ describe('mcpDashboardOverviewLogic', () => {
                 const toastError = jest.spyOn(lemonToast, 'error')
                 const answers: Partial<Record<MCPDashboardSection, unknown[]>> = {
                     [MCPDashboardSection.PeriodTotals]: [[42, 30, 900, 600]],
-                    [MCPDashboardSection.ToolRows]: [['search_docs', 4, 1, 25, 120]],
+                    [MCPDashboardSection.ToolRows]: [['search_docs', 4, 1, 25, 120, 'calls']],
                 }
                 mockSections((section) => (section === failing ? new Error('Query failed') : (answers[section] ?? [])))
                 const logic = await mountDashboard()
@@ -578,7 +632,7 @@ describe('mcpDashboardOverviewLogic', () => {
                 useBatched(batched)
                 const toastError = jest.spyOn(lemonToast, 'error')
                 const answers: Partial<Record<MCPDashboardSection, unknown[]>> = {
-                    [MCPDashboardSection.ToolRows]: [['search_docs', 4, 1, 25, 120]],
+                    [MCPDashboardSection.ToolRows]: [['search_docs', 4, 1, 25, 120, 'calls']],
                     [MCPDashboardSection.Tool]: [['search_docs', 4, 1, 0]],
                 }
                 mockSections((section) => answers[section] ?? [])
@@ -622,7 +676,7 @@ describe('mcpDashboardOverviewLogic', () => {
             const toastError = jest.spyOn(lemonToast, 'error')
             const answers: Partial<Record<MCPDashboardSection, unknown[]>> = {
                 [MCPDashboardSection.Model]: [['2026-11-01', 'claude-sonnet-5', 4]],
-                [MCPDashboardSection.ToolRows]: [['search_docs', 4, 1, 25, 120]],
+                [MCPDashboardSection.ToolRows]: [['search_docs', 4, 1, 25, 120, 'calls']],
             }
             mockSections((section) => (section === row.failing ? new Error('Query failed') : (answers[section] ?? [])))
             const logic = await mountDashboard()

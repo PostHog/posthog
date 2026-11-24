@@ -644,7 +644,7 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
         }
 
         if (!schema.should_sync && schema.pending_self_managed_table) {
-            confirmPendingSelfManagedSync(1, askAboutHistoryThenApply)
+            confirmPendingSelfManagedSync(askAboutHistoryThenApply)
             return
         }
 
@@ -1099,16 +1099,18 @@ function ColumnsAndRowFiltersSection({
                                       ? 'No columns discovered yet for this schema — they will appear after the first successful sync.'
                                       : 'No columns discovered yet for this schema.'}
                             </span>
-                            <SchemaEditorAction schema={schema}>
-                                <LemonButton
-                                    type="secondary"
-                                    size="small"
-                                    loading={refreshingSchemas}
-                                    onClick={() => refreshSchemas()}
-                                >
-                                    Pull new schemas
-                                </LemonButton>
-                            </SchemaEditorAction>
+                            {source?.supports_table_discovery !== false && (
+                                <SchemaEditorAction schema={schema}>
+                                    <LemonButton
+                                        type="secondary"
+                                        size="small"
+                                        loading={refreshingSchemas}
+                                        onClick={() => refreshSchemas()}
+                                    >
+                                        Pull new schemas
+                                    </LemonButton>
+                                </SchemaEditorAction>
+                            )}
                         </div>
                     ) : (
                         <>

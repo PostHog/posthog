@@ -1,6 +1,8 @@
 from products.tasks.backend.facade.profiles import (
     TRUSTED_DOMAINS,
+    AgentPolicy,
     DrivePolicy,
+    EndsRun,
     GithubAccess,
     GithubResolution,
     NetworkAccess,
@@ -79,7 +81,7 @@ REVIEW = TaskProfile(
     default_pr_authorship=PrAuthorship.BOT,
     create_pr=True,
     finish_tool=False,
-    done_on_turn_close=False,
+    done_on_turn_close=True,
     idle_minutes=30,
     inactivity_minutes=10,
     tool_call_minutes=None,
@@ -89,6 +91,7 @@ REVIEW = TaskProfile(
     max_cost_usd=None,
     task_budget_usd=None,
     finish_in_flight=True,
+    agent_policy=AgentPolicy(ends_run=EndsRun.CALLER),
 )
 
 PROFILES = (REVIEW,)

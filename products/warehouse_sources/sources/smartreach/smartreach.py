@@ -14,6 +14,7 @@ from products.warehouse_sources.sources.sdk import (
     SinglePagePaginator,
     SourceResponse,
     build_dependent_resource,
+    lift_nested,
     make_tracked_session,
     rest_api_resource,
     validate_via_probe,
@@ -87,8 +88,14 @@ def _add_prospect_id(row: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
+def _lift_channel_settings(row: dict[str, Any]) -> dict[str, Any]:
+    # One column per channel (`email_settings`, `call_settings`, ...) instead of one wrapper object.
+    return lift_nested(row, "channel_settings")
+
+
 _ROW_MAPS: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "campaign_prospects": _add_prospect_id,
+    "campaign_channel_settings": _lift_channel_settings,
 }
 
 

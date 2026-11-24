@@ -18,8 +18,8 @@ export function useBulkScanMenuItems(): {
     const { selectedRecordingsIds } = useValues(sessionRecordingsPlaylistLogic)
     const { scanners, scannersLoading, scanning } = useValues(bulkScanLogic)
     const { scanRecordings } = useActions(bulkScanLogic)
-    const { quota } = useValues(visionQuotaLogic)
-    const { disabledReason: quotaDisabledReason, tooltip: quotaTooltip } = quotaUx(quota)
+    const { quota, onFreePlan } = useValues(visionQuotaLogic)
+    const { disabledReason: quotaDisabledReason, tooltip: quotaTooltip } = quotaUx(quota, onFreePlan)
 
     const items: LemonMenuItem[] = scannersLoading
         ? [{ label: 'Loading scanners…', disabledReason: 'Loading' }]

@@ -1447,6 +1447,51 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             stored_mode,
         )
 
+    @parameterized.expand(
+        [
+            ("events", FlagEvaluationsMode.EVENTS, False, False),
+            ("read_flag_evaluations", FlagEvaluationsMode.READ_FLAG_EVALUATIONS, False, False),
+            ("flag_evaluations_only", FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, False, True),
+            ("native_events_table", FlagEvaluationsMode.EVENTS, True, True),
+        ]
+    )
+    def test_flag_calls_only_in_flag_evaluations(self, _name, mode, native_events, expected):
+        OrganizationFeatureFlagsConfig.objects.filter(organization=self.organization).update(flag_evaluations_mode=mode)
+
+        with self.is_cloud(True), self.settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=native_events):
+            response = self.client.get(f"/api/projects/{self.project.id}/")
+
+        self.assertEqual(response.json()["flag_calls_only_in_flag_evaluations"], expected)
+
+    @parameterized.expand(
+        [
+            ("events_writes_kept", True, False, FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY),
+            ("events_writes_kept_while_reads_are_forced_to_events", True, True, FlagEvaluationsMode.EVENTS),
+            (
+                "events_writes_stopped_while_reads_are_forced_to_events",
+                False,
+                True,
+                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+            ),
+        ]
+    )
+    def test_flag_evaluations_only_that_keeps_writing_flag_calls_to_events(
+        self, _name, keep_writing, force_events, expected_mode
+    ):
+        OrganizationFeatureFlagsConfig.objects.filter(organization=self.organization).update(
+            flag_evaluations_mode=FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+            keep_writing_flag_calls_to_events=keep_writing,
+        )
+
+        with (
+            self.settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False),
+            override_instance_config("FLAG_EVALUATIONS_READS_FORCE_EVENTS", force_events),
+        ):
+            body = self.client.get(f"/api/projects/{self.project.id}/").json()
+
+        self.assertEqual(body["flag_evaluations_mode"], expected_mode)
+        self.assertEqual(body["flag_calls_only_in_flag_evaluations"], not keep_writing)
+
     def test_retrieve_project_does_not_500_when_broker_unavailable(self):
         # Regression: get_product_intents used to call calculate_product_activation.delay()
         # on every retrieve, which 500s the whole endpoint when the broker is down. It now

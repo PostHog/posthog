@@ -86,7 +86,9 @@ class MaxioSource(ResumableSource[MaxioSourceConfig, MaxioResumeConfig]):
                 # Datetime windows are interpreted in the site's timezone — re-read a
                 # trailing day to cover the skew. Integer cursors (`since_id`) are exact.
                 default_incremental_lookback_seconds=(
-                    TIMEZONE_SKEW_LOOKBACK_SECONDS if endpoint.incremental_date_field else None
+                    TIMEZONE_SKEW_LOOKBACK_SECONDS
+                    if endpoint.incremental_date_field or endpoint.since_date_field
+                    else None
                 ),
             )
             for name, endpoint in ENDPOINTS.items()

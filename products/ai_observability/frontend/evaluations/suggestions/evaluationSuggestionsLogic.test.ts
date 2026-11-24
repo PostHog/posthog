@@ -24,6 +24,8 @@ function suggestion(overrides: Partial<EvalSuggestionApi> = {}): EvalSuggestionA
         headline: '1 in 125 traces ends on a failed call',
         outcome: 'Checks every trace for a tool or model call that failed with no recovery.',
         reason: 'A tool call failed and no later attempt succeeded.',
+        observation: '',
+        observation_scope: '',
         draft: { evaluation_type: 'hog' },
         filters: [],
         rollout_percentage: 100,
@@ -39,6 +41,7 @@ function suggestion(overrides: Partial<EvalSuggestionApi> = {}): EvalSuggestionA
         created_evaluation: null,
         target_evaluation: null,
         target_evaluation_name: null,
+        fix_problem: null,
         similar_evaluation: null,
         similar_evaluation_name: null,
         dismiss_reason: null,
@@ -253,4 +256,39 @@ describe('evaluationSuggestionsLogic', () => {
             reason: 'too_noisy',
         })
     })
+
+    it.each([
+        { saved: true, cardsLeft: [], captured: true },
+        { saved: false, cardsLeft: [CODE_CHECK.id, JUDGE.id], captured: false },
+    ])(
+        'turns suggestions off and hides the cards only once saved (saved: $saved)',
+        async ({ saved, cardsLeft, captured }) => {
+            const bodies: unknown[] = []
+            useMocks({
+                patch: {
+                    [`${SUGGESTIONS_URL}/settings/`]: async ({ request }) => {
+                        bodies.push(await request.json())
+                        return saved ? [200, { enabled: false }] : [500, { detail: 'boom' }]
+                    },
+                },
+            })
+
+            await expectLogic(logic, () => logic.actions.turnOffSuggestions('not_useful')).toFinishAllListeners()
+
+            expect(bodies).toEqual([{ enabled: false }])
+            expect(logic.values.suggestionList?.results.map(({ id }) => id)).toEqual(cardsLeft)
+            expect(logic.values.turningOff).toBe(false)
+            const turnedOff = capture.mock.calls.filter(([event]) => event === 'llma eval suggestions turned off')
+            expect(turnedOff).toEqual(
+                captured
+                    ? [
+                          [
+                              'llma eval suggestions turned off',
+                              { source: 'evals_page', reason: 'not_useful', open_cards: 2 },
+                          ],
+                      ]
+                    : []
+            )
+        }
+    )
 })

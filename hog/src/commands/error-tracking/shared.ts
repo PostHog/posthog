@@ -4,7 +4,8 @@ import type { Context } from '@/core/context'
 import { EXIT_USAGE, HogError } from '@/core/errors'
 import type { Output, Report } from '@/core/output'
 import { plural } from '@/core/text'
-import type { ErrorTrackingOptions, InjectedReport, UploadReport } from '@/error-tracking/run'
+import type { UploadReport } from '@/error-tracking/run'
+import type { ErrorTrackingOptions, InjectedReport } from '@/error-tracking/session'
 
 // The options `inject`, `upload` and `process` share, and how their results look.
 
@@ -15,6 +16,16 @@ export const PATHS = {
         description: 'Files or folders to read. Defaults to errorTracking.sources in posthog.json',
         optional: true,
         variadic: true,
+    },
+} as const
+
+// For the build plugins, which hand over the files they wrote.
+export const PATHS_OR_STDIN = {
+    paths: {
+        ...PATHS.paths,
+        description:
+            'Files or folders to read, or - to read them from stdin, one per line. Defaults to errorTracking.sources in posthog.json',
+        stdin: true,
     },
 } as const
 

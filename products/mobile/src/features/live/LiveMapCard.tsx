@@ -1,14 +1,13 @@
 import { useRouter } from 'expo-router'
 import type { ReactElement } from 'react'
 import { Text, View } from 'react-native'
-
 import { liveCountriesHref } from '@/features/views/viewRoutes'
 import { plural } from '@/model/adapters/text'
 import type { LiveWorld } from '@/model/live'
+import { DEFAULT_LIVE_TRAFFIC_FILTERS, type LiveTrafficFilters } from '@/model/liveTrafficFilters'
 import { ChevronRightIcon } from '@/ui/icons/ChevronRightIcon'
 import { createStyles, useColors } from '@/ui/theme'
 import { iconSizes, type } from '@/ui/tokens'
-
 import { trackLiveMapOpened } from './analytics'
 import { LiveCard, LiveCardLoading, LiveCardNote } from './LiveCard'
 import { countryText } from './liveFormat'
@@ -19,6 +18,8 @@ interface LiveMapCardProps {
     users?: boolean
     mobileOnly?: boolean
     webOnly?: boolean
+    filterTestAccounts?: boolean
+    trafficFilters?: LiveTrafficFilters
     world: LiveWorld | null
     /** Live's Pause. Visitors by country follows it, and Pause cannot change while that screen covers Live. */
     paused: boolean
@@ -31,12 +32,22 @@ export function LiveMapCard({
     users = false,
     mobileOnly = false,
     webOnly = false,
+    filterTestAccounts = false,
+    trafficFilters = DEFAULT_LIVE_TRAFFIC_FILTERS,
 }: LiveMapCardProps): ReactElement {
     const colors = useColors()
     const styles = useStyles()
     const router = useRouter()
     const openCountries = (): void => {
-        useLiveWorldShare.setState({ world, paused, users, mobileOnly, webOnly })
+        useLiveWorldShare.setState({
+            world,
+            paused,
+            users,
+            mobileOnly,
+            webOnly,
+            filterTestAccounts,
+            trafficFilters,
+        })
         trackLiveMapOpened()
         router.push(liveCountriesHref())
     }

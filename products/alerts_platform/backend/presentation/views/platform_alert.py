@@ -40,8 +40,8 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.alerts_platform.backend.facade import api as platform_api
 from products.alerts_platform.backend.facade.contracts import (
     DEFAULT_MAX_INSTANCES,
-    MAX_EVALUATION_PERIODS,
     MAX_INSTANCES_CEILING,
+    MAX_SOURCE_EVALUATION_PERIODS,
     MAX_STORED_INTEGER,
     AlertDestinationData,
     AlertDestinationValidationError,
@@ -357,6 +357,7 @@ SOURCE_KIND_RESOURCE: dict[str, APIScopeObject] = {
     PlatformAlertConfigurationSourceKind.WAREHOUSE_DESTINATION.value: "external_data_source",
     PlatformAlertConfigurationSourceKind.METRICS.value: "metrics",
     PlatformAlertConfigurationSourceKind.TRACES.value: "tracing",
+    PlatformAlertConfigurationSourceKind.ERROR_TRACKING.value: "error_tracking",
 }
 
 # Kinds the read API does not serve. An insight copy shows its insight's bound and firing state,
@@ -383,12 +384,13 @@ class PlatformAlertConfigurationEditSerializer(serializers.Serializer):
     )
     evaluation_periods = serializers.IntegerField(
         min_value=1,
-        max_value=MAX_EVALUATION_PERIODS,
-        help_text="Number of recent checks considered when deciding to fire.",
+        max_value=MAX_SOURCE_EVALUATION_PERIODS,
+        help_text="Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; "
+        "metrics alerts allow up to 1441.",
     )
     datapoints_to_alarm = serializers.IntegerField(
         min_value=1,
-        max_value=MAX_EVALUATION_PERIODS,
+        max_value=MAX_SOURCE_EVALUATION_PERIODS,
         help_text="Number of breaching checks within evaluation_periods required to fire. "
         "Cannot exceed evaluation_periods.",
     )
@@ -557,13 +559,15 @@ class PlatformAlertEventKind(models.TextChoices):
     UNSNOOZE = "unsnooze", "Unsnooze"
     RESET = "reset", "Reset"
     CONFIG_CHANGE = "config_change", "Config change"
+    HANDBACK = "handback", "Handback"
 
 
 class PlatformAlertEventSerializer(serializers.Serializer):
     occurred_at = serializers.DateTimeField(help_text="When it happened.")
     kind = serializers.ChoiceField(
         choices=PlatformAlertEventKind.choices,
-        help_text="check for a check that moved the alert's state or failed, else the change a person made.",
+        help_text="check for a check that moved the alert's state or failed, handback for a logs alert an operator "
+        "handed back to the logs stack, else the change a person made.",
     )
     previous_state = serializers.ChoiceField(
         choices=PlatformAlertState.choices, help_text="The alert's state before it."
@@ -635,7 +639,8 @@ class PlatformAlertsFlagPermission(BasePermission):
     """Lets a caller in when the flag of at least one source kind is on. Each action then serves only
     the kinds whose flag is on."""
 
-    message = f"This action requires feature flag {PLATFORM_ALERTS_FLAG!r} to be enabled for your organization."
+    # Each source kind has its own flag, so the message names none of them.
+    message = "Alerts are not available for this project yet."
     code = FEATURE_FLAG_REQUIRED_ERROR_CODE
 
     def has_permission(self, request: Request, view: APIView) -> bool:

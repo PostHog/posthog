@@ -1,30 +1,39 @@
 from parameterized import parameterized
 
-from products.ai_observability.backend.logic.eval_suggestions import adapters, cards
+from products.ai_observability.backend.logic.eval_suggestions import adapters, cards, catalog
 from products.ai_observability.backend.logic.eval_suggestions.coverage import EvalFix, FilterChange
 from products.ai_observability.backend.logic.eval_suggestions.profile import FieldMeaning, StructuredGap
 
 
 @parameterized.expand(
     [
-        ("rare_failure_reads_as_one_in_n", 2 / 250, None, "1 in 125 traces ends on a failed call"),
-        ("common_failure_reads_as_a_share", 0.12, None, "12% of traces end on a failed call"),
-        ("filtered_check_names_its_segment", 0.05, "batch", "1 in 20 batch traces ends on a failed call"),
+        ("all_traffic", 2, 250, None, "Flags traces where", "2 of 250 sampled traces flagged"),
+        ("one_unit", 1, 1, None, "Flags traces where", "1 of 1 sampled trace flagged"),
+        (
+            "filtered_check_names_its_segment",
+            5,
+            100,
+            "batch",
+            "Flags batch traces where",
+            "5 of 100 sampled traces flagged",
+        ),
     ]
 )
-def test_code_check_headline(_name: str, failure_rate: float, segment: str | None, expected: str) -> None:
-    assert cards.code_check_text(adapters.unrecovered_errors([]), failure_rate, segment).headline == expected
+def test_a_code_check_keeps_its_title_and_reports_counts_from_its_sample(
+    _name: str, failed: int, of: int, segment: str | None, opening: str, observation: str
+) -> None:
+    text = cards.code_check_text(adapters.unrecovered_errors([]), failed, of, segment)
 
-
-@parameterized.expand(
-    [
-        ("all_traffic", 100.0, "Checks every trace for a tool or model call"),
-        ("sampled", 0.74, "Checks 0.74% of traces for a tool or model call"),
-    ]
-)
-def test_code_check_outcome_says_how_much_it_checks(_name: str, rollout: float, opening: str) -> None:
-    text = cards.code_check_text(adapters.unrecovered_errors([]), 0.01, None, rollout)
+    assert text.headline == "Tool or model calls that never succeed"
     assert text.outcome.startswith(opening)
+    assert (text.observation, text.observation_scope) == (observation, "Sampled from the last 7 days")
+
+
+@parameterized.expand([("sentiment", "generation"), ("user_correction", "session")])
+def test_a_screened_judge_counts_the_traces_screening_read(key: str, target: str) -> None:
+    text = cards.judge_text(catalog.template(key), target, 5, 40)
+
+    assert text.observation == "5 of 40 sampled traces flagged by a screening model"
 
 
 @parameterized.expand(
@@ -34,42 +43,29 @@ def test_code_check_outcome_says_how_much_it_checks(_name: str, rollout: float, 
             "findings[].priority",
             "urgency",
             ("P0", "P1"),
-            (0.32, 0.032),
-            "Security findings are marked urgent 10× more often",
+            "Security findings marked urgent",
+            "32% of sampled security findings are marked urgent, compared with 3% of findings elsewhere",
         ),
         (
             "low_priorities_keep_their_value",
             "findings[].priority",
             "urgency",
             ("P3",),
-            (0.6, 0.2),
-            'Security findings are marked "P3" 3× more often',
+            'Security findings marked "P3"',
+            '32% of sampled security findings are marked "P3", compared with 3% of findings elsewhere',
         ),
         (
             "categories_read_as_labels",
             "findings[].category",
             "label",
             ("bug", "regression"),
-            (0.4, 0.1),
-            'Security findings are labeled "bug" or "regression" 4× more often',
-        ),
-        (
-            "no_ratio_when_other_segments_never_use_the_value",
-            "findings[].priority",
-            "urgency",
-            ("P0",),
-            (0.32, 0.0),
-            "32% of security findings are marked urgent, compared with 0% elsewhere",
+            'Security findings labeled "bug" or "regression"',
+            '32% of sampled security findings are labeled "bug" or "regression", compared with 3% of findings elsewhere',
         ),
     ]
 )
-def test_gap_headline(
-    _name: str,
-    field: str,
-    meaning: FieldMeaning,
-    values: tuple[str, ...],
-    rates: tuple[float, float],
-    expected: str,
+def test_a_gap_card_keeps_rates_out_of_its_title(
+    _name: str, field: str, meaning: FieldMeaning, values: tuple[str, ...], title: str, observation: str
 ) -> None:
     gap = StructuredGap(
         field=field,
@@ -77,19 +73,20 @@ def test_gap_headline(
         values=values,
         segment_key="review_lens",
         segment_value="security",
-        segment_rate=rates[0],
-        other_rate=rates[1],
+        segment_rate=0.32,
+        other_rate=0.032,
         segment_items=100,
         other_items=300,
         examples=(),
     )
-    assert cards.gap_text(gap, cost="").headline == expected
+    text = cards.gap_text(gap)
+    assert (text.headline, text.observation) == (title, observation)
 
 
 @parameterized.expand(
     [
         ("judge", "llm_judge", "Check that its prompt can tell a pass from a fail."),
-        ("hog_has_no_prompt", "hog", "Check that its code can return both answers."),
+        ("hog_has_no_prompt", "hog", "Check that its code can return both results."),
     ]
 )
 def test_one_outcome_card_advice_fits_the_eval_type(_name: str, evaluation_type: str, advice: str) -> None:
@@ -106,10 +103,7 @@ def test_one_outcome_card_advice_fits_the_eval_type(_name: str, evaluation_type:
         graded_runs=1_200_000,
     )
     text = cards.fix_text(fix)
-    assert (text.outcome, text.reason) == (
-        advice,
-        "It returned true on 99% of 1,200,000 graded runs in 30 days, and gives the same reasoning for both answers.",
-    )
+    assert text.outcome == f"It returned true on 99% of 1,200,000 graded runs in the last 30 days. {advice}"
 
 
 @parameterized.expand(
@@ -118,25 +112,31 @@ def test_one_outcome_card_advice_fits_the_eval_type(_name: str, evaluation_type:
             "stale_value",
             True,
             FilterChange(key="ai_product", old_value="signals", new_value="signals_scout"),
-            "Its filter looks for ai_product = signals, which your traffic stopped sending. "
-            "The fix changes it to ai_product = signals_scout, so the eval runs again.",
+            "A filter value no longer appears in your events",
+            "No AI events from the last 14 days have ai_product = signals. The closest value sent is signals_scout. "
+            "The fix changes the filter to that value.",
         ),
         (
+            # No matching events is a bounded observation, not an execution failure, and new events can match.
             "no_match",
             True,
             None,
-            "Its filters match none of your AI events from the last 14 days, so it checks nothing until they change.",
+            "No recent events match this eval",
+            "No AI events from the last 14 days match this eval's filters. "
+            "If you still expect traffic, check its filters.",
         ),
         (
             "no_condition_sets",
             False,
             None,
-            "It has no trigger conditions, so it runs on nothing. Add a condition to choose what it checks.",
+            "This eval has no trigger conditions",
+            "It's enabled but has no condition sets, and it has no runs in the last 30 days. "
+            "Add a condition to choose what it checks.",
         ),
     ]
 )
-def test_a_silent_eval_card_names_why_it_stopped(
-    _name: str, has_conditions: bool, change: FilterChange | None, outcome: str
+def test_an_existing_eval_notice_names_the_condition_the_run_observed(
+    _name: str, has_conditions: bool, change: FilterChange | None, headline: str, outcome: str
 ) -> None:
     fix = EvalFix(
         evaluation_id="e1",
@@ -150,5 +150,4 @@ def test_a_silent_eval_card_names_why_it_stopped(
         has_conditions=has_conditions,
     )
     text = cards.fix_text(fix)
-    assert text.outcome == outcome
-    assert text.outcome not in text.reason
+    assert (text.headline, text.outcome) == (headline, outcome)

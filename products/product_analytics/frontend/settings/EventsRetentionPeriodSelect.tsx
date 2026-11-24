@@ -1,11 +1,13 @@
 import { LemonDialog, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
 
 import { EventsRetentionChangeNote } from './EventsRetentionChangeNote'
 import { EventsRetentionLevel } from './eventsRetentionDeletionCountLogic'
 import { EventsRetentionPeriodChoices, eventsRetentionPeriodOptions } from './eventsRetentionPeriodOptions'
 import { EventsRetentionSupportPeriod } from './EventsRetentionSupportPeriod'
+import { QuillEventsRetentionPeriodSelect } from './QuillEventsRetentionPeriodSelect'
 import { RetentionPeriods, retentionChangeDeletion } from './retentionChangeDeletion'
 import { retentionPeriodLabel } from './retentionPeriodLabel'
 
@@ -20,6 +22,7 @@ export interface EventsRetentionPeriodSelectProps extends RetentionPeriods, Even
 }
 
 export function EventsRetentionPeriodSelect(props: EventsRetentionPeriodSelectProps): JSX.Element {
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const {
         retentionMonths,
         defaultMonths,
@@ -54,6 +57,18 @@ export function EventsRetentionPeriodSelect(props: EventsRetentionPeriodSelectPr
             },
             secondaryButton: { children: 'Cancel' },
         })
+    }
+
+    if (todayRailNav) {
+        return (
+            <QuillEventsRetentionPeriodSelect
+                {...props}
+                options={options}
+                supportMonths={supportMonths}
+                abovePlan={abovePlan}
+                onSelect={confirm}
+            />
+        )
     }
 
     return (

@@ -31,7 +31,7 @@ export interface taskCommentContextsLogicActions {
             body: string
             id: string
             label: string
-            screenshot?: string | undefined
+            screenshot?: string
             screenshotFile?: File | undefined
         } | null
     }
@@ -49,7 +49,7 @@ export interface taskCommentContextsLogicActions {
             body: string
             id: string
             label: string
-            screenshot?: string | undefined
+            screenshot?: string
         }[]
     }
 }

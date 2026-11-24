@@ -14,7 +14,7 @@ const OTHER = { other: true } as const
 
 class PlistError extends Error {}
 
-const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }
+const ENTITIES: Readonly<Record<string, string>> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }
 
 function unescapeXml(text: string): string {
     return text.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (entity, name: string) => {
@@ -24,7 +24,8 @@ function unescapeXml(text: string): string {
         if (name.startsWith('#')) {
             return String.fromCodePoint(Number.parseInt(name.slice(1), 10))
         }
-        const value = ENTITIES[name]
+        // The name comes from the file, so only the five XML entities count, never `constructor`.
+        const value = Object.hasOwn(ENTITIES, name) ? ENTITIES[name] : undefined
         if (value === undefined) {
             throw new PlistError(`unknown entity ${entity}`)
         }

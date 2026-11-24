@@ -13,6 +13,7 @@ from posthog.sync import database_sync_to_async
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.distinct_ids import replay_vision_distinct_id
 from products.replay_vision.backend.models.replay_observation import ObservationTrigger, ReplayObservation
+from products.replay_vision.backend.scope.load import experiment_id_of
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.errors import FailureKind, ScannerFailureError
 from products.replay_vision.backend.temporal.types import EmitObservationEventInputs, ScannerSnapshot
@@ -105,10 +106,10 @@ def _experiment_properties(observation: ReplayObservation, snapshot: ScannerSnap
     """The watched experiment and this session's attributed variant, so HogQL readouts over
     `$recording_observed` need no exposure join. Empty for scans that watch no experiment; the
     variant is absent on rows scanned before attribution shipped."""
-    scope = snapshot.experiment_scope()
-    if not scope or scope.get("experiment_id") is None:
+    experiment_id = experiment_id_of(snapshot)
+    if experiment_id is None:
         return {}
-    properties: dict = {"experiment_id": scope["experiment_id"]}
+    properties: dict = {"experiment_id": experiment_id}
     result = observation.scanner_result if isinstance(observation.scanner_result, dict) else {}
     variant = result.get("experiment_variant")
     if variant is not None:

@@ -195,7 +195,7 @@ def resolve_ledger_baseline(run: Run, rendered: dict[str, str]) -> LedgerResolut
 
     merge_base = _merge_base_position(run, merge_base_sha, seed)
     ledger_hashes = ledger.ledger_at(repo.id, run.run_type, merge_base.position)
-    overlay = baseline_approvals.overlay_for_run(run, comparison, ledger_hashes)
+    overlay = baseline_approvals.overlay_for_run(run, comparison, merge_base.position, ledger_hashes)
     overlay_hashes = {identifier: entry.content_hash for identifier, entry in overlay.entries.items()}
 
     tolerated_lookup = toleration.build_tolerated_lookup(

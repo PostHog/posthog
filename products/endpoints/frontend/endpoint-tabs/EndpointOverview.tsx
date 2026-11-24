@@ -3,16 +3,23 @@ import { useValues } from 'kea'
 import { LemonButton, LemonLabel, LemonTag, ProfilePicture } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Link } from 'lib/lemon-ui/Link'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { urls } from 'scenes/urls'
 
 import { endpointLogic } from '../endpointLogic'
 import { EndpointTab, endpointSceneLogic } from '../endpointSceneLogic'
+import { QuillEndpointOverview } from '../QuillEndpointOverview'
 
 export function EndpointOverview(): JSX.Element {
     const { endpoint } = useValues(endpointLogic)
     const { viewingVersion } = useValues(endpointSceneLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return <QuillEndpointOverview />
+    }
 
     if (!endpoint) {
         return <></>

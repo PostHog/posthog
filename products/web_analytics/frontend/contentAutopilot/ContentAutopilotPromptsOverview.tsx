@@ -7,12 +7,14 @@ import { pluralize } from 'lib/utils/strings'
 import { PagePerformanceCard } from 'scenes/web-analytics/PagePerformanceCard'
 import { PagePerformanceCardHeader } from 'scenes/web-analytics/PagePerformanceCardHeader'
 
+import { AiVisibilityCompetitorReview } from './AiVisibilityCompetitorReview'
 import { ContentAutopilotCitedSitesTable } from './ContentAutopilotCitedSitesTable'
 import { ContentAutopilotEngineTable } from './ContentAutopilotEngineTable'
 import { contentAutopilotFiltersLogic } from './contentAutopilotFiltersLogic'
 import { ContentAutopilotFirstRunCard } from './ContentAutopilotFirstRunCard'
 import { ContentAutopilotKpiStat } from './ContentAutopilotKpiStat'
 import { contentAutopilotLogic } from './contentAutopilotLogic'
+import { ContentAutopilotMovers } from './ContentAutopilotMovers'
 import { ContentAutopilotOpenInsightButton } from './ContentAutopilotOpenInsightButton'
 import { ContentAutopilotPromptsDisabled } from './ContentAutopilotPromptsDisabled'
 import { contentAutopilotPromptsOverviewLogic } from './contentAutopilotPromptsOverviewLogic'
@@ -26,7 +28,7 @@ import { ContentAutopilotStatStrip } from './ContentAutopilotStatStrip'
 import { ContentAutopilotVisibilityChart } from './ContentAutopilotVisibilityChart'
 import { ContentAutopilotVisibilityDashboardButton } from './ContentAutopilotVisibilityDashboardButton'
 import { POSITION_DESCRIPTION } from './promptReport'
-import { brandedAnswersNote, filtersHeading, segmentPrompts, sortEngines } from './utils'
+import { brandedAnswersNote, filtersHeading, segmentPrompts, sortEngines, windowRange } from './utils'
 
 export const ContentAutopilotPromptsOverview = (): JSX.Element => {
     const {
@@ -96,7 +98,7 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
                     data-attr="content-autopilot-prompts-overview-segment-empty"
                 >
                     <h4 className="m-0">
-                        No answers to {segmentPrompts(overview.branded)} in the last {overview.days} days
+                        No answers to {segmentPrompts(overview.branded)} {windowRange(overview)}
                         {narrowed ? ' that match these filters' : ''}
                     </h4>
                     <p className="m-0 mt-1 text-muted">Choose other filters above to see the other answers.</p>
@@ -130,6 +132,7 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
             data-attr="content-autopilot-prompts-overview"
         >
             {header}
+            <AiVisibilityCompetitorReview />
             <ContentAutopilotStatStrip
                 className="grid-cols-2 @3xl/prompts-overview:grid-cols-4"
                 data-attr="content-autopilot-prompts-overview-kpis"
@@ -173,11 +176,13 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
                 data-attr="content-autopilot-prompts-overview-visibility"
             />
 
+            <ContentAutopilotMovers />
+
             <div className="grid grid-cols-1 @3xl/prompts-overview:grid-cols-2 gap-4">
                 <PagePerformanceCard className="min-w-0">
                     <PagePerformanceCardHeader
                         title="By engine"
-                        description={`Each engine's answers to your prompts over the last ${overview.days} days. Failed checks are left out.`}
+                        description={`Each engine's answers to your prompts ${windowRange(overview)}. Failed checks are left out.`}
                     />
                     <div className="overflow-x-auto" data-attr="content-autopilot-prompts-overview-engines">
                         <ContentAutopilotEngineTable engines={engines} />
@@ -212,7 +217,8 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
                     <div className="overflow-x-auto" data-attr="content-autopilot-prompts-overview-sources-tile">
                         <ContentAutopilotCitedSitesTable
                             domains={overview.top_domains}
-                            days={overview.days}
+                            dateFrom={overview.window_from}
+                            dateTo={overview.window_to}
                             branded={overview.branded}
                         />
                     </div>
@@ -225,7 +231,8 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
                     <div className="overflow-x-auto" data-attr="content-autopilot-prompts-overview-searches">
                         <ContentAutopilotPromptsSearchTable
                             rows={overview.top_searches}
-                            days={overview.days}
+                            dateFrom={overview.window_from}
+                            dateTo={overview.window_to}
                             branded={overview.branded}
                             onOpenPrompt={openOverviewSearchPrompt}
                         />

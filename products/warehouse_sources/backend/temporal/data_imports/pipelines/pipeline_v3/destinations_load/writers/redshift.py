@@ -27,8 +27,6 @@ Wiring that up here is follow-up work.
 from __future__ import annotations
 
 import json
-from collections.abc import AsyncIterator, Iterator
-from contextlib import contextmanager
 from typing import Any, ClassVar, cast
 
 import pyarrow as pa
@@ -42,14 +40,6 @@ from posthog.models.integration import IntegrationError, RedshiftIntegration, re
 from products.batch_exports.backend.facade.destinations.postgres import Fields, PostgreSQLClient
 from products.batch_exports.backend.facade.destinations.redshift import RedshiftClient, resolve_redshift_client_inputs
 from products.batch_exports.backend.facade.destinations.s3 import InvalidCredentialsError
-from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import (
-    BatchWriteOutcome,
-    DestinationBatchContext,
-    DestinationRunContext,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.errors import (
-    DestinationConfigurationError,
-)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.writers.postgres import (
     PostgresDestinationWriter,
 )
@@ -80,19 +70,6 @@ AWS_PERMISSIONS_DETAIL = (
 CLUSTER_NOT_FOUND_DETAIL = (
     "AWS cannot find the Redshift cluster or workgroup. Check the host on the destination, then run the sync again."
 )
-
-
-def _configuration_error_detail(err: Exception) -> str | None:
-    if isinstance(err, InsufficientPrivilege):
-        return PERMISSIONS_DETAIL
-    if isinstance(err, IntegrationError):
-        # Written by us for a host or workgroup ARN that cannot work, and holds no secret.
-        return str(err)
-    if isinstance(err, InvalidCredentialsError):
-        return ROLE_DETAIL
-    if isinstance(err, botocore.exceptions.ClientError):
-        return _aws_error_detail(err)
-    return None
 
 
 def _aws_error_detail(err: botocore.exceptions.ClientError) -> str | None:
@@ -153,29 +130,17 @@ class RedshiftDestinationWriter(PostgresDestinationWriter):
 
     integration_kind: ClassVar[str] = RedshiftIntegration.integration_kind
 
-    @contextmanager
-    def _configuration_errors(self) -> Iterator[None]:
-        try:
-            yield
-        except Exception as err:
-            detail = _configuration_error_detail(err)
-            if detail is not None:
-                raise DestinationConfigurationError(self._ctx.destination_name, detail) from err
-            raise
-
-    async def write_batch(
-        self, batches: AsyncIterator[pa.RecordBatch], ctx: DestinationBatchContext
-    ) -> BatchWriteOutcome:
-        with self._configuration_errors():
-            return await super().write_batch(batches, ctx)
-
-    async def finalize_run(self, ctx: DestinationRunContext) -> None:
-        with self._configuration_errors():
-            await super().finalize_run(ctx)
-
-    async def abort_run(self, ctx: DestinationRunContext) -> None:
-        with self._configuration_errors():
-            await super().abort_run(ctx)
+    def _write_error_detail(self, err: Exception) -> str | None:
+        if isinstance(err, InsufficientPrivilege):
+            return PERMISSIONS_DETAIL
+        if isinstance(err, IntegrationError):
+            # Written by us for a host or workgroup ARN that cannot work, and holds no secret.
+            return str(err)
+        if isinstance(err, InvalidCredentialsError):
+            return ROLE_DETAIL
+        if isinstance(err, botocore.exceptions.ClientError):
+            return _aws_error_detail(err)
+        return super()._write_error_detail(err)
 
     async def _client_from_integration(self, integration: IntegrationRecord) -> PostgreSQLClient:
         config = self._ctx.config or {}
@@ -193,10 +158,29 @@ class RedshiftDestinationWriter(PostgresDestinationWriter):
     def _column_type(self, arrow_type: pa.DataType) -> str:
         return redshift_type_for(arrow_type)
 
+    async def _drop_batch_index_column(self, client: PostgreSQLClient, table: str) -> None:
+        """Redshift's `ALTER TABLE ... DROP COLUMN` has no `IF EXISTS` clause, so the check
+        has to happen on our side instead of the server's."""
+        existing = set(await client.aget_table_columns(self._schema, table))
+        if self._batch_index_column not in existing:
+            return
+        async with self._write_cursor(client) as cursor:
+            await cursor.execute(
+                sql.SQL("ALTER TABLE {}.{} DROP COLUMN {}").format(
+                    sql.Identifier(self._schema),
+                    sql.Identifier(table),
+                    sql.Identifier(self._batch_index_column),
+                )
+            )
+
     async def _load_batch(
         self, client: PostgreSQLClient, table: str, batch: pa.RecordBatch, column_names: list[str]
-    ) -> None:
-        """Insert rather than COPY FROM STDIN, which Redshift does not support."""
+    ) -> int:
+        """Insert rather than COPY FROM STDIN, which Redshift does not support.
+
+        Returns an approximation of the bytes sent: the encoded size of the bound parameters.
+        The statement text and the protocol framing around each row are not counted.
+        """
         nested = {field.name for field in batch.schema if is_nested_type(field.type)}
         statement = sql.SQL("INSERT INTO {}.{} ({}) VALUES ({})").format(
             sql.Identifier(self._schema),
@@ -214,6 +198,7 @@ class RedshiftDestinationWriter(PostgresDestinationWriter):
 
         async with self._write_cursor(client) as cursor:
             await cursor.executemany(statement, payload)
+        return sum(_encoded_size(value) for row in payload for value in row)
 
     async def _ensure_merge_stage(self, client: PostgreSQLClient, target: str, stage: str, schema: pa.Schema) -> None:
         """Ready the run's stage table as a copy of the destination table.
@@ -278,6 +263,14 @@ class RedshiftDestinationWriter(PostgresDestinationWriter):
             remove_duplicates=False,
             skip_delete=True,
         )
+
+
+def _encoded_size(value: Any) -> int:
+    if value is None:
+        return 0
+    if isinstance(value, bytes):
+        return len(value)
+    return len(str(value).encode())
 
 
 def _encode(value: Any) -> Any:

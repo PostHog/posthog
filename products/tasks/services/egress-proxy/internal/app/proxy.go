@@ -27,10 +27,11 @@ type Proxy struct {
 	state   atomic.Pointer[proxyState]
 	audit   *telemetry.Audit
 	metrics *telemetry.Metrics
+	limits  *requestLimits
 }
 
 func NewProxy(config ProxyConfig, audit *telemetry.Audit, metrics *telemetry.Metrics) (*Proxy, error) {
-	p := &Proxy{config: config, audit: audit, metrics: metrics}
+	p := &Proxy{config: config, audit: audit, metrics: metrics, limits: newRequestLimits(config.CacheEntries)}
 	if err := p.Reload(); err != nil {
 		return nil, err
 	}
@@ -66,7 +67,8 @@ func (p *Proxy) Reload() error {
 	transport.Proxy = nil
 	transport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: registryCAs}
 	client, err := registry.New(registry.Config{
-		BaseURL: p.config.RegistryURL, Region: p.config.RegistryRegion, SigningKey: strings.TrimSpace(string(signingKey)),
+		AllowClusterHTTP: p.config.RegistryAllowClusterHTTP,
+		BaseURL:          p.config.RegistryURL, Region: p.config.RegistryRegion, SigningKey: strings.TrimSpace(string(signingKey)),
 		Timeout: time.Duration(p.config.LookupTimeoutSeconds) * time.Second, HTTPClient: &http.Client{Transport: transport},
 	})
 	if err != nil {
@@ -138,20 +140,49 @@ func currentPeer(r *http.Request, roots *x509.CertPool) *http.Request {
 	return copy
 }
 
+func auditRequestID() string {
+	var id [16]byte
+	_, _ = rand.Read(id[:])
+	return hex.EncodeToString(id[:])
+}
+
 func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	started := time.Now()
 	r, cancel := boundedRequest(w, r, p.config.requestTimeout())
 	defer cancel()
 	ctx := r.Context()
+	relayKey := ""
+	expires := started.Add(5 * time.Minute)
+	if r.TLS != nil && len(r.TLS.VerifiedChains) > 0 && len(r.TLS.VerifiedChains[0]) > 0 {
+		peer := r.TLS.VerifiedChains[0][0]
+		relayKey, expires = identity.KeySHA256(peer), peer.NotAfter
+	}
+	if allowed, report := p.limits.admit(relayKey, expires); !allowed {
+		p.metrics.Request("rate_limited", time.Since(started))
+		if report {
+			if record, ok := p.audit.TryReserve(); ok {
+				event := telemetry.Event{RequestID: auditRequestID(), RelayKeySHA256: relayKey, Operation: "unknown", Outcome: "rate_limited", Status: http.StatusTooManyRequests}
+				record.Emit(event)
+				record.Emit(event)
+			}
+		}
+		w.Header().Set("Retry-After", "1")
+		if r.ProtoMajor == 1 && (r.ContentLength != 0 || len(r.TransferEncoding) != 0 || len(r.Trailer) != 0) {
+			w.Header().Set("Connection", "close")
+			if http.NewResponseController(w).SetReadDeadline(time.Now()) != nil {
+				panic(http.ErrAbortHandler)
+			}
+		}
+		http.Error(w, "request limit exceeded", http.StatusTooManyRequests)
+		return
+	}
 	record, ok := p.audit.TryReserve()
 	if !ok {
 		p.metrics.Request("audit_unavailable", time.Since(started))
 		http.Error(w, "audit unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	var requestID [16]byte
-	_, _ = rand.Read(requestID[:])
-	event := telemetry.Event{RequestID: hex.EncodeToString(requestID[:]), Operation: "unknown", Outcome: "denied", Status: http.StatusUnauthorized}
+	event := telemetry.Event{RequestID: auditRequestID(), RelayKeySHA256: relayKey, Operation: "unknown", Outcome: "denied", Status: http.StatusUnauthorized}
 	admitted := false
 	defer func() {
 		if !admitted {

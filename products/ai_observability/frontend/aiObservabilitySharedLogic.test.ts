@@ -5,6 +5,9 @@ import { expectLogic } from 'kea-test-utils'
 import { runInThisContext } from 'node:vm'
 
 import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
+import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -141,6 +144,82 @@ describe('aiObservabilitySharedLogic', () => {
             expect(logic.values.shouldFilterTestAccounts).toBe(true)
             expect(router.values.searchParams.filter_test_accounts).toBe(true)
             expect(router.values.hashParams.panel).toBe('max')
+        })
+    })
+
+    // The traces list reads and writes its own filters and dates there.
+    describe('the traces path with the navigation flag on', () => {
+        const NAV = FEATURE_FLAGS.AI_OBSERVABILITY_NAV_REDESIGN
+
+        function mountWithFlags(flags: string[]): ReturnType<typeof aiObservabilitySharedLogic.build> {
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags(flags, Object.fromEntries(flags.map((flag) => [flag, true])))
+            const logic = aiObservabilitySharedLogic()
+            logic.mount()
+            return logic
+        }
+
+        beforeEach(() => {
+            jest.clearAllMocks()
+            mockHasRecentAIEvents.mockResolvedValue(false)
+            initKeaTests(true, { ...MOCK_DEFAULT_TEAM, test_account_filters_default_checked: true })
+        })
+
+        it.each([
+            ['leaves its range alone on the traces path with the flag on', [NAV], urls.aiObservabilityTraces(), false],
+            ['follows the traces path with the flag off', [], urls.aiObservabilityTraces(), true],
+            ['follows the sessions path with the flag on', [NAV], urls.aiObservabilitySessions(), true],
+        ])('%s', async (_name, flags, path, follows) => {
+            const logic = mountWithFlags(flags)
+            const { dateFrom } = logic.values.dateFilter
+
+            router.actions.push(path, { date_from: '-30d' })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.dateFilter.dateFrom).toBe(follows ? '-30d' : dateFrom)
+        })
+
+        it('keeps an explicit test account choice of false when it syncs the range on another path', async () => {
+            const logic = mountWithFlags([NAV])
+
+            router.actions.push(`${urls.aiObservabilitySessions()}?date_from=-30d&filter_test_accounts=false`)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.shouldFilterTestAccounts).toBe(false)
+            expect(router.values.location.search).toContain('filter_test_accounts=false')
+        })
+
+        it('writes nothing to the traces URL', async () => {
+            router.actions.push(urls.aiObservabilityTraces(), { view: 'errors' })
+            const logic = mountWithFlags([NAV])
+
+            logic.actions.setDates('-30d', null)
+            logic.actions.setSearchQuery('refund')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(router.values.searchParams).toEqual({ view: 'errors' })
+        })
+
+        it("applies the project's test account default on the next path after entering traces first", async () => {
+            router.actions.push(urls.aiObservabilityTraces())
+            const logic = mountWithFlags([NAV])
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.shouldFilterTestAccounts).toBe(false)
+
+            router.actions.push(urls.aiObservabilitySessions())
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.shouldFilterTestAccounts).toBe(true)
+            expect(router.values.searchParams.filter_test_accounts).toBe(true)
+        })
+
+        it('still marks the cost tracking setup task done', async () => {
+            globalSetupLogic.mount()
+            router.actions.push(urls.aiObservabilityTraces())
+
+            await expectLogic(globalSetupLogic, () => {
+                mountWithFlags([NAV])
+            }).toDispatchActions([globalSetupLogic.actionCreators.markTaskAsCompleted(SetupTaskId.TrackCosts)])
         })
     })
 

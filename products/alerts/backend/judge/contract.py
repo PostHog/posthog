@@ -177,11 +177,15 @@ class JudgeAttribution:
     """
 
     team: "Team"
-    user: "User"
+    # None for a check that no person runs, such as anomaly scoring. Its caller owns the rollout,
+    # so the judge checks only the organization's AI data processing consent.
+    user: "User | None"
     # Names the scheduled check, and stays the same across retries of it, so the judge can
     # reuse a verdict it already paid for. None for a simulation.
     evaluation_id: str | None = None
     is_agent_billable: bool = True
+    # The product key in LLM analytics. None keeps the AI detector's own key.
+    ai_product: str | None = None
 
 
 @frozen
@@ -197,8 +201,11 @@ class SeriesJudgment:
     model: str
 
     def persisted_metadata(self) -> dict[str, Any]:
-        """The slice of the judgment worth keeping on the check for a person to read later."""
-        return {"rationale": self.rationale, "kind": self.kind}
+        """The slice of the judgment worth keeping on the check for a person to read later.
+
+        The model is kept because an alert's model can change, and the history shows which one made each verdict.
+        """
+        return {"rationale": self.rationale, "kind": self.kind, "model": self.model}
 
 
 class SeriesJudge(Protocol):

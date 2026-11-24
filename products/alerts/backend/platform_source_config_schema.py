@@ -17,7 +17,6 @@ from products.alerts.backend.platform_ownership import (
     admit_platform_write,
     creates_native_alert,
     guard_native_insight_edit,
-    mirror_platform_edit,
     remove_alert_destinations,
 )
 from products.alerts_platform.backend.facade.contracts import (
@@ -39,6 +38,9 @@ class InsightPlatformAlertCondition(BaseModel):
     comparison: AlertCondition = Field(
         ...,
         description="How the value is compared: as it is, or as an increase or decrease from the previous interval.",
+    )
+    threshold_name: str = Field(
+        default="", max_length=255, description="The threshold's name, shown with its bounds on the insight."
     )
     detector: dict[str, Any] | None = Field(
         default=None,
@@ -100,12 +102,14 @@ INSIGHT_SOURCE_CONFIG = SourceConfigSpec(
     model=InsightPlatformAlertSourceConfig,
     validate=validate_insight_edit,
     admit=admit_platform_write,
-    mirror=mirror_platform_edit,
+    # No `mirror`: the insight API writes a moved alert's edits to its copy alone, and the platform API
+    # serves no insight alert.
     # For an insight alert with no insight row: the platform deletes it, and its destinations stay
     # HogFunctions. `creates_native_alert` turns its creates on per team. A native create picks any
     # insight cadence, daily by default.
     native=NativeAlertLifecycle(
         check_interval_minutes=MINUTES_PER_DAY,
+        platform_destinations=False,
         check_intervals=dict(RECURRENCE.values()),
         remove_destinations=remove_alert_destinations,
         creates=True,

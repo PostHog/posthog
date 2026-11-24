@@ -134,10 +134,22 @@ publish_alias() {
     esac
 }
 
+require_verified_alias() {
+    local tag="$1" outcome="${2:-outcome-not-reported}"
+    if [ -z "$tag" ]; then
+        outcome='tag-unavailable'
+    fi
+    if [ "$outcome" != present-at-expected-digest ]; then
+        echo "::error title=Ordered image alias missing::Kargo needs the ordered alias to create Freight. Deploys stay on the previous build (outcome: ${outcome})."
+        return 1
+    fi
+}
+
 case "${1:-}" in
     tag) compute_tag ;;
     install) install_regctl "$2" ;;
     read) read_alias ;;
     publish) publish_alias ;;
-    *) echo 'usage: ordered-image-release.sh tag|install PATH|read|publish' >&2; exit 2 ;;
+    require) require_verified_alias "$2" "$3" ;;
+    *) echo 'usage: ordered-image-release.sh tag|install PATH|read|publish|require TAG OUTCOME' >&2; exit 2 ;;
 esac

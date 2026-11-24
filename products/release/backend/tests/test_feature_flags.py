@@ -7,7 +7,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.release.backend.feature_flags import RELEASES_AREA_FLAG, ReleasesGateUnavailable, is_releases_enabled
+from products.release.backend.feature_flags import RELEASE_OBJECTS_FLAG, ReleasesGateUnavailable, is_releases_enabled
 
 TEAM_UUID = UUID("0192c8a4-0000-7000-8000-000000000001")
 ORGANIZATION_ID = UUID("0192c8a4-0000-7000-8000-000000000002")
@@ -21,7 +21,7 @@ class TestReleasesGate(SimpleTestCase):
             )
 
         assert enabled is True
-        assert feature_enabled.call_args.args[:2] == (RELEASES_AREA_FLAG, "user-1")
+        assert feature_enabled.call_args.args[:2] == (RELEASE_OBJECTS_FLAG, "user-1")
         assert feature_enabled.call_args.kwargs["groups"] == {
             "organization": str(ORGANIZATION_ID),
             "project": str(TEAM_UUID),
