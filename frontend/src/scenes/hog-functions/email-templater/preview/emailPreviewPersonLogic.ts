@@ -357,13 +357,20 @@ export const emailPreviewPersonLogic = kea<emailPreviewPersonLogicType>([
                     if (!search.trim()) {
                         return []
                     }
-                    const response = await api.query<ActorsQuery>({
-                        kind: NodeKind.ActorsQuery,
-                        tags: { productKey: ProductKey.WORKFLOWS },
-                        search,
-                        select: ['id', 'person_display_name -- Person', 'properties'],
-                        limit: PREVIEW_PERSON_LIMIT,
-                    })
+                    let response
+                    try {
+                        response = await api.query<ActorsQuery>({
+                            kind: NodeKind.ActorsQuery,
+                            tags: { productKey: ProductKey.WORKFLOWS },
+                            search,
+                            select: ['id', 'person_display_name -- Person', 'properties'],
+                            limit: PREVIEW_PERSON_LIMIT,
+                        })
+                    } catch (error) {
+                        // As above, a search that a newer one replaced must not fail the newer one.
+                        breakpoint()
+                        throw error
+                    }
                     breakpoint()
                     return (response.results ?? []).map(parsePerson)
                 },

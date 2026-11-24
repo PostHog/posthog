@@ -27,7 +27,7 @@ export function PersonSearch({ onPick }: { onPick: (person: PreviewPerson) => vo
             />
             {searchResultsLoading ? (
                 <Spinner />
-            ) : searchFailed ? (
+            ) : search.trim() && searchFailed ? (
                 <span className="text-muted text-xs px-1">Couldn't search people. Try searching again.</span>
             ) : search.trim() && searchResults.length === 0 ? (
                 <span className="text-muted text-xs px-1">No one matches this search.</span>
