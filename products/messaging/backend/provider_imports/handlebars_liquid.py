@@ -197,9 +197,7 @@ class HandlebarsToLiquid:
             whole = piece.in_attribute and self._is_whole_unquoted_value(
                 following if isinstance(following, str) else ""
             )
-            if (piece.liquid or piece.value_path) and (
-                whole or self._value_fits(raw=False, in_attribute=piece.in_attribute)
-            ):
+            if (piece.liquid or piece.value_path) and (whole or self._piece_fits(piece)):
                 self._feed('"x"' if whole else "x")
                 self.converted.append(piece.source)
                 liquid = self._print(piece.value_path, False) if piece.value_path else piece.liquid or ""
@@ -669,6 +667,9 @@ class HandlebarsToLiquid:
         if where == "title":
             return not raw and in_attribute
         return where == "value" and in_attribute and not raw and self._html.plain_attribute()
+
+    def _piece_fits(self, piece: TextValue) -> bool:
+        return self._value_fits(raw=False, in_attribute=piece.in_attribute)
 
     def _is_whole_unquoted_value(self, following: str) -> bool:
         """Whether the next value is all of an attribute written without quotes, as in `<a href={{x}}>`. Converting it
