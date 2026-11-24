@@ -619,7 +619,7 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
     def test_single_path_query_tags(self, _name, caller_product, caller_feature, expected_product, expected_feature):
         captured: dict[str, object] = {}
 
-        def capture(query, team, user=None, modifiers=None):
+        def capture(query, team, user=None, modifiers=None, limit_context=None):
             tags = get_query_tags()
             captured["product"] = tags.product
             captured["feature"] = tags.feature

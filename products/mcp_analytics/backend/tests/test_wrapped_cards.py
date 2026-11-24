@@ -242,7 +242,19 @@ def test_speed_names_the_quickest_busy_tool_and_the_slowest_tool() -> None:
             Archetype.ROCKET,
             9.5,
         ),
-        ("all_rounder", {"tools": (_row("a", 500), _row("b", 500))}, Archetype.ALL_ROUNDER, None),
+        ("superhero", {"tools": (_row("a", 500), _row("b", 500)), "errors": 2}, Archetype.SUPERHERO, 0.998),
+        (
+            "fast_but_unreliable_is_no_superhero",
+            {"tools": (_row("a", 500), _row("b", 500)), "errors": 100},
+            Archetype.ALL_ROUNDER,
+            None,
+        ),
+        (
+            "reliable_but_slow_is_no_superhero",
+            {"tools": (_row("a", 500), _row("b", 500)), "p95": 1500.0},
+            Archetype.ALL_ROUNDER,
+            None,
+        ),
     ]
 )
 def test_archetype(_name: str, overrides: dict, archetype: Archetype, evidence: float | None) -> None:

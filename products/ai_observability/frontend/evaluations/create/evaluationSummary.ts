@@ -75,6 +75,10 @@ export function methodText(evaluation: EvaluationConfig, usesDecisionModel: bool
     }
 }
 
+/** Reports send evaluation results to a third-party LLM, so they need the organization's AI data processing approval. */
+export const AI_DATA_PROCESSING_REQUIRED_REASON =
+    'Reports need AI data processing to be approved in organization settings.'
+
 /** Why reports cannot be turned on yet, or null when they can. Reports read pass rates. */
 export function reportsUnavailableReason(evaluation: EvaluationConfig, isReportable: boolean): string | null {
     if (isReportable) {
