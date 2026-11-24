@@ -127,12 +127,6 @@ def _is_stripe_mode_mismatch(kind: str, res: requests.Response) -> bool:
     return "authorization code only supports returning" in description
 
 
-# (connect, read) seconds for an Atlassian token refresh. Atlassian rotates the refresh token on
-# every exchange, so a response we stop waiting for can hold the only copy of the new token. A
-# connect timeout loses nothing because Atlassian never got the request, so only the read timeout
-# is longer than the default of 10 seconds. That gives a slow token endpoint more time to answer.
-JIRA_REFRESH_TIMEOUT = (10, 30)
-
 # `config` key: how many times Stripe answered a refresh of the stored refresh token with a
 # rejection. Stripe saves the answer to an idempotent request for 24 hours and replays it for the
 # same key, so a key that stays the same also repeats a rejection that has stopped being true.
@@ -1782,7 +1776,7 @@ class OauthIntegration:
                     "refresh_token": refresh_token,
                     "grant_type": "refresh_token",
                 },
-                timeout=JIRA_REFRESH_TIMEOUT if kind == "jira" else 10,
+                timeout=10,
                 allow_redirects=False,
             )
 
@@ -1849,6 +1843,8 @@ class OauthIntegration:
         res: requests.Response | None = None
         config: dict = {}
         used_fallback = False
+        request_started_at = int(time.time())
+        connect_timed_out = False
         try:
             res = self._post_token_refresh(oauth_config, client)
             config = self._parse_token_refresh_response(res)
@@ -1862,6 +1858,7 @@ class OauthIntegration:
             # this the Celery sweep task errors out before recording the failure, so the backoff and
             # the TOKEN_REFRESH_FAILED reconnect state are never persisted.
             logger.warning(f"Network error on primary credentials for {self}", error=str(e))
+            connect_timed_out = isinstance(e, requests.ConnectTimeout)
 
         # A rotated or migrated OAuth app leaves users with refresh tokens only the previous
         # credentials can refresh. Retry with the fallback pair — including when the primary hit a
@@ -1873,11 +1870,13 @@ class OauthIntegration:
         )
         if fallback_client is not None:
             try:
+                request_started_at = int(time.time())
                 res = self._post_token_refresh(oauth_config, fallback_client)
                 config = self._parse_token_refresh_response(res)
                 used_fallback = True
             except requests.RequestException as e:
                 logger.warning(f"Network error on fallback credentials for {self}", error=str(e))
+                connect_timed_out = isinstance(e, requests.ConnectTimeout)
                 res = None
                 config = {}
 
@@ -1892,7 +1891,12 @@ class OauthIntegration:
                 if res is not None
                 else refresh_tracking.REFRESH_FAILURE_REASON_NETWORK
             )
-            failure, attempt = refresh_tracking.refresh_failure_patch(self.integration, reason=reason)
+            # The provider got the request and may have rotated the refresh token, unless the
+            # connection never opened.
+            response_lost = (res is None and not connect_timed_out) or (res is not None and res.status_code >= 500)
+            failure, attempt = refresh_tracking.refresh_failure_patch(
+                self.integration, reason=reason, response_lost_at=request_started_at if response_lost else None
+            )
             refresh_tracking.oauth_refresh_counter.labels(
                 kind=self.integration.kind, result="failed", reason=reason, attempt=attempt
             ).inc()

@@ -41,17 +41,15 @@ REFRESH_BACKOFF_MAX_SECONDS = 3600
 
 REFRESH_TERMINAL_FAILURE_COUNT = 5
 
-# Providers that rotate the refresh token on every exchange and still accept the previous token for
-# a short reuse interval. A refresh that times out or gets a 5xx may have rotated the token without
-# our receiving the new one. A retry with the stored token inside the interval gets a valid pair
-# back, and after it the stored token is dead until the customer reconnects. So for these kinds the
-# sweep retries on every run, instead of backing off, until this many seconds after the first such
-# failure. Atlassian documents a 10 minute reuse interval for rotating refresh tokens:
+# Atlassian rotates the Jira refresh token on every exchange and still accepts the previous token
+# for a 10 minute reuse interval:
 # https://developer.atlassian.com/cloud/jira/platform/oauth-2-3lo-apps/
-# The value leaves one sweep interval (60 seconds) of margin, so the last retry starts in time.
-REFRESH_TOKEN_REUSE_WINDOW_SECONDS: dict[str, int] = {"jira": 9 * 60}
+# A refresh whose response we lost may have rotated the token, so a retry with the stored token
+# inside the interval is the only way to get a valid pair back. Until this many seconds after the
+# start of the first such request, the sweep retries on every run instead of backing off. The value
+# leaves one sweep interval (60 seconds) of margin, so the last retry starts in time.
+JIRA_REFRESH_REUSE_WINDOW_SECONDS = 9 * 60
 
-# `config` key: when the first refresh failure that could have lost a rotated token happened.
 CONFIG_REUSE_WINDOW_STARTED_AT = "refresh_reuse_window_started_at"
 
 # `config` key flagging a grant that only the legacy fallback credentials can refresh.
@@ -132,7 +130,10 @@ def oauth_refresh_failure_reason(status_code: int, body: dict, kind: str | None 
 
 
 def refresh_failure_patch(
-    integration: "IntegrationRecord", *, reason: str = REFRESH_FAILURE_REASON_OTHER
+    integration: "IntegrationRecord",
+    *,
+    reason: str = REFRESH_FAILURE_REASON_OTHER,
+    response_lost_at: int | None = None,
 ) -> tuple[IntegrationPatch, str]:
     """The config change that tracks one more consecutive refresh failure. The caller stores it.
 
@@ -145,8 +146,9 @@ def refresh_failure_patch(
     and retrying can't make an undecryptable token readable or an edited key file valid. Other reasons (invalid_client, 5xx, network, rate_limited)
     never go terminal - a platform-side credential fix must let the fleet self-recover.
 
-    For a kind in `REFRESH_TOKEN_REUSE_WINDOW_SECONDS`, a network or 5xx failure schedules the next
-    attempt for the next sweep, without backoff, while the provider's reuse window can still be open.
+    `response_lost_at` is the start time of a request that the provider may have answered with a
+    rotated token that we never received. For Jira, it opens the reuse window: until the window
+    closes, a transient failure schedules the next attempt for the next sweep, without backoff.
 
     Also returns "first"/"retry" for the metric's `attempt` label - a spike in first failures means
     connections are newly breaking, regardless of retry noise.
@@ -156,16 +158,18 @@ def refresh_failure_patch(
     count = int(config.get("refresh_failure_count") or 0)
     attempt = "first" if count == 0 else "retry"
     changes: dict[str, object] = {}
-    reuse_window = REFRESH_TOKEN_REUSE_WINDOW_SECONDS.get(integration.kind)
-    if reuse_window and reason in (REFRESH_FAILURE_REASON_NETWORK, REFRESH_FAILURE_REASON_HTTP_5XX):
-        window_started_at = int(config.get(CONFIG_REUSE_WINDOW_STARTED_AT) or now)
-        changes[CONFIG_REUSE_WINDOW_STARTED_AT] = window_started_at
-        in_reuse_window = now - window_started_at < reuse_window
+    window_started_at = config.get(CONFIG_REUSE_WINDOW_STARTED_AT) or response_lost_at
+    if integration.kind == "jira" and window_started_at:
+        changes[CONFIG_REUSE_WINDOW_STARTED_AT] = int(window_started_at)
+        in_reuse_window = (
+            reason in TRANSIENT_REFRESH_FAILURE_REASONS
+            and now - int(window_started_at) < JIRA_REFRESH_REUSE_WINDOW_SECONDS
+        )
     else:
         in_reuse_window = False
     if in_reuse_window:
-        # Retries inside the window do not raise the count, so the backoff after the window
-        # starts from its first step and not from the cap.
+        # The first failure of the streak is counted and the retries inside the window are not, so
+        # the backoff after the window starts from its second step and not from the cap.
         count = max(count, 1)
         next_attempt_at = now
     else:

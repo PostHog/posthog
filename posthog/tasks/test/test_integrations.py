@@ -115,9 +115,9 @@ class TestIntegrationsTasks(APIBaseTest):
             (
                 "recovers_the_rotated_token_inside_the_reuse_window",
                 [
-                    requests.Timeout("read timed out"),
+                    requests.ReadTimeout("read timed out"),
                     (503, {"error": "server_error"}),
-                    requests.Timeout("read timed out"),
+                    requests.ReadTimeout("read timed out"),
                     (200, {"access_token": "NEW_ACCESS", "refresh_token": "ROTATED", "expires_in": 3600}),
                 ],
                 [0, 1, 2, 3],
@@ -126,8 +126,15 @@ class TestIntegrationsTasks(APIBaseTest):
             ),
             (
                 "backs_off_once_the_reuse_window_closes",
-                [requests.Timeout("read timed out")] * 11,
+                [requests.ReadTimeout("read timed out")] * 11,
                 [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 13],
+                "TOKEN_REFRESH_FAILED",
+                "REFRESH",
+            ),
+            (
+                "opens_the_window_only_once_atlassian_can_have_rotated",
+                [requests.ConnectTimeout("connect timed out")] + [requests.ReadTimeout("read timed out")] * 10,
+                [0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
                 "TOKEN_REFRESH_FAILED",
                 "REFRESH",
             ),
