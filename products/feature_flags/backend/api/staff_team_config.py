@@ -383,10 +383,7 @@ class FeatureFlagsStaffTeamConfigViewSet(viewsets.ViewSet):
             )
 
         config = get_or_create_team_extension(team, TeamFeatureFlagsConfig)
-        old_minimal_flag_called_events = config.minimal_flag_called_events
-        old_property_matching_version = config.property_matching_version
-        old_null_counts_as_not_set = config.null_counts_as_not_set
-        old_max_feature_flags_override = config.max_feature_flags_override
+        old_values = {setting: getattr(config, setting) for setting in MUTABLE_SETTINGS}
 
         # Saving only the fields actually sent keeps two staff editing different settings on the
         # same team from overwriting each other.
@@ -414,18 +411,14 @@ class FeatureFlagsStaffTeamConfigViewSet(viewsets.ViewSet):
         # old_value/new_value stay bound to minimal_flag_called_events under those names because
         # dashboards outside this repo were built on them before the endpoint took a second setting.
         changed_values: dict[str, Any] = {}
-        if "minimal_flag_called_events" in validated:
-            changed_values["old_value"] = old_minimal_flag_called_events
-            changed_values["new_value"] = config.minimal_flag_called_events
-        if "property_matching_version" in validated:
-            changed_values["old_property_matching_version"] = old_property_matching_version
-            changed_values["new_property_matching_version"] = config.property_matching_version
-        if "null_counts_as_not_set" in validated:
-            changed_values["old_null_counts_as_not_set"] = old_null_counts_as_not_set
-            changed_values["new_null_counts_as_not_set"] = config.null_counts_as_not_set
-        if "max_feature_flags_override" in validated:
-            changed_values["old_max_feature_flags_override"] = old_max_feature_flags_override
-            changed_values["new_max_feature_flags_override"] = config.max_feature_flags_override
+        for setting in update_fields:
+            old_key, new_key = (
+                ("old_value", "new_value")
+                if setting == "minimal_flag_called_events"
+                else (f"old_{setting}", f"new_{setting}")
+            )
+            changed_values[old_key] = old_values[setting]
+            changed_values[new_key] = getattr(config, setting)
 
         logger.info(
             "flags_staff_team_config_updated",
