@@ -80,7 +80,7 @@ class TestSendGridTemplateConversion(SimpleTestCase):
             ("format_date_without_a_format", "{{formatDate t}}", "{{formatDate t}}"),
             ("format_date_with_an_ordinal", '{{formatDate t "Do MMM"}}', '{{formatDate t "Do MMM"}}'),
             ("format_date_day_of_the_year", '{{formatDate t "DDD"}}', '{{formatDate t "DDD"}}'),
-            ("value_in_an_unquoted_attribute", "<a href={{token}}>x</a>", "{{token}}"),
+            ("value_in_an_unquoted_attribute", "<a href=/{{token}}>x</a>", "{{token}}"),
             ("value_in_an_event_handler", '<a onclick="{{token}}">x</a>', "{{token}}"),
             ("value_as_an_attribute_name", "<p {{token}}>x</p>", "{{token}}"),
             ("value_as_a_tag_name", "<{{token}}>x</p>", "{{token}}"),
@@ -142,7 +142,7 @@ class TestSendGridTemplateConversion(SimpleTestCase):
                 '<head><style>p{content:"</head>"}{{name}}</style></head>',
                 "{{name}}",
             ),
-            ("value_in_a_tag_that_never_closes", "<a href={{id}} <b>x", "{{id}}"),
+            ("value_in_a_tag_that_never_closes", "<a href=/{{id}} <b>x", "{{id}}"),
             ("value_after_a_double_escaped_script", "<script><!--<script></script>{{x}}</script>", "{{x}}"),
             (
                 "value_after_branches_that_end_in_different_places",
