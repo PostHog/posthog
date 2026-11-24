@@ -18,8 +18,10 @@ from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, ProjectSecretAPIKey, User
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_secret
+from posthog.token_bucket import Budget, consume
 
 from products.access_control.backend.facade.testing import create_access_control
+from products.messaging.backend.presentation.views import message_templates
 from products.messaging.backend.presentation.views.attachment_uploads import (
     AttachmentUploadBurstThrottle,
     AttachmentUploadsRequestSerializer,
@@ -260,9 +262,11 @@ class TestAttachmentUploads(APIBaseTest):
 
         with (
             patch("posthog.rate_limit.is_rate_limit_enabled", new=lambda _ttl: True),
+            patch.object(message_templates, "TRANSACTIONAL_EMAIL_SEND_FLOOR", Budget(burst=1, per_hour=1)),
             patch.object(AttachmentUploadBurstThrottle, "rate", "1/minute"),
             patch.object(AttachmentUploadTeamBurstThrottle, "rate", "1/minute"),
         ):
+            consume(f"transactional_email_send:{self.team.id}", Budget(burst=1, per_hour=1))
             statuses = [client.post(self.url, TWO_FILES, format="json").status_code for _ in range(2)]
 
         assert statuses == [status.HTTP_200_OK, status.HTTP_429_TOO_MANY_REQUESTS]

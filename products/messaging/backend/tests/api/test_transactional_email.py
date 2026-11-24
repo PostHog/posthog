@@ -1,5 +1,6 @@
 import json
 from collections.abc import Callable
+from contextlib import nullcontext
 from typing import Any, get_args
 from uuid import UUID, uuid4
 
@@ -28,7 +29,7 @@ from posthog.models.instance_setting import override_instance_config
 from posthog.models.integration import Integration
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal, generate_random_token_secret
-from posthog.rate_limit import is_rate_limit_enabled
+from posthog.rate_limit import get_route_from_path, get_team_allow_list, is_rate_limit_enabled
 from posthog.token_bucket import Budget
 
 from products.access_control.backend.facade.testing import create_access_control
@@ -858,24 +859,40 @@ class TestTransactionalEmail(APIBaseTest):
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     @parameterized.expand(
-        [("lowest_tier", 0, status.HTTP_429_TOO_MANY_REQUESTS), ("top_tier", 7, status.HTTP_202_ACCEPTED)]
+        [
+            ("lowest_tier", 0, False, False, status.HTTP_429_TOO_MANY_REQUESTS),
+            ("top_tier", 7, False, False, status.HTTP_202_ACCEPTED),
+            ("lowest_tier_on_the_bypass_list", 0, True, False, status.HTTP_202_ACCEPTED),
+            ("top_tier_while_the_cache_is_down", 7, False, True, status.HTTP_429_TOO_MANY_REQUESTS),
+        ]
     )
     def test_a_send_past_the_floor_is_refused_unless_the_tier_allows_more(
-        self, mock_post, _flag, _capture, _name, tier, third_status
+        self, mock_post, _flag, _capture, _name, tier, bypass, cache_down, third_status
     ):
         self._cdp_accepts(mock_post)
         client = self._sender_client("secret_key")
         TeamWorkflowsConfig.objects.update_or_create(team_id=self.team.id, defaults={"email_sending_tier": tier})
+        route = get_route_from_path(self.url)
+        refusals = {"team_id": str(self.team.id), "scope": "transactional_email_send", "path": route, "route": route}
+        refused_before = REGISTRY.get_sample_value("rate_limit_exceeded_total", refusals) or 0
         with (
             override_settings(WORKFLOWS_EMAIL_TIER_MODE="enforce"),
             override_instance_config("RATE_LIMIT_ENABLED", True),
+            override_instance_config("RATE_LIMITING_ALLOW_LIST_TEAMS", str(self.team.id) if bypass else ""),
             patch.object(message_templates, "TRANSACTIONAL_EMAIL_SEND_FLOOR", Budget(burst=2, per_hour=2)),
+            patch.object(message_templates.cache, "get_or_set", side_effect=ConnectionError)
+            if cache_down
+            else nullcontext(),
         ):
             is_rate_limit_enabled.cache_clear()
+            get_team_allow_list.cache_clear()
             self.addCleanup(is_rate_limit_enabled.cache_clear)
+            self.addCleanup(get_team_allow_list.cache_clear)
             statuses = [self._send(client, "template", self.body).status_code for _ in range(3)]
 
         assert statuses == [status.HTTP_202_ACCEPTED, status.HTTP_202_ACCEPTED, third_status]
+        refused = (REGISTRY.get_sample_value("rate_limit_exceeded_total", refusals) or 0) - refused_before
+        assert refused == (1 if third_status == status.HTTP_429_TOO_MANY_REQUESTS else 0)
 
     def test_a_known_key_keeps_sending_at_the_key_limit_while_a_new_key_is_refused(self, mock_post, _flag, capture):
         self._cdp_accepts(mock_post)

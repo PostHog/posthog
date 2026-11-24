@@ -66,6 +66,7 @@ from products.workflows.backend.services.template_input_usage import (
 from products.workflows.backend.utils.email_sending_tiers import (
     MIN_EMAIL_SENDING_TIER,
     get_email_sending_tier_limits,
+    is_tier_enforced,
     max_email_sending_tier,
     resolve_team_email_sending_tier,
 )
@@ -448,8 +449,10 @@ def team_has_active_workflows_using_cohorts(*, team_id: int) -> bool:
 
 def get_enforced_email_sending_daily_cap(team_id: int) -> int | None:
     """The team's daily email cap from its trust tier, or None while tiers are not enforced."""
-    resolved = resolve_team_email_sending_tier(team_id)
-    return resolved.limits.per_day if resolved.enforced else None
+    if not is_tier_enforced():
+        return None
+    # A failed lookup resolves to the top tier, so a database blip never tightens the limit.
+    return resolve_team_email_sending_tier(team_id).limits.per_day
 
 
 def recompute_email_sending_tier(

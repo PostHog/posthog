@@ -57,7 +57,12 @@ from posthog.permissions import (
     legacy_scope_object_used,
     scopes_caller_lacks,
 )
-from posthog.rate_limit import RATE_LIMIT_EXCEEDED_COUNTER, get_route_from_path, is_rate_limit_enabled
+from posthog.rate_limit import (
+    RATE_LIMIT_EXCEEDED_COUNTER,
+    get_route_from_path,
+    is_rate_limit_enabled,
+    team_is_allowed_to_bypass_throttle,
+)
 from posthog.token_bucket import BucketUnavailable, Budget, consume
 
 from products.cdp.backend.presentation.hog_functions import build_html_wrap_design, html_wrap_design_needs_refresh
@@ -1111,6 +1116,8 @@ class TransactionalEmailSendThrottle(BaseThrottle):
             f"transactional_email_send:{self.team_id}", transactional_email_send_budget(self.team_id), cost=units
         )
         if isinstance(decision, BucketUnavailable) or decision.allowed:
+            return True
+        if team_is_allowed_to_bypass_throttle(self.team_id):
             return True
         route = get_route_from_path(request.path)
         RATE_LIMIT_EXCEEDED_COUNTER.labels(
