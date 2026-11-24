@@ -1642,6 +1642,7 @@ class EnterpriseExperimentsViewSet(
             raise ValidationError("metric is required")
 
         service = ExperimentService(team=self.team, user=request.user)
+        service.assert_user_may_run_warehouse_native_sources(experiment)
         result = service.request_timeseries_recalculation(experiment, metric_uuid=metric.get("uuid") or "")
         is_existing = result.pop("is_existing", False)
 
@@ -1711,6 +1712,7 @@ class EnterpriseExperimentsViewSet(
         )
 
         # request.user is User | AnonymousUser at the DRF level; the viewset enforces auth so it's a User here.
+        ExperimentService(team=self.team, user=request.user).assert_user_may_run_warehouse_native_sources(experiment)
         result = request_recalculation(experiment, cast(User, request.user), trigger)
         # Read without mutating — the serializer surfaces is_existing on the response so clients can detect
         # the idempotent-reuse path without inspecting the HTTP status code.

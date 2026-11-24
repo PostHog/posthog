@@ -452,6 +452,20 @@ class TestMetricsRecalculationAPI(APIBaseTest):
                 "unit": {"unit_type": "customer", "id_namespace": "crm"},
             }
         }
+        exp.metrics = [
+            {
+                "uuid": "m1",
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "source": {
+                    "kind": "ExperimentWarehouseNativeNode",
+                    "connection_id": str(connection.id),
+                    "query": "SELECT customer_id AS entity_id, paid_at AS timestamp, amount FROM payments",
+                    "unit": {"unit_type": "customer", "id_namespace": "crm"},
+                    "math": "total",
+                },
+            }
+        ]
         exp.save()
         row = ExperimentMetricsRecalculation.objects.create(team=self.team, experiment=exp, status="completed")
 
@@ -472,6 +486,19 @@ class TestMetricsRecalculationAPI(APIBaseTest):
 
             assert self.client.get(self._by_id_url(exp.id, str(row.id))).status_code == status.HTTP_403_FORBIDDEN
             assert self.client.get(self._latest_url(exp.id)).status_code == status.HTTP_403_FORBIDDEN
+            running_time = self.client.get(f"/api/projects/{self.team.id}/experiments/{exp.id}/running_time_target/")
+            assert running_time.status_code == status.HTTP_403_FORBIDDEN
+            # Nor may that member start a run, which would query the warehouse with no user.
+            recalculation = self.client.post(self._post_url(exp.id), {"trigger": "manual"})
+            assert recalculation.status_code == status.HTTP_400_BAD_REQUEST
+            assert "do not have access" in recalculation.json()["detail"]
+            timeseries = self.client.post(
+                f"/api/projects/{self.team.id}/experiments/{exp.id}/recalculate_timeseries/",
+                {"metric": {"uuid": "m1"}},
+                format="json",
+            )
+            assert timeseries.status_code == status.HTTP_400_BAD_REQUEST
+            assert ExperimentMetricsRecalculation.objects.filter(experiment=exp).count() == 1
 
     def test_get_by_id_404_for_unknown_id(self):
         exp = self._launched_experiment()
