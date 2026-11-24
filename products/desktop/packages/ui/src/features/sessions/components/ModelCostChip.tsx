@@ -1,11 +1,11 @@
 import {
-  MODEL_COST_BASELINE_NAME,
   type ModelCostInfo,
+  modelCostBaselineName,
 } from "@posthog/core/billing/modelPricing";
 
 /** The exact rates behind a multiplier, for the chip's title. */
 export function modelCostTitle(cost: ModelCostInfo): string {
-  return `Cost per token vs ${MODEL_COST_BASELINE_NAME} · ${cost.summary}`;
+  return `Cost per token vs ${modelCostBaselineName()} · ${cost.summary}`;
 }
 
 /**
@@ -29,7 +29,7 @@ export function ModelCostChip({ cost }: { cost: ModelCostInfo }) {
 export function ModelCostFooter() {
   return (
     <div className="px-2 pt-1 pb-1.5 text-[10px] text-muted-foreground/70">
-      × is cost per token vs {MODEL_COST_BASELINE_NAME}
+      × is cost per token vs {modelCostBaselineName()}
     </div>
   );
 }

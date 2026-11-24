@@ -17,6 +17,7 @@ export default defineConfig({
     globals: true,
     ...trunkTestOptions,
     environment: "node",
+    setupFiles: ["../workspace-server/src/test/saved-gateway-listing.ts"],
     include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
     exclude: ["**/node_modules/**", "**/dist/**"],
   },

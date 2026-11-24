@@ -20,10 +20,6 @@ export interface LoopModelOption {
   label: string;
 }
 
-// The name the catalog resolved for a model when it was generated, falling back to the
-// same formatter the served list uses. Every surface names a model this way, so one model
-// reads the same offline as it does online, and an id the catalog dropped still reads as
-// a name rather than as an id.
 function catalogLabel(id: string): string {
   return labelForModel(id) ?? formatModelId(id);
 }
@@ -46,62 +42,6 @@ export const LOOP_DEFAULT_MODELS: Record<
   },
 };
 
-// Served-catalog stand-in while the preview config loads or when the request
-// fails, so the picker never collapses to "Default" alone. The served catalog is
-// authoritative once it arrives.
-//
-// The ids are a deliberate subset, not the whole catalog: an offline picker offers
-// what someone should reach for without a network, which is fewer models than the
-// catalog serves. `everyFallbackModelIsServedByTheCatalog` in the tests holds the
-// subset to models the loops serializer still accepts.
-const FALLBACK_MODEL_IDS: Record<
-  LoopSchemas.LoopRuntimeAdapterEnum,
-  readonly string[]
-> = {
-  claude: [
-    "claude-opus-4-8",
-    "claude-opus-5",
-    "claude-opus-5-5",
-    "claude-sonnet-5",
-    "claude-sonnet-5-5",
-    "claude-fable-5",
-    "claude-fable-5-1",
-    "claude-fable-5-2",
-    "zai-org/glm-5.3",
-    "zai-org/glm-5.3-flash",
-    "moonshotai/kimi-k3.1-pro",
-  ],
-  codex: [
-    "gpt-5",
-    "gpt-5.5",
-    "gpt-5.6-sol",
-    "gpt-5.6-terra",
-    "gpt-5.6-luna",
-    "gpt-6-astra",
-    "gpt-6-sol",
-    "gpt-6.1-sol",
-    "gpt-6-luna",
-  ],
-};
-
-// Named from the catalog, so a model does not change label when the preview config drops.
-const FALLBACK_MODEL_OPTIONS: Record<
-  LoopSchemas.LoopRuntimeAdapterEnum,
-  LoopModelOption[]
-> = {
-  claude: fallbackOptionsFor("claude"),
-  codex: fallbackOptionsFor("codex"),
-};
-
-function fallbackOptionsFor(
-  adapter: LoopSchemas.LoopRuntimeAdapterEnum,
-): LoopModelOption[] {
-  return FALLBACK_MODEL_IDS[adapter].map((id) => ({
-    value: id,
-    label: catalogLabel(id),
-  }));
-}
-
 /** The model a loop's runs use, for display: the pinned id, or the adapter's
  * loop default (which differs from the live-session default the
  * ReportModelResolver serves, so it can't be resolved from there). */
@@ -121,7 +61,6 @@ export function formatLoopModel(
  * model always stays selectable so an existing loop's model never drops out.
  */
 export function loopModelOptions(
-  adapter: LoopSchemas.LoopRuntimeAdapterEnum,
   configOptions: SessionConfigOption[],
   { flags, pinnedModel }: { flags: ModelRolloutFlags; pinnedModel: string },
 ): LoopModelOption[] {
@@ -139,9 +78,7 @@ export function loopModelOptions(
       : [];
   // A gated model the person cannot reach is dropped, except the one this loop already
   // pins — removing that would silently change which model the loop runs.
-  const options = (
-    served.length > 0 ? served : FALLBACK_MODEL_OPTIONS[adapter]
-  ).filter((option) => {
+  const options = served.filter((option) => {
     if (option.value === pinnedModel) {
       return true;
     }

@@ -48,12 +48,12 @@ export function LoopModelFields({
   const modelOptions = useMemo(
     () => [
       { value: DEFAULT_MODEL_VALUE, label: "Default (recommended)" },
-      ...loopModelOptions(adapter, configOptions, {
+      ...loopModelOptions(configOptions, {
         flags: modelFlags,
         pinnedModel: model,
       }),
     ],
-    [adapter, configOptions, modelFlags, model],
+    [configOptions, modelFlags, model],
   );
 
   // A workflow only stores the effort next to a pinned model, so offering

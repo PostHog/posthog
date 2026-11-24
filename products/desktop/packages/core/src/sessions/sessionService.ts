@@ -48,6 +48,7 @@ import {
   type OptimisticItem,
   type PermissionRequest,
   type QueuedMessage,
+  rememberGatewayListingFrom,
   resolveBypassRevertMode,
   type StoredLogEntry,
   sendableQueuePrefixLength,
@@ -6685,6 +6686,10 @@ export class SessionService {
           apiHost,
           adapter,
           ...(allHarnessModels ? { allHarnessModels: true } : {}),
+        })
+        .then((options) => {
+          rememberGatewayListingFrom(options);
+          return options;
         })
         .catch((err: unknown) => {
           this.d.log.warn(

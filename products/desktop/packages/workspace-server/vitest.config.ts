@@ -6,6 +6,7 @@ export default defineConfig({
     globals: true,
     ...trunkTestOptions,
     environment: "node",
+    setupFiles: ["./src/test/saved-gateway-listing.ts"],
     include: ["src/**/*.test.ts"],
     exclude: ["**/node_modules/**", "**/dist/**"],
   },
