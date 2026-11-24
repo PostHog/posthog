@@ -5,7 +5,7 @@ from __future__ import annotations
 import unicodedata
 from contextlib import AbstractContextManager, nullcontext
 
-from django.db import transaction
+from django.db import router, transaction
 from django.db.models import Q
 
 from posthog.accessible_teams import AccessibleTeams
@@ -24,6 +24,7 @@ from ee.api.agentic_provisioning.constants import (
     PROVISIONED_PAT_LABEL_PREFIX_MAX_LENGTH,
 )
 from ee.api.agentic_provisioning.exceptions import ProvisioningError
+from ee.api.agentic_provisioning.tokens import lock_application
 
 
 def validate_label_prefix(raw: object) -> str | None:
@@ -92,7 +93,13 @@ def delete_provisioned_pats(app: OAuthApplication, *, team_id: int) -> int:
         )
         acting_organization = OrganizationAdminKeyActionContext(str(organization_id))
 
-    keys = PersonalAPIKey.objects.filter(provisioned_by=app).filter(in_scope).distinct()
+    # The writer, because a replica can lag behind a key the mint just committed.
+    keys = (
+        PersonalAPIKey.objects.using(router.db_for_write(PersonalAPIKey))
+        .filter(provisioned_by=app)
+        .filter(in_scope)
+        .distinct()
+    )
 
     deleted = 0
     with acting_organization:
@@ -153,7 +160,10 @@ def maybe_create_provisioned_pat(
         return None
 
     with transaction.atomic():
-        # The token locks come before the key deletion, in the order the revocation paths lock rows.
+        # The application lock comes first, then the token locks, then the key deletion: the order
+        # token refresh and the revocation paths lock rows in, so none of them can deadlock with a mint.
+        if app is not None:
+            lock_application(app.pk)
         if replace_existing:
             locked_token_ids = _lock_app_access_tokens_for_team(app, team.id)
             bearer_covers_team = access_token is None or access_token.pk in locked_token_ids

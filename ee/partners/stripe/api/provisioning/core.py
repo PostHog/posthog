@@ -14,7 +14,7 @@ from typing import Any
 
 from django.conf import settings
 from django.core.cache import cache
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, router, transaction
 from django.db.models import Q
 from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
@@ -709,7 +709,13 @@ def delete_provisioned_pats(app: OAuthApplication, *, team_id: int) -> int:
         )
         acting_organization = OrganizationAdminKeyActionContext(str(organization_id))
 
-    keys = PersonalAPIKey.objects.filter(provisioned_by=app).filter(in_scope).distinct()
+    # The writer, because a replica can lag behind a key the mint just committed.
+    keys = (
+        PersonalAPIKey.objects.using(router.db_for_write(PersonalAPIKey))
+        .filter(provisioned_by=app)
+        .filter(in_scope)
+        .distinct()
+    )
 
     deleted = 0
     with acting_organization:
@@ -761,7 +767,10 @@ def maybe_create_provisioned_pat(
     pat_scopes = [s for s in (granted_scope or "").split() if s] or list(STRIPE_CONTRACTED_SCOPES)
 
     with transaction.atomic():
-        # The token locks come before the key deletion, in the order the revocation paths lock rows.
+        # The application lock comes first, then the token locks, then the key deletion: the order
+        # token refresh and the revocation paths lock rows in, so none of them can deadlock with a mint.
+        if app is not None:
+            lock_application(app.pk)
         if replace_existing and app is not None:
             locked_token_ids = _lock_app_access_tokens_for_team(app, team.id)
             bearer_covers_team = access_token is None or access_token.pk in locked_token_ids

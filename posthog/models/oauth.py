@@ -10,7 +10,7 @@ from django.contrib.auth.signals import user_logged_out
 from django.contrib.postgres.fields import ArrayField
 from django.contrib.postgres.indexes import GinIndex
 from django.core.exceptions import ValidationError
-from django.db import connection, models, transaction
+from django.db import connection, models, router, transaction
 from django.db.models import Exists, Q
 from django.dispatch import receiver
 from django.utils import timezone
@@ -990,7 +990,9 @@ def revoke_oauth_session(
             OAuthAccessToken.objects.filter(user=user, application=application).delete()
 
             # Key by key, so the activity log records each deletion.
-            for key in PersonalAPIKey.objects.filter(provisioned_by=application, user=user):
+            for key in PersonalAPIKey.objects.using(router.db_for_write(PersonalAPIKey)).filter(
+                provisioned_by=application, user=user
+            ):
                 key.delete()
 
 
@@ -1150,7 +1152,7 @@ def revoke_application_sessions(application: "OAuthApplication") -> None:
         OAuthAccessToken.objects.filter(application=application).delete()
 
         # Key by key, so the activity log records each deletion.
-        for key in PersonalAPIKey.objects.filter(provisioned_by=application):
+        for key in PersonalAPIKey.objects.using(router.db_for_write(PersonalAPIKey)).filter(provisioned_by=application):
             key.delete()
 
 
