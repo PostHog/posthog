@@ -691,7 +691,7 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
         expect(stopReturned).toBe(false)
         await jest.advanceTimersByTimeAsync(stopStarted + 50_000 - Date.now())
         expect(stopReturned).toBe(false)
-        await rowLock.release()
+        await rowLock.releaseToTheWaitingWrite()
         await onTheFakeClock(() => Promise.resolve(expect(stopReturned).toBe(true)), stopStarted + 53_000)
 
         const row = await jobRow(running)
@@ -816,7 +816,7 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
 
     async function lockJobRow(
         id: string
-    ): Promise<{ waiting: () => Promise<number>; release: () => Promise<unknown> }> {
+    ): Promise<{ waiting: () => Promise<number>; releaseToTheWaitingWrite: () => Promise<unknown> }> {
         const holder = new Client({ connectionString: hub.CYCLOTRON_NODE_DATABASE_URL })
         await holder.connect()
         lockHolders.push(holder)
@@ -831,7 +831,12 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
                         [rows[0].pid]
                     )
                 ).rows[0].waiting,
-            release: () => holder.query('ROLLBACK'),
+            // The write that waited on the lock takes the row first, so locking it again returns only once that
+            // write committed. The fake clock then moves only after the write is in.
+            releaseToTheWaitingWrite: async () => {
+                await holder.query('ROLLBACK')
+                await holder.query('SELECT id FROM cyclotron_jobs WHERE id = $1 FOR UPDATE', [id])
+            },
         }
     }
 
