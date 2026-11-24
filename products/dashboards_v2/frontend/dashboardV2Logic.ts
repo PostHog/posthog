@@ -158,7 +158,7 @@ export const dashboardV2Logic = kea<dashboardV2LogicType>([
             (s) => [s.dashboard, s.stacked],
             (dashboard: Dashboard, stacked: boolean): ((action: DashboardV2Action) => string | null) =>
                 (action) =>
-                    stacked ? STACKED_REASON : dashboardV2DisabledReason(action, dashboard.user_access_level),
+                    dashboardV2DisabledReason(action, dashboard.user_access_level) ?? (stacked ? STACKED_REASON : null),
         ],
         hasPermission: [
             (s) => [s.disabledReasonFor],
@@ -183,10 +183,14 @@ export const dashboardV2Logic = kea<dashboardV2LogicType>([
             if (values.disabledReasonFor(edit.edit)) {
                 return
             }
-            const next = applyEdit(values.dashboard, edit)
+            const next = applyEdit(values.dashboard, edit, (dashboard) => withFolds(dashboard, values.folds))
             // A press that moved nothing must not add an undo step or clear what could be redone.
             if (objectsEqual(next, values.dashboard)) {
                 return
+            }
+            // With no tab in the URL the first tab shows, so a reorder would switch tabs unless the shown one is pinned.
+            if (edit.edit === 'moveTab' && values.activeTabId === null) {
+                actions.setActiveTab(values.activeTab.id)
             }
             actions.commitDashboard(next)
             if (edit.edit === 'addTab') {
