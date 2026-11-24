@@ -1,17 +1,18 @@
 import uuid
+import asyncio
 import functools
-import dataclasses
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from typing import TypeVar
 
 from django.conf import settings
 from django.db import transaction
 
-from asgiref.sync import sync_to_async
 from clickhouse_driver.errors import ServerException
 from opentelemetry import trace
 from structlog.contextvars import bind_contextvars
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async, database_sync_to_async_pool
 from posthog.temporal.common.logger import get_logger
@@ -23,13 +24,20 @@ from products.data_modeling.backend.facade.models import (
     aget_saved_query_by_id,
 )
 from products.data_warehouse.backend.s3 import get_size_of_folder
-from products.warehouse_sources.backend.facade.models import DataWarehouseTable, asave_datawarehousetable
+from products.warehouse_sources.backend.facade.api import publish_backing_table
+from products.warehouse_sources.backend.facade.contracts import BackingTableSnapshot
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 from products.warehouse_sources.backend.facade.types import DataWarehouseTableCreatedVia, DataWarehouseTableFormat
 
 LOGGER = get_logger(__name__)
 tracer = trace.get_tracer(__name__)
 
 _R = TypeVar("_R")
+
+MAX_CONCURRENT_DESCRIBE_AND_COUNT = 2
+_describe_and_count_executor = ThreadPoolExecutor(
+    max_workers=MAX_CONCURRENT_DESCRIBE_AND_COUNT, thread_name_prefix="describe-and-count"
+)
 
 
 def _in_span(name: str, call: Callable[[], _R]) -> Callable[[], _R]:
@@ -41,11 +49,22 @@ def _in_span(name: str, call: Callable[[], _R]) -> Callable[[], _R]:
     return call_in_span
 
 
-@dataclasses.dataclass
+@frozen
 class CreateTableResult:
     table: DataWarehouseTable
+    published: bool
     storage_delta_mib: float | None
     total_storage_mib: float | None
+
+
+async def _record_storage_delta(
+    job: DataModelingJob, size_in_s3_mib: float | None, replaced_size_in_s3_mib: float | None
+) -> float | None:
+    if size_in_s3_mib is None:
+        return None
+    job.storage_delta_mib = (job.storage_delta_mib or 0) + size_in_s3_mib - (replaced_size_in_s3_mib or 0)
+    await job.asave(update_fields=["storage_delta_mib", "updated_at"])
+    return job.storage_delta_mib
 
 
 @database_sync_to_async_pool
@@ -89,7 +108,7 @@ async def calculate_table_size(saved_query: DataWarehouseSavedQuery, team_id: in
     folder_name = saved_query.folder_path
     s3_folder = f"{settings.BUCKET_URL}/{folder_name}/{queryable_folder}"
 
-    total_mib = get_size_of_folder(s3_folder)
+    total_mib = await asyncio.to_thread(get_size_of_folder, s3_folder)
 
     await logger.adebug(f"Total size in MiB = {total_mib:.2f}")
 
@@ -101,6 +120,7 @@ async def create_table_from_saved_query(
     saved_query_id: str,
     team_id: int,
     queryable_folder: str,
+    row_count: int | None = None,
 ) -> CreateTableResult:
     """
     Create a table from a saved query if it doesn't exist.
@@ -132,64 +152,67 @@ async def create_table_from_saved_query(
         table_created.format = table_format
         table_created.url_pattern = url_pattern
         table_created.queryable_folder = queryable_folder
-        # Backing tables created before created_via existed have no value. Without the marker, the
-        # save below rejects a backing table for a model in the models namespace.
-        if table_created.created_via is None:
-            table_created.created_via = DataWarehouseTableCreatedVia.MATERIALIZED_VIEW
 
         # TODO: handle dlt columns schemas. Need to refactor dag pipeline to pass through schema or propagate from upstream tables
         # set_columns records the DESCRIBE column order (which follows the view's SELECT order for
         # materialized backing tables) alongside `columns`, since jsonb loses key order.
-        published_columns = (table_created.columns, table_created.column_order)
         with tracer.start_as_current_span("create_table_from_saved_query.describe_columns"):
-            columns = await sync_to_async(
-                _in_span("create_table_from_saved_query.describe_columns.run", table_created.get_columns)
+            columns = await database_sync_to_async_pool(
+                _in_span("create_table_from_saved_query.describe_columns.run", table_created.get_columns),
+                executor=_describe_and_count_executor,
             )()
         table_created.set_columns(columns)
-        with tracer.start_as_current_span("create_table_from_saved_query.count_rows"):
-            table_created.row_count = await database_sync_to_async(
-                _in_span("create_table_from_saved_query.count_rows.run", table_created.get_count)
-            )()
+        if row_count is None:
+            with tracer.start_as_current_span("create_table_from_saved_query.count_rows"):
+                row_count = await database_sync_to_async_pool(
+                    _in_span("create_table_from_saved_query.count_rows.run", table_created.get_count),
+                    executor=_describe_and_count_executor,
+                )()
+        table_created.row_count = row_count
 
         refreshed_saved_query = await aget_saved_query_by_id(saved_query_id=saved_query_id_converted, team_id=team_id)
 
-        storage_delta_mib: float | None = None
-        total_storage_mib: float | None = None
-        existing_size: float = table_created.size_in_s3_mib or 0
         table_created.size_in_s3_mib = None
 
         try:
             if refreshed_saved_query:
-                logger.debug(f"Existing size in MiB = {existing_size:.2f}")
-
-                table_size = await calculate_table_size(refreshed_saved_query, team_id, queryable_folder)
-
-                await logger.adebug(f"Total size in MiB = {table_size:.2f}")
-
-                table_created.size_in_s3_mib = table_size
-                table_size_delta = table_size - existing_size
-                logger.debug(f"Table size delta in MiB = {table_size_delta:.2f}")
-
-                job.storage_delta_mib = (job.storage_delta_mib or 0) + table_size_delta
-                await job.asave(update_fields=["storage_delta_mib", "updated_at"])
-
-                storage_delta_mib = job.storage_delta_mib
-                total_storage_mib = table_created.size_in_s3_mib
+                table_created.size_in_s3_mib = await calculate_table_size(
+                    refreshed_saved_query, team_id, queryable_folder
+                )
         except Exception as e:
             capture_exception(e)
             await logger.adebug("Error raised from calcuting table size")
             await logger.adebug(str(e))
 
-        await asave_datawarehousetable(table_created)
-        if (table_created.columns, table_created.column_order) != published_columns:
+        publish = await database_sync_to_async_pool(publish_backing_table)(
+            team_id,
+            table_created.id,
+            BackingTableSnapshot(
+                format=table_format,
+                url_pattern=url_pattern,
+                queryable_folder=queryable_folder,
+                columns=columns,
+                row_count=table_created.row_count,
+                size_in_s3_mib=table_created.size_in_s3_mib,
+            ),
+        )
+        if publish is None:
+            return CreateTableResult(
+                table=table_created, published=False, storage_delta_mib=None, total_storage_mib=None
+            )
+
+        if publish.columns_changed:
             await database_sync_to_async(modeling_api.schedule_downstream_view_column_refresh)(
                 team_id, saved_query.id, None
             )
 
         return CreateTableResult(
             table=table_created,
-            storage_delta_mib=storage_delta_mib,
-            total_storage_mib=total_storage_mib,
+            published=True,
+            storage_delta_mib=await _record_storage_delta(
+                job, table_created.size_in_s3_mib, publish.replaced_size_in_s3_mib
+            ),
+            total_storage_mib=table_created.size_in_s3_mib,
         )
     except ServerException as err:
         logger.exception(

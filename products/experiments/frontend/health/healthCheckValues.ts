@@ -27,7 +27,7 @@ export interface HealthSplitRow {
     plannedPercentage: number | null
 }
 
-const HANDLING_LABELS: Record<string, string> = {
+export const HANDLING_LABELS: Record<string, string> = {
     exclude: 'Exclude from analysis',
     first_seen: 'Use first seen variant',
 }

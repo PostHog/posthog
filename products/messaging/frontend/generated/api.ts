@@ -674,8 +674,8 @@ export const getMessagingProviderImportsListUrl = (projectId: string) => {
 }
 
 /**
- * Background imports from other messaging tools, such as Customer.io, Resend, SendGrid and Mailgun suppressions and
- * unsubscribes.
+ * Background imports from other messaging tools, such as Customer.io, Resend, SendGrid, Mailgun and Mailchimp
+ * suppressions and unsubscribes.
  *
  * A run executes outside the request, so a long provider list does not time out. Poll a run to show its progress.
  * @summary List the most recent provider imports
@@ -695,8 +695,8 @@ export const getMessagingProviderImportsCreateUrl = (projectId: string) => {
 }
 
 /**
- * Background imports from other messaging tools, such as Customer.io, Resend, SendGrid and Mailgun suppressions and
- * unsubscribes.
+ * Background imports from other messaging tools, such as Customer.io, Resend, SendGrid, Mailgun and Mailchimp
+ * suppressions and unsubscribes.
  *
  * A run executes outside the request, so a long provider list does not time out. Poll a run to show its progress.
  * @summary Start a background import from another messaging tool
@@ -719,8 +719,8 @@ export const getMessagingProviderImportsRetrieveUrl = (projectId: string, id: st
 }
 
 /**
- * Background imports from other messaging tools, such as Customer.io, Resend, SendGrid and Mailgun suppressions and
- * unsubscribes.
+ * Background imports from other messaging tools, such as Customer.io, Resend, SendGrid, Mailgun and Mailchimp
+ * suppressions and unsubscribes.
  *
  * A run executes outside the request, so a long provider list does not time out. Poll a run to show its progress.
  * @summary Get a provider import and its progress
@@ -741,8 +741,8 @@ export const getMessagingProviderImportsProvidersListUrl = (projectId: string) =
 }
 
 /**
- * Background imports from other messaging tools, such as Customer.io, Resend, SendGrid and Mailgun suppressions and
- * unsubscribes.
+ * Background imports from other messaging tools, such as Customer.io, Resend, SendGrid, Mailgun and Mailchimp
+ * suppressions and unsubscribes.
  *
  * A run executes outside the request, so a long provider list does not time out. Poll a run to show its progress.
  * @summary List the providers and what each can import

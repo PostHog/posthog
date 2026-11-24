@@ -3075,7 +3075,7 @@ class TestEvaluationsAccessControl(_EvaluationAccessControlCase):
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_model_picker_stays_on_llm_analytics_resource(self):
-        # LLMModelsViewSet is shared with the taggers and playground pickers, so it must not
+        # LLMModelsViewSet is shared with the playground picker, so it must not
         # require evaluation access.
         self._grant(self.no_access_user, "viewer", resource="llm_analytics")
         self.client.force_login(self.no_access_user)

@@ -2,6 +2,8 @@ from typing import Any, cast
 
 import pytest
 
+import pyarrow as pa
+
 from products.batch_exports.backend.facade.destinations.postgres import PostgreSQLClient
 from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import DestinationRunContext
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.writers.redshift import (
@@ -17,9 +19,13 @@ pytestmark = pytest.mark.asyncio
 class _FakeCursor:
     def __init__(self) -> None:
         self.statements: list[str] = []
+        self.bound_rows: list[list[Any]] = []
 
     async def execute(self, query: Any, params: Any = None) -> None:
         self.statements.append(query.as_string(None) if hasattr(query, "as_string") else str(query))
+
+    async def executemany(self, query: Any, params_seq: list[list[Any]]) -> None:
+        self.bound_rows.extend(params_seq)
 
 
 class _NullAsyncContext:
@@ -108,3 +114,21 @@ class TestDropBatchIndexColumn:
         await writer._drop_batch_index_column(cast(PostgreSQLClient, client), "staging")
 
         assert client.cursor.statements == []
+
+
+class TestLoadBatchEgress:
+    async def test_counts_the_encoded_size_of_every_bound_value(self) -> None:
+        writer = RedshiftDestinationWriter(_ctx())
+        client = _FakeClient(columns=[])
+        batch = pa.RecordBatch.from_pylist(
+            [
+                {"id": 1, "name": "é", "tags": {"a": 1}},
+                {"id": 22, "name": None, "tags": None},
+            ]
+        )
+
+        bytes_sent = await writer._load_batch(cast(PostgreSQLClient, client), "orders", batch, ["id", "name", "tags"])
+
+        assert client.cursor.bound_rows == [[1, "é", '{"a": 1}'], [22, None, None]]
+        # "1" + "é" (2 bytes in UTF-8) + '{"a": 1}' + "22", and nothing for a NULL.
+        assert bytes_sent == 1 + 2 + 8 + 2

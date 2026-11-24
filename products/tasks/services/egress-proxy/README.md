@@ -168,6 +168,9 @@ Deploy the matching proxy image before enabling enrollment. Each proxy replica l
 
 Excess requests receive 429 before registry lookup or normal audit reservation. Every refusal increments `egress_requests_total{outcome="rate_limited"}`. Audit records include the authenticated relay-key fingerprint; rate-limit records are coalesced to one admission/completion pair per key per ten seconds, subject to audit availability. The metric counts all refusals, while the audit marker identifies affected relay keys without letting rejected traffic fill the shared queue.
 
+Rate-limit responses preserve HTTP/2 connections and bodyless HTTP/1.1 connections, so retrying does not require a new TLS handshake.
+An unread HTTP/1.1 body still closes the connection promptly; HTTP/2 closes the rejected stream while other streams can continue.
+
 The feature flag selects new enrollments; turning it off does not revoke running ones. Each activity rereads worker configuration and the run binding. Removing or changing configuration stops renewal; cleanup can revoke and remove its relay even if the configuration file is gone. An unavailable worker leaves authority bounded by the 30-second lease. Delayed cleanup cannot close a replacement relay or the agent VM.
 
 This canary lasts at most 600 seconds and does not restart after sandbox replacement or workflow continuation. Its relay lifetime includes a three-minute provisioning allowance, and its client certificate lasts at most 15 minutes. Provision a client CA that remains valid for the whole window. Full-run enrollment needs certificate renewal and longer-lived relay management before removing these limits. A normal run may outlive its canary; enrollment failure is logged and does not fail the agent run.
@@ -336,6 +339,8 @@ Replacement requires the previous execution ID and keeps the old registration re
 Workers recover that ID through `latest`, which includes expired and revoked registrations but cannot authorize requests.
 The registry assigns actor epochs under the run lock: one for the first execution, increasing on each replacement and unchanged on retries.
 Cancellation requests stop lookup, renewal and issuance even before the run reaches a terminal status.
+The Tasks workflow stops its egress child before writing a terminal status. Renewal and probe activities also recognize cancellation requests and terminal statuses, so a run ending during either operation retains its reason. Missing, revoked or expired authority on a live run still fails the child.
+Failed probe rounds emit `agent_egress_probe_failed` with their status counts before checking whether the run ended. A normal child completion does not erase that failure evidence.
 
 Changing or clearing the run's sandbox, or preparing a cloud resume, revokes its existing registration in the same transaction. If revocation fails, the state change fails too: otherwise restoring earlier run state could revive the old registration. Unrelated state updates do not access the egress table.
 

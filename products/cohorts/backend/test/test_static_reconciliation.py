@@ -264,9 +264,10 @@ class TestStaticCohortReconciliation(BaseTest):
         cohort.refresh_from_db()
         self.assertEqual(cohort.count, 1)
 
-    def test_parks_a_complete_cohort_with_duplicate_clickhouse_rows(self) -> None:
+    @parameterized.expand([("duplicate_row", False), ("nil_uuid_row", True)])
+    def test_parks_a_complete_cohort_with_extra_clickhouse_rows(self, _name: str, nil_uuid: bool) -> None:
         person = create_person(team=self.team, distinct_ids=["member"])
-        cohort = self._static_cohort(person_uuids=(person.uuid, person.uuid))
+        cohort = self._static_cohort(person_uuids=(person.uuid, uuid.UUID(int=0) if nil_uuid else person.uuid))
         cohort.insert_users_list_by_uuid_into_pg_only([str(person.uuid)], team_id=self.team.pk)
         Cohort.objects.filter(pk=cohort.pk).update(count=1, last_calculation=self.now - timedelta(days=7))
 

@@ -811,7 +811,11 @@ describe('hogFunctionConfigurationLogic', () => {
             events: CyclotronJobFilterEvents[] = [FLAG_CALLED]
         ): void {
             mockGetTemplate.mockReturnValue(Promise.resolve({ ...HOG_TEMPLATE, filters: { events } }))
-            teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, flag_evaluations_mode: mode })
+            teamLogic.actions.loadCurrentTeamSuccess({
+                ...MOCK_DEFAULT_TEAM,
+                flag_evaluations_mode: mode,
+                flag_calls_only_in_flag_evaluations: mode === FlagEvaluationsModeEnumApi.Number2,
+            })
             logic = hogFunctionConfigurationLogic({ templateId: 'test' })
             logic.mount()
         }
