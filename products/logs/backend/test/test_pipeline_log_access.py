@@ -262,6 +262,88 @@ class TestPipelineLogAccess(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == 200, response.json()
 
+    @parameterized.expand(
+        [
+            ("restricted_pipeline", "restricted", [_PIPELINE], 403),
+            ("restricted_all_services", "restricted", [], 403),
+            ("restricted_app", "restricted", [_APP], 201),
+            ("restricted_pipeline_draft", "restricted", [_PIPELINE], 403, False),
+            ("granted_pipeline", "granted", [_PIPELINE], 201),
+        ]
+    )
+    def test_platform_logs_alert_follows_property_access(
+        self, _name: str, access: PropertyAccess, services: list[str], expected: int, enabled: bool = True
+    ) -> None:
+        set_member_property_access(team=self.team, membership=self.organization_membership, access=access)
+
+        with patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True):
+            response = self.client.post(
+                f"/api/projects/{self.team.pk}/platform_alerts/",
+                {
+                    "source_kind": "logs",
+                    "enabled": enabled,
+                    "source_config": {
+                        "filters": {"serviceNames": services},
+                        "condition": {"threshold_count": 0, "threshold_operator": "above", "window_minutes": 5},
+                    },
+                },
+                format="json",
+            )
+
+        assert response.status_code == expected, response.json()
+
+    @parameterized.expand(
+        [
+            ("rename", {"name": "Renamed"}, 200),
+            ("route", {"labels": {"team": "payments"}}, 403),
+            ("group", {"grouping": {"mode": "by_result_labels", "keys": ["service_name"]}}, 403),
+        ]
+    )
+    def test_restricted_member_edits_a_pipeline_platform_alert_with_its_config_unchanged(
+        self, _name: str, change: dict, expected: int
+    ) -> None:
+        config = {
+            "filters": {"serviceNames": [_PIPELINE]},
+            "condition": {"threshold_count": 0, "threshold_operator": "above", "window_minutes": 5},
+        }
+        with patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True):
+            alert = self.client.post(
+                f"/api/projects/{self.team.pk}/platform_alerts/",
+                {"source_kind": "logs", "source_config": config},
+                format="json",
+            ).json()
+            set_member_property_access(team=self.team, membership=self.organization_membership, access="restricted")
+            stored = self.client.get(f"/api/projects/{self.team.pk}/platform_alerts/{alert['id']}/").json()
+
+            response = self.client.patch(
+                f"/api/projects/{self.team.pk}/platform_alerts/{alert['id']}/",
+                {**change, "source_config": stored["source_config"]},
+                format="json",
+            )
+
+        assert response.status_code == expected, response.json()
+
+    @parameterized.expand(
+        [
+            ("not_an_object", []),
+            ("services_not_a_list", {"filters": {"serviceNames": 1}}),
+            ("services_not_names", {"filters": {"serviceNames": [{}]}}),
+        ]
+    )
+    def test_platform_logs_alert_with_a_malformed_config_is_a_validation_error(
+        self, _name: str, source_config: object
+    ) -> None:
+        set_member_property_access(team=self.team, membership=self.organization_membership, access="restricted")
+
+        with patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True):
+            response = self.client.post(
+                f"/api/projects/{self.team.pk}/platform_alerts/",
+                {"source_kind": "logs", "source_config": source_config},
+                format="json",
+            )
+
+        assert response.status_code == 400, response.json()
+
     @parameterized.expand([("restricted", 403), ("granted", 201), ("admin", 201)])
     def test_destination_on_pipeline_log_alert_follows_property_access(
         self, access: PropertyAccess, expected: int
