@@ -1,5 +1,6 @@
 import uuid
 import typing as t
+import asyncio
 from dataclasses import dataclass
 
 from django.conf import settings
@@ -8,7 +9,7 @@ from django.utils import timezone
 
 import grpc.aio
 import posthoganalytics
-from asgiref.sync import sync_to_async
+from asgiref.sync import async_to_sync, sync_to_async
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
@@ -16,13 +17,14 @@ from posthog.event_usage import groups
 from posthog.models import ProxyRecord
 from posthog.models.messaging import MessagingRecord
 from posthog.models.organization import Organization
-from posthog.temporal.common.client import sync_connect
+from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.logger import get_logger
-from posthog.temporal.common.schedule import schedule_exists
+from posthog.temporal.common.schedule import a_schedule_exists
 from posthog.temporal.common.utils import close_stale_db_connections, on_asyncify_pool
 from posthog.temporal.proxy_service.proto import ProxyProvisionerServiceStub
 
 LOGGER = get_logger(__name__)
+PROXY_MONITOR_LOOKUP_TIMEOUT_SECONDS = 15
 
 
 async def get_grpc_client():
@@ -222,6 +224,13 @@ class SendProxyCreatedEmailInputs:
         }
 
 
+@async_to_sync
+async def _proxy_monitor_schedule_exists(proxy_record_id: uuid.UUID) -> bool:
+    async with asyncio.timeout(PROXY_MONITOR_LOOKUP_TIMEOUT_SECONDS):
+        temporal = await async_connect()
+        return await a_schedule_exists(temporal, f"monitor-proxy-{proxy_record_id}")
+
+
 @activity.defn
 def activity_send_proxy_created_email(inputs: SendProxyCreatedEmailInputs):
     """Send an email notification when a reverse proxy has been successfully provisioned."""
@@ -240,7 +249,7 @@ def activity_send_proxy_created_email(inputs: SendProxyCreatedEmailInputs):
         return
 
     # A monitor schedule is created after the first successful provisioning, even if email was unavailable.
-    if schedule_exists(sync_connect(), f"monitor-proxy-{inputs.proxy_record_id}"):
+    if _proxy_monitor_schedule_exists(inputs.proxy_record_id):
         return
 
     try:
