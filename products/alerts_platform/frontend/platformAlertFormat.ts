@@ -11,6 +11,16 @@ import {
 
 export type PlatformAlertConfigurationStatus = PlatformAlertStateApi | 'disabled' | 'not_checked'
 
+export const STATUS_LABELS: Record<PlatformAlertConfigurationStatus, string> = {
+    not_firing: 'OK',
+    firing: 'Firing',
+    errored: 'Errored',
+    snoozed: 'Snoozed',
+    broken: 'Broken',
+    disabled: 'Disabled',
+    not_checked: 'Not checked yet',
+}
+
 interface SourceKind {
     label: string
     // The source product's own page for the alert, or null when the configuration cannot reach it.
