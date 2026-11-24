@@ -43,6 +43,10 @@ export async function authenticateToolbar({
     if (!authParams) {
         throw new OAuthExchangeError('PostHog returned no authorization code')
     }
+    const { project } = authParams
+    if (!project) {
+        throw new OAuthExchangeError('PostHog named no project for the authorization code')
+    }
 
     const { status, accessToken, refreshToken } = await requestOAuthTokens({
         uiHost,
@@ -53,5 +57,5 @@ export async function authenticateToolbar({
     if (!accessToken) {
         throw new OAuthExchangeError(`The token exchange failed with status ${status}`)
     }
-    return { accessToken, refreshToken, clientId: authParams.clientId }
+    return { accessToken, refreshToken, clientId: authParams.clientId, project }
 }

@@ -156,7 +156,8 @@ Three or more events that frequently co-occur in user sessions in a fixed order,
 Direct calls:
 
 - `query-paths` (one call) on top distinct events to surface common sequences.
-- `execute-sql` against `system.insights WHERE filters::text ILIKE '%FunnelsQuery%'` to find existing funnels.
+- `execute-sql` against `system.insights` to find existing funnels. Current insights define the funnel in `query` and can leave `filters` empty, and legacy insights define it only in `filters`, so match both: `WHERE deleted = 0 AND (JSONExtractString(query, 'source', 'kind') = 'FunnelsQuery' OR JSONExtractString(query, 'kind') = 'FunnelsQuery' OR JSONExtractString(filters, 'insight') = 'FUNNELS')`. Do not use a text match such as `ILIKE '%FunnelsQuery%'`: it misses legacy funnels and matches experiment metrics (`ExperimentFunnelsQuery`), which are not funnel insights.
+- Read each candidate's full definition (`insight-get`) before you call a sequence covered: the steps, their order, and any action or property filters on them.
 - Check sequence length + retention (% users completing each step).
 
 Strong signal: 3-step sequence with > 1000 users completing step 1, > 50% reaching step 2, no existing funnel covering the sequence. The bar is high here because funnels are subjective — a common sequence isn't always a meaningful funnel.
@@ -168,7 +169,7 @@ A high-cardinality property on a high-volume event, and existing insights tracki
 Direct calls:
 
 - `read-data-schema event_property_values` — see distinct values for a property.
-- `execute-sql` over `system.insights` for the event — extract `breakdownFilter` shape.
+- `execute-sql` over `system.insights` for the event — extract the `breakdownFilter` shape from the `query` column (`JSONExtractRaw(query, 'source', 'breakdownFilter')`). A legacy insight with no `query` keeps its breakdown as `breakdown` / `breakdown_type` in `filters`.
 - Compare property cardinality to whether any insight breaks down by it.
 
 Strong signal: property has 5-50 distinct values (not unbounded), event > 5000/day, no insight breaks down by it. Weak signal: property has 1000+ distinct values (would explode the chart) or ≤ 2 values (no information added).

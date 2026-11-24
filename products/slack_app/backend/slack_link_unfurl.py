@@ -57,6 +57,7 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.api import insights_including_soft_deleted_for_team
 from products.product_analytics.backend.facade.models import Insight
+from products.release.backend.facade import api as releases_api
 from products.signals.backend.facade.reports import get_report_card, may_read_reports
 from products.slack_app.backend.analytics import capture_slack_event
 from products.slack_app.backend.logic.feature_tips.features import SlackFeature
@@ -119,6 +120,7 @@ _UNFURL_TEMPLATES: dict[str, tuple[str, ...]] = {
     "cohort": OBJECT_URL_TEMPLATES["cohort"],
     "error": OBJECT_URL_TEMPLATES["error"],
     "report": ("/inbox/{tab}/{id}", *OBJECT_URL_TEMPLATES["report"]),
+    "release": ("/releases/{id}",),
 }
 
 _KIND_EMOJI: dict[str, str] = {
@@ -134,6 +136,7 @@ _KIND_EMOJI: dict[str, str] = {
     "survey": "📝",
     "cohort": "👥",
     "error": "🐞",
+    "release": "🚀",
     ADHOC_INSIGHT_KIND: "📈",
 }
 
@@ -864,7 +867,7 @@ def _task_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _SkipRe
     return _UnfurlCard(
         label="Task",
         title=task.title,
-        status=task.latest_run_status,
+        status=task.status,
         details=(*((dto.repository,) if dto and dto.repository else ()), *_by(_user(task.created_by_id))),
         button=_CardButton(label="View pull request", url=pr_url) if pr_url else None,
         timestamp=dto.updated_at if dto else None,
@@ -999,7 +1002,7 @@ def _experiment_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _
     if experiment.start_date:
         days = ((experiment.end_date or timezone.now()) - experiment.start_date).days + 1
         details.append(f"Ran {_count(days, 'day')}" if experiment.end_date else f"Day {days}")
-    stats = _stored_primary_result(team_id=ctx.team.pk, experiment_id=experiment.id)
+    stats = _stored_primary_result(team_id=ctx.team.pk, experiment_id=experiment.id, user_id=ctx.user.pk)
     metric = stats.metric_name if stats else experiment.primary_metric_name
     if metric:
         details.append(f"Metric: {metric}")
@@ -1019,9 +1022,11 @@ def _experiment_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _
     )
 
 
-def _stored_primary_result(*, team_id: int, experiment_id: int) -> StoredPrimaryResult | None:
+def _stored_primary_result(*, team_id: int, experiment_id: int, user_id: int) -> StoredPrimaryResult | None:
     try:
-        stats = experiments_facade.get_stored_primary_result(team_id=team_id, experiment_id=experiment_id)
+        stats = experiments_facade.get_stored_primary_result(
+            team_id=team_id, experiment_id=experiment_id, user_id=user_id
+        )
     except Exception:
         logger.exception("slack_app_unfurl_experiment_results_failed", experiment_id=experiment_id)
         return None
@@ -1109,6 +1114,49 @@ def _survey_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _Skip
     )
 
 
+def _release_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _SkipReason:
+    release_id = _uuid(ref)
+    if release_id is None:
+        return "not_found"
+    root_team = Team.objects.get(pk=ctx.team.parent_team_id) if ctx.team.parent_team_id else ctx.team
+    uac = ctx.uac if root_team.pk == ctx.team.pk else UserAccessControl(user=ctx.user, team=root_team)
+    if not uac.check_access_level_for_resource("feature_flag", "viewer"):
+        return "no_access"
+    if not releases_api.releases_enabled(
+        team_id=ctx.team.pk,
+        team_uuid=ctx.team.uuid,
+        organization_id=ctx.team.organization_id,
+        distinct_id=str(ctx.user.distinct_id),
+        email=None if ctx.user.anonymize_data else ctx.user.email,
+        only_evaluate_locally=True,
+    ):
+        return "no_access"
+    try:
+        release = releases_api.get_summary(ctx.team.pk, release_id)
+    except releases_api.ReleaseNotFoundError:
+        return "not_found"
+    flags = list(
+        FeatureFlag.objects_including_soft_deleted.filter(team_id=root_team.pk, pk__in=release.feature_flag_ids).only(
+            "id", "team_id", "created_by_id", "key", "active", "deleted"
+        )
+    )
+    viewable = [flag for flag in flags if uac.check_access_level_for_object(flag, required_level="viewer")]
+    hidden = len(viewable) < len(flags)
+    visible = [flag for flag in viewable if not flag.deleted]
+    lines = [f"{flag.key} · {'Active' if flag.active else 'Disabled'}" for flag in visible]
+    return _UnfurlCard(
+        label="Release",
+        title=releases_api.RESTRICTED_NAME if release.auto_named and hidden else release.name,
+        details=(
+            *((_count(len(visible), "flag"),) if visible else ()),
+            *((f"Owner {release.owner_first_name}",) if release.owner_first_name else ()),
+        ),
+        chart="\n".join(_capped_lines(lines)) or None,
+        body=release.description or None,
+        timestamp=release.updated_at,
+    )
+
+
 def _cohort_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _SkipReason:
     cohort = Cohort.objects.filter(team_id=ctx.team.pk, pk=ref, deleted=False).first() if ref.isdigit() else None
     if not cohort:
@@ -1177,6 +1225,7 @@ _CARD_BUILDERS: dict[str, Callable[[_UnfurlContext, str, str], _UnfurlCard | _Sk
     "cohort": _cohort_card,
     "error": _error_card,
     "report": _report_card,
+    "release": _release_card,
 }
 
 

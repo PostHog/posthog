@@ -3,6 +3,7 @@ import type { Meta, StoryObj } from '@storybook/react'
 import { Button } from './button'
 import {
     Drawer,
+    DrawerBody,
     DrawerClose,
     DrawerContent,
     DrawerDescription,
@@ -33,8 +34,8 @@ export const Default: Story = {
                     <DrawerDescription>This is a description of the drawer content.</DrawerDescription>
                 </DrawerHeader>
                 <DrawerFooter>
-                    <Button variant="primary">Confirm</Button>
                     <DrawerClose render={<Button variant="outline" />}>Cancel</DrawerClose>
+                    <Button variant="primary">Confirm</Button>
                 </DrawerFooter>
             </DrawerContent>
         </Drawer>
@@ -52,20 +53,22 @@ export const WithBody: Story = {
                         Make changes to your profile here. Click save when you&apos;re done.
                     </DrawerDescription>
                 </DrawerHeader>
-                <div className="flex flex-col gap-3 px-4">
-                    <Field>
-                        <FieldLabel htmlFor="drawer-name">Name</FieldLabel>
-                        <Input id="drawer-name" defaultValue="Pedro Duarte" />
-                    </Field>
-                    <Field>
-                        <FieldLabel htmlFor="drawer-username">Username</FieldLabel>
-                        <Input id="drawer-username" defaultValue="@peduarte" />
-                        <FieldDescription>Your public handle.</FieldDescription>
-                    </Field>
-                </div>
+                <DrawerBody>
+                    <div className="flex flex-col gap-3">
+                        <Field>
+                            <FieldLabel htmlFor="drawer-name">Name</FieldLabel>
+                            <Input id="drawer-name" defaultValue="Pedro Duarte" />
+                        </Field>
+                        <Field>
+                            <FieldLabel htmlFor="drawer-username">Username</FieldLabel>
+                            <Input id="drawer-username" defaultValue="@peduarte" />
+                            <FieldDescription>Your public handle.</FieldDescription>
+                        </Field>
+                    </div>
+                </DrawerBody>
                 <DrawerFooter>
-                    <Button variant="primary">Save changes</Button>
                     <DrawerClose render={<Button variant="outline" />}>Cancel</DrawerClose>
+                    <Button variant="primary">Save changes</Button>
                 </DrawerFooter>
             </DrawerContent>
         </Drawer>

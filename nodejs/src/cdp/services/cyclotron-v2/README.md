@@ -58,6 +58,16 @@ Each dequeued job exposes an ack interface:
 - `cancel()` — mark canceled
 - `heartbeat()` — extend the lock to prevent the janitor from reclaiming the job
 
+Every release write (`ack`, `fail`, `reschedule`, `defer`, `cancel`) matches the row on `lock_id`, so a write from a worker that lost its claim changes nothing.
+With `CDP_CYCLOTRON_RELEASE_WRITE_RETRY` on, a release write that loses its Postgres connection runs once more on a fresh connection, within what is left of the heartbeat limit.
+Without the retry, a write whose connection drops before it commits leaves the job claimed until the janitor's stall reset, which then runs it a second time.
+`cdp_cyclotron_v2_release_write_retries_total` counts each retry by outcome.
+
+A worker holds every job in its batch until the whole batch finishes.
+A wake the hogflow subscription matcher sees in that time cannot reach a parked row, so the matcher records it in `pending_wake`, keyed by the wait step.
+When `reschedule()` parks the job on a step with a wake recorded after the dequeue, the job wakes at once instead of at its requested time.
+Only a park on a wait opts in (`wakeOnPendingWake`). A wait retrying a failed cohort lookup keeps its backoff, and the recorded wake applies when the retry runs.
+
 ### Janitor (standalone service)
 
 Runs on a timer interval as its own service (`PLUGIN_SERVER_MODE=cdp-cyclotron-v2-janitor`).

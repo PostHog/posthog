@@ -4,7 +4,6 @@ import { Meta, StoryObj } from '@storybook/react'
 import { useActions } from 'kea'
 import { useEffect, useMemo } from 'react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 import { useStorybookMocks } from '~/mocks/browser'
@@ -132,7 +131,6 @@ const meta: Meta<DomainPageArgs> = {
     title: 'Scenes-App/Workflows/Email domain setup',
     parameters: {
         layout: 'fullscreen',
-        featureFlags: [FEATURE_FLAGS.WORKFLOWS_EMAIL_DOMAIN_WIZARD],
         testOptions: { waitForLoadersToDisappear: true },
     },
     render: (args) => <DomainPage {...args} />,
@@ -244,8 +242,5 @@ export const AgentHandoff: Story = {
     args: {
         host: 'route53',
         stage: (_, id) => emailDomainAgentLogic.findMounted({ id })?.actions.openAgentModal(),
-    },
-    parameters: {
-        featureFlags: [FEATURE_FLAGS.WORKFLOWS_EMAIL_DOMAIN_WIZARD, FEATURE_FLAGS.WORKFLOWS_EMAIL_DOMAIN_AGENT_SETUP],
     },
 }

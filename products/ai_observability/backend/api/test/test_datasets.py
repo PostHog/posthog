@@ -433,7 +433,8 @@ class TestDatasetsApi(APIBaseTest):
 
         with self.captureOnCommitCallbacks(execute=True):
             first_response = self.client.post(self.items_url, payload, format="json")
-            retry_response = self.client.post(self.items_url, payload, format="json")
+            with patch("products.ai_observability.backend.dataset_service.MAX_RETAINED_VERSIONS_PER_TEAM", 1):
+                retry_response = self.client.post(self.items_url, payload, format="json")
 
         self.assertEqual(first_response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(retry_response.status_code, status.HTTP_200_OK)
@@ -1271,6 +1272,54 @@ class TestDatasetsApi(APIBaseTest):
         self.assertEqual(response.data["limit"], 1)
         self.assertEqual(DatasetItem.objects.for_team(self.team.id).filter(dataset_id=dataset["id"]).count(), 1)
         self.assertEqual(DatasetRevision.objects.for_team(self.team.id).filter(dataset_id=dataset["id"]).count(), 2)
+
+    @patch("products.ai_observability.backend.api.datasets.report_user_action")
+    def test_item_byte_limit_is_independent_of_dataset_capacity(self, report_action: Mock) -> None:
+        dataset = self._create_dataset()
+        content: dict[str, object] = {"input": "", "expected_output": None, "source_output": None, "metadata": {}}
+        content["input"] = "x" * (406_666 - len(json.dumps(content, separators=(",", ":"))))
+        response = self.client.post(self.items_url, {"dataset": dataset["id"], **content}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                self.items_url, {"dataset": dataset["id"], **content, "input": f"{content['input']}x"}, format="json"
+            )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["attr"], "item")
+        report_action.assert_called_once_with(
+            self.user,
+            "llma dataset limit reached",
+            {"resource": "dataset_item_payload_bytes", "current_count": 406_667, "limit": 406_666},
+            team=self.team,
+            request=ANY,
+        )
+
+    @patch("products.ai_observability.backend.api.datasets.report_user_action")
+    @patch("products.ai_observability.backend.dataset_service.MAX_RETAINED_VERSIONS_PER_TEAM", 2)
+    def test_project_quota_counts_retained_history_until_deleted(self, report_action: Mock) -> None:
+        first = self._create_dataset("First")
+        second = self._create_dataset("Second")
+        item = self._create_item(first["id"])
+        updated = self.client.patch(
+            f"{self.items_url}{item['id']}/", {"base_version": 1, "input": "edited"}, format="json"
+        )
+        self.assertEqual(updated.status_code, status.HTTP_200_OK)
+        Dataset.objects.for_team(self.team.id).filter(id=first["id"]).update(expired_at=now())
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(self.items_url, {"dataset": second["id"], "input": "new"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        properties = {"resource": "project_dataset_item_versions", "current_count": 2, "limit": 2}
+        self.assertEqual({key: response.data[key] for key in properties}, properties)
+        report_action.assert_called_once_with(
+            self.user, "llma dataset limit reached", properties, team=self.team, request=ANY
+        )
+        self.assertFalse(DatasetItem.objects.for_team(self.team.id).filter(dataset_id=second["id"]).exists())
+        self.assertFalse(DatasetRevision.objects.for_team(self.team.id).filter(dataset_id=second["id"]).exists())
+
+        DatasetItemVersion.objects.for_team(self.team.id).filter(dataset_item_id=item["id"], version=1).delete()
+        self._create_item(second["id"])
 
     def test_version_limit_does_not_create_a_partial_revision(self) -> None:
         dataset = self._create_dataset()

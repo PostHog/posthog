@@ -4,7 +4,6 @@ from django.http import HttpRequest, HttpResponse
 from django.urls import reverse
 
 from posthog.admin.console.registry import console
-from posthog.admin.console.team_panels import DEV_EXPERIENCE
 from posthog.admin.console.tools import Cell, ConsoleTool, Notice, Page, Row, Table, ToolOperation
 from posthog.api.secret_revocation import NON_PERSONAL_SECRET_PREFIXES
 from posthog.models.oauth import find_oauth_access_token, find_oauth_refresh_token
@@ -186,8 +185,8 @@ def search_key(request: HttpRequest, form: forms.Form | None) -> HttpResponse | 
 class ApiKeySearchTool(ConsoleTool):
     key = "api-key-search"
     title = "API key search"
-    owner = DEV_EXPERIENCE
-    group = "Data"
+    owner = None
+    group = "Access"
     description = "Finds who owns an API key or OAuth token, from the full key."
 
     def page(self, request: HttpRequest) -> Page:
@@ -212,3 +211,9 @@ class ApiKeySearchTool(ConsoleTool):
                 form_class=ApiKeySearchForm,
             )
         ]
+
+
+# The old page took the key in a POST body, so a bookmark carries no key and none lands in the new URL.
+console.register_moved_page(
+    old_path="admin/apikeysearch", title="API key search", url="/admin/console/tools/api-key-search/"
+)

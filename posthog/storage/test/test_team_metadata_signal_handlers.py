@@ -11,12 +11,15 @@ from parameterized import parameterized
 
 from posthog.models.organization import Organization
 from posthog.models.project import Project
+from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.models.utils import generate_random_token_secret, hash_key_value
+from posthog.models.utils import hash_key_value
 from posthog.storage import object_storage
 from posthog.storage.team_access_cache import TOKEN_CACHE_PREFIX, token_auth_cache
 from posthog.storage.team_metadata_cache import team_metadata_hypercache, update_team_metadata_cache
+from posthog.storage.team_metadata_signal_handlers import RETIRED_TOKEN_RECLEAR_DELAY_SECONDS
+from posthog.tasks.team_metadata import clear_team_metadata_cache_for_token_task
 
 from products.feature_flags.backend.models.team_feature_flag_policy_config import TeamFeatureFlagPolicyConfig
 
@@ -130,20 +133,33 @@ class TestRetiredTokenTeamMetadataClear(BaseTest):
         assert team_metadata_hypercache.cache_client.get(cache_key) is not None
         assert object_storage.read(cache_key, missing_ok=True) is not None
 
-        with self.captureOnCommitCallbacks(execute=True):
+        with (
+            patch.object(
+                clear_team_metadata_cache_for_token_task,
+                "apply_async",
+                wraps=clear_team_metadata_cache_for_token_task.apply_async,
+            ) as spy_apply_async,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
             retire_token(self.team, self.user)
             # This write stands in for a refresh that writes the old token's entry before the commit.
             team_metadata_hypercache.set_cache_value(api_token, {"api_token": api_token})
 
         assert team_metadata_hypercache.cache_client.get(cache_key) is None
         assert object_storage.read(cache_key, missing_ok=True) is None
+        spy_apply_async.assert_any_call(args=[api_token], countdown=RETIRED_TOKEN_RECLEAR_DELAY_SECONDS)
 
     @patch("posthog.tasks.integrations.push_vercel_secrets.delay")
-    def test_token_reset_drops_the_secret_key_auth_entry(self, _mock_push_vercel: Mock) -> None:
-        self.team.secret_api_token = generate_random_token_secret()
-        self.team.save()
-        auth_key = f"{TOKEN_CACHE_PREFIX}{hash_key_value(self.team.secret_api_token, mode='sha256')}"
-        token_auth_cache.redis.setex(auth_key, 300, json.dumps({"type": "secret", "api_token": self.team.api_token}))
+    def test_token_reset_drops_the_cached_psak_auth_entry(self, _mock_push_vercel: Mock) -> None:
+        psak = ProjectSecretAPIKey.objects.create(
+            team=self.team,
+            label="Cached PSAK",
+            secure_value=hash_key_value("phs_cached_psak_token"),
+        )
+        auth_key = f"{TOKEN_CACHE_PREFIX}{psak.secure_value}"
+        token_auth_cache.redis.setex(
+            auth_key, 300, json.dumps({"type": "project_secret", "api_token": self.team.api_token})
+        )
 
         with self.captureOnCommitCallbacks(execute=True):
             self.team.reset_token_and_save(user=self.user, is_impersonated_session=False)

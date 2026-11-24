@@ -104,11 +104,9 @@ describe('workflowEditorVisitLogic', () => {
 
     afterEach(() => {
         captureSpy.mockRestore()
-        jest.useRealTimers()
     })
 
     it('reports how far a blank workflow got when the person leaves without saving', async () => {
-        jest.useFakeTimers({ now: new Date('2026-10-18T10:00:00Z'), doNotFake: ['nextTick', 'setImmediate'] })
         const props = { id: 'new' }
         const visit = await openEditor(props)
 
@@ -125,7 +123,6 @@ describe('workflowEditorVisitLogic', () => {
         workflowLogic(props).actions.setWorkflowActionConfig('trigger_node', PAGEVIEW_TRIGGER)
         addStep(props, delayStep('wait_valid', { delay_duration: '10m' }))
         addStep(props, delayStep('wait_unset', {}))
-        jest.setSystemTime(new Date('2026-10-18T10:01:30Z'))
         visit.unmount()
 
         expect(captured('workflow editor left')).toEqual([
@@ -145,8 +142,6 @@ describe('workflowEditorVisitLogic', () => {
                 branch_count: 0,
                 last_edit: 'step_added',
                 last_added_step_type: 'delay',
-                enable_attempted: false,
-                seconds_open: 90,
             },
         ])
     })
@@ -426,9 +421,6 @@ describe('workflowEditorVisitLogic', () => {
 
         expect(captured('workflow enable blocked')).toEqual([
             { workflow_id: SAVED_ID, invalid_step_count: 1, invalid_step_types: ['delay'] },
-        ])
-        expect(captured('workflow editor left')).toEqual([
-            expect.objectContaining({ status: 'draft', enable_attempted: true }),
         ])
     })
 })

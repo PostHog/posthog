@@ -27,7 +27,7 @@ from products.warehouse_sources.sources.tally.settings import (
     SUBMISSION_FILTER_ALL,
     SUBMISSION_FILTER_COMPLETED,
     TALLY_API_VERSION_2025_02_01,
-    TALLY_API_VERSION_2026_10_27,
+    TALLY_API_VERSION_2026_08_04,
 )
 from products.warehouse_sources.sources.tally.tally import (
     TallyResumeConfig,
@@ -43,8 +43,8 @@ class TallySource(ResumableSource[TallySourceConfig, TallyResumeConfig]):
 
     # Tally versions its API by date, and every request sends the pinned date as the `tally-version`
     # header. Both versions serve the same paginated envelopes on the list endpoints.
-    supported_versions = (TALLY_API_VERSION_2025_02_01, TALLY_API_VERSION_2026_10_27)
-    default_version = TALLY_API_VERSION_2026_10_27
+    supported_versions = (TALLY_API_VERSION_2025_02_01, TALLY_API_VERSION_2026_08_04)
+    default_version = TALLY_API_VERSION_2026_08_04
     api_docs_url = "https://developers.tally.so/api-reference/versioning"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

@@ -2,6 +2,7 @@ import { getContext } from 'kea'
 import { Root, createRoot } from 'react-dom/client'
 
 import { ElementOverlays } from '~/toolbar/shared/elements/ElementOverlays'
+import type { FlagComparison } from '~/toolbar/shared/flags/flagComparisonLogic'
 import { toolbarConfigLogic } from '~/toolbar/shared/toolbarConfigLogic'
 import { ToolbarProps } from '~/types'
 
@@ -43,6 +44,7 @@ export class PageToolbarHost {
     private ports = new Set<ExtensionPort>()
     private lastState: PageToolbarState | null = null
     private lastScreenshotPreview: string | null = null
+    private lastFlagComparison: FlagComparison | null = null
     private lastAccessToken: string | null = null
     private postTimeout: ReturnType<typeof setTimeout> | null = null
     private idleTimeout: ReturnType<typeof setTimeout> | null = null
@@ -113,7 +115,12 @@ export class PageToolbarHost {
     private async start(session: PageToolbarSession, href: string): Promise<void> {
         this.session = { session, href }
         if (this.unmountLogics && this.uiHost === session.uiHost) {
-            toolbarConfigLogic.actions.setOAuthTokens(session.accessToken, session.refreshToken, session.clientId)
+            toolbarConfigLogic.actions.setOAuthTokens(
+                session.accessToken,
+                session.refreshToken,
+                session.clientId,
+                session.project
+            )
             extensionPageToolbarLogic.actions.handleCommand({ tool: 'session', command: { type: 'set-href', href } })
             return
         }
@@ -130,6 +137,8 @@ export class PageToolbarHost {
             accessToken: session.accessToken,
             refreshToken: session.refreshToken ?? undefined,
             clientId: session.clientId,
+            teamId: session.project.teamId,
+            projectId: session.project.projectId,
             dataAttributes: session.dataAttributes,
             posthog: this.posthogBridge?.posthog,
         }
@@ -172,6 +181,7 @@ export class PageToolbarHost {
         this.uiHost = null
         this.lastState = null
         this.lastScreenshotPreview = null
+        this.lastFlagComparison = null
     }
 
     private clearIdleTimeout(): void {
@@ -220,18 +230,22 @@ export class PageToolbarHost {
         if (preview) {
             port.postMessage({ type: 'screenshot-preview', dataUrl: preview } satisfies PageToolbarMessage)
         }
+        const comparison = this.flagComparison()
+        if (comparison) {
+            port.postMessage({ type: 'flag-comparison', comparison } satisfies PageToolbarMessage)
+        }
     }
 
     private postChanges(): void {
         if (!this.unmountLogics) {
             return
         }
-        const { accessToken, refreshToken, clientId } = toolbarConfigLogic.values
+        const { accessToken, refreshToken, clientId, project } = toolbarConfigLogic.values
         if (accessToken !== this.lastAccessToken) {
             this.lastAccessToken = accessToken
             this.broadcast(
-                accessToken && clientId
-                    ? { type: 'tokens', tokens: { accessToken, refreshToken, clientId } }
+                accessToken && clientId && project
+                    ? { type: 'tokens', tokens: { accessToken, refreshToken, clientId, project } }
                     : { type: 'token-expired' }
             )
         }
@@ -251,10 +265,21 @@ export class PageToolbarHost {
             this.broadcast({ type: 'screenshot-preview', dataUrl: preview })
         }
         this.lastScreenshotPreview = preview
+        const comparison = this.flagComparison()
+        // Unlike the preview, a closed comparison goes out too, so every panel on the tab closes it.
+        if (comparison !== this.lastFlagComparison) {
+            // Set first, so a send that throws isn't retried with the same images on every store change.
+            this.lastFlagComparison = comparison
+            this.broadcast({ type: 'flag-comparison', comparison })
+        }
     }
 
     private screenshotPreview(): string | null {
         return extensionPageMoreLogic.findMounted()?.values.screenshotPreview ?? null
+    }
+
+    private flagComparison(): FlagComparison | null {
+        return extensionPageFlagsLogic.findMounted()?.values.comparison ?? null
     }
 
     private broadcast(message: PageToolbarMessage): void {

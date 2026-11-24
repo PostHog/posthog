@@ -10,6 +10,7 @@ mutation) is mocked. These tests only exercise the serializer + helper logic.
 """
 
 from contextlib import ExitStack
+from datetime import timedelta
 
 import pytest
 from unittest import mock
@@ -38,7 +39,6 @@ pytestmark = [pytest.mark.django_db]
 
 _VIEW = "products.warehouse_sources.backend.presentation.views.external_data_schema"
 _PATCH_TARGETS = {
-    "is_cdc_enabled_for_team": "products.warehouse_sources.backend.presentation.views.external_data_schema.is_cdc_enabled_for_team",
     # Single private method backing both add_table/remove_table on the adapter — patching it
     # no-ops the engine-side ALTER PUBLICATION without touching parse_cdc_config gating.
     "alter_cdc_publication": (
@@ -152,7 +152,6 @@ def test_patch_cdc_table_mode_adding_target_triggers_resnapshot(team, user, clie
     client.force_login(user)
 
     with (
-        mock.patch(_PATCH_TARGETS["is_cdc_enabled_for_team"], return_value=True),
         mock.patch(_PATCH_TARGETS["alter_cdc_publication"]),
         mock.patch(_PATCH_TARGETS["external_data_workflow_exists"], return_value=True),
         mock.patch(_PATCH_TARGETS["sync_external_data_job_workflow"]),
@@ -184,6 +183,41 @@ def test_patch_cdc_table_mode_adding_target_triggers_resnapshot(team, user, clie
     mock_trigger.assert_called_once()
 
 
+@pytest.mark.parametrize(
+    ("new_mode", "expect_resnapshot"),
+    [
+        pytest.param("consolidated", False, id="resent_mode_syncs_for_the_shorter_cadence"),
+        pytest.param("both", True, id="added_target_syncs_only_for_the_resnapshot"),
+    ],
+)
+def test_patch_shorter_cadence_with_cdc_table_mode_starts_one_sync(
+    team, user, client: HttpClient, new_mode, expect_resnapshot
+):
+    _, schema = _make_cdc_source_and_schema(team, cdc_table_mode="consolidated")
+    ExternalDataSchema.objects.filter(pk=schema.pk).update(sync_frequency_interval=timedelta(hours=1))
+    client.force_login(user)
+
+    with (
+        mock.patch(_PATCH_TARGETS["alter_cdc_publication"]),
+        mock.patch(_PATCH_TARGETS["external_data_workflow_exists"], return_value=True),
+        mock.patch(_PATCH_TARGETS["sync_external_data_job_workflow"]),
+        mock.patch(_PATCH_TARGETS["sync_cdc_extraction_schedule"]),
+        mock.patch(_PATCH_TARGETS["has_queued_batches"], return_value=False),
+        mock.patch(_PATCH_TARGETS["trigger_external_data_workflow"]) as mock_trigger,
+    ):
+        response = client.patch(
+            f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
+            data={"sync_frequency": "5min", "cdc_table_mode": new_mode},
+            content_type="application/json",
+        )
+
+    assert response.status_code == 200, response.content
+    schema.refresh_from_db()
+    assert schema.sync_frequency_interval == timedelta(minutes=5)
+    assert (schema.sync_type_config.get("cdc_mode") == "snapshot") is expect_resnapshot
+    mock_trigger.assert_called_once()
+
+
 @pytest.mark.parametrize("action", ["resync", "cdc_table_mode_switch", "re_enable"])
 def test_a_reset_is_left_to_capture_while_the_tables_sync_can_still_hand_over(team, user, client: HttpClient, action):
     source, schema = _make_cdc_source_and_schema(team, cdc_table_mode="consolidated")
@@ -199,7 +233,6 @@ def test_a_reset_is_left_to_capture_while_the_tables_sync_can_still_hand_over(te
     client.force_login(user)
 
     with (
-        mock.patch(_PATCH_TARGETS["is_cdc_enabled_for_team"], return_value=True),
         mock.patch(_PATCH_TARGETS["is_any_external_data_schema_paused"], return_value=False),
         mock.patch(_PATCH_TARGETS["alter_cdc_publication"]),
         mock.patch(_PATCH_TARGETS["external_data_workflow_exists"], return_value=True),
@@ -310,7 +343,6 @@ def test_toggling_sync_drops_the_snapshot_marker(team, user, client: HttpClient,
     )
     client.force_login(user)
     with (
-        mock.patch(_PATCH_TARGETS["is_cdc_enabled_for_team"], return_value=True),
         mock.patch(_PATCH_TARGETS["alter_cdc_publication"]),
         mock.patch(_PATCH_TARGETS["external_data_workflow_exists"], return_value=True),
         mock.patch(_PATCH_TARGETS["sync_external_data_job_workflow"]),
@@ -342,7 +374,6 @@ def test_moving_a_table_off_cdc_drops_it_from_the_publication(
     )
     client.force_login(user)
     with (
-        mock.patch(_PATCH_TARGETS["is_cdc_enabled_for_team"], return_value=True),
         mock.patch(_PATCH_TARGETS["alter_cdc_publication"]) as alter_publication,
         mock.patch(_PATCH_TARGETS["external_data_workflow_exists"], return_value=True),
         mock.patch(_PATCH_TARGETS["sync_external_data_job_workflow"]),
@@ -381,7 +412,6 @@ def test_a_table_moved_off_cdc_during_a_handed_over_reset_syncs_again(
     )
     client.force_login(user)
     with (
-        mock.patch(_PATCH_TARGETS["is_cdc_enabled_for_team"], return_value=True),
         mock.patch(_PATCH_TARGETS["alter_cdc_publication"]),
         mock.patch(_PATCH_TARGETS["external_data_workflow_exists"], return_value=True),
         mock.patch(_PATCH_TARGETS["sync_external_data_job_workflow"]),
@@ -423,7 +453,6 @@ def test_moving_a_cdc_only_table_off_cdc_resyncs_it(
     _, schema = _make_cdc_source_and_schema(team, cdc_table_mode=table_mode)
     client.force_login(user)
     with (
-        mock.patch(_PATCH_TARGETS["is_cdc_enabled_for_team"], return_value=True),
         mock.patch(_PATCH_TARGETS["alter_cdc_publication"]),
         mock.patch(_PATCH_TARGETS["external_data_workflow_exists"], return_value=True),
         mock.patch(_PATCH_TARGETS["sync_external_data_job_workflow"]),
@@ -450,7 +479,6 @@ def test_a_table_stays_in_the_publication_when_its_move_off_cdc_is_not_saved(
     client.force_login(user)
     client.raise_request_exception = False
     with (
-        mock.patch(_PATCH_TARGETS["is_cdc_enabled_for_team"], return_value=True),
         mock.patch(_PATCH_TARGETS["alter_cdc_publication"]) as alter_publication,
         mock.patch(_PATCH_TARGETS["sync_cdc_extraction_schedule"]),
         mock.patch(
@@ -520,7 +548,6 @@ def test_patch_cdc_table_mode_dropping_target_skips_resnapshot(team, user, clien
     client.force_login(user)
 
     with (
-        mock.patch(_PATCH_TARGETS["is_cdc_enabled_for_team"], return_value=True),
         mock.patch(_PATCH_TARGETS["alter_cdc_publication"]),
         mock.patch(_PATCH_TARGETS["external_data_workflow_exists"], return_value=True),
         mock.patch(_PATCH_TARGETS["sync_external_data_job_workflow"]),
@@ -551,7 +578,6 @@ def test_patch_cdc_table_mode_idempotent_skips_resnapshot(team, user, client: Ht
     client.force_login(user)
 
     with (
-        mock.patch(_PATCH_TARGETS["is_cdc_enabled_for_team"], return_value=True),
         mock.patch(_PATCH_TARGETS["alter_cdc_publication"]),
         mock.patch(_PATCH_TARGETS["external_data_workflow_exists"], return_value=True),
         mock.patch(_PATCH_TARGETS["sync_external_data_job_workflow"]),
@@ -582,7 +608,6 @@ def test_patch_cdc_table_mode_rejected_when_team_over_billing_limit(team, user, 
     client.force_login(user)
 
     with (
-        mock.patch(_PATCH_TARGETS["is_cdc_enabled_for_team"], return_value=True),
         mock.patch(_PATCH_TARGETS["alter_cdc_publication"]),
         mock.patch(_PATCH_TARGETS["external_data_workflow_exists"], return_value=True),
         mock.patch(_PATCH_TARGETS["sync_external_data_job_workflow"]),
@@ -615,7 +640,6 @@ def test_patch_cdc_table_mode_drop_target_allowed_when_team_over_billing_limit(t
     client.force_login(user)
 
     with (
-        mock.patch(_PATCH_TARGETS["is_cdc_enabled_for_team"], return_value=True),
         mock.patch(_PATCH_TARGETS["alter_cdc_publication"]),
         mock.patch(_PATCH_TARGETS["external_data_workflow_exists"], return_value=True),
         mock.patch(_PATCH_TARGETS["sync_external_data_job_workflow"]),
@@ -652,7 +676,6 @@ def test_patch_reports_history_enabled_and_disabled(
     client.force_login(user)
 
     with (
-        mock.patch(_PATCH_TARGETS["is_cdc_enabled_for_team"], return_value=True),
         mock.patch(_PATCH_TARGETS["alter_cdc_publication"]),
         mock.patch(_PATCH_TARGETS["external_data_workflow_exists"], return_value=True),
         mock.patch(_PATCH_TARGETS["sync_external_data_job_workflow"]),
@@ -708,7 +731,6 @@ def _history_drop_mocks(*, queued: bool = False, workflow_running: bool = False)
             "products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane._workflow_is_running",
             return_value=workflow_running,
         ),
-        mock.patch(_PATCH_TARGETS["is_cdc_enabled_for_team"], return_value=True),
         mock.patch(_PATCH_TARGETS["alter_cdc_publication"]),
         mock.patch(_PATCH_TARGETS["external_data_workflow_exists"], return_value=True),
         mock.patch(_PATCH_TARGETS["sync_external_data_job_workflow"]),

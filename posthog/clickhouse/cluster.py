@@ -176,6 +176,7 @@ class ClickhouseCluster:
         connection_overrides: Mapping[str, Any] | None = None,
         shard_role: NodeRole = NodeRole.DATA,
         bootstrap_credential_provider: Callable[[], str] | None = None,
+        discovery_deadline: float | None = None,
     ) -> None:
         if logger is None:
             logger = logging.getLogger(__name__)
@@ -194,6 +195,7 @@ class ClickhouseCluster:
         # handle with no shards to dispatch over at all.
         self.__shard_role = shard_role
         self.__bootstrap_credential_provider = bootstrap_credential_provider
+        self.__discovery_deadline = discovery_deadline
         # A token login fails while the ch-podauth bridge on the answering node is down, so discovery retries it.
         discovery_retry_policy = retry_policy
         if bootstrap_credential_provider is not None:
@@ -315,17 +317,30 @@ class ClickhouseCluster:
                 connection_overrides=self.__connection_overrides,
                 shard_role=shard_role,
                 bootstrap_credential_provider=self.__bootstrap_credential_provider,
+                discovery_deadline=self.__discovery_deadline,
             )
         return sibling
 
-    def __stamp_bootstrap_credential(self, client: Client) -> None:
+    def __prepare_bootstrap_client(self, client: Client) -> None:
         # sibling() runs discovery on this client hours into a job, and a reconnect sends the stored password.
         if self.__bootstrap_credential_provider is not None:
             client.connection.password = self.__bootstrap_credential_provider()
+        if self.__discovery_deadline is not None:
+            remaining = int(self.__discovery_deadline - time.monotonic())
+            if remaining <= 0:
+                raise TimeoutError("The ClickHouse topology discovery deadline has passed.")
+            socket_timeout = min(client.connection.send_receive_timeout, remaining)
+            client.connection.connect_timeout = min(client.connection.connect_timeout, remaining)
+            client.connection.sync_request_timeout = min(client.connection.sync_request_timeout, remaining)
+            client.connection.send_receive_timeout = socket_timeout
+            if client.connection.socket is not None:
+                client.connection.socket.settimeout(socket_timeout)
+            query_timeout = float(client.settings.get("max_execution_time", 0))
+            client.settings["max_execution_time"] = str(min(query_timeout or remaining, remaining))
 
     def __get_cluster_hosts(self, client: Client, cluster: str, retry_policy: RetryPolicy | None = None):
         def get_cluster_hosts_fn(client: Client) -> list[tuple[Any, ...]]:
-            self.__stamp_bootstrap_credential(client)
+            self.__prepare_bootstrap_client(client)
             return client.execute(
                 f"""
                 SELECT host_name, port, shard_num, replica_num, getMacro('hostClusterType') as host_cluster_type, getMacro('hostClusterRole') as host_cluster_role
@@ -348,7 +363,7 @@ class ClickhouseCluster:
         retry_policy: RetryPolicy | None = None,
     ):
         def get_hosts_fn(client: Client) -> list[tuple[Any, ...]]:
-            self.__stamp_bootstrap_credential(client)
+            self.__prepare_bootstrap_client(client)
             return client.execute(
                 """
                 SELECT host_name, port, shard_num, replica_num, getMacro('hostClusterType') as host_cluster_type, getMacro('hostClusterRole') as host_cluster_role
@@ -655,6 +670,7 @@ def get_cluster(
     host: str = settings.CLICKHOUSE_HOST,
     connection_overrides: Mapping[str, Any] | None = None,
     ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
+    discovery_deadline: float | None = None,
 ) -> ClickhouseCluster:
     extra_hosts = []
     for host_config in map(copy, CLICKHOUSE_PER_TEAM_SETTINGS.values()):
@@ -677,6 +693,12 @@ def get_cluster(
     else:
         bootstrap_client = default_client(host=host, user=creds.user, password=creds.password)
 
+    # Topology discovery must obey the same limits as shard queries.
+    if "send_receive_timeout" in overrides:
+        bootstrap_client.connection.send_receive_timeout = overrides["send_receive_timeout"]
+    if client_settings:
+        bootstrap_client.settings.update(client_settings)
+
     return ClickhouseCluster(
         bootstrap_client,
         extra_hosts=extra_hosts,
@@ -688,6 +710,7 @@ def get_cluster(
         retry_policy=retry_policy,
         connection_overrides=overrides,
         bootstrap_credential_provider=bootstrap_credential_provider,
+        discovery_deadline=discovery_deadline,
     )
 
 

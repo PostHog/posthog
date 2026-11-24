@@ -20,6 +20,7 @@ import { getCurrentTeamIdOrNone, getCurrentUserIdOrNone } from 'lib/utils/getApp
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { capitalizeFirstLetter, humanList, identifierToHuman, pluralize } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
+import type { ProductOnboardingCompleteProperties } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -51,6 +52,7 @@ import {
     refTypeParams,
     reparentPath,
     shortcutFromEntry,
+    shortcutTelemetryName,
     sortFilesAndFolders,
     splitPath,
 } from '~/layout/panel-layout/ProjectTree/utils'
@@ -58,8 +60,10 @@ import { FEATURE_FLAGS } from '~/lib/constants'
 import { groupsModel } from '~/models/groupsModel'
 import { FileSystemEntry, FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
 import { UserBasicType } from '~/types'
+import type { TeamPublicType, TeamType } from '~/types'
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
+import type { ProductCrossSellProperties, ProductIntentProperties } from '../../../lib/utils/product-intents'
 import type { Noun } from '../../../models/groupsModel'
 import type { GroupType, GroupTypeIndex, ProjectTreeRef, UserType } from '../../../types'
 
@@ -276,25 +280,25 @@ export interface projectTreeDataLogicActions {
         url: string
     } // router
     addProductIntentForCrossSellSuccess: (
-        currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType,
-        payload?: import('../../../lib/utils/product-intents').ProductCrossSellProperties | undefined
+        currentTeam: TeamPublicType | TeamType | null,
+        payload?: ProductCrossSellProperties | undefined
     ) => {
-        currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType
-        payload?: import('../../../lib/utils/product-intents').ProductCrossSellProperties
+        currentTeam: TeamPublicType | TeamType | null
+        payload?: ProductCrossSellProperties
     } // teamLogic
     addProductIntentSuccess: (
-        currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType,
-        payload?: import('../../../lib/utils/product-intents').ProductIntentProperties | undefined
+        currentTeam: TeamPublicType | TeamType | null,
+        payload?: ProductIntentProperties | undefined
     ) => {
-        currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType
-        payload?: import('../../../lib/utils/product-intents').ProductIntentProperties
+        currentTeam: TeamPublicType | TeamType | null
+        payload?: ProductIntentProperties
     } // teamLogic
     recordProductIntentOnboardingCompleteSuccess: (
-        currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType,
-        payload?: import('scenes/teamLogic').ProductOnboardingCompleteProperties | undefined
+        currentTeam: TeamPublicType | TeamType | null,
+        payload?: ProductOnboardingCompleteProperties | undefined
     ) => {
-        currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType
-        payload?: import('scenes/teamLogic').ProductOnboardingCompleteProperties
+        currentTeam: TeamPublicType | TeamType | null
+        payload?: ProductOnboardingCompleteProperties
     } // teamLogic
     addLoadedResults: (results: RecentResults | SearchResults) => {
         results: RecentResults | SearchResults
@@ -645,7 +649,7 @@ export interface projectTreeDataLogicMeta {
         groupItems: (
             groupTypes: Map<GroupTypeIndex, GroupType>,
             groupsAccessStatus: GroupsAccessStatus,
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun, // groupsModel
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun,
             shortcutData: FileSystemEntry[],
             featureFlags: FeatureFlagsSet
         ) => FileSystemImport[]
@@ -1114,7 +1118,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     if (created) {
                         posthog.capture('navbar starred item added', {
                             item_type: shortcutItem.type ?? 'unknown',
-                            item_name: shortcutItem.path,
+                            item_name: shortcutTelemetryName(shortcutItem.type, shortcutItem.path),
                         })
                     }
                     lemonToast.success(successMessage ?? 'Added to starred')
@@ -1142,7 +1146,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     await api.fileSystemShortcuts.delete(id)
                     posthog.capture('navbar starred item removed', {
                         item_type: shortcut?.type ?? 'unknown',
-                        item_name: shortcut?.path ?? 'unknown',
+                        item_name: shortcutTelemetryName(shortcut?.type, shortcut?.path ?? 'unknown'),
                     })
                     lemonToast.success(successMessage ?? 'Removed from starred')
                     return values.shortcutData.filter((s) => s.id !== id)

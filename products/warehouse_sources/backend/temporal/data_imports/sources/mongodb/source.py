@@ -82,9 +82,28 @@ _MONGO_UNSUPPORTED_FILE_OPTION_MESSAGE = (
     "sign in with a username and password, and try again."
 )
 
+_MONGO_GSSAPI_UNSUPPORTED_MESSAGE = (
+    "Your connection string sets authMechanism=GSSAPI, which signs in with Kerberos. PostHog "
+    "doesn't support that authentication mechanism. Sign in with a username and password "
+    "instead, and try again."
+)
+
+_MONGO_AWS_AUTH_UNSUPPORTED_MESSAGE = (
+    "Your connection string sets authMechanism=MONGODB-AWS, which signs in with AWS IAM "
+    "credentials. PostHog doesn't support that authentication mechanism. Sign in with a "
+    "username and password instead, and try again."
+)
+
 _MONGO_HOST_UNRESOLVED_MESSAGE = (
     "The MongoDB host could not be resolved. Check that the cluster address in your connection "
     "string is spelled correctly."
+)
+
+_MONGO_SRV_RECORD_MISSING_MESSAGE = (
+    "PostHog couldn't find the DNS records that a mongodb+srv:// connection string needs. This "
+    "scheme only works with a host that publishes SRV records, such as a MongoDB Atlas cluster. "
+    # nosemgrep: trailofbits.generic.mongodb-insecure-transport.mongodb-insecure-transport
+    "If your host doesn't, use the mongodb:// scheme with the host and port instead, then try again."
 )
 
 _MONGO_SERVER_TOO_OLD_MESSAGE = (
@@ -103,6 +122,13 @@ _MONGO_REPLICA_SET_MISMATCH_MESSAGE = (
 
 _MONGO_AUTHENTICATION_FAILED_MESSAGE = (
     "MongoDB authentication failed. Please check the username and password for this source."
+)
+
+_MONGO_PROTOCOL_INCOMPATIBLE_MESSAGE = (
+    "PostHog's MongoDB driver received a reply it doesn't support. This usually means the server "
+    "on the other end of this connection string isn't a genuine MongoDB server, or something "
+    "between PostHog and the server (a proxy or load balancer) is altering the connection. Connect "
+    "to a standard MongoDB server and try again."
 )
 
 _MONGO_NOT_AUTHORIZED_MESSAGE = (
@@ -169,10 +195,39 @@ _DNS_RESOLUTION_FAILURE_MARKERS = (*_DNS_NAME_NOT_FOUND_MARKERS, _DNS_TEMPORARY_
 # a deleted, renamed, or mistyped cluster hostname — distinct from a timed-out lookup.
 _SRV_DNS_NAME_NOT_FOUND_MARKER = "The DNS query name does not exist"
 
+# dnspython's NoAnswer carries this fixed prefix when the SRV name resolves but the zone
+# publishes no `_mongodb._tcp` SRV record for it — the `mongodb+srv://` scheme needs one, and a
+# self-hosted or non-Atlas host (e.g. a plain TCP endpoint) never has it configured. Distinct from
+# NXDOMAIN above: the name exists, the SRV record type just isn't there. This never resolves on
+# retry; the user must drop the `+srv` from the scheme instead.
+_SRV_NO_ANSWER_MARKER = "The DNS response does not contain an answer to the question"
+
 # pymongo raises ConfigurationError from server selection when every server's wire version is
 # below the driver's minimum (pymongo 4.15 dropped MongoDB 4.0). The variable parts are the
 # address and version numbers; this fragment stays fixed.
 _SERVER_TOO_OLD_MARKER = "version of PyMongo requires at least"
+
+# pymongo's OP_MSG reply parser raises ProtocolError with one of four fixed "Unsupported OP_MSG
+# ..." messages (an unexpected checksum flag, an unrecognized flag, a non-zero payload type, or
+# more than one payload section) when the bytes it receives don't match the single-section OP_MSG
+# shape this driver parses. A genuine MongoDB server never sends these; seeing one means whatever
+# answered the connection string isn't speaking the wire protocol this driver expects — a
+# non-MongoDB proxy, a mangling load balancer, or an incompatible MongoDB-wire-protocol emulation.
+# Retrying reads the same malformed reply from the same endpoint every time.
+_MONGO_PROTOCOL_INCOMPATIBLE_MARKER = "Unsupported OP_MSG"
+
+# pymongo raises this exact, fixed ConfigurationError when the connection string sets
+# authMechanism=GSSAPI (Kerberos sign-in) but the optional pykerberos/winkerberos package isn't
+# installed. We don't bundle that package — GSSAPI also needs a Kerberos ticket or keytab from
+# the connecting machine that we have no way to supply either way — so the mechanism never works,
+# a connection string choice the user must change rather than a transient failure a retry clears.
+_GSSAPI_AUTH_UNSUPPORTED_MARKER = "must be installed to use GSSAPI authentication"
+
+# pymongo raises this exact, fixed ConfigurationError message when the connection string sets
+# authMechanism=MONGODB-AWS (AWS IAM credential auth) but the optional pymongo-auth-aws package
+# isn't installed. We don't bundle that package, so the mechanism never works — a connection
+# string choice the user must change, not a transient failure that a retry could clear.
+_MONGO_AWS_AUTH_UNSUPPORTED_MARKER = "MONGODB-AWS authentication requires pymongo-auth-aws"
 
 
 @SourceRegistry.register
@@ -278,6 +333,7 @@ class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], Val
         return {
             _SERVER_TOO_OLD_MARKER: _MONGO_SERVER_TOO_OLD_MESSAGE,
             UNSUPPORTED_FILE_OPTION_ERROR: _MONGO_UNSUPPORTED_FILE_OPTION_MESSAGE,
+            _GSSAPI_AUTH_UNSUPPORTED_MARKER: _MONGO_GSSAPI_UNSUPPORTED_MESSAGE,
             # pymongo raises InvalidURI("Username and password must be escaped according to RFC 3986,
             # use urllib.parse.quote_plus") before any network call when the credentials in the
             # connection string contain unescaped reserved characters (e.g. ':', '/', '@', '%' in the
@@ -328,6 +384,10 @@ class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], Val
             # The same answer for a mongodb+srv:// URI, whose SRV lookup fails before pymongo picks a
             # server. The raw dnspython text echoes the cluster host, so it never reaches the customer.
             _SRV_DNS_NAME_NOT_FOUND_MARKER: _MONGO_HOST_UNRESOLVED_MESSAGE,
+            # The SRV name resolves but carries no `_mongodb._tcp` record, because the host doesn't
+            # support SRV-based discovery at all. Distinct guidance: the fix is the connection string
+            # scheme, not the spelling.
+            _SRV_NO_ANSWER_MARKER: _MONGO_SRV_RECORD_MISSING_MESSAGE,
             # pymongo removes every server whose replica set name differs from the `replicaSet` the
             # connection string asks for, which empties the topology and names the set rather than a
             # host in the selection error. A cluster that is merely down keeps its servers as Unknown
@@ -347,6 +407,8 @@ class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], Val
             # MongoDB OperationFailure code 125 (CommandFailed): an Atlas Data Federation / Online
             # Archive data source still names a cluster that no longer exists in the project.
             "not found in project": _MONGO_CLUSTER_NOT_FOUND_MESSAGE,
+            _MONGO_PROTOCOL_INCOMPATIBLE_MARKER: _MONGO_PROTOCOL_INCOMPATIBLE_MESSAGE,
+            _MONGO_AWS_AUTH_UNSUPPORTED_MARKER: _MONGO_AWS_AUTH_UNSUPPORTED_MESSAGE,
         }
 
     def get_retryable_errors(self) -> set[str]:
@@ -409,6 +471,12 @@ class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], Val
         # getMore was killed before yielding anything (resuming immediately would hit the same cap
         # in a tight loop). A fresh Temporal retry isn't bound by that same in-flight time budget, so
         # it is self-recovering and must not flood error tracking on every no-progress getMore.
+        #
+        # OperationFailure code 16500 (codeName 'RequestRateTooLarge') comes from Azure Cosmos DB's
+        # API for MongoDB when the cluster's provisioned throughput is exceeded — the Cosmos DB
+        # equivalent of an HTTP 429. The errmsg itself says the request made no changes and to retry
+        # later (RetryAfterMs), so this is the cluster's own backpressure signal, not a PostHog bug
+        # or a customer credential/config problem; a later Temporal retry recovers once load drops.
         return {
             "The resolution lifetime expired",
             "connection pool paused",
@@ -419,6 +487,7 @@ class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], Val
             "Connection reset by peer",
             "connection closed (configured timeouts:",
             "operation exceeded time limit",
+            "RequestRateTooLarge",
         }
 
     def get_retry_exhausted_errors(self) -> dict[str, str]:
@@ -489,7 +558,7 @@ class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], Val
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        from pymongo.errors import ConfigurationError, OperationFailure, ServerSelectionTimeoutError
+        from pymongo.errors import ConfigurationError, OperationFailure, ProtocolError, ServerSelectionTimeoutError
 
         try:
             connection_params = _parse_connection_string(config.connection_string, config.database_name)
@@ -561,10 +630,25 @@ class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], Val
             message = str(e)
             if _SRV_DNS_NAME_NOT_FOUND_MARKER in message:
                 return False, _MONGO_HOST_UNRESOLVED_MESSAGE
+            if _SRV_NO_ANSWER_MARKER in message:
+                return False, _MONGO_SRV_RECORD_MISSING_MESSAGE
             if _SERVER_TOO_OLD_MARKER in message:
                 return False, _MONGO_SERVER_TOO_OLD_MESSAGE
             if "must be escaped according to RFC 3986" in message:
                 return False, _MONGO_UNESCAPED_CREDENTIALS_MESSAGE
+            if _GSSAPI_AUTH_UNSUPPORTED_MARKER in message:
+                return False, _MONGO_GSSAPI_UNSUPPORTED_MESSAGE
+            if _MONGO_AWS_AUTH_UNSUPPORTED_MARKER in message:
+                return False, _MONGO_AWS_AUTH_UNSUPPORTED_MESSAGE
+            capture_exception(e)
+            return False, _MONGO_CONNECT_FAILED_MESSAGE
+        except ProtocolError as e:
+            # The server on the other end of this connection string isn't speaking the MongoDB
+            # wire protocol this driver expects — already surfaced with an actionable message, so
+            # don't report it as error-tracking noise.
+            message = str(e)
+            if _MONGO_PROTOCOL_INCOMPATIBLE_MARKER in message:
+                return False, _MONGO_PROTOCOL_INCOMPATIBLE_MESSAGE
             capture_exception(e)
             return False, _MONGO_CONNECT_FAILED_MESSAGE
         except Exception as e:

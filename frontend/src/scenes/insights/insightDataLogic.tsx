@@ -53,6 +53,8 @@ import {
     isInsightVizNode,
 } from '~/queries/schema/node-guards'
 import { VisualizationNode, HogQLVariable, InsightVizNode, Node, NodeKind } from '~/queries/schema/schema-general'
+import type { QueryScanSummary } from '~/queries/schema/schema-general'
+import type { AnalyticsQueryResponseBase } from '~/queries/schema/schema-general'
 import { isHogQuery, isWebAnalyticsInsightQuery, shouldQueryBeAsync } from '~/queries/utils'
 import { ChartDisplayType, ExportContext, InsightLogicProps, InsightType } from '~/types'
 
@@ -94,7 +96,7 @@ import type {
 import { teamLogic } from '../teamLogic'
 import { insightDataTimingLogic } from './insightDataTimingLogic'
 import { insightLogic } from './insightLogic'
-import { insightSceneLogic } from './insightSceneLogic'
+import { insightSceneLogic, insightSceneTabId } from './insightSceneLogic'
 import { insightUsageLogic } from './insightUsageLogic'
 import { crushDraftQueryForLocalStorage, isQueryTooLarge } from './utils'
 
@@ -110,7 +112,8 @@ export const isInsightSceneInstance = (props: InsightLogicProps): boolean => {
     const sceneValues = insightSceneLogic.findMounted()?.values
     return (
         sceneValues?.insightId === props.dashboardItemId &&
-        (sceneValues?.dashboardId ?? null) === (props.dashboardId ?? null)
+        (sceneValues?.dashboardId ?? null) === (props.dashboardId ?? null) &&
+        (props.tabId ?? undefined) === insightSceneTabId(props.dashboardId)
     )
 }
 
@@ -332,53 +335,46 @@ export interface insightDataLogicActions {
         | TraceSpansTreeQueryResponse // dataNodeLogic
     loadInsightSuccess: (
         insight: {
-            _create_in_folder?: string | null | undefined
-            alerts?: AlertType[] | undefined
-            cache_target_age?: string | null | undefined
-            columns?: string[] | null | undefined
+            _create_in_folder?: string | null
+            alerts?: AlertType[]
+            cache_target_age?: string | null
+            columns?: string[] | null
             created_at: string
             created_by: UserBasicType | null
             dashboard_tiles: DashboardTileBasicType[] | null
-            dashboards?: number[] | undefined
+            dashboards?: number[]
             deleted: boolean
-            derived_name?: string | null | undefined
-            description?: string | undefined
-            disable_baseline?: boolean | undefined
-            favorited?: boolean | undefined
-            filter_override_context?: InsightFilterOverrideContextApi | null | undefined
+            derived_name?: string | null
+            description?: string
+            disable_baseline?: boolean
+            favorited?: boolean
+            filter_override_context?: InsightFilterOverrideContextApi | null
             id: number
-            is_cached?: boolean | undefined
+            is_cached?: boolean
             is_sample: boolean
             last_modified_at: string
             last_modified_by: UserBasicType | null
             last_refresh: string | null
-            last_viewed_at?: string | null | undefined
+            last_viewed_at?: string | null
             name: string
-            next?: string | undefined
-            next_allowed_client_refresh?: string | null | undefined
+            next?: string
+            next_allowed_client_refresh?: string | null
             order: number | null
             query: Node<Record<string, any>> | null
-            query_scan?: import('~/queries/schema/schema-general').QueryScanSummary | undefined
-            query_status?: QueryStatus | undefined
-            resolved_date_range?: ResolvedDateRangeResponse | null | undefined
+            query_scan?: QueryScanSummary
+            query_status?: QueryStatus
+            resolved_date_range?: ResolvedDateRangeResponse | null
             result: any
             saved: boolean
             short_id: InsightShortId
-            tags?: string[] | undefined
-            timezone?: string | null | undefined
-            types?: string[][] | null | undefined
+            tags?: string[]
+            timezone?: string | null
+            types?: string[][] | null
             updated_at: string
             user_access_level: AccessControlLevel
-            view_count?: number | undefined
-            viewers?: UserBasicType[] | undefined
-            warnings?:
-                | (
-                      | import('~/queries/schema/schema-general').AccessControlFilterWarning
-                      | import('~/queries/schema/schema-general').BreakdownNotAppliedWarning
-                      | import('~/queries/schema/schema-general').DataWarehouseSyncWarning
-                  )[]
-                | null
-                | undefined
+            view_count?: number
+            viewers?: UserBasicType[]
+            warnings?: AnalyticsQueryResponseBase['warnings'] | null
         },
         payload?:
             | {
@@ -390,53 +386,46 @@ export interface insightDataLogicActions {
             | undefined
     ) => {
         insight: {
-            _create_in_folder?: string | null | undefined
-            alerts?: AlertType[] | undefined
-            cache_target_age?: string | null | undefined
-            columns?: string[] | null | undefined
+            _create_in_folder?: string | null
+            alerts?: AlertType[]
+            cache_target_age?: string | null
+            columns?: string[] | null
             created_at: string
             created_by: UserBasicType | null
             dashboard_tiles: DashboardTileBasicType[] | null
-            dashboards?: number[] | undefined
+            dashboards?: number[]
             deleted: boolean
-            derived_name?: string | null | undefined
-            description?: string | undefined
-            disable_baseline?: boolean | undefined
-            favorited?: boolean | undefined
-            filter_override_context?: InsightFilterOverrideContextApi | null | undefined
+            derived_name?: string | null
+            description?: string
+            disable_baseline?: boolean
+            favorited?: boolean
+            filter_override_context?: InsightFilterOverrideContextApi | null
             id: number
-            is_cached?: boolean | undefined
+            is_cached?: boolean
             is_sample: boolean
             last_modified_at: string
             last_modified_by: UserBasicType | null
             last_refresh: string | null
-            last_viewed_at?: string | null | undefined
+            last_viewed_at?: string | null
             name: string
-            next?: string | undefined
-            next_allowed_client_refresh?: string | null | undefined
+            next?: string
+            next_allowed_client_refresh?: string | null
             order: number | null
             query: Node<Record<string, any>> | null
-            query_scan?: import('~/queries/schema/schema-general').QueryScanSummary | undefined
-            query_status?: QueryStatus | undefined
-            resolved_date_range?: ResolvedDateRangeResponse | null | undefined
+            query_scan?: QueryScanSummary
+            query_status?: QueryStatus
+            resolved_date_range?: ResolvedDateRangeResponse | null
             result: any
             saved: boolean
             short_id: InsightShortId
-            tags?: string[] | undefined
-            timezone?: string | null | undefined
-            types?: string[][] | null | undefined
+            tags?: string[]
+            timezone?: string | null
+            types?: string[][] | null
             updated_at: string
             user_access_level: AccessControlLevel
-            view_count?: number | undefined
-            viewers?: UserBasicType[] | undefined
-            warnings?:
-                | (
-                      | import('~/queries/schema/schema-general').AccessControlFilterWarning
-                      | import('~/queries/schema/schema-general').BreakdownNotAppliedWarning
-                      | import('~/queries/schema/schema-general').DataWarehouseSyncWarning
-                  )[]
-                | null
-                | undefined
+            view_count?: number
+            viewers?: UserBasicType[]
+            warnings?: AnalyticsQueryResponseBase['warnings'] | null
         }
         payload?: {
             filtersOverride: DashboardFilter | null | undefined

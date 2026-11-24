@@ -719,10 +719,19 @@ jobs:
                   sparse-checkout: |
                       rust/
                       proto/
+                      .github/rust-images.yml
                   sparse-checkout-cone-mode: false
 
             - name: Copy proto files into rust build context
               run: cp -r proto rust/proto
+
+            # The image's schema requirements manifest lists the migrations of these databases.
+            # Without them the canary would ship an empty manifest that the deploy requirements check passes.
+            - name: Read the sqlx databases of the feature-flags image
+              id: sqlx
+              run: |
+                  databases=$(yq -r '.[] | select(.image == "feature-flags") | .sqlx_databases // ""' .github/rust-images.yml)
+                  echo "databases=$databases" >> "$GITHUB_OUTPUT"
 
             - name: Set up Depot CLI
               # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
@@ -780,6 +789,7 @@ jobs:
                       SCCACHE_LOG=warn
                       SCCACHE_NO_DAEMON=1
                       BIN=feature-flags
+                      SQLX_DATABASES=${{ steps.sqlx.outputs.databases }}
                   secrets: |
                       SCCACHE_WEBDAV_ENDPOINT=${{ steps.sccache.outputs.endpoint }}
                       SCCACHE_WEBDAV_TOKEN=${{ steps.sccache.outputs.token }}

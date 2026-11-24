@@ -8,17 +8,20 @@ import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { RestrictionScope } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { inviteLogic } from 'lib/logic/inviteLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 import { OrganizationInviteType } from '~/types'
 
+import { cancelInvite } from './cancelInvite'
 import { EmailUnavailableForInvitesBanner } from './InviteModal'
+import { QuillInvites } from './QuillInvites'
+import { QuillInvitesTable } from './QuillInvitesTable'
 
 function InviteLinkComponent(id: string, invite: OrganizationInviteType): JSX.Element {
     const url = new URL(`/signup/${id}`, document.baseURI).href
@@ -41,22 +44,7 @@ function makeActionsComponent(
                 data-attr="invite-delete"
                 icon={<IconX />}
                 status="danger"
-                onClick={() => {
-                    invite.is_expired
-                        ? deleteInvite(invite)
-                        : LemonDialog.open({
-                              title: 'Cancel invite',
-                              description: `Do you want to cancel the invite for ${invite.target_email}?`,
-                              primaryButton: {
-                                  children: 'Yes, cancel invite',
-                                  status: 'danger',
-                                  onClick: () => deleteInvite(invite),
-                              },
-                              secondaryButton: {
-                                  children: 'No, keep invite',
-                              },
-                          })
-                }}
+                onClick={() => cancelInvite(invite, deleteInvite)}
             />
         )
     }
@@ -70,6 +58,12 @@ export function InvitesTable(): JSX.Element {
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
         scope: RestrictionScope.Organization,
     })
+
+    const quillSurface = useQuillSurface()
+
+    if (quillSurface) {
+        return <QuillInvitesTable />
+    }
 
     const columns: LemonTableColumns<OrganizationInviteType> = [
         {
@@ -150,7 +144,19 @@ export function Invites(): JSX.Element {
         scope: RestrictionScope.Organization,
     })
 
+    const todayRailNav = useQuillSurface()
+
     const userCannotInvite = restrictionReason && !currentOrganization?.members_can_invite
+
+    if (todayRailNav) {
+        return (
+            <QuillInvites
+                emailServiceAvailable={!!preflight?.email_service_available}
+                onInvite={showInviteModal}
+                inviteDisabledReason={userCannotInvite ? "You can't invite other members or view invites" : undefined}
+            />
+        )
+    }
 
     return (
         <div className="deprecated-space-y-4">

@@ -262,7 +262,7 @@ def apply_report_completion(report: SignalReport) -> None:
         merged_prs = [pr for pr in prs if pr.state == "merged"]
         merge_times = [pr.merged_at for pr in merged_prs if pr.merged_at is not None]
         merged_at = max(merge_times) if merge_times and len(merge_times) == len(merged_prs) else None
-        _apply_pr_report_state(report, state, merged_at=merged_at)
+        _apply_pr_report_state(report, state, merged_at=merged_at, prs=[pr for pr in prs if pr.state == state])
         if (
             state == "merged"
             and merged_at is None

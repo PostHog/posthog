@@ -100,7 +100,9 @@ def scope_gated_object_for_url(url: str) -> ScopeGatedObject | None:
     version layouts.
     """
     segments = urlsplit(url).path.strip("/").split("/")
-    for name, scope in SCOPE_GATED_OBJECTS.items():
-        if name in segments:
-            return ScopeGatedObject(endpoint=name, scope=scope)
+    # Deepest segment first: `/settings/users/2026-03/teams` reads teams, not users.
+    for segment in reversed(segments):
+        scope = SCOPE_GATED_OBJECTS.get(segment)
+        if scope is not None:
+            return ScopeGatedObject(endpoint=segment, scope=scope)
     return None

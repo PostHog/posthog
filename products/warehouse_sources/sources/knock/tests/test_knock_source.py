@@ -7,11 +7,12 @@ from parameterized import parameterized
 from products.warehouse_sources.sources.knock.source import KnockSource
 
 
-def _config(api_key: str = "sk_test", object_collections: str | None = None, audience_keys: str | None = None) -> Any:
+def _config(**keys: str | None) -> Any:
     config = MagicMock()
-    config.api_key = api_key
-    config.object_collections = object_collections
-    config.audience_keys = audience_keys
+    config.api_key = "sk_test"
+    config.object_collections = keys.get("object_collections")
+    config.audience_keys = keys.get("audience_keys")
+    config.in_app_feed_channel_ids = keys.get("in_app_feed_channel_ids")
     return config
 
 
@@ -24,11 +25,13 @@ class TestGetSchemas:
             ("audience_members", "audience_keys", None, False),
             ("audience_members", "audience_keys", " , ", False),
             ("audience_members", "audience_keys", "beta", True),
+            ("user_feed_items", "in_app_feed_channel_ids", None, False),
+            ("user_feed_items", "in_app_feed_channel_ids", "chan-1", True),
         ]
     )
     def test_keyed_table_syncs_by_default_only_once_keys_are_configured(
         self, table: str, field: str, keys: str | None, expected: bool
     ) -> None:
-        config = _config(object_collections=keys) if field == "object_collections" else _config(audience_keys=keys)
+        config = _config(**{field: keys})
         schemas = {s.name: s for s in KnockSource().get_schemas(config, 1)}
         assert schemas[table].should_sync_default is expected

@@ -57,12 +57,20 @@ from products.tracing.backend.impact_query_runner import run_impact_query as _ru
 from products.tracing.backend.latency_heatmap_query_runner import (
     run_latency_heatmap_query as _run_latency_heatmap_query,
 )
+from products.tracing.backend.latency_percentiles_query_runner import (
+    run_latency_percentiles_query as _run_latency_percentiles_query,
+)
 from products.tracing.backend.self_time import annotate_self_time as _annotate_self_time
 from products.tracing.backend.service_health_query_runner import (
     run_service_health_query as _run_service_health_query,
     service_health_byte_cap_message as _service_health_byte_cap_message,
 )
 from products.tracing.backend.symbol_stats_query_runner import run_symbol_stats_query as _run_symbol_stats_query
+from products.tracing.backend.trace_summary import (
+    DEFAULT_SUMMARY_LIMIT as _DEFAULT_SUMMARY_LIMIT,
+    MAX_SUMMARY_LIMIT as _MAX_SUMMARY_LIMIT,
+    summarize_trace as _summarize_trace,
+)
 
 from .contracts import ServiceHealthParams
 
@@ -80,6 +88,11 @@ MAX_IDS_PER_LOOKUP = _MAX_IDS_PER_LOOKUP
 
 # Cap on the AI events one trace lookup returns. Re-exported so the response can state it.
 MAX_AI_EVENTS_PER_TRACE = _MAX_AI_EVENTS_PER_TRACE
+
+# Default and cap on the entries per list of a trace summary. Re-exported so the request
+# serializer can bound `summaryLimit`.
+DEFAULT_SUMMARY_LIMIT = _DEFAULT_SUMMARY_LIMIT
+MAX_SUMMARY_LIMIT = _MAX_SUMMARY_LIMIT
 
 
 # --- Converters (model -> frozen dataclass) ---
@@ -217,9 +230,32 @@ def run_latency_heatmap_query(
     )
 
 
+def run_latency_percentiles_query(
+    *,
+    team: "Team",
+    date_range: DateRange,
+    service_names: list[str] | None = None,
+    status_codes: list[int] | None = None,
+    filter_group: PropertyGroupFilter | None = None,
+) -> TraceSpansQueryResponse | CachedTraceSpansQueryResponse:
+    """Run p50/p95/p99 span duration per time bucket over a service's entry spans, root spans as the fallback."""
+    return _run_latency_percentiles_query(
+        team=team,
+        date_range=date_range,
+        service_names=service_names,
+        status_codes=status_codes,
+        filter_group=filter_group,
+    )
+
+
 def annotate_self_time(spans: list[dict]) -> None:
     """Set `self_time_nano` on every span dict of a full trace, in place."""
     _annotate_self_time(spans)
+
+
+def summarize_trace(spans: list[dict], *, limit: int = DEFAULT_SUMMARY_LIMIT, truncated: bool = False) -> dict:
+    """Digest a self-time-annotated trace into a compact summary (see `trace_summary`)."""
+    return _summarize_trace(spans, limit=limit, truncated=truncated)
 
 
 def count_trace_exceptions(

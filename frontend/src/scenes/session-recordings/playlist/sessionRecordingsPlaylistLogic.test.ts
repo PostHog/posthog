@@ -1,4 +1,4 @@
-import { MOCK_TEAM_ID } from 'lib/api.mock'
+import { MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER, MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
@@ -6,6 +6,7 @@ import { expectLogic } from 'kea-test-utils'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -199,6 +200,44 @@ describe('sessionRecordingsPlaylistLogic', () => {
         })
     })
 
+    describe('loading older pages of only live recordings', () => {
+        const page = (index: number, ongoing: boolean, hasNext: boolean): Record<string, unknown> => ({
+            has_next: hasNext,
+            next_cursor: `cursor-${index}`,
+            results: [{ ...aRecording, id: `recording-${index}`, ongoing }],
+        })
+
+        it.each([
+            { name: 'stops at the cap', watchLayout: true, lastPage: null, requests: 5 },
+            { name: 'stops when there is no next page', watchLayout: true, lastPage: 2, requests: 3 },
+            { name: 'does not continue outside the watch layout', watchLayout: false, lastPage: null, requests: 2 },
+        ])('$name', async ({ watchLayout, lastPage, requests }) => {
+            let served = 0
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/session_recordings': () => {
+                        const index = served++
+                        return [200, page(index, index > 0, index !== lastPage)]
+                    },
+                },
+            })
+            clearMemoizedListResponses()
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.REPLAY_WATCH_LAYOUT]: 'compact' })
+            logic = sessionRecordingsPlaylistLogic({ logicKey: `live-pages-${requests}`, watchLayout })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess'])
+
+            logic.actions.maybeLoadSessionRecordings('older')
+            await expectLogic(logic).toDispatchActions(
+                Array.from({ length: requests - 1 }, () => 'loadSessionRecordingsSuccess')
+            )
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(served).toBe(requests)
+        })
+    })
+
     describe('global logic', () => {
         beforeEach(() => {
             logic = sessionRecordingsPlaylistLogic({
@@ -378,7 +417,6 @@ describe('sessionRecordingsPlaylistLogic', () => {
             it.each([
                 ['console_error_count', 'DESC', [100, 50]],
                 ['console_error_count', 'ASC', [50, 100]],
-                ['surfacing_score', 'DESC', [50, 100]],
             ] as const)('orders the pinned recordings by %s %s', async (order, order_direction, expected) => {
                 logic = sessionRecordingsPlaylistLogic({
                     logicKey: 'pinned-ordering',
@@ -819,6 +857,19 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 .toMatchValues({
                     filters: { ...getDefaultFilters(), filter_group: filterGroup },
                 })
+        })
+
+        it("leaves another scene's array of filters in the URL alone", async () => {
+            const webAnalyticsFilters = [
+                { type: 'session', key: '$channel_type', value: 'AI', operator: PropertyOperator.Exact },
+            ]
+
+            await expectLogic(logic, () => {
+                router.actions.push('/web', { filters: webAnalyticsFilters })
+            })
+                .toNotHaveDispatchedActions(['setFilters'])
+                .toMatchValues({ filters: getDefaultFilters() })
+            expect(router.values.searchParams.filters).toEqual(webAnalyticsFilters)
         })
 
         describe('session_ids filter', () => {
@@ -1499,6 +1550,46 @@ describe('sessionRecordingsPlaylistLogic', () => {
             initKeaTests()
             featureFlagLogic.mount()
         }
+
+        it.each([
+            { accountValue: true, storageFails: false, expected: true, expectedDefault: true },
+            { accountValue: 'false', storageFails: false, expected: false, expectedDefault: false },
+            { accountValue: true, storageFails: true, expected: true, expectedDefault: false },
+        ])(
+            'opens with filter_test_accounts $expected when the account value is $accountValue and storage fails: $storageFails',
+            async ({ accountValue, storageFails, expected, expectedDefault }) => {
+                persistFilters(props, { ...DEFAULT_RECORDING_FILTERS, date_from: '-7d', filter_test_accounts: false })
+                if (storageFails) {
+                    const setItem = Storage.prototype.setItem
+                    jest.spyOn(Storage.prototype, 'setItem').mockImplementation(function (
+                        this: Storage,
+                        storageKey: string,
+                        value: string
+                    ) {
+                        if (storageKey.endsWith('__replay_filter_test_accounts')) {
+                            throw new DOMException('Storage is full', 'QuotaExceededError')
+                        }
+                        setItem.call(this, storageKey, value)
+                    })
+                }
+                userLogic.mount()
+                userLogic.actions.loadUserSuccess({
+                    ...MOCK_DEFAULT_USER,
+                    ui_configuration: {
+                        version: 1,
+                        session_replay: { filter_test_accounts: accountValue as boolean },
+                    },
+                })
+
+                logic = sessionRecordingsPlaylistLogic(props)
+                logic.mount()
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(logic.values.filters).toMatchObject({ date_from: '-7d', filter_test_accounts: expected })
+                expect(getDefaultFilters().filter_test_accounts).toBe(expectedDefault)
+                expect(localStorage.getItem('default_filter_test_accounts')).toBeNull()
+            }
+        )
 
         it('resets a malformed persisted filters value to defaults on mount', async () => {
             persistFilters(props, { filter_group: 'not-a-group', duration: 'nope' })
@@ -2742,17 +2833,6 @@ describe('sessionRecordingsPlaylistLogic', () => {
     })
 
     describe('convertUniversalFiltersToRecordingsQuery', () => {
-        it('filters to scored recommendations while keeping recency ordering', () => {
-            const result = convertUniversalFiltersToRecordingsQuery({
-                ...DEFAULT_RECORDING_FILTERS,
-                recommended_only: true,
-            })
-
-            expect(result.order).toBe('start_time')
-            expect(result.order_direction).toBe('DESC')
-            expect(result.recommended_only).toBe(true)
-        })
-
         it('passes the visited_page filter as a recording property', () => {
             const result = convertUniversalFiltersToRecordingsQuery({
                 ...DEFAULT_RECORDING_FILTERS,
@@ -2846,36 +2926,17 @@ describe('sessionRecordingsPlaylistLogic', () => {
         })
     })
 
-    describe('recommended filter experiment', () => {
-        const recommendedFilters: RecordingUniversalFilters = {
-            ...DEFAULT_RECORDING_FILTERS,
-            recommended_only: true,
-        }
-
-        it('keeps the recommended filter for the test variant', () => {
-            expect(
-                getEffectiveRecordingFilters(recommendedFilters, {
-                    [FEATURE_FLAGS.REPLAY_RECOMMENDED_RECORDINGS_FILTER_EXPERIMENT]: 'test',
-                })
-            ).toBe(recommendedFilters)
-        })
-
-        it.each([undefined, 'control'])('disables a persisted recommended filter for the %s variant', (variant) => {
-            expect(
-                getEffectiveRecordingFilters(recommendedFilters, {
-                    [FEATURE_FLAGS.REPLAY_RECOMMENDED_RECORDINGS_FILTER_EXPERIMENT]: variant,
-                })
-            ).toEqual({ ...recommendedFilters, recommended_only: false })
-        })
-
+    describe('event match scope flag', () => {
         it.each([
             [true, 'recording'],
             [false, undefined],
-        ])('with the event match scope flag %s a persisted recording scope becomes %s', (flagOn, expected) => {
-            const scopedFilters: RecordingUniversalFilters = { ...recommendedFilters, event_match_scope: 'recording' }
+        ])('with the flag %s a persisted recording scope becomes %s', (flagOn, expected) => {
+            const scopedFilters: RecordingUniversalFilters = {
+                ...DEFAULT_RECORDING_FILTERS,
+                event_match_scope: 'recording',
+            }
             expect(
                 getEffectiveRecordingFilters(scopedFilters, {
-                    [FEATURE_FLAGS.REPLAY_RECOMMENDED_RECORDINGS_FILTER_EXPERIMENT]: 'test',
                     [FEATURE_FLAGS.REPLAY_EVENT_MATCH_SCOPE]: flagOn,
                 }).event_match_scope
             ).toBe(expected)
@@ -2894,41 +2955,6 @@ describe('sessionRecordingsPlaylistLogic', () => {
             await expectLogic(logic, () => {
                 featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.REPLAY_EVENT_MATCH_SCOPE]: enabled })
             }).toDispatchActions(['loadSessionRecordings', 'loadSessionRecordingsSuccess'])
-        })
-
-        it('clears a persisted recommended filter for the control variant', async () => {
-            featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.REPLAY_RECOMMENDED_RECORDINGS_FILTER_EXPERIMENT]: 'control',
-            })
-            logic = sessionRecordingsPlaylistLogic({
-                logicKey: 'persisted-recommended-filter',
-                filters: recommendedFilters,
-            })
-
-            await expectLogic(logic, () => {
-                logic.mount()
-            })
-                .toDispatchActions(['setFilters'])
-                .toMatchValues({ filters: { ...recommendedFilters, recommended_only: false } })
-        })
-
-        it.each([
-            ['test', true],
-            ['control', false],
-        ])('waits for a delayed %s variant before cleaning persisted state', async (variant, expected) => {
-            logic = sessionRecordingsPlaylistLogic({
-                logicKey: `delayed-${variant}-recommended-filter`,
-                filters: recommendedFilters,
-            })
-            logic.mount()
-
-            expect(logic.values.filters.recommended_only).toBe(true)
-
-            await expectLogic(logic, () => {
-                featureFlagLogic.actions.setFeatureFlags([], {
-                    [FEATURE_FLAGS.REPLAY_RECOMMENDED_RECORDINGS_FILTER_EXPERIMENT]: variant,
-                })
-            }).toMatchValues({ filters: { ...recommendedFilters, recommended_only: expected } })
         })
     })
 
@@ -3050,22 +3076,21 @@ describe('sessionRecordingsPlaylistLogic', () => {
             localStorage.clear()
         })
 
-        it('returns filter_test_accounts as false when localStorage is empty', () => {
-            const result = getDefaultFilters()
-            expect(result.filter_test_accounts).toBe(false)
-        })
-
-        it('returns filter_test_accounts as true when localStorage has default_filter_test_accounts set to true', () => {
-            localStorage.setItem('default_filter_test_accounts', 'true')
-            const result = getDefaultFilters()
-            expect(result.filter_test_accounts).toBe(true)
-        })
-
-        it('returns filter_test_accounts as false when localStorage has default_filter_test_accounts set to false', () => {
-            localStorage.setItem('default_filter_test_accounts', 'false')
-            const result = getDefaultFilters()
-            expect(result.filter_test_accounts).toBe(false)
-        })
+        it.each([
+            { stored: null, teamDefault: false, expected: false },
+            { stored: null, teamDefault: true, expected: true },
+            { stored: 'true', teamDefault: false, expected: true },
+            { stored: 'false', teamDefault: true, expected: false },
+        ])(
+            'returns filter_test_accounts $expected when localStorage has $stored and the team default is $teamDefault',
+            ({ stored, teamDefault, expected }) => {
+                initKeaTests(true, { ...MOCK_DEFAULT_TEAM, test_account_filters_default_checked: teamDefault })
+                if (stored !== null) {
+                    localStorage.setItem('default_filter_test_accounts', stored)
+                }
+                expect(getDefaultFilters().filter_test_accounts).toBe(expected)
+            }
+        )
 
         it('returns date_from as -30d for person recordings', () => {
             const result = getDefaultFilters('person-uuid')
@@ -3101,12 +3126,6 @@ describe('sessionRecordingsPlaylistLogic', () => {
 
         describe('preferred sort', () => {
             it.each<[string, () => void, string, string]>([
-                [
-                    'an explicitly chosen relevance sort is kept',
-                    () => preferredRecordingsSortStorage.set({ order: 'surfacing_score', order_direction: 'DESC' }),
-                    'surfacing_score',
-                    'DESC',
-                ],
                 [
                     'the chosen direction is kept',
                     () => preferredRecordingsSortStorage.set({ order: 'start_time', order_direction: 'ASC' }),

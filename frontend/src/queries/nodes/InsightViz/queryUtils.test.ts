@@ -34,7 +34,18 @@ describe('filterVariablesReferencedInQuery', () => {
 })
 
 describe('syncSelectedVariablesToQuery', () => {
-    it('removes stale selected variables while preserving values for ones still in use', () => {
+    it.each([
+        [[], []],
+        [[{ id: 'new-region-id', code_name: 'region' }], [{ variableId: 'new-region-id', code_name: 'region' }]],
+    ])('drops deleted definitions before adding replacements', (definitions, expected) => {
+        expect(
+            syncSelectedVariablesToQuery('SELECT {variables.region}', definitions, [
+                { variableId: 'region-id', code_name: 'region', value: 'South' },
+            ])
+        ).toEqual(expected)
+    })
+
+    it('preserves selected variables and their values when references are removed', () => {
         expect(
             syncSelectedVariablesToQuery(
                 'SELECT * FROM events WHERE timestamp >= {variables.date}',
@@ -44,7 +55,10 @@ describe('syncSelectedVariablesToQuery', () => {
                     { variableId: 'product-id', code_name: 'product', value: 'mobile' },
                 ]
             )
-        ).toEqual([{ variableId: 'date-id', code_name: 'date', value: '2026-01-01' }])
+        ).toEqual([
+            { variableId: 'date-id', code_name: 'date', value: '2026-01-01' },
+            { variableId: 'product-id', code_name: 'product', value: 'mobile' },
+        ])
     })
 
     it('adds newly referenced variables once, in query order', () => {
@@ -55,6 +69,7 @@ describe('syncSelectedVariablesToQuery', () => {
                 [{ variableId: 'date-id', code_name: 'date', value: '2026-01-01' }]
             )
         ).toEqual([
+            { variableId: 'date-id', code_name: 'date', value: '2026-01-01' },
             { variableId: 'product-id', code_name: 'product' },
             { variableId: 'region-id', code_name: 'region' },
         ])
@@ -112,6 +127,14 @@ describe('compareQuery', () => {
         // Style changes must not count as a query change — otherwise every style tweak refetches
         expect(compareQuery(plain, styled, { ignoreVisualizationOnlyChanges: true })).toBe(true)
         expect(compareQuery(plain, styled)).toBe(false)
+    })
+
+    it.each([false, true])('treats dashboard funnel summaries as visualization-only (%s)', (enabled) => {
+        const plain: FunnelsQuery = { kind: NodeKind.FunnelsQuery, series: [] }
+        const withSummary: FunnelsQuery = { ...plain, funnelsFilter: { showSummaryOnDashboards: enabled } }
+
+        expect(compareQuery(plain, withSummary, { ignoreVisualizationOnlyChanges: true })).toBe(true)
+        expect(compareQuery(plain, withSummary)).toBe(false)
     })
 
     it.each([

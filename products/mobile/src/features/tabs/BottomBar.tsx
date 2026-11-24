@@ -1,5 +1,5 @@
 import type { ComponentType, ReactElement } from 'react'
-import { Text, View } from 'react-native'
+import { Text, useWindowDimensions, View } from 'react-native'
 
 import { BlurEdge } from '@/ui/BlurEdge'
 import { FadeEdge } from '@/ui/FadeEdge'
@@ -7,7 +7,7 @@ import { ComposeIcon } from '@/ui/icons/ComposeIcon'
 import { ErrorTriangleIcon } from '@/ui/icons/ErrorTriangleIcon'
 import { GlobeIcon } from '@/ui/icons/GlobeIcon'
 import { HomeIcon } from '@/ui/icons/HomeIcon'
-import { LiveIcon } from '@/ui/icons/LiveIcon'
+import { InboxIcon } from '@/ui/icons/InboxIcon'
 import { RecordingIcon } from '@/ui/icons/RecordingIcon'
 import { SpacesIcon } from '@/ui/icons/SpacesIcon'
 import type { IconProps } from '@/ui/icons/types'
@@ -20,13 +20,16 @@ import { bottomOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 import type { NavPin } from './navPinStore'
 
-export type BottomBarSlot = 'home' | 'chats' | 'views' | NavPin
+export type BottomBarSlot = 'home' | 'inbox' | 'chats' | 'views' | NavPin
 
 interface BottomBarProps {
     selected: BottomBarSlot
     /** Slots after Views, in pin order. */
     pins: readonly NavPin[]
+    /** Draws a dot on the Inbox slot. */
+    inboxUnread: boolean
     onHome: () => void
+    onInbox: () => void
     onChats: () => void
     onViews: () => void
     onPin: (pin: NavPin) => void
@@ -36,6 +39,7 @@ interface BottomBarProps {
 const BAR_GUTTER = 20
 const BAR_GAP = 10
 const SLOT_MIN = 44
+const UNREAD_DOT = 8
 
 function ErrorsNavIcon(props: IconProps): ReactElement {
     return <ErrorTriangleIcon strokeWidth={2} {...props} />
@@ -49,15 +53,26 @@ function WebAnalyticsNavIcon(props: IconProps): ReactElement {
     return <GlobeIcon strokeWidth={2} {...props} />
 }
 
-function LiveNavIcon(props: IconProps): ReactElement {
-    return <LiveIcon strokeWidth={2} {...props} />
-}
-
 const PIN_SLOTS: Record<NavPin, { label: string; Icon: ComponentType<IconProps> }> = {
     errors: { label: 'Errors', Icon: ErrorsNavIcon },
     replay: { label: 'Sessions', Icon: ReplayNavIcon },
     web_analytics: { label: 'Web analytics', Icon: WebAnalyticsNavIcon },
-    live: { label: 'Live', Icon: LiveNavIcon },
+}
+
+interface SlotIconProps {
+    Icon: ComponentType<IconProps>
+    unread: boolean
+    testID: string
+}
+
+function SlotIcon({ Icon, unread, testID }: SlotIconProps): ReactElement {
+    const styles = useStyles()
+    return (
+        <View>
+            <Icon size={iconSizes.navigation} />
+            {unread ? <View style={styles.unreadDot} testID={`${testID}-unread`} /> : null}
+        </View>
+    )
 }
 
 interface NavSlotProps {
@@ -65,10 +80,11 @@ interface NavSlotProps {
     Icon: ComponentType<IconProps>
     onPress: () => void
     disabled?: boolean
+    unread?: boolean
     testID: string
 }
 
-function NavSlot({ label, Icon, onPress, disabled = false, testID }: NavSlotProps): ReactElement {
+function NavSlot({ label, Icon, onPress, disabled = false, unread = false, testID }: NavSlotProps): ReactElement {
     const colors = useColors()
     const styles = useStyles()
     const { rail } = useAppLayout()
@@ -78,6 +94,7 @@ function NavSlot({ label, Icon, onPress, disabled = false, testID }: NavSlotProp
             disabled={disabled}
             accessibilityRole="tab"
             accessibilityLabel={label}
+            accessibilityValue={unread ? { text: 'Unread reports' } : undefined}
             accessibilityState={{ selected: false, disabled }}
             pressedBackground={colors.background}
             style={[
@@ -88,7 +105,7 @@ function NavSlot({ label, Icon, onPress, disabled = false, testID }: NavSlotProp
             haptic="selection"
             testID={testID}
         >
-            <Icon size={iconSizes.navigation} />
+            <SlotIcon Icon={Icon} unread={unread} testID={testID} />
         </Pressable44>
     )
 }
@@ -97,10 +114,11 @@ interface SelectedSlotProps {
     onPress: () => void
     label: string
     Icon: ComponentType<IconProps>
+    unread?: boolean
     testID: string
 }
 
-function SelectedSlot({ label, Icon, testID, onPress }: SelectedSlotProps): ReactElement {
+function SelectedSlot({ label, Icon, unread = false, testID, onPress }: SelectedSlotProps): ReactElement {
     const colors = useColors()
     const styles = useStyles()
     const { rail } = useAppLayout()
@@ -111,10 +129,11 @@ function SelectedSlot({ label, Icon, testID, onPress }: SelectedSlotProps): Reac
             style={[styles.slot, styles.slotSelected, rail && { flexBasis: 'auto', flexShrink: 0, width: 46 }]}
             accessibilityRole="tab"
             accessibilityLabel={label}
+            accessibilityValue={unread ? { text: 'Unread reports' } : undefined}
             accessibilityState={{ selected: true }}
             testID={testID}
         >
-            <Icon size={iconSizes.navigation} />
+            <SlotIcon Icon={Icon} unread={unread} testID={testID} />
         </Pressable44>
     )
 }
@@ -122,7 +141,9 @@ function SelectedSlot({ label, Icon, testID, onPress }: SelectedSlotProps): Reac
 export function BottomBar({
     selected,
     pins,
+    inboxUnread,
     onHome,
+    onInbox,
     onChats,
     onViews,
     onPin,
@@ -132,6 +153,10 @@ export function BottomBar({
     const styles = useStyles()
     const insets = useScreenInsets()
     const { rail, railSide, contentWidth } = useAppLayout()
+    const { fontScale } = useWindowDimensions()
+    const navMinWidth = (4 + pins.length) * SLOT_MIN + 14
+    const labeledChatWidth = 40 + iconSizes.navigation + 10 + 40 * fontScale
+    const compactChat = rail || contentWidth < BAR_GUTTER * 2 + navMinWidth + BAR_GAP + labeledChatWidth
     return (
         <View
             style={[
@@ -163,7 +188,7 @@ export function BottomBar({
                     !rail && styles.bottomNav,
                     shadows.floatingBar,
                     rail && {
-                        height: (3 + pins.length) * 52 + 12,
+                        height: (4 + pins.length) * 52 + 12,
                         width: 64,
                         flexDirection: 'column',
                         paddingVertical: 8,
@@ -172,12 +197,23 @@ export function BottomBar({
                 ]}
                 accessibilityRole="tablist"
             >
+                {/* Home, Chats and Views keep their `inbox-nav-*` testIDs, because the Argent flows select them. */}
                 {selected === 'home' ? (
                     <SelectedSlot onPress={onHome} label="Home" Icon={HomeIcon} testID="inbox-nav-home" />
                 ) : (
                     <NavSlot label="Home" Icon={HomeIcon} onPress={onHome} testID="inbox-nav-home" />
                 )}
-                {/* The testID keeps its old name because the Argent flows select this slot by it. */}
+                {selected === 'inbox' ? (
+                    <SelectedSlot
+                        onPress={onInbox}
+                        label="Inbox"
+                        Icon={InboxIcon}
+                        unread={inboxUnread}
+                        testID="nav-inbox"
+                    />
+                ) : (
+                    <NavSlot label="Inbox" Icon={InboxIcon} onPress={onInbox} unread={inboxUnread} testID="nav-inbox" />
+                )}
                 {selected === 'chats' ? (
                     <SelectedSlot onPress={onChats} label="Chats" Icon={SpacesIcon} testID="inbox-nav-chat" />
                 ) : (
@@ -217,13 +253,13 @@ export function BottomBar({
                     style={[
                         styles.chat,
                         shadows.fab,
-                        rail && { width: 56, paddingLeft: 0, paddingRight: 0, justifyContent: 'center' },
+                        compactChat && { width: 56, paddingLeft: 0, paddingRight: 0, justifyContent: 'center' },
                     ]}
                     haptic="selection"
                     testID="inbox-chat"
                 >
                     <ComposeIcon size={iconSizes.navigation} color={colors.onInk} />
-                    {rail ? null : <Text style={styles.chatText}>Chat</Text>}
+                    {compactChat ? null : <Text style={styles.chatText}>Chat</Text>}
                 </Pressable44>
             ) : null}
         </View>
@@ -275,6 +311,15 @@ const useStyles = createStyles(({ colors }) => ({
     },
     slotDisabled: {
         opacity: 0.4,
+    },
+    unreadDot: {
+        position: 'absolute',
+        top: -1,
+        right: -2,
+        width: UNREAD_DOT,
+        height: UNREAD_DOT,
+        borderRadius: UNREAD_DOT / 2,
+        backgroundColor: colors.blue,
     },
     // 54pt content box plus a 1pt border on each side.
     chat: {

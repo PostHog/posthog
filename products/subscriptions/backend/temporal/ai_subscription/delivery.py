@@ -38,6 +38,7 @@ from products.subscriptions.backend.logic.slack_subscriptions import (
 from products.subscriptions.backend.logic.teams_subscriptions import (
     TEAMS_CARD_TEXT_BUDGET,
     TEAMS_UTM_TAGS,
+    bold_inline_code,
     fit_to_teams_budget,
     teams_byte_size,
     teams_card_message,
@@ -758,7 +759,7 @@ def build_ai_teams_card(
         f"/project/{subscription.team_id}/subscriptions/{subscription.id}"
     )
 
-    report = strip_external_links_markdown(markdown)
+    report = strip_external_links_markdown(bold_inline_code(markdown))
     sections = _split_text_into_chunks(report[:_TEAMS_REPORT_CHUNKING_LIMIT], TEAMS_TEXT_BLOCK_LIMIT)
 
     heading = f"**{title}**"

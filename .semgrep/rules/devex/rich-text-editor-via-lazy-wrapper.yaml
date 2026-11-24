@@ -30,6 +30,7 @@ rules:
               - /frontend/src/lib/components/RichContentEditor
               - /frontend/src/lib/components/Cards/TextCard
               - /frontend/src/lib/components/MarkdownEditor
+              - /frontend/src/layout/navigation-3000/sidepanel/panels/discussion/quill/QuillCommentEditor.tsx
               - /frontend/src/lib/utils/markdown.ts
               - /frontend/src/lib/utils/parseMarkdownToTipTap.ts
               - /frontend/src/scenes/max/utils/markdownToTiptap.ts
@@ -41,6 +42,8 @@ rules:
               - /products/data_catalog/frontend/components/MetricMarkdownEditor.tsx
               - /products/data_catalog/frontend/components/metricMarkdown.ts
               - /products/data_catalog/frontend/components/metricMarkdownSlashCommands.tsx
+              - /products/workflows/frontend/EmailDocumentEditor
+              - /products/signals/frontend/inbox/components/detail/ReportNoteEditor.tsx
               # Anchors the packages into a shared chunk. It is a build entry, not app code.
               - /frontend/src/sharedChunkAnchors.ts
       patterns:

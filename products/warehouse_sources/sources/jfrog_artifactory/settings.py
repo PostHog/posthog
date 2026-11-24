@@ -33,7 +33,9 @@ class JfrogArtifactoryEndpointConfig:
     # ignores .sort()/.offset()/.limit() once .include() names a related domain. "xray" is the
     # Xray v1 violations search.
     kind: Literal["rest", "aql", "aql_related", "xray"]
-    # REST only: path under /artifactory/api, e.g. "/repositories".
+    # REST only: the API a path is relative to, /artifactory/api or /xray/api.
+    service: Literal["artifactory", "xray"] = "artifactory"
+    # REST only: path under the service API, e.g. "/repositories".
     path: str = ""
     # REST only: key of the row list in the response JSON; None when the response is a bare array.
     response_key: Optional[str] = None
@@ -224,6 +226,44 @@ JFROG_ARTIFACTORY_ENDPOINTS: dict[str, JfrogArtifactoryEndpointConfig] = {
         # (watch_id, issue_id, comp_id) and is the only per-violation identifier the API returns.
         primary_keys=["violation_details_url"],
         # Needs JFrog Xray, which not every instance has.
+        should_sync_default=False,
+    ),
+    "artifact_properties": JfrogArtifactoryEndpointConfig(
+        name="artifact_properties",
+        kind="aql_related",
+        aql_domain="items",
+        # No property criteria on the paged query: AQL applies .limit() to the item-property join, so
+        # a property filter can return a short page while more items remain.
+        aql_fields=("repo", "path", "name", "created"),
+        aql_key_fields=("repo", "path", "name"),
+        aql_related_fields=("property.key", "property.value"),
+        aql_related_path=(("properties", "property"),),
+        # Property edits don't change any item timestamp AQL can filter the items domain on.
+        default_incremental_field="created",
+        partition_key="created",
+        # A key can hold several values on one artifact.
+        primary_keys=["repo", "path", "name", "key", "value"],
+        # Reads every artifact once more to fetch its properties.
+        should_sync_default=False,
+    ),
+    "release_bundles": JfrogArtifactoryEndpointConfig(
+        name="release_bundles",
+        kind="aql",
+        # Paged AQL, not the v1 REST listing, which returns every version of every bundle in one body.
+        # AQL on this domain needs an admin user; release bundles need Artifactory Enterprise+.
+        aql_domain="releases",
+        aql_fields=("name", "version", "type", "status", "created", "storing_repo"),
+        default_incremental_field="created",
+        # A source bundle and its distributed target copy can share a name and version.
+        primary_keys=["name", "version", "type"],
+        should_sync_default=False,
+    ),
+    "xray_licenses": JfrogArtifactoryEndpointConfig(
+        name="xray_licenses",
+        kind="rest",
+        service="xray",
+        path="/v1/licensesNames",
+        primary_keys=["name"],
         should_sync_default=False,
     ),
     "storage_summary": JfrogArtifactoryEndpointConfig(

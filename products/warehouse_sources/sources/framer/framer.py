@@ -270,7 +270,10 @@ class FramerClient:
     def _send(self, message: dict[str, Any]) -> None:
         if self._ws is None:
             raise FramerAPIError("Connection closed", code="CONNECTION_CLOSED", retryable=True)
-        self._ws.send(devalue.stringify(message))
+        try:
+            self._ws.send(devalue.stringify(message))
+        except ConnectionClosed as e:
+            raise FramerAPIError(f"Connection closed: {e}", code="CONNECTION_CLOSED", retryable=True) from e
 
     def _receive(self, deadline: float) -> Any:
         while True:

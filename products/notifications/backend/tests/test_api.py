@@ -55,16 +55,23 @@ class TestNotificationsAPI(BaseTest):
         assert resp.json()["results"][0]["title"] == "Test notification"
         assert resp.json()["results"][0]["read"] is False
 
-    def test_catalog_notification_disappears_after_access_revocation(self) -> None:
+    @parameterized.expand(
+        [
+            ("data_catalog", "data_catalog"),
+            # `inbox` has no rules of its own, so revoking `task` access hides an Inbox notification.
+            ("inbox", "task"),
+        ]
+    )
+    def test_notification_disappears_after_access_revocation(self, resource_type: str, revoked_resource: str) -> None:
         self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
         self.organization.save(update_fields=["available_product_features"])
-        self.event.resource_type = "data_catalog"
+        self.event.resource_type = resource_type
         self.event.save(update_fields=["resource_type"])
         url = f"/api/environments/{self.team.id}/notifications/"
         assert [event["id"] for event in self.client.get(url).json()["results"]] == [str(self.event.id)]
         AccessControl.objects.create(
             team=self.team,
-            resource="data_catalog",
+            resource=revoked_resource,
             organization_member=OrganizationMembership.objects.get(organization=self.organization, user=self.user),
             access_level="none",
         )

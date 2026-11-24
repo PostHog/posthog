@@ -40,6 +40,10 @@ run_case() {
     local env_file="$workdir/$name-env"
     local junit="$workdir/$name-junit.xml"
     : >"$env_file"
+    if [ -n "${prebuilt_map:-}" ]; then
+        mkdir -p "$out_dir"
+        printf '%s\n' "$prebuilt_map" >"$out_dir/CODEOWNERS"
+    fi
     printf '%s\n' "$report" >"$junit"
 
     set +e
@@ -78,6 +82,8 @@ run_case falls-back-to-python3 1 '' 0 '/a/ @PostHog/team-a' yes
 run_case falls-back-when-both-fail 1 '' 1 '' no
 run_case falls-back-on-a-map-with-no-rules 0 '# only a header' 1 '' no
 run_case skips-a-report-with-no-file-attribute 0 '/a/ @PostHog/team-a' 1 '' no "$unattributable_report"
+prebuilt_map='/a/ @PostHog/team-a' run_case reuses-a-downloaded-map 1 '' 1 '' yes
+prebuilt_map='# only a header' run_case regenerates-a-downloaded-map-with-no-rules 0 '/a/ @PostHog/team-a' 1 '' yes
 
 env_file="$workdir/no-args-env"
 : >"$env_file"

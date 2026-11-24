@@ -116,14 +116,14 @@ def _cache_key(*, team_id: int, integration_id: int, repository: str, window_day
     )
 
 
-def _refresh_installation_token(integration: IntegrationRecord) -> None:
+def _refresh_installation_token(integration: IntegrationRecord) -> IntegrationRecord:
     github = GitHubIntegration(integration, source="tasks", priority=Priority.CRITICAL)
     try:
         if github.access_token_expired():
             github.refresh_access_token()
     except Exception:
         logger.warning("repository_readiness.refresh_token_failed", exc_info=True)
-        return
+    return github.integration
 
 
 def _github_get(
@@ -407,7 +407,7 @@ def compute_repository_readiness(
                     pass
             return cached
 
-    _refresh_installation_token(integration)
+    integration = _refresh_installation_token(integration)
     access_token = integration.sensitive_config.get("access_token") if integration.sensitive_config else None
 
     if not isinstance(access_token, str) or not access_token:

@@ -8,6 +8,8 @@ import { parseV4UrlRef, tryCanonicalizeUrl } from './v4-native'
 export const MAX_HOPS = 10
 export const MAX_JOBS_PER_RECORD = 1_000
 export const MAX_RECORD_BYTES = 512 * 1024
+/** A merge past this keeps no days, so the image is stored where a reader finds it whatever the day. */
+export const MAX_WRITE_DAYS = 4
 
 export type UrlDropReason =
     | 'malformed'
@@ -43,6 +45,8 @@ export interface FetchCandidate {
     lastRepublishReason: StoredRepublishReason | null
     lastBlockReason?: ImageFetchBlockReason
     sourcePartitions?: readonly number[]
+    /** The `dt=` partitions of the blocks that reference the image. An older recorder sends none. */
+    writeDays?: readonly string[]
 }
 
 export interface FrontierRecord {
@@ -60,6 +64,7 @@ export interface FrontierRecord {
             | 'republishCount'
             | 'lastRepublishReason'
             | 'lastBlockReason'
+            | 'writeDays'
         >
     >
 }
@@ -149,6 +154,30 @@ type ParsedJob =
     | { kind: 'rejected'; reason: Extract<UrlDropReason, 'bad_ref' | 'bad_url' | 'foreign_domain'> }
     | { kind: 'skipped'; reason: UrlSkipReason }
 
+/** A real UTC day, written `YYYY-MM-DD`, as the Parquet sink checks the `ml-write-day` header. */
+export function isWriteDay(value: unknown): value is string {
+    if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+        return false
+    }
+    const date = new Date(`${value}T00:00:00Z`)
+    return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value
+}
+
+export function normalizeWriteDays(days: readonly string[]): readonly string[] | undefined {
+    const distinct = [...new Set(days)].sort()
+    return distinct.length > 0 && distinct.length <= MAX_WRITE_DAYS ? distinct : undefined
+}
+
+function parseWriteDays(value: unknown): { ok: true; days: readonly string[] | undefined } | { ok: false } {
+    if (value === undefined) {
+        return { ok: true, days: undefined }
+    }
+    if (!Array.isArray(value) || value.length > MAX_WRITE_DAYS || !value.every(isWriteDay)) {
+        return { ok: false }
+    }
+    return { ok: true, days: normalizeWriteDays(value) }
+}
+
 function parseJob(job: unknown, kafkaKey: string): ParsedJob {
     if (!isRecord(job)) {
         return { kind: 'rejected', reason: 'bad_url' }
@@ -165,7 +194,9 @@ function parseJob(job: unknown, kafkaKey: string): ParsedJob {
         lastRepublishReason,
         lastBlockReason,
         lowOriginDiversityDeferred,
+        writeDays,
     } = job
+    const parsedWriteDays = parseWriteDays(writeDays)
     if (
         (sessionId !== undefined && typeof sessionId !== 'string') ||
         typeof originalRef !== 'string' ||
@@ -178,7 +209,8 @@ function parseJob(job: unknown, kafkaKey: string): ParsedJob {
         !isNonNegativeSafeInteger(republishCount) ||
         !isStoredRepublishReason(lastRepublishReason) ||
         (lastBlockReason !== undefined && !isImageFetchBlockReason(lastBlockReason)) ||
-        (lowOriginDiversityDeferred !== undefined && typeof lowOriginDiversityDeferred !== 'boolean')
+        (lowOriginDiversityDeferred !== undefined && typeof lowOriginDiversityDeferred !== 'boolean') ||
+        !parsedWriteDays.ok
     ) {
         return { kind: 'rejected', reason: 'bad_url' }
     }
@@ -214,6 +246,7 @@ function parseJob(job: unknown, kafkaKey: string): ParsedJob {
             republishCount,
             lastRepublishReason,
             lastBlockReason,
+            ...(parsedWriteDays.days ? { writeDays: parsedWriteDays.days } : {}),
         },
     }
 }
@@ -232,6 +265,7 @@ export function serializeFrontierRecord(candidates: FetchCandidate[]): Buffer {
             republishCount: candidate.republishCount,
             lastRepublishReason: candidate.lastRepublishReason,
             lastBlockReason: candidate.lastBlockReason,
+            ...(candidate.writeDays ? { writeDays: candidate.writeDays } : {}),
         })),
     }
     return Buffer.from(JSON.stringify(record))

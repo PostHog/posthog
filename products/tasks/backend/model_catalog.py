@@ -164,6 +164,7 @@ class CatalogModel:
 _GLM_COST = ModelCost(1.4, 4.4)
 _GLM_FLASH_COST = ModelCost(0.15, 0.5)
 _KIMI_COST = ModelCost(3, 15)
+_KIMI_K31_PRO_COST = ModelCost(2, 10)
 _DEEPSEEK_COST = ModelCost(0.13, 0.26)
 _DEEPSEEK_V4_1_FLASH_FAST_COST = ModelCost(0.6, 2.4)
 _OPUS_COST = ModelCost(5, 25)
@@ -177,6 +178,7 @@ _GPT_MID_COST = ModelCost(2.5, 15)
 _GPT_LIGHT_COST = ModelCost(1, 6)
 _GPT_FRONTIER_COST = ModelCost(10, 50)
 _GPT_6_SOL_COST = ModelCost(2, 10)
+_GPT_6_2_ASTRA_COST = ModelCost(8, 40)
 _GPT_6_1_SOL_COST = ModelCost(
     2,
     10,
@@ -203,7 +205,23 @@ MODELS: tuple[CatalogModel, ...] = (
     CatalogModel(
         "zai-org/glm-5.3-flash", CLAUDE, _GLM, label="GLM-5.3 Flash", cost=_GLM_FLASH_COST, context_window=1_000_000
     ),
-    CatalogModel("moonshotai/kimi-k3", CLAUDE, _NO_EFFORT, label="Kimi K3", cost=_KIMI_COST, context_window=1_048_576),
+    CatalogModel(
+        "moonshotai/kimi-k3",
+        CLAUDE,
+        _NO_EFFORT,
+        label="Kimi K3",
+        cost=_KIMI_COST,
+        retired=True,
+        context_window=1_048_576,
+    ),
+    CatalogModel(
+        "moonshotai/kimi-k3.1-pro",
+        CLAUDE,
+        _NO_EFFORT,
+        label="Kimi K3.1 Pro",
+        cost=_KIMI_K31_PRO_COST,
+        context_window=1_048_576,
+    ),
     CatalogModel(
         "deepseek-ai/deepseek-v4-flash-0731",
         CLAUDE,
@@ -293,7 +311,9 @@ MODELS: tuple[CatalogModel, ...] = (
     CatalogModel("gpt-6-astra", CODEX, _THROUGH_MAX, cost=_GPT_FRONTIER_COST, context_window=1_050_000),
     CatalogModel("gpt-6-sol", CODEX, _THROUGH_MAX, cost=_GPT_6_SOL_COST, context_window=1_050_000),
     CatalogModel("gpt-6.1-sol", CODEX, _THROUGH_MAX, cost=_GPT_6_1_SOL_COST, context_window=1_050_000),
-    # Only ReviewHog's arm-set trial pins it. `retired` is the catalog's state for a model no picker offers
+    CatalogModel("gpt-6.2-sol", CODEX, _THROUGH_MAX, cost=_GPT_6_SOL_COST, context_window=1_050_000),
+    CatalogModel("gpt-6.2-astra", CODEX, _THROUGH_MAX, cost=_GPT_6_2_ASTRA_COST, context_window=1_050_000),
+    # Only ReviewHog's arm-set trial and the first-report model experiment pin it. `retired` is the catalog's state for a model no picker offers
     # that still runs when pinned, which keeps it out of the Slack picker too, since that picker ignores access flags.
     CatalogModel(
         "gpt-6.1-terra", CODEX, _THROUGH_MAX, cost=_GPT_6_1_TERRA_COST, retired=True, context_window=1_050_000
@@ -309,6 +329,8 @@ FAMILY_REASONING_EFFORTS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (CODEX, "gpt-6-astra", _THROUGH_MAX),
     (CODEX, "gpt-6-sol", _THROUGH_MAX),
     (CODEX, "gpt-6.1-sol", _THROUGH_MAX),
+    (CODEX, "gpt-6.2-sol", _THROUGH_MAX),
+    (CODEX, "gpt-6.2-astra", _THROUGH_MAX),
     (CODEX, "gpt-6-luna", _THROUGH_MAX),
     (CODEX, "gpt-5.6", _THROUGH_MAX),
     (CODEX, "gpt-5.5", (*_STANDARD, XHIGH)),
@@ -326,7 +348,7 @@ FALLBACK_REASONING_EFFORTS_BY_RUNTIME_ADAPTER: dict[str, tuple[str, ...]] = {
 # choice can improve without rewriting anything stored.
 DEFAULT_MODEL_BY_RUNTIME_ADAPTER: dict[str, str] = {
     CLAUDE: "claude-sonnet-5-5",
-    CODEX: "gpt-6.1-sol",
+    CODEX: "gpt-6.2-sol",
 }
 
 

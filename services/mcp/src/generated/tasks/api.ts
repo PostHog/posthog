@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 19 enabled ops
+ * PostHog API - MCP 23 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -312,6 +312,12 @@ export const TasksListQueryParams = () => zod.object({
         .describe(
             'Filter tasks by the status of their most recent run.\n\n\* `not_started` - not_started\n\* `queued` - queued\n\* `in_progress` - in_progress\n\* `completed` - completed\n\* `failed` - failed\n\* `cancelled` - cancelled'
         ),
+    task_status: zod
+        .enum(['queued', 'running', 'idle', 'done'])
+        .optional()
+        .describe(
+            'Filter tasks by their own status: queued, running, idle or done.\n\n\* `queued` - Queued\n\* `running` - Running\n\* `idle` - Idle\n\* `done` - Done'
+        ),
 })
 
 /**
@@ -422,13 +428,21 @@ export const TasksCreateBody = () => zod.object({
         .string()
         .max(tasksCreateBodyRepositoryMax)
         .nullish()
-        .describe('Target GitHub repository in `organization\/repo` format (e.g. `posthog\/posthog-js`).'),
+        .describe(
+            'Target repository. For GitHub, use `organization\/repo` (e.g. `posthog\/posthog-js`). For GitLab, set `repository_integration` and use the full project path, which can include nested groups (e.g. `acme\/platform\/api`).'
+        ),
     repositories: zod
         .array(zod.string().max(tasksCreateBodyRepositoriesItemMax))
         .max(tasksCreateBodyRepositoriesMax)
         .optional()
         .describe('GitHub repositories available to this task, each in `organization\/repo` format.'),
     github_integration: zod.number().nullish().describe('GitHub integration for this task.'),
+    repository_integration: zod
+        .number()
+        .nullish()
+        .describe(
+            'GitLab integration for a task in a GitLab project on gitlab.com. Requires `repository`. Leave `github_integration` and `github_user_integration` empty.'
+        ),
     github_user_integration: zod
         .string()
         .nullish()
@@ -511,6 +525,18 @@ export const TasksCreateBody = () => zod.object({
         .nullish()
         .describe(
             'Earliest start time for a one-off cloud run, in ISO 8601 format. Must be in the future and within 30 days. Times without an offset use UTC. Omit or send null to start immediately.'
+        ),
+    warm_submission_id: zod
+        .string()
+        .nullish()
+        .describe(
+            'Identity of this submission when targeting a warm run. Keep it unchanged on retries; a different submission may fall back to a cold task if the warm run was already claimed.'
+        ),
+    warm_run_id: zod
+        .string()
+        .nullish()
+        .describe(
+            'Target an unused warm run owned by this user. All sandbox settings must match except permission mode, which is acknowledged before the first message.'
         ),
     start_run: zod
         .boolean()
@@ -1416,6 +1442,112 @@ export const TasksConfigAgentInstructionsCreateBody = () => zod
  * @summary List available models
  */
 export const TasksModelsRetrieveParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Team routing rules that steer agent repo selection (`RepoRoutingRule`).
+ *
+ * The same rows the Slack `/posthog rules` commands manage; the repo selection agent
+ * reads them ordered by priority when picking a repository for a task. Rules whose
+ * repository is not connected to the project are ignored at selection time, so a
+ * stale rule is inert rather than harmful — which is why writes here don't check the
+ * connected-repository list (the UI constrains the picker to connected repos anyway).
+ */
+export const TasksRepoRoutingRulesListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Team routing rules that steer agent repo selection (`RepoRoutingRule`).
+ *
+ * The same rows the Slack `/posthog rules` commands manage; the repo selection agent
+ * reads them ordered by priority when picking a repository for a task. Rules whose
+ * repository is not connected to the project are ignored at selection time, so a
+ * stale rule is inert rather than harmful — which is why writes here don't check the
+ * connected-repository list (the UI constrains the picker to connected repos anyway).
+ */
+export const TasksRepoRoutingRulesCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const tasksRepoRoutingRulesCreateBodyRuleTextMax = 300
+
+export const tasksRepoRoutingRulesCreateBodyRepositoryMax = 255
+
+export const TasksRepoRoutingRulesCreateBody = () => zod.object({
+    rule_text: zod
+        .string()
+        .max(tasksRepoRoutingRulesCreateBodyRuleTextMax)
+        .describe(
+            "Plain-text description of the requests that should route to the repository, e.g. 'anything about the internal dashboard'. At most 300 characters."
+        ),
+    repository: zod
+        .string()
+        .max(tasksRepoRoutingRulesCreateBodyRepositoryMax)
+        .describe("Target repository as owner\/repo, e.g. 'posthog\/posthog.com'."),
+})
+
+/**
+ * Team routing rules that steer agent repo selection (`RepoRoutingRule`).
+ *
+ * The same rows the Slack `/posthog rules` commands manage; the repo selection agent
+ * reads them ordered by priority when picking a repository for a task. Rules whose
+ * repository is not connected to the project are ignored at selection time, so a
+ * stale rule is inert rather than harmful — which is why writes here don't check the
+ * connected-repository list (the UI constrains the picker to connected repos anyway).
+ */
+export const TasksRepoRoutingRulesPartialUpdateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this repo routing rule.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const tasksRepoRoutingRulesPartialUpdateBodyRuleTextMax = 300
+
+export const tasksRepoRoutingRulesPartialUpdateBodyRepositoryMax = 255
+
+export const TasksRepoRoutingRulesPartialUpdateBody = () => zod.object({
+    rule_text: zod
+        .string()
+        .max(tasksRepoRoutingRulesPartialUpdateBodyRuleTextMax)
+        .optional()
+        .describe(
+            "Plain-text description of the requests that should route to the repository, e.g. 'anything about the internal dashboard'. At most 300 characters."
+        ),
+    repository: zod
+        .string()
+        .max(tasksRepoRoutingRulesPartialUpdateBodyRepositoryMax)
+        .optional()
+        .describe("Target repository as owner\/repo, e.g. 'posthog\/posthog.com'."),
+})
+
+/**
+ * Team routing rules that steer agent repo selection (`RepoRoutingRule`).
+ *
+ * The same rows the Slack `/posthog rules` commands manage; the repo selection agent
+ * reads them ordered by priority when picking a repository for a task. Rules whose
+ * repository is not connected to the project are ignored at selection time, so a
+ * stale rule is inert rather than harmful — which is why writes here don't check the
+ * connected-repository list (the UI constrains the picker to connected repos anyway).
+ */
+export const TasksRepoRoutingRulesDestroyParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this repo routing rule.'),
     project_id: zod
         .string()
         .describe(

@@ -537,6 +537,7 @@ def test_create_batch_export_with_custom_schema(
             "hogql_val_1": "custom",
         },
         "hogql_query": expected_hogql_query,
+        "restricted_properties": [],
     }
 
     assert batch_export.schema == expected_schema

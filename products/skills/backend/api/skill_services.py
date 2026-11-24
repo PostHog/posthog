@@ -21,7 +21,7 @@ from ..models.skills import (
     annotate_llm_skill_version_history_metadata,
     category_for_skill_name,
 )
-from .archive_guards import assert_skill_archive_allowed, run_skill_rename_hooks
+from .archive_guards import assert_skill_archive_allowed, assert_skill_publish_allowed, run_skill_rename_hooks
 
 _DigestModel = TypeVar("_DigestModel", LLMSkill, LLMSkillFile)
 
@@ -579,6 +579,8 @@ def publish_skill_version(
         else:
             _copy_files(current_latest, published_skill, edited_content=resolved_file_edits)
 
+        assert_skill_publish_allowed(team=team, skill=published_skill, user=user)
+
         log_skill_activity(
             team=team,
             user=user,
@@ -646,6 +648,7 @@ def create_skill(
     allowed_tools: list[str] | None = None,
     metadata: dict[str, Any] | None = None,
     files: list[dict[str, str]] | None = None,
+    version_description: str | None = None,
 ) -> LLMSkill:
     if len(description) > SPEC_DESCRIPTION_MAX_LENGTH:
         raise LLMSkillDescriptionTooLongError(max_length=SPEC_DESCRIPTION_MAX_LENGTH)
@@ -684,6 +687,7 @@ def create_skill(
                 metadata=resolve_skill_metadata(metadata, None),
                 version=1,
                 is_latest=True,
+                version_description=version_description,
                 created_by=user,
             )
         except IntegrityError as err:
@@ -846,6 +850,7 @@ def _create_next_version_with_files(
                 for f in next_files
             ]
         )
+    assert_skill_publish_allowed(team=team, skill=next_skill, user=user)
     log_skill_activity(
         team=team,
         user=user,

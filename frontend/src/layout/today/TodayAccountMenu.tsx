@@ -1,6 +1,14 @@
 import { useActions, useValues } from 'kea'
 
-import { IconDatabase, IconLeave, IconPeople, IconServer, IconShieldLock, IconToggle } from '@posthog/icons'
+import {
+    IconDatabase,
+    IconExternal,
+    IconLeave,
+    IconPeople,
+    IconServer,
+    IconShieldLock,
+    IconToggle,
+} from '@posthog/icons'
 import {
     Button,
     DropdownMenu,
@@ -29,7 +37,7 @@ export function TodayAccountMenu({ placement = 'rail' }: { placement?: 'rail' | 
     const { isAccountMenuOpen } = useValues(newAccountMenuLogic)
     const { setAccountMenuOpen } = useActions(newAccountMenuLogic)
     const { newEventsTableAvailable, newEventsTableEnabled } = useValues(newEventsTableLogic)
-    const { setNewEventsTable } = useActions(newEventsTableLogic)
+    const { setNewEventsTable, openEventsTableTab } = useActions(newEventsTableLogic)
 
     return (
         <DropdownMenu open={isAccountMenuOpen} onOpenChange={setAccountMenuOpen}>
@@ -101,13 +109,29 @@ export function TodayAccountMenu({ placement = 'rail' }: { placement?: 'rail' | 
                     </>
                 )}
                 {newEventsTableAvailable && (
-                    <DropdownMenuCheckboxItem
-                        checked={newEventsTableEnabled}
-                        onCheckedChange={setNewEventsTable}
-                        data-attr="new-events-table-switch"
-                    >
-                        New events table
-                    </DropdownMenuCheckboxItem>
+                    <>
+                        <DropdownMenuCheckboxItem
+                            checked={newEventsTableEnabled}
+                            onCheckedChange={setNewEventsTable}
+                            data-attr="new-events-table-switch"
+                        >
+                            New events table
+                        </DropdownMenuCheckboxItem>
+                        <DropdownMenuItem
+                            onClick={() => openEventsTableTab(true)}
+                            data-attr="new-events-table-open-new"
+                        >
+                            <IconExternal />
+                            Open this page with new events table
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                            onClick={() => openEventsTableTab(false)}
+                            data-attr="new-events-table-open-classic"
+                        >
+                            <IconExternal />
+                            Open this page with classic events table
+                        </DropdownMenuItem>
+                    </>
                 )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => logout()} data-attr="new-account-menu-logout-button">

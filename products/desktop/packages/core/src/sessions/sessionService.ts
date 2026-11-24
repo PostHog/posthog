@@ -71,6 +71,7 @@ import {
 } from "@posthog/shared/domain-types";
 import type { SendCommandOutput } from "../cloud-task/schemas";
 import type { CommentTarget } from "../comments/anchors";
+import { readApiErrorBody } from "../integrations/apiErrorBody";
 import { isGithubConnectionRequiredError } from "../integrations/connectErrors";
 import type {
   AgentSessionNotification,
@@ -623,6 +624,7 @@ export interface ReconcileTaskConnectionParams {
 }
 
 const ACTIVITY_HEARTBEAT_INTERVAL_MS = 5 * 60 * 1000;
+const LOCAL_RUN_HEARTBEAT_INTERVAL_MS = 5 * 60 * 1000;
 
 export type SessionPlan = Extract<SessionUpdate, { sessionUpdate: "plan" }>;
 
@@ -1170,7 +1172,7 @@ function agentMessageIndexBeforeEvent(
     const updateKind = agentMessageUpdateKind(events[index]);
     if (updateKind === "ignored") continue;
     if (updateKind === "chunk") {
-      position.chunkRunActive = true;
+      startAgentMessageChunkRun(position, events[index]);
     } else if (updateKind === "final") {
       position.messageIndex += 1;
       position.chunkRunActive = false;
@@ -1193,8 +1195,8 @@ function indexAgentMessagePositions(
   for (const event of events) {
     const updateKind = agentMessageUpdateKind(event);
     if (updateKind === "chunk") {
+      startAgentMessageChunkRun(position, event);
       positions.set(event, position.messageIndex);
-      position.chunkRunActive = true;
     } else if (updateKind === "final") {
       positions.set(event, position.messageIndex);
       position.messageIndex += 1;
@@ -1507,6 +1509,7 @@ function agentMessageUpdateKind(
 interface AgentMessagePosition {
   messageIndex: number;
   chunkRunActive: boolean;
+  chunkParent?: string;
 }
 
 function isSessionPromptEvent(event: AcpMessage): boolean {
@@ -1519,6 +1522,38 @@ function finishAgentMessageChunkRun(position: AgentMessagePosition): void {
   if (!position.chunkRunActive) return;
   position.messageIndex += 1;
   position.chunkRunActive = false;
+  position.chunkParent = undefined;
+}
+
+function chunkParentToolCallId(event: AcpMessage): string | undefined {
+  const message = event.message;
+  if (!isJsonRpcNotification(message)) return undefined;
+  const parent = (
+    message.params as
+      | {
+          update?: {
+            _meta?: { claudeCode?: { parentToolCallId?: unknown } };
+          };
+        }
+      | undefined
+  )?.update?._meta?.claudeCode?.parentToolCallId;
+  return typeof parent === "string" ? parent : undefined;
+}
+
+// SessionLogWriter stores a chunk from another subagent as a new message, so a
+// change of parent ends the run. Returns whether this chunk started a run.
+function startAgentMessageChunkRun(
+  position: AgentMessagePosition,
+  event: AcpMessage,
+): boolean {
+  const parent = chunkParentToolCallId(event);
+  if (position.chunkRunActive && position.chunkParent !== parent) {
+    finishAgentMessageChunkRun(position);
+  }
+  if (position.chunkRunActive) return false;
+  position.chunkRunActive = true;
+  position.chunkParent = parent;
+  return true;
 }
 
 function discardChunksSupersededByHydratedMessages(
@@ -1541,7 +1576,7 @@ function discardChunksSupersededByHydratedMessages(
     const updateKind = agentMessageUpdateKind(event);
     if (updateKind === "ignored") continue;
     if (updateKind === "chunk") {
-      hydratedPosition.chunkRunActive = true;
+      startAgentMessageChunkRun(hydratedPosition, event);
       continue;
     }
     if (updateKind === "final") {
@@ -1582,8 +1617,7 @@ function discardChunksSupersededByHydratedMessages(
     } else {
       const updateKind = agentMessageUpdateKind(event);
       if (updateKind === "chunk") {
-        if (!livePosition.chunkRunActive) {
-          livePosition.chunkRunActive = true;
+        if (startAgentMessageChunkRun(livePosition, event)) {
           discardChunkRun = hydratedMessagePositions.has(
             livePosition.messageIndex,
           );
@@ -1790,6 +1824,10 @@ export class SessionService {
   private activityHeartbeats = new Map<
     string,
     { timer: ReturnType<typeof setInterval>; holders: number }
+  >();
+  private localRunHeartbeats = new Map<
+    string,
+    ReturnType<typeof setInterval>
   >();
   private localRepoPaths = new Map<string, string>();
   private localRecoveryAttempts = new Map<string, Promise<boolean>>();
@@ -2331,10 +2369,12 @@ export class SessionService {
       const persistedFastMode =
         fastOpt?.type === "select" ? fastOpt.currentValue === "on" : undefined;
 
+      let workspaceMissing = false;
       this.d.trpc.workspace.verify
         .query({ taskId })
         .then((workspaceResult) => {
           if (!workspaceResult.exists) {
+            workspaceMissing = true;
             this.d.log.warn("Workspace no longer exists", {
               taskId,
               missingPath: workspaceResult.missingPath,
@@ -2345,6 +2385,7 @@ export class SessionService {
                 ? `Working directory no longer exists: ${workspaceResult.missingPath}`
                 : "The working directory for this task no longer exists. Please start a new session.",
             });
+            this.stopLocalRunHeartbeat(taskRunId);
           }
         })
         .catch((err) => {
@@ -2417,6 +2458,9 @@ export class SessionService {
           configOptions,
           ...readCapabilities(result),
         });
+        if (!workspaceMissing) {
+          this.startLocalRunHeartbeat(taskRunId);
+        }
 
         // Persist the merged config options
         if (configOptions) {
@@ -2551,6 +2595,7 @@ export class SessionService {
     errorMessage: string,
     errorTitle?: string,
   ): void {
+    this.stopLocalRunHeartbeat(taskRunId);
     // Preserve events and logUrl from the existing session so the
     // retry / reset flows can re-hydrate without a fresh log fetch.
     // Note: the error overlay is opaque, so these events aren't visible
@@ -2839,6 +2884,7 @@ export class SessionService {
     this.d.store.setSession(session);
     this.d.store.clearTaskStarting?.(taskId, taskRun.id);
     this.subscribeToChannel(taskRun.id);
+    this.startLocalRunHeartbeat(taskRun.id);
 
     this.d.track(ANALYTICS_EVENTS.TASK_RUN_STARTED, {
       task_id: taskId,
@@ -3259,6 +3305,45 @@ export class SessionService {
     });
   }
 
+  private startLocalRunHeartbeat(taskRunId: string): void {
+    const session = this.getSessionByRunId(taskRunId);
+    if (!session || session.isCloud || this.localRunHeartbeats.has(taskRunId)) {
+      return;
+    }
+    const { taskId } = session;
+    const beat = () => {
+      void this.sendLocalRunHeartbeat(taskId, taskRunId);
+    };
+    beat();
+    this.localRunHeartbeats.set(
+      taskRunId,
+      setInterval(beat, LOCAL_RUN_HEARTBEAT_INTERVAL_MS),
+    );
+  }
+
+  private async sendLocalRunHeartbeat(
+    taskId: string,
+    taskRunId: string,
+  ): Promise<void> {
+    try {
+      const client = await this.d.getAuthenticatedClient();
+      await client?.heartbeatTaskRun(taskId, taskRunId);
+    } catch (error) {
+      if (requestErrorStatus(error) === 409) {
+        this.stopLocalRunHeartbeat(taskRunId);
+        return;
+      }
+      this.d.log.warn("Local run heartbeat failed", { taskRunId, error });
+    }
+  }
+
+  private stopLocalRunHeartbeat(taskRunId: string): void {
+    const timer = this.localRunHeartbeats.get(taskRunId);
+    if (timer === undefined) return;
+    clearInterval(timer);
+    this.localRunHeartbeats.delete(taskRunId);
+  }
+
   /**
    * A subscription completing without an error means the host tore down the
    * transport rather than the agent finishing: the renderer would otherwise
@@ -3282,6 +3367,7 @@ export class SessionService {
         "Session subscription keeps ending without an error, giving up",
         { taskRunId, which, attempts },
       );
+      this.stopLocalRunHeartbeat(taskRunId);
       return;
     }
     this.hostEndedResubscribes.set(taskRunId, attempts);
@@ -3300,6 +3386,7 @@ export class SessionService {
     this.subscriptions.delete(taskRunId);
     subscription?.event.unsubscribe();
     subscription?.permission?.unsubscribe();
+    this.stopLocalRunHeartbeat(taskRunId);
     this.hostEndedResubscribes.delete(taskRunId);
     this.lastSessionEventAt.delete(taskRunId);
     this.sessionEventStats.delete(taskRunId);
@@ -3326,6 +3413,9 @@ export class SessionService {
     // Unsubscribe from all active subscriptions
     for (const taskRunId of this.subscriptions.keys()) {
       this.unsubscribeFromChannel(taskRunId);
+    }
+    for (const taskRunId of [...this.localRunHeartbeats.keys()]) {
+      this.stopLocalRunHeartbeat(taskRunId);
     }
 
     // Clean up all cloud task watchers
@@ -5583,6 +5673,11 @@ export class SessionService {
             "Only the person who created this task can send it messages. Start a new session to continue the work yourself.",
           );
         }
+        if (requestErrorStatus(error) === 409) {
+          this.d.queryClient.invalidateQueries({ queryKey: ["tasks"] });
+          const refusal = readApiErrorBody(error).error;
+          if (refusal) throw new Error(refusal);
+        }
         throw error;
       }
     } catch (error) {
@@ -7092,6 +7187,10 @@ export class SessionService {
         initialMode,
         existing?.taskRunId === taskRunId ? existing.adapter : persistedAdapter,
       );
+      if (existing && existing.taskRunId !== taskRunId) {
+        session.messageQueue = [...existing.messageQueue];
+        session.editingQueuedId = existing.editingQueuedId;
+      }
       this.d.store.setSession(session);
       // Creation supplies the exact prompt before setup logs can arrive.
       // Reopened tasks have no creation seed and must await transcript hydration.

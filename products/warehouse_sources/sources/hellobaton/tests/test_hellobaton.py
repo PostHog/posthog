@@ -52,6 +52,27 @@ class TestPagination:
         assert result.rows == []
         assert result.paths == ["/api/companies/"]
 
+    @pytest.mark.parametrize(
+        "endpoint, expected_partition_keys",
+        [
+            ("external_tasks", ["created"]),
+            ("milestone_feedback", ["created"]),
+            ("template_aggregates", None),
+            ("time_entry_aggregates", None),
+            ("time_entries", ["reference_date"]),
+        ],
+    )
+    def test_endpoint_path_and_partitioning(self, endpoint: str, expected_partition_keys: list[str] | None) -> None:
+        result = _driver().run(endpoint, [_page([{"id": 7}])])
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == [7]
+        # Baton's router 301s without the trailing slash.
+        assert result.paths == [f"/api/{endpoint}/"]
+        assert result.response is not None
+        assert result.response.partition_keys == expected_partition_keys
+        assert result.response.partition_mode == ("datetime" if expected_partition_keys else None)
+
     def test_resumes_from_saved_page(self) -> None:
         result = _driver().run("tasks", [_page([{"id": 2}])], resume_state=HellobatonResumeConfig(next_page=2))
 

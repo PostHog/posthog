@@ -1,9 +1,7 @@
-"""The org team roster read: who is on which GitHub team, from the synced membership snapshot.
+"""The org team roster, from the synced membership snapshot.
 
-A caller that only wants to turn a team slug into people asks this one question, so the read stands
-on its own rather than going through ``CuratedGitHubSource``: that handle resolves ``pull_requests``
-and ``workflow_runs`` first, which a roster read never touches and a roster-only source may not even
-sync.
+The read does not go through ``CuratedGitHubSource``, because that handle requires ``pull_requests``
+and ``workflow_runs``, which a roster-only source may not sync.
 """
 
 from typing import TYPE_CHECKING
@@ -21,12 +19,10 @@ from products.engineering_analytics.backend.logic.views import team_members
 if TYPE_CHECKING:
     from products.access_control.backend.facade.user_access_control import UserAccessControl
 
-# A whole org's memberships in one pass, with a ceiling that keeps a runaway snapshot out of memory.
 _ROSTER_ROW_LIMIT = 100_000
 
 
 def build_github_team_roster(*, team: Team, user_access_control: "UserAccessControl | None" = None) -> GitHubTeamRoster:
-    """Every synced org team membership, or an unsynced roster when no source carries the snapshot."""
     snapshot = resolve_team_membership_table(team=team, user_access_control=user_access_control)
     if snapshot is None:
         return GitHubTeamRoster(memberships=(), synced=False)
@@ -38,8 +34,7 @@ def build_github_team_roster(*, team: Team, user_access_control: "UserAccessCont
             query=parse_select(sql),
             team=team,
             query_type="engineering_analytics.github_team_roster",
-            # Same two paths as ``CuratedGitHubSource.run``: the real user lets HogQL honor the per-table
-            # warehouse ACL, and the userless caller must bypass it or fail closed on every such table.
+            # A userless caller has no ACL to honor, and HogQL would otherwise deny every warehouse table.
             user=user_access_control.user if user_access_control is not None else None,
             user_access_control=user_access_control,
             bypass_warehouse_access_control=user_access_control is None,

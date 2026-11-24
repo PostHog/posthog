@@ -56,7 +56,6 @@ async def test_staging_quotes_column_names(create: bool) -> None:
         (
             SnowflakeField('key"name', SnowflakeType("INT", False), pa.int64(), False),
             SnowflakeField('json"data', SnowflakeType("VARIANT", False), JsonType(), True),
-            SnowflakeField("people_set", SnowflakeType("VARIANT", False), JsonType(), True),
         ),
     )
     client = SnowflakeClient(
@@ -70,13 +69,7 @@ async def test_staging_quotes_column_names(create: bool) -> None:
 
     query = " ".join(execute.call_args.args[0].split())
     if create:
-        assert (
-            'CREATE TABLE IF NOT EXISTS "stage" ( "key""name" INT, "json""data" VARIANT, "people_set" VARIANT )'
-            in query
-        )
+        assert 'CREATE TABLE IF NOT EXISTS "stage" ( "key""name" INT, "json""data" VARIANT )' in query
     else:
-        assert 'COPY INTO "stage" ("key""name", "json""data", "people_set")' in query
-        assert (
-            'SELECT $1:"key""name", PARSE_JSON($1:"json""data", \'d\'), '
-            'IFF(CHECK_JSON($1:"people_set") IS NULL, PARSE_JSON($1:"people_set", \'d\'), NULL)'
-        ) in query
+        assert 'COPY INTO "stage" ("key""name", "json""data")' in query
+        assert 'SELECT $1:"key""name", TRY_PARSE_JSON($1:"json""data", \'d\')' in query

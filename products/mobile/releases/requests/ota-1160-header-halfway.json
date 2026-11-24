@@ -1,0 +1,8 @@
+{
+    "schemaVersion": 1,
+    "id": "ota-1160-header-halfway",
+    "kind": "ota",
+    "runtimeVersion": "1.16.0",
+    "previousRelease": "ota-1160-live-tooltip-copy",
+    "notes": "Move the tab header logo halfway between the card edge and its text. Verify the alignment on Home, Inbox, Chats and Views on iOS and Android, including larger text sizes."
+}

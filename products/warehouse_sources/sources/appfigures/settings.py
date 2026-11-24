@@ -19,7 +19,9 @@ from products.warehouse_sources.sources.sdk import IncrementalField, Incremental
 #               per request, so we fan out over both and stamp the day the sync ran.
 #   - "aso_stats": /aso/stats — the same fan-out, but a single flat object of keyword aggregates per
 #               product and country instead of a list.
-EndpointKind = Literal["paged", "object", "report", "ranks", "aso", "aso_stats"]
+#   - "featured": /featured/full — one object per product keyed by featured category id, with the
+#               product id and date range in the URL path, so we fan out over the account's products.
+EndpointKind = Literal["paged", "object", "report", "ranks", "aso", "aso_stats", "featured"]
 
 
 @frozen
@@ -51,6 +53,11 @@ class AppfiguresEndpointConfig:
 
     # "report" endpoints (reports/*)
     group_by: Optional[str] = None
+    # Column names for each level of a nested multi-pivot report, in `group_by` order. Empty means a
+    # plain group_by=dates report keyed by date only.
+    pivots: tuple[str, ...] = ()
+    # Whether the report takes the product ids from the source form as its `products` filter.
+    product_filter: bool = False
     granularity: Optional[str] = None
     # Max days fetched per request — daily granularity is capped at 30 days by Appfigures.
     window_days: Optional[int] = None
@@ -194,6 +201,61 @@ APPFIGURES_ENDPOINTS: dict[str, AppfiguresEndpointConfig] = {
         partition_key="date",
         default_incremental_field="date",
         incremental_fields=[_REPORT_DATE_FIELD],
+    ),
+    # Daily in-app usage per analytics network and product. Each network (App Store Connect, Firebase,
+    # Google Analytics, Flurry) reports its own metric set, so the network is part of the key.
+    "usage_report": AppfiguresEndpointConfig(
+        name="usage_report",
+        path="/reports/usage",
+        kind="report",
+        primary_keys=["date", "network", "product_id"],
+        # Appfigures returns 400 when group_by leaves out the network.
+        group_by="network,dates,products",
+        pivots=("network", "date", "product_id"),
+        window_days=30,
+        # A bare request without group_by=network is a 400. Sales needs the same `private:read` grant.
+        probe_path="/reports/sales",
+        partition_key="date",
+        default_incremental_field="date",
+        incremental_fields=[_REPORT_DATE_FIELD],
+    ),
+    # Daily modelled download and revenue estimates per product, for the products set on the source or
+    # the account's own products when none are set.
+    "estimates_report": AppfiguresEndpointConfig(
+        name="estimates_report",
+        path="/reports/estimates",
+        kind="report",
+        primary_keys=["date", "product_id"],
+        group_by="dates,products",
+        pivots=("date", "product_id"),
+        product_filter=True,
+        granularity="daily",
+        window_days=30,
+        partition_key="date",
+        default_incremental_field="date",
+        incremental_fields=[_REPORT_DATE_FIELD],
+        # Estimates need an add-on license, so a plain account gets a 403. Leave it to the user.
+        should_sync_default=False,
+    ),
+    # Every featured placement of each product over the lookback window: country, store category,
+    # breadcrumb path, and the positions it held.
+    "featured": AppfiguresEndpointConfig(
+        name="featured",
+        path="/featured/full",
+        kind="featured",
+        # The response is keyed by featured category id, which is already specific to one country.
+        primary_keys=["product_id", "featured_category_id"],
+        # Needs the Public Data API add-on and spends partner credits per product.
+        should_sync_default=False,
+        # The path needs a product id, so probe reviews, which needs the same `public:read` grant.
+        probe_path="/reviews",
+    ),
+    # Timeline markers (releases, campaigns) users add in Appfigures to annotate their reports.
+    "events": AppfiguresEndpointConfig(
+        name="events",
+        path="/events",
+        kind="object",
+        primary_keys=["id"],
     ),
     # Store category rank history per product, country, and category.
     "ranks": AppfiguresEndpointConfig(

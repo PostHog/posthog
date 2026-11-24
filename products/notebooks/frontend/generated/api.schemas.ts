@@ -700,6 +700,153 @@ export interface NotebookVariableApi {
     value?: unknown
 }
 
+export interface NotebookAppTabApi {
+    /**
+     * Stable tab identifier.
+     * @maxLength 80
+     */
+    id: string
+    /**
+     * Tab label.
+     * @maxLength 80
+     */
+    title: string
+}
+
+/**
+ * * `cell` - Notebook cell
+ * * `text` - Text
+ * * `input` - Input
+ * * `divider` - Divider
+ */
+export type NotebookAppBlockKindEnumApi = (typeof NotebookAppBlockKindEnumApi)[keyof typeof NotebookAppBlockKindEnumApi]
+
+export const NotebookAppBlockKindEnumApi = {
+    Cell: 'cell',
+    Text: 'text',
+    Input: 'input',
+    Divider: 'divider',
+} as const
+
+/**
+ * * `auto` - Automatic
+ * * `select` - Dropdown
+ * * `slider` - Slider
+ */
+export type NotebookAppInputKindEnumApi = (typeof NotebookAppInputKindEnumApi)[keyof typeof NotebookAppInputKindEnumApi]
+
+export const NotebookAppInputKindEnumApi = {
+    Auto: 'auto',
+    Select: 'select',
+    Slider: 'slider',
+} as const
+
+/**
+ * * `output` - Output
+ * * `source` - Source
+ * * `both` - Source and output
+ */
+export type NotebookAppCellDisplayEnumApi =
+    (typeof NotebookAppCellDisplayEnumApi)[keyof typeof NotebookAppCellDisplayEnumApi]
+
+export const NotebookAppCellDisplayEnumApi = {
+    Output: 'output',
+    Source: 'source',
+    Both: 'both',
+} as const
+
+export interface NotebookAppBlockApi {
+    /**
+     * Stable component identifier within the app.
+     * @maxLength 80
+     */
+    id: string
+    /** Type of app component.
+     *
+     * * `cell` - Notebook cell
+     * * `text` - Text
+     * * `input` - Input
+     * * `divider` - Divider */
+    kind: NotebookAppBlockKindEnumApi
+    /**
+     * Tab containing this component.
+     * @maxLength 80
+     */
+    tab_id: string
+    /**
+     * Optional component title.
+     * @maxLength 256
+     */
+    title?: string
+    /**
+     * Width in a twelve-column grid.
+     * @minimum 1
+     * @maximum 12
+     */
+    width?: number
+    /**
+     * Source notebook cell ID.
+     * @maxLength 160
+     */
+    node_id?: string
+    /**
+     * Markdown for a text component.
+     * @maxLength 20000
+     */
+    text?: string
+    /**
+     * Notebook variable controlled by an input.
+     * @maxLength 80
+     */
+    variable?: string
+    /** Control used for an input.
+     *
+     * * `auto` - Automatic
+     * * `select` - Dropdown
+     * * `slider` - Slider */
+    input_kind?: NotebookAppInputKindEnumApi
+    /**
+     * Allowed values for a dropdown.
+     * @maxItems 100
+     * @items.maxLength 1000
+     */
+    options?: string[]
+    /** Slider minimum. */
+    min?: number
+    /** Slider maximum. */
+    max?: number
+    /**
+     * Slider increment.
+     * @minimum 0.000001
+     */
+    step?: number
+    /** Whether to display cell source, output, or both.
+     *
+     * * `output` - Output
+     * * `source` - Source
+     * * `both` - Source and output */
+    display?: NotebookAppCellDisplayEnumApi
+}
+
+export interface NotebookAppLayoutApi {
+    /**
+     * App title, falling back to the notebook title.
+     * @maxLength 256
+     */
+    title?: string
+    /**
+     * Description displayed below the app title.
+     * @maxLength 2000
+     */
+    description?: string
+    /** Use all available width instead of a centered page. */
+    full_width?: boolean
+    /** Ordered app tabs. */
+    tabs: NotebookAppTabApi[]
+    /** Ordered components, arranged in rows within each tab. */
+    blocks: NotebookAppBlockApi[]
+}
+
 export interface NotebookApi {
     /** UUID of the notebook. */
     readonly id: string
@@ -742,6 +889,15 @@ export interface NotebookApi {
     readonly parent_resource: NotebookApiParentResource
     /** Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique. */
     variables?: NotebookVariableApi[]
+    /** Editable app layout. Does not change the published layout. */
+    app_draft?: NotebookAppLayoutApi | null
+    /** Published app layout. Cell content and results remain linked to the notebook. Null unpublishes the app. */
+    app_published?: NotebookAppLayoutApi | null
+    /**
+     * Current app revision. Required when saving or publishing a layout; stale revisions return 409.
+     * @minimum 0
+     */
+    app_revision?: number
     _create_in_folder?: string
 }
 
@@ -796,6 +952,15 @@ export interface PatchedNotebookApi {
     readonly parent_resource?: PatchedNotebookApiParentResource
     /** Notebook-level variables, in display order. A SQL cell reads one as a `{name}` placeholder and a Python cell as a global. Names must be unique. */
     variables?: NotebookVariableApi[]
+    /** Editable app layout. Does not change the published layout. */
+    app_draft?: NotebookAppLayoutApi | null
+    /** Published app layout. Cell content and results remain linked to the notebook. Null unpublishes the app. */
+    app_published?: NotebookAppLayoutApi | null
+    /**
+     * Current app revision. Required when saving or publishing a layout; stale revisions return 409.
+     * @minimum 0
+     */
+    app_revision?: number
     _create_in_folder?: string
 }
 
@@ -1252,6 +1417,8 @@ export interface NotebookSQLV2EnvelopeApi {
      * @nullable
      */
     result_id?: string | null
+    /** How the run returned its rows. */
+    delivery?: string
     /**
      * Error message when status is 'error'.
      * @nullable
@@ -1280,6 +1447,17 @@ export interface NotebookSQLV2InterruptResponseApi {
     status: string
     /** Present when the interrupt could not take effect yet, e.g. the run has not reached the kernel. */
     detail?: string
+}
+
+export interface NotebookSQLV2PageResponseApi {
+    /** Column names in result order. */
+    columns: string[]
+    /** Column name and type pairs in result order. */
+    types: string[][]
+    /** Rows of cell values in column order. */
+    rows: unknown[][]
+    /** Whether another page follows these rows. */
+    has_more: boolean
 }
 
 export interface NotebookKernelStateApi {
@@ -1742,6 +1920,27 @@ export type NotebooksListParams = {
      * If any value is provided for this parameter, return notebooks created by the logged in user.
      */
     user?: string
+}
+
+export type NotebooksSqlV2RunsRetrieveParams = {
+    /**
+     * Only return the run if it belongs to this cell.
+     */
+    node_id?: string
+}
+
+export type NotebooksSqlV2RunsPageRetrieveParams = {
+    /**
+     * Rows per page.
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /**
+     * Number of rows to skip in the stored result frame.
+     * @minimum 0
+     */
+    offset?: number
 }
 
 export type NotebooksWidgetSnapshotFrameParams = {

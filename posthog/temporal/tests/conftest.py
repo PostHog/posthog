@@ -18,6 +18,7 @@ from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.logger import configure_logger
 from posthog.temporal.tests.utils.logger import restored_structlog_config
+from posthog.test.cascade_delete import delete_skipping_empty_tables
 
 
 @pytest.fixture(autouse=True)
@@ -68,7 +69,7 @@ async def aorganization():
 
     yield org
 
-    await sync_to_async(org.delete)()
+    await sync_to_async(delete_skipping_empty_tables)(org)
 
 
 @pytest_asyncio.fixture
@@ -78,7 +79,7 @@ async def ateam(aorganization):
 
     yield team
 
-    await sync_to_async(team.delete)()
+    await sync_to_async(delete_skipping_empty_tables)(team)
 
 
 @pytest_asyncio.fixture

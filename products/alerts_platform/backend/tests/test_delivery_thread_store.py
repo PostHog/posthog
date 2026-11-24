@@ -17,6 +17,7 @@ from products.alerts_platform.backend.delivery.dispatch import add_late_image, d
 from products.alerts_platform.backend.delivery.thread_store import (
     PENDING_CLAIM_TTL,
     DatabaseThreadStore,
+    Opening,
     ThreadBusy,
     ThreadKey,
 )
@@ -83,6 +84,19 @@ class TestDatabaseThreadStore(APIBaseTest):
         third = self.store.claim(key, "eval-3")
         assert third is not None
         assert third.handle == root
+
+    def test_the_first_confirmed_send_opens_the_thread_after_a_lost_answer(self) -> None:
+        key = self._key()
+        lost = self.store.claim(key, "eval-1")
+        assert lost is not None
+        self.store.delivered(lost, None)
+        opener = self.store.claim(key, "eval-2")
+        assert opener is not None
+        self.store.delivered(opener, MessageHandle(external_ref={"channel": "C-ENG", "ts": "1"}))
+
+        assert self.store.opening(key, "eval-2") == Opening.ROOT
+        assert self.store.opening(key, "eval-1") == Opening.REPLY
+        assert self.store.claim(key, "eval-1") is None
 
     @parameterized.expand([("fresh", timedelta(seconds=1), True), ("stale", PENDING_CLAIM_TTL * 2, False)])
     def test_a_claim_blocks_another_send_until_it_goes_stale(

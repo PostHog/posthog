@@ -13,11 +13,13 @@ function parseMarkdownIntoBlocks(markdown: string): string[] {
     return tokens.map((token) => token.raw)
 }
 
-function rewriteObjectTags(markdown: string, teamId: number | null): string {
+function rewriteObjectTags(markdown: string, teamId: number | null, literalTags: boolean): string {
     // Agent object tags (`<insight id="…">label</insight>`) become links into the
     // current project, carrying the agent's label; stripping them instead posted
     // empty bullets wherever a reply cited an object.
-    return rewriteAgentObjectTags(markdown, teamId !== null ? urls.project(teamId) : '')
+    return rewriteAgentObjectTags(markdown, teamId !== null ? urls.project(teamId) : '', {
+        streaming: !literalTags,
+    })
 }
 
 /**
@@ -30,6 +32,7 @@ export const MarkdownMessage = memo(function MarkdownMessage({
     className,
     components,
     renderCodeBlock,
+    literalTags = false,
 }: {
     content: string
     id: string
@@ -38,17 +41,26 @@ export const MarkdownMessage = memo(function MarkdownMessage({
     components?: LemonMarkdownComponents
     /** Renderer for fenced code blocks. Pass a stable (module-level) function. */
     renderCodeBlock?: LemonMarkdownProps['renderCodeBlock']
+    /** Show tag-like text as typed. For text a person wrote, which is complete and has no agent tags to hide. */
+    literalTags?: boolean
 }): JSX.Element {
     // The team id is a memo dependency so a project switch re-points existing links.
     const teamId = getCurrentTeamIdOrNone()
-    const blocks = useMemo(() => parseMarkdownIntoBlocks(rewriteObjectTags(content, teamId)), [content, teamId])
+    const blocks = useMemo(
+        () => parseMarkdownIntoBlocks(rewriteObjectTags(content, teamId, literalTags)),
+        [content, teamId, literalTags]
+    )
     return (
         <LemonMarkdown.Container className={className}>
             {blocks.map((block, index) => (
+                // Messages come from the agent or from a person, so an external image must not load
+                // on its own: that request would leak each viewer's address to the image host.
                 <LemonMarkdown.Renderer
                     key={`${id}-block_${index}`}
                     components={components}
                     renderCodeBlock={renderCodeBlock}
+                    literalHtml={literalTags}
+                    disableImages
                 >
                     {block}
                 </LemonMarkdown.Renderer>

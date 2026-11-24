@@ -1,60 +1,22 @@
 import { getCloudTaskGatewayUrl } from "@posthog/agent-contracts";
 
-export type GatewayProduct =
-  | "posthog_code"
-  | "background_agents"
-  | "signals"
-  | "slack_app"
-  | "workflows"
-  | "posthog_ai"
-  | "conversations"
-  | "account_audit"
-  | "onboarding"
-  | "review_hog";
+export const GATEWAY_PRODUCTS = [
+  "posthog_code",
+  "background_agents",
+  "signals",
+  "slack_app",
+  "workflows",
+  "posthog_ai",
+  "conversations",
+  "account_audit",
+  "onboarding",
+  "review_hog",
+] as const;
 
-export function resolveGatewayProduct({
-  isInternal,
-  originProduct,
-}: {
-  isInternal?: boolean;
-  originProduct?: string | null;
-} = {}): GatewayProduct {
-  // Every signals origin belongs here: their tokens are minted under the Signals OAuth
-  // application, and no other product authorizes it — an unmapped origin falls through to
-  // posthog_code and the gateway rejects the token.
-  const originProductToGatewayProductMap: Record<string, GatewayProduct> = {
-    feature_flags: "posthog_ai",
-    loop: "posthog_code",
-    metrics_import: "posthog_ai",
-    onboarding: "onboarding",
-    account_audit: "account_audit",
-    posthog_ai: "posthog_ai",
-    review_hog: "review_hog",
-    scout_suggestions: "signals",
-    signal_report: "signals",
-    signals_chat: "signals",
-    signals_scout: "signals",
-    slack: "slack_app",
-    support_reply: "conversations",
-    workflow: "workflows",
-  };
+export type GatewayProduct = (typeof GATEWAY_PRODUCTS)[number];
 
-  if (originProduct && originProduct in originProductToGatewayProductMap) {
-    const mapped = originProductToGatewayProductMap[originProduct];
-    // Stored rows may carry a caller-set review_hog origin predating its
-    // reservation; only the server-stamped `internal` flag admits the mintable product.
-    if (
-      (mapped === "review_hog" || originProduct === "account_audit") &&
-      !isInternal
-    ) {
-      return "posthog_code";
-    }
-    return mapped;
-  }
-  if (isInternal) {
-    return "background_agents";
-  }
-  return "posthog_code";
+export function fallbackGatewayProduct(isInternal = false): GatewayProduct {
+  return isInternal ? "background_agents" : "posthog_code";
 }
 
 // The legacy gateway accepts sandbox OAuth under background_agents; review_hog

@@ -18,7 +18,7 @@ import SourceSetupIntro from "../\_snippets/source-setup-intro.mdx"
 import SyncModes from "../\_snippets/sync-modes.mdx"
 import TroubleshootingLink from "../\_snippets/dw-troubleshooting-link.mdx"
 
-[Writesonic](https://writesonic.com) tracks your brand's visibility in AI search — how often, how prominently, and in what context AI platforms like ChatGPT, Perplexity, and Google AI Overviews mention your brand (GEO, generative engine optimization). This connector pulls your daily performance metrics, raw AI answers with brand mentions, citations, keywords, and tracked configuration (topics, prompts, platforms, websites) into the PostHog Data warehouse, where you can join AI visibility with your product analytics.
+[Writesonic](https://writesonic.com) tracks your brand's visibility in AI search — how often, how prominently, and in what context AI platforms like ChatGPT, Perplexity, and Google AI Overviews mention your brand (GEO, generative engine optimization). This connector pulls your daily performance metrics, raw AI answers with brand mentions, citations, keywords, and tracked configuration (topics, prompts, platforms, websites), and content optimization pages, issues, and recommended fixes into the PostHog Data warehouse, where you can join AI visibility with your product analytics.
 
 ## Prerequisites
 
@@ -40,7 +40,7 @@ To sync more than one tracked site, add a separate Writesonic source per site.
 
 <SyncModes />
 
-The performance and content tables (`performance_summary`, `performance_prompts`, `performance_answers`, `content_citations`, `content_keywords`) are exported one UTC day at a time and sync incrementally by date — the first sync backfills up to the last 365 days, and each later sync picks up from the last synced day. The configuration tables (`topics`, `platforms`, `websites`, `prompts`) are small and sync as full refresh.
+The performance and content tables (`performance_summary`, `performance_prompts`, `performance_answers`, `content_citations`, `content_keywords`) are exported one UTC day at a time and sync incrementally by date — the first sync backfills up to the last 365 days, and each later sync picks up from the last synced day. The configuration tables (`topics`, `platforms`, `websites`, `prompts`) are small and sync as full refresh. The content optimization tables (`content_optimize_pages`, `content_optimize_issues`, `content_optimize_recommendations`, `content_optimize_issues_summary`) sync as full refresh. The issues and recommendations tables make one request for each page in the content optimization pages list.
 
 ## Configuration
 

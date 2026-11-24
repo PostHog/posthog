@@ -1,31 +1,11 @@
 import { type SpanContext, TraceFlags } from "@opentelemetry/api";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { GatewayEnv } from "../adapters/claude/session/options";
-import type { Task } from "../types";
 import { AgentServer } from "./agent-server";
-import { codexAuthFromGatewayEnv } from "./gateway-env";
+import { codexAuthFromGatewayEnv, type GatewayEnvInput } from "./gateway-env";
 
 interface TestableServer {
-  configureEnvironment(args?: {
-    runSpanContext?: SpanContext;
-    isInternal?: boolean;
-    originProduct?: Task["origin_product"] | null;
-    signalReportId?: string | null;
-    aiStage?: string | null;
-    aiAgentName?: string | null;
-    taskId?: string | null;
-    taskRunId?: string | null;
-    taskUserId?: number | null;
-    taskTitle?: string | null;
-    taskOriginKey?: string | null;
-    repositories?: string[];
-    runtimeAdapter?: string | null;
-    sandboxEnvironmentId?: string | null;
-    snapshotKind?: string | null;
-    prewarmed?: boolean | null;
-    executionEnvironment?: "local" | "cloud";
-    sharedPromptCache?: boolean;
-  }): GatewayEnv;
+  configureEnvironment(args?: GatewayEnvInput): GatewayEnv;
 }
 
 const RUN_SPAN_CONTEXT: SpanContext = {
@@ -139,90 +119,6 @@ describe("AgentServer.configureEnvironment", () => {
     );
   });
 
-  it("tags as signals when an internal task has origin_product 'signal_report'", () => {
-    const env = buildServer("background").configureEnvironment({
-      isInternal: true,
-      originProduct: "signal_report",
-    });
-
-    expect(env.anthropicBaseUrl).toBe(
-      "http://llm-gateway.internal:8080/signals",
-    );
-    expect(env.openaiBaseUrl).toBe(
-      "http://llm-gateway.internal:8080/signals/v1",
-    );
-  });
-
-  it("tags as signals when origin_product is 'signal_report' even if the task is not internal", () => {
-    const env = buildServer("background").configureEnvironment({
-      isInternal: false,
-      originProduct: "signal_report",
-    });
-
-    expect(env.anthropicBaseUrl).toBe(
-      "http://llm-gateway.internal:8080/signals",
-    );
-  });
-
-  it("tags as signals for scout runs (origin_product 'signals_scout'), internal or not", () => {
-    const env = buildServer("background").configureEnvironment({
-      isInternal: false,
-      originProduct: "signals_scout",
-    });
-
-    expect(env.anthropicBaseUrl).toBe(
-      "http://llm-gateway.internal:8080/signals",
-    );
-  });
-
-  it.each([{ isInternal: true }, { isInternal: false }] as const)(
-    "tags as conversations when origin_product is 'support_reply' (isInternal=$isInternal)",
-    ({ isInternal }) => {
-      const env = buildServer("background").configureEnvironment({
-        isInternal,
-        originProduct: "support_reply",
-      });
-
-      expect(env.anthropicBaseUrl).toBe(
-        "http://llm-gateway.internal:8080/conversations",
-      );
-      expect(env.openaiBaseUrl).toBe(
-        "http://llm-gateway.internal:8080/conversations/v1",
-      );
-    },
-  );
-
-  it.each([{ isInternal: true }, { isInternal: false }] as const)(
-    "tags as posthog_code when origin_product is 'loop' (isInternal=$isInternal)",
-    ({ isInternal }) => {
-      const env = buildServer("background").configureEnvironment({
-        isInternal,
-        originProduct: "loop",
-      });
-
-      expect(env.anthropicBaseUrl).toBe(
-        "http://llm-gateway.internal:8080/posthog_code",
-      );
-      expect(env.openaiBaseUrl).toBe(
-        "http://llm-gateway.internal:8080/posthog_code/v1",
-      );
-    },
-  );
-
-  it("tags as onboarding when a wizard cloud run reaches the gateway", () => {
-    const env = buildServer("background").configureEnvironment({
-      isInternal: false,
-      originProduct: "onboarding",
-    });
-
-    expect(env.anthropicBaseUrl).toBe(
-      "http://llm-gateway.internal:8080/onboarding",
-    );
-    expect(env.openaiBaseUrl).toBe(
-      "http://llm-gateway.internal:8080/onboarding/v1",
-    );
-  });
-
   // The codex/OpenAI path sets provider http_headers rather than
   // ANTHROPIC_CUSTOM_HEADERS, so the same task metadata must be exposed as a
   // record. It carries both the selected project scope and event attribution.
@@ -291,6 +187,7 @@ describe("AgentServer.configureEnvironment", () => {
       sandboxEnvironmentId: "environment-123",
       snapshotKind: "filesystem",
       prewarmed: false,
+      runPolicySource: "server",
     });
 
     expect(env.anthropicCustomHeaders).toBe(
@@ -313,6 +210,7 @@ describe("AgentServer.configureEnvironment", () => {
         "x-posthog-property-task_snapshot_kind: filesystem",
         "x-posthog-property-task_prewarmed: false",
         "x-posthog-property-task_execution_environment: cloud",
+        "x-posthog-property-task_run_policy_source: server",
         "X-PostHog-Task-Run-Id: run-xyz",
         "X-PostHog-Project-Id: 1",
       ].join("\n"),
@@ -363,53 +261,6 @@ describe("AgentServer.configureEnvironment", () => {
       "x-posthog-property-task_internal: false\n" +
         "x-posthog-property-task_execution_environment: cloud\n" +
         "X-PostHog-Project-Id: 1",
-    );
-  });
-
-  it("tags as slack_app when the task was initiated from Slack", () => {
-    const env = buildServer("interactive").configureEnvironment({
-      originProduct: "slack",
-    });
-
-    expect(env.anthropicBaseUrl).toBe(
-      "http://llm-gateway.internal:8080/slack_app",
-    );
-    expect(env.openaiBaseUrl).toBe(
-      "http://llm-gateway.internal:8080/slack_app/v1",
-    );
-  });
-
-  it("prefers slack_app over background_agents when both signals are present", () => {
-    const env = buildServer("interactive").configureEnvironment({
-      isInternal: true,
-      originProduct: "slack",
-    });
-
-    expect(env.anthropicBaseUrl).toBe(
-      "http://llm-gateway.internal:8080/slack_app",
-    );
-  });
-
-  it("falls back to posthog_code for non-slack origin products", () => {
-    const env = buildServer("background").configureEnvironment({
-      originProduct: "user_created",
-    });
-
-    expect(env.anthropicBaseUrl).toBe(
-      "http://llm-gateway.internal:8080/posthog_code",
-    );
-  });
-
-  it("routes PostHog AI origin through the posthog_ai product", () => {
-    const env = buildServer("interactive").configureEnvironment({
-      originProduct: "posthog_ai",
-    });
-
-    expect(env.anthropicBaseUrl).toBe(
-      "http://llm-gateway.internal:8080/posthog_ai",
-    );
-    expect(env.openaiBaseUrl).toBe(
-      "http://llm-gateway.internal:8080/posthog_ai/v1",
     );
   });
 
@@ -525,7 +376,7 @@ describe("AgentServer.configureEnvironment on the Go ai-gateway", () => {
 
   it("drops the product slug from the base URLs", () => {
     const env = buildServer().configureEnvironment({
-      originProduct: "signals_scout",
+      gatewayProduct: "signals",
       aiStage: "scout",
     });
 
@@ -536,7 +387,7 @@ describe("AgentServer.configureEnvironment on the Go ai-gateway", () => {
   it("honours an explicit AI_GATEWAY_URL with a trailing /v1", () => {
     process.env.AI_GATEWAY_URL = "https://ai-gateway.dev.posthog.dev/v1";
     const env = buildServer().configureEnvironment({
-      originProduct: "signal_report",
+      gatewayProduct: "signals",
       aiStage: "research",
     });
 
@@ -571,7 +422,7 @@ describe("AgentServer.configureEnvironment on the Go ai-gateway", () => {
     ["repo_selection", "signals_repo_selection"],
   ])("sends ai_product %s as %s", (aiStage, expected) => {
     const env = buildServer().configureEnvironment({
-      originProduct: "signal_report",
+      gatewayProduct: "signals",
       aiStage,
     });
 
@@ -584,6 +435,7 @@ describe("AgentServer.configureEnvironment on the Go ai-gateway", () => {
     const env = buildServer().configureEnvironment({
       runSpanContext: RUN_SPAN_CONTEXT,
       originProduct: "signal_report",
+      gatewayProduct: "signals",
       aiStage: "scout",
       taskId: "task-1",
       taskRunId: "run-1",
@@ -619,7 +471,7 @@ describe("AgentServer.configureEnvironment on the Go ai-gateway", () => {
     // reads only the blob (team_id is already in it, and it does Bedrock
     // failover itself), so those extra lines are inert on this path.
     const env = buildServer().configureEnvironment({
-      originProduct: "signal_report",
+      gatewayProduct: "signals",
       aiStage: "scout",
     });
 
@@ -635,7 +487,7 @@ describe("AgentServer.configureEnvironment on the Go ai-gateway", () => {
 
   it("sends the task id as the Go gateway session header", () => {
     const env = buildServer().configureEnvironment({
-      originProduct: "signal_report",
+      gatewayProduct: "signals",
       aiStage: "scout",
       taskId: "task-1",
     });
@@ -663,7 +515,7 @@ describe("AgentServer.configureEnvironment on the Go ai-gateway", () => {
     "sends service tier $serviceTier with fallback $fallback on the OpenAI record",
     ({ serviceTier, fallback }) => {
       const env = buildServer({ serviceTier }).configureEnvironment({
-        originProduct: "signal_report",
+        gatewayProduct: "signals",
         aiStage: "scout",
       });
 
@@ -686,13 +538,13 @@ describe("AgentServer.configureEnvironment on the Go ai-gateway", () => {
   // per-turn ids its CLI mints with one id for the whole run.
   it("names the run as X-PostHog-Trace-Id for codex only", () => {
     const codex = buildServer().configureEnvironment({
-      originProduct: "signal_report",
+      gatewayProduct: "signals",
       aiStage: "scout",
       taskRunId: "run-1",
       runtimeAdapter: "codex",
     });
     const claude = buildServer().configureEnvironment({
-      originProduct: "signal_report",
+      gatewayProduct: "signals",
       aiStage: "scout",
       taskRunId: "run-1",
       runtimeAdapter: "claude",
@@ -706,8 +558,8 @@ describe("AgentServer.configureEnvironment on the Go ai-gateway", () => {
   // Codex sub-agents reach the gateway with the process headers only, so the
   // shared cache scope has to ride the OpenAI record, and only when the run asks.
   it("sends the shared prompt cache scope only when the run asks for it", () => {
-    const run = {
-      originProduct: "signal_report",
+    const run: GatewayEnvInput = {
+      gatewayProduct: "signals",
       aiStage: "scout",
       runtimeAdapter: "codex",
     };
@@ -741,7 +593,7 @@ describe("AgentServer.configureEnvironment on the Go ai-gateway", () => {
     process.env.AI_GATEWAY_PRODUCT = "signals_scout";
     process.env.AI_GATEWAY_AI_STAGE = "scout:web-analytics";
     const env = buildServer().configureEnvironment({
-      originProduct: "signals_scout",
+      gatewayProduct: "signals",
       aiStage: null,
       taskId: "task-1",
       taskRunId: "run-1",
@@ -758,7 +610,7 @@ describe("AgentServer.configureEnvironment on the Go ai-gateway", () => {
 
   it("derives product and stage itself when the worker passes none", () => {
     const env = buildServer().configureEnvironment({
-      originProduct: "signals_scout",
+      gatewayProduct: "signals",
       aiStage: null,
     });
 
@@ -770,7 +622,7 @@ describe("AgentServer.configureEnvironment on the Go ai-gateway", () => {
 
   it("authenticates with the scoped token on the Go path", () => {
     const env = buildServer().configureEnvironment({
-      originProduct: "signals_scout",
+      gatewayProduct: "signals",
       aiStage: "scout:web-analytics",
     });
 
@@ -782,7 +634,7 @@ describe("AgentServer.configureEnvironment on the Go ai-gateway", () => {
   it("falls back to the Python gateway when no scoped token is present", () => {
     delete process.env.AI_GATEWAY_TOKEN;
     const env = buildServer().configureEnvironment({
-      originProduct: "signals_scout",
+      gatewayProduct: "signals",
       aiStage: "scout",
     });
 
@@ -795,7 +647,7 @@ describe("AgentServer.configureEnvironment on the Go ai-gateway", () => {
 
   it("feeds the codex session the gateway bearer, not the raw run credential", () => {
     const routed = buildServer().configureEnvironment({
-      originProduct: "signals_scout",
+      gatewayProduct: "signals",
       aiStage: "scout:web-analytics",
     });
     expect(codexAuthFromGatewayEnv(routed)).toEqual({

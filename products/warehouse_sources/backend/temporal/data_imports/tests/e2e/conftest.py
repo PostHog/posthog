@@ -209,7 +209,7 @@ async def run_external_data_job_workflow(
                     DuckLakeRegisterDataImportsWorkflow,
                     DuckLakeCopyDataImportsWorkflow,
                 ],
-                activities=ACTIVITIES,  # type: ignore
+                activities=ACTIVITIES,
                 workflow_runner=UnsandboxedWorkflowRunner(),
                 activity_executor=ThreadPoolExecutor(max_workers=50),
                 max_concurrent_activities=50,

@@ -12,6 +12,7 @@ from django.utils import timezone
 
 import structlog
 from asgiref.sync import async_to_sync
+from clickhouse_driver.errors import Error as ClickHouseDriverError
 from posthoganalytics import capture_exception
 from pydantic import BaseModel
 from rest_framework.exceptions import APIException, PermissionDenied
@@ -55,10 +56,14 @@ from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, t
 from posthog.dataclasses import frozen
 from posthog.errors import (
     CH_TRANSIENT_ERRORS,
+    TRANSIENT_CH_ERROR_NAMES,
+    USER_CAUSED_NOT_IMPLEMENTED_MESSAGES,
+    CHQueryErrorS3FileChangedDuringRead,
     ExposedCHQueryError,
-    InternalCHQueryError,
     QueryErrorCategory,
     classify_query_error,
+    clickhouse_error_category,
+    clickhouse_error_message,
     error_code_from_type,
     internal_ch_error_user_message,
     unwrap_exposed_hogql_error,
@@ -90,6 +95,7 @@ from ee.hogai.context.insight.format import (
     StickinessResultsFormatter,
     TrendsResultsFormatter,
     format_access_control_warnings,
+    format_row_limit_notice,
     format_warehouse_suggestions,
     format_warehouse_sync_warnings,
     get_boxplot_results,
@@ -145,10 +151,7 @@ HOGQL_INPUT_ERROR_CODES = frozenset({QueryError.code_name, HogQLSyntaxError.code
 
 
 def get_clickhouse_error_code(error: BaseException | None) -> str | None:
-    if not isinstance(error, InternalCHQueryError):
-        return None
-    code = error_code_from_type(error)
-    return code if internal_ch_error_user_message(code) else None
+    return error_code_from_type(error) if isinstance(error, ClickHouseDriverError) else None
 
 
 def _hogql_code_from_message(message: str) -> str | None:
@@ -188,6 +191,21 @@ def _hogql_tool_error(error: ExposedHogQLError) -> MaxToolError:
     return MaxToolRetryableError(str(error), error_type="internal", error_code=internal_error_code(cause))
 
 
+def _internal_clickhouse_tool_error(code: str, message: str) -> MaxToolError:
+    if code == "not_implemented" and any(message == advice for _, advice in USER_CAUSED_NOT_IMPLEMENTED_MESSAGES):
+        return MaxToolRetryableError(message, error_type="validation", error_code=code)
+    if rejection := describe_clickhouse_rejection(code, message):
+        return MaxToolRetryableError(rejection, error_type="validation", error_code=code)
+    category = clickhouse_error_category(code)
+    if category == QueryErrorCategory.RATE_LIMITED:
+        return MaxToolTransientError(message, error_type="rate_limited", error_code=code)
+    if category == QueryErrorCategory.CANCELLED or code.upper() in TRANSIENT_CH_ERROR_NAMES:
+        return MaxToolTransientError(message, error_type="api_5xx", error_code=code)
+    if category == QueryErrorCategory.QUERY_PERFORMANCE_ERROR:
+        return MaxToolRetryableError(message, error_type="internal", error_code=code)
+    return MaxToolFatalError(message, error_type="internal", error_code=code)
+
+
 def _query_status_tool_error(query_status: dict[str, Any]) -> MaxToolError:
     error_code: str | None = query_status.get("error_code")
     error_message: str | None = query_status.get("error_message")
@@ -205,15 +223,18 @@ def _query_status_tool_error(query_status: dict[str, Any]) -> MaxToolError:
         return MaxToolRetryableError(
             error_message, error_type="validation", error_code=_hogql_code_from_message(error_message) or error_code
         )
-    if rejection := describe_clickhouse_rejection(error_code, error_message):
-        return MaxToolRetryableError(rejection, error_type="validation", error_code=error_code)
+    if error_code == "incorrect_data" and (error_message or "").startswith(
+        "A file backing a data warehouse table changed while the query was reading it"
+    ):
+        error_code = CHQueryErrorS3FileChangedDuringRead.public_code
+        error_message = CHQueryErrorS3FileChangedDuringRead.public_message
+    if error_code and (message := internal_ch_error_user_message(error_code)):
+        return _internal_clickhouse_tool_error(error_code, error_message or message)
     # Async status loses the exception type, so keep retry advice without guessing its category.
     error_type: MaxToolErrorType = (
         "memory_limit" if error_code == ClickHouseQueryMemoryLimitExceeded.default_code else "internal"
     )
-    message = (
-        error_message or internal_ch_error_user_message(error_code) or "The query failed because of an internal error"
-    )
+    message = error_message or "The query failed because of an internal error"
     return MaxToolRetryableError(message, error_type=error_type, error_code=error_code)
 
 
@@ -590,7 +611,9 @@ class AssistantQueryExecutor:
                 "rate_limited" if classify_query_error(err) == QueryErrorCategory.RATE_LIMITED else "api_5xx"
             )
             raise MaxToolTransientError(
-                str(err), error_type=error_type, error_code=get_clickhouse_error_code(err)
+                clickhouse_error_message(err) if isinstance(err, ClickHouseDriverError) else str(err),
+                error_type=error_type,
+                error_code=get_clickhouse_error_code(err),
             ) from err
         except ExposedHogQLError as err:
             raise _hogql_tool_error(err) from err
@@ -625,11 +648,9 @@ class AssistantQueryExecutor:
                 raise MaxToolTransientError(err_message, error_type="rate_limited") from err
             error_code = internal_error_code(err) if error_type == "internal" else get_clickhouse_error_code(err)
             raise MaxToolRetryableError(err_message, error_type=error_type, error_code=error_code) from err
+        except ClickHouseDriverError as err:
+            raise _internal_clickhouse_tool_error(error_code_from_type(err), clickhouse_error_message(err)) from err
         except Exception as err:
-            if isinstance(err, InternalCHQueryError):
-                error_code = error_code_from_type(err)
-                if rejection := describe_clickhouse_rejection(error_code):
-                    raise MaxToolRetryableError(rejection, error_type="validation", error_code=error_code) from err
             elapsed = time.time() - start_time
             # Catch-all for unexpected errors during query execution. Surface the underlying error
             # text (truncated) so callers can diagnose the failure instead of an opaque message —
@@ -689,9 +710,11 @@ class AssistantQueryExecutor:
         if not is_supported_query(query):
             raise NotImplementedError(f"Unsupported query type: {query_type}")
 
-        warning_prefix = format_warehouse_sync_warnings(response) + format_access_control_warnings(response)
-        result_budget = self._max_sql_result_chars
         is_sql = isinstance(query, AssistantHogQLQuery | HogQLQuery | DataVisualizationNode)
+        warning_prefix = format_warehouse_sync_warnings(response) + format_access_control_warnings(response)
+        if is_sql:
+            warning_prefix += format_row_limit_notice(response)
+        result_budget = self._max_sql_result_chars
         if is_sql and result_budget is not None:
             result_budget -= len(warning_prefix)
             if result_budget < SQLResultsFormatter.MIN_RESULT_CHARS:

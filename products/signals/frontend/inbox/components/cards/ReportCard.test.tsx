@@ -12,10 +12,15 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
 
-import { PullRequestCiStatusEnumApi, type ReportMetricApi } from 'products/signals/frontend/generated/api.schemas'
+import {
+    type LinkedReportRefApi,
+    PullRequestCiStatusEnumApi,
+    type ReportMetricApi,
+} from 'products/signals/frontend/generated/api.schemas'
 
 import { INBOX_EVENTS } from '../../inboxAnalytics'
 import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
+import { inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
 import { prCiStatusLogic } from '../../logics/prCiStatusLogic'
 import { SignalReport, SignalReportStatus } from '../../types'
 import { SELECTION_HOLD_MS } from '../../utils/reportSelection'
@@ -173,6 +178,27 @@ describe('ReportCard', () => {
         })
     })
 
+    it('toggles the Tags filter from a tag chip without opening the report or starting a hold', () => {
+        cleanup()
+        const { container } = render(
+            <ReportCard report={makeReport('r-1', { tags: ['billing', 'payments'] })} selectable showTags />
+        )
+        const chip = container.querySelector('[data-attr="inbox-report-tag"]') as HTMLElement
+        jest.useFakeTimers()
+        fireEvent(chip, new MouseEvent('pointerdown', { bubbles: true, button: 0, clientX: 10, clientY: 10 }))
+        jest.advanceTimersByTime(SELECTION_HOLD_MS)
+
+        // The chip sits inside the card's link, so a click it lets through would open the report.
+        expect(fireEvent.click(chip)).toBe(false)
+        expect(openedReport()).toBe(false)
+        expect(logic.values.selectedReportIds).toEqual([])
+        expect(inboxFiltersLogic.values.tagFilter).toEqual(['billing'])
+
+        act(() => {
+            jest.runOnlyPendingTimers()
+        })
+    })
+
     it('records the entry method when a shift-click starts the selection', () => {
         // The rendered order, which a shift-range measures itself against.
         logic.actions.setVisibleReportIds(['r-1'])
@@ -202,6 +228,62 @@ describe('ReportCard', () => {
         // cancel the browser's open-in-a-new-tab gesture.
         expect(fireEvent.click(scoutLink, { metaKey: true })).toBe(true)
         expect(logic.values.selectedReportIds).toEqual([])
+    })
+
+    // Link returns before its own onClick on a Cmd/Ctrl-click, so a strip that tracked in onClick would
+    // miss every open in a new tab, from the strip and from its menu alike. The menu holds two links to
+    // the same report, so a lookup by report id alone would record the first one's kind.
+    it.each([
+        {
+            name: 'the linked report',
+            open: () => screen.getByText('The old report'),
+            expected: { target: 'linked_report', linked_kind: null },
+        },
+        {
+            name: 'a menu entry',
+            open: () => {
+                fireEvent.click(screen.getByText('+2 more'))
+                return screen.getByText('Follow-up of The lock')
+            },
+            expected: { target: 'other_link', linked_kind: 'follow_up_of' },
+        },
+    ])('records a Cmd-click on $name in the link strip', ({ open, expected }) => {
+        cleanup()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_CARDS_LINK_RELATED_REPORTS], {
+            [FEATURE_FLAGS.INBOX_CARDS_LINK_RELATED_REPORTS]: true,
+        })
+        const linked = (id: string, title: string): LinkedReportRefApi => ({
+            id,
+            title,
+            status: SignalReportStatus.RESOLVED,
+            implementation_pr_url: null,
+            implementation_pr_state: null,
+        })
+        render(
+            <ReportCard
+                report={makeReport('r-3', {
+                    link_summary: {
+                        kind: 'recurrence_of',
+                        report: linked('old', 'The old report'),
+                        plan: null,
+                        other_links: [
+                            { kind: 'depends_on', report: linked('lock', 'The lock') },
+                            { kind: 'follow_up_of', report: linked('lock', 'The lock') },
+                        ],
+                    },
+                })}
+                backUrl="/customer_analytics/feed"
+            />
+        )
+        const link = open().closest('a') as HTMLElement
+
+        expect(fireEvent.click(link, { metaKey: true })).toBe(true)
+        expect(link.getAttribute('href')).toContain('back=')
+        expect(posthog.capture).toHaveBeenCalledWith(
+            INBOX_EVENTS.REPORT_LINK_STRIP_CLICKED,
+            expect.objectContaining({ report_id: 'r-3', strip_kind: 'recurrence_of', ...expected }),
+            undefined
+        )
     })
 
     it('does not show a checkbox on hover or when selected', () => {
@@ -476,7 +558,7 @@ describe('ReportCard', () => {
         expect(impactMetric?.contains(tag) ?? false).toBe(false)
     })
 
-    it('marks an unscored report under a model sort and adds no tag under a time sort', () => {
+    it('marks an unscored report under a model sort, shows a stale score, and adds no tag under a time sort', () => {
         // The harness renders a card for every test; these assert against their own.
         cleanup()
         enableImpactColumn()
@@ -492,8 +574,8 @@ describe('ReportCard', () => {
             },
         })
         rerender(<ReportCard report={stale} rankingSortField="ranking_fix" />)
-        expect(screen.getByText('Score out of date')).toBeInTheDocument()
-        expect(screen.queryByText('2.7x more likely')).not.toBeInTheDocument()
+        expect(screen.getByText('2.7x more likely')).toBeInTheDocument()
+        expect(screen.queryByText('Not scored yet')).not.toBeInTheDocument()
 
         rerender(<ReportCard report={makeReport('r-2')} />)
         expect(screen.queryByText('Not scored yet')).not.toBeInTheDocument()
@@ -528,7 +610,9 @@ describe('ReportCard', () => {
         expect(screen.getByText('2.7x more likely')).toBeInTheDocument()
 
         rerender(<ReportCard report={{ ...scored, ranking: { ...scored.ranking!, status: 'stale' } }} rankingPill />)
-        expect(screen.getByText('Score out of date')).toBeInTheDocument()
+        expect(container.querySelector('[data-attr="inbox-ranking-pill"]')?.textContent).toBe(
+            'Open2.9xAction<0.1xFix2.7x'
+        )
 
         rerender(<ReportCard report={scored} />)
         expect(container.querySelector('[data-attr="inbox-ranking-pill"]')).toBeNull()

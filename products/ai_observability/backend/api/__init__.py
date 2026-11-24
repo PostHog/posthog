@@ -3,6 +3,7 @@ from .clustering import AIObservabilityClusteringRunViewSet
 from .clustering_config import ClusteringConfigViewSet
 from .clustering_job import ClusteringJobViewSet
 from .datasets import DatasetItemViewSet, DatasetViewSet
+from .eval_suggestions import EvalSuggestionViewSet
 from .evaluation_backfills import EvaluationBackfillViewSet
 from .evaluation_config import EvaluationConfigViewSet
 from .evaluation_directories import EvaluationDirectoryViewSet
@@ -20,7 +21,6 @@ from .proxy import SUPPORTED_MODELS_WITH_THINKING, LLMProxyViewSet
 from .review_queues import ReviewQueueItemViewSet, ReviewQueueViewSet
 from .score_definitions import ScoreDefinitionViewSet
 from .summarization import AIObservabilitySummarizationViewSet
-from .taggers import TaggerViewSet
 from .text_repr import AIObservabilityTextReprViewSet
 from .trace_reviews import TraceReviewViewSet
 from .translate import AIObservabilityTranslateViewSet
@@ -40,6 +40,7 @@ __all__ = [
     "DatasetViewSet",
     "DatasetItemViewSet",
     "EvaluationViewSet",
+    "EvalSuggestionViewSet",
     "EvaluationBackfillViewSet",
     "EvaluationDirectoryViewSet",
     "EvaluationReportViewSet",
@@ -54,7 +55,6 @@ __all__ = [
     "OfflineScorerViewSet",
     "PersonalSpendInternalViewSet",
     "PersonalSpendViewSet",
-    "TaggerViewSet",
     "TraceReviewViewSet",
     "ParserRecipeViewSet",
 ]

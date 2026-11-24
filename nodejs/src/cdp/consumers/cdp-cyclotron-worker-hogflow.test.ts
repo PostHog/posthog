@@ -8,6 +8,7 @@ import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
+import { setTeamQuotaLimited } from '~/tests/helpers/quota-limits'
 import { createTeam, createTestTeamFixture, getTeam } from '~/tests/helpers/sql'
 
 import { Hub, InternalPerson, Team } from '../../types'
@@ -39,8 +40,6 @@ function toInternalPerson(p: TestPerson): InternalPerson {
         uuid: p.uuid,
         team_id: p.teamId,
         properties: p.properties,
-        properties_last_updated_at: {},
-        properties_last_operation: null,
         created_at: TIMESTAMP,
         version: 1,
         is_identified: true,
@@ -588,7 +587,7 @@ describe('CdpCyclotronWorkerHogFlow', () => {
             })
         })
 
-        it('runs a flow the replica does not have yet, and fails one missing from both', async () => {
+        it('runs a flow the replica does not have yet, and fails one missing from both or with no readable state', async () => {
             const [lateFlow, missingFlow] = ['Flow only the primary has', 'Flow neither database has'].map((name) =>
                 new FixtureHogFlowBuilder()
                     .withName(name)
@@ -605,14 +604,58 @@ describe('CdpCyclotronWorkerHogFlow', () => {
                 })
             )
 
-            const results = await processor.processInvocations([lateInvocation, missingInvocation])
+            const unreadableInvocation = {
+                ...lateInvocation,
+                id: new UUIDT().toString(),
+                stateUnreadable: true as const,
+            }
 
-            expect(results).toHaveLength(1)
-            expect(results[0]).toMatchObject({
-                finished: true,
-                invocation: { hogFlow: { id: lateFlow.id } },
-            })
+            const results = await processor.processInvocations([
+                lateInvocation,
+                missingInvocation,
+                unreadableInvocation,
+            ])
+
+            expect(results).toHaveLength(2)
+            expect(results).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        finished: true,
+                        invocation: expect.objectContaining({ id: lateInvocation.id }),
+                    }),
+                    expect.objectContaining({
+                        finished: true,
+                        error: 'The run state could not be decrypted',
+                        invocation: expect.objectContaining({
+                            id: unreadableInvocation.id,
+                            hogFlow: expect.objectContaining({ id: lateFlow.id }),
+                            state: expect.objectContaining({ sensitive: true }),
+                        }),
+                    }),
+                ])
+            )
             expect(jobQueue.dequeueInvocations).toHaveBeenLastCalledWith([missingInvocation])
+        })
+
+        it.each([
+            ['a run already queued', {}],
+            ['a rerun', { rerunAttempts: 1 }],
+        ])('runs %s to the end when the team is over its workflow quota', async (_name, context) => {
+            const billableFlow = await insertHogFlow(hub.postgres, {
+                ...new FixtureHogFlowBuilder().withTeamId(team.id).withStatus('active').withSimpleWorkflow().build(),
+                billable_action_types: ['function', 'function_email'],
+            })
+            await setTeamQuotaLimited(hub, team, 'workflow_destinations_dispatched', true)
+
+            const [result] = await processor.processInvocations([
+                createSerializedHogFlowInvocation(billableFlow, {
+                    event: { distinct_id: 'distinct_A_1', properties: {} } as any,
+                    ...context,
+                }),
+            ])
+
+            expect(result).toMatchObject({ finished: true, invocation: { hogFlow: { id: billableFlow.id } } })
+            expect(result.canceled).toBeFalsy()
         })
 
         it('terminates invocations as canceled when the workflow is disabled after being queued', async () => {

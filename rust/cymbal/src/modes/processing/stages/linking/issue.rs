@@ -15,6 +15,9 @@ use crate::{
         send_issue_reopened_notification, Issue, IssueFingerprintOverride,
     },
     metric_consts::{ISSUE_CREATED, ISSUE_LINKER_OPERATOR},
+    modes::processing::issue_changes::{
+        record_issue_change, ExceptionRef, IssueChange, IssueSnapshot,
+    },
     modes::processing::rules::assignment::{try_assignment_rules, Assignment},
     modes::processing::rules::severity::try_severity_rules,
     stages::linking::LinkingStage,
@@ -191,11 +194,6 @@ async fn load_and_maybe_reopen(
         return Ok(None);
     };
 
-    if !issue.maybe_reopen(&mut *conn).await? {
-        return Ok(Some(issue));
-    }
-
-    // Reopened — mirror the side effects from `resolve_issue`'s fast-path reopen branch.
     let event_timestamp =
         parse_datetime_assuming_utc(event_properties.timestamp()).unwrap_or_else(|e| {
             debug!(
@@ -204,12 +202,18 @@ async fn load_and_maybe_reopen(
             );
             Utc::now()
         });
-    let assignment =
-        process_event_assignment(&mut conn, &context.team_manager, &issue, event_properties)
-            .await?;
-    // We don't carry a per-fingerprint `first_seen` through this path (we loaded by id,
-    // not by fingerprint), so fall back to the issue's creation time the same way
-    // `resolve_issue` already does when the join returns no first_seen.
+    let Some(assignment) = reopen_and_record(
+        context,
+        &mut conn,
+        &mut issue,
+        event_properties,
+        event_timestamp,
+    )
+    .await?
+    else {
+        return Ok(Some(issue));
+    };
+    // Reopened — mirror the side effects from `resolve_issue`'s fast-path reopen branch.
     send_fingerprint_issue_state(
         context,
         &issue,
@@ -249,15 +253,16 @@ async fn resolve_issue(
     let existing_issue = Issue::load_by_fingerprint(&mut *conn, team_id, &fingerprint).await?;
     if let Some(result) = existing_issue {
         let (mut issue, fingerprint_first_seen) = result.into_issue();
-        if issue.maybe_reopen(&mut *conn).await? {
-            let first_seen_for_state = fingerprint_first_seen.unwrap_or(issue.created_at);
-            let assignment = process_event_assignment(
-                &mut conn,
-                &context.team_manager,
-                &issue,
-                event_properties,
-            )
-            .await?;
+        let first_seen_for_state = fingerprint_first_seen.unwrap_or(issue.created_at);
+        if let Some(assignment) = reopen_and_record(
+            context,
+            &mut conn,
+            &mut issue,
+            event_properties,
+            event_timestamp,
+        )
+        .await?
+        {
             send_fingerprint_issue_state(
                 context,
                 &issue,
@@ -336,15 +341,16 @@ async fn resolve_issue(
         }
 
         // Since we just loaded an issue, check if it needs to be reopened
-        if issue.maybe_reopen(&mut *conn).await? {
-            let first_seen_for_state = fingerprint_first_seen.unwrap_or(issue.created_at);
-            let assignment = process_event_assignment(
-                &mut conn,
-                &context.team_manager,
-                &issue,
-                event_properties,
-            )
-            .await?;
+        let first_seen_for_state = fingerprint_first_seen.unwrap_or(issue.created_at);
+        if let Some(assignment) = reopen_and_record(
+            context,
+            &mut conn,
+            &mut issue,
+            event_properties,
+            event_timestamp,
+        )
+        .await?
+        {
             send_fingerprint_issue_state(
                 context,
                 &issue,
@@ -384,6 +390,20 @@ async fn resolve_issue(
             process_event_assignment(&mut txn, &context.team_manager, &issue, event_properties)
                 .await?;
 
+        if context.config.issue_change_log_enabled {
+            record_issue_change(
+                &mut *txn,
+                &issue,
+                &IssueChange::Created,
+                // The fingerprint override above records this exception's time as its first sighting.
+                &IssueSnapshot::of(&issue, assignment.as_ref(), event_timestamp),
+                &ExceptionRef {
+                    uuid: event_properties.uuid(),
+                    timestamp: event_timestamp,
+                },
+            )
+            .await?;
+        }
         let processed_properties = event_properties.processed_properties(&issue);
         // Produce before the commit on purpose. A failure here rolls the transaction back, so the
         // retry re-runs this whole slow path and produces again. Committing first would leave a
@@ -437,6 +457,43 @@ async fn process_event_severity(
         .apply_initial_severity(severity.to_string(), connection)
         .await?;
     Ok(true)
+}
+
+/// Returns the assignment when the issue was reopened, and None when it was not.
+async fn reopen_and_record(
+    context: &AppContext,
+    conn: &mut PgConnection,
+    issue: &mut Issue,
+    event_properties: &ExceptionEvent<Fingerprinted>,
+    event_timestamp: DateTime<Utc>,
+) -> Result<Option<Option<Assignment>>, UnhandledError> {
+    // Most events land on an active issue, and those must not pay for a transaction.
+    if !issue.can_reopen() {
+        return Ok(None);
+    }
+    let mut txn = Acquire::begin(&mut *conn).await?;
+    let Some(previous) = issue.reopen(&mut *txn).await? else {
+        txn.rollback().await?;
+        return Ok(None);
+    };
+    let assignment =
+        process_event_assignment(&mut txn, &context.team_manager, issue, event_properties).await?;
+    if context.config.issue_change_log_enabled {
+        let snapshot = IssueSnapshot::load(&mut txn, issue, assignment.as_ref()).await?;
+        record_issue_change(
+            &mut *txn,
+            issue,
+            &IssueChange::StatusChanged { previous },
+            &snapshot,
+            &ExceptionRef {
+                uuid: event_properties.uuid(),
+                timestamp: event_timestamp,
+            },
+        )
+        .await?;
+    }
+    txn.commit().await?;
+    Ok(Some(assignment))
 }
 
 async fn process_event_assignment(

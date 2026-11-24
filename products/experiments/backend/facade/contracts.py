@@ -11,6 +11,8 @@ from datetime import datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Literal
 
+from posthog.hogql.property_access_types import RestrictedProperty
+
 from posthog.dataclasses import frozen
 from posthog.enums import LabeledStrEnum
 
@@ -269,30 +271,6 @@ class ExperimentHealthMetricCompileErrorKind(LabeledStrEnum):
     DEFINITION = "definition"
 
 
-class HealthExposureInputsStatus(LabeledStrEnum):
-    READY = "ready"
-    # The cached answer is past its age. A recalculation runs in the background, or the last one failed.
-    STALE = "stale"
-    # No cached answer. A calculation runs in the background.
-    CALCULATING = "calculating"
-    NOT_LAUNCHED = "not_launched"
-    NO_QUERY_ACCESS = "no_query_access"
-    # The query could not be built, or no answer is cached and the last background calculation failed.
-    FAILED = "failed"
-
-
-class ExperimentHealthInputsTrafficStatus(LabeledStrEnum):
-    READ = "read"
-    NOT_NEEDED = "not_needed"
-    NO_QUERY_ACCESS = "no_query_access"
-    # The reader is denied a flag call property that the scan reads.
-    DENIED_PROPERTIES = "denied_properties"
-    NO_FLAG_VERSION = "no_flag_version"
-    # The scan failed or was too expensive, which is cached so that it does not run again on every load. Or another
-    # request's scan was still running and did not answer in time.
-    UNKNOWN = "unknown"
-
-
 class ExperimentHealthFlagChangeKind(LabeledStrEnum):
     SPLIT = "split"
     # A setting that decides the variant draw: the key, the group type, the bucketing identifier or persistence.
@@ -320,6 +298,7 @@ class ExperimentHealthFindingActionKind(LabeledStrEnum):
     EDIT_RELEASE_CONDITIONS = "edit_release_conditions"
     END_EXPERIMENT = "end_experiment"
     FREEZE_EXPOSURE = "freeze_exposure"
+    MOVE_START_DATE = "move_start_date"
 
 
 class ExperimentHealthCheckKey(LabeledStrEnum):
@@ -383,8 +362,8 @@ class ExperimentHealthCheckStatus(LabeledStrEnum):
 class ExperimentHealthValueKey(LabeledStrEnum):
     # API callers read these keys in a check's `values` and its `rule`. The suffix gives the unit: `_count` is a
     # count, `_percentage` is on the 0-100 scale, `_hours` is hours and `_at` is an ISO 8601 time in UTC. A key without a
-    # unit suffix is a setting or a state, as a string or a boolean. A key means the same thing in every check, so two
-    # values that differ in meaning get two keys.
+    # unit suffix is a setting or a state, as a string or a boolean, and in a row also an object. A key means the same
+    # thing in every check, so two values that differ in meaning get two keys.
     EXPOSED_COUNT = (
         "exposed_count",
         "Users or groups exposed since launch, as the exposure criteria count them, including those exposed to "
@@ -440,9 +419,126 @@ class ExperimentHealthValueKey(LabeledStrEnum):
         "shipped_variant",
         "The key of the variant that the feature flag serves to everyone, or null when it serves more than one",
     )
+    FLAG_LAST_CALLED_AT = "flag_last_called_at", "When PostHog last recorded a call of the feature flag"
+    SINCE_START_HOURS = (
+        "since_start_hours",
+        "Hours since the experiment's start date, which can be earlier than the launch",
+    )
+    DAILY_CALCULATION_ENDS_AT = (
+        "daily_calculation_ends_at",
+        "When the daily calculation stops covering the experiment, a fixed number of days after its start date",
+    )
+    METRIC_NAME = "metric_name", "The name of a metric"
+    METRIC_ROLE = "metric_role", "Whether a metric is primary or secondary"
+    RATIO_SIDE = (
+        "ratio_side",
+        "The side of a ratio metric, numerator or denominator, or null for the other metric types",
+    )
+    SAMPLE_COUNT = "sample_count", "Users or groups in a metric's results, across the variants"
+    PLANNED_SAMPLE_COUNT = (
+        "planned_sample_count",
+        "Users or groups that the running time estimate needs to detect its minimum detectable effect",
+    )
+    DATA_HOURS = (
+        "data_hours",
+        "Hours of data that a metric's latest calculation holds since launch, within the metric's conversion window",
+    )
+    VARIANT = "variant", "The key of a variant"
+    DIFFERENCE_PERCENTAGE = (
+        "difference_percentage",
+        "A variant's difference from the control on the primary metric, relative to the control, with its sign",
+    )
+    DETECTABLE_DIFFERENCE_PERCENTAGE = (
+        "detectable_difference_percentage",
+        "The smallest difference from the control that the variant's sample can reliably detect, relative to the "
+        "control",
+    )
+    SIGNIFICANT = "significant", "Whether a variant's difference from the control is significant"
+    FORCED_CONDITION_COUNT = (
+        "forced_condition_count",
+        "Release conditions of the feature flag that serve a fixed variant through a variant override",
+    )
+    MATCHED_COUNT = (
+        "matched_count",
+        "Users or groups that a release condition served since traffic_since_at, without those forced to a variant "
+        "that has 0% in the split",
+    )
+    VARIANT_MATCHED_COUNT = (
+        "variant_matched_count",
+        "Of matched_count, the users or groups who got the variant. Estimated from the split for those assigned at "
+        "random",
+    )
+    FORCED_COUNT = "forced_count", "Users or groups that a release condition with a variant override served"
+    FORCED_PERCENTAGE = "forced_percentage", "forced_count as a share of variant_matched_count"
+    TRAFFIC_SINCE_AT = (
+        "traffic_since_at",
+        "The start of the window that matched_count counts: 7 days ago, or the launch or the flag's last save if later",
+    )
+    CHANGED_AT = "changed_at", "When a change of the feature flag was saved"
+    BEFORE_EXPOSURE = (
+        "before_exposure",
+        "Whether a change of the feature flag was saved before anyone was exposed, so it moved nobody. Null when "
+        "unknown",
+    )
+    CHANGED_SETTING = (
+        "changed_setting",
+        "The flag setting that a change of the bucketing changed, as the flag page names it",
+    )
+    BEFORE = "before", "What a change of the feature flag changed, as it was before the change, in words"
+    AFTER = "after", "What a change of the feature flag changed, as it was after the change, in words"
+    BEFORE_FILTERS = (
+        "before_filters",
+        "The feature flag's release conditions before a change, as the flag stores them: an object with the groups "
+        "and the aggregation_group_type_index of its filters. Null when they don't fit the size limit of the check's "
+        "rows. The flag's history shows them in full",
+    )
+    AFTER_FILTERS = (
+        "after_filters",
+        "The feature flag's release conditions after a change, as the flag stores them, like before_filters",
+    )
+    FLAG_SERVICE_CALL_PERCENTAGE = (
+        "flag_service_call_percentage",
+        "Of the feature flag's calls since traffic_since_at that returned a variant, the share that the flag service "
+        "evaluated. Only these calls name the release condition that served them, so local evaluation and bootstrapped "
+        "values count in no condition",
+    )
+    EVENT = "event", "The name of an event that the check looked up"
+    EVENT_RECEIVED = (
+        "event_received",
+        "Whether the project has received the event. Null when PostHog keeps no record of the event name",
+    )
+    INVALID_METRIC_COUNT = "invalid_metric_count", "Metrics whose query doesn't compile, so every calculation fails"
+    UNCHECKED_METRIC_COUNT = (
+        "unchecked_metric_count",
+        "Metrics whose query the check couldn't compile, because they read data that the reader can't query or the "
+        "compile failed for a reason other than the metric",
+    )
+    FLAG_SPLIT = "flag_split", "The feature flag's variants with their rollout percentages, in words"
+    BASELINE_VARIANT = (
+        "baseline_variant",
+        "The key of the variant that the analysis compares the others with, or null when the analysis picks one",
+    )
+    OTHER_RUNNING_EXPERIMENT_COUNT = (
+        "other_running_experiment_count",
+        "Other experiments that run on the same feature flag and are not archived",
+    )
+    ASSIGNED_OUTSIDE_COUNT = (
+        "assigned_outside_count",
+        "Users or groups who got a variant from a call that the flag service didn't evaluate and that is no local "
+        "evaluation, such as a bootstrapped value. Read only while a running experiment's feature flag has a 0% rollout",
+    )
+    OTHER_DRAFT_EXPERIMENT_COUNT = (
+        "other_draft_experiment_count",
+        "Other draft experiments on the same feature flag that are not archived",
+    )
+    FILTERS_TEST_ACCOUNTS = (
+        "filters_test_accounts",
+        "Whether the counts leave out internal and test users, because the experiment applies the test account filters",
+    )
 
 
 ExperimentHealthValue = str | int | float | bool | None
+ExperimentHealthRowValue = ExperimentHealthValue | Mapping[str, object]
 
 
 class ExperimentHealthRuleSide(LabeledStrEnum):
@@ -486,21 +582,74 @@ class ExperimentHealthCheckResult:
     # What the check read on the experiment, for every status. Empty when it read nothing or shows nothing.
     values: Mapping[ExperimentHealthValueKey, ExperimentHealthValue]
     rule: ExperimentHealthCheckRule | None
+    # What the check read per variant, metric or flag change, with the same keys as `values`.
+    rows: tuple[Mapping[ExperimentHealthValueKey, ExperimentHealthRowValue], ...]
 
 
 @frozen
 class ExperimentHealthReleaseCondition:
     """A condition set of the flag: the share of its matching users or groups who get the flag, how many filters they
-    must match, and the group type it assigns variants by (None for users)."""
+    must match, the group type it assigns variants by (None for users), and the variant it serves to all of them (None
+    when the split picks one)."""
 
     rollout_percentage: float
     property_count: int
     aggregation_group_type_index: int | None
+    variant: str | None
+    # False when the set serves nobody: its rollout is 0%, or an earlier set ends the flag's evaluation before it.
+    # None on a flag that buckets by device ID, because a request without a device ID skips the earlier sets that need
+    # the bucketing hash and can reach the set anyway.
+    reachable: bool | None
+
+
+@frozen
+class ExperimentHealthExposureSetup:
+    """What the exposure criteria count as an exposure. Neither an event nor an action means the flag's calls."""
+
+    event: str | None
+    action: str | None
+    # The event, or the action's name, that has to follow a user's flag call before the user counts.
+    activation: str | None
+
+
+class ExperimentHealthStatsMethod(LabeledStrEnum):
+    BAYESIAN = "bayesian", "Bayesian"
+    FREQUENTIST = "frequentist", "Frequentist"
+
+
+class ExperimentHealthMultipleVariantHandling(LabeledStrEnum):
+    EXCLUDE = "exclude", "Exclude from analysis"
+    FIRST_SEEN = "first_seen", "Use first seen variant"
+
+
+@frozen
+class ExperimentHealthAnalysisSetup:
+    """What the results calculation reads besides the metrics, resolved as the calculation resolves it. A
+    `*_from_project_default` field is true when the experiment doesn't set the value, so the calculation takes the
+    project's default."""
+
+    stats_method: ExperimentHealthStatsMethod
+    confidence_level: float
+    sequential_testing: bool | None
+    sequential_testing_from_project_default: bool
+    cuped: bool
+    cuped_lookback_days: int | None
+    cuped_from_project_default: bool
+    cuped_lookback_days_from_project_default: bool
+    # The names of the calculated metrics whose type CUPED doesn't support. Empty when CUPED is off.
+    metrics_without_cuped_support: tuple[str, ...]
+    filters_test_accounts: bool | None
+    test_account_filter_count: int
+    multiple_variant_handling: ExperimentHealthMultipleVariantHandling | None
+    only_count_matured_users: bool
+    baseline_variant: str
+    excluded_variants: tuple[str, ...]
 
 
 @frozen
 class ExperimentHealthSetup:
-    """The settings of the experiment's flag that decide who gets the flag and which variant a user gets."""
+    """The settings of the experiment and its flag that decide who gets the flag, which variant a user gets, who counts
+    as exposed, and how the results are calculated."""
 
     # The flag's condition sets as stored, in evaluation order.
     release_conditions: tuple[ExperimentHealthReleaseCondition, ...]
@@ -510,6 +659,9 @@ class ExperimentHealthSetup:
     evaluation_runtime: str
     evaluation_contexts: tuple[str, ...]
     ensure_experience_continuity: bool
+    # None when the exposure criteria can't be read, or the exposures come from a data warehouse table.
+    exposure: ExperimentHealthExposureSetup | None
+    analysis: ExperimentHealthAnalysisSetup
 
 
 @frozen
@@ -527,6 +679,8 @@ class ExperimentHealthReaderAccess:
     can_read_flag_history: bool
     can_query_events: bool
     denied_event_properties: frozenset[str]
+    # The reader's property access rules. A query that a check runs without the reader runs under them.
+    restricted_properties: frozenset[RestrictedProperty]
 
 
 class ExperimentValidationError(Exception):
@@ -656,6 +810,8 @@ class CreateExperimentInput:
     filters: dict | None = None
     scheduling_config: dict | None = None
     create_in_folder: str | None = None
+    # The experiment rule to link when feature_flag_key names an existing flag with rules.
+    feature_flag_rule_id: "UUID | None" = None
 
     # Internal flags
     allow_unknown_events: bool = False
@@ -1028,3 +1184,18 @@ class RecalculationStart:
     outcome: RecalculationStartOutcome
     recalculation_id: str | None = None
     detail: str = ""
+
+
+@frozen
+class Proportion:
+    trials: int
+    successes: int
+
+
+@frozen
+class ProportionTestResult:
+    # Treatment minus control in proportion units, absolute because a control at 0% has no relative change.
+    difference: float
+    confidence_interval: tuple[float, float]
+    p_value: float
+    is_significant: bool

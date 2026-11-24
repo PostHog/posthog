@@ -24,6 +24,7 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { createdByColumn, updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { urls } from 'scenes/urls'
 
 import { HogFunctionConfigurationContextId, HogFunctionType } from '~/types'
@@ -35,8 +36,9 @@ import { eventToHogFunctionContextId } from '../sub-templates/sub-templates'
 import { HogFunctionOrderModal } from './HogFunctionOrderModal'
 import { hogFunctionRequestModalLogic } from './hogFunctionRequestModalLogic'
 import { HogFunctionListLogicProps, hogFunctionsListLogic } from './hogFunctionsListLogic'
+import { QuillHogFunctionList } from './QuillHogFunctionList'
 
-const INTERNAL_DESTINATION_CONTEXT: Partial<
+export const INTERNAL_DESTINATION_CONTEXT: Partial<
     Record<HogFunctionConfigurationContextId, { label: string; url?: string }>
 > = {
     'activity-log': {
@@ -62,6 +64,7 @@ const INTERNAL_DESTINATION_CONTEXT: Partial<
     'billing-alerts': { label: 'Billing alerts' },
     'replay-vision-alerts': { label: 'Replay vision alerts' },
     'replay-vision-requests': { label: 'Replay vision requests' },
+    'signals-reports': { label: 'Inbox reports' },
 }
 
 function NotificationContextTag({ hogFunction }: { hogFunction: HogFunctionType }): JSX.Element | null {
@@ -99,6 +102,22 @@ function NotificationContextTag({ hogFunction }: { hogFunction: HogFunctionType 
             </LemonTag>
         </Tooltip>
     )
+}
+
+export function getNotificationSourceOptions(
+    notificationSources: HogFunctionConfigurationContextId[]
+): { label: string; value: HogFunctionConfigurationContextId | null }[] {
+    return [
+        { label: 'All sources', value: null },
+        ...notificationSources
+            .map((contextId) => ({
+                // An internal event with no entry above falls back to the 'standard' context id,
+                // which is an internal token rather than something to show a person.
+                label: INTERNAL_DESTINATION_CONTEXT[contextId]?.label ?? 'Other',
+                value: contextId,
+            }))
+            .sort((a, b) => a.label.localeCompare(b.label)),
+    ]
 }
 
 // `returnTo` only applies to the canonical hog-function path; the legacy plugin scene doesn't read it.
@@ -139,21 +158,13 @@ export function HogFunctionList({
         useActions(hogFunctionsListLogic(props))
 
     const { openFeedbackDialog } = useActions(hogFunctionRequestModalLogic)
+    const quillSurface = useQuillSurface()
 
     const humanizedType = humanizeHogFunctionType(props.type)
     // One source leaves nothing to narrow down, so the filter only shows for a list that mixes sources.
     const showNotificationSourceFilter = notificationSources.length > 1 || !!filters.notificationSource
-    const notificationSourceOptions: LemonSelectOptions<HogFunctionConfigurationContextId | null> = [
-        { label: 'All sources', value: null },
-        ...notificationSources
-            .map((contextId) => ({
-                // An internal event with no entry above falls back to the 'standard' context id,
-                // which is an internal token rather than something to show a person.
-                label: INTERNAL_DESTINATION_CONTEXT[contextId]?.label ?? 'Other',
-                value: contextId,
-            }))
-            .sort((a, b) => a.label.localeCompare(b.label)),
-    ]
+    const notificationSourceOptions: LemonSelectOptions<HogFunctionConfigurationContextId | null> =
+        getNotificationSourceOptions(notificationSources)
 
     useOnMountEffect(loadHogFunctions)
 
@@ -322,6 +333,23 @@ export function HogFunctionList({
         returnTo,
         truncateDescriptions,
     ]) // oxlint-disable-line react-hooks/exhaustive-deps
+
+    if (quillSurface) {
+        return (
+            <QuillHogFunctionList
+                {...props}
+                extraControls={extraControls}
+                hideFeedback={hideFeedback}
+                emptyText={emptyText}
+                onDeleteHogFunction={onDeleteHogFunction}
+                onEditHogFunction={onEditHogFunction}
+                returnTo={returnTo}
+                truncateDescriptions={truncateDescriptions}
+                manualFunctionsLoading={manualFunctionsLoading}
+                isManualFunction={isManualFunction}
+            />
+        )
+    }
 
     return (
         <div className="flex flex-col gap-4">

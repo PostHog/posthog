@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import sys
 import tempfile
+import subprocess
 import importlib.util
 from pathlib import Path
 from types import ModuleType
@@ -23,6 +24,34 @@ def _load_selection_module() -> ModuleType:
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
+
+
+_BASE_SETTINGS = 'CSRF_COOKIE_NAME = "csrftoken"\nEXISTING = get_from_env("EXISTING", "a")\n'
+_NEW_URL = _BASE_SETTINGS + 'NEW_URL = get_from_env("NEW_URL", "https://example.com")\n'
+
+
+def _git_in(root: str, *args: str) -> str:
+    return subprocess.run(
+        ["git", "-c", "user.name=Test", "-c", "user.email=test@example.com", "-c", "commit.gpgsign=false", *args],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=True,
+        env={**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"},
+    ).stdout.strip()
+
+
+def _git_init(root: str) -> None:
+    _git_in(root, "init", "-q")
+
+
+def _commit(root: str, files: dict[str, str]) -> str:
+    for path, content in files.items():
+        (Path(root) / path).parent.mkdir(parents=True, exist_ok=True)
+        (Path(root) / path).write_text(content)
+    _git_in(root, "add", "-A")
+    _git_in(root, "commit", "-q", "-m", "test")
+    return _git_in(root, "rev-parse", "HEAD")
 
 
 class TestSnobBackendTestSelectionShadow(unittest.TestCase):
@@ -304,7 +333,6 @@ class TestSnobBackendTestSelectionShadow(unittest.TestCase):
             ("hogql_parser_rs_sources", "rust/hogql/parser/src/lib.rs"),
             ("hogvm", "common/hogvm/python/execute.py"),
             ("personhog_stubs", "packages/personhog-proto/personhog/types/v1/person_pb2.py"),
-            ("product_manifest", "products/surveys/manifest.tsx"),
         ]
     )
     def test_non_python_legacy_inputs_signal_full_run(self, _name: str, path: str) -> None:
@@ -313,6 +341,205 @@ class TestSnobBackendTestSelectionShadow(unittest.TestCase):
         result = selection.ast_select_tests([path], {})
 
         self.assertTrue(result.full_run_reasons, f"{path} selected nothing and forced no full run")
+
+    @parameterized.expand(
+        [
+            ("root_conftest", "conftest.py", True),
+            ("posthog_conftest", "posthog/api/test/conftest.py", True),
+            # products/signals/backend/emission runs in the Temporal leg, below both of these.
+            ("products_root_conftest", "products/conftest.py", True),
+            ("temporal_leg_product_conftest", "products/signals/backend/conftest.py", True),
+            ("product_conftest", "products/surveys/backend/test/conftest.py", False),
+            ("settings_module_without_a_base", "posthog/settings/web.py", True),
+            ("settings_data_file", "posthog/settings/allowlist.json", True),
+            ("settings_owners", "posthog/settings/owners.yaml", False),
+            ("posthog_test_helper", "posthog/test/base.py", True),
+            ("product_manifest", "products/surveys/manifest.tsx", False),
+            ("products_json", "frontend/src/products.json", True),
+        ]
+    )
+    def test_full_run_scope(self, _name: str, path: str, expect_full_run: bool) -> None:
+        selection = _load_selection_module()
+
+        result = selection.ast_select_tests([path], {})
+
+        self.assertEqual(bool(result.full_run_reasons), expect_full_run, result.full_run_reasons)
+
+    def test_repo_invariants_baseline_selects_the_repo_invariants_guards(self) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            selection = _load_selection_module()
+            selection.REPO_ROOT = Path(root)
+            guard = "posthog/test/repo_invariants/test_startup_import_budget.py"
+            (selection.REPO_ROOT / guard).parent.mkdir(parents=True)
+            (selection.REPO_ROOT / guard).touch()
+
+            result = selection.ast_select_tests(
+                ["posthog/test/repo_invariants/setup_receivers_baseline.txt"],
+                {
+                    guard: selection.TestFeatures(path=guard),
+                    "posthog/api/test/test_user.py": selection.TestFeatures(path="posthog/api/test/test_user.py"),
+                },
+            )
+
+            self.assertEqual([], result.full_run_reasons)
+            self.assertEqual({"repo_invariants_baselines": [guard]}, result.groups)
+
+    @parameterized.expand(
+        [
+            ("adds_a_name_a_changed_file_reads", _NEW_URL, {"posthog/consumer.py": "settings.NEW_URL\n"}, False),
+            (
+                "adds_a_name_with_a_type_cast",
+                _BASE_SETTINGS + 'NEW_URL = get_from_env("NEW_URL", 1, type_cast=int)\n',
+                {"posthog/consumer.py": "settings.NEW_URL\n"},
+                False,
+            ),
+            ("comment_only", _BASE_SETTINGS + "# A note.\n", {}, False),
+            (
+                "passes_a_callback_that_mutates_an_existing_setting",
+                _BASE_SETTINGS + "NEW_URL = min([{}], key=EXISTING.update)\n",
+                {"posthog/consumer.py": "settings.NEW_URL\n"},
+                True,
+            ),
+            (
+                "adds_a_django_setting_in_a_new_namespace",
+                _BASE_SETTINGS + "PREPEND_WWW = True\n",
+                {"posthog/consumer.py": "settings.PREPEND_WWW\n"},
+                True,
+            ),
+            ("adds_a_name_nothing_reads", _NEW_URL, {}, True),
+            (
+                "adds_a_name_an_unchanged_file_reads",
+                _BASE_SETTINGS + "PRESET = 1\n",
+                {"posthog/consumer.py": "settings.PRESET\n"},
+                True,
+            ),
+            (
+                "changes_an_existing_value",
+                _BASE_SETTINGS.replace('"a"', '"b"'),
+                {"posthog/consumer.py": "settings.EXISTING\n"},
+                True,
+            ),
+            (
+                "renames_a_setting",
+                _BASE_SETTINGS.replace("EXISTING =", "RENAMED ="),
+                {"posthog/consumer.py": "settings.RENAMED\n"},
+                True,
+            ),
+            (
+                "reassigns_a_name_from_another_settings_module",
+                _BASE_SETTINGS + "ALREADY = 2\n",
+                {"posthog/consumer.py": "settings.ALREADY\n"},
+                True,
+            ),
+            (
+                "calls_a_function_with_side_effects",
+                _BASE_SETTINGS + "NEW_URL = configure()\n",
+                {"posthog/consumer.py": "settings.NEW_URL\n"},
+                True,
+            ),
+            (
+                "assignment_expression",
+                _BASE_SETTINGS + "NEW_URL = (EXISTING := 1)\n",
+                {"posthog/consumer.py": "settings.NEW_URL\n"},
+                True,
+            ),
+            (
+                "adds_to_a_namespace_a_framework_reads",
+                _BASE_SETTINGS + "CSRF_COOKIE_AGE = 1\n",
+                {"posthog/consumer.py": "settings.CSRF_COOKIE_AGE\n"},
+                True,
+            ),
+            ("unparsable", _NEW_URL + "BROKEN = (\n", {"posthog/consumer.py": "settings.NEW_URL\n"}, True),
+            (
+                "reorders_statements",
+                'EXISTING = get_from_env("EXISTING", "a")\nCSRF_COOKIE_NAME = "csrftoken"\n',
+                {},
+                True,
+            ),
+        ]
+    )
+    def test_settings_change_runs_in_full_unless_it_only_adds_names_the_diff_reads(
+        self, _name: str, head_settings: str, head_files: dict[str, str], expect_full_run: bool
+    ) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            selection = _load_selection_module()
+            selection.REPO_ROOT = Path(root)
+            _git_init(root)
+            base = _commit(
+                root,
+                {
+                    "posthog/settings/web.py": _BASE_SETTINGS,
+                    "posthog/settings/other.py": "ALREADY = 1\n",
+                    "posthog/reader.py": "settings.EXISTING\n",
+                    "posthog/preset_reader.py": "settings.PRESET\n",
+                },
+            )
+            _commit(root, {"posthog/settings/web.py": head_settings, **head_files})
+
+            result = selection.ast_select_tests(["posthog/settings/web.py", *head_files], {}, base)
+
+            self.assertEqual(bool(result.full_run_reasons), expect_full_run, result.full_run_reasons)
+
+    @parameterized.expand(
+        [
+            ("repo_invariant_helper", "posthog/test/repo_invariants/ratchet.py"),
+            ("repo_invariant_guard", "posthog/test/repo_invariants/test_ratchet.py"),
+            ("temporal_workflow_catalog", "posthog/temporal/workflow_catalog.json"),
+        ]
+    )
+    def test_inputs_with_no_django_reader_select_nothing(self, _name: str, path: str) -> None:
+        selection = _load_selection_module()
+        features_by_path = {
+            "posthog/temporal/tests/test_workflow.py": selection.TestFeatures(
+                path="posthog/temporal/tests/test_workflow.py", uses_temporal=True
+            ),
+            "posthog/test/repo_invariants/test_ratchet.py": selection.TestFeatures(
+                path="posthog/test/repo_invariants/test_ratchet.py"
+            ),
+        }
+
+        result = selection.ast_select_tests([path], features_by_path)
+
+        self.assertEqual([], result.full_run_reasons)
+        self.assertEqual({}, result.groups)
+
+    @parameterized.expand(
+        [
+            ("sibling", "posthog/api/test/__snapshots__/test_query.ambr", ["posthog/api/test/test_query.py"]),
+            (
+                "schema_variant",
+                "posthog/api/test/__snapshots__/test_query.new_events_schema.ambr",
+                ["posthog/api/test/test_query.py"],
+            ),
+            ("under_full_run_prefix", "posthog/test/__snapshots__/test_team.ambr", ["posthog/test/test_team.py"]),
+            (
+                "shared_file_falls_back_to_directory",
+                "posthog/hogql/test/__snapshots__/parser_ast.ambr",
+                ["posthog/hogql/test/test_parser_cpp_json.py", "posthog/hogql/test/test_parser_rust_json.py"],
+            ),
+        ]
+    )
+    def test_changed_snapshot_selects_the_tests_that_own_it(self, _name: str, path: str, expected: list[str]) -> None:
+        with tempfile.TemporaryDirectory() as root:
+            selection = _load_selection_module()
+            selection.REPO_ROOT = Path(root)
+            test_files = [
+                "posthog/api/test/test_query.py",
+                "posthog/api/test/test_team.py",
+                "posthog/test/test_team.py",
+                "posthog/hogql/test/test_parser_cpp_json.py",
+                "posthog/hogql/test/test_parser_rust_json.py",
+            ]
+            for test_file in test_files:
+                (selection.REPO_ROOT / test_file).parent.mkdir(parents=True, exist_ok=True)
+                (selection.REPO_ROOT / test_file).touch()
+
+            result = selection.ast_select_tests(
+                [path], {test_file: selection.TestFeatures(path=test_file) for test_file in test_files}
+            )
+
+            self.assertEqual([], result.full_run_reasons)
+            self.assertEqual(expected, result.groups.get("snapshot_owners"))
 
     @parameterized.expand(
         [

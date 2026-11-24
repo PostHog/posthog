@@ -10,6 +10,7 @@ import { pluralize } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import type { ErrorTrackingIssueStatus } from '~/queries/schema/schema-general'
 import { EventsQuery, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { PropertyGroupFilterValue } from '~/types'
 
@@ -101,10 +102,10 @@ export interface suppressSimilarIssuesLogicActions {
     } // issueActionsLogic
     updateIssueStatus: (
         id: string,
-        status: import('~/queries/schema').ErrorTrackingIssueStatus
+        status: ErrorTrackingIssueStatus
     ) => {
         id: string
-        status: import('~/queries/schema').ErrorTrackingIssueStatus
+        status: ErrorTrackingIssueStatus
     } // issueActionsLogic
     closeSuggestion: () => {
         value: true

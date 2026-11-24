@@ -8,7 +8,6 @@ from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 from django.utils.http import urlencode
 
 from posthog.admin.console.registry import console
-from posthog.admin.console.team_panels import DEV_EXPERIENCE
 from posthog.admin.console.tools import Cell, ConsoleTool, Notice, Output, Page, Row, Table, ToolOperation
 from posthog.dataclasses import frozen
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, log_activity
@@ -167,8 +166,8 @@ def set_ttl(request: HttpRequest, form: forms.Form | None) -> HttpResponse | Pag
 class RedisValuesTool(ConsoleTool):
     key = "redis-values"
     title = "Redis values"
-    owner = DEV_EXPERIENCE
-    group = "Data"
+    owner = None
+    group = "Infrastructure"
     description = "The keys in Redis, with their type, TTL, size and value."
 
     def page(self, request: HttpRequest) -> Page:
@@ -269,3 +268,7 @@ class RedisValuesTool(ConsoleTool):
                 ),
             ),
         ]
+
+
+console.register_moved_page(old_path="admin/redisvalues", title="Redis values", url=TOOL_URL)
+console.register_moved_page(old_path="admin/redis/edit-ttl", title="Editing a Redis TTL", url=f"{TOOL_URL}set-ttl/")

@@ -50,6 +50,8 @@ Both gates probe hosts rather than compare cluster names.
 Two cluster names can cover the same nodes, which is what the dev stack and CI do, so a name comparison would refuse deployments that can in fact sweep the table.
 `DeletionTarget.cluster_setting` names where a storage table lives, and `ClickhouseCluster.sibling` turns that name into a handle; neither decides reachability.
 `sharded_events_json` carries `CLICKHOUSE_EVENTS_CLUSTER`, which names the `events` cluster.
+`sharded_flag_evaluations` carries `CLICKHOUSE_FLAGS_CLUSTER`, which names the `flags` cluster, and shards across nodes whose `hostClusterRole` is `flags`.
+A deployment with no `flags` cluster keeps the table on the main cluster, and the handle in hand sweeps it there.
 
 ## Dispatching to a target's own cluster
 
@@ -67,7 +69,12 @@ The rest are bound to a single handle and refuse rather than skip when a target 
 - Property removal. It fans out one chain of copy, delete, reingest and verify ops per table and shard of one cluster.
   Each op runs its SQL on a host of its own shard.
   Each copy records the maximum `inserted_at` it observed for that target. The copy, pre-delete count, mutation and verification reuse that bound, so a later row stays outside the destructive set.
-- The deferred queue fill. Both halves of its `INSERT` are host-local: the source table it reads and the `adhoc_events_deletion` queue it writes.
+
+The deferred queue fill reads a table on the job's own cluster shard-locally: both halves of its `INSERT` are host-local, the source table it reads and the `adhoc_events_deletion` queue it writes.
+A table on another cluster has no host that also holds the queue.
+One host of the job's cluster reads that table's uuids through its Distributed proxy.
+The queue table replicates to every host of the cluster, so that one insert reaches all of them.
+This is how a deferred event removal queues the rows of `sharded_flag_evaluations` where that table is on the `flags` cluster.
 
 ### Getting the dictionaries onto the second cluster
 
@@ -95,7 +102,7 @@ Leaving one out stays possible, and `PERSON_ID_REWRITE_EXEMPT` is where that dec
 
 - `sharded_events` — all sweeps.
 - `sharded_events_json` — all sweeps, on the events cluster, through patch parts instead of mutations (`uses_patch_parts`). Optional: only present after the native-JSON migration.
-- `sharded_flag_evaluations` — person, team, queued-uuid, immediate and deferred event removal, and property removal of event and person properties (below). Immediate event removal with a HogQL predicate does not sweep it, and refuses while a matching row has no events copy. Deferred event removal with a predicate reaches the rows that have an events copy through their uuids, and the rest through the predicate compiled for this table (below). Property removal with a predicate does not sweep it. Optional.
+- `sharded_flag_evaluations` — person, team, queued-uuid, immediate and deferred event removal, and property removal of event and person properties (below). Event removal with a HogQL predicate compiles the predicate for this table and sweeps the rows it matches (below). Property removal with a predicate does not sweep it. Stored on the `flags` cluster where that cluster exists. Optional.
 - `sharded_posthog_document_embeddings_<model>` — event and team deletion, through `delete_event_documents`. An embedded document is keyed by the id of the thing it describes (`document_id`), and an Event deletion's key is that same id, so the pending dictionary is joined on `(team_id, Event, document_id)`. Every per-model table listed by the error tracking facade's `document_embedding_tables` is swept and counted.
   A document keyed by another id is not reached by event deletion. The AI observability summaries use `<trace or generation id>::<job id>` under the `llm-analytics` product, so deleting the summary events leaves their embeddings until the table TTL.
   To remove them, turn off AI data analysis for the organization first, so no new summaries arrive during the run. Then run `delete_team_product_documents_job` with the `team_id` and the `product`. It deletes only that product's documents for that team, from the model tables and the ingestion buffer. It fails when the team has no documents for that product (a misspelled name), when the deletes run past `timeout_seconds`, or when any document survives.
@@ -104,12 +111,105 @@ Native property-removal requests fail when the selected rows retain a requested 
 They also fail when that property class has quarantine diagnostics, because malformed raw data cannot prove that the requested value is absent.
 The gate runs before shard processing and again during verification, with the same event, time-range, and insertion-marker bounds.
 
+## Customer analytics membership
+
+`sharded_person_group_membership` has no age-based TTL.
+It stores distinct IDs and historical group associations, but no person properties.
+The `customer-analytics-membership-discovery` Temporal schedule records missing persons and groups in Postgres.
+It never deletes membership or eligibility config.
+The schedule starts paused and runs hourly when enabled.
+Worker restarts preserve its existing schedule settings.
+
+Discovery checks current distinct-ID mappings and live persons.
+Deleted mappings and deleted persons count as missing identities.
+When ClickHouse reports a person as missing, a strong personhog read confirms the mapping and its owner.
+Discovery decodes JSON escapes in group keys before identity lookups and keeps stored keys in candidates.
+When ClickHouse reports a group as missing, a strong personhog read confirms its absence.
+Group identity reads exclude properties. Malformed JSON keys retain their raw representation.
+Decoded group keys longer than the primary identity column's 400-character limit count as missing without an identity lookup.
+Scan cursors and pending membership keys use ClickHouse external tables so large stored keys do not expand SQL text.
+Deleted teams need no identity reads.
+
+Each batch scans at most 100 membership keys and rechecks 100 saved candidates.
+It saves the next unprocessed key in Postgres so later batches can resume after rows disappear.
+Scan pages also clear recovered candidates outside the recheck page.
+Discovery checks membership for pending keys outside the scan page and removes their candidates after membership erasure.
+Pending-only keys with no membership cannot create new candidates.
+New candidates use bulk inserts and preserve `first_missing_at` on repeated discovery.
+Identity read failures leave candidates and scan positions unchanged.
+A per-team Redis lease prevents overlapping membership batches.
+Discovery renews its 15-second lease every five seconds, including during network reads.
+A busy lease raises a retryable error. Activity retries wait 20 seconds, so a crashed discovery worker's lease expires before retry.
+Renewal failures prevent checkpoint writes. Renewal stops at the batch query deadline.
+Heartbeats report liveness. Postgres stores the checkpoints.
+Postgres transactions contain database writes only.
+
+The coordinator discovers teams from membership, eligibility config, and saved scans.
+It processes at most 10 pages of 25 teams and stops starting teams after 45 minutes.
+Each team processes at most 100 batches and stops starting batches after 10 minutes.
+The coordinator saves each processed team. Team zero holds its cursor and never starts a project scan.
+Cleanup state has no project foreign key, so project deletion cannot remove pending work.
+
+Queries use the SQL editor's `HOGQL_INCREASED_MAX_EXECUTION_TIME` setting, which defaults to 600 seconds.
+Each batch reduces the query timeout to fit its remaining activity budget.
+The activity reserves time for three attempts inside the child workflow deadline.
+Memory, read, thread, and result limits come from the ClickHouse profile.
+Unavailable shards and overflow limits fail queries instead of returning partial results.
+Queries use the `OFFLINE` workload because discovery runs in the background.
+Discovery queries carry the Customer analytics product tag and the data deletion feature tag.
+Per-team queries also pass the team ID to the ClickHouse client so team settings and incident limits apply.
+The `customer_analytics_membership_discovery_` metrics report outcomes, batch duration, and scan duration.
+The scan duration includes waiting between scheduled runs. It is not the duration of one workflow execution.
+Batch histograms cover durations through ten minutes. Scan histograms cover durations through seven days.
+The `customer_analytics_membership_step_seconds` histogram labels each measurement by `job`, `step`, and `outcome`.
+Steps separate membership scans, candidate reads, ClickHouse identity reads, primary identity checks, and checkpoint writes.
+Step measurements include failed operations. Metric labels contain no team IDs or identity values.
+
+Each `membership_discovery_batch` log includes counts, `duration_seconds`, `step_seconds`, `failed_step`, and `has_more`.
+Each team and coordinator emits a `membership_run_summary` log with totals, elapsed seconds, outcome, and `stop_reason`.
+Stop reasons distinguish completed work, time budgets, batch limits, page limits, failures, and cancellation.
+Coordinator totals include successful child workflow results. Failed teams log their own partial totals.
+Temporal adds workflow IDs, run IDs, and attempt numbers to the logs and suppresses workflow logs during replay.
+
+Discovery does not change existing person or group deletion processes.
+The `customer-analytics-membership-deletion` schedule owns erasure and runs independently of discovery.
+It starts paused in dry-run mode. Deletion also requires an explicit team list.
+It selects candidates missing for at least 24 hours and repeats identity checks before each deletion batch.
+Recovered identities clear their candidates. Failed lookups or erasure verification keep work pending.
+Deletion never discovers new candidates.
+
+Both jobs use the same per-team lease. Each schedule has its own batch, team-page, and time limits.
+Deletion keeps its coordinator cursor in team row `-1`, separate from discovery's row `0`.
+Neither coordinator row starts a project sweep.
+Deletion preserves the key held in a discovery cursor until discovery advances past it.
+Its coordinator selects teams from overdue candidates and deleted-team scan state, without scanning membership.
+
+The deletion job uses lightweight deletes on storage shards and verifies that no matching membership survives.
+Deletion predicates use bounded raw-key filters for index pruning and SHA-256 digests for exact matching.
+Keys above 400 characters use prefix filters, so large stored values do not expand query text or erase rows that share a prefix.
+Topology discovery, shard queries, and verification apply per-team query settings and kill-switch ceilings alongside the remaining batch deadline.
+It checks for pending mutations before retrying and skips shards where matching rows are already absent.
+Each deletion resolves fresh shard topology, including sibling clusters.
+Topology discovery caps bootstrap socket waits and query execution by the remaining batch time, including sibling discovery.
+Shard and verification connections use a finite socket timeout of twice the shared query execution limit.
+Query failure logs include the team, stage, and error code, without database exception text or membership keys.
+Candidates are removed only after verified erasure.
+Deleted-team erasure also removes eligibility config and clears scan state after membership is gone.
+Live-team erasure keeps eligibility config and unrelated membership.
+The `customer_analytics_membership_deletion_` metrics report checked candidates, recovery, deletion, and failures.
+Step timings also cover storage resolution, pending mutation checks, per-shard deletes, erasure verification, and checkpoint cleanup.
+Deletion batch logs include `dry_run`, `deletion_enabled`, and a `skip_reason` for dry runs or teams outside the allowlist.
+Team and coordinator summaries include `failed_batches`. A caught deletion failure produces a `partial_failure` summary even when the workflow completes.
+The `deleted` count measures membership keys confirmed erased, not physical ClickHouse rows.
+Event deletion and configured group-property deletion do not repair membership or its activity timestamps.
+
 ## Tables on TTL alone
 
 Listed in `TTL_ONLY_TABLES`.
 Each is a decision that erasure may lag by the retention window.
 
-- `sharded_events_recent` — a transient mirror of the last few days of events, 7-day TTL keyed on `inserted_at`. It partitions by day with `ttl_only_drop_parts = 1`, so a part drops only once its newest row expires: the real worst case is about 8 days plus TTL-merge lag, not a flat 7. Short enough to accept as the erasure bound, and a sweep would race the TTL for little benefit.
+- `sharded_events_recent`: a transient mirror of the last few days of events, with a TTL of `toDate(inserted_at) + 9 days`. It partitions by day with `ttl_only_drop_parts = 1`, so every row in a part expires at the same time, at midnight nine days after its insert date. The worst case is a row inserted just after midnight: 9 days plus TTL-merge lag. Short enough to accept as the erasure bound, and a sweep would race the TTL for little benefit.
+- `sharded_events_json_recent`: the same recent events in the events_json shape, for realtime batch exports. It has the same TTL, daily partitions and `ttl_only_drop_parts = 1`, so the same 9-day worst case applies. Accepted on the same terms as `sharded_events_recent`.
 
 Session recordings, the dead letter queue, and logs are likewise TTL-reclaimed.
 That decision predates this document; the older `posthog/models/async_deletion/delete_events.py` records it in a comment, but that module is legacy and is not the source of truth here.
@@ -181,7 +281,9 @@ The copy, the delete's count, the reingest and the shard verify count each uuid 
 The reingest bumps `_timestamp` past the original's on both tables, so a merge that meets a cleaned row and a surviving original keeps the cleaned row.
 A request that removes `$feature_flag` empties `flag_key`, which is in the sort key.
 That cleaned row therefore never collapses with an original.
-A table created before the switch to `ReplacingMergeTree` keeps every duplicate, and the job leaves its `_timestamp` as it is, because the job reads the engine from `system.tables` on each run.
+A table created before the switch to `ReplacingMergeTree` keeps every duplicate.
+The job still bumps its `_timestamp`, because the reingest and the shard verify find cleaned rows in the staged files by the table's sorting key columns, `uuid`, `timestamp`, `_timestamp` and `inserted_at`.
+A property removal does not start while another property removal on the same team has started and not completed, because restoring that removal's staged copy would undo a rewrite made in between.
 
 #### Rows past the TTL
 
@@ -194,7 +296,7 @@ Each expired row that drops took its property with it.
 
 #### HogQL predicates
 
-Property removal compiles a request's predicate against the events schema only. Event removal compiles one for this table's rows with no events copy (see the HogQL section below), but property removal does not use it, so the job cannot apply a request's predicate to this table.
+Property removal compiles a request's predicate against the events schema only. Event removal compiles one for this table (see the HogQL section below), but property removal does not use it, so the job cannot apply a request's predicate to this table.
 A property removal with a predicate leaves `flag_evaluations` out of the sweep, and `get_property_removal_shards` and `verify_property_removal` refuse the request while the table holds rows that match its other criteria.
 Sweeping the table without the predicate would erase rows the predicate excludes.
 
@@ -207,87 +309,48 @@ That window is the forward delay that the events tables also have, not the consu
 
 #### Other readers
 
-Cleaned rows carry `inserted_at = marker`, as on events.
-A reader that checkpoints `flag_evaluations` on `inserted_at` sees a rewritten row again if the marker is later than its checkpoint.
-The copy carries every other column through unchanged.
+Cleaned rows keep their original `inserted_at`, as on events.
+A deletion requested before the removal ran therefore still reaches them once they are back in the table, because its `inserted_at` bound compares against the time the row was first ingested.
+`deletes_job` does not wait for a running property removal, so a deletion that runs while the cleaned rows sit only in the staged files does not see them.
+A reader that checkpoints `flag_evaluations` on `inserted_at` does not read a rewritten row again, so it keeps the uncleaned copy it read before.
+Events batch exports select rows by `COALESCE(inserted_at, _timestamp)`, so they do not export a cleaned row again either, except a legacy row with no `inserted_at`.
+Apart from the removed properties and the columns materialized from them, the copy carries every column through unchanged, except `_timestamp`, which moves one second past the marker.
 `flag_evaluations_backfill_job` does not copy a day while a data deletion request run is queued or executing, so it does not re-insert an original the job removed.
 
 `flag_evaluations` stays absent from `MATERIALIZATION_VALID_TABLES`.
 The job finds typed columns through their comments in `system.columns`, not through that set, and adding the table there enrolls it in `materialize()` and the HogQL property planner, which is a separate change.
 
-### Immediate event removal with a HogQL predicate does not sweep `flag_evaluations`
-
-`get_event_removal_shards` leaves `flag_evaluations` out of the sweep for an immediate request that carries a HogQL predicate.
-A row with an events copy ages out with the table's TTL. The table partitions by month with `ttl_only_drop_parts = 1`, so a part drops only once its newest row expires: the real wait is up to about 122 days, not the 92-day TTL.
-The events copies that a deferred request deletes through do not help here, because the immediate path deletes the events rows without queueing their uuids.
-A row with no events copy is checked instead.
-The request refuses while such a row matches the predicate compiled for this table (below), or matches the request's other criteria when the predicate cannot run on this table.
-That turns a request from an org on `flag_evaluations_mode` 2, whose flag calls have no events copy, into a refusal rather than a completed request that leaves every flag call behind.
-Re-filing the request as deferred deletes those rows.
-A fresh run of a request whose earlier run already deleted events also refuses, because those events were the copies of matching rows.
-The admin Retry button starts such a fresh run.
-"Re-execute from failure" on the earlier Dagster run finishes the request, because it reuses the output of `get_event_removal_shards` and does not run the check again.
-An immediate request without a predicate sweeps the table and verifies it like the events tables, because its delete predicate names only `team_id`, `timestamp` and `event`.
-
 ### Event removal with a HogQL predicate on `flag_evaluations`
 
-A flag-evaluation row is a fork of its `$feature_flag_called` event, with the same uuid, and both tables shard on `sipHash64(distinct_id)`, so the two copies share a shard.
-`DeletionTarget.copied_from` records that relationship.
-A deferred request with a predicate reaches a row that has an events copy through `events`.
-The queue fill reads uuids from `sharded_events` with the events-compiled predicate, and the drain deletes those uuids from every target, so it deletes the flag row of every event the predicate names.
-A flag row whose event the predicate does not name keeps its events copy and stays.
-
-A row with no events copy needs the predicate itself.
-An org on `flag_evaluations_mode` 2 stores its flag calls only in `flag_evaluations`, and a deletion that skipped the table can leave a flag row whose event is gone.
-`DeletionTarget.uncopied_rows_hogql_table` names the HogQL table that compiles the predicate for those rows, `posthog.flag_evaluations` here.
+Event removal treats `flag_evaluations` as it treats the two events tables.
+It compiles the request's predicate once for each table, and each table deletes the rows that its own compile matches.
+`DeletionTarget.hogql_table` names the HogQL table that the predicate compiles against, `posthog.flag_evaluations` here.
 The compile adds that table even when the org's mode hides it from queries.
-The queue fill reads the uuids of the rows with no copy in `sharded_events` that the compiled predicate matches, shard-locally and in 7-day windows, and queues them with the rest.
-A row read this way already existed when its uuid was queued, so the drain's `inserted_at` bound cannot skip it.
-The check for an events copy reads `sharded_events` only.
-In production, `sharded_events_json` holds no `$feature_flag_called` rows: the deployed ingestion view and the backfill both leave the event out, so a flag row has no copy there.
-The view this repo defines (`EVENTS_JSON_TABLE_MV_SQL`) still writes the event, so local, CI and self-hosted deployments do keep a copy.
-There, a flag row can keep its `sharded_events_json` copy after its `sharded_events` copy is gone, when an earlier immediate request matched the two events tables differently.
-Queueing that row would also delete its `sharded_events_json` copy, even when the native-JSON compile of the predicate excludes it, because the drain deletes a queued uuid from every target.
-The check cannot look for that copy row by row, because `sharded_events_json` can sit on another cluster, where a shard-local subquery cannot reach it.
-So before a deferred request queues rows with no `sharded_events` copy, the gate counts the flag calls in the request's window on `sharded_events_json`.
-It counts through the `events_json` proxy, and also on the storage table through its own handle when that table sits on another cluster, because the proxy can read an empty table there.
-When it finds any, the request refuses while a row with no `sharded_events` copy matches the compiled predicate.
-Production stores no flag calls in `sharded_events_json`, so the gate finds none there.
 
-The compiled predicate never decides for a row that has an events copy.
-The drain deletes a queued uuid from every target, so a flag row that matched the flag-compiled predicate would take its events copy with it, even where the events-compiled predicate does not name that event.
-The two compiles can disagree.
-On cloud, `propertyGroupsMode` is `optimized`, and events reads a custom property, an `$ai_` property or a `$feature/` property from a property-group map such as `properties_group_custom`.
-The map is built with `JSONExtractKeysAndValues(properties, 'String')`, which decodes JSON escapes, so a stored `"a\"b"` reads as `a"b`.
-For `=`, `!=` and `IN`, the `optimized` rewrite also compares a typed property as a string.
-`flag_evaluations` has no property-group map, so it reads the raw JSON with the surrounding quotes stripped, which reads `a\"b`, and it casts a typed property to its defined type.
-On cloud, events reads some `$` properties from `mat_` or `dmat_string_` columns instead, and those differ on edge values: the column reads an empty string and the string `"null"` as NULL, and a nullable column decodes escapes.
-So with `$browser` materialized, `properties.$browser = ''` excludes a row that stores `""` on events and matches it on `flag_evaluations`.
-The compile therefore refuses a predicate whenever the events compile of it reads a property-group map or a materialized column.
-Every property the compile accepts reads raw JSON on both tables.
-It also refuses one that needs a join, such as `person_id`, because the fragment is spliced into a bare WHERE that has no join.
-`person.properties` and `elements_chain` do not resolve on the table, so those predicates fail to compile.
+An immediate request runs a lightweight delete on each shard of the cluster that stores the table.
+A deferred request reads the uuids of the matching rows into the queue, together with the uuids that the events compile matches on `sharded_events`.
+The drain deletes a queued uuid from every target.
+A flag call that has a row in both tables is therefore deleted from both when either compile matches it.
+An org on `flag_evaluations_mode` 2 stores its flag calls only in `flag_evaluations`, so only the read of this table finds them.
 
-When the predicate cannot run on the table, the gate counts the rows with no copy in `sharded_events` that match the request's other criteria, shard-locally, and refuses the request when it finds any.
-Requests without a predicate, immediate or deferred, are swept normally.
-A deferred one reads the table's own uuids into the queue.
+The compiles can disagree on edge values, because the tables read a property in different ways.
+On cloud, events reads some properties from a property-group map, which decodes JSON escapes, or from a `mat_` or `dmat_string_` column, which reads an empty string and the string `"null"` as NULL.
+`flag_evaluations` reads the raw JSON for a property that has no map there.
+So `properties.$browser = ''` can match a flag row and not the events row with the same uuid.
+The legacy and native-JSON events tables differ in the same way.
+The job accepts this: a deferred request then deletes both rows, and an immediate request deletes only the row that matched.
 
-Verification of a deferred request with a predicate, when the table holds rows in the request's window, makes two counts.
-The first is the request's queue rows that the drain has not marked deleted.
-The second is the table's rows with no copy in `sharded_events` that the compiled predicate matches, or that match the request's other criteria when the predicate cannot run on the table.
-The queue rows hold the request until `deletes_job` drains them, including a queued row whose event a property removal changed so that the predicate no longer matches it.
-The rows with no copy hold the request after the drain.
-A flag row stamped after its events copy's uuid was queued falls outside the drain's `inserted_at` bound, so it survives the drain.
-The drain still deletes its events copy.
-The rows with no copy therefore include it and keep the request in QUEUED.
-A re-filed request does not reach that row.
-A deferred one queues the uuid, but the drain skips it while the first drain's `is_deleted` marker lasts, which is 3 months.
-Only an immediate request without the predicate deletes the row, and it also deletes every other row in its window that its event filter names.
-The verify sweep therefore keeps checking a deferred request with a predicate for `lookback_days` after its window falls behind the table's TTL horizon, so the request moves to COMPLETED once the TTL drops the row.
-The rows with no copy also keep a request the gate refused, which queued nothing, from passing verification as a FAILED request.
-Counting every row that matches the request's other criteria would hold the request in QUEUED until the TTL, whenever the team has flag calls the predicate does not name.
-The second count uses the same compiled predicate as the queue fill, so it cannot see the two compiles disagreeing.
-The compile's refusals are the guard against that.
+A predicate that needs a join, such as `person_id`, does not compile for this table, because the fragment is spliced into a bare WHERE that has no join.
+The request then refuses while the table holds rows that match its other criteria, before it deletes or queues anything.
+To proceed, re-file the request without the predicate, or narrow its events to ones this table never stores.
+
+Before a request deletes or queues anything, it counts the rows that match on this table.
+That count runs the compiled fragment on ClickHouse, so a fragment that ClickHouse rejects fails the request first.
+A table with no matching rows is left out of the sweep.
+
+Verification counts the request's queue rows that the drain has not marked deleted, and each table's rows with the predicate compiled for it.
+The queue rows hold the request until `deletes_job` drains them, including a queued row that a property removal changed so that the predicate no longer matches it.
+When the predicate does not compile for a table, verification counts the rows that match the request's other criteria there, which can only hold the request.
 
 ## Producer prerequisite: person_id parity
 

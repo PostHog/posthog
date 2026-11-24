@@ -85,4 +85,17 @@ describe("buildGatewayEnv", () => {
       expected ? "phe_run" : "oauth-token",
     );
   });
+
+  it("routes by the server's product over the internal default", () => {
+    process.env.LLM_GATEWAY_URL = "http://llm-gateway.internal:8080";
+    const gatewayEnv = buildGatewayEnv(
+      config,
+      { gatewayProduct: "signals", isInternal: true },
+      logger(),
+    );
+
+    expect(gatewayEnv.anthropicBaseUrl).toBe(
+      "http://llm-gateway.internal:8080/signals",
+    );
+  });
 });

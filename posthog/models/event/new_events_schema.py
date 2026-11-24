@@ -5,10 +5,15 @@ from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 
+import posthoganalytics
+
+from posthog.cloud_utils import is_cloud
 from posthog.models.instance_setting import get_instance_setting
 
 if TYPE_CHECKING:
     from posthog.schema import HogQLQueryModifiers
+
+    from posthog.models.team import Team
 
 
 # TODO: Remove the route helpers in this block after the events cluster migration is complete.
@@ -87,42 +92,115 @@ def events_route_scope(modifiers: "HogQLQueryModifiers") -> Iterator[None]:
 
 # A staff person's browser sends this cookie to read events_json on every request, impersonated sessions included.
 NEW_EVENTS_SCHEMA_COOKIE = "ph_new_events_schema"
-_person_switch: ContextVar[bool] = ContextVar("new_events_schema_person_switch", default=False)
+# One browser tab sends this header, "1" for events_json and "0" for the legacy table, and it wins over the cookie,
+# so two tabs of one browser can show the two tables side by side.
+NEW_EVENTS_SCHEMA_HEADER = "X-PostHog-New-Events-Schema"
+_person_switch: ContextVar[bool | None] = ContextVar("new_events_schema_person_switch", default=None)
 
 
 @contextmanager
-def new_events_schema_for_request() -> Iterator[None]:
-    """Every events read inside the block targets events_json, unless its query's modifier says otherwise."""
-    token = _person_switch.set(True)
+def new_events_schema_for_request(enabled: bool = True) -> Iterator[None]:
+    """Every events read inside the block targets the chosen table, unless its query's modifier says otherwise."""
+    token = _person_switch.set(enabled)
     try:
         yield
     finally:
         _person_switch.reset(token)
 
 
-def use_new_events_schema(team_id: int | None = None, modifiers: "HogQLQueryModifiers | None" = None) -> bool:
-    """Whether events reads target the native JSON events table (events_json) instead of the legacy events table.
+# Both flags match by the project group. Staff set the share of projects that read events_json, and the projects
+# to keep on the legacy table, in the rollout flag's release conditions, which can filter on the group property id.
+EVENTS_TABLE_ROLLOUT_FLAG = "new-events-table-rollout"
+# The browser also evaluates this flag, to show the setting, and it hashes a different project key. Open it to
+# every project or to projects listed by id, never to a percentage, or the browser and the API disagree.
+EVENTS_TABLE_SELF_SERVE_FLAG = "new-events-table-self-serve"
 
-    Four switches, each wider than the one before it: the query's useNewEventsSchema modifier, for one query;
-    a staff person's cookie, for every request from that browser (see new_events_schema_for_request);
-    CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS, for a project everywhere, background jobs included; and
-    CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA, for every project. The instance settings are cached for up to 60s
-    per worker. Nested reads inherit the running query's choice unless their own modifier overrides it.
-    Code running inside a query should prefer HogQLContext.uses_new_events_schema(), which
-    resolves this once so a mid-query flip can't mix schemas.
+
+def _flag_enabled_for_project(flag: str, team_id: int) -> bool:
+    # The flag is evaluated in this process and keyed on the project id, so the query path makes no network call.
+    if not is_cloud():
+        return False
+    return bool(
+        posthoganalytics.feature_enabled(
+            flag,
+            str(team_id),
+            groups={"project": str(team_id)},
+            group_properties={"project": {"id": str(team_id)}},
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+    )
+
+
+def project_moved_to_new_events_table(team_id: int | None) -> bool:
+    """Whether staff or the rollout moved the project to events_json. Every reader of the events table follows it.
+
+    Callers that pass no project, such as usage reports, follow CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA alone.
     """
+    if get_instance_setting("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA"):
+        return True
+    if team_id is None:
+        return False
+    return team_id in _allowlisted_team_ids() or _flag_enabled_for_project(EVENTS_TABLE_ROLLOUT_FLAG, team_id)
+
+
+def project_opted_in_to_new_events_table(team: "Team") -> bool:
+    """Whether the project chose events_json early, in project settings.
+
+    The choice is the useNewEventsSchema key of the project's stored modifiers, so it reaches HogQL queries and not
+    readers that write their own SQL. Only true counts: a project cannot choose the legacy table. It counts only
+    while the new-events-table-self-serve feature flag is on for the project.
+    """
+    stored = team.modifiers if isinstance(team.modifiers, dict) else {}
+    return stored.get("useNewEventsSchema") is True and _flag_enabled_for_project(EVENTS_TABLE_SELF_SERVE_FLAG, team.pk)
+
+
+def events_table_override(modifiers: "HogQLQueryModifiers | None") -> bool | None:
+    """The table chosen for one query or one staff browser, or None when neither chose one."""
     if modifiers is not None and modifiers.useNewEventsSchema is not None:
         return modifiers.useNewEventsSchema
     route = get_events_route()
     if route is not None and route.useNewEventsSchema is not None:
         return route.useNewEventsSchema
-    if _person_switch.get():
-        return True
+    return _person_switch.get()
+
+
+def use_new_events_schema(team_id: int | None = None, modifiers: "HogQLQueryModifiers | None" = None) -> bool:
+    """Whether an events read uses the new events table (events_json) instead of the old one.
+
+    Four things are checked in order. The first one that is set decides, and the rest are ignored.
+
+    1. The query's own useNewEventsSchema modifier.
+    2. If this read happens while another query is running, that query's table.
+    3. A staff person's tab header or browser cookie (new_events_schema_for_request).
+    4. The project.
+
+    The first three are overrides for one query or one staff browser. Each can choose either table.
+
+    PostHog moves a project to the new table when any of these is true. None of them outranks another, and none of
+    them can choose the old table:
+
+    - The instance setting CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA is on. It moves every project.
+    - The instance setting CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS lists the project.
+    - The new-events-table-rollout feature flag includes the project.
+
+    To hold one project on the old table, exclude it in the flag and keep it off the list. Once
+    CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA is on, no project can be held back. A changed setting or flag takes up
+    to a couple of minutes to reach every worker.
+
+    A project can also move itself early (project_opted_in_to_new_events_table). create_default_modifiers_for_team
+    turns that into the query's modifier when none of the three overrides is set, so it moves the project's HogQL
+    queries and nothing else.
+
+    Inside a query, use HogQLContext.uses_new_events_schema(). It decides once, so a query cannot mix the two
+    tables.
+    """
+    override = events_table_override(modifiers)
+    if override is not None:
+        return override
     if settings.TEST and settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
         return True
-    if get_instance_setting("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA"):
-        return True
-    return team_id is not None and team_id in _allowlisted_team_ids()
+    return project_moved_to_new_events_table(team_id)
 
 
 def events_read_table(use_new_events_schema: bool) -> str:

@@ -23,6 +23,7 @@ from posthog.egress.transport.transport import EgressBudgetExhausted
 from posthog.integrations import IntegrationManager
 from posthog.models.github_integration_base import GitHubIntegrationError, _is_safe_github_repo_path
 from posthog.models.integration.github import GitHubIntegration
+from posthog.models.integration.gitlab import GitLabIntegration
 from posthog.token_bucket import BucketDecision, Budget, consume
 from posthog.workload_identity.subjects import (
     ResolvedWorkloadSubject,
@@ -211,7 +212,7 @@ def _gitlab_through_integration(
         if timeout <= 0:
             return None, True
         hostname = urlsplit(str(integration.config.get("hostname") or "")).hostname or ""
-        token = integration.sensitive_config.get("access_token")
+        token = GitLabIntegration(integration).credentials.access_token().token
         # Only gitlab.com issues tokens PostHog trusts, and a self-managed instance's token must not go there.
         if hostname.lower() != "gitlab.com" or not token:
             continue

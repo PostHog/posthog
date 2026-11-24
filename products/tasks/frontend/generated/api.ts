@@ -1226,6 +1226,25 @@ export const tasksArtifactsList = async (
     })
 }
 
+export const getTasksCloseCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${id}/close/`
+}
+
+/**
+ * Mark an idle task as done. A done task refuses new runs and follow-up messages, so start a new task to keep working on it.
+ * @summary Close a task
+ */
+export const tasksCloseCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TaskDetailDTOApi> => {
+    return apiMutator<TaskDetailDTOApi>(getTasksCloseCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getTasksCommentsListUrl = (projectId: string, id: string, params?: TasksCommentsListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -2009,6 +2028,26 @@ export const tasksRunsConnectionTokenRetrieve = async (
     return apiMutator<ConnectionTokenResponseApi>(getTasksRunsConnectionTokenRetrieveUrl(projectId, taskId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getTasksRunsHeartbeatCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/heartbeat/`
+}
+
+/**
+ * Tell the server that a local run is still alive. The client that drives a local run calls this about every 5 minutes while it holds the run open. A heartbeat reopens a local run that the server had completed. Cloud runs report their own heartbeats, so this endpoint refuses them, along with failed and cancelled runs and runs of a finished task.
+ * @summary Record a local run heartbeat
+ */
+export const tasksRunsHeartbeatCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getTasksRunsHeartbeatCreateUrl(projectId, taskId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 

@@ -96,7 +96,7 @@ class RewardfulSource(ResumableSource[RewardfulSourceConfig, RewardfulResumeConf
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             keywords=["affiliate", "referral"],
             label="Rewardful",
-            caption="Sync affiliates, referrals, commissions and payouts from your Rewardful affiliate program.",
+            caption="Sync affiliates, referrals, sales, commissions and payouts from your Rewardful affiliate program.",
             docsUrl="https://posthog.com/docs/cdp/sources/rewardful",
             iconPath="/static/services/rewardful.png",
             releaseStatus=ReleaseStatus.BETA,

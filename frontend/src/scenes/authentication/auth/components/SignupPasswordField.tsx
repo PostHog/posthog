@@ -2,23 +2,28 @@ import { useActions, useValues } from 'kea'
 
 import PasswordStrength from 'lib/components/PasswordStrength'
 import passkeyLogo from 'lib/components/SocialLoginButton/passkey.svg'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { AuthBanner } from 'scenes/authentication/shared/authScene/AuthBanner'
 
 import { signupLogic } from '../signupLogic'
+import { SignupPasswordStrength } from './SignupPasswordStrength'
 
 export function SignupPasswordField(): JSX.Element {
     const {
         signupPanelAuth,
         signupPanelAuthErrors,
         validatedPassword,
+        passwordEstimatorReadyLoading,
+        featureFlags,
         passkeyRegistered,
         isPasskeyRegistering,
         passkeyError,
     } = useValues(signupLogic)
     const { setSignupPanelAuthValue, registerPasskey } = useActions(signupLogic)
+    const showCrackEstimate = featureFlags[FEATURE_FLAGS.SIGNUP_PASSWORD_CRACK_ESTIMATED] === 'test'
 
     return (
         <div className="flex flex-col gap-2 pt-4">
@@ -32,7 +37,7 @@ export function SignupPasswordField(): JSX.Element {
                         label={
                             <div className="flex items-baseline justify-between w-full">
                                 <span>Choose a password</span>
-                                <PasswordStrength validatedPassword={validatedPassword} />
+                                {!showCrackEstimate && <PasswordStrength validatedPassword={validatedPassword} />}
                             </div>
                         }
                         error={signupPanelAuthErrors.password}
@@ -44,12 +49,20 @@ export function SignupPasswordField(): JSX.Element {
                             type="password"
                             autoFocus
                             autoComplete="new-password"
+                            aria-describedby={showCrackEstimate ? 'signup-password-strength' : undefined}
                             value={signupPanelAuth.password}
                             onChange={(value) => setSignupPanelAuthValue('password', value)}
                             status={signupPanelAuthErrors.password ? 'danger' : 'default'}
                             fullWidth
                         />
                     </LemonField.Pure>
+                    {showCrackEstimate && (
+                        <SignupPasswordStrength
+                            password={signupPanelAuth.password}
+                            validatedPassword={validatedPassword}
+                            estimatorLoading={passwordEstimatorReadyLoading}
+                        />
+                    )}
                     <LemonButton
                         type="tertiary"
                         size="small"

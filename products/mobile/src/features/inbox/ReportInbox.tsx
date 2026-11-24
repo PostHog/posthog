@@ -14,12 +14,14 @@ import { useScreenInsets } from '@/ui/useScreenInsets'
 import type { RowAnchor } from './contextMenuPlacement'
 import { isDefaultInboxFilters } from './filters'
 import { useInboxItems, useSetReportRead } from './hooks'
+import { InboxEmptyState } from './InboxEmptyState'
 import { InboxFilterSheet } from './InboxFilterSheet'
 import { InboxListFooter } from './InboxListFooter'
 import { InboxRow } from './InboxRow'
 import { InboxRowActions, type RowMenuTarget } from './InboxRowActions'
 import { inboxFilterActions } from './inboxFilterActions'
 import { useInboxFilters } from './inboxFiltersStore'
+import { useInboxStatus } from './useInboxStatus'
 import { usePrefetchReports } from './usePrefetchReports'
 
 export function ReportInbox({ selectedReportId, active }: { selectedReportId: string; active: boolean }): ReactElement {
@@ -30,6 +32,7 @@ export function ReportInbox({ selectedReportId, active }: { selectedReportId: st
     const now = useNow()
     const filters = useInboxFilters()
     const query = useInboxItems({ filters, refreshWhileVisible: active })
+    const setupStatus = useInboxStatus(active && !query.isLoading && !query.isError && query.totalCount === 0)
     const prefetch = usePrefetchReports(query.data, active)
     const setRead = useSetReportRead()
     const filterActions = inboxFilterActions(filters)
@@ -140,11 +143,13 @@ export function ReportInbox({ selectedReportId, active }: { selectedReportId: st
                             actionLabel="Try again"
                             onAction={() => void query.refetch()}
                         />
-                    ) : (
+                    ) : query.totalCount > 0 ? (
                         <StateView
                             title="No reports match this inbox"
                             message="Change your filters to see more reports."
                         />
+                    ) : (
+                        <InboxEmptyState status={setupStatus} onRefresh={() => void query.refetch()} />
                     )
                 }
                 ListFooterComponent={
@@ -159,7 +164,10 @@ export function ReportInbox({ selectedReportId, active }: { selectedReportId: st
                 refreshControl={
                     <RefreshControl
                         refreshing={query.isRefetching}
-                        onRefresh={() => void query.refetch()}
+                        onRefresh={() => {
+                            void query.refetch()
+                            if (query.totalCount === 0) void setupStatus.refetch()
+                        }}
                         tintColor={colors.tertiary}
                     />
                 }

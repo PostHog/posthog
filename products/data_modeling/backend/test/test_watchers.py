@@ -110,5 +110,8 @@ class TestWatchers(BaseTest):
         api.set_watching(self.team.id, subscribed.id, self.user.id, True)
         api.set_watching(self.team.id, metric.id, self.user.id, True)
 
-        assert api.watched_node_ids(self.team.id, self.user.id) == {created.id, subscribed.id, metric.id}
-        assert api.watched_node_ids(self.team.id, member.id) == {subscribed.id, not_subscribed.id}
+        all_ids = list(Node.objects.filter(team_id=self.team.id).values_list("id", flat=True))
+        assert api.watched_node_ids(self.team.id, self.user.id, all_ids) == {created.id, subscribed.id, metric.id}
+        assert api.watched_node_ids(self.team.id, member.id, all_ids) == {subscribed.id, not_subscribed.id}
+        assert api.watched_node_ids(self.team.id, self.user.id, [created.id, not_subscribed.id]) == {created.id}
+        assert api.watched_node_ids(self.team.id, self.user.id, []) == frozenset()

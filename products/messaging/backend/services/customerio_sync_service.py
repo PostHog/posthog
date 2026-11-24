@@ -1,6 +1,8 @@
 import logging
 from typing import Any
 
+from posthog.integrations import IntegrationManager
+
 from products.messaging.backend.models.message_category import MessageCategory, MessageCategoryType
 from products.messaging.backend.models.message_preferences import ALL_MESSAGE_PREFERENCE_CATEGORY_ID, PreferenceStatus
 from products.messaging.backend.models.optout_sync_config import OptOutSyncConfig
@@ -26,7 +28,11 @@ def _build_category_to_topic_map(team_id: int) -> dict[str, str]:
 
 
 def _get_track_client(config: OptOutSyncConfig) -> CustomerIOTrackClient | None:
-    integration = config.track_integration
+    if config.track_integration_id is None:
+        return None
+    integration = IntegrationManager.customerio_track.any.get_many(config.team_id, [config.track_integration_id]).get(
+        config.track_integration_id
+    )
     if integration is None:
         return None
     site_id = integration.sensitive_config.get("site_id", "")
@@ -44,11 +50,11 @@ def sync_preferences_to_customerio(
 ) -> None:
     """Sync current preference state to Customer.io"""
     try:
-        config = OptOutSyncConfig.objects.select_related("track_integration").get(team_id=team_id)
+        config = OptOutSyncConfig.objects.get(team_id=team_id)
     except OptOutSyncConfig.DoesNotExist:
         return
 
-    if not config.track_enabled or config.track_integration is None:
+    if not config.track_enabled:
         return
 
     client = _get_track_client(config)

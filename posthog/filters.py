@@ -71,36 +71,47 @@ class TermSearchFilterBackend(filters.BaseFilterBackend):
         return queryset.filter(term_filter)
 
 
+def _trigram_candidate_pattern(term: str) -> str:
+    # The pattern only selects candidate rows from the trigram index, and the `strpos` check next to it
+    # keeps the rows that contain the literal term. `%` and `_` stay wildcards: an escaped one marks a word
+    # boundary, so pg_trgm adds boundary trigrams that occur in many names, and the index scan reads more
+    # pages. A backslash must be escaped, because an unescaped one escapes the next character or makes the
+    # pattern invalid, and then the pattern no longer matches every row that contains the term.
+    return "%" + term.replace("\\", "\\\\") + "%"
+
+
 def term_search_filter_sql(
     search_fields: list[str],
     search_terms: Optional[str] = "",
     search_extra: Optional[str] = "",
     avoid_trigram_index: bool = False,
 ) -> tuple[str, dict]:
-    """Builds the `?search=` predicate: every space-separated term must match one of the fields.
+    """Builds the `?search=` predicate: every space-separated term must appear literally in one of the fields.
 
-    `field ILIKE pattern` lets the planner answer from a trigram GIN index on the field. Where that
-    index is global and the query is already scoped to one tenant, the planner still often reads the
-    posting lists for the whole index. `avoid_trigram_index` emits the equivalent
-    `lower(field) LIKE lower(pattern)`, which no trigram index on `field` can serve, so the planner
-    has to start from the tenant-scoped index instead.
+    `strpos(lower(field), lower(term)) > 0` does the literal match, and no trigram index can serve it. By
+    default a `field ILIKE pattern` condition goes with it, so that the planner can find candidate rows in a
+    trigram GIN index on the field. Where that index is global and the query is already scoped to one
+    tenant, the planner still often reads the posting lists for the whole index. `avoid_trigram_index`
+    emits only the `strpos` check, so the planner has to start from the tenant-scoped index instead.
     """
     if not search_fields or not search_terms:
         return "", {}
 
     terms = list(filter(None, search_terms.replace("\x00", "").split(" ")))
 
-    kwargs = {}
+    kwargs: dict[str, str] = {}
     term_filter = []
     for term_idx, search_term in enumerate(terms):
+        kwargs[f"search_term_{term_idx}"] = search_term
+        if not avoid_trigram_index:
+            kwargs[f"search_pattern_{term_idx}"] = _trigram_candidate_pattern(search_term)
         search_filter_query = []
-        for idx, search_field in enumerate(search_fields):
-            index = term_idx * len(search_fields) + idx
+        for search_field in search_fields:
+            contains_term = f"strpos(lower({search_field}), lower(%(search_term_{term_idx})s)) > 0"
             if avoid_trigram_index:
-                search_filter_query.append(f"lower({search_field}) like lower(%(search_{index})s)")
+                search_filter_query.append(contains_term)
             else:
-                search_filter_query.append(f"{search_field} ilike %(search_{index})s")
-            kwargs[f"search_{index}"] = f"%{search_term}%"
+                search_filter_query.append(f"({search_field} ilike %(search_pattern_{term_idx})s AND {contains_term})")
         term_filter.append(f"({' OR '.join(search_filter_query)})")
 
     if term_filter:

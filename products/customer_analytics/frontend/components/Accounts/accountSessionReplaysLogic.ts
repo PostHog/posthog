@@ -19,6 +19,10 @@ import posthog from 'posthog-js'
 import { ApiError } from 'lib/api'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
+import type {
+    SessionPlayerModalContext,
+    SessionPlayerModalRecordingList,
+} from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { CustomerAnalyticsConfig } from '~/queries/schema/schema-general'
@@ -72,12 +76,12 @@ export interface accountSessionReplaysLogicActions {
     openSessionPlayer: (
         sessionRecording: Pick<SessionRecordingType, 'id' | 'matching_events'>,
         initialTimestamp?: number | null | undefined,
-        modalContext?:
-            | import('scenes/session-recordings/player/modal/sessionPlayerModalLogic').SessionPlayerModalContext
-            | undefined
+        modalContext?: SessionPlayerModalContext | undefined,
+        recordingList?: SessionPlayerModalRecordingList | null | undefined
     ) => {
         initialTimestamp: number | null
-        modalContext: import('scenes/session-recordings/player/modal/sessionPlayerModalLogic').SessionPlayerModalContext
+        modalContext: SessionPlayerModalContext
+        recordingList: SessionPlayerModalRecordingList | null
         sessionRecording: Pick<SessionRecordingType, 'id' | 'matching_events'>
     } // sessionPlayerModalLogic
     loadMore: () => {

@@ -7,10 +7,10 @@
 //! on the SDK's background worker thread, so a thread-local recorder would miss
 //! it — the recorder must be global.
 
-use std::collections::HashMap;
+mod support;
 
 use httpmock::prelude::*;
-use metrics_util::debugging::{DebugValue, DebuggingRecorder};
+use metrics_util::debugging::DebuggingRecorder;
 
 #[tokio::test]
 async fn init_hook_emits_delivery_failure_metric_on_terminal_reject() {
@@ -34,38 +34,38 @@ async fn init_hook_emits_delivery_failure_metric_on_terminal_reject() {
         .await
         .expect("init should succeed when an api key is provided");
 
-    posthog_rs::capture(posthog_rs::Event::new_anon("test_event"));
-    posthog_rs::flush().await;
+    posthog::capture(posthog::Event::new_anon("test_event"));
+    posthog::flush().await;
 
     mock.assert_async().await;
 
-    let hit = snapshotter
-        .snapshot()
-        .into_vec()
-        .into_iter()
-        .find_map(|(key, _, _, value)| {
-            if key.key().name() != "posthog_sdk_delivery_failures_total" {
-                return None;
-            }
-            let labels: HashMap<String, String> = key
-                .key()
-                .labels()
-                .map(|l| (l.key().to_string(), l.value().to_string()))
-                .collect();
-            match value {
-                DebugValue::Counter(c) => Some((labels, c)),
-                _ => None,
-            }
-        });
+    let (labels, count) = support::counter(&snapshotter, "posthog_sdk_delivery_failures_total")
+        .expect("terminal capture reject must emit the delivery-failure metric");
+    assert_eq!(count, 1, "one terminal failure => one increment");
+    assert_eq!(
+        labels,
+        support::labels(&[
+            ("service", "test-svc"),
+            ("surface", "capture"),
+            ("reason", "bad_request")
+        ]),
+        "HTTP 400 must classify as bad_request",
+    );
 
     let (labels, count) =
-        hit.expect("terminal capture reject must emit the delivery-failure metric");
-    assert_eq!(count, 1, "one terminal failure => one increment");
-    assert_eq!(labels.get("service").map(String::as_str), Some("test-svc"));
-    assert_eq!(labels.get("surface").map(String::as_str), Some("capture"));
+        support::counter(&snapshotter, "posthog_sdk_capture_request_failures_total")
+            .expect("a terminal request failure must emit the request-failure metric");
+    assert_eq!(count, 1);
     assert_eq!(
-        labels.get("reason").map(String::as_str),
-        Some("bad_request"),
-        "HTTP 400 must classify as bad_request",
+        labels,
+        support::labels(&[
+            ("service", "test-svc"),
+            ("status", "400"),
+            ("error", "bad_request")
+        ]),
+    );
+    assert!(
+        support::counter(&snapshotter, "posthog_sdk_capture_unpersisted_events_total").is_none(),
+        "a request failure carries no per-event results",
     );
 }

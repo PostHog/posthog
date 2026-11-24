@@ -5,6 +5,7 @@
     },
     "dependencies": {
         "@posthog/quill": "workspace:*",
+        "@posthog/quill-charts": "workspace:*",
         "kea": "catalog:",
         "kea-forms": "catalog:",
         "kea-loaders": "catalog:",
