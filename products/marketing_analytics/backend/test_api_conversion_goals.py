@@ -428,6 +428,55 @@ class TestConversionGoalWrites(APIBaseTest):
         assert {entry.user_id for entry in entries} == {self.user.pk}
 
 
+class TestRecommendationConversionActionsSetting(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        get_or_create_team_extension(self.team, TeamMarketingAnalyticsConfig)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+    @parameterized.expand(
+        [
+            ("saves_the_list", ["customers/1/conversionActions/10"], 200, ["customers/1/conversionActions/10"]),
+            ("empty_list_counts_primary_actions", [], 200, []),
+            ("rejects_an_action_name", ["Purchase"], 400, ["customers/9/conversionActions/90"]),
+            (
+                "rejects_non_ascii_digits",
+                ["customers/\u0661/conversionActions/10"],
+                400,
+                ["customers/9/conversionActions/90"],
+            ),
+        ]
+    )
+    def test_settings_save_writes_the_recommendation_conversion_actions(
+        self, _name: str, sent: list[str], expected_status: int, stored: list[str]
+    ) -> None:
+        TeamMarketingAnalyticsConfig.objects.filter(team=self.team).update(
+            recommendation_conversion_actions=["customers/9/conversionActions/90"]
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.pk}/",
+            {"marketing_analytics_config": {"recommendation_conversion_actions": sent}},
+            format="json",
+        )
+
+        assert response.status_code == expected_status, response.json()
+        config = TeamMarketingAnalyticsConfig.objects.get(team=self.team)
+        assert config.recommendation_conversion_actions == stored
+
+    def test_null_column_reads_as_an_empty_list_that_saves_back(self) -> None:
+        TeamMarketingAnalyticsConfig.objects.filter(team=self.team).update(recommendation_conversion_actions=None)
+
+        read = self.client.get(f"/api/projects/{self.team.pk}/").json()["marketing_analytics_config"]
+        assert read["recommendation_conversion_actions"] == []
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.pk}/", {"marketing_analytics_config": read}, format="json"
+        )
+        assert response.status_code == 200, response.json()
+
+
 class TestConversionGoalIdIsOneName(APIBaseTest):
     def setUp(self):
         super().setUp()
