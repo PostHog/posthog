@@ -396,6 +396,7 @@ __all__ = [
     "compute_repository_readiness",
     "create_and_run_task",
     "get_owner_origin_latest_run",
+    "origin_run_ids_since",
     "owner_origin_has_non_terminal_run",
     "owner_origin_open_task_ids",
     "owner_origin_recent_task_ids",
@@ -2405,6 +2406,21 @@ def owner_origin_recent_run_ids(
         )
         .order_by("-created_at")
         .values_list("id", flat=True)[:limit]
+    )
+
+
+def origin_run_ids_since(*, team_id: int, origin_product: str, since: datetime) -> list[UUID]:
+    """Ids of every run started since ``since`` on the team's tasks of this origin, deleted tasks included.
+
+    Reads only Tasks rows, so a product that deletes its own records of a run still finds it here.
+    """
+    return list(
+        TaskRun.objects.filter(
+            team_id=team_id,
+            task__team_id=team_id,
+            task__origin_product=origin_product,
+            created_at__gte=since,
+        ).values_list("id", flat=True)
     )
 
 

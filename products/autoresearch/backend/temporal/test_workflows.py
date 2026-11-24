@@ -67,7 +67,7 @@ from products.autoresearch.backend.temporal.workflows import (
     daily_sweep_key,
     evaluate_pipeline_outcome,
 )
-from products.autoresearch.backend.testing import TeamScopedTestMixin, fake_task_runs_spend
+from products.autoresearch.backend.testing import TeamScopedTestMixin, fake_task_run_spend
 from products.autoresearch.backend.training.artifacts import scored_persons_key
 
 
@@ -696,6 +696,7 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
             ("unrecorded_token_cost_counts_as_zero", 0, (None, 1_000_000), None, "explore"),
             ("team_override_raises_the_budget", 0, (60_000_000, 40_000_000), "this_team", "explore"),
             ("budget_of_zero_stops_training", None, None, "turned_off", "team_monthly_budget"),
+            ("a_deleted_models_spend_still_counts", 0, (100_000_000, 0), "delete_the_model", "team_monthly_budget"),
         ]
     )
     @patch("products.autoresearch.backend.limits.posthoganalytics.get_feature_flag_payload")
@@ -717,11 +718,12 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
             else None
         )
         now = datetime(2026, 11, 10, 12, tzinfo=UTC)
-        costs: dict[uuid.UUID, tuple[Optional[int], int]] = {}
+        runs: dict[uuid.UUID, tuple[datetime, Optional[int], int]] = {}
         with time_machine.travel(now, tick=False):
             if days_ago is not None and cost is not None:
+                started_at = now - timedelta(days=days_ago)
                 other_pipeline = self._create_pipeline(name="other pipeline", status=AutoresearchPipeline.Status.PAUSED)
-                with time_machine.travel(now - timedelta(days=days_ago), tick=False):
+                with time_machine.travel(started_at, tick=False):
                     run = AutoresearchTrainingRun.objects.create(
                         pipeline=other_pipeline,
                         status=AutoresearchTrainingRun.Status.COMPLETED,
@@ -732,11 +734,11 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
                         agent_runtime_adapter="claude",
                     )
                 assert run.task_run_id is not None
-                costs[run.task_run_id] = cost
+                runs[run.task_run_id] = (started_at, *cost)
+                if override == "delete_the_model":
+                    other_pipeline.delete()
             pipeline = self._create_pipeline()
-            with patch(
-                "products.autoresearch.backend.limits.get_task_runs_spend", side_effect=fake_task_runs_spend(costs)
-            ):
+            with fake_task_run_spend(runs):
                 result = activity_kickoff_training(
                     KickoffTrainingInput(pipeline_id=str(pipeline.id), team_id=self.team.id)
                 )

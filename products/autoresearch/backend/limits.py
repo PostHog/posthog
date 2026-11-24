@@ -12,7 +12,7 @@ limit without a deploy:
     }
 
 `max_training_spend_usd_per_month` is whole US dollars. The month's spend is the token cost plus
-the compute cost that Tasks records for the project's sandbox training runs created since the
+the compute cost that Tasks records for the project's `autoresearch` task runs created since the
 start of the current UTC calendar month. A run whose token cost is not recorded counts as 0. The
 budget refuses a new run at or above the limit and never stops a run in progress, so a month can
 end above it by the runs that were in progress when it was reached.
@@ -38,6 +38,7 @@ from posthog.cloud_utils import is_cloud
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 
+from products.tasks.backend.facade.api import TaskOriginProduct, origin_run_ids_since
 from products.tasks.backend.facade.billing import get_task_runs_spend
 
 from .access import AUTORESEARCH_FLAG
@@ -226,13 +227,9 @@ def training_spend(team_id: int, limits: TeamLimits) -> TrainingSpend:
     """This month's spend on the project's sandbox training runs, a run in progress included."""
     month_start = timezone.now().astimezone(UTC).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     resets_at = (month_start + timedelta(days=32)).replace(day=1)
-    run_ids = [
-        run_id
-        for run_id in counted_training_runs(team_id)
-        .filter(created_at__gte=month_start, task_run_id__isnull=False)
-        .values_list("task_run_id", flat=True)
-        if run_id is not None
-    ]
+    # Read from Tasks, not from the training run rows, because deleting a pipeline deletes its
+    # training runs and would take their spend out of the month.
+    run_ids = origin_run_ids_since(team_id=team_id, origin_product=TaskOriginProduct.AUTORESEARCH, since=month_start)
     spends = get_task_runs_spend(team_id=team_id, run_ids=run_ids) if run_ids else []
     spent_microusd = sum((spend.cost_microusd or 0) + spend.compute_cost_microusd for spend in spends)
     # A run that has not reached the gateway yet, or whose sandbox did not route through it, has no

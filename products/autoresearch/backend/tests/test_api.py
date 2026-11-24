@@ -42,7 +42,7 @@ from products.autoresearch.backend.presentation.views.serializers import (
     PopulationDefinitionField,
     ValidationWarningSerializer,
 )
-from products.autoresearch.backend.testing import TeamScopedTestMixin, fake_task_runs_spend
+from products.autoresearch.backend.testing import TeamScopedTestMixin, fake_task_run_spend
 from products.tasks.backend.models import Task
 
 MOCK_VALIDATION_OK = ValidationResult(
@@ -1207,10 +1207,7 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
             patch(
                 "products.autoresearch.backend.limits.posthoganalytics.get_feature_flag_payload", return_value=payload
             ),
-            patch(
-                "products.autoresearch.backend.limits.get_task_runs_spend",
-                side_effect=fake_task_runs_spend({task_run_id: (100_000_000, 250_000)}),
-            ),
+            fake_task_run_spend({task_run_id: (django_timezone.now(), 100_000_000, 250_000)}),
             patch("products.autoresearch.backend.training.runner.run_training") as mock_run_training,
         ):
             resp = self.client.post(f"{self.base_url}/{pipeline.id}/train/")
@@ -1352,10 +1349,7 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
                     "team_configs": {str(self.team.pk): {"max_training_spend_usd_per_month": 40}},
                 },
             ),
-            patch(
-                "products.autoresearch.backend.limits.get_task_runs_spend",
-                side_effect=fake_task_runs_spend({task_run_id: (12_500_000, 250_000)}),
-            ),
+            fake_task_run_spend({task_run_id: (started_at, 12_500_000, 250_000)}),
         ):
             resp = self.client.get(f"{self.base_url}/limits/")
 

@@ -58,7 +58,7 @@ The facade refuses a pipeline going live at the limit with `LivePipelineCapReach
 Pipelines already over the limit keep running and training.
 A project spends at most `max_training_spend_usd_per_month` US dollars (default 100) on sandbox training in a UTC calendar month.
 The spend is the token cost plus the compute cost of the project's sandbox training runs created this month, across all its pipelines, a run in progress included, read through `get_task_runs_spend` in the Tasks billing facade.
-It counts the same runs as the daily limit, so external agent runs do not count.
+It finds the runs in Tasks by the `autoresearch` origin (`origin_run_ids_since`), not from the training run rows, so deleting a model does not take its runs out of the month. External agent runs have no task, so they do not count.
 A run whose token cost is not recorded yet counts as 0, and `limits.py` logs `autoresearch_training_spend_unrecorded` with how many such runs the month has.
 At or above the budget, `start_training` raises `TrainingBudgetReached` (a 429 with code `training_budget_reached`) and the sweep's kickoff reports `team_monthly_budget`, rescue runs included.
 A run in progress is never stopped, and scoring and validation do not depend on the budget, so live models keep scoring.
