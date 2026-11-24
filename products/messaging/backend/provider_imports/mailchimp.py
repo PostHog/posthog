@@ -110,6 +110,13 @@ TOO_MANY_AUDIENCES_MESSAGE = (
     "as CSV files instead."
 )
 ACCOUNT_NAME_LENGTH = 200
+# Each tag and segment becomes a cohort too, saved in the same transaction. An account past either limit still imports
+# its contacts, and the cohorts left out stay as they were.
+MAX_SEGMENTS = 500
+MAX_SEGMENT_MEMBERSHIPS = 250_000
+SEGMENT_NAME_LENGTH = 200
+# Mailchimp calls a tag a static segment. A fuzzy segment is one Mailchimp makes for its own use.
+_SEGMENT_KINDS = {"static": "tag", "saved": "segment"}
 OPT_OUT_STEPS = ("audiences", "groups", "cleaned", "complaints")
 _ADDRESS_PARTS = ("addr1", "addr2", "city", "state", "zip", "country")
 MAX_LIST_RESTARTS = 3
@@ -153,8 +160,8 @@ class MailchimpImportProvider(ImportProvider):
     )
     api_key_url = "https://us1.admin.mailchimp.com/account/api/"
     not_imported = (
-        "Customer journeys, classic automations, segments, tags, signup forms, reports and Mailchimp Transactional "
-        "(Mandrill) stay in Mailchimp, so rebuild what you need."
+        "Customer journeys, classic automations, signup forms, reports and Mailchimp Transactional (Mandrill) stay in "
+        "Mailchimp, so rebuild what you need."
     )
     next_steps = (
         "Add your sending domain in PostHog and publish its DNS records.",
@@ -257,7 +264,8 @@ class MailchimpImportProvider(ImportProvider):
             label="Contacts",
             description=(
                 "Matches each subscribed contact to a person in PostHog by email and copies their merge fields where "
-                "PostHog has no value. Fills a cohort with all your subscribed contacts and one with each audience's. "
+                "PostHog has no value. Fills a cohort with all your subscribed contacts and one for each audience, tag and "
+                "segment. Tags and segments don't update on their own: import again to refresh their cohorts. "
                 "Contacts who unsubscribed, never subscribed, were archived or were cleaned stay out. Needs Audiences, "
                 "Groups, Cleaned contacts and Abuse reports selected too, so no one who left in Mailchimp gets "
                 "marketing email."
@@ -827,6 +835,7 @@ def _fetch_contacts(client: MailchimpClient, context: ImportContext) -> Iterator
     run_started = ProviderImportRun.objects.for_team(context.team_id).get(id=context.run_id).created_at
     contacts = ContactCollector()
     lists: list[ContactList] = []
+    subscribed: list[tuple[dict[str, Any], dict[str, dict[str, str]]]] = []
     read = 0
     for audience in audiences:
         members: list[dict[str, str]] = []
@@ -845,6 +854,7 @@ def _fetch_contacts(client: MailchimpClient, context: ImportContext) -> Iterator
             _whole_lists_only(page).save()
             read += page.processed
         name = _audience_name(audience)
+        subscribed.append((audience, {row["email"].lower(): row for row in members}))
         lists.append(
             ContactList(
                 cohort_name=f"{name[:MAX_SOURCE_NAME_LENGTH]} (from Mailchimp)",
@@ -863,9 +873,118 @@ def _fetch_contacts(client: MailchimpClient, context: ImportContext) -> Iterator
         repeats_merged=contacts.repeats_merged,
         invalid_skipped=contacts.invalid_skipped,
     )
-    yield ImportPage(
-        processed=read, save=partial(save_contact_lists, context, everyone, lists, contacts.other_spellings)
+    segments = _read_segments(client, subscribed)
+
+    def save() -> SavedPage:
+        saved = save_contact_lists(context, everyone, [*lists, *segments.lists], contacts.other_spellings)
+        return saved if saved.error else replace(saved, items=(*saved.items, *segments.skipped))
+
+    yield ImportPage(processed=read, save=save)
+
+
+@frozen
+class _Segments:
+    lists: tuple[ContactList, ...]
+    # Says why a tag or segment has no list. Its cohort stays as it is.
+    skipped: tuple[ImportItem, ...]
+
+
+def _read_segments(
+    client: MailchimpClient, subscribed: list[tuple[dict[str, Any], dict[str, dict[str, str]]]]
+) -> _Segments:
+    """A list for each tag and segment, holding only contacts the import read as subscribed to its audience."""
+    lists: list[ContactList] = []
+    skipped: list[ImportItem] = []
+    memberships = left_out = 0
+    for audience, rows_by_email in subscribed:
+        list_id = str(audience["id"])
+        found = client.all(
+            f"/lists/{quoted(list_id)}/segments",
+            "segments",
+            {"fields": "segments.id,segments.name,segments.type,total_items"},
+        )
+        # Oldest first, so a later import of an account past the limit fills the same cohorts.
+        for segment in sorted(
+            (row for row in found if isinstance(row.get("id"), int) and row.get("type") in _SEGMENT_KINDS),
+            key=lambda row: row["id"],
+        ):
+            if len(lists) >= MAX_SEGMENTS or memberships >= MAX_SEGMENT_MEMBERSHIPS:
+                left_out += 1
+                continue
+            kind = _SEGMENT_KINDS[segment["type"]]
+            name = _clean(segment.get("name")).strip() or str(segment["id"])
+            # Tags and segments of the same name can sit in one audience or in several.
+            cohort_name = (
+                f"{name[:SEGMENT_NAME_LENGTH]} ({kind} in {_audience_name(audience)[: SEGMENT_NAME_LENGTH - 50]}, "
+                "from Mailchimp)"
+            )
+            rows: dict[str, dict[str, str]] = {}
+            problem = _read_segment(client, audience, segment["id"], rows_by_email, rows)
+            if problem:
+                skipped.append(ImportItem(label=cohort_name, status="failed", notes=(problem,)))
+                continue
+            memberships += len(rows)
+            lists.append(
+                ContactList(
+                    cohort_name=cohort_name,
+                    cohort_description=f"Imported from Mailchimp {kind} {segment['id']} of audience {list_id}.",
+                    source=f'the Mailchimp {kind} "{name}"',
+                    rows=tuple(rows.values()),
+                    empty_note="No subscribed contacts, so no one is in its cohort.",
+                )
+            )
+    if left_out:
+        skipped.append(
+            ImportItem(
+                label="More tags and segments",
+                status="skipped",
+                notes=(
+                    f"{left_out:,} more tags and segments than one import takes have no cohort from this import. Export "
+                    "the ones you need from Mailchimp and upload them as CSV files.",
+                ),
+            )
+        )
+    return _Segments(lists=tuple(lists), skipped=tuple(skipped))
+
+
+def _read_segment(
+    client: MailchimpClient,
+    audience: Mapping[str, Any],
+    segment_id: int,
+    rows_by_email: Mapping[str, dict[str, str]],
+    rows: dict[str, dict[str, str]],
+) -> str:
+    """Adds the segment's subscribed members to `rows`, or returns why it couldn't be read whole. One segment Mailchimp
+    can't build must not keep every contact out."""
+    list_id = quoted(str(audience["id"]))
+    target = _Target(
+        position=f"{audience['id']}/{segment_id}",
+        path=f"/lists/{list_id}/segments/{segment_id}/members",
+        items_key="members",
+        params={"fields": "members.email_address,members.status,total_items"},
+        details={"audience": audience},
     )
+
+    def collect(_target: _Target, items: list[dict[str, Any]], _first: bool) -> SavedPage:
+        for item in items:
+            email = exact_email(item.get("email_address"))
+            row = rows_by_email.get(email.lower()) if email and item.get("status") == "subscribed" else None
+            if row is not None:
+                rows[row["email"].lower()] = row
+        return SavedPage(imported=0)
+
+    try:
+        for page in _read_targets(client, [target], None, collect):
+            restarted = page.checkpoint is not None and page.checkpoint.get("restarts")
+            if restarted or page.save().warnings:
+                return "It changed in Mailchimp while PostHog read it, so its cohort stays as it is. Import again."
+    except (MailchimpKeyRejected, MailchimpRateLimited):
+        raise
+    except MailchimpAPIError as e:
+        if e.status_code is None:
+            raise
+        return "Mailchimp couldn't share its members, so its cohort stays as it is. Import again."
+    return ""
 
 
 def _collect_subscribed(
