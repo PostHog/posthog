@@ -121,6 +121,7 @@ async def create_table_from_saved_query(
     team_id: int,
     queryable_folder: str,
     row_count: int | None = None,
+    size_in_s3_mib: float | None = None,
 ) -> CreateTableResult:
     """
     Create a table from a saved query if it doesn't exist.
@@ -170,19 +171,20 @@ async def create_table_from_saved_query(
                 )()
         table_created.row_count = row_count
 
-        refreshed_saved_query = await aget_saved_query_by_id(saved_query_id=saved_query_id_converted, team_id=team_id)
-
-        table_created.size_in_s3_mib = None
-
-        try:
-            if refreshed_saved_query:
-                table_created.size_in_s3_mib = await calculate_table_size(
-                    refreshed_saved_query, team_id, queryable_folder
-                )
-        except Exception as e:
-            capture_exception(e)
-            await logger.adebug("Error raised from calcuting table size")
-            await logger.adebug(str(e))
+        table_created.size_in_s3_mib = size_in_s3_mib
+        if size_in_s3_mib is None:
+            refreshed_saved_query = await aget_saved_query_by_id(
+                saved_query_id=saved_query_id_converted, team_id=team_id
+            )
+            try:
+                if refreshed_saved_query:
+                    table_created.size_in_s3_mib = await calculate_table_size(
+                        refreshed_saved_query, team_id, queryable_folder
+                    )
+            except Exception as e:
+                capture_exception(e)
+                await logger.adebug("Error raised from calcuting table size")
+                await logger.adebug(str(e))
 
         publish = await database_sync_to_async_pool(publish_backing_table)(
             team_id,

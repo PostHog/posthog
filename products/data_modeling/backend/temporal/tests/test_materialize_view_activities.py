@@ -94,6 +94,7 @@ from products.data_modeling.backend.temporal.activities.materialize_view import 
     HogQLModelQueryError,
     IncrementalWindow,
     InvalidNodeTypeException,
+    LiveFiles,
     _adaptive_retry_delay,
     _describe_columns,
     _recent_capacity_errors,
@@ -109,6 +110,7 @@ from products.data_modeling.backend.temporal.activities.materialize_view_managed
     materialize_view_managed_warehouse_activity,
 )
 from products.data_modeling.backend.temporal.activities.notify_materialization_failure import _SavedQueryViewers
+from products.data_modeling.backend.temporal.activities.prepare_queryable_table import staged_size_mib
 from products.data_modeling.backend.temporal.workflows.materialize_view import NON_RETRYABLE_ERRORS
 from products.data_quality.backend.facade.enums import (
     CheckRunStatus,
@@ -1598,6 +1600,19 @@ class TestSucceedMaterializationActivity:
         assert result.enrichment_needed is True
 
 
+@pytest.mark.parametrize(
+    "file_uris,expected_mib",
+    [
+        (["s3://bucket/model/part-0.parquet", "s3://bucket/model/part-1.parquet"], 3.0),
+        (["s3://bucket/model/part-0.parquet", "s3://bucket/model/empty.parquet"], None),
+    ],
+)
+def test_staged_size_needs_a_logged_size_for_every_staged_file(file_uris, expected_mib):
+    sizes = {"part-0.parquet": 1024 * 1024, "part-1.parquet": 2 * 1024 * 1024}
+    files = LiveFiles(uris=file_uris, sizes_by_relative_path=sizes)
+    assert staged_size_mib("s3://bucket/model", files) == expected_mib
+
+
 class TestPrepareQueryableTableActivity:
     @pytest.mark.parametrize("incremental,expected_row_count", [(False, 100), (True, None)])
     async def test_creates_warehouse_table_from_saved_query(
@@ -1608,9 +1623,10 @@ class TestPrepareQueryableTableActivity:
             job_id=str(ajob.id),
             saved_query_id=str(asaved_query.id),
             table_uri="s3://test-bucket/test_table",
-            file_uris=["s3://test-bucket/test_file.parquet"],
+            file_uris=["s3://test-bucket/test_table/part-0.parquet"],
             row_count=100,
             incremental=incremental,
+            file_sizes={"part-0.parquet": 2 * 1024 * 1024},
         )
         warehouse_table = await database_sync_to_async(DataWarehouseTable.objects.create)(
             team=ateam,
@@ -1637,6 +1653,7 @@ class TestPrepareQueryableTableActivity:
                 ateam.pk,
                 "test-bucket/queryable_folder",
                 row_count=expected_row_count,
+                size_in_s3_mib=2.0,
             )
         await database_sync_to_async(warehouse_table.delete)()
 

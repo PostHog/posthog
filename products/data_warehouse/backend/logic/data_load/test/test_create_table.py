@@ -143,7 +143,7 @@ async def test_materialization_replaces_table_metadata_in_one_snapshot(team: Tea
 
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
-async def test_a_given_row_count_is_recorded_without_counting_the_files(team: Team) -> None:
+async def test_a_given_row_count_and_size_are_recorded_without_reading_the_files(team: Team) -> None:
     saved_query = await DataWarehouseSavedQuery.objects.acreate(
         team=team,
         name="counted_model",
@@ -162,13 +162,15 @@ async def test_a_given_row_count_is_recorded_without_counting_the_files(team: Te
         patch(
             "products.data_warehouse.backend.logic.data_load.create_table.calculate_table_size",
             new_callable=AsyncMock,
-            return_value=0.0,
+            return_value=99.0,
         ),
     ):
-        result = await create_table_from_saved_query(str(job.id), str(saved_query.id), team.pk, "folder", row_count=42)
+        result = await create_table_from_saved_query(
+            str(job.id), str(saved_query.id), team.pk, "folder", row_count=42, size_in_s3_mib=3.0
+        )
 
     await result.table.arefresh_from_db()
-    assert result.table.row_count == 42
+    assert (result.table.row_count, result.table.size_in_s3_mib) == (42, 3.0)
 
 
 @pytest.mark.asyncio
