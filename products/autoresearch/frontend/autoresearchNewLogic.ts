@@ -28,6 +28,7 @@ import { urls } from 'scenes/urls'
 import { AnyPropertyFilter, Breadcrumb } from '~/types'
 
 import type { FeatureFlagsSet } from '../../../frontend/src/lib/logic/featureFlagLogic'
+import { trainingStartRefusal } from './firstRunCheck'
 import {
     autoresearchCreate,
     autoresearchLimitsRetrieve,
@@ -792,18 +793,16 @@ export const autoresearchNewLogic = kea<autoresearchNewLogicType>([
                         })
                         lemonToast.success(`Started training "${created.name}"`)
                     } catch (error: any) {
+                        const refusal = trainingStartRefusal(error)
                         // The model exists, so open it anyway. Its page can start training again.
                         posthog.capture('autoresearch model training start failed', {
                             ...eventProperties,
                             pipeline_id: created.id,
+                            ...(refusal.code ? { error_code: refusal.code } : {}),
                         })
-                        // The access and usage gates put their reason in `error`, not in DRF's `detail`.
                         lemonToast.error(
                             `Saved "${created.name}" as a draft, but training didn't start. ${
-                                error?.detail ??
-                                error?.data?.detail ??
-                                error?.data?.error ??
-                                'Start it from the model page.'
+                                refusal.reason ?? 'Start it from the model page.'
                             }`
                         )
                     }

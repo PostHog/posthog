@@ -128,6 +128,9 @@ class ScoringRun(StrEnum):
     SCORE = "score"
 
 
+JUDGE_HISTORY_QUERY_NAME = "anomaly_scoring_judge_history"
+
+
 # Retrain hourly insights once a day, daily once a week, weekly once a month, and monthly once a quarter.
 DEFAULT_TRAIN_EVERY_BUCKETS = {IntervalType.HOUR: 24, IntervalType.DAY: 7, IntervalType.WEEK: 4, IntervalType.MONTH: 3}
 MAX_TRAIN_EVERY_BUCKETS = {IntervalType.HOUR: 168, IntervalType.DAY: 30, IntervalType.WEEK: 13, IntervalType.MONTH: 12}

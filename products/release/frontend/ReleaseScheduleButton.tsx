@@ -1,13 +1,23 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { IconCalendar, IconChevronDown } from '@posthog/icons'
-import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@posthog/quill'
+import {
+    Button,
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from '@posthog/quill'
 
+import { releaseLaunchLogic } from './releaseLaunchLogic'
 import { releaseLogic } from './releaseLogic'
 import { ReleaseScheduleFlagSearch } from './ReleaseScheduleFlagSearch'
 import { ReleaseRow } from './releaseUtils'
 
 const MENU_LIMIT = 10
+const LAUNCH_LABEL = 'Launch all flags on one date'
+const NO_EDIT_REASON = 'You need edit access to feature flags to schedule changes'
 
 export function ReleaseScheduleButton({
     row,
@@ -16,7 +26,11 @@ export function ReleaseScheduleButton({
     row: ReleaseRow
     variant?: 'outline' | 'default'
 }): JSX.Element | null {
+    const { canEditReleases } = useValues(releaseLogic)
     const { openSchedule } = useActions(releaseLogic)
+    const { openLaunch } = useActions(releaseLaunchLogic)
+    const launchAll = (): void =>
+        openLaunch(row.flags.map((flag) => ({ id: flag.id, key: flag.key, active: !!flag.active })))
 
     if (!row.flags.length) {
         return null
@@ -30,7 +44,20 @@ export function ReleaseScheduleButton({
         )
     }
     if (row.flags.length > MENU_LIMIT) {
-        return <ReleaseScheduleFlagSearch row={row} />
+        return (
+            <>
+                <Button
+                    variant={variant}
+                    onClick={launchAll}
+                    disabledReason={canEditReleases ? undefined : NO_EDIT_REASON}
+                    data-attr="release-launch-open"
+                >
+                    <IconCalendar />
+                    {LAUNCH_LABEL}
+                </Button>
+                <ReleaseScheduleFlagSearch row={row} />
+            </>
+        )
     }
     return (
         <DropdownMenu>
@@ -40,6 +67,14 @@ export function ReleaseScheduleButton({
                 <IconChevronDown />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
+                <DropdownMenuItem
+                    onClick={launchAll}
+                    disabledReason={canEditReleases ? undefined : NO_EDIT_REASON}
+                    data-attr="release-launch-open"
+                >
+                    {LAUNCH_LABEL}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
                 {row.flags.map((flag) => (
                     <DropdownMenuItem
                         key={flag.id}

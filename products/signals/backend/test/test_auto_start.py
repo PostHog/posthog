@@ -958,18 +958,19 @@ def test_create_implementation_task_threads_resolved_runtime(organization, team)
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize(
-    ("autostart_enabled", "concurrent_edit", "pilot", "repository_available"),
+    ("autostart_enabled", "concurrent_edit", "pilot", "repository_available", "report_priority"),
     [
-        (True, False, False, True),
-        (False, False, False, True),
-        (None, False, False, True),
-        (True, True, False, True),
-        (True, False, True, False),
-        (True, False, True, True),
+        (True, False, False, True, Priority.P2),
+        (False, False, False, True, Priority.P2),
+        (None, False, False, True, Priority.P2),
+        (True, True, False, True, Priority.P2),
+        (True, False, True, False, Priority.P2),
+        (True, False, True, True, Priority.P2),
+        (None, False, False, True, Priority.P3),
     ],
 )
 async def test_team_autostart_switch_gates_reviewerless_fallback(
-    autostart_enabled, concurrent_edit, pilot, repository_available
+    autostart_enabled, concurrent_edit, pilot, repository_available, report_priority
 ):
     # The master switch must gate the reviewer-less fallback — the path email-login teams (no linked
     # GitHub) hit. An actionable, prioritized report with no resolvable reviewer auto-starts under the
@@ -1046,10 +1047,14 @@ async def test_team_autostart_switch_gates_reviewerless_fallback(
                 already_addressed=False,
             ),
             reviewers_content=[],
-            priority=PriorityAssessment(explanation="Affects many sessions.", priority=Priority.P2),
+            priority=PriorityAssessment(explanation="Affects many sessions.", priority=report_priority),
         )
 
-    assert (mock_create.call_count == 1) is (autostart_enabled is not False and (not pilot or repository_available))
+    # The row keeps the P4 column default, so a team with a null switch runs on P2 and holds back a P3 report.
+    held_back_as_unchosen = autostart_enabled is None and report_priority == Priority.P3
+    assert (mock_create.call_count == 1) is (
+        autostart_enabled is not False and (not pilot or repository_available) and not held_back_as_unchosen
+    )
 
     if concurrent_edit:
         assert "A newer fix" in mock_create.call_args.kwargs["description"]
