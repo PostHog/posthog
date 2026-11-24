@@ -8,12 +8,13 @@ https://documentation.mailgun.com/docs/mailgun/user-manual/sending-messages/send
 
 import re
 import html
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import field
 from typing import Any, Literal
 
 from posthog.dataclasses import frozen
 
+from products.messaging.backend.provider_imports.contacts import loose_name
 from products.messaging.backend.provider_imports.handlebars_liquid import HandlebarsToLiquid, OutputTooLarge, TextValue
 from products.messaging.backend.provider_imports.mailgun_go import GoToLiquid, GoUnsupported
 from products.messaging.backend.provider_imports.sendgrid_handlebars import _Malformed, _parse_nodes, _tokenize
@@ -37,6 +38,21 @@ _LIQUID_PROPERTIES = frozenset({"size", "first", "last"})
 _UNSUBSCRIBE_URLS = frozenset({"unsubscribe_url", "tag_unsubscribe_url", "mailing_list_unsubscribe_url"})
 _MAILGUN_VARIABLE = re.compile(f"{_FIXED_VARIABLE.pattern}|{_RECIPIENT_VARIABLE.pattern}")
 _FIXED_UNSUBSCRIBE = re.compile(r"%(?:unsubscribe_url|tag_unsubscribe_url|mailing_list_unsubscribe_url)%")
+# The person property the contacts import writes for a variable, or None when it writes none. Any other variable has the
+# property of its own name.
+_PERSON_PROPERTIES: Mapping[str, str | None] = {
+    "recipient_email": "email",
+    "recipient_name": "name",
+    "recipient": None,
+    "recipient_fname": None,
+    "recipient_lname": None,
+}
+_IDENTITY_PROPERTIES: Mapping[str, str | None] = {"email": "email", "id": None, "distinct_id": None}
+_TRANSACTIONAL_BRANCH = re.compile(
+    r"\{% if event\.event == (?:\"|&quot;)\$transactional_email(?:\"|&quot;)[^%]{0,300} %\}.{0,1000}?\{% else %\}"
+)
+_LIQUID_TAG = re.compile(r"\{[{%].{0,2000}?[%}]\}", re.DOTALL)
+_APP_VALUE = re.compile(r"\bvariables\.([\w-]+)")
 # Syntax Handlebars can't parse, for a version whose engine field is blank.
 _GO_ONLY = re.compile(r"\{\{-?\s*(?:\.[A-Za-z_]|end\b|range\b|\$)")
 
@@ -46,8 +62,10 @@ Engine = Literal["handlebars", "go"]
 @frozen
 class ConvertedText:
     text: str
-    # Variables Mailgun fills from recipient-variables or the list member, so the app must pass them.
+    # Variables Mailgun fills from recipient-variables or the list member.
     recipient_variables: tuple[str, ...] = ()
+    # Names of the values only the app that sends the email has.
+    app_values: tuple[str, ...] = ()
     # What kept the text from converting, as written in the source.
     unsupported: tuple[str, ...] = ()
     has_tags: bool = False
@@ -92,6 +110,11 @@ def _too_many_values(text: str) -> bool:
     return text.count("{{") + text.count("%") // 2 > _MAX_VALUES
 
 
+def _person_path(match: re.Match[str]) -> str | None:
+    name = _PERSON_PROPERTIES[match[1]] if match[1] else _IDENTITY_PROPERTIES.get(loose_name(match[2]), match[2])
+    return f"person.properties.{name}" if name else None
+
+
 def _split_mailgun_variables(text: str) -> Iterator[str | TextValue]:
     """The `%recipient.x%` style variables Mailgun replaces after Handlebars runs."""
     position = 0
@@ -106,7 +129,13 @@ def _split_mailgun_variables(text: str) -> Iterator[str | TextValue]:
         elif match[2] in _LIQUID_PROPERTIES:
             yield TextValue(source=match.group(0), in_attribute=True)
         else:
-            yield TextValue(source=match.group(0), in_attribute=True, value_path=f"variables.{name or match[2]}")
+            variable = name or match[2]
+            yield TextValue(
+                source=match.group(0),
+                in_attribute=True,
+                value_path=f"variables.{variable}",
+                person_path=_person_path(match),
+            )
     yield text[position:]
 
 
@@ -121,12 +150,23 @@ def _convert_handlebars(text: str, is_html: bool) -> ConvertedText:
     return _converted(converter, converted, text)
 
 
+def _has_person_path(tag: str) -> bool:
+    match = _MAILGUN_VARIABLE.fullmatch(tag)
+    return match is not None and not _FIXED_UNSUBSCRIBE.fullmatch(tag) and _person_path(match) is not None
+
+
+def _app_values(converted: str) -> tuple[str, ...]:
+    tags = _LIQUID_TAG.findall(_TRANSACTIONAL_BRANCH.sub("", converted))
+    return tuple(dict.fromkeys(_APP_VALUE.findall("".join(tags))))
+
+
 def _converted(converter: HandlebarsToLiquid, converted: str, text: str) -> ConvertedText:
-    # Only the variables that converted need a value from the app or point at PostHog's preferences page.
+    # Only the variables that converted need a value or point at PostHog's preferences page.
     done = converter.converted
     return ConvertedText(
         text=converted,
-        recipient_variables=tuple(dict.fromkeys(tag for tag in done if not _FIXED_UNSUBSCRIBE.fullmatch(tag))),
+        recipient_variables=tuple(tag for tag in dict.fromkeys(done) if _has_person_path(tag)),
+        app_values=_app_values(converted),
         unsupported=tuple(converter.unsupported),
         has_tags="{{" in text,
         tag_unsubscribe="%tag_unsubscribe_url%" in done,
@@ -205,10 +245,15 @@ def convert_version(version: Mapping[str, Any]) -> ConvertedVersion:
         )
     if any(part.unsubscribe_email for part in parts):
         notes.append("PostHog has no %unsubscribe_email% address, so it stays as text. Remove it.")
-    if recipient := list(dict.fromkeys(name for part in parts for name in part.recipient_variables)):
+    if recipient := _listed(name for part in parts for name in part.recipient_variables):
         send_notes.append(
-            f"Mailgun fills {', '.join(recipient[:_MAX_NOTED_TAGS])} for each recipient. PostHog doesn't, so your app "
-            "has to pass them as variables."
+            f"Mailgun fills {recipient} for each recipient. A send through the API prints what your app passes. A "
+            "broadcast or workflow without the value prints the person's property, which the Mailgun contacts import sets."
+        )
+    if app_values := _listed(name for part in parts for name in part.app_values):
+        send_notes.append(
+            f"Your app passes {app_values} when it sends this template. A broadcast or workflow doesn't, so they print "
+            "empty there. Replace them before you send one."
         )
     return ConvertedVersion(
         subject=subject.text,
@@ -217,6 +262,12 @@ def convert_version(version: Mapping[str, Any]) -> ConvertedVersion:
         send_notes=tuple(send_notes),
         has_content=bool(body.text),
     )
+
+
+def _listed(names: Iterable[str]) -> str:
+    unique = list(dict.fromkeys(names))
+    more = f" and {len(unique) - _MAX_NOTED_TAGS} more" if len(unique) > _MAX_NOTED_TAGS else ""
+    return ", ".join(unique[:_MAX_NOTED_TAGS]) + more
 
 
 def _header(headers: Mapping[str, Any], name: str) -> Any:

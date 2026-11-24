@@ -5,6 +5,7 @@ import { HogFlowAction } from '~/cdp/schema/hogflow'
 import { CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult } from '~/cdp/types'
 import { logger } from '~/common/utils/logger'
 
+import { TRANSACTIONAL_EMAIL_EVENT } from './hogflow-sensitivity'
 import { actionIdForLogging } from './hogflow-utils'
 
 // Deliberately unlabelled: the metric answers "how common are variable misses fleet-wide" (it
@@ -30,6 +31,11 @@ const DOT_REFERENCE_REGEX = /\bvariables\.([A-Za-z_$][A-Za-z0-9_$]*)/g
 const BRACKET_REFERENCE_REGEX = /\bvariables\s*\[\s*['"]([^'"\]]+)['"]\s*\]/g
 const VARIABLE_REFERENCE_REGEXES = [DOT_REFERENCE_REGEX, BRACKET_REFERENCE_REGEX]
 
+// An imported email reads a variable in a send through the API and the person's property in any other run, so the
+// variable in that branch is never missing. Bounded, so a template of unclosed branches scans in linear time.
+const TRANSACTIONAL_BRANCH_REGEX =
+    /\{% if event\.event == (?:"|&quot;)\$transactional_email(?:"|&quot;)[^%]{0,300} %\}[^]{0,1000}?\{% else %\}/g
+
 // Compiled hog output carried alongside the template strings. Never scanned: it's by far the
 // bulkiest part of a config (hundreds of elements per input), references in it are stored as
 // separate string constants that can't match the regexes, and a liquid/template string embedded
@@ -37,23 +43,29 @@ const VARIABLE_REFERENCE_REGEXES = [DOT_REFERENCE_REGEX, BRACKET_REFERENCE_REGEX
 // template, not from that constant.
 const SKIPPED_KEYS = new Set(['bytecode', 'transpiled'])
 
-export const collectTemplateReferences = (value: unknown, regexes: RegExp[], into: Set<string>): void => {
+export const collectTemplateReferences = (
+    value: unknown,
+    regexes: RegExp[],
+    into: Set<string>,
+    ignored?: RegExp
+): void => {
     if (typeof value === 'string') {
+        const scanned = ignored ? value.replace(ignored, '') : value
         for (const regex of regexes) {
-            for (const match of value.matchAll(regex)) {
+            for (const match of scanned.matchAll(regex)) {
                 into.add(match[1])
             }
         }
         return
     }
     if (Array.isArray(value)) {
-        value.forEach((item) => collectTemplateReferences(item, regexes, into))
+        value.forEach((item) => collectTemplateReferences(item, regexes, into, ignored))
         return
     }
     if (value && typeof value === 'object') {
         Object.entries(value).forEach(([key, item]) => {
             if (!SKIPPED_KEYS.has(key)) {
-                collectTemplateReferences(item, regexes, into)
+                collectTemplateReferences(item, regexes, into, ignored)
             }
         })
     }
@@ -68,11 +80,13 @@ export const collectTemplateReferences = (value: unknown, regexes: RegExp[], int
  */
 export function findMissingVariableReferences(
     config: { inputs?: unknown; mappings?: unknown },
-    variables: Record<string, any> | undefined
+    variables: Record<string, any> | undefined,
+    triggerEvent?: string
 ): string[] {
     const referenced = new Set<string>()
-    collectTemplateReferences(config.inputs, VARIABLE_REFERENCE_REGEXES, referenced)
-    collectTemplateReferences(config.mappings, VARIABLE_REFERENCE_REGEXES, referenced)
+    const ignored = triggerEvent === TRANSACTIONAL_EMAIL_EVENT ? undefined : TRANSACTIONAL_BRANCH_REGEX
+    collectTemplateReferences(config.inputs, VARIABLE_REFERENCE_REGEXES, referenced, ignored)
+    collectTemplateReferences(config.mappings, VARIABLE_REFERENCE_REGEXES, referenced, ignored)
 
     const available = variables ?? {}
     return [...referenced].filter((name) => !(name in available)).sort()
@@ -90,7 +104,8 @@ export function observeMissingVariableReferences(
     const stopTimer = histogramVariableScanDuration.startTimer()
     const missing = findMissingVariableReferences(
         action.config as { inputs?: unknown; mappings?: unknown },
-        invocation.state.variables
+        invocation.state.variables,
+        invocation.state.event?.event
     )
     stopTimer()
     if (missing.length === 0) {

@@ -14,6 +14,17 @@ ESCAPED_X = '{{ variables.x | join: "," }}'
 RENDER_CASES = json.loads((Path(__file__).parent / "fixtures" / "mailgun_template_renders.json").read_text())
 
 
+def _recipient(passed: str, person: str, path: str = "variables.x") -> str:
+    return f'{{% if event.event == "$transactional_email" or {path} != nil %}}{passed}{{% else %}}{person}{{% endif %}}'
+
+
+def _recipient_x(printed: str) -> str:
+    return _recipient(printed, printed.replace("variables.x", "person.properties.x"))
+
+
+PLAIN_X = '{{ variables.x | join: "," }}'
+
+
 class TestMailgunTemplateConversion(SimpleTestCase):
     @parameterized.expand([(case["name"], case) for case in RENDER_CASES])
     def test_converted_templates_match_the_rendered_fixture(self, _name: str, case: dict) -> None:
@@ -43,7 +54,7 @@ class TestMailgunTemplateConversion(SimpleTestCase):
                 "recipient_variable_in_a_link",
                 "handlebars",
                 '<a href="%recipient.x%" title="z">',
-                '<a href="{{ variables.x | join: &quot;,&quot; }}" title="z">',
+                f'<a href="{_recipient_x(PLAIN_X).replace(chr(34), "&quot;")}" title="z">',
             ),
             (
                 "after_a_style",
@@ -55,7 +66,7 @@ class TestMailgunTemplateConversion(SimpleTestCase):
                 "whole_unquoted_attributes",
                 "handlebars",
                 "<a href={{x}} title=%recipient.x%><a href=%unsubscribe_url%>",
-                '<a href="{{ variables.x | join: &quot;,&quot; }}" title="{{ variables.x | join: &quot;,&quot; }}">'
+                f'<a href="{PLAIN_X.replace(chr(34), "&quot;")}" title="{_recipient_x(PLAIN_X).replace(chr(34), "&quot;")}">'
                 '<a href="{{ unsubscribe_url }}">',
             ),
             (
@@ -68,7 +79,7 @@ class TestMailgunTemplateConversion(SimpleTestCase):
                 "recipient_variable_in_a_go_link",
                 "go",
                 '<a href="https://example.com/?%recipient.x%">',
-                f'<a href="https://example.com/?{ESCAPED_X.replace(chr(34), "&quot;")}">',
+                f'<a href="https://example.com/?{_recipient_x(ESCAPED_X).replace(chr(34), "&quot;")}">',
             ),
             ("after_a_stray_less_than", "handlebars", "a<3 {{x}}", f"a<3 {ESCAPED_X}"),
             ("brace_before_a_value", "handlebars", "{ {{x}}", f"{{ {ESCAPED_X}"),
@@ -180,9 +191,46 @@ class TestMailgunTemplateConversion(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("fixed", "%recipient_email%", True, ESCAPED_X.replace("variables.x", "variables.recipient_email")),
-            ("custom", "%recipient.first-name%", True, ESCAPED_X.replace("variables.x", "variables.first-name")),
-            ("custom_text", "%recipient.city%", False, '{{ variables.city | join: "," }}'),
+            (
+                "fixed",
+                "%recipient_email%",
+                True,
+                _recipient(
+                    ESCAPED_X.replace("variables.x", "variables.recipient_email"),
+                    ESCAPED_X.replace("variables.x", "person.properties.email"),
+                    "variables.recipient_email",
+                ),
+            ),
+            (
+                "custom",
+                "%recipient.first-name%",
+                True,
+                _recipient(
+                    ESCAPED_X.replace("variables.x", "variables.first-name"),
+                    ESCAPED_X.replace("variables.x", "person.properties.first-name"),
+                    "variables.first-name",
+                ),
+            ),
+            (
+                "custom_text",
+                "%recipient.city%",
+                False,
+                _recipient(
+                    '{{ variables.city | join: "," }}', '{{ person.properties.city | join: "," }}', "variables.city"
+                ),
+            ),
+            (
+                "an_address_under_another_name",
+                "%recipient.Email%",
+                True,
+                _recipient(
+                    ESCAPED_X.replace("variables.x", "variables.Email"),
+                    ESCAPED_X.replace("variables.x", "person.properties.email"),
+                    "variables.Email",
+                ),
+            ),
+            ("an_id", "%recipient.id%", False, '{{ variables.id | join: "," }}'),
+            ("a_first_name", "%recipient_fname%", False, '{{ variables.recipient_fname | join: "," }}'),
             ("custom_with_space_stays", "%recipient.a b%", True, "%recipient.a b%"),
             ("unsubscribe_in_a_link", 'href="%unsubscribe_url%"', True, 'href="{{ unsubscribe_url }}"'),
             ("percent_signs_alone", "100% of 50%", True, "100% of 50%"),
@@ -192,7 +240,10 @@ class TestMailgunTemplateConversion(SimpleTestCase):
                 "after_raw_html",
                 "{{{a}}}%recipient.x%",
                 True,
-                '{{ variables.a | join: "," | raw }}{{ variables.x | join: "," | escape | replace: "=", "&amp;#x3D;" | replace: "`", "&amp;#x60;" | raw }}',
+                '{{ variables.a | join: "," | raw }}'
+                + _recipient_x(
+                    '{{ variables.x | join: "," | escape | replace: "=", "&amp;#x3D;" | replace: "`", "&amp;#x60;" | raw }}'
+                ),
             ),
         ]
     )
@@ -228,6 +279,26 @@ class TestMailgunTemplateConversion(SimpleTestCase):
 
         assert converted.count("variables.x | json") == 1
         assert converted.count("variables.y | json") == 1
+
+    @parameterized.expand(
+        [
+            (
+                "person",
+                '<a title="%recipient.city%">{{plan}}',
+                ["Mailgun fills %recipient.city% for each", "Your app passes plan when"],
+            ),
+            (
+                "app_only",
+                "%recipient_fname%",
+                ["Your app passes recipient_fname when"],
+            ),
+            ("kept_as_text", "<script>{{x}}</script>%unsubscribe_url% variables.foo", []),
+        ]
+    )
+    def test_notes_say_which_values_a_broadcast_lacks(self, _name: str, html: str, expected: list[str]) -> None:
+        notes = convert_version({"template": html, "headers": {"Subject": "Hi"}}).send_notes
+
+        assert [note[: len(start)] for note, start in zip(notes, expected, strict=True)] == expected
 
     def test_a_go_value_used_first_through_a_mailgun_variable_still_reads_its_kind(self) -> None:
         converted = convert_text("%recipient.x% {{.x}}", engine="go").text

@@ -101,6 +101,8 @@ class TextValue:
     liquid: str | None = None
     # A variable the app passes, printed like a Handlebars value.
     value_path: str | None = None
+    # Where a send without an app, such as a broadcast, finds the same value.
+    person_path: str | None = None
 
 
 TextSplitter = Callable[[str], Iterator["str | TextValue"]]
@@ -204,7 +206,7 @@ class HandlebarsToLiquid:
             if (piece.liquid or piece.value_path) and (whole or self._piece_fits(piece)):
                 self._feed('"x"' if whole else "x")
                 self.converted.append(piece.source)
-                liquid = self._print_piece(piece.value_path) if piece.value_path else piece.liquid or ""
+                liquid = self._print_piece(piece) if piece.value_path else piece.liquid or ""
                 yield _in_quotes(liquid) if whole else self._attribute_safe(liquid)
             else:
                 self.unsupported.append(piece.source)
@@ -672,7 +674,16 @@ class HandlebarsToLiquid:
             return not raw and in_attribute
         return where == "value" and in_attribute and not raw and self._html.plain_attribute()
 
-    def _print_piece(self, value: str) -> str:
+    def _print_piece(self, piece: TextValue) -> str:
+        passed = self._print_piece_value(piece.value_path or "")
+        if piece.person_path is None:
+            return passed
+        person = self._print_piece_value(piece.person_path)
+        # A send through the API prints only what the app passes. An event or a workflow can also pass the value.
+        condition = f'event.event == "$transactional_email" or {piece.value_path} != nil'
+        return f"{{% if {condition} %}}{passed}{{% else %}}{person}{{% endif %}}"
+
+    def _print_piece_value(self, value: str) -> str:
         return self._print(value, False)
 
     def _piece_fits(self, piece: TextValue) -> bool:

@@ -9,6 +9,31 @@ describe('findMissingVariableReferences', () => {
             expected: ['coupon'],
         },
         {
+            name: 'a variable only a send through the API reads, in a workflow run',
+            config: {
+                inputs: {
+                    body: {
+                        value: '{% if event.event == &quot;$transactional_email&quot; or variables.city != nil %}{{ variables.city }}{% else %}{{ person.properties.city }}{% endif %}{{ variables.plan }}',
+                    },
+                },
+            },
+            variables: {},
+            expected: ['plan'],
+        },
+        {
+            name: 'a variable only a send through the API reads, in one',
+            config: {
+                inputs: {
+                    body: {
+                        value: '{% if event.event == &quot;$transactional_email&quot; or variables.city != nil %}{{ variables.city }}{% else %}{{ person.properties.city }}{% endif %}{{ variables.plan }}',
+                    },
+                },
+            },
+            variables: {},
+            event: '$transactional_email',
+            expected: ['city', 'plan'],
+        },
+        {
             name: 'liquid template referencing an unset variable',
             config: { inputs: { body: { value: 'Hi {{ variables.first_name }}!' } } },
             variables: {},
@@ -105,7 +130,7 @@ describe('findMissingVariableReferences', () => {
             variables: undefined,
             expected: ['coupon'],
         },
-    ])('$name', ({ config, variables, expected }) => {
-        expect(findMissingVariableReferences(config, variables)).toEqual(expected)
+    ])('$name', ({ config, variables, event, expected }) => {
+        expect(findMissingVariableReferences(config, variables, event)).toEqual(expected)
     })
 })

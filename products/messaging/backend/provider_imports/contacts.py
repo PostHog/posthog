@@ -146,7 +146,7 @@ def _add_properties(row: dict[str, str], properties: Mapping[str, Any]) -> int:
             or name in row
             or len(name) > MAX_PROPERTY_NAME_LENGTH
             or name.startswith("$")
-            or _loose_name(name) in _IDENTITY_NAMES
+            or loose_name(name) in _IDENTITY_NAMES
         ):
             continue
         row[name] = text
@@ -314,5 +314,5 @@ def _property_text(value: Any) -> str:
     return ""
 
 
-def _loose_name(name: str) -> str:
+def loose_name(name: str) -> str:
     return _NAME_SEPARATORS.sub("_", name.lower()).strip("_")
