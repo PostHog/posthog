@@ -8,11 +8,13 @@ import { EmailColorField } from './fields/EmailColorField'
 
 describe('email style fields', () => {
     let editor: Editor | undefined
+    const originalCss = window.CSS
 
     afterEach(() => {
         cleanup()
         editor?.destroy()
         editor = undefined
+        window.CSS = originalCss
     })
 
     function open(block: JSONContent): Editor {
@@ -51,7 +53,6 @@ describe('email style fields', () => {
     it('shows the saved color again after text that is not a color', () => {
         const onChange = jest.fn()
         // jsdom has no CSS.supports.
-        const originalCss = window.CSS
         window.CSS = { supports: () => false } as any
         render(<EmailColorField label="Background" value="#ffffff" onChange={onChange} />)
         const input = screen.getByLabelText<HTMLInputElement>('Background', { selector: 'input:not([type=color])' })
@@ -61,6 +62,5 @@ describe('email style fields', () => {
         fireEvent.blur(input)
         expect(onChange).not.toHaveBeenCalled()
         expect(input.value).toBe('#ffffff')
-        window.CSS = originalCss
     })
 })

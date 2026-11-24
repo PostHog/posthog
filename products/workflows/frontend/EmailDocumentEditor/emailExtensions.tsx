@@ -37,13 +37,13 @@ function sidesCss(sides: EmailBlockStyle['padding']): string | undefined {
 /** The divider as the email draws it. A background rather than a border, so the padding around it can't collapse. */
 function dividerCanvasCss(style: EmailBlockStyle): string {
     const color = style.borderColor ?? '#dddddd'
-    const length = Math.min(style.width || 100, 100)
+    const length = Math.min(Math.max(style.width ?? 0, 0) || 100, 100)
     return [
         'box-sizing:content-box',
         'margin:0',
         'border:0',
         `padding:${sidesCss(style.padding) ?? '8px 0'}`,
-        `height:${style.lineWidth || 1}px`,
+        `height:${Math.max(style.lineWidth ?? 0, 0) || 1}px`,
         `background:linear-gradient(${color},${color}) ${style.textAlign ?? 'center'} top/${length}% 100% no-repeat content-box`,
     ].join(';')
 }
