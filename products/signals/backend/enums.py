@@ -114,6 +114,9 @@ class SignalSourceProduct(StrEnum):
     HEALTH_CHECKS = "health_checks"
     REPLAY_VISION = "replay_vision"
     ANALYTICS = "analytics"
+    # Slack channels synced to the data warehouse. Only scouts use it so far: a Slack channel scout records the Slack
+    # warehouse source it reads as its owner (`slack_channel_scouts.py`).
+    SLACK = "slack"
     # Tier-1 data-warehouse inbox sources (support / issue trackers / error tracking)
     FRESHDESK = "freshdesk"
     FRESHSERVICE = "freshservice"
@@ -340,6 +343,7 @@ SIGNAL_SOURCE_PRODUCT_LABELS: dict[SignalSourceProduct, str] = {
     SignalSourceProduct.ENDPOINTS: "Endpoints",
     SignalSourceProduct.REPLAY_VISION: "Replay Vision",
     SignalSourceProduct.ANALYTICS: "Product analytics",
+    SignalSourceProduct.SLACK: "Slack",
     SignalSourceProduct.FRESHDESK: "Freshdesk",
     SignalSourceProduct.FRESHSERVICE: "Freshservice",
     SignalSourceProduct.FRONT: "Front",

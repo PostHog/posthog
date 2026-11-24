@@ -3856,7 +3856,8 @@ class SignalScoutConfigViewSet(ScoutTrialConfigMixin, TeamAndOrgViewSetMixin, vi
             "set), `enabled`, `emit` posture, and `tags`. A freshly authored scout skill appears here "
             "once its config is registered, either explicitly via create or by the coordinator's next "
             "tick. Pass `tags` to narrow the fleet to the scouts carrying at least one of the given "
-            "labels, and `search` to narrow it to the scouts matching a substring of either name."
+            "labels, `search` to narrow it to the scouts matching a substring of either name, and "
+            "`source_product` to narrow it to the scouts another product stood up, such as Slack channel scouts."
         ),
         operation_id="signals_scout_config_list",
     )
@@ -3887,6 +3888,8 @@ class SignalScoutConfigViewSet(ScoutTrialConfigMixin, TeamAndOrgViewSetMixin, vi
         # types the label they see, a caller holding a stored identifier types the slug.
         if search := query.get("search"):
             queryset = queryset.filter(Q(display_name__icontains=search) | Q(skill_name__icontains=search))
+        if source_product := query.get("source_product"):
+            queryset = queryset.filter(source_product=source_product)
         # Ordered by the label the reader sees rather than by the identifier, which no surface shows
         # first. A scout with no name of its own falls back to its slug, which is close enough to the
         # label the clients derive from it to keep the two kinds interleaved instead of clumping the

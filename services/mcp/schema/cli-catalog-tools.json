@@ -42811,6 +42811,11 @@
                     "csv": false
                 },
                 {
+                    "param": "source_product",
+                    "key": "source_product",
+                    "csv": false
+                },
+                {
                     "param": "tags",
                     "key": "tags",
                     "csv": false
@@ -45660,6 +45665,11 @@
                 {
                     "param": "search",
                     "key": "search",
+                    "csv": false
+                },
+                {
+                    "param": "source_product",
+                    "key": "source_product",
                     "csv": false
                 },
                 {
