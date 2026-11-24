@@ -672,7 +672,7 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         [
             ("count", "count", {}),
             ("sparkline", "sparkline", {}),
-            ("facet_values", "facet_values", {"facetField": "service_name"}),
+            ("facet_values", "facet_values", {"facetField": "service_name", "sessionId": "s1"}),
             ("impact", "impact", {}),
             ("count_ranges", "count-ranges", {}),
             ("patterns", "patterns", {}),
