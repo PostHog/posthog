@@ -72,6 +72,7 @@ RUNNING_UNEVEN_SPLIT = replace(RUNNING_CONTEXT, flag=UNEVEN_FLAG, exposures=UNEV
 
 NO_EXPOSURES = replace(UNEVEN_SPLIT_TOTALS, total_exposures={"control": 0, "test": 0})
 ENDED: dict[str, Any] = {"is_running": False, "has_ended": True}
+MATURED_USERS_OFF = 'Runs when "Require completed conversion or retention window" is on'
 LAUNCHED_AT = datetime(2026, 10, 1, tzinfo=UTC)
 
 Key = ExperimentHealthCheckKey
@@ -341,13 +342,13 @@ class TestEvaluate(TestCase):
 
     @parameterized.expand(
         [
-            ("no_metric_waits_for_the_launch", 0, False, Status.NOT_APPLICABLE),
-            ("no_metric_at_launch", 0, True, Status.FINDING),
-            ("a_metric_passes_at_launch", 1, True, Status.PASSED),
+            ("no_metric_waits_for_the_launch", 0, False, Status.NOT_APPLICABLE, RUNS_AFTER_LAUNCH),
+            ("no_metric_at_launch", 0, True, Status.FINDING, MATURED_USERS_OFF),
+            ("a_metric_passes_at_launch", 1, True, Status.PASSED, MATURED_USERS_OFF),
         ]
     )
     def test_a_draft_at_launch_runs_the_checks_after_launch(
-        self, _name: str, metric_count: int, at_launch: bool, no_metric: Status
+        self, _name: str, metric_count: int, at_launch: bool, no_metric: Status, not_matured_reason: str
     ) -> None:
         draft = replace(
             RUNNING_UNEVEN_SPLIT,
@@ -370,11 +371,12 @@ class TestEvaluate(TestCase):
         self.assertEqual(
             {
                 key: (checks[key].status, checks[key].reason)
-                for key in (Key.SPLIT_CHANGED_MID_RUN, Key.METRIC_CALCULATION_FAILED)
+                for key in (Key.SPLIT_CHANGED_MID_RUN, Key.METRIC_CALCULATION_FAILED, Key.METRICS_NOT_MATURED)
             },
             {
                 Key.SPLIT_CHANGED_MID_RUN: (Status.NOT_APPLICABLE, RUNS_AFTER_LAUNCH),
                 Key.METRIC_CALCULATION_FAILED: (Status.NOT_APPLICABLE, RUNS_AFTER_LAUNCH),
+                Key.METRICS_NOT_MATURED: (Status.NOT_APPLICABLE, not_matured_reason),
             },
         )
 

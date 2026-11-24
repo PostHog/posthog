@@ -1248,8 +1248,8 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
     @parameterized.expand(
         [
-            ("draft", "", {}, "no_metric", ("not_applicable", "Runs after launch")),
-            ("draft_at_launch", "?at_launch=true", {}, "no_metric", ("finding", None)),
+            ("draft", "", {}, "no_metric", ("not_applicable", "Runs after launch", {})),
+            ("draft_at_launch", "?at_launch=true", {}, "no_metric", ("finding", None, {})),
             (
                 "matured_users_at_launch",
                 "?at_launch=true",
@@ -1258,7 +1258,18 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                     "only_count_matured_users": True,
                 },
                 "metrics_not_matured",
-                ("finding", None),
+                (
+                    "finding",
+                    None,
+                    {"only_count_matured_users": True, "primary_metric_count": 1, "waiting_metric_count": 1},
+                ),
+            ),
+            (
+                "stale_experiment_at_launch",
+                "?at_launch=true",
+                {},
+                "stale_experiment",
+                ("passed", None, {"since_start_hours": 0.0, "daily_calculation_ends_at": "2026-03-06T12:00:00+00:00"}),
             ),
         ]
     )
@@ -1268,7 +1279,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         query: str,
         experiment_fields: dict[str, Any],
         check_key: str,
-        expected: tuple[str, str | None],
+        expected: tuple[str, str | None, dict[str, Any]],
     ) -> None:
         flag = FeatureFlag.objects.create(
             team=self.team,
@@ -1288,11 +1299,12 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             team=self.team, name=f"health-at-launch-{_name}", feature_flag=flag, **experiment_fields
         )
 
-        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}/health/{query}")
+        with time_machine.travel(datetime(2026, 1, 5, 12, tzinfo=UTC), tick=False):
+            response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}/health/{query}")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         check = next(check for check in response.json()["checks"] if check["key"] == check_key)
-        self.assertEqual((check["status"], check["reason"]), expected)
+        self.assertEqual((check["status"], check["reason"], check["values"]), expected)
 
     def _deny_event_property(self, name: str) -> None:
         self.organization.available_product_features = [

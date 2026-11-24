@@ -17,6 +17,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthSetup,
     ExperimentHealthStatsMethod,
 )
+from products.experiments.backend.facade.daily_calculation import daily_calculation_end
 from products.experiments.backend.facade.enums import ExposuresPath
 from products.experiments.backend.health.condition_set_traffic import load_condition_set_traffic
 from products.experiments.backend.health.context import HealthContext, flag_calls_readable, load_health_context
@@ -24,10 +25,7 @@ from products.experiments.backend.health.exposure_columns import load_filters_wi
 from products.experiments.backend.health.exposure_gate import load_flag_history
 from products.experiments.backend.health.latest_calculation import load_latest_calculation
 from products.experiments.backend.health.metric_compiles import load_metric_compiles
-from products.experiments.backend.health.metric_windows import (
-    load_primary_metric_windows,
-    load_primary_metric_windows_at_launch,
-)
+from products.experiments.backend.health.metric_windows import load_primary_metric_windows
 from products.experiments.backend.health.pause_history import load_pause_history
 from products.experiments.backend.health.primary_metric import load_primary_metric
 from products.experiments.backend.health.registry import EXPERIMENT_HEALTH_CHECKS, evaluate, not_checked_health
@@ -77,13 +75,15 @@ def evaluate_experiment_health(
 def _launched_now(experiment: Experiment, ctx: HealthContext) -> HealthContext:
     """The draft as it is when its launch succeeds. Nothing from the run exists yet: no exposures, calculation, flag
     change or pause, so the checks that need them keep "Runs after launch"."""
+    now = timezone.now()
     return replace(
         ctx,
         is_launched=True,
         is_running=True,
         hours_since_launch=0.0,
         hours_since_start=0.0,
-        primary_metric_windows=load_primary_metric_windows_at_launch(experiment, timezone.now()),
+        daily_calculation_ends_at=daily_calculation_end(now),
+        primary_metric_windows=load_primary_metric_windows(experiment, launched_at=now),
     )
 
 
@@ -239,7 +239,10 @@ def _health_context(
         pause_history=load_pause_history(experiment, reader_access=reader_access),
         primary_metric=load_primary_metric(experiment, team_config=team_config),
         primary_metric_windows=load_primary_metric_windows(
-            experiment, can_read_flag_history=reader_access.can_read_flag_history
+            experiment,
+            launched_at=experiment.launched_at(read_activity_log=reader_access.can_read_flag_history)
+            if experiment.is_running
+            else None,
         ),
         metric_compiles=load_metric_compiles(experiment, team_config=team_config, user=user),
         latest_calculation=latest_calculation,
