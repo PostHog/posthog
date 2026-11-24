@@ -10,7 +10,7 @@ from django.db.models import Q, QuerySet
 from posthog.schema import HogQLQueryModifiers
 
 from posthog.hogql.compilation import CompilationBudget, compilation_budget
-from posthog.hogql.database.database import Database, JoinIntoModel, is_authored_model
+from posthog.hogql.database.database import Database, is_authored_model
 from posthog.hogql.errors import BaseHogQLError, CompilationBudgetExceededError
 
 from posthog.dataclasses import frozen
@@ -44,6 +44,7 @@ from products.data_modeling.backend.logic.model_references import (
     renamed_chain,
     table_reads,
 )
+from products.data_modeling.backend.logic.renamed_catalog import renamed_catalog
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_tools.backend.facade.models import DataWarehouseJoin
 
@@ -203,17 +204,8 @@ def _renamed_catalog(
     rewritten_queries: dict[str, str],
     renamed_joins: list[ModelRenameJoin],
 ) -> Database | None:
-    joins_into_model = [
-        JoinIntoModel(
-            source_table_name=join.source_table_name_after,
-            field_name=join.field_name,
-            joining_table_name=join.joining_table_name_after,
-        )
-        for join in renamed_joins
-        if join.joining_table_name_after != join.joining_table_name_before
-    ]
     try:
-        return database.with_model_renamed(old_name, new_name, rewritten_queries, joins_into_model)
+        return renamed_catalog(database, old_name, new_name, rewritten_queries, renamed_joins)
     except KeyError:
         return None
 

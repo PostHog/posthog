@@ -1,3 +1,5 @@
+import uuid
+
 import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
@@ -7,7 +9,7 @@ from prometheus_client import REGISTRY
 
 from posthog.hogql.compilation import compilation_budget
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database, JoinIntoModel
+from posthog.hogql.database.database import Database
 from posthog.hogql.errors import QueryError, ResolutionCycleError, ResolutionDepthExceededError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer.utils import prepare_and_print_ast
@@ -31,6 +33,7 @@ from products.data_modeling.backend.logic.model_references import (
     table_reads,
 )
 from products.data_modeling.backend.logic.model_rename import apply_model_rename, plan_model_rename
+from products.data_modeling.backend.logic.renamed_catalog import renamed_catalog
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.modeling import (
     DEFAULT_RESOLUTION_DEADLINE_SECONDS,
@@ -795,10 +798,20 @@ class TestRenameModelReferences(BaseTest):
             joining_table_key="id",
             field_name="back",
         )
-        database = Database.create_for(team=self.team).with_model_renamed(
+        database = renamed_catalog(
+            Database.create_for(team=self.team),
             "src",
             "target",
-            joins_into_model=[JoinIntoModel(source_table_name="other", field_name="back", joining_table_name="target")],
+            renamed_joins=[
+                ModelRenameJoin(
+                    join_id=uuid.uuid4(),
+                    field_name="back",
+                    source_table_name_before="other",
+                    source_table_name_after="other",
+                    joining_table_name_before="src",
+                    joining_table_name_after="target",
+                )
+            ],
         )
         context = HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True, database=database)
 

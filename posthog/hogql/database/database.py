@@ -368,15 +368,6 @@ def models_namespace_chain(saved_query: Any) -> list[str] | None:
     return ["models", *name.split(".")]
 
 
-@frozen
-class JoinIntoModel:
-    """A saved join whose joining side is a renamed model, named as it is stored after the rename."""
-
-    source_table_name: str
-    field_name: str
-    joining_table_name: str
-
-
 def _without_table(root: TableNode, path: list[str], table: FieldOrTable | None) -> TableNode:
     """`root` with `table` taken off `path`, copying only the nodes on the path. A table that another
     source put at the path, or the nodes nested under it, stay."""
@@ -1056,84 +1047,52 @@ class Database(BaseModel):
             return None
         return alias_node
 
-    def with_model_renamed(
-        self,
-        old_name: str,
-        new_name: str,
-        rewritten_queries: Mapping[str, str] | None = None,
-        joins_into_model: Sequence[JoinIntoModel] = (),
-    ) -> Database:
-        """A copy in which the authored model stored as `old_name` answers to `new_name` and `models.<new_name>`,
-        and no longer to its old names, as if the database were built after the rename. Each authored model named
-        in `rewritten_queries` reads as its rewritten query, so a model that reads it expands the new text.
-        The model's join fields move with it, as the rename moves its saved joins, and each join field in
-        `joins_into_model` reads the renamed model under its new name.
+    def shallow_copy(self) -> Database:
+        """A copy that `replace_table` and `move_model` can change without changing this database.
+        Every node and table stays shared until one of them replaces it."""
+        copied = self.model_copy()
+        copied._models_aliases = dict(self._models_aliases)
+        copied._models_alias_nodes = dict(self._models_alias_nodes)
+        return copied
 
-        Only the nodes on the changed paths are copied. Every other node and every table is shared with this
-        database, so the copy costs no catalog build. Raises KeyError when `old_name` is not an authored model.
-        """
-        old_alias, new_alias = f"models.{old_name}", f"models.{new_name}"
-        model_node = self.authored_model_node(old_name)
-        if model_node is None:
+    def replace_table(self, path: list[str], old: FieldOrTable, new: FieldOrTable) -> None:
+        """Puts `new` wherever `old` is: at `path` and in any `models.` alias. Only the nodes on `path` are copied."""
+        if self.tables.has_child(path) and self.tables.get_child(path).table is old:
+            self.tables = _with_table(_without_table(self.tables, path, old), path, new)
+        for alias, node in self._models_alias_nodes.items():
+            if node.table is old:
+                self._models_alias_nodes[alias] = TableNode(name=node.name, table=new)
+
+    def move_model(self, old_name: str, new_name: str, table: FieldOrTable | None) -> None:
+        """Takes the authored model stored as `old_name` off its path and its `models.` alias, and puts `table` at
+        `new_name` with the alias the catalog build gives a model stored there. Only the nodes on the two paths
+        are copied. Raises KeyError when `old_name` is not an authored model."""
+        old_node = self.authored_model_node(old_name)
+        if old_node is None:
             raise KeyError(old_name)
         new_chain = new_name.split(".")
-        model = model_node.table
-        # The resolver names a model's rows after its table, so the copy carries the new name. A materialized
-        # model's table is named after its backing table, which a rename does not move.
-        if isinstance(model, SavedQuery):
-            # Its own fields, so a join from the model to itself can be repointed without touching this database.
-            model = model.model_copy(update={"name": new_name, "fields": dict(model.fields)})
-        tables = _without_table(self.tables, old_name.split("."), model_node.table)
-        tables = _with_table(tables, new_chain, model)
-        renamed = self.model_copy(update={"tables": tables})
-        renamed._models_aliases = {alias: chain for alias, chain in self._models_aliases.items() if alias != old_alias}
-        renamed._models_alias_nodes = {
-            alias: node for alias, node in self._models_alias_nodes.items() if alias != old_alias
-        }
-        # As the catalog build does: a stored `models.x` gets no further alias, and owns its name over an alias.
-        if not is_reserved_models_name(new_name) and not tables.has_child(["models", *new_chain]):
-            renamed._models_aliases[new_alias] = new_chain
-            renamed._models_alias_nodes[new_alias] = TableNode(name=new_chain[-1], table=model)
-        # Before the rewrites, so a rewritten model that is a join's source copies the repointed join.
-        for join in joins_into_model:
-            renamed._repoint_join_into_model(join, model)
-        for name, query in (rewritten_queries or {}).items():
-            view_node = renamed.authored_model_node(name)
-            if view_node is None or view_node.table is None:
-                continue
-            chain = name.split(".")
-            view = view_node.table.model_copy(update={"query": query})
-            renamed.tables = _with_table(_without_table(renamed.tables, chain, view_node.table), chain, view)
-            if f"models.{name}" in renamed._models_alias_nodes:
-                renamed._models_alias_nodes[f"models.{name}"] = TableNode(name=chain[-1], table=view)
-        return renamed
+        self.tables = _with_table(_without_table(self.tables, old_name.split("."), old_node.table), new_chain, table)
+        self._models_aliases.pop(f"models.{old_name}", None)
+        self._models_alias_nodes.pop(f"models.{old_name}", None)
+        self._register_models_alias(new_name, TableNode(name=new_chain[-1], table=table))
 
-    def _repoint_join_into_model(self, join: JoinIntoModel, model: FieldOrTable | None) -> None:
-        """Points the join field at the renamed model, as the catalog build does after the rename. A join
-        resolves its table by the stored name, so a field still naming the old one fails once printed."""
-        chain = join.source_table_name.split(".")
-        try:
-            source = self.get_table(chain)
-        except (ResolutionError, QueryError):
+    def _register_models_alias(
+        self, name: str, node: TableNode | None, stored_names: Collection[str] = frozenset()
+    ) -> None:
+        """Gives the authored model stored as `name` its `models.<name>` alias. A reserved name gets none, and a
+        model stored as `models.x` owns that name over the alias of `x`."""
+        alias_chain = ["models", *name.split(".")]
+        alias = ".".join(alias_chain)
+        if (
+            is_reserved_models_name(name)
+            or is_reserved_system_name(name)
+            or alias in stored_names
+            or self.tables.has_child(alias_chain)
+        ):
             return
-        field = source.fields.get(join.field_name)
-        if not isinstance(field, LazyJoin) or "joining_table_name" not in field.resolver_params:
-            return
-        repointed = field.model_copy(
-            update={
-                "join_table": join.joining_table_name if isinstance(field.join_table, str) else model,
-                "resolver_params": {**field.resolver_params, "joining_table_name": join.joining_table_name},
-            }
-        )
-        if source is model:
-            source.fields[join.field_name] = repointed
-            return
-        copy = source.model_copy(update={"fields": {**source.fields, join.field_name: repointed}})
-        if self.tables.has_child(chain) and self.tables.get_child(chain).table is source:
-            self.tables = _with_table(_without_table(self.tables, chain, source), chain, copy)
-        for alias, node in self._models_alias_nodes.items():
-            if node.table is source:
-                self._models_alias_nodes[alias] = TableNode(name=node.name, table=copy)
+        self._models_aliases[alias] = name.split(".")
+        if node is not None:
+            self._models_alias_nodes[alias] = node
 
     def authored_model_node(self, name: str) -> TableNode | None:
         """The node of the authored model stored as `name`: its `models.` alias, or its stored path when it has none."""
@@ -2871,9 +2830,8 @@ class Database(BaseModel):
                 with timings.measure(f"saved_query_{saved_query.name}"):
                     if is_reserved_system_name(saved_query.name):
                         continue
-                    models_chain = models_namespace_chain(saved_query)
-                    if models_chain is not None and ".".join(models_chain) not in stored_names:
-                        database._models_aliases[".".join(models_chain)] = saved_query.name.split(".")
+                    if is_authored_model(saved_query):
+                        database._register_models_alias(saved_query.name, None, stored_names)
                     if (
                         sources.is_hogql_warehouse_access_control_enabled
                         and not sources.bypass_warehouse_access_control
