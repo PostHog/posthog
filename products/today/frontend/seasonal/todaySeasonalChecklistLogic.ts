@@ -105,6 +105,21 @@ export type todaySeasonalChecklistLogicType = MakeLogicType<
     todaySeasonalChecklistLogicMeta
 >
 
+function captureChecklistEvent(
+    event: string,
+    { checklist }: TodaySeasonalChecklistLogicProps,
+    values: Pick<todaySeasonalChecklistLogicValues, 'flagVariant' | 'doneCount' | 'items'>,
+    properties: Record<string, unknown> = {}
+): void {
+    posthog.capture(event, {
+        campaign: checklist.campaign,
+        flag_variant: values.flagVariant,
+        done_count: values.doneCount,
+        item_count: values.items.length,
+        ...properties,
+    })
+}
+
 export const todaySeasonalChecklistLogic: LogicWrapper<todaySeasonalChecklistLogicType> =
     kea<todaySeasonalChecklistLogicType>([
         props({} as TodaySeasonalChecklistLogicProps),
@@ -172,15 +187,8 @@ export const todaySeasonalChecklistLogic: LogicWrapper<todaySeasonalChecklistLog
             ],
         }),
         listeners(({ actions, values, props }) => {
-            const capture = (event: string, properties: Record<string, unknown> = {}): void => {
-                posthog.capture(event, {
-                    campaign: props.checklist.campaign,
-                    flag_variant: values.flagVariant,
-                    done_count: values.doneCount,
-                    item_count: values.items.length,
-                    ...properties,
-                })
-            }
+            const capture = (event: string, properties?: Record<string, unknown>): void =>
+                captureChecklistEvent(event, props, values, properties)
             return {
                 openChecklist: () => capture(EVENTS.opened),
                 setItemDone: ({ key, done, source }) => {
@@ -209,12 +217,7 @@ export const todaySeasonalChecklistLogic: LogicWrapper<todaySeasonalChecklistLog
         }),
         afterMount(({ values, props }) => {
             if (!values.dismissed) {
-                posthog.capture(EVENTS.shown, {
-                    campaign: props.checklist.campaign,
-                    flag_variant: values.flagVariant,
-                    done_count: values.doneCount,
-                    item_count: values.items.length,
-                })
+                captureChecklistEvent(EVENTS.shown, props, values)
             }
         }),
     ])

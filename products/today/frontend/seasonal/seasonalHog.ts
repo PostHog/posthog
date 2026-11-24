@@ -51,10 +51,6 @@ export class SeasonalHog {
         this.y = world.ground
     }
 
-    hit(x: number, y: number): boolean {
-        return this.state !== 'away' && Math.abs(x - this.x) < 30 && y > this.y - 66 && y < this.y + 4
-    }
-
     hover(hovered: boolean, pointerX: number): void {
         if (hovered && !this.hovered && this.state === 'roam' && !this.world.reducedMotion) {
             this.speed = 0

@@ -51,13 +51,15 @@ export function TodaySeasonalHog({
     useEffect(() => {
         const hog = hogRef.current
         const previous = stateRef.current
-        const now = performance.now()
+        const letItSnow = (): void => {
+            if (checklist.snow && !prefersReducedMotion()) {
+                snowRef.current.start(performance.now())
+            }
+        }
         if (hog) {
             if (isOpen && !previous.isOpen) {
                 hog.jumpToCard()
-                if (checklist.snow && !prefersReducedMotion()) {
-                    snowRef.current.start(now)
-                }
+                letItSnow()
             } else if (!isOpen && previous.isOpen) {
                 hog.jumpToGround()
             }
@@ -69,9 +71,7 @@ export function TodaySeasonalHog({
             if (doneCount > previous.doneCount && isOpen) {
                 if (allDone) {
                     hog.celebrate()
-                    if (checklist.snow && !prefersReducedMotion()) {
-                        snowRef.current.start(now)
-                    }
+                    letItSnow()
                 } else {
                     hog.wave()
                 }

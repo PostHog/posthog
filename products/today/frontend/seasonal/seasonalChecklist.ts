@@ -88,6 +88,9 @@ export interface SeasonalChecklist {
 const text = (value: unknown): string | null =>
     typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
 
+const textOr = (value: unknown, fallback: string | null): string | null =>
+    value === undefined ? fallback : text(value)
+
 const optionalText = (value: unknown): string | null | undefined =>
     value === undefined ? null : (text(value) ?? undefined)
 
@@ -124,9 +127,9 @@ export function parseSeasonalChecklist(value: unknown): SeasonalChecklist | null
     const description = text(value.description)
     const reason = optionalText(value.reason)
     const badge = optionalText(value.badge)
-    const bubble = value.bubble === undefined ? title : text(value.bubble)
-    const doneTitle = value.doneTitle === undefined ? title : text(value.doneTitle)
-    const doneDescription = value.doneDescription === undefined ? description : text(value.doneDescription)
+    const bubble = textOr(value.bubble, title)
+    const doneTitle = textOr(value.doneTitle, title)
+    const doneDescription = textOr(value.doneDescription, description)
     if (
         !campaign ||
         !title ||
