@@ -22,6 +22,9 @@ from pymysqlreplication.row_event import DeleteRowsEvent, RowsEvent, UpdateRowsE
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCStreamNotConfiguredError
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
 from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.cdc import binlog
+from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.cdc.adapter import (
+    MANAGEMENT_READ_TIMEOUT_SECONDS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.cdc.config import (
     POSITION_KEY,
     MySQLCDCConfig,
@@ -99,7 +102,7 @@ class MySQLCDCStreamReader:
             )
         )
         self._kwargs = {key: value for key, value in kwargs.items() if key not in _DUMP_EXCLUDED_KWARGS}
-        self._conn = self._open_connection(autocommit=True)
+        self._conn = self._open_connection(autocommit=True, read_timeout=MANAGEMENT_READ_TIMEOUT_SECONDS)
         binlog.require_readable(self._conn, self._position, self._cdc_config.server_uuid)
 
     def _open_connection(self, **extra: Any) -> pymysql.Connection:
@@ -133,7 +136,7 @@ class MySQLCDCStreamReader:
         )
 
         def position() -> BinlogPosition:
-            return BinlogPosition.at(start.epoch, stream.log_file, stream.log_pos)
+            return start.following(stream.log_file, stream.log_pos)
 
         try:
             for event in stream:
@@ -236,7 +239,7 @@ class MySQLCDCStreamReader:
         if self._conn is None or self._position is None:
             return None
         try:
-            return binlog.visible_position(self._conn, self._position.epoch).serialize()
+            return binlog.visible_position(self._conn, self._position.epoch, self._position.base).serialize()
         except Exception:
             logger.warning("binlog_position_read_failed", exc_info=True)
             return None
