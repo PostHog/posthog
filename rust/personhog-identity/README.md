@@ -23,6 +23,9 @@ Ingestion sends one entry per get-or-create call, so each new person costs its o
 With `STUB_CREATE_WORKERS` above 0, a fixed set of worker tasks runs every stub-creation transaction, for get-or-create and for merge targets (`src/storage/coalesce.rs`).
 A worker takes one queued call and every call already queued behind it, up to `STUB_CREATE_MAX_BATCH_DISTINCT_IDS` distinct ids (default 50), into one transaction.
 Calls share a transaction only when they would otherwise wait for a worker, so latency does not change while a worker is free.
+`STUB_CREATE_BATCH_WAIT_MS` above 0 changes that: a free worker holds its first call for up to that long, counted from when the call was queued, so that calls which arrive in the meantime share its transaction.
+The wait ends early when the batch reaches its distinct id cap, and it adds up to that many milliseconds to a get-or-create call.
+A waiting worker holds the queue, so one batch forms at a time however many workers there are.
 Calls that share a distinct id never share a transaction, so each call gets the outcome its own transaction would give.
 When a shared transaction fails with a query error or a timeout, the worker reruns each call in its own transaction, so the failure reaches only the call that caused it.
 The reruns run at the same time, so a rerun that waits on a lock delays only its own call.
@@ -44,6 +47,7 @@ A batch of one runs the lone `attach_mappings` statement.
 A refused attach fails its MergePersons call with INTERNAL, as a heavy-pool acquire timeout does.
 The default, `ATTACH_WORKERS=0`, runs each attach on the calling task.
 With workers on, attach pool and query metrics carry `client="batched"` and `method="AttachBatch"`, and the coalescer metrics are the stub-creation ones with `attach` in place of `stub_create`, for example `personhog_identity_attach_callers_per_batch`.
+`ATTACH_BATCH_WAIT_MS` is the attach counterpart of `STUB_CREATE_BATCH_WAIT_MS`, with the same default of 0.
 `STUB_CREATE_WORKERS` plus `ATTACH_WORKERS` caps the heavy connections the two can hold; startup warns when the sum reaches `HEAVY_MAX_PG_CONNECTIONS`.
 
 ## Layout

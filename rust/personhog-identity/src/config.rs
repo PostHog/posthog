@@ -177,6 +177,11 @@ pub struct Config {
     #[envconfig(default = "1000")]
     pub stub_create_max_queued_calls: usize,
 
+    /// How long an idle stub-create worker holds its first call so that later
+    /// calls can share the transaction (ms). 0 = start at once.
+    #[envconfig(default = "0")]
+    pub stub_create_batch_wait_ms: u64,
+
     /// Worker tasks that run attach statements (0 = each call on its own task).
     #[envconfig(default = "0")]
     pub attach_workers: usize,
@@ -188,6 +193,11 @@ pub struct Config {
     /// Calls that wait for an attach worker before new calls fail (0 acts as 1).
     #[envconfig(default = "1000")]
     pub attach_max_queued_calls: usize,
+
+    /// How long an idle attach worker holds its first call so that later
+    /// calls can share the statement (ms). 0 = start at once.
+    #[envconfig(default = "0")]
+    pub attach_batch_wait_ms: u64,
 
     /// Leader calls in flight per lifecycle saga step (0 acts as 1).
     #[envconfig(default = "8")]

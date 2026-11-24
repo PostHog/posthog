@@ -133,6 +133,7 @@ pub struct CoalesceSettings {
     pub max_batch_distinct_ids: usize,
     pub max_queued_calls: usize,
     pub max_queue_wait: Duration,
+    pub batch_wait: Duration,
 }
 
 struct Coalescer<W: CoalescedWrite> {
@@ -149,6 +150,7 @@ impl<W: CoalescedWrite> Coalescer<W> {
                 inner.clone(),
                 receiver.clone(),
                 settings.max_batch_distinct_ids.max(1),
+                settings.batch_wait,
             ));
         }
         Self {
@@ -343,6 +345,7 @@ async fn run_worker<W: CoalescedWrite>(
     inner: Arc<dyn IdentityStorage>,
     queue: Queue<W>,
     max_batch_distinct_ids: usize,
+    batch_wait: Duration,
 ) {
     let mut carried: Option<Pending<W>> = None;
     loop {
@@ -362,8 +365,22 @@ async fn run_worker<W: CoalescedWrite>(
                 let Some(first) = receiver.recv().await else {
                     return;
                 };
+                // The wait counts from when the first call was queued, so a
+                // call that already waited behind a busy worker is not
+                // delayed a second time.
+                let deadline = first.enqueued_at + batch_wait;
                 let mut batch = Batch::new(first);
                 carried = fill(&mut receiver, &mut batch, max_batch_distinct_ids);
+                while carried.is_none() && batch.distinct_ids.len() < max_batch_distinct_ids {
+                    let Ok(Some(next)) = tokio::time::timeout_at(deadline, receiver.recv()).await
+                    else {
+                        break;
+                    };
+                    if next.reply.is_closed() {
+                        continue;
+                    }
+                    carried = batch.try_add(next, max_batch_distinct_ids).err();
+                }
                 batch
             }
         };
@@ -723,6 +740,7 @@ mod tests {
             max_batch_distinct_ids: 50,
             max_queued_calls: 100,
             max_queue_wait: Duration::from_secs(60),
+            batch_wait: Duration::ZERO,
         }
     }
 
@@ -946,6 +964,35 @@ mod tests {
         );
         first.await.unwrap();
         assert_eq!(inner.primary_ids_per_call(), vec![vec!["a"], vec!["a"]]);
+    }
+
+    #[rstest]
+    #[case::inside_the_wait(Duration::from_millis(5), vec![vec!["a", "b"]])]
+    #[case::after_the_wait(Duration::from_millis(30), vec![vec!["a"], vec!["b"]])]
+    #[tokio::test(start_paused = true)]
+    async fn an_idle_worker_waits_for_calls_to_share_its_transaction(
+        #[case] gap: Duration,
+        #[case] transactions: Vec<Vec<&'static str>>,
+    ) {
+        let inner = ScriptedStorage::new(None);
+        let storage = CoalescingIdentityStorage::spawn(
+            inner.clone(),
+            Some(CoalesceSettings {
+                batch_wait: Duration::from_millis(20),
+                ..settings(1)
+            }),
+            None,
+        );
+        let (a, b) = (vec![stub(1, "a", &[])], vec![stub(1, "b", &[])]);
+
+        let mut first = storage.create_person_stubs(&a);
+        assert!(futures::poll!(&mut first).is_pending());
+        tokio::time::sleep(gap).await;
+        let (first, second) = tokio::join!(first, storage.create_person_stubs(&b));
+
+        assert_eq!(inner.primary_ids_per_call(), transactions);
+        assert_eq!(uuids(&first), vec![person_uuid(1, "a")]);
+        assert_eq!(uuids(&second), vec![person_uuid(1, "b")]);
     }
 
     #[tokio::test(start_paused = true)]

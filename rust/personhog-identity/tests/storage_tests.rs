@@ -382,6 +382,7 @@ async fn concurrent_creates_for_one_distinct_id_create_exactly_once(#[case] coal
                 max_batch_distinct_ids: 50,
                 max_queued_calls: 100,
                 max_queue_wait: Duration::from_secs(60),
+                batch_wait: Duration::ZERO,
             }),
             None,
         ))
