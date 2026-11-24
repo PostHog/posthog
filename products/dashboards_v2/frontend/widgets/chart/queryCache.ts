@@ -1,6 +1,6 @@
-import type { DataFrame, RunQuery, WidgetQuery } from './vizTypes'
+import type { QueryRequest, QueryResult, RunQuery } from './vizTypes'
 
-type Entry = { promise: Promise<DataFrame[]>; frames?: DataFrame[] }
+type Entry = { promise: Promise<QueryResult>; result?: QueryResult }
 
 // Enough for every tile on a large dashboard, while each query edit adds a key, so the oldest results go first.
 export const MAX_CACHED_QUERIES = 200
@@ -17,16 +17,16 @@ function cacheFor(runQuery: RunQuery): Map<string, Entry> {
     return cache
 }
 
-/** The frames a query already returned through this runner, or undefined when it has not finished. */
-export function cachedFrames(runQuery: RunQuery, queryKey: string): DataFrame[] | undefined {
-    return caches.get(runQuery)?.get(queryKey)?.frames
+/** The result a query already returned through this runner, or undefined when it has not finished. */
+export function cachedResult(runQuery: RunQuery, queryKey: string): QueryResult | undefined {
+    return caches.get(runQuery)?.get(queryKey)?.result
 }
 
 /**
  * Runs a query once per runner, so a tile that scrolls out of view and back reuses the result, or the request still
  * in flight, instead of running it again. A failed query is dropped, so the next mount tries again.
  */
-export function runCachedQuery(runQuery: RunQuery, queryKey: string): Promise<DataFrame[]> {
+export function runCachedQuery(runQuery: RunQuery, queryKey: string): Promise<QueryResult> {
     const cache = cacheFor(runQuery)
     const existing = cache.get(queryKey)
     if (existing) {
@@ -36,15 +36,15 @@ export function runCachedQuery(runQuery: RunQuery, queryKey: string): Promise<Da
         return existing.promise
     }
     // A runner that throws before it returns a promise still ends in a rejected promise.
-    const promise = Promise.resolve().then(() => runQuery(JSON.parse(queryKey) as WidgetQuery))
+    const promise = Promise.resolve().then(() => runQuery(JSON.parse(queryKey) as QueryRequest))
     const entry: Entry = { promise }
     cache.set(queryKey, entry)
     if (cache.size > MAX_CACHED_QUERIES) {
         cache.delete(cache.keys().next().value as string)
     }
     promise.then(
-        (frames) => {
-            entry.frames = frames
+        (result) => {
+            entry.result = result
         },
         () => {
             if (cache.get(queryKey) === entry) {
