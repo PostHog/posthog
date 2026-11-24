@@ -137,13 +137,25 @@ describe('inFlightLimitsFor', () => {
         })
     })
 
+    it('admits sends with files under a fractional cap while fewer run than the cap, and reports that room', () => {
+        const accepted = inFlightLimitsFor({ ...settings, maxInFlight: 1.5 }, machine())
+        const registry = new InFlightRegistry('limits' in accepted ? accepted.limits : null, () => 0)
+        const roomBefore = registry.room()
+        const starts = [1, 2].map(() => 'started' in registry.tryStart(MIB, () => pending().promise))
+
+        expect({
+            roomBefore,
+            starts,
+            next: registry.tryStart(MIB, () => Promise.resolve()),
+            roomAfter: registry.room(),
+        }).toEqual({ roomBefore: 2, starts: [true, true], next: { deferred: 'at_cap' }, roomAfter: 0 })
+    })
+
     it.each([
         ['the heartbeat is off', { ...settings, heartbeatIntervalMs: 0 }, machine(), 'heartbeat is off'],
         ['the budget cannot hold one message', settings, machine({ constrainedBytes: 768 * MIB }), 'memory budget'],
         ['the heap cannot hold one message', settings, machine({ heapLimitBytes: 64 * MIB }), 'heap limit'],
         ['the cap is zero', { ...settings, maxInFlight: 0 }, machine(), 'cap'],
-        ['the cap is a fraction', { ...settings, maxInFlight: 1.5 }, machine(), 'cap'],
-        ['the cap is unbounded', { ...settings, maxInFlight: Infinity }, machine(), 'cap'],
         ['no attachment store is set', { ...settings, attachmentStoreBucket: '' }, machine(), 'attachment store'],
     ])('refuses sends with files when %s', (_, given, memory, reason) => {
         expect(inFlightLimitsFor(given, memory)).toEqual({ refusal: expect.stringContaining(reason) })

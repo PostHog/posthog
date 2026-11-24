@@ -71,8 +71,8 @@ export function inFlightLimitsFor(
     if (settings.heartbeatIntervalMs <= 0) {
         return { refusal: 'the job heartbeat is off, so a send that outlives its batch would be reset and sent twice' }
     }
-    if (!Number.isSafeInteger(settings.maxInFlight) || settings.maxInFlight < 1) {
-        return { refusal: 'the in-flight cap is not a whole number of sends of at least one' }
+    if (settings.maxInFlight < 1) {
+        return { refusal: 'the in-flight cap is below one send' }
     }
     if (budgetBytes < largest.reservedBytes) {
         return { refusal: `the memory budget of ${budgetBytes} bytes cannot hold one message at the size limit` }
@@ -174,8 +174,14 @@ export class InFlightRegistry {
     }
 
     // How many more sends with files the cap lets start. Their memory is checked when each one starts.
+    // The cap admits a send while fewer than the cap run, so a fractional cap rounds up, and a cap that no count
+    // reaches, such as Infinity or NaN, leaves the room unbounded.
     public room(): number {
-        return this.limits ? Math.max(0, this.limits.maxInFlight - this.inFlight) : 0
+        if (!this.limits) {
+            return 0
+        }
+        const cap = this.limits.maxInFlight
+        return cap < Infinity ? Math.max(0, Math.ceil(cap) - this.inFlight) : Infinity
     }
 
     public fullForMs(now: number = Date.now()): number {
