@@ -409,6 +409,23 @@ def get_or_create_saved_insight(
     )
 
 
+def create_sample_insight(*, team_id: int, name: str, description: str, query: dict[str, Any]) -> int:
+    """Create an insight that PostHog generates for a dashboard, with no author, and return its id."""
+    return logic.create_sample_insight(team_id=team_id, name=name, description=description, query=query)
+
+
+def update_insight_description_and_query(
+    *, team_id: int, insight_id: int, description: str, query: dict[str, Any]
+) -> None:
+    """Replace the description and query of a live insight as the system, with no access check.
+
+    Does nothing when the team has no live insight with this id.
+    """
+    logic.update_insight_description_and_query(
+        team_id=team_id, insight_id=insight_id, description=description, query=query
+    )
+
+
 def saved_insight_for_update(*, team: Team, user: User, short_id: str) -> SavedInsightDefinition | None:
     access_control = UserAccessControl(user=user, team=team, organization_id=str(team.organization_id))
     if not access_control.check_access_level_for_resource("insight", "editor"):

@@ -164,30 +164,38 @@ bin/hogli product:lint your_product_name
 
 The lint command validates:
 
-- **Presence**: `backend:test` must exist; isolated products must also have `backend:contract-check`
-- **Absence**: products must NOT have `backend:contract-check` if they are not isolated or have legacy interface leaks (where core still imports internals) — turbo-discover uses this key to classify products as isolated, which causes the full Django test suite to be skipped when that product changes
-- **Legacy leaks**: products with TODO legacy leak blocks in `tach.toml` show a `⚠` warning in the tach boundaries check
+- **Presence**: `backend:test` must exist
 - **Script content** (for `backend:test`):
   - No `|| true` or `|| exit 0` — these swallow test failures in CI
   - No no-op scripts (e.g., `echo 'No backend tests'`) when `backend/` contains actual test files
   - Pytest paths referenced in the command must exist on disk and contain discoverable tests
+
+The lint does not check the boundaries between products.
+hoglint checks them: run `hoglint check`.
+A product that narrows its `backend:contract-check` inputs in its own `turbo.json` claims hoglint's Isolated level.
+turbo-discover then skips the full Django test suite for a change in that product that leaves those inputs untouched, and `hoglint check` fails when the product does not meet the level.
 
 > [!NOTE]
 > To migrate a product to full isolation (facade + contracts + selective testing), use the `isolating-product-facade-contracts` skill. See [products/architecture.md](architecture.md) for the target architecture.
 
 ### New products must be isolated
 
-`products/isolation_baseline.txt` lists every product that is not isolated, and `hogli product:lint --all` fails when the tree and that file disagree in either direction.
-A new product not on the list must be isolated; a product that seals drops off it.
-
-`hogli product:bootstrap` scaffolds a product that is already sealed — real facade, contracts, tach `[[interfaces]]`, `backend:contract-check`, narrowed `turbo.json` — so a new product should never need a line.
-Adding one exempts the product from isolation and keeps the full Django backend suite running on every change it makes, which is why the file is owned by DevEx in `.github/CODEOWNERS`.
-
-Regenerate after sealing a product:
+hoglint judges only the products that claim its Isolated level, so a product that never narrows its inputs would pass it.
+`products/isolation_baseline.txt` closes that gap: it lists every backend product that does not claim the level, and `hogli product:lint --all` fails when the tree and that file disagree in either direction.
+A new product not on the list must claim the level; a product that starts to claim it drops off the list.
+Adding a line exempts the product from isolation and keeps the full Django backend suite running on every change it makes, which is why DevEx owns the file in `.github/CODEOWNERS`.
+Regenerate it after a product claims the level:
 
 ```bash
 bin/hogli product:lint --regenerate-baseline
 ```
+
+`hogli product:bootstrap` scaffolds a product that is already isolated: real facade, contracts, `backend:contract-check` and narrowed `turbo.json` inputs.
+The scaffold passes hoglint's Isolated level from its first commit.
+The narrowed inputs claim that level, and `hoglint.ledger` records each product that passes it, so bootstrap ends with `hoglint check --write-ledger`, which adds the product's `level:isolated` line.
+Commit `hoglint.ledger` in a commit of its own, after the product, so that a reviewer sees the ledger change apart from the code. `hoglint compare` fails a pull request that lacks the line.
+When `hoglint check` names a file that the narrowed inputs do not watch, add the file to the inputs.
+Dropping the narrowing needs a person: the product is then not isolated, and the full Django backend suite runs on every change it makes.
 
 ### Manual setup
 
@@ -207,7 +215,6 @@ bin/hogli product:lint --regenerate-baseline
   - `backend/__init__.py` marks the backend directory as a Python package / Django app.
   - Register the backend as a Django app with an `AppConfig` that sets `label = "<name>"` (not `products.<name>`).
   - Modify `posthog/settings/web.py` and add your new product under `PRODUCTS_APPS`.
-  - Modify `tach.toml` and add a new block for your product. We use `tach` to track cross-dependencies between python apps.
   - Add your API routes in `backend/routes.py` with a `register_routes(routers)` function (e.g. `routers.projects.register(r"my_thing", MyThingViewSet, "project_my_thing", ["team_id"])`). It is auto-discovered — once the product is in `PRODUCTS_APPS`, `posthog/api/__init__.py` finds and calls `register_routes(routers)` with no edit to core. See `posthog/api/routing.py:RouterRegistry` for the available router handles (`projects`/`environments`/`organizations`/`root`).
   - For a plain Django path no router can carry, such as an inbound webhook endpoint, add an `api_urlpatterns` or `webhook_urlpatterns` list to the same `routes.py`. Core mounts them at `api/<product>/` and `webhooks/<product>/` in one slot in `posthog/urls.py`, so the routes in each list are relative to that mount. See [docs/internal/url-routing.md](../docs/internal/url-routing.md).
   - NOTE: we will automate some of these steps in the future, but for now, please do them manually.

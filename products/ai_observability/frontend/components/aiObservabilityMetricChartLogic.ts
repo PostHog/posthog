@@ -14,7 +14,7 @@ import { HogQLFilters, HogQLQuery, NodeKind } from '~/queries/schema/schema-gene
 import { AnyPropertyFilter, IntervalType, PropertyFilterType, UserType } from '~/types'
 
 import { aiObservabilitySharedLogic } from '../aiObservabilitySharedLogic'
-import { buildAiObservabilityStorageConfig } from '../preferenceStorage'
+import { buildAiObservabilityStorageConfig } from '../redesign/shared/preferenceStorage'
 import { TRACE_DRAWER_LISTS } from '../redesign/trace/traceDrawerLists'
 import { traceDrawerLogic } from '../redesign/trace/traceDrawerLogic'
 import { TraceListRow } from '../redesign/trace/traceListRows'

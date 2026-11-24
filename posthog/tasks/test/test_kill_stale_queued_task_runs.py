@@ -115,6 +115,24 @@ class TestKillStaleQueuedTaskRuns(TestCase):
         self.assertEqual(fresh_local.status, TaskRun.Status.QUEUED)
         self.assertEqual(live_local.status, TaskRun.Status.QUEUED)
 
+    @parameterized.expand(
+        [
+            ("heartbeat_five_minutes_ago", datetime.timedelta(minutes=5), "queued"),
+            ("heartbeat_over_a_day_ago", datetime.timedelta(hours=25), "completed"),
+        ]
+    )
+    def test_a_local_run_with_a_recent_heartbeat_is_not_completed(
+        self, _name: str, heartbeat_age: datetime.timedelta, status_after: str
+    ) -> None:
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        run = self._make_run(TaskRun.Status.QUEUED, datetime.timedelta(hours=25), environment=TaskRun.Environment.LOCAL)
+        TaskRun.objects.filter(pk=run.pk).update(last_heartbeat_at=timezone.now() - heartbeat_age)
+
+        kill_stale_queued_task_runs()
+
+        run.refresh_from_db()
+        self.assertEqual(run.status, status_after)
+
     def test_leaves_re_queued_run_with_old_created_at_alone(self) -> None:
         TaskRun = apps.get_model("tasks", "TaskRun")
         # prepare_for_cloud_resume re-queues an existing run without resetting

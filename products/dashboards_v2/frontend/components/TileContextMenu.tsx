@@ -13,7 +13,7 @@ import {
 } from '@posthog/quill'
 
 import { dashboardV2Logic } from '../dashboardV2Logic'
-import { type ContentWidget, type ContentWidgetParts, showsPart } from '../layout/dashboardTypes'
+import { type ContentWidget, type ContentWidgetParts, hasPart, showsPart } from '../layout/dashboardTypes'
 
 /** One thing a person can do to a tile, shared by the right-click menu and the hover toolbar so the two agree. */
 export interface TileAction {
@@ -41,12 +41,6 @@ const TILE_PARTS: { key: keyof ContentWidgetParts; label: string }[] = [
     { key: 'footer', label: 'Footer' },
 ]
 
-const HAS_PART: Record<keyof ContentWidgetParts, (widget: ContentWidget) => boolean> = {
-    header: (widget) => !!widget.title,
-    description: (widget) => !!widget.description,
-    footer: (widget) => !!widget.footer?.length,
-}
-
 export function useContentTileActions(id: string, widget: ContentWidget): TileAction[] {
     const { dashboard, activeTab, disabledReasonFor } = useValues(dashboardV2Logic)
     const { applyDashboardEdit } = useActions(dashboardV2Logic)
@@ -69,7 +63,7 @@ export function useContentTileActions(id: string, widget: ContentWidget): TileAc
         })
     }
     const partsDisabledReason = disabledReasonFor('setTileParts')
-    const parts = TILE_PARTS.filter(({ key }) => HAS_PART[key](widget))
+    const parts = TILE_PARTS.filter(({ key }) => hasPart(widget, key))
     if (parts.length > 0) {
         actions.push({
             key: 'parts',
@@ -105,7 +99,7 @@ export function useContentTileActions(id: string, widget: ContentWidget): TileAc
 
 export function useSectionActions(id: string, collapsed: boolean, onStartRename: () => void): TileAction[] {
     const { disabledReasonFor } = useValues(dashboardV2Logic)
-    const { applyDashboardEdit } = useActions(dashboardV2Logic)
+    const { applyDashboardEdit, setSectionFolded } = useActions(dashboardV2Logic)
     return [
         {
             key: 'rename',
@@ -118,8 +112,8 @@ export function useSectionActions(id: string, collapsed: boolean, onStartRename:
             key: 'toggle',
             label: collapsed ? 'Expand' : 'Collapse',
             dataAttr: 'dashboard-v2-section-menu-toggle',
-            disabledReason: disabledReasonFor('updateSection'),
-            onSelect: () => applyDashboardEdit({ edit: 'updateSection', id, patch: { collapsed: !collapsed } }),
+            disabledReason: null,
+            onSelect: () => setSectionFolded(id, !collapsed),
         },
         {
             key: 'remove',

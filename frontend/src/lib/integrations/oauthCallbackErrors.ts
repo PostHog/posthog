@@ -34,6 +34,12 @@ const OAUTH_CALLBACK_ERROR_MESSAGES_BY_KIND: Record<string, Record<string, strin
         access_denied:
             'PostHog was not added to your Slack workspace. Either the install was declined, or your workspace requires an admin to approve new apps and the request is now waiting for one. Once an admin approves it, come back to this page and click "Add to Slack" again.',
     },
+    // Microsoft redirects with `invalid_client` when the user's Entra tenant has no service principal for
+    // the Microsoft Advertising API (AADSTS650052). Only a tenant admin can fix that, so a retry fails the same way.
+    'bing-ads': {
+        invalid_client:
+            'Your Microsoft organization has not enabled the Microsoft Advertising API. Ask a Microsoft admin to grant consent for it in Entra ID, then connect again.',
+    },
 }
 
 export function describeOAuthCallbackError(error: string, kind?: string): string {

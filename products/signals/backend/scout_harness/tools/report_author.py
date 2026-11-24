@@ -16,6 +16,7 @@ from posthog.dataclasses import frozen
 from posthog.models import Team
 
 from products.signals.backend.daily_limit import team_day_start
+from products.signals.backend.first_report_experiment import FIRST_REPORT_EXPERIMENT
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalScoutRun
 from products.signals.backend.scout_harness.tools.emit import (
     _assert_team_owns_run,
@@ -109,7 +110,7 @@ class ScoutRunReportAuthor:
                 for key in (
                     "experiment_key",
                     "experiment_variant",
-                    "$feature/self-driving-banger-scout",
+                    f"$feature/{FIRST_REPORT_EXPERIMENT}",
                     "runtime",
                     "model",
                     "service_tier",
