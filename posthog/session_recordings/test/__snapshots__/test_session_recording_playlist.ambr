@@ -998,16 +998,6 @@
 # ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.31
   '''
-  SELECT "posthog_teameventvolume"."events_last_year" AS "events_last_year"
-  FROM "posthog_teameventvolume"
-  WHERE ("posthog_teameventvolume"."team_id" = 99999
-         AND "posthog_teameventvolume"."computed_at" >= '2024-12-29 12:00:00+00:00'::timestamptz)
-  ORDER BY "posthog_teameventvolume"."team_id" ASC
-  LIMIT 1
-  '''
-# ---
-# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.32
-  '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
          "posthog_user"."last_login",
@@ -1093,7 +1083,7 @@
          AND "posthog_user"."id" = 99999)
   '''
 # ---
-# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.33
+# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.32
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -1232,7 +1222,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.34
+# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.33
   '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
@@ -1288,7 +1278,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.35
+# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.34
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_sessionrecordingplaylist"
@@ -1299,7 +1289,7 @@
          AND NOT "posthog_sessionrecordingplaylist"."deleted")
   '''
 # ---
-# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.36
+# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.35
   '''
   SELECT "posthog_sessionrecordingplaylist"."id",
          "posthog_sessionrecordingplaylist"."short_id",
@@ -1510,7 +1500,7 @@
   LIMIT 94
   '''
 # ---
-# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.37
+# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.36
   '''
   SELECT "posthog_sessionrecordingplaylistitem"."playlist_id" AS "playlist_id",
          COUNT("posthog_sessionrecordingplaylistitem"."id") AS "c"
@@ -1529,7 +1519,7 @@
   GROUP BY 1
   '''
 # ---
-# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.38
+# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.37
   '''
   SELECT "posthog_sessionrecordingplaylistitem"."playlist_id" AS "playlist_id",
          "posthog_sessionrecordingplaylistitem"."recording_id" AS "recording_id"
@@ -1547,13 +1537,21 @@
          AND NOT ((COALESCE("posthog_sessionrecording"."start_time", "posthog_sessionrecordingplaylistitem"."created_at") + (COALESCE("posthog_sessionrecording"."retention_period_days", 30) * '1 day 0:00:00'::interval)) < '2025-01-01 12:00:00+00:00'::timestamptz))
   '''
 # ---
-# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.39
+# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.38
   '''
   SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id"
   FROM "posthog_sessionrecordingviewed"
   WHERE ("posthog_sessionrecordingviewed"."team_id" = 99999
          AND "posthog_sessionrecordingviewed"."user_id" = 99999
          AND "posthog_sessionrecordingviewed"."session_id" IN ('00000000-0000-0000-0000-000000000000'))
+  '''
+# ---
+# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.39
+  '''
+  SELECT COUNT(*) AS "__count"
+  FROM "posthog_sessionrecordingviewed"
+  WHERE ("posthog_sessionrecordingviewed"."team_id" = 99999
+         AND "posthog_sessionrecordingviewed"."user_id" = 99999)
   '''
 # ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.4
@@ -1697,14 +1695,6 @@
 # ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.40
   '''
-  SELECT COUNT(*) AS "__count"
-  FROM "posthog_sessionrecordingviewed"
-  WHERE ("posthog_sessionrecordingviewed"."team_id" = 99999
-         AND "posthog_sessionrecordingviewed"."user_id" = 99999)
-  '''
-# ---
-# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.41
-  '''
   SELECT COUNT(*)
   FROM
     (SELECT DISTINCT "posthog_comment"."item_id" AS "item_id"
@@ -1715,7 +1705,7 @@
             AND NOT ("posthog_comment"."item_id" IS NULL))) subquery
   '''
 # ---
-# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.42
+# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.41
   '''
   SELECT COUNT(*)
   FROM
@@ -1726,7 +1716,7 @@
             AND NOT ("posthog_sharingconfiguration"."recording_id" IS NULL))) subquery
   '''
 # ---
-# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.43
+# name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.42
   '''
   SELECT COUNT(*)
   FROM
