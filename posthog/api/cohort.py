@@ -2146,7 +2146,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         new_properties = _flat_properties(self._effective_filters_after_update(attrs))
         if team is None or next(_hidden_event_references(new_properties), None) is None:
             return
-        mode = get_flag_evaluations_read_mode(team.organization_id)
+        mode = get_flag_evaluations_read_mode(team.organization_id, team_id=team.id)
         if mode == FlagEvaluationsMode.EVENTS:
             return
         # Passing no attrs reads the stored definition. Cohort.properties would rewrite the stored

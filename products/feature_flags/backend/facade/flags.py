@@ -3,7 +3,7 @@ flag. The module stays light so core code can import it without pulling the faca
 its import path.
 """
 
-from collections.abc import Collection
+from collections.abc import Callable, Collection
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -11,8 +11,13 @@ from django.conf import settings
 
 from posthog.cloud_utils import is_cloud
 from posthog.dataclasses import frozen
-from posthog.models.event.new_events_schema import use_new_events_schema
+from posthog.models.event.new_events_schema import (
+    can_move_any_project_to_new_events_table,
+    project_moved_to_new_events_table,
+    use_new_events_schema,
+)
 from posthog.models.instance_setting import get_instance_setting
+from posthog.models.team import Team
 
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -20,8 +25,6 @@ from products.feature_flags.backend.models.organization_feature_flags_config imp
 
 if TYPE_CHECKING:
     from posthog.schema import HogQLQueryModifiers
-
-    from posthog.models.team import Team
 
 
 def has_active_flags(team: "Team") -> bool:
@@ -49,6 +52,12 @@ class FlagEvaluationsConfig:
 
 # Readers treat an organization without a config row as on EVENTS, with events writes not kept.
 NO_ROW_CONFIG = FlagEvaluationsConfig(mode=FlagEvaluationsMode.EVENTS, keeps_events_writes=False)
+
+# The readers' config of an organization whose every team reads the native JSON events table. Node ingestion reads only
+# the stored config, so it keeps writing the organization's flag calls to the legacy events table.
+NEW_EVENTS_TABLE_READ_CONFIG = FlagEvaluationsConfig(
+    mode=FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, keeps_events_writes=True
+)
 
 
 def get_organization_flag_evaluations_config(organization_id: UUID) -> FlagEvaluationsConfig:
@@ -89,13 +98,23 @@ def get_organization_flag_evaluations_modes(organization_ids: Collection[UUID]) 
     }
 
 
-def get_flag_evaluations_read_config(organization_id: UUID) -> FlagEvaluationsConfig:
+def get_flag_evaluations_read_config(organization_id: UUID, *, team_id: int | None = None) -> FlagEvaluationsConfig:
     """The organization's config with the mode that picks the table for the flag-call readers that the
-    READ_FLAG_EVALUATIONS comment lists. FLAG_EVALUATIONS_READS_FORCE_EVENTS makes that mode EVENTS for an organization
-    on READ_FLAG_EVALUATIONS, or on FLAG_EVALUATIONS_ONLY with its events writes kept, and leaves the stored mode
+    READ_FLAG_EVALUATIONS comment lists.
+
+    An organization below FLAG_EVALUATIONS_ONLY whose every team reads the native JSON events table reads as
+    NEW_EVENTS_TABLE_READ_CONFIG. FLAG_EVALUATIONS_READS_FORCE_EVENTS makes the mode EVENTS for an organization on
+    READ_FLAG_EVALUATIONS, or on FLAG_EVALUATIONS_ONLY with its events writes kept, and leaves the stored mode
     unchanged. HogQL reads flag calls from flag_evaluations for a project on the native JSON events table whatever the
-    mode is, because that table holds no flag calls, so the switch does not move that project."""
+    mode is, because that table holds no flag calls, so the switch does not move that project.
+
+    `team_id` names a team of the organization. A caller that holds one passes it, which skips the read of the
+    organization's teams when that team still reads the legacy events table."""
     config = get_organization_flag_evaluations_config(organization_id)
+    if config.mode != FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY and _organization_reads_new_events_table(
+        organization_id, config.mode, team_id
+    ):
+        config = NEW_EVENTS_TABLE_READ_CONFIG
     if not get_instance_setting("FLAG_EVALUATIONS_READS_FORCE_EVENTS"):
         return config
     # Without kept writes, events holds no new flag calls of the teams that ingestion copies to flag_evaluations, so
@@ -107,9 +126,21 @@ def get_flag_evaluations_read_config(organization_id: UUID) -> FlagEvaluationsCo
     return config
 
 
-def get_flag_evaluations_read_mode(organization_id: UUID) -> int:
+def get_flag_evaluations_read_mode(organization_id: UUID, *, team_id: int | None = None) -> int:
     """The mode of get_flag_evaluations_read_config."""
-    return get_flag_evaluations_read_config(organization_id).mode
+    return get_flag_evaluations_read_config(organization_id, team_id=team_id).mode
+
+
+def _organization_reads_new_events_table(organization_id: UUID, stored_mode: int, team_id: int | None) -> bool:
+    """Whether every team of the organization, environments included, reads the native JSON events table for every
+    reader. A per-request override and the project opt-in move only some reads, so they do not count. An organization
+    without teams does not count either."""
+    if not _flag_evaluations_table_enabled(lambda: stored_mode) or not can_move_any_project_to_new_events_table():
+        return False
+    if team_id is not None and not project_moved_to_new_events_table(team_id):
+        return False
+    team_ids = list(Team.objects.filter(organization_id=organization_id).values_list("id", flat=True))
+    return bool(team_ids) and all(project_moved_to_new_events_table(team_id) for team_id in team_ids)
 
 
 def is_flag_calls_union_disabled() -> bool:
@@ -124,7 +155,7 @@ def reads_flag_calls_from_flag_evaluations(team: "Team", modifiers: "HogQLQueryM
     swap follows the same rule in HogQLContext.reads_flag_calls_from_flag_evaluations."""
     if _reads_native_events_with_flag_evaluations(team, modifiers):
         return True
-    return get_flag_evaluations_read_mode(team.organization_id) != FlagEvaluationsMode.EVENTS
+    return get_flag_evaluations_read_mode(team.organization_id, team_id=team.id) != FlagEvaluationsMode.EVENTS
 
 
 def reads_flag_calls_without_events_fallback(team: "Team") -> bool:
@@ -133,7 +164,10 @@ def reads_flag_calls_without_events_fallback(team: "Team") -> bool:
     events writes are kept, or the team reads the native JSON events table."""
     if _reads_native_events_with_flag_evaluations(team, None):
         return True
-    return get_flag_evaluations_read_mode(team.organization_id) == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY
+    return (
+        get_flag_evaluations_read_mode(team.organization_id, team_id=team.id)
+        == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY
+    )
 
 
 def events_lack_new_flag_calls(team: "Team", read_config: FlagEvaluationsConfig | None = None) -> bool:
@@ -144,7 +178,7 @@ def events_lack_new_flag_calls(team: "Team", read_config: FlagEvaluationsConfig 
     if _reads_native_events_with_flag_evaluations(team, None):
         return True
     if read_config is None:
-        read_config = get_flag_evaluations_read_config(team.organization_id)
+        read_config = get_flag_evaluations_read_config(team.organization_id, team_id=team.id)
     return read_config.stops_events_writes
 
 
@@ -166,6 +200,10 @@ def is_flag_evaluations_table_enabled(team: "Team") -> bool:
     can query the table, but its flag-call readers still read events. Local dev and end-to-end tests also read
     true. A self-hosted instance reads true only when the organization's mode reads the table.
     """
+    return _flag_evaluations_table_enabled(lambda: get_organization_flag_evaluations_mode(team.organization_id))
+
+
+def _flag_evaluations_table_enabled(stored_mode: Callable[[], int]) -> bool:
     # PostHog Cloud ingestion forks every team's flag calls into flag_evaluations, so an organization on
     # EVENTS still has rows to query and export.
     if is_cloud():
@@ -177,4 +215,4 @@ def is_flag_evaluations_table_enabled(team: "Team") -> bool:
     # Self-hosted ingestion leaves the flag_evaluations fork off by default, so the table holds no rows there
     # until an operator turns the fork on. The Usage tab reads flag_evaluations for any mode above EVENTS, and
     # its query fails when the table is missing from the catalog.
-    return get_organization_flag_evaluations_mode(team.organization_id) != FlagEvaluationsMode.EVENTS
+    return stored_mode() != FlagEvaluationsMode.EVENTS

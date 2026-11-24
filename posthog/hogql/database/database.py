@@ -2233,7 +2233,7 @@ class Database(BaseModel):
             # DEBUG for an organization still on EVENTS.
             read_mode: int = FlagEvaluationsMode.EVENTS
             if include_flag_evaluations_table:
-                read_mode = get_flag_evaluations_read_mode(team.organization_id)
+                read_mode = get_flag_evaluations_read_mode(team.organization_id, team_id=team.id)
             read_flag_calls_from_flag_evaluations = read_mode != FlagEvaluationsMode.EVENTS
             flag_calls_only_in_flag_evaluations = read_mode == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY
             flag_calls_union_enabled = include_flag_evaluations_table and not is_flag_calls_union_disabled()

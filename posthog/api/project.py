@@ -593,7 +593,8 @@ class ProjectBackwardCompatSerializer(
     flag_evaluations_mode = serializers.SerializerMethodField(  # Compat with TeamSerializer
         help_text=(
             "Which table this project's feature flag usage data is read from. PostHog sets it for the "
-            "whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table."
+            "whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. An "
+            "organization whose every project reads the native JSON events table reads as 2."
         )
     )
     flag_calls_only_in_flag_evaluations = serializers.SerializerMethodField(  # Compat with TeamSerializer
@@ -1005,10 +1006,10 @@ class ProjectBackwardCompatSerializer(
 
     @extend_schema_field(serializers.ChoiceField(choices=FlagEvaluationsMode.choices))
     def get_flag_evaluations_mode(self, obj: Project) -> int:
-        return flag_evaluations_read_config_for(self.context, obj.organization_id).mode
+        return flag_evaluations_read_config_for(self.context, obj.organization_id, obj.pk).mode
 
     def get_flag_calls_only_in_flag_evaluations(self, obj: Project) -> bool:
-        read_config = flag_evaluations_read_config_for(self.context, obj.organization_id)
+        read_config = flag_evaluations_read_config_for(self.context, obj.organization_id, obj.pk)
         return events_lack_new_flag_calls(obj.passthrough_team, read_config)
 
     @extend_schema_field(REALTIME_COHORTS_FIELD_SCHEMA)

@@ -20,7 +20,7 @@ from posthog.permissions import IsStaffUser
 
 from products.feature_flags.backend.api.staff_cache import _team_ids_field
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
-from products.feature_flags.backend.facade.flags import get_organization_flag_evaluations_mode
+from products.feature_flags.backend.facade.flags import FlagEvaluationsConfig, get_organization_flag_evaluations_config
 from products.feature_flags.backend.flag_evaluations_mode import (
     FLAG_EVALUATIONS_MODES_HELP,
     OrganizationModeChange,
@@ -60,7 +60,7 @@ def _config_row(
     minimal_flag_called_events: bool,
     property_matching_version: int,
     max_feature_flags_override: int | None,
-    flag_evaluations_mode: int,
+    flag_evaluations_config: FlagEvaluationsConfig,
     feature_flag_count: int,
 ) -> dict[str, Any]:
     """Build the row shape shared by list() and set(), which both feed the same staff tools table."""
@@ -70,7 +70,8 @@ def _config_row(
         "property_matching_version": property_matching_version,
         "max_feature_flags_override": max_feature_flags_override,
         "effective_max_feature_flags": resolve_max_feature_flags(max_feature_flags_override),
-        "flag_evaluations_mode": flag_evaluations_mode,
+        "flag_evaluations_mode": flag_evaluations_config.mode,
+        "keep_writing_flag_calls_to_events": flag_evaluations_config.keeps_events_writes,
         "feature_flag_count": feature_flag_count,
     }
 
@@ -113,8 +114,16 @@ class StaffTeamConfigSerializer(serializers.Serializer):
         help_text=(
             "Which table the $feature_flag_called data of this team's organization is read from. Every team of "
             f"an organization shares one mode. {FLAG_EVALUATIONS_MODES_HELP} This is the stored mode: while the "
-            "FLAG_EVALUATIONS_READS_FORCE_EVENTS instance setting is on, an organization on 1, or on 2 with its events writes kept, reads events anyway."
+            "FLAG_EVALUATIONS_READS_FORCE_EVENTS instance setting is on, an organization on 1, or on 2 with its events writes kept, reads events anyway. "
+            "An organization whose every team reads the native JSON events table reads as 2 with its events writes kept, "
+            "whatever its stored mode, so that setting moves it back to events as well."
         ),
+    )
+    keep_writing_flag_calls_to_events = serializers.BooleanField(
+        help_text=(
+            "Whether ingestion keeps writing $feature_flag_called to the events table for the organization of this "
+            "team while it is on mode 2. Always false on modes 0 and 1."
+        )
     )
     feature_flag_count = serializers.IntegerField(
         help_text=(
@@ -330,7 +339,10 @@ class FeatureFlagsStaffTeamConfigViewSet(viewsets.ViewSet):
                     minimal_flag_called_events=config.minimal_flag_called_events,
                     property_matching_version=config.property_matching_version,
                     max_feature_flags_override=override_by_root_team_id.get(root_team_id),
-                    flag_evaluations_mode=organization_config.flag_evaluations_mode,
+                    flag_evaluations_config=FlagEvaluationsConfig(
+                        mode=organization_config.flag_evaluations_mode,
+                        keeps_events_writes=organization_config.keep_writing_flag_calls_to_events,
+                    ),
                     feature_flag_count=flag_count_by_root_team_id.get(root_team_id, 0),
                 )
             )
@@ -422,7 +434,7 @@ class FeatureFlagsStaffTeamConfigViewSet(viewsets.ViewSet):
                     if team.parent_team_id is None
                     else get_max_feature_flags_override_for_team(team.parent_team_id)
                 ),
-                flag_evaluations_mode=get_organization_flag_evaluations_mode(team.organization_id),
+                flag_evaluations_config=get_organization_flag_evaluations_config(team.organization_id),
                 feature_flag_count=FeatureFlag.objects.filter(team_id=team.id).count(),
             )
         )
