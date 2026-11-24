@@ -101,27 +101,8 @@ tools:
             action_label: send push notification
     workflows-send-push-batch:
         operation: messaging_send_push_batch_create
-        enabled: true
-        scopes:
-            - transactional_push:write
-        annotations:
-            readOnly: false
-            destructive: true
-            idempotent: false
-        title: Send transactional push notification to many people
-        description: >
-            Send one push notification from a push template made sendable from code to up to 100 people in one call.
-            Pass the template's ID, shared message_data, and recipients: each with a distinct_id, an idempotency_key
-            unique to that person, and optional message_data merged over the shared values. Each person gets their own
-            notification on every registered device. The result lists one entry per recipient, in order: queued, or an
-            error with a code. Sending takes two calls: prepare checks only the arguments and returns a message for the
-            user, and execute sends only after the user replies with the literal word 'confirm'. Show the user the
-            recipients and message_data with the message before they confirm. Never repeat an execute call that
-            succeeded. To retry recipients whose error is retryable, send only those again with the same
-            idempotency_key.
-        feature_flag: workflows-transactional-push-api
-        confirmed_action:
-            message: >
-                About to send push template '{template_id}' to every device of each recipient listed. Reply 'confirm'
-                to send it.
-            action_label: send push notifications
+        enabled: false
+        disabled_reason: >
+            The confirmation step can't show the recipients or message_data of a batch, so a user would approve up to 100
+            pushes without seeing who gets them or what they say. Agents send one person at a time with
+            workflows-send-push until the confirmation can show the batch.

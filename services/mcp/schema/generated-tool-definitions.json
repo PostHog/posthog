@@ -19412,37 +19412,6 @@
         },
         "feature_flag": "workflows-transactional-email-api"
     },
-    "workflows-send-push-batch-execute": {
-        "description": "Step 2 of 2 for send push notifications. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Send one push notification from a push template made sendable from code to up to 100 people in one call. Pass the template's ID, shared message_data, and recipients: each with a distinct_id, an idempotency_key unique to that person, and optional message_data merged over the shared values. Each person gets their own notification on every registered device. The result lists one entry per recipient, in order: queued, or an error with a code. Sending takes two calls: prepare checks only the arguments and returns a message for the user, and execute sends only after the user replies with the literal word 'confirm'. Show the user the recipients and message_data with the message before they confirm. Never repeat an execute call that succeeded. To retry recipients whose error is retryable, send only those again with the same idempotency_key.",
-        "category": "Workflows",
-        "feature": "workflows",
-        "summary": "Send transactional push notification to many people (execute)",
-        "title": "Send transactional push notification to many people (execute)",
-        "required_scopes": ["transactional_push:write"],
-        "api_operations": ["POST /api/projects/{project_id}/messaging/send/push_batch/"],
-        "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        },
-        "feature_flag": "workflows-transactional-push-api"
-    },
-    "workflows-send-push-batch-prepare": {
-        "description": "Step 1 of 2 for send push notifications. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Send one push notification from a push template made sendable from code to up to 100 people in one call. Pass the template's ID, shared message_data, and recipients: each with a distinct_id, an idempotency_key unique to that person, and optional message_data merged over the shared values. Each person gets their own notification on every registered device. The result lists one entry per recipient, in order: queued, or an error with a code. Sending takes two calls: prepare checks only the arguments and returns a message for the user, and execute sends only after the user replies with the literal word 'confirm'. Show the user the recipients and message_data with the message before they confirm. Never repeat an execute call that succeeded. To retry recipients whose error is retryable, send only those again with the same idempotency_key.",
-        "category": "Workflows",
-        "feature": "workflows",
-        "summary": "Send transactional push notification to many people (prepare)",
-        "title": "Send transactional push notification to many people (prepare)",
-        "required_scopes": ["transactional_push:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        },
-        "feature_flag": "workflows-transactional-push-api"
-    },
     "workflows-send-push-execute": {
         "description": "Step 2 of 2 for send push notification. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Send one push notification from a push template made sendable from code to every device of one person. Pass the template's ID, the person's distinct_id, and message_data with a value for each {{ variables.* }} the template uses. A person with no registered device gets nothing: the send still succeeds and shows as skipped in the template's Sends tab. Sending takes two calls: prepare checks only the arguments and returns a message for the user, and execute sends it only after the user replies with the literal word 'confirm'. The message doesn't show message_data, so show the user its values with the message before they confirm. Each execute call sends a notification, so never repeat one that succeeded. A 503 means PostHog did not confirm the send and it may still go out: do not try again on your own, tell the user.",
         "category": "Workflows",
