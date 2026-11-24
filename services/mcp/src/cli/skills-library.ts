@@ -6,6 +6,7 @@ import { z } from 'zod'
 
 import { hashBytes } from '@/hono/cache/SharedBlobCache'
 import { CONTEXT_MILL_URL, contextMillEntries, omnibusSkillFiles, unzipOmnibusArchives } from '@/resources/internals'
+import { isSkillServedWithoutFlags, servedSkillsFromHeaders } from '@/skills/served-skills'
 import {
     type LearnCommands,
     learnCommands,
@@ -187,11 +188,17 @@ function resourceSkill(id: string, files: Unzipped): SkillDefinition | undefined
     }
 }
 
+// Only the omnibus skills whose headers say they are for customers, the same rule the MCP server applies.
 function omnibusCatalog(release: Uint8Array): SkillCatalog | undefined {
     try {
         const files = omnibusSkillFiles(unzipOmnibusArchives(release))
+        if (Object.keys(files).length === 0) {
+            return undefined
+        }
+        const catalog = SkillCatalog.fromFiles(files)
+        const served = servedSkillsFromHeaders(catalog.listHeaders())
 
-        return Object.keys(files).length > 0 ? SkillCatalog.fromFiles(files) : undefined
+        return catalog.filter((name) => isSkillServedWithoutFlags(name, served))
     } catch {
         return undefined
     }
@@ -516,7 +523,9 @@ export function createSkillsLibrary(options: SkillsLibraryOptions): SkillsLibrar
     })
 
     const loadProductSkills = memoizeWhileFresh(async () => {
-        const loaded = await loadAsset(settings, 'product-skills', (bytes) => SkillCatalog.fromZip(bytes))
+        const loaded = await loadAsset(settings, 'product-skills', (bytes) =>
+            SkillCatalog.fromZip(bytes).filter((name) => isSkillServedWithoutFlags(name))
+        )
         return { catalog: loaded.parsed, assets: [loaded.status] }
     })
 

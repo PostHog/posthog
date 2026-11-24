@@ -965,9 +965,12 @@ export class ToolExecutor {
 
     private servedSkillCatalog(state: ResolvedState): SkillCatalog | undefined {
         const consumer = getEffectiveMCPClientContext(state.requestContext, state.sessionContext).mcpConsumer
-        return this.skillCatalogService
+        const service = this.skillCatalogService
+        return service
             ?.getCatalog()
-            ?.filter((name) => isSkillServed(name, { featureFlags: state.toolFeatureFlags, consumer }))
+            ?.filter((name) =>
+                isSkillServed(name, { featureFlags: state.toolFeatureFlags, consumer }, service.getServedSkills())
+            )
     }
 
     /**

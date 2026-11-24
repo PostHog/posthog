@@ -1,4 +1,9 @@
-import { isSkillListed } from '@/skills/served-skills'
+import {
+    isSkillListed,
+    PRODUCT_SERVED_SKILLS,
+    type ServedSkills,
+    servedSkillsFromHeaders,
+} from '@/skills/served-skills'
 import { SkillCatalog } from '@/skills/skill-catalog'
 
 import type { OmnibusSkillsCache } from './cache/OmnibusSkillsCache'
@@ -55,6 +60,7 @@ export class SkillCatalogService {
     private readonly isListed: (name: string) => boolean
 
     private catalog: SkillCatalog | undefined
+    private servedSkills: ServedSkills = PRODUCT_SERVED_SKILLS
     private releaseSkillNames: ReadonlySet<string> = new Set()
     private archiveBytes: Uint8Array | undefined
     private archiveSha: string | undefined
@@ -98,6 +104,11 @@ export class SkillCatalogService {
 
     getCatalog(): SkillCatalog | undefined {
         return this.catalog
+    }
+
+    /** The product list plus the context-mill skills whose headers say they are served. */
+    getServedSkills(): ServedSkills {
+        return this.servedSkills
     }
 
     isInRelease(name: string): boolean {
@@ -235,8 +246,9 @@ export class SkillCatalogService {
 
     private installCatalog(bytes: Uint8Array, phase: LoadPhase): void {
         const start = Date.now()
-        const release = this.buildCatalog(bytes)
-        const catalog = release.filter(this.isListed)
+        const { release, overlayServed } = this.buildCatalog(bytes)
+        const catalog = release.filter((name) => this.isListed(name) || overlayServed.has(name))
+        this.servedSkills = new Map([...PRODUCT_SERVED_SKILLS, ...overlayServed])
         this.releaseSkillNames = new Set(release.listNames())
         this.catalog = catalog
         this.loadedAt = Date.now()
@@ -249,10 +261,14 @@ export class SkillCatalogService {
     }
 
     /** The product archive must always install, so a failing overlay degrades to product skills only. */
-    private buildCatalog(bytes: Uint8Array): SkillCatalog {
+    private buildCatalog(bytes: Uint8Array): { release: SkillCatalog; overlayServed: ServedSkills } {
+        const product = SkillCatalog.fromZip(bytes)
         if (this.omnibusBytes) {
             try {
-                return SkillCatalog.fromZip(bytes, this.omnibusBytes)
+                const overlay = SkillCatalog.fromZip(this.omnibusBytes)
+                // A product skill keeps its name on a collision, so an overlay header must not decide whether it is served.
+                const headers = overlay.listHeaders().filter(({ name }) => !product.has(name))
+                return { release: product.withOverlay(overlay), overlayServed: servedSkillsFromHeaders(headers) }
             } catch (error) {
                 console.error(
                     '[SkillCatalogService] omnibus skills failed to overlay; serving product skills only:',
@@ -260,7 +276,7 @@ export class SkillCatalogService {
                 )
             }
         }
-        return SkillCatalog.fromZip(bytes)
+        return { release: product, overlayServed: new Map() }
     }
 }
 

@@ -2,7 +2,7 @@ import { strToU8, unzipSync, zipSync } from 'fflate'
 import * as fs from 'node:fs/promises'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import type {
     SkillCommands,
@@ -16,10 +16,15 @@ import { createSkillsLibrary, rewriteLearnCommands } from '@/cli/skills-library'
 import { CONTEXT_MILL_URL } from '@/resources/internals'
 import { PRODUCT_SKILL_ARCHIVE_URL } from '@/skills/skill-catalog'
 
+vi.mock('@/generated/served-skills.json', () => ({
+    default: { skills: { funnels: { audience: 'customer' } } },
+}))
+
 const MIB = 1024 * 1024
 
-function skillFile(name: string, description: string, body: string): Uint8Array {
-    return strToU8(`---\nname: ${name}\ndescription: ${description}\n---\n\n${body}`)
+function skillFile(name: string, description: string, body: string, audience?: string): Uint8Array {
+    const metadata = audience ? `metadata:\n  audience: ${audience}\n` : ''
+    return strToU8(`---\nname: ${name}\ndescription: ${description}\n${metadata}---\n\n${body}`)
 }
 
 function productSkills(body = 'Build a conversion funnel.'): Uint8Array {
@@ -48,7 +53,8 @@ function contextMill(auditSkill = AUDIT_SKILL): Uint8Array {
             'SKILL.md': skillFile(
                 'omnibus-instrument-integration',
                 'Add PostHog SDK integration.',
-                '# Integrate\n\nRead `learn posthog:instrument-integration references/COMMANDMENTS.md` first. Run `learn skills` for the rest.'
+                '# Integrate\n\nRead `learn posthog:instrument-integration references/COMMANDMENTS.md` first. Run `learn skills` for the rest.',
+                'customer'
             ),
             'references/COMMANDMENTS.md': strToU8('# Commandments\n\nNever hardcode the token.'),
         }),
@@ -154,6 +160,30 @@ describe('CLI skills library', () => {
             { name: 'audit', kind: 'implementation', description: 'Audit an install.' },
             { name: 'instrument-integration', kind: 'implementation', description: 'Add PostHog SDK integration.' },
         ])
+    })
+
+    it('leaves out a product skill that is not listed and an omnibus skill whose header names no audience', async () => {
+        const release = unzipSync(contextMill())
+        release['omnibus-instrument-draft.zip'] = zipSync({
+            'SKILL.md': skillFile('omnibus-instrument-draft', 'A draft.', '# Draft'),
+        })
+        const product = zipSync({
+            ...unzipSync(productSkills()),
+            'staff-runbook/SKILL.md': skillFile('staff-runbook', 'For staff.', '# Staff'),
+        })
+        const library = createSkillsLibrary({
+            fetch: fakeFetch({ [PRODUCT_SKILL_ARCHIVE_URL]: product, [CONTEXT_MILL_URL]: zipSync(release) }).fetch,
+        })
+
+        const listing = await library.catalog()
+        const instrument = await library.instrumentSkills()
+
+        expect(listing.ok && listing.value.skills.map(({ name }) => name)).toEqual([
+            'funnels',
+            'audit',
+            'instrument-integration',
+        ])
+        expect(instrument.ok && instrument.value.skills).toEqual(['posthog:instrument-integration'])
     })
 
     it('uses the network copy when the download works, even with an older copy cached', async () => {

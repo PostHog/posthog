@@ -23,6 +23,7 @@ import { buildToolDomainsCompact } from '@/lib/instructions'
 import { CHATGPT_APP_OAUTH_CLIENT_ID } from '@/lib/oauth-constants'
 import { CHART_DATA_PREAMBLE } from '@/lib/time-series-chart-data'
 import { RENDER_UI_RESOURCE_URI, URI_MAP } from '@/resources/ui-apps.generated'
+import { PRODUCT_SERVED_SKILLS } from '@/skills/served-skills'
 import { makeSkillFile, SkillCatalog } from '@/skills/skill-catalog'
 import { GENERATED_TOOL_MAP } from '@/tools/generated'
 import { getToolDefinition } from '@/tools/toolDefinitions'
@@ -304,6 +305,7 @@ describe('ToolExecutor', () => {
                 ])
                 const skillExecutor = new ToolExecutor(catalog, new InstructionsBuilder(''), {
                     getCatalog: () => skills,
+                    getServedSkills: () => PRODUCT_SERVED_SKILLS,
                     isInRelease: (name: string) => skills.has(name),
                 } as any)
                 const useExec = mode === 'exec'
@@ -340,6 +342,7 @@ describe('ToolExecutor', () => {
             ])
             const skillExecutor = new ToolExecutor(catalog, new InstructionsBuilder(''), {
                 getCatalog: () => skills,
+                getServedSkills: () => PRODUCT_SERVED_SKILLS,
             } as any)
             const tools = catalog.getFilteredTools({ scopes: ['*'] }).filter((tool) => tool.name === 'skill-get')
             const state = makeToolExecutorState(tools as any, {
@@ -489,6 +492,7 @@ describe('ToolExecutor', () => {
                 ])
                 const skillExecutor = new ToolExecutor(catalog, new InstructionsBuilder(''), {
                     getCatalog: () => skills,
+                    getServedSkills: () => PRODUCT_SERVED_SKILLS,
                 } as any)
                 const state = makeToolExecutorState([], {
                     useSingleExec: true,
@@ -799,6 +803,7 @@ describe('ToolExecutor', () => {
                 const instructionsBuilder = new InstructionsBuilder('')
                 const skillExecutor = new ToolExecutor(catalog, instructionsBuilder, {
                     getCatalog: () => skills,
+                    getServedSkills: () => PRODUCT_SERVED_SKILLS,
                 } as any)
                 const state = makeToolExecutorState([], {
                     toolFeatureFlags: { [MCP_EXEC_SKILLS_FEATURE_FLAG]: skillsEnabled },
@@ -849,7 +854,10 @@ describe('ToolExecutor', () => {
                 }))
             )
             const skillExecutor = (): ToolExecutor =>
-                new ToolExecutor(catalog, new InstructionsBuilder(''), { getCatalog: () => skills } as any)
+                new ToolExecutor(catalog, new InstructionsBuilder(''), {
+                    getCatalog: () => skills,
+                    getServedSkills: () => PRODUCT_SERVED_SKILLS,
+                } as any)
             const learn = async (
                 command: string,
                 state: ResolvedState

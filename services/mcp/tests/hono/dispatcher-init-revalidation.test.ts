@@ -16,6 +16,7 @@ const {
     mockResolveState: vi.fn(),
     mockSkillCatalogService: {
         getCatalog: vi.fn(),
+        getServedSkills: vi.fn(() => new Map()),
         poll: vi.fn(),
         start: vi.fn(),
         stop: vi.fn(),
