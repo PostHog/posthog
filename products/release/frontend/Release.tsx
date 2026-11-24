@@ -63,13 +63,14 @@ function ReleaseSkeleton({ suggestions }: { suggestions: boolean }): JSX.Element
             )}
             <div className="grid items-start gap-4 @4xl:grid-cols-3">
                 <div className="flex min-w-0 flex-col gap-4 @4xl:col-span-2">
-                    <Skeleton className="h-100 w-full @4xl:h-76" />
-                    <Skeleton className="h-56 w-full @4xl:h-52" />
-                    <Skeleton className="h-60 w-full" />
+                    <Skeleton className="h-100 w-full @4xl:h-88" />
+                    <Skeleton className="h-32 w-full" />
+                    <Skeleton className="h-100 w-full" />
                 </div>
                 <div className="flex min-w-0 flex-col gap-4">
                     <Skeleton className="h-20 w-full" />
                     {suggestions && <Skeleton className="h-40 w-full" />}
+                    <Skeleton className="h-96 w-full" />
                 </div>
             </div>
         </div>
@@ -152,11 +153,11 @@ function ReleaseContent({ id }: ReleaseSceneProps): JSX.Element {
                         <ReleaseStatusCard row={row} />
                         <ReleaseMetricsCard row={row} />
                         <ReleaseTrackCard row={row} />
-                        <ReleaseHistory row={row} />
                     </div>
                     <div className="flex min-w-0 flex-col gap-4">
                         <ReleaseDetailsCard row={row} />
                         <ReleaseSuggestedCard row={row} />
+                        <ReleaseHistory row={row} />
                     </div>
                 </div>
                 <ReleaseScheduleDialog />
