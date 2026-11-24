@@ -45,6 +45,7 @@ on:
             # test_hoglint_run.py holds hoglint_run.py's pins to the dev group's
             # hoglint pin and the locked Django, and a bump of either moves them.
             - pyproject.toml
+            - uv.lock
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
