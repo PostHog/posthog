@@ -14,6 +14,7 @@ from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from posthog.hogql import ast
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
@@ -688,26 +689,25 @@ def _sessions_started_by_clicks(team: Team, user: User | None, workflow_id: str,
         {"start": period.start, "end": period.end, "workflow_id": workflow_id, "limit": MAX_RESULTS_RECIPIENTS},
         _GROUP_AS_READ,
     )
-    # A session is counted twice only when it opened links of two sends that a small team query size split into
-    # separate batches.
-    return sum(
-        _sessions_in_batch(team, user, batch, period)
-        for batch in _batches_by_query_size(team.id, [message_id for (message_id,) in rows], _escaped_literal_bytes)
-    )
+    sessions: set[str] = set()
+    for batch in _batches_by_query_size(team.id, [message_id for (message_id,) in rows], _escaped_literal_bytes):
+        sessions |= _sessions_in_batch(team, user, batch, period)
+    return len(sessions)
 
 
-def _sessions_in_batch(team: Team, user: User | None, message_ids: list[str], period: _Period) -> int:
+def _sessions_in_batch(team: Team, user: User | None, message_ids: list[str], period: _Period) -> set[str]:
     # The email worker tags each link on the sender's own domain with ph_workflow_run=<invocation id>, and the
     # invocation id is the send's message id.
     response = execute_hogql_query(
         """
-        SELECT count(DISTINCT $session_id)
+        SELECT DISTINCT $session_id
         FROM events
         WHERE event = '$pageview'
           AND timestamp >= {start} AND timestamp < {end}
           AND $session_id != ''
           AND position(properties.$current_url, 'ph_workflow_run=') > 0
           AND extractURLParameter(properties.$current_url, 'ph_workflow_run') IN {message_ids}
+        LIMIT {limit}
         """,
         team=team,
         user=user,
@@ -715,12 +715,12 @@ def _sessions_in_batch(team: Team, user: User | None, message_ids: list[str], pe
             "start": ast.Constant(value=period.start),
             "end": ast.Constant(value=period.end + timedelta(days=IMPACT_WINDOW_DAYS)),
             "message_ids": ast.Constant(value=message_ids),
+            "limit": ast.Constant(value=MAX_SELECT_RETURNED_ROWS),
         },
         query_type="transactional_email_impact_sessions",
         workload=Workload.ONLINE,
     )
-    [(sessions,)] = response.results
-    return sessions
+    return {session_id for (session_id,) in response.results or []}
 
 
 @frozen

@@ -59,6 +59,7 @@ IMPACT_COUNTS = {
     "link_tagging_enabled": True,
 }
 LONG_ID_SENDS = 20
+CLICKED_SENDS_PAST_ONE_BATCH = 60
 SMALL_MAX_QUERY_SIZE = 16 * 1024
 
 
@@ -730,15 +731,18 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             ("early", "untagged-session", None),
         ]
         for distinct_id, session_id, run_id in landings:
-            query = f"?plan=pro&ph_workflow_run={run_id}" if run_id else "?plan=pro"
-            _create_event(
-                team=self.team,
-                event="$pageview",
-                distinct_id=distinct_id,
-                timestamp=NOW - timedelta(minutes=100),
-                properties={"$current_url": f"https://example.com/reset{query}", "$session_id": session_id},
-            )
+            self._land(distinct_id, session_id, run_id)
         flush_persons_and_events()
+
+    def _land(self, distinct_id: str, session_id: str, run_id: str | None) -> None:
+        query = f"?plan=pro&ph_workflow_run={run_id}" if run_id else "?plan=pro"
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=distinct_id,
+            timestamp=NOW - timedelta(minutes=5),
+            properties={"$current_url": f"https://example.com/reset{query}", "$session_id": session_id},
+        )
 
     def _impact(self, **params: str) -> dict:
         response = self.client.get(self._url("impact/"), {"workflow_id": self.workflow_id, **params})
@@ -786,6 +790,35 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             impact = self._impact(event="purchase", date_from=(NOW - timedelta(days=1)).isoformat())
 
         assert impact["without_click"] == {"sends": LONG_ID_SENDS, "converted": LONG_ID_SENDS}
+
+    def test_counts_a_session_once_when_its_sends_fall_in_two_query_batches(self, _flag):
+        clicked = [("sent", 1, ""), ("delivered", 2, ""), ("clicked", 60, "")]
+        message_ids = [
+            self._send(minutes_ago, f"reader-{minutes_ago}@example.com", clicked)
+            for minutes_ago in range(10, 10 + CLICKED_SENDS_PAST_ONE_BATCH)
+        ]
+        self._land("reader", "one-session", message_ids[0])
+        self._land("reader", "one-session", message_ids[-1])
+        flush_persons_and_events()
+
+        with patch.dict(
+            CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, {str(self.team.id): {"max_query_size": SMALL_MAX_QUERY_SIZE}}
+        ):
+            impact = self._impact(date_from=(NOW - timedelta(days=1)).isoformat())
+
+        assert (impact["clicked"], impact["sessions"]) == (CLICKED_SENDS_PAST_ONE_BATCH, 1)
+
+    def test_counts_sessions_of_the_newest_clicked_sends_with_ties_broken_by_message_id(self, _flag):
+        clicked = [("sent", 1, ""), ("delivered", 2, ""), ("clicked", 60, "")]
+        self._send(30, "first@example.com", clicked, message_id="11111111-1111-4111-8111-111111111111")
+        kept = self._send(30, "second@example.com", clicked, message_id="22222222-2222-4222-8222-222222222222")
+        self._land("second", "kept-session", kept)
+        flush_persons_and_events()
+
+        with patch("products.messaging.backend.services.transactional_email_log.MAX_RESULTS_RECIPIENTS", 1):
+            impact = self._impact(date_from=(NOW - timedelta(days=1)).isoformat())
+
+        assert impact["sessions"] == 1
 
     def test_sizes_impact_batches_by_the_default_limit_when_a_team_turns_the_limit_off(self, _flag):
         welcomed: list[str] = []
