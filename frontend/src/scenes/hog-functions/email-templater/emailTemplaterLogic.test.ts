@@ -420,6 +420,7 @@ describe('emailTemplaterLogic', () => {
             )
             logic.mount()
             logic.actions.setActiveContentTab('plaintext')
+            logic.actions.setTemplatingEngine('hog')
             if (settleFirst) {
                 await expectLogic(logic).toFinishAllListeners()
             }
@@ -430,6 +431,7 @@ describe('emailTemplaterLogic', () => {
                 documentEditorInitialDoc: starter,
                 revealedAdvancedFields: [],
                 activeContentTab: 'visual',
+                templatingEngine: 'liquid',
             })
         })
 

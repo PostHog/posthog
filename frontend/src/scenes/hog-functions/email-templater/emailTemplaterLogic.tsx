@@ -819,6 +819,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 setTemplatingEngine: (_, { templating }) => {
                     return templating
                 },
+                emailSwitched: () => 'liquid',
             },
         ],
         revealedAdvancedFields: [
