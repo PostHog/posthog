@@ -132,4 +132,66 @@ describe('app metrics logic', () => {
         expect(logic.values[value]?.series).toEqual([{ name: 'success', values: [3] }])
         logic.unmount()
     })
+
+    it('cancels an in-flight request when the logic unmounts', async () => {
+        initKeaTests()
+        let requestSignal: AbortSignal | undefined
+        let requestStarted = (): void => {}
+        const started = new Promise<void>((resolve) => (requestStarted = resolve))
+        jest.spyOn(api, 'queryHogQL').mockImplementationOnce((_query, _tags, options) => {
+            requestSignal = options?.requestOptions?.signal
+            requestStarted()
+            return new Promise(() => {})
+        })
+        const logic = appMetricsLogic({ logicKey: 'in-flight', forceParams: { appSource: 'hog_function' } })
+        logic.mount()
+        logic.actions.loadAppMetricsTrends()
+        await started
+
+        logic.unmount()
+
+        expect(requestSignal?.aborted).toBe(true)
+    })
+
+    it.each([
+        { load: 'loadAppMetricsTrendsPreviousPeriod', event: 'unmounts', sent: 1 },
+        { load: 'loadAppMetricsTrends', event: 'reloads', sent: 2 },
+    ] as const)('$load skips its retry when the logic $event', async ({ load, event, sent }) => {
+        initKeaTests()
+        let requests = 0
+        useMocks({
+            post: {
+                '/api/environments/:team_id/query/:kind/': () =>
+                    ++requests === 1
+                        ? new Response(JSON.stringify({ detail: 'Too many queries.' }), {
+                              status: 429,
+                              headers: { 'Content-Type': 'application/json', 'Retry-After': '5' },
+                          })
+                        : [200, { results: [[['2026-10-01'], 'success', [3]]] }],
+            },
+        })
+        const logic = appMetricsLogic({ logicKey: 'cancelled', forceParams: { appSource: 'hog_function' } })
+        logic.mount()
+        jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] })
+        try {
+            logic.actions[load]()
+            for (let waitedMs = 0; requests === 0 && waitedMs < 1000; waitedMs += 10) {
+                await jest.advanceTimersByTimeAsync(10)
+            }
+            await jest.advanceTimersByTimeAsync(100)
+            if (event === 'unmounts') {
+                logic.unmount()
+            } else {
+                logic.actions[load]()
+            }
+            await jest.advanceTimersByTimeAsync(10_000)
+
+            expect(requests).toBe(sent)
+        } finally {
+            jest.useRealTimers()
+            if (logic.isMounted()) {
+                logic.unmount()
+            }
+        }
+    })
 })

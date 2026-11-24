@@ -333,8 +333,12 @@ describe('pipelineOverviewSceneLogic', () => {
             results: [{ id: 'pg', name: 'Analytics Postgres', type: 'Postgres' }],
         })
         let firstLoad: Settle | undefined
+        let firstLoadSignal: AbortSignal | undefined
         metrics.loadAppMetricsTimeSeries
-            .mockImplementationOnce(() => new Promise((resolve, reject) => (firstLoad = { resolve, reject })))
+            .mockImplementationOnce((_request: unknown, _timezone: string, signal: AbortSignal) => {
+                firstLoadSignal = signal
+                return new Promise((resolve, reject) => (firstLoad = { resolve, reject }))
+            })
             .mockResolvedValue(response('newer'))
 
         initKeaTests()
@@ -344,11 +348,36 @@ describe('pipelineOverviewSceneLogic', () => {
         await expectLogic(logic, () => logic.actions.setWindow(30)).toDispatchActions([
             'loadDestinationRowSeriesSuccess',
         ])
+        expect(firstLoadSignal?.aborted).toBe(true)
         settle(firstLoad!)
         await expectLogic(logic).toFinishAllListeners()
 
         await expectLogic(logic).toNotHaveDispatchedActions(['loadDestinationRowSeriesFailure'])
         expect(logic.values.destinationRowSeries?.labels).toEqual(['newer'])
+    })
+
+    it('stops the other destination queries when one of them fails', async () => {
+        logic.unmount()
+        wsApi.externalDataDestinationsList.mockResolvedValue({
+            results: [
+                { id: 'pg', name: 'Analytics Postgres', type: 'Postgres' },
+                { id: 'bq', name: 'BigQuery', type: 'BigQuery' },
+            ],
+        })
+        let pendingSignal: AbortSignal | undefined
+        metrics.loadAppMetricsTimeSeries
+            .mockRejectedValueOnce(new ApiError('Too many queries', 429))
+            .mockImplementationOnce((_request: unknown, _timezone: string, signal: AbortSignal) => {
+                pendingSignal = signal
+                return new Promise(() => {})
+            })
+
+        initKeaTests()
+        logic = pipelineOverviewSceneLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadDestinationRowSeriesFailure'])
+
+        expect(pendingSignal?.aborted).toBe(true)
     })
 
     it('gives the warehouse whatever the other destinations did not take', async () => {

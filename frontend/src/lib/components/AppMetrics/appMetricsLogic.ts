@@ -100,15 +100,16 @@ const concurrencyRetryWaitMs = (error: unknown): number | undefined => {
     return waitMs > 0 && waitMs <= CONCURRENCY_RETRY_MAX_WAIT_MS ? waitMs : undefined
 }
 
-const queryAppMetrics = (query: HogQLQueryString): Promise<HogQLQueryResponse> =>
+const queryAppMetrics = (query: HogQLQueryString, signal?: AbortSignal): Promise<HogQLQueryResponse> =>
     retryWithBackoff(
         () =>
             api.queryHogQL(
                 query,
                 { scene: 'HogFunction', productKey: 'pipeline_destinations' },
-                { refresh: 'force_blocking' }
+                { refresh: 'force_blocking', requestOptions: { signal } }
             ),
         {
+            signal,
             maxAttempts: 2,
             shouldRetry: (error) => concurrencyRetryWaitMs(error) !== undefined,
             getDelayMs: concurrencyRetryWaitMs,
@@ -187,7 +188,8 @@ ORDER BY total DESC LIMIT ${request.limit}`) as HogQLQueryString
 
 export const loadAppMetricsTimeSeries = async (
     request: AppMetricsTimeSeriesRequest,
-    timezone: string
+    timezone: string,
+    signal?: AbortSignal
 ): Promise<AppMetricsTimeSeriesResponse> => {
     const interval = request.interval || DEFAULT_INTERVAL
 
@@ -286,7 +288,7 @@ export const loadAppMetricsTimeSeries = async (
         ORDER BY breakdown
         `) as HogQLQueryString
 
-    const response = await queryAppMetrics(query)
+    const response = await queryAppMetrics(query, signal)
 
     return {
         labels: (response.results?.[0]?.[0] as string[] | undefined) ?? [],
@@ -429,7 +431,7 @@ export const appMetricsLogic = kea<appMetricsLogicType>([
             },
         ],
     })),
-    loaders(({ values }) => ({
+    loaders(({ values, cache }) => ({
         appMetricsTrends: [
             null as AppMetricsTimeSeriesResponse | null,
             {
@@ -442,12 +444,18 @@ export const appMetricsLogic = kea<appMetricsLogicType>([
                         dateTo: dateRange.dateTo.toISOString(),
                     }
 
-                    const result = await loadAppMetricsTimeSeries(params, values.currentTeam?.timezone ?? 'UTC').catch(
-                        (error) => {
-                            breakpoint()
-                            throw error
-                        }
-                    )
+                    const controller = new AbortController()
+                    cache.disposables.add(() => () => controller.abort(), 'appMetricsTrendsRequest', {
+                        pauseOnPageHidden: false,
+                    })
+                    const result = await loadAppMetricsTimeSeries(
+                        params,
+                        values.currentTeam?.timezone ?? 'UTC',
+                        controller.signal
+                    ).catch((error) => {
+                        breakpoint()
+                        throw error
+                    })
                     await breakpoint(10)
 
                     return result
@@ -466,12 +474,18 @@ export const appMetricsLogic = kea<appMetricsLogicType>([
                         dateTo: dateRange.dateTo.subtract(dateRange.diffMs).toISOString(),
                     }
 
-                    const result = await loadAppMetricsTimeSeries(params, values.currentTeam?.timezone ?? 'UTC').catch(
-                        (error) => {
-                            breakpoint()
-                            throw error
-                        }
-                    )
+                    const controller = new AbortController()
+                    cache.disposables.add(() => () => controller.abort(), 'appMetricsTrendsPreviousPeriodRequest', {
+                        pauseOnPageHidden: false,
+                    })
+                    const result = await loadAppMetricsTimeSeries(
+                        params,
+                        values.currentTeam?.timezone ?? 'UTC',
+                        controller.signal
+                    ).catch((error) => {
+                        breakpoint()
+                        throw error
+                    })
                     await breakpoint(10)
 
                     return result
