@@ -144,7 +144,7 @@ const SEARCH_COLUMNS: { metric: SearchMetric; title: string; tooltip: string }[]
     },
 ]
 
-/** One sortable column per Search Console number. Null `impressions` means they have not loaded. */
+/** One sortable column per Search Console number. Null `impressions` means they are loading. */
 const searchColumns = (impressions: Record<string, KeywordSearchImpressions> | null): ReportColumn[] =>
     SEARCH_COLUMNS.map(({ metric, title, tooltip }) => ({
         title,
@@ -175,11 +175,14 @@ const searchColumns = (impressions: Record<string, KeywordSearchImpressions> | n
 export const ContentAutopilotKeywordReportTable = (): JSX.Element => {
     const { report, reportLoading, reportError } = useValues(contentAutopilotKeywordsLogic)
     const { loadReport } = useActions(contentAutopilotKeywordsLogic)
-    const { searchTable, searchConsoleMissing, impressions, impressionsFailed } = useValues(
+    const { searchTable, searchConsoleMissing, impressions, impressionsLoading, impressionsFailed } = useValues(
         contentAutopilotKeywordSearchLogic
     )
     // The columns show only for a project with a Search Console source whose numbers loaded or are loading.
-    const columns = searchTable && !impressionsFailed ? [...COLUMNS, ...searchColumns(impressions)] : COLUMNS
+    const columns =
+        searchTable && !impressionsFailed
+            ? [...COLUMNS, ...searchColumns(impressionsLoading ? null : impressions)]
+            : COLUMNS
 
     return (
         <PagePerformanceCard className="min-w-0">
