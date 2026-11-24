@@ -1,6 +1,7 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -645,6 +646,19 @@ describe('emailTemplaterLogic', () => {
                 design: DESIGN_EDITED,
             })
         })
+
+        it.each([
+            { name: 'as it is stored', design: DESIGN_NORMALIZED, expected: { html: '<p>raw</p>', text: 'Hello' } },
+            { name: 'with a canvas edit', design: DESIGN_EDITED, expected: { html: '<p>edited</p>', text: 'edited' } },
+        ])('saves a modal email as a new template $name', async ({ design, expected }) => {
+            const createTemplate = jest.spyOn(api.messaging, 'createTemplate').mockResolvedValue({} as any)
+            editorDesign = design
+            logic.actions.saveAsTemplate('Copy', '')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(createTemplate.mock.calls[0][0].content?.email).toMatchObject(expected)
+            createTemplate.mockRestore()
+        })
     })
 
     describe('inline layout live propagation', () => {
@@ -736,6 +750,23 @@ describe('emailTemplaterLogic', () => {
 
             expect(save).toHaveBeenCalledTimes(1)
             expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ design: DESIGN_EDITED }))
+        })
+
+        it.each([
+            { name: 'the stored email while the editor is still loading', edited: false, expected: { text: 'Hello' } },
+            { name: 'an edit the form has not seen yet', edited: true, expected: { html: '<p>edited</p>' } },
+        ])('saves as a new template $name', async ({ edited, expected }) => {
+            const createTemplate = jest.spyOn(api.messaging, 'createTemplate').mockResolvedValue({} as any)
+            if (edited) {
+                editorListeners['design:loaded']()
+                await expectLogic(logic).toFinishAllListeners()
+            }
+            // Without a confirmed load, a canvas that differs from the stored email isn't an edit.
+            editorDesign = DESIGN_EDITED
+            logic.actions.saveAsTemplate('Copy', '')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(createTemplate.mock.calls[0][0].content?.email).toMatchObject(expected)
         })
 
         it('saves again once the editor hands over an edit it failed to hand over before', async () => {
