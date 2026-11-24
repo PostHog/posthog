@@ -14,6 +14,12 @@ export interface VariantOutcome {
     significant: boolean
 }
 
+export interface VariantPoint {
+    day: string
+    variant: string
+    value: number
+}
+
 export interface SurveyRating {
     question: string
     average: number
@@ -30,6 +36,8 @@ export type LaneInsights =
           outcomes: VariantOutcome[]
           findings: string[]
           errors: ErrorSplit[]
+          series: VariantPoint[]
+          cumulative: boolean
       }
     | { kind: 'survey'; rating: SurveyRating | null; latest: string[] }
     | { kind: 'early_access'; optedIn: number }
@@ -162,4 +170,46 @@ export function enrollmentQuery(flagKey: string): HogQLQuery {
             )`,
         values: { flag: flagKey },
     }
+}
+
+export function seriesFromTimeseries(timeseries: Record<string, unknown>): VariantPoint[] {
+    return Object.entries(timeseries).flatMap(([day, result]) => {
+        const response = result as Pick<ExperimentQueryResponse, 'baseline' | 'variant_results'> | null
+        if (!response?.baseline) {
+            return []
+        }
+        return [response.baseline, ...(response.variant_results ?? [])].flatMap((variant) =>
+            variant.number_of_samples
+                ? [{ day, variant: variant.key, value: variant.sum / variant.number_of_samples }]
+                : []
+        )
+    })
+}
+
+export function variantSeriesQuery(flagKey: string, metricEvent: string, from: string): HogQLQuery {
+    return {
+        kind: NodeKind.HogQLQuery,
+        query: `SELECT toStartOfDay(timestamp) AS day, variant,
+                countIf(event = {metric}) / greatest(uniqIf(person_id, event = '$feature_flag_called'), 1) AS value
+            FROM (
+                SELECT timestamp, event, person_id,
+                    if(event = '$feature_flag_called', toString(properties.$feature_flag_response), toString(properties[{prop}])) AS variant
+                FROM events
+                WHERE timestamp >= toDateTime({from})
+                    AND ((event = '$feature_flag_called' AND properties.$feature_flag = {flag}) OR event = {metric})
+            )
+            WHERE variant IS NOT NULL AND variant NOT IN ('', 'null', 'true', 'false')
+            GROUP BY day, variant ORDER BY day, variant`,
+        values: { flag: flagKey, metric: metricEvent, prop: `$feature/${flagKey}`, from },
+    }
+}
+
+export function parseVariantSeries(rows: unknown[][]): VariantPoint[] {
+    return rows
+        .filter(([, variant]) => variant !== null && variant !== undefined && variant !== '')
+        .map(([day, variant, value]) => ({
+            day: String(day).slice(0, 10),
+            variant: String(variant),
+            value: Number(value),
+        }))
 }

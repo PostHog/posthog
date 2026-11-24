@@ -1,4 +1,11 @@
-import { errorsLookWorse, leadingOutcome, parseErrorSplit, variantOutcomes } from './releaseLaneInsights'
+import {
+    errorsLookWorse,
+    leadingOutcome,
+    parseErrorSplit,
+    parseVariantSeries,
+    seriesFromTimeseries,
+    variantOutcomes,
+} from './releaseLaneInsights'
 
 describe('releaseLaneInsights', () => {
     test.each([
@@ -67,5 +74,26 @@ describe('releaseLaneInsights', () => {
             { key: 'other', change: expect.closeTo(-0.2), chanceToWin: 0.1, significant: false },
         ])
         expect(leadingOutcome(outcomes)?.key).toBe('test')
+    })
+
+    it('turns stored results and daily rows into one point per variant and day, without unknown variants', () => {
+        expect(
+            seriesFromTimeseries({
+                '2026-11-20': {
+                    baseline: { key: 'control', number_of_samples: 10, sum: 2, sum_squares: 0 },
+                    variant_results: [{ key: 'test', number_of_samples: 10, sum: 4, sum_squares: 0 }],
+                },
+                '2026-11-21': null,
+            })
+        ).toEqual([
+            { day: '2026-11-20', variant: 'control', value: 0.2 },
+            { day: '2026-11-20', variant: 'test', value: 0.4 },
+        ])
+        expect(
+            parseVariantSeries([
+                ['2026-11-20 00:00:00', 'control', 0.2],
+                ['2026-11-20 00:00:00', null, 0.9],
+            ])
+        ).toEqual([{ day: '2026-11-20', variant: 'control', value: 0.2 }])
     })
 })

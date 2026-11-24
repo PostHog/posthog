@@ -4,7 +4,11 @@ import { loaders } from 'kea-loaders'
 import { performQuery } from '~/queries/query'
 import { ExperimentMetric, NodeKind } from '~/queries/schema/schema-general'
 
-import { experimentsHealthRetrieve, experimentsRetrieve } from 'products/experiments/frontend/generated/api'
+import {
+    experimentsHealthRetrieve,
+    experimentsRetrieve,
+    experimentsTimeseriesResultsRetrieve,
+} from 'products/experiments/frontend/generated/api'
 import { featureFlagsStatusRetrieve } from 'products/feature_flags/frontend/generated/api'
 import { surveysRetrieve } from 'products/surveys/frontend/generated/api'
 
@@ -14,7 +18,10 @@ import {
     enrollmentQuery,
     errorSplitQuery,
     parseErrorSplit,
+    parseVariantSeries,
+    seriesFromTimeseries,
     surveyQueries,
+    variantSeriesQuery,
     variantOutcomes,
 } from './releaseLaneInsights'
 import { LaneUsage, UsageTarget, parseUsage, usageQueries } from './releaseLaneUsage'
@@ -110,6 +117,20 @@ export const releaseLaneUsageLogic = kea<releaseLaneUsageLogicType>([
                             rows(errorSplitQuery(target.value)),
                         ])
                         const goal = metric && 'goal' in metric ? metric.goal : undefined
+                        const timeseries = metric?.uuid
+                            ? await experimentsTimeseriesResultsRetrieve(projectId, target.id, {
+                                  metric_uuid: metric.uuid,
+                              }).catch(() => null)
+                            : null
+                        const stored = timeseries ? seriesFromTimeseries(timeseries.timeseries) : []
+                        const source =
+                            metric && 'source' in metric ? (metric.source as { event?: string } | undefined) : undefined
+                        const daily =
+                            !stored.length && metric?.metric_type === 'mean' && source?.event
+                                ? parseVariantSeries(
+                                      await rows(variantSeriesQuery(target.value, source.event, props.from))
+                                  )
+                                : []
                         return {
                             kind: 'experiment',
                             metricName: metric ? metric.name || 'Primary metric' : null,
@@ -121,6 +142,8 @@ export const releaseLaneUsageLogic = kea<releaseLaneUsageLogicType>([
                                 .filter((finding) => finding.severity !== 'info')
                                 .map((finding) => finding.title),
                             errors: parseErrorSplit(errors),
+                            series: stored.length ? stored : daily,
+                            cumulative: stored.length > 0,
                         }
                     }
                     if (target.kind === 'survey') {

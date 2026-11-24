@@ -8,6 +8,7 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { UsageKind, UsageTarget } from './releaseLaneUsage'
 import { releaseLaneUsageLogic } from './releaseLaneUsageLogic'
 import { SPAN_LOOK, Scale, x } from './releaseTracks'
+import { ReleaseVariantChart } from './ReleaseVariantChart'
 
 const CAPTION: Record<UsageKind, string> = {
     flag: 'Users whose app checked this flag, per day',
@@ -37,11 +38,26 @@ export function ReleaseLaneUsageChart({
     height: number
     stickyOffset?: number
 }): JSX.Element {
-    const { usage, usageLoading } = useValues(releaseLaneUsageLogic({ target, from: scale.start.format('YYYY-MM-DD') }))
+    const { usage, usageLoading, insights } = useValues(
+        releaseLaneUsageLogic({ target, from: scale.start.format('YYYY-MM-DD') })
+    )
     const days = (usage?.days ?? []).filter((day) => !dayjs(day.day).isBefore(scale.start, 'day'))
     const peak = days.reduce((max, day) => (day.users > max.users ? day : max), { day: '', users: 0, total: 0 })
     const area = height - HEADER - FOOTER
     const color = SPAN_LOOK[target.kind === 'early_access' ? 'early_access' : target.kind].color
+
+    if (insights?.kind === 'experiment' && insights.metricName && insights.series.length) {
+        return (
+            <ReleaseVariantChart
+                series={insights.series}
+                cumulative={insights.cumulative}
+                metricName={insights.metricName}
+                scale={scale}
+                height={height}
+                stickyOffset={stickyOffset}
+            />
+        )
+    }
 
     return (
         <div className="relative" style={{ height }} data-attr="release-lane-usage">
