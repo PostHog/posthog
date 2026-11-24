@@ -6,13 +6,7 @@ import {
     Button,
     Card,
     CardFooter,
-    Pagination,
-    PaginationButton,
-    PaginationContent,
-    PaginationEllipsis,
-    PaginationItem,
-    PaginationNext,
-    PaginationPrevious,
+    Spinner,
     Table,
     TableBody,
     TableCell,
@@ -21,7 +15,6 @@ import {
     TableHeader,
     TableRow,
     Text,
-    getPaginationRange,
 } from '@posthog/quill-primitives'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -38,7 +31,6 @@ import { SkeletonLine } from '../dashboard/SkeletonLine'
 import {
     type SortState,
     type ToolQualitySortColumn,
-    TOOL_QUALITY_PAGE_SIZE,
     mcpAnalyticsToolQualityLogic,
 } from '../mcpAnalyticsToolQualityLogic'
 import { mcpFacetsLogic } from '../mcpFacetsLogic'
@@ -317,7 +309,6 @@ export function ToolQualityTable(): JSX.Element {
     const {
         toolQualitySort,
         toolQualityPageIndex,
-        loadedToolQualityPageIndex,
         toolRows,
         toolRowsPage,
         toolRowsPageLoading,
@@ -325,10 +316,6 @@ export function ToolQualityTable(): JSX.Element {
         toolRowsTotalCount,
     } = useValues(mcpAnalyticsToolQualityLogic)
     const { setToolQualitySort, setToolQualityPageIndex } = useActions(mcpAnalyticsToolQualityLogic)
-    const pageCount = Math.max(Math.ceil(toolRowsTotalCount / TOOL_QUALITY_PAGE_SIZE), 1)
-    const pageRange = getPaginationRange(pageCount, toolQualityPageIndex)
-    const firstRow = toolRowsTotalCount === 0 ? 0 : loadedToolQualityPageIndex * TOOL_QUALITY_PAGE_SIZE + 1
-    const lastRow = Math.min(firstRow + toolRows.length - 1, toolRowsTotalCount)
     const showSkeleton = toolRowsPageLoading && toolRowsPage === null
 
     return (
@@ -358,46 +345,19 @@ export function ToolQualityTable(): JSX.Element {
             {toolRowsTotalCount > 0 && (
                 <CardFooter className="flex flex-row flex-wrap items-center justify-between gap-2 border-t border-border">
                     <Text size="xs" variant="muted" render={<span />} className="tabular-nums">
-                        {firstRow}-{lastRow} of {pluralize(toolRowsTotalCount, 'tool')}
+                        {toolRows.length} of {pluralize(toolRowsTotalCount, 'tool')}
                     </Text>
-                    {pageCount > 1 ? (
-                        <Pagination className="w-auto">
-                            <PaginationContent>
-                                <PaginationItem>
-                                    <PaginationPrevious
-                                        disabled={toolRowsPageLoading || toolQualityPageIndex === 0}
-                                        onClick={() => setToolQualityPageIndex(toolQualityPageIndex - 1)}
-                                        data-attr="mcp-tool-quality-page-previous"
-                                    />
-                                </PaginationItem>
-                                {pageRange.map((item, index) =>
-                                    item === 'ellipsis' ? (
-                                        <PaginationItem key={`ellipsis-${index}`}>
-                                            <PaginationEllipsis />
-                                        </PaginationItem>
-                                    ) : (
-                                        <PaginationItem key={item}>
-                                            <PaginationButton
-                                                isActive={item === toolQualityPageIndex}
-                                                disabled={toolRowsPageLoading}
-                                                aria-label={`Go to page ${item + 1}`}
-                                                onClick={() => setToolQualityPageIndex(item)}
-                                                data-attr="mcp-tool-quality-page"
-                                            >
-                                                {item + 1}
-                                            </PaginationButton>
-                                        </PaginationItem>
-                                    )
-                                )}
-                                <PaginationItem>
-                                    <PaginationNext
-                                        disabled={toolRowsPageLoading || toolQualityPageIndex === pageCount - 1}
-                                        onClick={() => setToolQualityPageIndex(toolQualityPageIndex + 1)}
-                                        data-attr="mcp-tool-quality-page-next"
-                                    />
-                                </PaginationItem>
-                            </PaginationContent>
-                        </Pagination>
+                    {toolRows.length < toolRowsTotalCount ? (
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setToolQualityPageIndex(toolQualityPageIndex + 1)}
+                            disabled={toolRowsPageLoading}
+                            data-attr="mcp-tool-quality-load-more"
+                        >
+                            {toolRowsPageLoading ? <Spinner /> : null}
+                            Load more
+                        </Button>
                     ) : null}
                 </CardFooter>
             )}

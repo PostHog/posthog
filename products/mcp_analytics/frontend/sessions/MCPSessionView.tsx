@@ -1,12 +1,14 @@
 import { useValues } from 'kea'
 import { useEffect, useMemo, useState } from 'react'
 
-import { IconBolt, IconClock, IconSparkles, IconUser } from '@posthog/icons'
+import { IconBolt, IconClock, IconSparkles, IconUser, IconWarning, IconWrench } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import { Button, Spinner } from '@posthog/quill-primitives'
 
+import { BrandMark } from 'lib/components/BrandMark/BrandMark'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 
+import { labMark, modelLab } from '../aiLabs'
 import { MCP_ANALYTICS_SESSION_FEEDBACK_PROMPT } from '../feedback/constants'
 import { MCPAnalyticsFeedbackPrompt } from '../feedback/MCPAnalyticsFeedbackPrompt'
 import { MCPSessionApi, MCPToolCallApi } from '../generated/api.schemas'
@@ -126,68 +128,70 @@ export function MCPSessionView({
         })
     )
     const timeline = useMemo(() => sessionTimeline(toolCalls, reports, hasNext), [toolCalls, reports, hasNext])
+    // The session list doesn't carry the model, so take the latest one the loaded calls name.
+    const model = useMemo(() => [...toolCalls].reverse().find((call) => call.llm_model)?.llm_model ?? '', [toolCalls])
 
     return (
         <div className="flex flex-col h-full min-h-0">
-            <header className="@container shrink-0 border-b border-primary px-3 pt-3 pb-2">
-                <div className="flex flex-col gap-2 @2xl:flex-row @2xl:items-start @2xl:gap-4">
-                    <div className="flex min-w-0 flex-1 flex-col gap-2">
-                        <div className="flex items-center gap-2 min-w-0">
-                            <div
-                                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${
-                                    identifiedPerson
-                                        ? 'bg-accent/20 text-accent'
-                                        : 'bg-surface-secondary text-secondary'
-                                }`}
-                            >
-                                <IconUser className="text-2xl" />
-                            </div>
-                            <div className="flex flex-col min-w-0 flex-1 gap-1">
-                                <span
-                                    className={`truncate font-semibold ${
-                                        identifiedPerson ? 'text-default text-sm' : 'font-mono text-xs text-secondary'
-                                    }`}
-                                >
-                                    {primaryLabel}
-                                </span>
-                                {session.distinct_id ? (
-                                    <CopyToClipboardInline
-                                        explicitValue={session.distinct_id}
-                                        description="distinct id"
-                                        iconSize="xsmall"
-                                        tooltipMessage={<IdTooltip label="Distinct ID" value={session.distinct_id} />}
-                                        className="truncate font-mono text-[11px] text-secondary"
-                                    >
-                                        {session.distinct_id}
-                                    </CopyToClipboardInline>
-                                ) : null}
-                            </div>
-                        </div>
-
-                        <div className="flex flex-wrap items-center gap-1.5">
-                            {session.mcp_client_name ? (
-                                <MetaBadge icon={<IconSparkles />} label={session.mcp_client_name} />
-                            ) : null}
-                            <MetaBadge icon={<IconBolt />} label={`${calls} tool call${calls === 1 ? '' : 's'}`} />
-                            <MetaBadge icon={<IconClock />} label={formatDuration(durationMs)} />
+            <header className="flex flex-col gap-2 shrink-0 border-b border-primary px-3 pt-3 pb-2">
+                <div className="flex items-center gap-2 min-w-0">
+                    <div
+                        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${
+                            identifiedPerson ? 'bg-accent/20 text-accent' : 'bg-surface-secondary text-secondary'
+                        }`}
+                    >
+                        <IconUser className="text-2xl" />
+                    </div>
+                    <div className="flex flex-col min-w-0 flex-1 gap-1">
+                        <span
+                            className={`truncate font-semibold ${
+                                identifiedPerson ? 'text-default text-sm' : 'font-mono text-xs text-secondary'
+                            }`}
+                        >
+                            {primaryLabel}
+                        </span>
+                        {session.distinct_id ? (
                             <CopyToClipboardInline
-                                explicitValue={session.session_id}
-                                description="session id"
+                                explicitValue={session.distinct_id}
+                                description="distinct id"
                                 iconSize="xsmall"
-                                tooltipMessage={<IdTooltip label="Session ID" value={session.session_id} />}
-                                className="rounded-full bg-surface-secondary px-2 py-0.5 text-[11px] text-secondary font-mono"
+                                tooltipMessage={<IdTooltip label="Distinct ID" value={session.distinct_id} />}
+                                className="truncate font-mono text-[11px] text-secondary"
                             >
-                                {shortenSessionId(session.session_id)}
+                                {session.distinct_id}
                             </CopyToClipboardInline>
-                        </div>
+                        ) : null}
                     </div>
-                    <div className="min-w-0 @2xl:w-1/2 @2xl:max-w-xl">
-                        <SessionIntentCard
-                            intent={intent}
-                            isGenerating={isGeneratingIntent}
-                            onGenerate={onGenerateIntent}
+                </div>
+
+                <div className="flex flex-wrap items-center gap-1.5">
+                    {session.mcp_client_name ? (
+                        <MetaBadge icon={<IconSparkles />} label={session.mcp_client_name} />
+                    ) : null}
+                    {model ? <MetaBadge icon={<BrandMark name={labMark(modelLab(model))} />} label={model} /> : null}
+                    <MetaBadge icon={<IconBolt />} label={`${calls} tool call${calls === 1 ? '' : 's'}`} />
+                    {session.error_calls > 0 ? (
+                        <MetaBadge
+                            icon={<IconWarning />}
+                            label={`${session.error_calls} error${session.error_calls === 1 ? '' : 's'}`}
                         />
-                    </div>
+                    ) : null}
+                    {session.tools_used.length > 0 ? (
+                        <MetaBadge
+                            icon={<IconWrench />}
+                            label={`${session.tools_used.length} distinct tool${session.tools_used.length === 1 ? '' : 's'}`}
+                        />
+                    ) : null}
+                    <MetaBadge icon={<IconClock />} label={formatDuration(durationMs)} />
+                    <CopyToClipboardInline
+                        explicitValue={session.session_id}
+                        description="session id"
+                        iconSize="xsmall"
+                        tooltipMessage={<IdTooltip label="Session ID" value={session.session_id} />}
+                        className="rounded-full bg-surface-secondary px-2 py-0.5 text-[11px] text-secondary font-mono"
+                    >
+                        {shortenSessionId(session.session_id)}
+                    </CopyToClipboardInline>
                 </div>
             </header>
 
@@ -256,6 +260,12 @@ export function MCPSessionView({
                     </>
                 )}
             </section>
+
+            <hr className="shrink-0 border-t border-primary my-0" />
+
+            <footer className="shrink-0 bg-gradient-to-br from-accent/15 via-accent/5 to-surface-primary px-3 py-3">
+                <SessionIntentCard intent={intent} isGenerating={isGeneratingIntent} onGenerate={onGenerateIntent} />
+            </footer>
 
             {!loading && toolCalls.length > 0 && (
                 <MCPAnalyticsFeedbackPrompt

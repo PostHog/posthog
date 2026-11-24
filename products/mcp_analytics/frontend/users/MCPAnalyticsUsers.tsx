@@ -1,8 +1,9 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
+import { useEffect, useState } from 'react'
 
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
-import { Card, DataTable, type DataTableProps } from '@posthog/quill'
+import { Button, Card, DataTable, type DataTableProps } from '@posthog/quill'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { formatPercentage } from 'lib/utils/numbers'
@@ -105,9 +106,13 @@ const USER_COLUMNS: DataTableProps<UserRow, unknown>['columns'] = [
     },
 ]
 
+const USERS_PAGE_SIZE = 50
+
 function UsersTable(): JSX.Element {
     const { users, filteredUsers, usersLoading, usersFailed, search, openedUser } = useValues(mcpUsersLogic)
     const { openUser, loadUsers } = useActions(mcpUsersLogic)
+    const [shownCount, setShownCount] = useState(USERS_PAGE_SIZE)
+    useEffect(() => setShownCount(USERS_PAGE_SIZE), [filteredUsers])
 
     if (!usersLoading && !usersFailed && users.length === 0) {
         return (
@@ -134,7 +139,7 @@ function UsersTable(): JSX.Element {
                     <DataTable
                         columns={USER_COLUMNS}
                         // Rows arrive sorted by calls.
-                        data={filteredUsers}
+                        data={filteredUsers.slice(0, shownCount)}
                         fullWidth
                         size="sm"
                         stickyHeader
@@ -159,6 +164,18 @@ function UsersTable(): JSX.Element {
                     <TableLoadingBar loading={usersLoading && filteredUsers.length > 0} />
                 </div>
             </Card>
+            {filteredUsers.length > shownCount ? (
+                <div className="flex justify-center" data-quill>
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setShownCount(shownCount + USERS_PAGE_SIZE)}
+                        data-attr="mcp-users-load-more"
+                    >
+                        Load more
+                    </Button>
+                </div>
+            ) : null}
         </>
     )
 }

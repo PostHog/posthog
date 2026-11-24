@@ -61,6 +61,8 @@ export function ShareWidget({
     labelOf = (label) => label,
     iconOf,
     onSelect,
+    onSelectOther,
+    onSelectUnknown,
     unknownLabel = UNKNOWN,
     setupEmptyState,
     sensitive = false,
@@ -79,6 +81,10 @@ export function ShareWidget({
     iconOf?: (label: string) => ReactNode
     /** Makes each named row clickable. Receives the clicked label and every named label, in order. */
     onSelect?: (label: string, labels: string[]) => void
+    /** Makes the "Other" row clickable. Receives every label folded into it. */
+    onSelectOther?: (labels: string[]) => void
+    /** Makes the unknown row clickable. */
+    onSelectUnknown?: () => void
     unknownLabel?: string
     setupEmptyState?: ReactNode
     /** Keeps the row labels, such as people's emails, out of session replay. */
@@ -115,6 +121,11 @@ export function ShareWidget({
     )
 
     const barSeries = expanded ? [...named, ...(other ? [other] : []), ...(unknown ? [unknown] : [])] : folded
+    // The server can send its own "Other" label too, such as for unrecognized harnesses.
+    const otherLabels = useMemo(
+        () => [...(expanded ? [] : named.slice(topRows).map((s) => s.label)), ...(other ? [OTHER] : [])],
+        [expanded, named, topRows, other]
+    )
     const totalCalls = useMemo(() => sum(folded.map((s) => sum(s.data))), [folded])
     const barRows = useMemo<ShareBarRow<BarMeta>[]>(
         () =>
@@ -128,17 +139,31 @@ export function ShareWidget({
                     color: colorOf(s.label),
                     icon: isCatchAll ? undefined : iconOf?.(s.label),
                     onClick:
-                        isCatchAll || !onSelect
-                            ? undefined
-                            : () =>
-                                  onSelect(
-                                      s.label,
-                                      named.map((series) => series.label)
-                                  ),
+                        s.label === OTHER
+                            ? onSelectOther && (() => onSelectOther(otherLabels))
+                            : s.label === UNKNOWN
+                              ? onSelectUnknown
+                              : onSelect &&
+                                (() =>
+                                    onSelect(
+                                        s.label,
+                                        named.map((series) => series.label)
+                                    )),
                     meta: { calls },
                 }
             }),
-        [barSeries, colorOf, labelOf, iconOf, onSelect, named, unknownLabel]
+        [
+            barSeries,
+            colorOf,
+            labelOf,
+            iconOf,
+            onSelect,
+            onSelectOther,
+            onSelectUnknown,
+            otherLabels,
+            named,
+            unknownLabel,
+        ]
     )
     const overTimeSeries = useMemo<ShareOverTimeSeries[]>(
         () =>

@@ -10,8 +10,7 @@ import { BrandMark } from 'lib/components/BrandMark/BrandMark'
 import { ProductEmptyState } from 'lib/components/ProductEmptyState/ProductEmptyState'
 import type { ProductEmptyStateConfig } from 'lib/components/ProductEmptyState/types'
 import { TZLabel } from 'lib/components/TZLabel'
-import { Toggle, Tooltip, TooltipContent, TooltipTrigger } from 'lib/ui/quill'
-import { cn } from 'lib/utils/css-classes'
+import { Button, Tooltip, TooltipContent, TooltipTrigger } from 'lib/ui/quill'
 import { AnalyticsSearchInput } from 'scenes/analytics/AnalyticsSearchInput'
 
 import { MCPMissingCapabilitiesItem, ProductKey } from '~/queries/schema/schema-general'
@@ -20,7 +19,6 @@ import { PersonDisplay } from 'products/persons/frontend/components/PersonDispla
 
 import { labMark, modelLab } from '../aiLabs'
 import { McpDateFilter } from '../components/McpDateFilter'
-import { MCP_FILTER_ACTIVE_CLASS, McpFacetSelect } from '../components/McpFacetSelect'
 import { McpFacetControl, McpSharedFilters } from '../components/McpSharedFilters'
 import { TableLoadingBar } from '../components/TableLoadingBar'
 import { HarnessLogo } from '../dashboard/harness'
@@ -45,7 +43,8 @@ const HedgehogPuzzle = pngHoggie(puzzlePng)
 const REPORT_FACET_CONTROLS: readonly McpFacetControl[] = ['harness', 'model']
 
 function FilterBar(): JSX.Element {
-    const { search, dateFilter, reportsLoading, outcomes, hasSuggestedFix } = useValues(mcpMissingCapabilitiesLogic)
+    const { search, dateFilter, reportsLoading, outcomes, hasSuggestedFix, showOutcome, showSuggestedFix } =
+        useValues(mcpMissingCapabilitiesLogic)
     const { setSearch, setDateFilter, loadReports, setOutcomes, setHasSuggestedFix } =
         useActions(mcpMissingCapabilitiesLogic)
 
@@ -54,36 +53,36 @@ function FilterBar(): JSX.Element {
             pageKey="mcp-missing-capabilities"
             dataAttrPrefix="mcp-missing-capabilities"
             facetControls={REPORT_FACET_CONTROLS}
-            pageFacets={
-                <>
-                    <McpFacetSelect
-                        label="Outcome"
-                        options={OUTCOME_OPTIONS}
-                        value={outcomes.map((outcome) => REPORT_OUTCOMES[outcome])}
-                        onChange={(labels) =>
-                            setOutcomes(OUTCOME_KEYS.filter((key) => labels.includes(REPORT_OUTCOMES[key])))
-                        }
-                        dataAttr="mcp-missing-capabilities-filter-outcome"
-                    />
-                    <Tooltip>
-                        <TooltipTrigger
-                            render={
-                                <Toggle
-                                    variant="outline"
-                                    pressed={hasSuggestedFix}
-                                    onPressedChange={setHasSuggestedFix}
-                                    className={cn(hasSuggestedFix && MCP_FILTER_ACTIVE_CLASS)}
-                                    data-attr="mcp-missing-capabilities-filter-suggested-fix"
-                                />
-                            }
-                        >
-                            <IconLightBulb />
-                            Suggested fix
-                        </TooltipTrigger>
-                        <TooltipContent>Reports where the agent suggested a fix</TooltipContent>
-                    </Tooltip>
-                </>
-            }
+            pageQuickFilters={{
+                // Agents send both fields only sometimes, so each filter shows once a report has it.
+                lists: showOutcome
+                    ? [
+                          {
+                              key: 'outcome',
+                              label: 'Outcome',
+                              searchLabel: 'outcomes',
+                              options: OUTCOME_LABELS,
+                              value: outcomes.map((outcome) => REPORT_OUTCOMES[outcome]),
+                              onChange: (labels) =>
+                                  setOutcomes(OUTCOME_KEYS.filter((key) => labels.includes(REPORT_OUTCOMES[key]))),
+                              dataAttr: 'outcome',
+                          },
+                      ]
+                    : [],
+                toggles: showSuggestedFix
+                    ? [
+                          {
+                              key: 'suggestedFix',
+                              label: 'Suggested fix',
+                              icon: <IconLightBulb />,
+                              tooltip: 'Reports where the agent suggested a fix',
+                              value: hasSuggestedFix,
+                              onChange: setHasSuggestedFix,
+                              dataAttr: 'suggested-fix',
+                          },
+                      ]
+                    : [],
+            }}
             hasPageFilters={outcomes.length > 0 || hasSuggestedFix}
             onClearPageFilters={() => {
                 setOutcomes([])
@@ -156,10 +155,10 @@ function NoMatchesState({ search }: { search: string }): JSX.Element {
 }
 
 const OUTCOME_KEYS = Object.keys(REPORT_OUTCOMES) as ReportOutcome[]
-const OUTCOME_OPTIONS = OUTCOME_KEYS.map((key) => ({ value: REPORT_OUTCOMES[key], calls: 0 }))
+const OUTCOME_LABELS = OUTCOME_KEYS.map((key) => REPORT_OUTCOMES[key])
 
 const OUTCOME_HELP =
-    "Whether the agent says it still finished the user's task despite the gap. Blocked: it could not. Completed anyway: it found another way. Not reported: the report did not say, which is always the case for get_more_tools reports."
+    "Whether the agent finished the user's task anyway. Blocked: it couldn't. Completed anyway: it found another way. Not reported: the agent didn't say."
 const SUGGESTED_HELP =
     'The change the agent says would have helped, such as a tool to add, from its missing capability report.'
 
@@ -297,8 +296,15 @@ export function MCPAnalyticsMissingCapabilities(): JSX.Element {
         dateFilter,
         outcomes,
         hasSuggestedFix,
+        showOutcome,
+        showSuggestedFix,
     } = useValues(mcpMissingCapabilitiesLogic)
     const { loadReports, loadMoreReports, openReport } = useActions(mcpMissingCapabilitiesLogic)
+    // Both fields are optional in send_feedback, so a column nobody fills stays out of the way.
+    const columns = REPORT_COLUMNS.filter(
+        (column) =>
+            (column.id !== 'suggested_improvement' || showSuggestedFix) && (column.id !== 'outcome' || showOutcome)
+    )
     const { propertyFilters, hasActiveFacetFilters } = useValues(mcpAnalyticsFiltersLogic)
 
     const initialLoadFailed = Boolean(reportsError) && reports.length === 0
@@ -339,7 +345,7 @@ export function MCPAnalyticsMissingCapabilities(): JSX.Element {
                 <Card size="sm" className="gap-0 overflow-hidden pt-0" data-attr="mcp-missing-capabilities-table">
                     <div className="relative">
                         <DataTable
-                            columns={REPORT_COLUMNS}
+                            columns={columns}
                             data={reports}
                             fullWidth
                             size="sm"
@@ -367,16 +373,16 @@ export function MCPAnalyticsMissingCapabilities(): JSX.Element {
                 </Card>
             )}
             {hasNext ? (
-                <div className="flex justify-center">
-                    <LemonButton
-                        type="secondary"
-                        size="small"
+                <div className="flex justify-center" data-quill>
+                    <Button
+                        variant="outline"
+                        size="sm"
                         loading={reportsLoading}
                         onClick={() => loadMoreReports()}
                         data-attr="mcp-missing-capabilities-load-more"
                     >
                         Load more
-                    </LemonButton>
+                    </Button>
                 </div>
             ) : null}
             <MissingCapabilitySessionDrawer reports={reports} openedReport={openedReport} onOpen={openReport} />

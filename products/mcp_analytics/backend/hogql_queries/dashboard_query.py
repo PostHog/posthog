@@ -136,8 +136,8 @@ LIMIT 500
 MIN_CALLS_TO_RANK_TOOLS = 20
 TOOLS_PER_RANKING = 8
 
-# Each card reads its own top tools: by calls, by error rate, and by p95. Ranking all three from one
-# aggregate reads the events once. A cap by call volume before ranking would drop a slow or flaky tool
+# Each card reads its own top tools: by calls, by error rate, by error count, and by p95. Ranking them all
+# from one aggregate reads the events once. A cap by call volume before ranking would drop a slow or flaky tool
 # that is not among the busiest. The ranking goes last so the first five columns keep their meaning for
 # cached rows from before it and for browsers still running the previous parser.
 TOOL_ROWS_SQL = f"""
@@ -156,14 +156,16 @@ FROM (
         AND {{filters}}
     GROUP BY tool
 )
-ARRAY JOIN ['calls', 'error_rate', 'p95'] AS ranking
+ARRAY JOIN ['calls', 'error_rate', 'errors', 'p95'] AS ranking
 WHERE ranking = 'calls'
-    OR (total_calls >= {MIN_CALLS_TO_RANK_TOOLS} AND (ranking = 'error_rate' OR p95_duration_ms > 0))
+    OR (ranking = 'errors' AND errors > 0)
+    OR (total_calls >= {MIN_CALLS_TO_RANK_TOOLS} AND (ranking = 'error_rate' OR (ranking = 'p95' AND p95_duration_ms > 0)))
 ORDER BY
     ranking,
     multiIf(
         ranking = 'calls', toFloat(total_calls),
         ranking = 'error_rate', toFloat(error_rate_pct),
+        ranking = 'errors', toFloat(errors),
         toFloat(p95_duration_ms)
     ) DESC,
     tool

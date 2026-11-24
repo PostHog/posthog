@@ -202,7 +202,7 @@ describe('mcpAnalyticsToolQualityLogic', () => {
             expect(logic.values.selectedTool).toBe('tool_a')
         })
 
-        it('keeps the current rows visible while another page loads', async () => {
+        it('appends the next page to the rows on screen when loading more', async () => {
             mockApi.query.mockImplementation(async (query: any) => {
                 if (query.kind !== NodeKind.MCPToolQualityRowsQuery) {
                     return { results: [] }
@@ -224,7 +224,7 @@ describe('mcpAnalyticsToolQualityLogic', () => {
 
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.loadedToolQualityPageIndex).toBe(1)
-            expect(logic.values.toolRows.map((row) => row.tool)).toEqual(['page-two-tool'])
+            expect(logic.values.toolRows.map((row) => row.tool)).toEqual(['page-one-tool', 'page-two-tool'])
         })
 
         it.each([

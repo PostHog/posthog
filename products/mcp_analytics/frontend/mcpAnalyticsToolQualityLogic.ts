@@ -415,7 +415,9 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
                             throw error
                         })) as MCPToolQualityRowsQueryResponse
                     breakpoint()
-                    return { ...response, pageIndex }
+                    // Load more appends each page to the rows already on screen.
+                    const previous = pageIndex > 0 ? (values.toolRowsPage?.results ?? []) : []
+                    return { ...response, results: [...previous, ...response.results], pageIndex }
                 },
             },
         ],
@@ -569,7 +571,7 @@ export const mcpAnalyticsToolQualityLogic = kea<mcpAnalyticsToolQualityLogicType
                 actions.loadDailyStats()
             },
             reloadAll: () => {
-                actions.loadToolRowsPage()
+                loadFirstToolPage()
                 actions.loadDailyStats()
             },
             loadToolRowsPageSuccess: ({ toolRowsPage }) => {

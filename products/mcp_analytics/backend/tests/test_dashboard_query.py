@@ -309,7 +309,7 @@ class TestMCPDashboardQueryRunner(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTe
         assert expected, "the seed should give the section rows to compare"
         assert self._rows(self._run([section]), section) == expected
 
-    def test_tool_rows_rank_every_tool_by_calls_error_rate_and_p95(self) -> None:
+    def test_tool_rows_rank_every_tool_by_calls_error_rate_errors_and_p95(self) -> None:
         # (tool, calls, errors, duration_ms) for directly registered tools
         direct = [
             ("busy_tool", 30, 0, 50),
@@ -338,6 +338,7 @@ class TestMCPDashboardQueryRunner(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTe
         assert ranked == {
             "calls": ["busy_tool", "wrapped_tool", "flaky_tool", "slow_tool", "rare_tool"],
             "error_rate": ["flaky_tool", "busy_tool", "slow_tool", "wrapped_tool"],
+            "errors": ["flaky_tool", "rare_tool"],
             "p95": ["slow_tool", "wrapped_tool", "flaky_tool", "busy_tool"],
         }
         assert ["flaky_tool", 20, 10, 50.0, 100.0] in [row[:5] for row in rows]

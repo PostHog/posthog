@@ -105,7 +105,7 @@ function queriesSince(callIndex: number): MCPDashboardQuery[] {
         .filter(isDashboardQuery)
 }
 
-const SECTION_COUNT = 9
+const SECTION_COUNT = 11
 
 function useBatched(batched = true): void {
     const flags: Record<string, boolean> = { [FEATURE_FLAGS.MCP_ANALYTICS_DASHBOARD_BATCH]: batched }

@@ -1,9 +1,10 @@
 import { useValues } from 'kea'
 import { useState } from 'react'
 
-import { LemonButton, LemonDivider, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
+import { LemonDivider, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import { type ChartTheme, type TimeInterval } from '@posthog/quill-charts'
 import {
+    Button,
     Card,
     CardDescription,
     CardHeader,
@@ -119,7 +120,7 @@ export function ResultTable({
     columns: ResultColumn[]
     emptyMessage?: string
     onRowClick?: (rowIndex: number) => void
-    /** Rows shown before "Show more". */
+    /** Rows shown before "Load more". */
     pageSize?: number
     /** Replaces the table when the server doesn't send this value. */
     setupEmptyState?: React.ReactNode
@@ -213,16 +214,16 @@ export function ResultTable({
                     )}
                 </Table>
             )}
-            {!setupEmptyState && pageSize && rows.length > pageSize ? (
+            {!setupEmptyState && pageSize && hiddenCount > 0 ? (
                 <div className="flex justify-center border-t border-border py-1.5">
-                    <LemonButton
-                        size="xsmall"
-                        type="tertiary"
-                        onClick={() => setShownCount(hiddenCount > 0 ? shownCount + pageSize : pageSize)}
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setShownCount(shownCount + pageSize)}
                         data-attr="mcp-tool-top-show-more"
                     >
-                        {hiddenCount > 0 ? `Show ${Math.min(pageSize, hiddenCount)} more` : 'Show less'}
-                    </LemonButton>
+                        Load more
+                    </Button>
                 </div>
             ) : null}
         </Card>

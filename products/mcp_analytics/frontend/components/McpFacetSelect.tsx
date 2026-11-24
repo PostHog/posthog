@@ -23,13 +23,22 @@ export const MCP_FILTER_ACTIVE_CLASS =
 export interface McpFacetSelectProps {
     /** Singular, sentence case: "Tool", "Harness". */
     label: string
+    /** Plural for the search box, such as "harnesses". Defaults to the label plus "s". */
+    searchLabel?: string
     options: McpFacetOption[]
     value: string[]
     onChange: (value: string[]) => void
     dataAttr: string
 }
 
-export function McpFacetSelect({ label, options, value, onChange, dataAttr }: McpFacetSelectProps): JSX.Element {
+export function McpFacetSelect({
+    label,
+    searchLabel = `${label.toLowerCase()}s`,
+    options,
+    value,
+    onChange,
+    dataAttr,
+}: McpFacetSelectProps): JSX.Element {
     const triggerRef = useRef<HTMLButtonElement>(null)
     // A selected value that dropped out of the window still shows, so it can be cleared.
     const items = useMemo(
@@ -79,7 +88,7 @@ export function McpFacetSelect({ label, options, value, onChange, dataAttr }: Mc
                 className="w-64 [&_[data-slot=combobox-input-group-wrapper]]:border-b-0"
             >
                 <ComboboxInput
-                    placeholder={`Search ${label.toLowerCase()}s`}
+                    placeholder={`Search ${searchLabel}`}
                     autoFocus
                     showTrigger={false}
                     className="h-7 [&_input]:text-sm"

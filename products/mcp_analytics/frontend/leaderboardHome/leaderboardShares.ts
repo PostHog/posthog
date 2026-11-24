@@ -1,7 +1,59 @@
+import { type ModelLab, modelLab } from '../aiLabs'
+
 export interface BucketedFacetRow {
     bucket: string
     label: string
     calls: number
+}
+
+export interface LabShare {
+    lab: ModelLab
+    share: number
+    // The lab's calls or users, out of `total`, the denominator of `share`.
+    count: number
+    total: number
+}
+
+export interface LabUsersRow {
+    lab: string
+    users: number
+}
+
+export type ScoreboardMetric = 'calls' | 'users'
+
+const UNKNOWN = 'Unknown'
+
+export function buildLabShares(rows: BucketedFacetRow[]): LabShare[] {
+    const callsByLab = new Map<ModelLab, number>()
+    for (const row of rows) {
+        if (row.label !== UNKNOWN) {
+            const lab = modelLab(row.label)
+            callsByLab.set(lab, (callsByLab.get(lab) ?? 0) + row.calls)
+        }
+    }
+    const total = [...callsByLab.values()].reduce((sum, calls) => sum + calls, 0)
+    return [...callsByLab.entries()]
+        .filter(([lab]) => lab !== 'Other')
+        .sort(([, a], [, b]) => b - a)
+        .map(([lab, calls]) => ({ lab, share: total > 0 ? (calls / total) * 100 : 0, count: calls, total }))
+}
+
+// A person can use models from several labs, so these shares do not add up to 100.
+export function buildLabUserShares(rows: LabUsersRow[], namedModelUsers: number): LabShare[] {
+    return rows
+        .filter((row): row is { lab: ModelLab; users: number } => row.lab !== UNKNOWN && row.lab !== 'Other')
+        .sort((a, b) => b.users - a.users)
+        .map(({ lab, users }) => ({
+            lab,
+            share: namedModelUsers > 0 ? (users / namedModelUsers) * 100 : 0,
+            count: users,
+            total: namedModelUsers,
+        }))
+}
+
+export function leadingLabs(shares: LabShare[]): ModelLab[] {
+    const topShare = Math.max(0, ...shares.map(({ share }) => share))
+    return topShare > 0 ? shares.filter(({ share }) => share === topShare).map(({ lab }) => lab) : []
 }
 
 /** Share of blank calls at which a chart asks for setup. */

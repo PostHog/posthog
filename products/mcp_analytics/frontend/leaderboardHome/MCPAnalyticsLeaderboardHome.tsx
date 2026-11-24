@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 
 import api from 'lib/api'
 import { useChartTheme } from 'lib/charts/hooks'
@@ -19,7 +19,8 @@ import { McpDateFilter } from '../components/McpDateFilter'
 import { McpSharedFilters } from '../components/McpSharedFilters'
 import { HarnessLogo } from '../dashboard/harness'
 import { KpiTiles } from '../dashboard/KpiTiles'
-import { ToolRankingCard } from '../dashboard/ToolRankingCard'
+import { type ErrorRanking, ToolErrorRateChart } from '../dashboard/ToolErrorRateChart'
+import { ToolLatencyChart } from '../dashboard/ToolLatencyChart'
 import { MCP_ANALYTICS_DASHBOARD_FEEDBACK_PROMPT } from '../feedback/constants'
 import { MCPAnalyticsFeedbackPrompt } from '../feedback/MCPAnalyticsFeedbackPrompt'
 import { MCPAnalyticsFirstLook } from '../firstLook/MCPAnalyticsFirstLook'
@@ -30,10 +31,12 @@ import {
     mcpDashboardOverviewLogic,
     rankedToolsEmptyMessage,
     rankToolsByErrorRate,
+    rankToolsByErrors,
     rankToolsByP95,
     slowestToolsEmptyMessage,
 } from '../mcpDashboardOverviewLogic'
 import { ToolReportDrawer } from '../tool-quality/ToolReportDrawer'
+import { LabScoreboard } from './LabScoreboard'
 import { isMostlyLabeled } from './leaderboardShares'
 import { type FacetKey, mcpLeaderboardHomeLogic } from './mcpLeaderboardHomeLogic'
 import { ProtocolVersionDescription } from './ProtocolVersionDescription'
@@ -75,7 +78,8 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
     } = useValues(mcpDashboardOverviewLogic)
     const { setDateFilter, reloadAll, markFilterInteraction, loadSections, openToolDrawer, closeToolDrawer } =
         useActions(mcpDashboardOverviewLogic)
-    const { facets } = useValues(mcpLeaderboardHomeLogic)
+    const { facets, scoreboardMetric, scoreboardShares } = useValues(mcpLeaderboardHomeLogic)
+    const { setScoreboardMetric } = useActions(mcpLeaderboardHomeLogic)
     const { searchParams } = useValues(router)
     const { featureFlags } = useValues(featureFlagLogic)
     const { timezone } = useValues(teamLogic)
@@ -85,8 +89,12 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
     const loadingFacet = (...keys: FacetKey[]): boolean =>
         keys.some((key) => loadingSections[key as MCPDashboardSection])
 
-    // The query returns the top tools of each ranking, so each table keeps its own top rows.
-    const errorRanking = useMemo(() => rankToolsByErrorRate(toolRows).slice(0, 8), [toolRows])
+    // The query returns the top tools of each ranking, so each chart keeps its own top rows.
+    const [errorsBy, setErrorsBy] = useState<ErrorRanking>('rate')
+    const errorRanking = useMemo(
+        () => (errorsBy === 'rate' ? rankToolsByErrorRate(toolRows) : rankToolsByErrors(toolRows)).slice(0, 8),
+        [toolRows, errorsBy]
+    )
     const latencyRanking = useMemo(() => rankToolsByP95(toolRows).slice(0, 8), [toolRows])
     // With a single version there is nothing to compare or migrate, so the card stays out of the way.
     const protocolVersionCount = new Set(facets.protocolVersion.map((row) => row.label).filter((v) => v !== 'Unknown'))
@@ -98,8 +106,12 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
     const usersAnonymous = isMostlyLabeled(facets.user, ['Unknown'])
     const openActivity = (change: Parameters<typeof activityUrlWithFilter>[1]): void =>
         router.actions.push(activityUrlWithFilter(searchParams, change))
-    const eventFilter = (key: string, value: string): Parameters<typeof activityUrlWithFilter>[1] => ({
-        property: { type: PropertyFilterType.Event, key, value: [value], operator: PropertyOperator.Exact },
+    const eventFilter = (key: string, values: string[]): Parameters<typeof activityUrlWithFilter>[1] => ({
+        property: { type: PropertyFilterType.Event, key, value: values, operator: PropertyOperator.Exact },
+    })
+    // A chart's Unknown row counts the calls that didn't send the property.
+    const notSetFilter = (key: string): Parameters<typeof activityUrlWithFilter>[1] => ({
+        property: { type: PropertyFilterType.Event, key, operator: PropertyOperator.IsNotSet },
     })
     // The label is the email, else the distinct ID, and the filters can't OR the two, so check which one it is.
     const openUserActivity = async (user: string): Promise<void> => {
@@ -171,11 +183,20 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                 />
             </Section>
 
-            <Section id="agent-feedback">
-                <SuggestedFixesCard />
-            </Section>
-
-            <Section id="usage">
+            <Section id="models">
+                <LabScoreboard
+                    shares={scoreboardShares}
+                    loading={
+                        scoreboardMetric === 'calls'
+                            ? loadingFacet('model')
+                            : loadingFacet('labUsers', 'namedModelUsers')
+                    }
+                    failed={
+                        scoreboardMetric === 'calls' ? failedFacet('model') : failedFacet('labUsers', 'namedModelUsers')
+                    }
+                    metric={scoreboardMetric}
+                    onMetricChange={setScoreboardMetric}
+                />
                 <TwoColumns>
                     <ShareWidget
                         {...shareProps}
@@ -185,6 +206,8 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                         failed={failedFacet('model')}
                         iconOf={modelIcon}
                         onSelect={(model) => openActivity({ facets: { models: [model] } })}
+                        onSelectOther={(models) => openActivity({ facets: { models } })}
+                        onSelectUnknown={() => openActivity(notSetFilter('$mcp_llm_model'))}
                         dataAttr="mcp-dashboard-model-share"
                         setupEmptyState={
                             modelMissing ? (
@@ -205,6 +228,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                         iconOf={harnessIcon}
                         unknownLabel="Unidentified client"
                         onSelect={(harness) => openActivity({ facets: { harnesses: [harness] } })}
+                        onSelectOther={(harnesses) => openActivity({ facets: { harnesses } })}
                         dataAttr="mcp-dashboard-harness-share"
                         setupEmptyState={
                             harnessMissing ? (
@@ -216,6 +240,13 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                         }
                     />
                 </TwoColumns>
+            </Section>
+
+            <Section id="agent-feedback">
+                <SuggestedFixesCard />
+            </Section>
+
+            <Section id="usage">
                 <TwoColumns>
                     {showProtocol ? (
                         <ShareWidget
@@ -226,7 +257,9 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                             loading={loadingFacet('protocolVersion')}
                             failed={failedFacet('protocolVersion')}
                             labelOf={protocolLabel}
-                            onSelect={(version) => openActivity(eventFilter('$mcp_protocol_version', version))}
+                            onSelect={(version) => openActivity(eventFilter('$mcp_protocol_version', [version]))}
+                            onSelectOther={(versions) => openActivity(eventFilter('$mcp_protocol_version', versions))}
+                            onSelectUnknown={() => openActivity(notSetFilter('$mcp_protocol_version'))}
                             dataAttr="mcp-dashboard-protocol-share"
                         />
                     ) : null}
@@ -262,6 +295,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                         loading={loadingFacet('tool')}
                         failed={failedFacet('tool')}
                         onSelect={openToolDrawer}
+                        onSelectOther={(tools) => openActivity({ facets: { tools } })}
                         dataAttr="mcp-dashboard-tool-share"
                     />
                     <ShareWidget
@@ -269,33 +303,49 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                         title="Common errors"
                         rows={facets.errorType}
                         onSelect={(errorType) => openActivity({ facets: { errors: [errorType] } })}
+                        onSelectOther={(errors) => openActivity({ facets: { errors } })}
                         loading={loadingFacet('errorType')}
                         failed={failedFacet('errorType')}
                         dataAttr="mcp-dashboard-error-type-share"
                     />
                 </TwoColumns>
                 <TwoColumns>
-                    <ToolRankingCard
-                        title="Tools with most errors"
+                    <ToolErrorRateChart
                         rows={errorRanking}
-                        metric="errorRate"
+                        emptyMessage={
+                            errorsBy === 'rate'
+                                ? rankedToolsEmptyMessage(toolRows)
+                                : toolRows.length > 0
+                                  ? 'No tool calls failed in this date range.'
+                                  : undefined
+                        }
                         loading={!!loadingSections.toolRows}
                         failed={!!failedLoads.toolRows}
                         onRetry={() => loadSections([MCPDashboardSection.ToolRows])}
-                        emptyMessage={rankedToolsEmptyMessage(toolRows)}
-                        onSelect={openToolDrawer}
-                        dataAttr="mcp-dashboard-most-errors-row"
+                        theme={theme}
+                        onToolClick={(tool) =>
+                            openToolDrawer(
+                                tool,
+                                errorRanking.map((row) => row.tool)
+                            )
+                        }
+                        by={errorsBy}
+                        onByChange={setErrorsBy}
+                        dataAttr="mcp-dashboard-errors"
                     />
-                    <ToolRankingCard
-                        title="Slowest tool calls"
+                    <ToolLatencyChart
                         rows={latencyRanking}
-                        metric="p95"
+                        emptyMessage={slowestToolsEmptyMessage(toolRows)}
                         loading={!!loadingSections.toolRows}
                         failed={!!failedLoads.toolRows}
                         onRetry={() => loadSections([MCPDashboardSection.ToolRows])}
-                        emptyMessage={slowestToolsEmptyMessage(toolRows)}
-                        onSelect={openToolDrawer}
-                        dataAttr="mcp-dashboard-slowest-row"
+                        theme={theme}
+                        onToolClick={(tool) =>
+                            openToolDrawer(
+                                tool,
+                                latencyRanking.map((row) => row.tool)
+                            )
+                        }
                     />
                 </TwoColumns>
             </Section>

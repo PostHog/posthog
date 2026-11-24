@@ -76,12 +76,14 @@ function dashboardUrlMovesDate(dateFilter: DateFilter): boolean {
 const MCP_DASHBOARD_DATA_COLLECTION_ID = pageCollectionId('mcp-analytics-dashboard')
 const DASHBOARD_TILE_ID = 'mcp-dashboard'
 
-// ToolRows feeds the most-errors and slowest tables.
+// ToolRows feeds the most-errors and slowest charts.
 const DASHBOARD_SECTIONS: readonly MCPDashboardSection[] = [
     MCPDashboardSection.Kpis,
     MCPDashboardSection.PeriodTotals,
     MCPDashboardSection.ToolRows,
     MCPDashboardSection.Model,
+    MCPDashboardSection.LabUsers,
+    MCPDashboardSection.NamedModelUsers,
     MCPDashboardSection.ProtocolVersion,
     MCPDashboardSection.ToolShare,
     MCPDashboardSection.Harness,
@@ -246,6 +248,11 @@ export function rankToolsByErrorRate(rows: ToolRow[]): ToolRow[] {
     return rows
         .filter((r) => r.total_calls >= MIN_CALLS_TO_RANK_TOOLS)
         .sort((a, b) => b.error_rate_pct - a.error_rate_pct)
+}
+
+// Total errors needs no minimum sample: a tool with a few calls can't top it on one failure.
+export function rankToolsByErrors(rows: ToolRow[]): ToolRow[] {
+    return rows.filter((r) => r.errors > 0).sort((a, b) => b.errors - a.errors)
 }
 
 // A p95 of 0 means no call in the range carried a duration, not an instant tool.
