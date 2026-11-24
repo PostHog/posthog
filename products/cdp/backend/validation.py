@@ -972,6 +972,13 @@ class InputsItemSerializer(serializers.Serializer):
             if not isinstance(value, list) or not all(isinstance(v, int) and not isinstance(v, bool) for v in value):
                 raise serializers.ValidationError({"input": "Value must be a list of Integration IDs."})
             _validate_not_posthog_connection(value, self.context)
+        elif item_type == "integration_field":
+            # The pickers and the destination templates read this value as a string ID. API and MCP
+            # callers often send an account ID as a JSON number, so store it as a string instead of
+            # rejecting a request that worked before.
+            if isinstance(value, int) and not isinstance(value, bool):
+                value = str(value)
+                attrs["value"] = value
         elif item_type == "task_repository":
             repositories = [value] if isinstance(value, str) else value
             if (

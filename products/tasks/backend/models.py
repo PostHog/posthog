@@ -148,6 +148,7 @@ TASK_RUN_SUMMARY_STATE_KEY = "task_summary"
 PRIOR_RUN_SUMMARY_STATE_KEY = "prior_run_summary"
 TASK_RUN_TAGS_STATE_KEY = "task_tags"
 TASK_RUN_FINISH_REPORT_STATE_KEY = "finish_report_saved"
+ENDED_BY_STALE_SWEEP_STATE_KEY = "ended_by_stale_sweep"
 PRIOR_RUN_TAGS_STATE_KEY = "prior_run_tags"
 
 # Stage `Task.create_run` stamps on a person-started signals run, so it resolves a mintable
@@ -3018,6 +3019,7 @@ class TaskRun(models.Model):
         "sandbox_connect_token",
         "sandbox_backend",
         "failure_error_type",
+        ENDED_BY_STALE_SWEEP_STATE_KEY,
         "cancel_requested_at",
         # A resumed run's turns must be able to replace the previous execution's finish report.
         TASK_RUN_FINISH_REPORT_STATE_KEY,
