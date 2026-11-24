@@ -604,7 +604,15 @@ class TestCohortUtils(BaseTest):
         )
         self.assertEqual(rows[0][0], 1)
 
-    def test_insert_by_query_skips_actors_without_a_person(self):
+    @parameterized.expand(
+        [
+            ("append", None, 0),
+            ("replace", datetime(2026, 11, 7, 12, 0, tzinfo=UTC), REPLACE_ROW_OFFSET),
+        ]
+    )
+    def test_insert_by_query_skips_actors_without_a_person(
+        self, _name: str, replace_marker: datetime | None, expected_offset: int
+    ):
         from products.cohorts.backend.models.util import insert_actors_into_cohort_by_query
 
         cohort = Cohort.objects.create(team=self.team, name="query cohort", is_static=True)
@@ -616,13 +624,31 @@ class TestCohortUtils(BaseTest):
             {"member": str(member)},
             HogQLContext(team_id=self.team.id),
             team_id=self.team.id,
+            replace_marker=replace_marker,
         )
 
         rows = sync_execute(
-            f"SELECT person_id FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
+            f"SELECT person_id, _offset FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
             {"team_id": self.team.id, "cohort_id": cohort.id},
         )
-        self.assertEqual((written, rows), (1, [(member,)]))
+        self.assertEqual((written, rows), (1, [(member, expected_offset)]))
+
+    def test_copy_to_postgres_skips_a_legacy_nil_uuid_row(self):
+        cohort = Cohort.objects.create(team=self.team, name="nil uuid cohort", is_static=True)
+        person = create_person(team=self.team, distinct_ids=["person"], uuid=uuid.uuid4())
+        flush_persons_and_events()
+        insert_static_cohort([uuid.UUID(int=0)], cohort.pk, team_id=self.team.id)
+
+        with (
+            patch("products.cohorts.backend.models.util.time.sleep"),
+            self.assertRaises(StaticCohortReadBackIncomplete),
+        ):
+            insert_cohort_people_into_pg(cohort, team_id=self.team.id, min_rows=1)
+
+        insert_static_cohort([person.uuid], cohort.pk, team_id=self.team.id)
+        insert_cohort_people_into_pg(cohort, team_id=self.team.id, min_rows=1)
+
+        self.assertEqual(list_cohort_member_ids(self.team.id, cohort.pk), [person.id])
 
     def test_copy_to_postgres_rereads_until_it_has_seen_the_rows_it_wrote(self):
         cohort = _create_cohort(team=self.team, name="test_cohort", groups=[], is_static=True)
@@ -679,7 +705,7 @@ class TestCohortUtils(BaseTest):
             insert_cohort_people_into_pg(cohort, team_id=self.team.id, min_rows=2, replace_marker=marker)
 
         cursors = [call.args[1]["cursor"] for call in mock_execute.call_args_list]
-        self.assertEqual(cursors, ["00000000-0000-0000-0000-000000000000", str(u2), str(u2)])
+        self.assertEqual(cursors, ["00000000-0000-0000-0000-000000000001", str(u2), str(u2)])
         self.assertEqual([c.args[0] for c in mock_sleep.call_args_list], [STATIC_COHORT_READ_BACK_WAITS_SECONDS[0]])
         self.assertCountEqual(list_cohort_member_ids(self.team.id, cohort.id), [p1.id, p2.id])
 

@@ -1765,7 +1765,7 @@ def _copy_static_cohort_rows_to_pg(
             any_counted_resolved = True
 
     batch_iterator = CursorBatchIterator(
-        fetch_batch, CH_PAGE_SIZE, initial_cursor="00000000-0000-0000-0000-000000000000"
+        fetch_batch, CH_PAGE_SIZE, initial_cursor="00000000-0000-0000-0000-000000000001"
     )
     # raise_on_error hands a partial sync to the caller instead of reporting success, which is
     # what lets the population tasks retry it. The caller also owns the cohort's state: a pass that

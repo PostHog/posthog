@@ -657,6 +657,7 @@ INSERT_COHORT_ALL_PEOPLE_FOR_REPLACE = """
 INSERT INTO {cohort_table} SELECT generateUUIDv4(), actor_id, %(cohort_id)s, %(team_id)s, %(_timestamp)s, %(_offset)s FROM (
     SELECT DISTINCT actor_id FROM ({query})
 ) AS new_actors
+WHERE NOT empty(actor_id)
 """
 
 
