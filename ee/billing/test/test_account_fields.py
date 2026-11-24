@@ -5,6 +5,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from ee.billing.salesforce_enrichment.account_fields import (
+    DESCRIPTION_MIRROR_FIELD,
     account_industry,
     fill_only_account_fields,
     overwritten_account_fields,
@@ -38,8 +39,12 @@ def _company(**overrides: Any) -> dict[str, Any]:
     return company
 
 
+def _fill_fields(company: dict[str, Any], account_website: str | None = f"https://{DOMAIN}") -> dict[str, Any]:
+    return fill_only_account_fields(company, queried_domain=DOMAIN, account_website=account_website)
+
+
 def _fields(company: dict[str, Any], account: dict[str, Any] | None = None) -> dict[str, Any]:
-    fill_fields = fill_only_account_fields(company, queried_domain=DOMAIN)
+    fill_fields = _fill_fields(company)
     return {**overwritten_account_fields(company), **unoccupied_fields(fill_fields, {"Id": "001X", **(account or {})})}
 
 
@@ -105,6 +110,19 @@ class TestCanonicalAccountFields(SimpleTestCase):
             assert fields[field] == expected
         else:
             assert field not in fields
+
+    @parameterized.expand(
+        [
+            ("unedited_copy", "Builds older tools.", "Builds older tools.", True),
+            ("edited_after_the_copy", "Text that a seller wrote.", "Builds older tools.", False),
+            ("mirror_cleared", "Builds older tools.", None, False),
+        ]
+    )
+    def test_description_is_refreshed_only_while_it_holds_the_jobs_copy(
+        self, _name: str, description: str, mirror: str | None, refreshed: bool
+    ) -> None:
+        fields = _fields(_company(), {"Description": description, DESCRIPTION_MIRROR_FIELD: mirror})
+        assert ("Description" in fields) is refreshed
 
     @parameterized.expand([("NumberOfEmployees",), ("Company_LinkedIn__c",), ("Industry",), ("Description",)])
     def test_field_not_read_is_unknown_not_empty(self, field: str) -> None:
@@ -183,7 +201,7 @@ class TestCanonicalAccountFields(SimpleTestCase):
         assert _fields(_company(**overrides), {"NumberOfEmployees": None})["NumberOfEmployees"] == expected
 
     def test_every_fill_only_field_is_read_before_the_write(self) -> None:
-        assert set(fill_only_account_fields(_company(), queried_domain=DOMAIN)) == set(ACCOUNT_FILL_FIELDS)
+        assert set(_fill_fields(_company())) == set(ACCOUNT_FILL_FIELDS)
 
     def test_zero_headcount_is_not_written(self) -> None:
         company = _company(headcount=0, tractionMetrics={"headcount": {"latestMetricValue": 0}})
@@ -203,6 +221,19 @@ class TestCanonicalAccountFields(SimpleTestCase):
         fields = _fields(_company(website=website), {"Company_LinkedIn__c": None, "Description": None})
         assert ("Company_LinkedIn__c" in fields) is written
         assert ("Description" in fields) is written
+
+    @parameterized.expand(
+        [
+            ("root", "https://example.com/", True),
+            ("locale_landing_page", "https://example.com/en", True),
+            ("profile_on_a_shared_host", "https://example.com/acme", False),
+            ("no_website", None, False),
+        ]
+    )
+    def test_description_needs_a_root_account_website(
+        self, _name: str, account_website: str | None, written: bool
+    ) -> None:
+        assert ("Description" in _fill_fields(_company(), account_website)) is written
 
     @parameterized.expand([("blank", "   "), ("missing", None)])
     def test_description_without_text_is_not_filled(self, _name: str, description: str | None) -> None:

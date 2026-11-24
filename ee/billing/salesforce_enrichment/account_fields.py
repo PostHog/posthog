@@ -1,6 +1,13 @@
 from typing import Any
 
-from .harmonic_company import describes_company, dict_field, harmonic_headcount, traction_latest, website_domain
+from .harmonic_company import (
+    describes_company,
+    dict_field,
+    harmonic_headcount,
+    traction_latest,
+    website_domain,
+    website_path_is_root,
+)
 
 # Account.Industry picklist values, read from the Salesforce org on 2026-10-09. The picklist is not restricted, so
 # Salesforce accepts any string. Writes are held to these values to keep stray spellings out of the field.
@@ -129,6 +136,7 @@ SECTOR_INDUSTRIES = frozenset({"Finance", "Banking", "Insurance", "Capital Marke
 LINKEDIN_URL_MAX_LENGTH = 255
 
 HARMONIC_DESCRIPTION_MAX_LENGTH = 2500  # Half the 5,000-character Salesforce field, for two-unit UTF-16 text
+DESCRIPTION_MIRROR_FIELD = "harmonic_description__c"
 
 LINKEDIN_COUNT_FIELDS = ("LinkedIn_Engineer_Count__c", "LinkedIn_Rolecount__c")
 
@@ -208,9 +216,10 @@ def account_description(description: object) -> str | None:
     return description.strip()[:HARMONIC_DESCRIPTION_MAX_LENGTH] or None
 
 
-def _description_on_queried_domain(company: dict[str, Any], queried_domain: str) -> str | None:
-    # A filled Description is never refreshed or cleared, so it takes text only from a record on the queried domain.
-    if website_domain(company) != queried_domain:
+def _description_for_account(company: dict[str, Any], queried_domain: str, account_website: str | None) -> str | None:
+    # A filled Description is never cleared, so it takes text only from a record on the queried domain,
+    # and only for an Account whose own website is a site root rather than one page of a shared host.
+    if not account_website or website_domain(company) != queried_domain or not website_path_is_root(account_website):
         return None
     return account_description(company.get("description"))
 
@@ -225,7 +234,9 @@ def overwritten_account_fields(company: dict[str, Any]) -> dict[str, Any]:
     return {field: value for field, value in fields.items() if value is not None}
 
 
-def fill_only_account_fields(company: dict[str, Any], *, queried_domain: str) -> dict[str, Any]:
+def fill_only_account_fields(
+    company: dict[str, Any], *, queried_domain: str, account_website: str | None
+) -> dict[str, Any]:
     """The canonical Account fields that take Harmonic's value only while the Account holds none.
 
     Other writers also set these fields, and a different value from Harmonic is not evidence that theirs is wrong.
@@ -235,18 +246,27 @@ def fill_only_account_fields(company: dict[str, Any], *, queried_domain: str) ->
         "NumberOfEmployees": harmonic_headcount(company),
         "Industry": account_industry(company),
         "Company_LinkedIn__c": _linkedin_url(company, queried_domain),
-        "Description": _description_on_queried_domain(company, queried_domain),
+        "Description": _description_for_account(company, queried_domain, account_website),
         **_linkedin_headcounts(company),
     }
     return {field: value for field, value in fields.items() if value is not None}
 
 
+def _leaves_room(account: dict[str, Any], field: str) -> bool:
+    if field not in account:
+        return False
+    current = account[field]
+    return current in (None, "") or (field == "Description" and current == account.get(DESCRIPTION_MIRROR_FIELD))
+
+
 def unoccupied_fields(fill_fields: dict[str, Any], account: dict[str, Any]) -> dict[str, Any]:
     """The fill-only fields that the Account's current values leave room for.
 
-    A field that the Account read did not return is unknown, not empty, and is not written.
+    A field that the Account read did not return is unknown, not empty, and is not written. A Description that equals
+    the Account's DESCRIPTION_MIRROR_FIELD is the job's own copy that no person has edited, so Harmonic's newer text
+    replaces it. The mirror must be read before the write that updates it.
     """
-    fields = {field: value for field, value in fill_fields.items() if field in account and account[field] in (None, "")}
+    fields = {field: value for field, value in fill_fields.items() if _leaves_room(account, field)}
     if not all(field in fields for field in LINKEDIN_COUNT_FIELDS):
         for field in LINKEDIN_COUNT_FIELDS:
             fields.pop(field, None)

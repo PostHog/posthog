@@ -27,7 +27,13 @@ from products.growth.backend.enrichment.fit_score import (
 from products.growth.backend.enrichment.harmonic_adapter import normalize_graphql_company
 from products.growth.backend.enrichment.icp_lists import CuratedLists, load_active_lists
 
-from .account_fields import account_description, fill_only_account_fields, overwritten_account_fields, unoccupied_fields
+from .account_fields import (
+    DESCRIPTION_MIRROR_FIELD,
+    account_description,
+    fill_only_account_fields,
+    overwritten_account_fields,
+    unoccupied_fields,
+)
 from .constants import (
     ACCOUNT_FILL_FIELDS,
     DEFAULT_CHUNK_SIZE,
@@ -277,7 +283,7 @@ def _harmonic_mirror_fields(harmonic_data: dict[str, Any]) -> dict[str, Any]:
         # Company Info
         "harmonic_company_name__c": company_info.get("name"),
         "harmonic_company_type__c": company_info.get("type"),
-        "harmonic_description__c": account_description(company_info.get("description")),
+        DESCRIPTION_MIRROR_FIELD: account_description(company_info.get("description")),
         "harmonic_industry__c": _extract_primary_tag(tags, tags_v2),
         "harmonic_last_update__c": timezone.now().strftime("%Y-%m-%d"),
         # Funding Info
@@ -470,16 +476,16 @@ async def _load_icp_lists() -> CuratedLists | None:
 
 
 def _read_fill_field_values(sf: "Salesforce", account_ids: list[str]) -> dict[str, dict[str, Any]]:
-    """Read the current values of ACCOUNT_FILL_FIELDS from Salesforce, keyed by Account Id.
+    """Read the current values of ACCOUNT_FILL_FIELDS and DESCRIPTION_MIRROR_FIELD from Salesforce, keyed by Account Id.
 
-    An Account whose read fails is left out of the result.
+    unoccupied_fields() compares Description with the mirror. An Account whose read fails is left out of the result.
     """
     logger = LOGGER.bind(function="_read_fill_field_values")
     current_values: dict[str, dict[str, Any]] = {}
 
     for start in range(0, len(account_ids), SALESFORCE_UPDATE_BATCH_SIZE):
         query = format_soql(
-            f"SELECT Id, {', '.join(ACCOUNT_FILL_FIELDS)} FROM Account WHERE Id IN {{}}",
+            f"SELECT Id, {', '.join((*ACCOUNT_FILL_FIELDS, DESCRIPTION_MIRROR_FIELD))} FROM Account WHERE Id IN {{}}",
             account_ids[start : start + SALESFORCE_UPDATE_BATCH_SIZE],
         )
         try:
@@ -494,7 +500,7 @@ def _read_fill_field_values(sf: "Salesforce", account_ids: list[str]) -> dict[st
 def add_unoccupied_fill_fields(
     sf: "Salesforce", update_records: list[dict[str, Any]], fill_fields_by_account: dict[str, dict[str, Any]]
 ) -> None:
-    """Add each Account's fill-only fields to its update record, for the fields that hold no value in Salesforce.
+    """Add each Account's fill-only fields to its update record, for the fields that unoccupied_fields() allows.
 
     The current values are read here, immediately before the write. The cached Account records can be hours old,
     and a value that another writer set in that time must not be replaced. Salesforce has no conditional update,
@@ -632,7 +638,7 @@ def get_salesforce_accounts_by_domain(domain: str) -> list[dict[str, Any]]:
     # Matches: "example.com", "www.example.com", "api.example.com"
     # Does NOT match: "notexample.com", "example.com.evil.com"
     query = format_soql(
-        """SELECT Id, Name, Domain__c, CreatedDate
+        """SELECT Id, Name, Domain__c, Website, CreatedDate
            FROM Account
            WHERE Domain__c = {} OR Domain__c LIKE '%{:like}'
            ORDER BY CreatedDate DESC""",
@@ -755,14 +761,10 @@ def _fetch_updated_account_fields(
 
     account_ids = [acc["Id"] for acc in accounts]
 
-    # Collect all unique fields from update_records (excluding Id and attributes)
-    fields_to_fetch = {"Id", "Name", "Domain__c"}  # Always include these base fields
-    for record in update_records:
-        for field in record.keys():
-            if field not in ("Id", "attributes"):
-                fields_to_fetch.add(field)
-
-    fields_list = ", ".join(sorted(fields_to_fetch))
+    base_fields = {"Id", "Name", "Domain__c"}
+    # An Account's unsent fields stay out of the workflow result, because they can hold another writer's text.
+    fields_by_account = {record["Id"]: base_fields | (record.keys() - {"attributes"}) for record in update_records}
+    fields_list = ", ".join(sorted(base_fields.union(*fields_by_account.values())))
 
     try:
         query = format_soql(
@@ -771,8 +773,10 @@ def _fetch_updated_account_fields(
         )
         result = sf.query_all(query)
 
-        # Return records with only the fields we queried
-        return [{field: record.get(field) for field in fields_to_fetch} for record in result["records"]]
+        return [
+            {field: record.get(field) for field in fields_by_account.get(record["Id"], base_fields)}
+            for record in result["records"]
+        ]
     except Exception as e:
         logger.warning(
             "Failed to fetch updated account data",
@@ -993,7 +997,9 @@ async def _enrich_specific_domain_debug(
                 if not rejected_sub_entity:
                     fill_fields_by_account = {
                         account["Id"]: fill_only_account_fields(
-                            harmonic_result, queried_domain=_extract_domain(account["Domain__c"]) or ""
+                            harmonic_result,
+                            queried_domain=_extract_domain(account.get("Website") or account["Domain__c"]) or "",
+                            account_website=account.get("Website"),
                         )
                         for account in accounts
                     }
@@ -1164,7 +1170,9 @@ async def enrich_accounts_chunked_async(
                 else:
                     total_enriched += 1
                     fill_fields_by_account[account_id] = fill_only_account_fields(
-                        harmonic_result, queried_domain=account_info["domain"]
+                        harmonic_result,
+                        queried_domain=account_info["domain"],
+                        account_website=account_info["account"]["Website"],
                     )
 
     # Update Salesforce accounts
