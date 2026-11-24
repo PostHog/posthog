@@ -85,6 +85,12 @@ class TestNormalizeAllowedHosts(SimpleTestCase):
             ("shared_hosting", "Vercel.app", "example.vercel.app"),
             ("registry", "co.uk", "example.co.uk"),
             ("parent_of_wildcard_suffix", "compute.amazonaws.com", "my-site.example.compute.amazonaws.com"),
+            ("distant_ancestor_of_suffixes", "amazoncognito.com", "my-site.example.amazoncognito.com"),
+            (
+                "ancestor_of_internationalized_suffixes",
+                "xn--mre-og-romsdal-qqb.no",
+                "my-site.example.xn--mre-og-romsdal-qqb.no",
+            ),
         ]
     )
     def test_rejects_a_domain_that_other_people_use(self, _name: str, host: str, suggested_host: str) -> None:
