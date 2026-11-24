@@ -7,17 +7,31 @@ from products.customer_analytics.backend.models import Account
 
 
 class TestListLogoDomainsAcrossTeams(BaseTest):
-    def test_lists_each_accounts_logo_domain_from_every_team_once(self) -> None:
-        other_team = Team.objects.create(organization=self.organization, name="other accounts team")
-        Account.objects.unscoped().create(team=self.team, name="Acme", _properties={"website_domain": "acme.example"})
-        Account.objects.unscoped().create(
-            team=other_team, name="Acme again", _properties={"website_domain": "acme.example"}
-        )
-        Account.objects.unscoped().create(
-            team=other_team,
-            name="Globex",
-            _properties={"email_domains": ["gmail.com", "globex.example"]},
-        )
-        Account.objects.unscoped().create(team=self.team, name="No domain", _properties={})
+    def setUp(self) -> None:
+        super().setUp()
+        self.other_team = Team.objects.create(organization=self.organization, name="other accounts team")
 
-        assert list_logo_domains_across_teams() == ["acme.example", "globex.example"]
+    def _create(self, team: Team, name: str, properties: dict) -> None:
+        Account.objects.unscoped().create(team=team, name=name, _properties=properties)
+
+    def test_lists_each_accounts_logo_domain_from_every_team_once_newest_first(self) -> None:
+        self._create(self.team, "Acme", {"website_domain": "acme.example"})
+        self._create(self.other_team, "Acme again", {"website_domain": "acme.example"})
+        self._create(self.other_team, "Globex", {"email_domains": ["gmail.com", "globex.example"]})
+        self._create(self.team, "No domain", {})
+
+        domains = list_logo_domains_across_teams(limit=10, per_team_limit=10)
+
+        assert domains == ["globex.example", "acme.example"]
+
+    def test_caps_each_teams_share_and_the_whole_list(self) -> None:
+        for index in range(3):
+            self._create(self.team, f"Busy {index}", {"website_domain": f"busy{index}.example"})
+        self._create(self.other_team, "Quiet", {"website_domain": "quiet.example"})
+
+        assert list_logo_domains_across_teams(limit=10, per_team_limit=2) == [
+            "quiet.example",
+            "busy2.example",
+            "busy1.example",
+        ]
+        assert list_logo_domains_across_teams(limit=2, per_team_limit=10) == ["quiet.example", "busy2.example"]
