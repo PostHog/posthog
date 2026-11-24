@@ -204,8 +204,24 @@ def actionable_open_counts(
     excluded_surface: WarehouseSuggestionSurface | None = None,
 ) -> OpenCounts:
     """Counts the open suggestions `user` can act on: assigned to `user`, and with no assignee who can take them."""
+    suggestions = actionable_open_suggestions(team, user, kinds, subject_kinds, excluded_surface=excluded_surface)
+    return OpenCounts(
+        assigned_to_viewer=sum(1 for suggestion in suggestions if suggestion.assignee_id == user.pk),
+        unassigned=sum(1 for suggestion in suggestions if suggestion.assignee_id != user.pk),
+    )
+
+
+def actionable_open_suggestions(
+    team: "Team",
+    user: "User",
+    kinds: frozenset[WarehouseSuggestionKind],
+    subject_kinds: frozenset[WarehouseSuggestionSubjectKind],
+    *,
+    excluded_surface: WarehouseSuggestionSurface | None = None,
+) -> list[WarehouseSuggestion]:
+    """The open suggestions `user` can act on and no other assignee can take, oldest surfaced first."""
     if not is_warehouse_suggestions_enabled(team):
-        return NO_OPEN_SUGGESTIONS
+        return []
     visible, access = visible_suggestions(
         team.pk,
         UserAccessControl(user, team),
@@ -216,17 +232,14 @@ def actionable_open_counts(
     if excluded_surface is not None:
         actionable = actionable.exclude(surface_q(excluded_surface))
     suggestions = list(
-        actionable.select_related(None).order_by().only("id", "kind", "subject_kind", "subject_id", "assignee")
+        actionable.select_related(None)
+        .order_by("surfaced_at", "id")
+        .only("id", "kind", "subject_kind", "subject_id", "assignee", "surfaced_at", "payload")
     )
     taken_ids = _taken_by_other_assignees(
         team, [suggestion for suggestion in suggestions if suggestion.assignee_id not in (None, user.pk)]
     )
-    return OpenCounts(
-        assigned_to_viewer=sum(1 for suggestion in suggestions if suggestion.assignee_id == user.pk),
-        unassigned=sum(
-            1 for suggestion in suggestions if suggestion.assignee_id != user.pk and suggestion.id not in taken_ids
-        ),
-    )
+    return [suggestion for suggestion in suggestions if suggestion.id not in taken_ids]
 
 
 def _taken_by_other_assignees(team: "Team", suggestions: Sequence[WarehouseSuggestion]) -> frozenset[UUID]:

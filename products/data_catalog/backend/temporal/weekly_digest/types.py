@@ -1,7 +1,10 @@
 import dataclasses
 from enum import StrEnum
 
+from posthog.dataclasses import frozen
 from posthog.temporal.common.digest import DigestBatchTotals
+
+from ...facade.contracts import DigestRow
 
 
 class DigestOutcome(StrEnum):
@@ -32,6 +35,23 @@ class OrgDigestCounts:
     build_duration: float = 0.0
     send_duration: float = 0.0
     skipped_reason: str | None = None
+
+
+@frozen
+class ProjectDigest:
+    """One project's section of the email: its catalog queues and the rows other products add."""
+
+    team_id: int
+    team_name: str
+    rows: list[DigestRow]
+
+    @property
+    def total(self) -> int:
+        return sum(row.count for row in self.rows)
+
+    @property
+    def new_total(self) -> int:
+        return sum(row.new_count for row in self.rows)
 
 
 @dataclasses.dataclass(frozen=True)

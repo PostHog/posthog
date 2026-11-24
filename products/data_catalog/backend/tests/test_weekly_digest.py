@@ -1,4 +1,5 @@
 from datetime import timedelta
+from typing import Never
 
 import pytest
 from posthog.test.base import APIBaseTest
@@ -18,6 +19,7 @@ from posthog.models import Organization, OrganizationMembership, Team
 from posthog.models.organization_notification_lock import OrganizationMemberNotificationLock
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.data_catalog.backend.facade.contracts import DigestRow, DigestSource
 from products.data_catalog.backend.logic.pending_review import PendingGroup, PendingKind, TeamPendingReview
 from products.data_catalog.backend.models import Metric
 from products.data_catalog.backend.temporal.schedule import create_data_catalog_weekly_digest_schedule
@@ -33,6 +35,7 @@ from products.data_catalog.backend.temporal.weekly_digest.email_context import (
     build_subject,
     build_template_context,
     catalog_url,
+    pending_rows,
 )
 from products.data_catalog.backend.temporal.weekly_digest.types import (
     DataCatalogWeeklyDigestInput,
@@ -41,6 +44,7 @@ from products.data_catalog.backend.temporal.weekly_digest.types import (
     DigestOutcome,
     OrgBatchPageInput,
     OrgDigestCounts,
+    ProjectDigest,
 )
 from products.data_catalog.backend.temporal.weekly_digest.workflows import DataCatalogWeeklyDigestWorkflow
 
@@ -67,12 +71,18 @@ def _review(team: Team, metrics: int = 2, certifications: int = 1, new_metrics: 
     )
 
 
-def _pending_metrics(team_id: int, count: int, sample_names: list[str], team_name: str = "Acme") -> TeamPendingReview:
-    return TeamPendingReview(
-        team_id=team_id,
-        team_name=team_name,
-        groups=[PendingGroup(kind=PendingKind.METRICS, noun="metric", count=count, sample_names=sample_names)],
-        total=count,
+def _project(review: TeamPendingReview) -> ProjectDigest:
+    return ProjectDigest(team_id=review.team_id, team_name=review.team_name, rows=pending_rows(review))
+
+
+def _pending_metrics(team_id: int, count: int, sample_names: list[str], team_name: str = "Acme") -> ProjectDigest:
+    return _project(
+        TeamPendingReview(
+            team_id=team_id,
+            team_name=team_name,
+            groups=[PendingGroup(kind=PendingKind.METRICS, noun="metric", count=count, sample_names=sample_names)],
+            total=count,
+        )
     )
 
 
@@ -104,18 +114,18 @@ class TestEmailContext(SimpleTestCase):
             total=10,
         )
 
-        section = build_project_section(review)
+        section = build_project_section(_project(review))
 
         assert "tab=relationships" in section["review_url"]
         assert section["rows"][0]["omitted_count"] == 0
         assert section["rows"][1]["omitted_count"] == 8
 
     def test_url_shaped_names_never_reach_the_email(self) -> None:
-        review = _pending_metrics(
+        project = _pending_metrics(
             team_id=7, count=3, sample_names=["revenue", "https://phishing.example"], team_name="www.phishing.example"
         )
 
-        section = build_project_section(review)
+        section = build_project_section(project)
 
         assert section["team_name"] == "Your project"
         assert section["rows"][0]["sample_names"] == ["revenue"]
@@ -123,9 +133,9 @@ class TestEmailContext(SimpleTestCase):
 
     def test_lists_the_busiest_projects_and_counts_the_rest(self) -> None:
         counts = range(1, MAX_PROJECT_SECTIONS + 2)
-        reviews = [_pending_metrics(team_id=count, count=count, sample_names=[]) for count in counts]
+        projects = [_pending_metrics(team_id=count, count=count, sample_names=[]) for count in counts]
 
-        context = build_template_context(Organization(name="Acme"), reviews)
+        context = build_template_context(Organization(name="Acme"), projects)
 
         assert [section["total"] for section in context["project_sections"]] == sorted(counts, reverse=True)[
             :MAX_PROJECT_SECTIONS
@@ -248,6 +258,52 @@ class TestBuildAndSendForOrg(APIBaseTest):
 
         assert counts.sent == expected_sent
         assert counts.skipped_nothing_new == 1 - expected_sent
+
+    def test_a_project_with_only_suggestions_gets_the_email(self) -> None:
+        Metric.objects.unscoped().filter(team=self.team).delete()
+        source = DigestSource(
+            name="suggestions",
+            rows=lambda team, user, new_since: [
+                DigestRow(
+                    noun="model suggestion", count=2, new_count=1, sample_names=["orders"], path="/models?tab=models"
+                )
+            ],
+            teams_with_rows=lambda teams: {self.team.id},
+        )
+
+        with patch(f"{_ACTIVITIES}.load_digest_sources", return_value=(source,)):
+            counts = _build_and_send_for_org(str(self.organization.id))
+
+        assert counts.sent == 1
+        (row,) = self.mock_email_class.call_args.kwargs["template_context"]["project_sections"][0]["rows"]
+        assert row["review_url"] == (
+            f"{settings.SITE_URL}/project/{self.team.id}/models"
+            "?tab=models&utm_source=data_catalog_weekly_digest&utm_medium=email"
+        )
+
+    @parameterized.expand([("rows", True, False), ("teams_with_rows", False, True)])
+    def test_a_failing_source_keeps_the_catalog_rows(self, _name: str, rows_fail: bool, teams_fail: bool) -> None:
+        def fail(*args: object) -> Never:
+            raise RuntimeError("source down")
+
+        def no_rows(*args: object) -> list[DigestRow]:
+            return []
+
+        def this_team(*args: object) -> set[int]:
+            return {self.team.id}
+
+        source = DigestSource(
+            name="suggestions",
+            rows=fail if rows_fail else no_rows,
+            teams_with_rows=fail if teams_fail else this_team,
+        )
+
+        with patch(f"{_ACTIVITIES}.load_digest_sources", return_value=(source,)):
+            counts = _build_and_send_for_org(str(self.organization.id))
+
+        assert counts.sent == 1
+        sections = self.mock_email_class.call_args.kwargs["template_context"]["project_sections"]
+        assert [row["noun"] for row in sections[0]["rows"]] == ["metric"]
 
     @parameterized.expand([(True, 1), (False, 0)])
     def test_only_active_accounts_receive_the_digest(self, is_active: bool, expected_sent: int) -> None:

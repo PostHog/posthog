@@ -1,4 +1,5 @@
 import time
+from collections.abc import Collection, Mapping
 from datetime import datetime, timedelta
 from itertools import batched
 
@@ -28,8 +29,10 @@ from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 
+from ...facade.contracts import DigestRow, DigestSource
+from ...logic.digest_sources import load_digest_sources
 from ...logic.pending_review import TeamPendingReview, build_org_pending_reviews
-from .email_context import build_subject, build_template_context
+from .email_context import build_subject, build_template_context, pending_rows
 from .types import (
     DATA_CATALOG_DIGEST_EMAIL_UNAVAILABLE_TYPE,
     DataCatalogWeeklyDigestInput,
@@ -38,6 +41,7 @@ from .types import (
     DigestOutcome,
     OrgBatchPageInput,
     OrgDigestCounts,
+    ProjectDigest,
     SendTestDigestInput,
 )
 
@@ -138,6 +142,7 @@ def _send_digest_for_user(
     reviews: dict[int, TeamPendingReview],
     teams_by_id: dict[int, Team],
     date_suffix: str,
+    source_team_ids: Mapping[str, Collection[int]] | None = None,
     locks: dict[GovernedSetting, bool] | None = None,
     dry_run: bool = False,
     test: bool = False,
@@ -157,17 +162,25 @@ def _send_digest_for_user(
             return False
         return UserAccessControl(user=user, team=team).check_access_level_for_resource("data_catalog", "viewer")
 
-    accessible = [review for team_id, review in reviews.items() if has_access(teams_by_id[team_id])]
-    if not accessible:
+    source_team_ids = source_team_ids or {}
+    candidate_team_ids = set(reviews).union(*source_team_ids.values())
+    new_since = _new_since()
+    projects = [
+        project
+        for team_id in sorted(candidate_team_ids)
+        if has_access(teams_by_id[team_id])
+        and (project := _project_digest(teams_by_id[team_id], user, reviews.get(team_id), source_team_ids, new_since))
+    ]
+    if not projects:
         return DigestOutcome.SKIPPED_NO_DATA
 
-    if not test and not _has_new_items(accessible):
+    if not test and not any(project.new_total for project in projects):
         return DigestOutcome.SKIPPED_NOTHING_NEW
 
     if dry_run:
         return DigestOutcome.DRY_RUN
 
-    template_context = build_template_context(org, accessible)
+    template_context = build_template_context(org, projects)
 
     campaign_key = f"data_catalog_weekly_digest_{org.id}_{user.uuid}_{date_suffix}"
     if test:
@@ -197,8 +210,41 @@ def _send_digest_for_user(
     return DigestOutcome.SENT
 
 
-def _has_new_items(reviews: list[TeamPendingReview]) -> bool:
-    return any(group.new_count for review in reviews for group in review.groups)
+def _project_digest(
+    team: Team,
+    user: User,
+    review: TeamPendingReview | None,
+    source_team_ids: Mapping[str, Collection[int]],
+    new_since: datetime,
+) -> ProjectDigest | None:
+    rows = pending_rows(review) if review else []
+    for source in load_digest_sources():
+        if team.id in source_team_ids.get(source.name, ()):
+            rows += _source_rows(source, team, user, new_since)
+    if not rows:
+        return None
+    return ProjectDigest(team_id=team.id, team_name=team.name, rows=rows)
+
+
+def _source_rows(source: DigestSource, team: Team, user: User, new_since: datetime) -> list[DigestRow]:
+    try:
+        return source.rows(team, user, new_since)
+    except Exception as e:
+        logger.warning("data catalog digest source failed", source=source.name, team_id=team.id, error=str(e))
+        capture_exception(e, {"source": source.name, "team_id": team.id})
+        return []
+
+
+def _source_team_ids(teams: list[Team]) -> dict[str, frozenset[int]]:
+    """For each source, the teams it has rows for. A source that raises adds no team, so it never blocks the email."""
+    team_ids: dict[str, frozenset[int]] = {}
+    for source in load_digest_sources():
+        try:
+            team_ids[source.name] = frozenset(source.teams_with_rows(teams))
+        except Exception as e:
+            logger.warning("data catalog digest source failed", source=source.name, error=str(e))
+            capture_exception(e, {"source": source.name})
+    return team_ids
 
 
 def _new_since() -> datetime:
@@ -239,12 +285,13 @@ def _build_and_send_for_org(org_id: str, dry_run: bool = False) -> OrgDigestCoun
 
     build_start = time.monotonic()
     build = build_org_pending_reviews(list(teams_by_id.values()), new_since=_new_since())
+    source_team_ids = _source_team_ids(list(teams_by_id.values()))
     counts.build_duration = time.monotonic() - build_start
     counts.team_count = len(build.reviews)
     counts.teams_failed = len(build.failed_team_ids)
     reviews = build.reviews
 
-    if not reviews:
+    if not reviews and not any(source_team_ids.values()):
         counts.skipped_reason = "nothing_pending"
         return counts
 
@@ -270,6 +317,7 @@ def _build_and_send_for_org(org_id: str, dry_run: bool = False) -> OrgDigestCoun
             reviews=reviews,
             teams_by_id=teams_by_id,
             date_suffix=date_suffix,
+            source_team_ids=source_team_ids,
             locks=locks_by_user.get(membership.user_id, {}),
             dry_run=dry_run,
         )
@@ -460,7 +508,8 @@ def _send_test_digest(email: str) -> None:
         if not teams_by_id:
             continue
         reviews = build_org_pending_reviews(list(teams_by_id.values()), new_since=_new_since()).reviews
-        if not reviews:
+        source_team_ids = _source_team_ids(list(teams_by_id.values()))
+        if not reviews and not any(source_team_ids.values()):
             continue
         outcome = _send_digest_for_user(
             user=user,
@@ -469,6 +518,7 @@ def _send_test_digest(email: str) -> None:
             reviews=reviews,
             teams_by_id=teams_by_id,
             date_suffix=date_suffix,
+            source_team_ids=source_team_ids,
             test=True,
         )
         if outcome == DigestOutcome.SENT:
