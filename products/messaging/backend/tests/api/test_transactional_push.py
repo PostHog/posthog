@@ -1,9 +1,11 @@
+import hashlib
 from typing import Any
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
+from django.test import override_settings
 
 from parameterized import parameterized
 from rest_framework import status
@@ -15,7 +17,7 @@ from posthog.models.instance_setting import override_instance_config
 from posthog.models.integration import Integration
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_secret
-from posthog.plugins.plugin_server_api import WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_PURPOSE
+from posthog.plugins.plugin_server_api import WORKFLOWS_TRANSACTIONAL_PUSH_JWT_PURPOSE
 
 from products.messaging.backend.models.message_category import MessageCategory, MessageCategoryType
 from products.messaging.backend.models.message_template import MessageTemplate
@@ -264,11 +266,11 @@ class TestTransactionalPushSend(APIBaseTest):
             "idempotency_key": "order-42",
         }
         token = mock_post.call_args.kwargs["headers"]["Authorization"].removeprefix("Bearer ")
-        claims = WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_PURPOSE.verify(token)
-        assert (claims["team_id"], claims["hog_flow_id"], claims["kind"]) == (
+        claims = WORKFLOWS_TRANSACTIONAL_PUSH_JWT_PURPOSE.verify(token)
+        assert (claims["team_id"], claims["hog_flow_id"], claims["distinct_id_sha256"]) == (
             self.team.id,
             str(self.hog_flow_id),
-            "push",
+            hashlib.sha256(b"user-1").hexdigest(),
         )
         properties = capture.call_args.kwargs["properties"]
         assert (properties["outcome"], properties["authorized_by"]) == ("queued", authorized_by)
@@ -337,6 +339,13 @@ class TestTransactionalPushSend(APIBaseTest):
 
         assert response.status_code == expected_status, response.json()
         assert capture.call_args.kwargs["properties"]["outcome"] in ("rejected", "unavailable")
+
+    def test_sends_nothing_while_the_push_key_is_unset(self, mock_post, _flag, _capture):
+        with override_settings(WORKFLOWS_TRANSACTIONAL_PUSH_JWT_SECRETS=[]):
+            response = self.client.post(self.url, self.body, format="json")
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE, response.json()
+        mock_post.assert_not_called()
 
 
 def _cdp_answer(cdp_status: int, body: dict[str, Any]) -> MagicMock:
@@ -439,6 +448,16 @@ class TestTransactionalPushBatchSend(APIBaseTest):
             "idempotency_key": "key-0",
         }
         assert payloads[1]["variables"] == {"order": "shared", "eta": "today"}
+        tokens = [
+            WORKFLOWS_TRANSACTIONAL_PUSH_JWT_PURPOSE.verify(
+                call.kwargs["headers"]["Authorization"].removeprefix("Bearer ")
+            )
+            for call in mock_post.call_args_list
+        ]
+        assert {token["distinct_id_sha256"] for token in tokens} == {
+            hashlib.sha256(p["distinct_id"].encode()).hexdigest() for p in payloads
+        }
+        assert len({token["jti"] for token in tokens}) == len(tokens)
         assert all(
             call.args[0].endswith(f"/hog_flows/{self.hog_flow_id}/transactional_push")
             for call in mock_post.call_args_list
