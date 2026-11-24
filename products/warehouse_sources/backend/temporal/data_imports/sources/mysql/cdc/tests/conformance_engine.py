@@ -96,8 +96,8 @@ class _SimulatedBinlog:
             for name, kind in table.columns.items()
         ]
 
-    def position(self, epoch: int) -> BinlogPosition:
-        return BinlogPosition.at(epoch, _FILE, _end(self._db.head) or 4)
+    def position(self, epoch: int, base: int | None) -> BinlogPosition:
+        return BinlogPosition.at(epoch, _FILE, _end(self._db.head) or 4, base=base)
 
     def events(self, stream: _SimulatedDump) -> Iterator[Any]:
         if self._db.stream_lost:
@@ -184,12 +184,12 @@ class SimulatedMySQL:
             POSITION_KEY: BinlogPosition.at(0, _FILE, 4).serialize(),
         }
 
-    def _visible_position(self, _conn: Any, epoch: int) -> BinlogPosition:
+    def _visible_position(self, _conn: Any, epoch: int, base: int | None = None) -> BinlogPosition:
         # Only stream recreation asks for a newer epoch than the one the server holds.
         if epoch > self._server.epoch:
             self._server.epoch = epoch
             self._db.recreate_stream()
-        return self._server.position(epoch)
+        return self._server.position(epoch, base)
 
     def _require_readable(self, _conn: Any, _position: BinlogPosition, _server_uuid: str) -> None:
         if self._db.stream_lost:
