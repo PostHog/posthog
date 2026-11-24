@@ -297,24 +297,39 @@ class TestConversions:
         assert result.response is not None and result.response.sort_mode == "desc"
 
     @time_machine.travel(NOW, tick=False)
-    def test_reporting_adjustments_request_the_last_year_without_conversion_flags(self) -> None:
+    @pytest.mark.parametrize(
+        ("incremental_field", "last_value", "expected_from"),
+        [
+            (None, None, "2025-10-16"),
+            # The pipeline applies the lookback, so the source sends the shifted cursor as it is.
+            ("date_adjustment", "2026-09-01", "2026-09-01"),
+            ("date_adjustment", "2024-01-01", "2025-10-16"),
+        ],
+    )
+    def test_reporting_adjustments_request_a_window_without_conversion_flags(
+        self, incremental_field: str | None, last_value: Any, expected_from: str
+    ) -> None:
+        inputs: dict[str, Any] = {"db_incremental_field_last_value": last_value}
+        if incremental_field:
+            inputs["incremental_field"] = incremental_field
         result = _run(
             "reporting_adjustments",
             [
                 _table_page("adjustments", [{"network_reporting_adjustment_id": 1}], total=501),
                 _table_page("adjustments", [{"network_reporting_adjustment_id": 2}], total=501),
             ],
+            **inputs,
         )
 
         assert result.raised is None
         assert result.paths == ["/v1/networks/reportingadjustments/table"] * 2
         assert result.params("page_size") == ["500", "500"]
         assert [request.json() for request in result.requests] == [
-            {"from": "2025-10-16", "to": "2026-10-16", "timezone_id": 67}
+            {"from": expected_from, "to": "2026-10-16", "timezone_id": 67}
         ] * 2
         assert [row["network_reporting_adjustment_id"] for row in result.rows] == [1, 2]
         assert result.saved_states == [
-            EverflowResumeConfig(next_page=2, window_start="2025-10-16", window_end="2026-10-16")
+            EverflowResumeConfig(next_page=2, window_start=expected_from, window_end="2026-10-16")
         ]
 
     @time_machine.travel(NOW, tick=False)

@@ -31,6 +31,9 @@ HISTORY_DAYS = 365
 # pipeline's lookback skips, so the source applies that table's re-read itself.
 REREAD_DAYS = 30
 LOOKBACK_SECONDS = REREAD_DAYS * 24 * 60 * 60
+# An adjustment can be entered for any earlier day, so each run re-reads the full year and merges. Rows
+# older than the window stay in the table.
+ADJUSTMENTS_LOOKBACK_SECONDS = HISTORY_DAYS * 24 * 60 * 60
 
 
 @frozen
@@ -207,6 +210,15 @@ EVERFLOW_ENDPOINTS: dict[str, EverflowEndpointConfig] = {
         primary_keys=("network_reporting_adjustment_id",),
         page_size=ADJUSTMENTS_PAGE_SIZE,
         float_columns=("gross_sales", "media_buying_cost", "payout", "revenue"),
+        incremental_fields=(
+            {
+                "label": "date_adjustment",
+                "type": IncrementalFieldType.Date,
+                "field": "date_adjustment",
+                "field_type": IncrementalFieldType.Date,
+            },
+        ),
+        default_incremental_lookback_seconds=ADJUSTMENTS_LOOKBACK_SECONDS,
     ),
 }
 
@@ -223,7 +235,7 @@ LOOKBACK: dict[str, int] = {
 }
 
 # These tables re-read a trailing window each run. Appending would write those rows again.
-MERGE_ONLY = ("conversions", "daily_performance")
+MERGE_ONLY = ("conversions", "daily_performance", "reporting_adjustments")
 
 # Report tables that require a `from`/`to` date window in the request body.
 WINDOWED_ENDPOINTS = ("conversions", "reporting_adjustments")

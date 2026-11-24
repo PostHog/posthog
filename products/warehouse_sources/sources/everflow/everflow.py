@@ -305,7 +305,8 @@ def everflow_source(
             start_value = resume.window_start
             end_value = resume.window_end
         else:
-            start_value = window_start(is_incremental, db_incremental_field_last_value, today, REREAD_DAYS).isoformat()
+            reread_days = REREAD_DAYS if endpoint == "conversions" else 0
+            start_value = window_start(is_incremental, db_incremental_field_last_value, today, reread_days).isoformat()
         # Everflow reads `to` as midnight, so tomorrow's date includes today's rows.
         end_value = end_value or (today + timedelta(days=1)).isoformat()
         body = {"from": start_value, "to": end_value, "timezone_id": UTC_TIMEZONE_ID}
