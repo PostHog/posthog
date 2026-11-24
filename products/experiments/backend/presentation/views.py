@@ -1815,6 +1815,8 @@ class EnterpriseExperimentsViewSet(
         traffic split, so that the comparison of each variant with the control reaches the minimum detectable effect.
         """
         experiment: Experiment = self.get_object()
+        # The target is sized from the stored result of the primary metric, which came from the warehouse.
+        _check_warehouse_native_result_access(experiment, self.team, request.user)
         target = get_running_time_target(
             team_id=self.team.id,
             experiment_id=experiment.id,
