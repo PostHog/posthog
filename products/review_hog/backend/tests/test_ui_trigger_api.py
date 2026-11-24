@@ -66,7 +66,7 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
         # perspectives instead of the person who asked for it.
         member = User.objects.create_and_join(self.organization, "reviewer@example.com", None)
         self.client.force_login(member)
-        resp = self._trigger("https://github.com/PostHog/posthog.com/pull/123/files")
+        resp = self._trigger("https://github.com/PostHog/posthog.com/pull/123/files", run_mode="review")
 
         self.assertEqual(resp.status_code, status.HTTP_202_ACCEPTED, resp.content)
         # A first run has no report yet, and an author with no linked PostHog user owns nothing, so
@@ -107,6 +107,8 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
             # (run_mode, expected review_mode)
             ("review_only", "full"),
             ("flash", "flash"),
+            # An MCP or API caller that names no mode gets the Standard review an `@posthog review` comment runs.
+            (None, "flash"),
         ]
     )
     @patch(_META, return_value=_pr_meta())
@@ -371,7 +373,7 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("full", None, ReviewTier.HUMAN),
+            ("full", "review", ReviewTier.HUMAN),
             ("review_only", "review_only", ReviewTier.HUMAN),
             ("flash", "flash", ReviewTier.AGENT_P2),
         ]
@@ -559,7 +561,7 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
             published_head_sha=published_head_sha,
             published_heads_by_mode=published_modes,
         )
-        resp = self._trigger("https://github.com/PostHog/posthog.com/pull/123")
+        resp = self._trigger("https://github.com/PostHog/posthog.com/pull/123", run_mode="review")
 
         self.assertEqual(resp.status_code, expected_status, resp.content)
         self.assertEqual(resp.json()["status"], expected_marker)

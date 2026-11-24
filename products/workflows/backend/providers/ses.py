@@ -35,7 +35,12 @@ from products.workflows.backend.facade.enums import (
     EmailDomainSetupRecordStatus,
     EmailDomainSetupStatus,
 )
-from products.workflows.backend.services.email_domain_dns import find_published_records
+from products.workflows.backend.services.email_domain_dns import (
+    PublishedRecords,
+    dmarc_record_in_force,
+    find_published_records,
+    inherited_dmarc_record,
+)
 from products.workflows.backend.services.email_domain_status import build_email_domain_check, build_email_domain_records
 
 if TYPE_CHECKING:
@@ -73,6 +78,9 @@ ISP_IDENTITY_TOTAL = "__identity_total__"
 # attribute, and rejects its name ("Unknown ISP") as a dimension value with BadRequestException, so
 # the only way to show that volume is to derive it.
 ISP_OTHER = "__other__"
+
+# Account-wide queries carry no dimension, so they count every email this SES account sent.
+ACCOUNT_TOTAL = "__account_total__"
 
 # SES caps a BatchGetMetricData request at ten queries.
 METRIC_QUERY_BATCH_SIZE = 10
@@ -187,59 +195,7 @@ def _build_isp_queries(domains: Sequence[str], isps: Sequence[str], start: datet
 
 def _isp_rows_from_series(isps: Sequence[str], series: IspMetricSeries) -> list[IspSendingMetrics]:
     """Per-provider rows derived from the collected series, busiest provider first."""
-    buckets, failed = series.buckets, series.failed
-    rows: list[IspSendingMetrics] = []
-    for isp in isps:
-        if IspMetric(isp=isp, metric="SEND") in failed:
-            # Without the denominator there is no row to build: volume is unknown and every
-            # rate divides by it. This is the one case where the provider is dropped.
-            continue
-        sent_by_date = buckets.get(IspMetric(isp=isp, metric="SEND"), {})
-        emails_sent = sum(sent_by_date.values())
-        if emails_sent == 0:
-            continue
-        delivered_by_date = buckets.get(IspMetric(isp=isp, metric="DELIVERY"), {})
-        bounced_by_date = buckets.get(IspMetric(isp=isp, metric="PERMANENT_BOUNCE"), {})
-        deferred_by_date = buckets.get(IspMetric(isp=isp, metric="TRANSIENT_BOUNCE"), {})
-        delivery_failed = IspMetric(isp=isp, metric="DELIVERY") in failed
-        bounce_failed = IspMetric(isp=isp, metric="PERMANENT_BOUNCE") in failed
-        transient_failed = IspMetric(isp=isp, metric="TRANSIENT_BOUNCE") in failed
-        complaint_failed = (
-            IspMetric(isp=isp, metric="COMPLAINT") in failed
-            or IspMetric(isp=isp, metric="DELIVERY_COMPLAINT") in failed
-        )
-        complaint_base = sum(buckets.get(IspMetric(isp=isp, metric="DELIVERY_COMPLAINT"), {}).values())
-        rows.append(
-            IspSendingMetrics(
-                isp=isp,
-                emails_sent=emails_sent,
-                # Feedback can arrive after the window closes, so a rate can exceed its
-                # denominator at the boundary. Clamp, as the project-wide rates do.
-                delivery_rate=None if delivery_failed else min(1.0, sum(delivered_by_date.values()) / emails_sent),
-                bounce_rate=None if bounce_failed else min(1.0, sum(bounced_by_date.values()) / emails_sent),
-                transient_bounce_rate=(
-                    None if transient_failed else min(1.0, sum(deferred_by_date.values()) / emails_sent)
-                ),
-                complaint_rate=(
-                    None
-                    if complaint_failed or not complaint_base
-                    else min(
-                        1.0, sum(buckets.get(IspMetric(isp=isp, metric="COMPLAINT"), {}).values()) / complaint_base
-                    )
-                ),
-                complaint_base=0 if complaint_failed else complaint_base,
-                unavailable=tuple(
-                    name
-                    for name, missing in (
-                        ("delivery", delivery_failed),
-                        ("bounce", bounce_failed),
-                        ("transient_bounce", transient_failed),
-                        ("complaint", complaint_failed),
-                    )
-                    if missing
-                ),
-            )
-        )
+    rows = [row for row in (_sending_metrics_row(isp, series) for isp in isps) if row is not None]
 
     other = _other_provider_row(isps, series)
     if other is not None:
@@ -247,6 +203,54 @@ def _isp_rows_from_series(isps: Sequence[str], series: IspMetricSeries) -> list[
 
     rows.sort(key=lambda row: -row.emails_sent)
     return rows
+
+
+def _sending_metrics_row(isp: str, series: IspMetricSeries) -> IspSendingMetrics | None:
+    """The rates for one subject of the series, or None when it sent nothing or its volume is unknown."""
+    buckets, failed = series.buckets, series.failed
+    if IspMetric(isp=isp, metric="SEND") in failed:
+        # Without the denominator there is no row to build: volume is unknown and every
+        # rate divides by it. This is the one case where the provider is dropped.
+        return None
+    sent_by_date = buckets.get(IspMetric(isp=isp, metric="SEND"), {})
+    emails_sent = sum(sent_by_date.values())
+    if emails_sent == 0:
+        return None
+    delivered_by_date = buckets.get(IspMetric(isp=isp, metric="DELIVERY"), {})
+    bounced_by_date = buckets.get(IspMetric(isp=isp, metric="PERMANENT_BOUNCE"), {})
+    deferred_by_date = buckets.get(IspMetric(isp=isp, metric="TRANSIENT_BOUNCE"), {})
+    delivery_failed = IspMetric(isp=isp, metric="DELIVERY") in failed
+    bounce_failed = IspMetric(isp=isp, metric="PERMANENT_BOUNCE") in failed
+    transient_failed = IspMetric(isp=isp, metric="TRANSIENT_BOUNCE") in failed
+    complaint_failed = (
+        IspMetric(isp=isp, metric="COMPLAINT") in failed or IspMetric(isp=isp, metric="DELIVERY_COMPLAINT") in failed
+    )
+    complaint_base = sum(buckets.get(IspMetric(isp=isp, metric="DELIVERY_COMPLAINT"), {}).values())
+    return IspSendingMetrics(
+        isp=isp,
+        emails_sent=emails_sent,
+        # Feedback can arrive after the window closes, so a rate can exceed its
+        # denominator at the boundary. Clamp, as the project-wide rates do.
+        delivery_rate=None if delivery_failed else min(1.0, sum(delivered_by_date.values()) / emails_sent),
+        bounce_rate=None if bounce_failed else min(1.0, sum(bounced_by_date.values()) / emails_sent),
+        transient_bounce_rate=(None if transient_failed else min(1.0, sum(deferred_by_date.values()) / emails_sent)),
+        complaint_rate=(
+            None
+            if complaint_failed or not complaint_base
+            else min(1.0, sum(buckets.get(IspMetric(isp=isp, metric="COMPLAINT"), {}).values()) / complaint_base)
+        ),
+        complaint_base=0 if complaint_failed else complaint_base,
+        unavailable=tuple(
+            name
+            for name, missing in (
+                ("delivery", delivery_failed),
+                ("bounce", bounce_failed),
+                ("transient_bounce", transient_failed),
+                ("complaint", complaint_failed),
+            )
+            if missing
+        ),
+    )
 
 
 def _other_provider_row(isps: Sequence[str], series: IspMetricSeries) -> IspSendingMetrics | None:
@@ -322,6 +326,16 @@ def _legacy_dns_record(record: EmailDomainStatusRecord) -> EmailDomainDnsRecord:
     if record.priority is not None:
         legacy["priority"] = record.priority
     return legacy
+
+
+def _find_published_records(
+    domain: str, records: Sequence[EmailDomainStatusRecord]
+) -> tuple[tuple[EmailDomainStatusRecord, ...], PublishedRecords]:
+    dmarc = next(record for record in records if record.kind == EmailDomainSetupRecordKind.DMARC)
+    inherited = inherited_dmarc_record(domain, dmarc)
+    published = find_published_records(domain, [*records, *([inherited] if inherited else [])])
+    in_force, published = dmarc_record_in_force(dmarc, inherited, published)
+    return tuple(in_force if record == dmarc else record for record in records), published
 
 
 _UNKNOWN = "Unknown"
@@ -794,33 +808,23 @@ class SESProvider:
         if refuses_lookups:
             logger.info("security.oob_domain_seen guard=ses_domain_status")
 
-        # DMARC: check via direct DNS lookup since AWS SES doesn't track it
-        dmarc_status = "Pending"
-        dmarc_record_value: str | None = None
+        published = PublishedRecords(records=frozenset())
         if not refuses_lookups:
-            try:
-                resolver = dns.resolver.Resolver()
-                resolver.lifetime = 5  # seconds — keep the request path responsive
-                answers = resolver.resolve(f"_dmarc.{domain}", "TXT")
-                for rdata in answers:
-                    txt_value = "".join(s.decode("utf-8") if isinstance(s, bytes) else s for s in rdata.strings)
-                    if txt_value.strip().lower().startswith("v=dmarc1"):
-                        dmarc_status = "Success"
-                        dmarc_record_value = txt_value.strip()
-                        break
-            except (
-                dns.resolver.NXDOMAIN,
-                dns.resolver.NoAnswer,
-                dns.resolver.NoNameservers,
-                dns.resolver.Timeout,
-            ):
-                pass  # No DMARC record found — fall back to "Pending" status
-            except Exception:
-                logger.exception("Unexpected error during DMARC lookup for %s", domain)
+            _, published = _find_published_records(
+                domain,
+                [
+                    record
+                    for record in records
+                    if record.kind in (EmailDomainSetupRecordKind.DMARC, EmailDomainSetupRecordKind.SPF)
+                ],
+            )
+        dmarc_record = next(
+            (record for record in published.records if record.kind == EmailDomainSetupRecordKind.DMARC), None
+        )
 
         # Normalize overall status
         overall: EmailDomainVerificationStatus
-        if identity.is_ready(dmarc_published=dmarc_status == "Success"):
+        if identity.is_ready(dmarc_published=dmarc_record is not None):
             overall = "success"
         elif "Failed" in identity.statuses:
             overall = "failed"
@@ -838,8 +842,7 @@ class SESProvider:
                 if record.kind == EmailDomainSetupRecordKind.VERIFICATION:
                     r["status"] = "success"
         # SES checks only the _amazonses token, so its success says nothing about the apex SPF record.
-        apex_spf = [record for record in records if record.kind == EmailDomainSetupRecordKind.SPF]
-        if not refuses_lookups and find_published_records(domain, apex_spf).records:
+        if any(record.kind == EmailDomainSetupRecordKind.SPF for record in published.records):
             for record, r in zip(records, dns_records):
                 if record.kind == EmailDomainSetupRecordKind.SPF:
                     r["status"] = "success"
@@ -872,12 +875,12 @@ class SESProvider:
             for r in dns_records:
                 if r["type"] == "mail_from":
                     r["status"] = "success"
-        if dmarc_status == "Success":
+        if dmarc_record:
             for r in dns_records:
                 if r["type"] == "dmarc":
                     r["status"] = "success"
-                    if dmarc_record_value:
-                        r["recordValue"] = dmarc_record_value
+                    r["recordHostname"] = dmarc_record.hostname
+                    r["recordValue"] = dmarc_record.value
 
         return {
             "status": overall,
@@ -906,7 +909,7 @@ class SESProvider:
             dkim_tokens=identity.dkim_tokens,
             ses_region=self._ses_region,
         )
-        published = find_published_records(domain, records)
+        records, published = _find_published_records(domain, records)
         dmarc_published = any(record.kind == EmailDomainSetupRecordKind.DMARC for record in published.records)
         is_ready = (
             identity.is_ready(dmarc_published=dmarc_published)
@@ -1122,6 +1125,26 @@ class SESProvider:
         series = self._collect_isp_series(plan, deadline, len(domains))
         return _isp_rows_from_series(isps, series)
 
+    def get_account_sending_metrics(self, window_days: int) -> IspSendingMetrics | None:
+        """
+        Sending health across every email this SES account sent, from the same VDM data and with the
+        same rates as the per-provider breakdown. None when the account sent nothing in the window.
+        """
+        end = datetime.now(tz=UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+        start = end - timedelta(days=window_days)
+        subjects = {
+            f"q{index}": IspMetric(isp=ACCOUNT_TOTAL, metric=metric) for index, metric in enumerate(ISP_METRICS)
+        }
+        plan = IspQueryPlan(
+            queries=[
+                {"Id": query_id, "Namespace": "VDM", "Metric": subject.metric, "StartDate": start, "EndDate": end}
+                for query_id, subject in subjects.items()
+            ],
+            subjects=subjects,
+        )
+        series = self._collect_isp_series(plan, monotonic() + METRIC_QUERY_BUDGET_SECONDS, domain_count=0)
+        return _sending_metrics_row(ACCOUNT_TOTAL, series)
+
     def _collect_isp_series(self, plan: IspQueryPlan, deadline: float, domain_count: int) -> IspMetricSeries:
         """
         Run the queries in batches, returning the daily series and the subjects with no answer.
@@ -1172,6 +1195,13 @@ class SESProvider:
         by_provider: dict[str, list[dict[str, Any]]] = {}
         for query in batch:
             by_provider.setdefault(plan.subjects[query["Id"]].isp, []).append(query)
+        if len(by_provider) == 1:
+            # The one group is the request SES just refused, so sending it again only repeats the refusal.
+            rejected_subjects = frozenset(plan.subjects[query["Id"]] for query in batch)
+            logger.warning(
+                "SES rejected a metric query; dropping the provider", extra={"provider": next(iter(by_provider))}
+            )
+            return IspBatchAnswer(responses=(), rejected=rejected_subjects)
         for group in by_provider.values():
             if monotonic() + METRIC_CALL_WORST_CASE_SECONDS > deadline:
                 raise TimeoutError(

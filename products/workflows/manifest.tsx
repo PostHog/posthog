@@ -117,6 +117,20 @@ export const manifest: ProductManifest = {
         '/broadcasts/new': ['Broadcast', 'broadcast'],
         '/broadcasts/:id': ['Broadcast', 'broadcast'],
     },
+    // pinned: the paths of the product before it was renamed to Workflows. Bookmarks still open them.
+    redirects: {
+        '/messaging': () => urls.workflows(),
+        '/messaging/:tab': ({ tab }) => {
+            if (tab === 'broadcasts') {
+                return urls.broadcasts()
+            }
+            if (tab === 'library' || tab === 'channels' || tab === 'opt-outs') {
+                return urls.workflows(tab)
+            }
+            return urls.workflows()
+        },
+        '/messaging/broadcasts/:id': ({ id }) => urls.broadcast(id ?? ''),
+    },
     urls: {
         workflows: (tab?: WorkflowsSceneTab): string => `/workflows${tab ? `/${tab}` : ''}`,
         workflow: (id: string, tab: string): string => `/workflows/${id}/${tab}`,

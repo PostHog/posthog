@@ -51,6 +51,7 @@ from posthog.models import Organization, OrganizationIPRestrictions, User
 from posthog.models.activity_logging.model_activity import ImpersonatedContext
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.organization_external_project_link import OrganizationExternalProjectLink
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team.team import Team
 from posthog.models.uploaded_media import UploadedMedia
@@ -226,6 +227,16 @@ class OrganizationMemberNoticeField(serializers.JSONField):
         return serializer.validated_data
 
 
+class OrganizationExternalProjectLinkSerializer(serializers.ModelSerializer):
+    name = serializers.CharField(read_only=True, help_text="Name shown for the project in the project switcher.")
+    url = serializers.URLField(read_only=True, help_text="Full URL of the project on the other PostHog instance.")
+
+    class Meta:
+        model = OrganizationExternalProjectLink
+        fields = ("id", "name", "url")
+        read_only_fields = fields
+
+
 class OrganizationTeamBasicSerializer(TeamBasicSerializer):
     project_group = serializers.SerializerMethodField(
         help_text="The project group shown in the organization project switcher, or null if it has no group."
@@ -292,6 +303,11 @@ class OrganizationSerializer(
     ip_restrictions_warning = serializers.SerializerMethodField(
         help_text="A warning when the current request's IP address is not in the saved allowlist.",
     )
+    external_project_links = OrganizationExternalProjectLinkSerializer(
+        many=True,
+        read_only=True,
+        help_text="Projects on other PostHog instances, such as another cloud region, shown in the project switcher. Set by PostHog staff.",
+    )
 
     class Meta:
         model = Organization
@@ -336,10 +352,12 @@ class OrganizationSerializer(
             "ip_restrictions",
             "ip_restrictions_enabled",
             "ip_restrictions_warning",
+            "external_project_links",
         ]
         read_only_fields = [
             "id",
             "ip_restrictions_warning",
+            "external_project_links",
             "slug",
             "created_at",
             "updated_at",
@@ -829,7 +847,9 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         user = cast(User, self.request.user)
         # The serializer reads `ip_restrictions` for every organization in a list response. Load the
         # config up front so each row does not add its own reverse one-to-one query.
-        queryset = user.organizations.all().select_related("ip_restrictions_config")
+        queryset = (
+            user.organizations.all().select_related("ip_restrictions_config").prefetch_related("external_project_links")
+        )
         # Organization scopes only: these endpoints refuse a team-scoped credential outright in
         # `APIScopePermission`, so narrowing by its teams' organizations would only turn that 403 into a 404.
         if scoped_organizations := get_authenticator_scoped_organization_ids(self.request.successful_authenticator):
@@ -863,6 +883,7 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def perform_destroy(self, organization: Organization):
         from ee.billing.billing_manager import BillingManager
+        from ee.billing.billing_types import BillingProvider
 
         # Check if bulk deletion operations are disabled via environment variable
         # Organizations contain teams, so we need to block organization deletion too
@@ -878,6 +899,13 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 billing_manager = BillingManager(license)
                 billing = billing_manager.get_billing(organization)
                 if billing.get("has_active_subscription"):
+                    if billing.get("billing_provider") == BillingProvider.VERCEL:
+                        raise exceptions.ValidationError(
+                            "Billing for this organization is managed by Vercel. "
+                            "To end the subscription, uninstall the PostHog integration from your Vercel team, "
+                            "then delete the organization. If you no longer have access to that Vercel team, "
+                            "disconnect Vercel in Settings > Organization > Integrations instead."
+                        )
                     raise exceptions.ValidationError(
                         "Cannot delete organization with an active subscription. "
                         "Please cancel your subscription first in the billing page."

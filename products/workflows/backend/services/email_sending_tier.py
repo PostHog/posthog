@@ -61,7 +61,7 @@ class TeamSendingHistory:
         return min(1.0, self.hard_bounced / self.sent) if self.sent else 0.0
 
     @property
-    def rates_are_clean(self) -> bool:
+    def complaints_are_clean(self) -> bool:
         if self.sent == 0:
             # Nothing sent means no rate to measure, and callers pair this with the volume bar,
             # which a team that sent nothing cannot clear. Complaints still count through the
@@ -72,15 +72,24 @@ class TeamSendingHistory:
         # complaint per 1,000 sends is exactly the line, so on a smaller window a single complaint
         # would read as dirty. Below the floor, complaints only count through the absolute
         # backstop, and the bounce rate does not count at all.
-        complaints_are_dirty = self.complaint_rate > settings.WORKFLOWS_EMAIL_TIER_MAX_COMPLAINT_RATE and (
-            self.sent >= settings.WORKFLOWS_EMAIL_TIER_COMPLAINT_RATE_MIN_SENDS
-            or self.complained >= settings.WORKFLOWS_EMAIL_TIER_COMPLAINT_COUNT_BACKSTOP
+        return not (
+            self.complaint_rate > settings.WORKFLOWS_EMAIL_TIER_MAX_COMPLAINT_RATE
+            and (
+                self.sent >= settings.WORKFLOWS_EMAIL_TIER_COMPLAINT_RATE_MIN_SENDS
+                or self.complained >= settings.WORKFLOWS_EMAIL_TIER_COMPLAINT_COUNT_BACKSTOP
+            )
         )
-        bounces_are_dirty = (
+
+    @property
+    def bounces_are_clean(self) -> bool:
+        return not (
             self.hard_bounce_rate > settings.WORKFLOWS_EMAIL_TIER_MAX_BOUNCE_RATE
             and self.sent >= settings.WORKFLOWS_EMAIL_TIER_BOUNCE_RATE_MIN_SENDS
         )
-        return not (complaints_are_dirty or bounces_are_dirty)
+
+    @property
+    def rates_are_clean(self) -> bool:
+        return self.complaints_are_clean and self.bounces_are_clean
 
     @property
     def observed_rates_are_clean(self) -> bool:
@@ -198,6 +207,7 @@ def decide_tier(
     recent_history: Optional[TeamSendingHistory] = None,
     tenant_state: Optional[SesTenantState] = None,
     last_rate_demotion_at: Optional[datetime] = None,
+    demotion_window_start: Optional[datetime] = None,
     account_trust: Optional[AccountTrust] = None,
     now: Optional[datetime] = None,
     require_time_at_tier: bool = True,
@@ -214,6 +224,11 @@ def decide_tier(
     `tenant_state` carries AWS's per-tenant verdict, which sees the FBL-correct complaint rate
     our internal metrics dilute (see SesTenantState). A paused tenant drops to the bottom, a
     HIGH reputation impact demotes, and any non-clean impact blocks promotion.
+
+    `demotion_window_start` is the first moment `recent_history` covers. The window is cut on whole
+    days, so it can still hold the day of the last rate demotion after the cooldown ends. Until that
+    day leaves it, its rates and auto-pause metrics may be the incident already demoted for, so they
+    do not demote again. An SES HIGH impact is read live, so it still demotes.
 
     `account_trust` lifts an established paying account straight to its trusted floor (see
     trusted_floor_tier), skipping the dwell and the use bar. The backfill omits it.
@@ -251,17 +266,26 @@ def decide_tier(
         # without a cooldown the same incident would demote the team again on every run and
         # cascade it to the bottom. The anchor is the last rate demotion, not the last tier write:
         # a promotion or staff change must not shield a team from its first real demotion. With the
-        # cooldown at least as long as the demotion window, the evidence behind the last demotion
-        # has aged out by the time demotions resume, so a second step needs new evidence.
+        # cooldown at least as long as the demotion window, and the hold below until the window's
+        # first day is after the demotion's day, the evidence behind the last demotion has aged out
+        # by the time demotions resume, so a second step needs new evidence.
         cooldown = timedelta(days=settings.WORKFLOWS_EMAIL_TIER_DEMOTION_COOLDOWN_DAYS)
-        if last_rate_demotion_at is not None and now - last_rate_demotion_at < cooldown:
+        in_cooldown = last_rate_demotion_at is not None and now - last_rate_demotion_at < cooldown
+        window_holds_last_demotion = (
+            last_rate_demotion_at is not None
+            and demotion_window_start is not None
+            and demotion_window_start <= last_rate_demotion_at
+        )
+        if in_cooldown or (window_holds_last_demotion and tenant.impact != "HIGH"):
             return TierDecision(
                 team_id=history.team_id,
                 previous_tier=current_tier,
                 new_tier=current_tier,
                 reason="demotion_cooldown",
             )
-        if recent.auto_paused:
+        if window_holds_last_demotion:
+            demotion_reason = "ses_reputation_high"
+        elif recent.auto_paused:
             demotion_reason = "workflow_auto_paused"
         elif not recent.rates_are_clean:
             demotion_reason = "rates_above_threshold"
@@ -385,13 +409,17 @@ def build_sending_history_windows(
     recent_after: datetime,
     before: Optional[datetime] = None,
     team_ids: Optional[list[int]] = None,
+    feature: Feature = Feature.ENRICHMENT,
+    workload: Workload = Workload.DEFAULT,
 ) -> SendingHistoryWindows:
     """The full promotion window and the shorter demotion window, from one query.
 
     The recent window is cut on calendar days (UTC), matching the day granularity the metrics are
     fetched at, so its edge can be up to a day coarser than `recent_after`.
     """
-    daily_by_team = _fetch_daily_metrics(after=after, before=before, team_ids=team_ids)
+    daily_by_team = _fetch_daily_metrics(
+        after=after, before=before, team_ids=team_ids, workload=workload, feature=feature
+    )
     recent_key = recent_after.strftime("%Y-%m-%d")
     return SendingHistoryWindows(
         window={team_id: _history_from_daily(team_id, days) for team_id, days in daily_by_team.items()},
@@ -408,14 +436,15 @@ def _fetch_daily_metrics(
     before: Optional[datetime],
     team_ids: Optional[list[int]],
     workload: Workload = Workload.DEFAULT,
+    feature: Feature = Feature.ENRICHMENT,
 ) -> dict[int, dict[str, dict[str, int]]]:
     auto_pause_metrics = [name for name in settings.WORKFLOWS_EMAIL_TIER_AUTO_PAUSE_METRIC_NAMES if name]
     metric_names = [SENT_METRIC, HARD_BOUNCE_METRIC, COMPLAINT_METRIC, *auto_pause_metrics]
     # Tag the query so it is attributable in query-cost analysis and does not trip the untagged-query
-    # guard in local dev. Celery adds only task identity, not a product or feature. This derives tier
-    # state in the background, so it is enrichment, not a customer-facing query. One context here
-    # covers the daily sweep, the admin recompute, and the backfill command.
-    with tags_context(product=Product.WORKFLOWS, feature=Feature.ENRICHMENT):
+    # guard in local dev. Celery adds only task identity, not a product or feature. The tier jobs
+    # derive state in the background, so they default to enrichment; the reputation page passes its
+    # own customer-facing feature.
+    with tags_context(product=Product.WORKFLOWS, feature=feature):
         return fetch_app_metric_daily_totals_by_team(
             app_source=APP_SOURCE,
             name=metric_names,
@@ -528,6 +557,7 @@ def recompute_email_sending_tiers(
     recent_after = now - timedelta(days=settings.WORKFLOWS_EMAIL_TIER_DEMOTION_WINDOW_DAYS)
     windows = build_sending_history_windows(after=after, recent_after=recent_after, team_ids=team_ids)
     histories = windows.window
+    demotion_window_start = recent_after.replace(hour=0, minute=0, second=0, microsecond=0)
 
     stateful_teams = TeamWorkflowsConfig.objects.filter(email_sending_tier_pinned=False).exclude(
         email_sending_tier=MIN_EMAIL_SENDING_TIER, email_sending_suspended_at__isnull=True
@@ -597,6 +627,7 @@ def recompute_email_sending_tiers(
                 reputation_impact=config.ses_tenant_reputation_impact,
             ),
             last_rate_demotion_at=config.email_sending_tier_demoted_at,
+            demotion_window_start=demotion_window_start,
             account_trust=AccountTrust.from_organization(config.team.organization),
         )
         if only_reasons is not None and decision.reason not in only_reasons:

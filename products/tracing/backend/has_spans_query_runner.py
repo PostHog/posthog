@@ -1,4 +1,6 @@
+import base64
 import datetime as dt
+from uuid import UUID
 
 from django.core.cache import cache
 
@@ -39,3 +41,33 @@ def team_has_spans(team: Team) -> bool:
     if has_spans:
         cache.set(cache_key, True, HAS_SPANS_CACHE_TTL)
     return has_spans
+
+
+def otel_trace_id(trace_id: str) -> str | None:
+    """The OpenTelemetry trace id a string stands for, as lowercase hex, or None when it stands for none.
+
+    OTel ingestion writes the id as 32 hex characters, and the LLM gateway writes the same bytes as a hyphenated
+    UUID. All zeros is OpenTelemetry's "no id" value.
+    """
+    try:
+        value = UUID(trace_id)
+    except ValueError:
+        return None
+    return value.hex if value.int else None
+
+
+def find_stored_trace_id(team: Team, trace_id: str) -> str | None:
+    """The hex id of the trace when the team stores a span of it, in any time range."""
+    hex_id = otel_trace_id(trace_id)
+    if hex_id is None:
+        return None
+    # The same shape as the subquery in `TraceSpansQueryRunner._unbounded_trace_filter`: it reads only what
+    # `projection_index_team_trace_id` holds, so no date bound is needed.
+    query = parse_select(
+        "SELECT _part, _part_offset FROM posthog.trace_spans WHERE trace_id = {trace_id} LIMIT 1",
+        placeholders={"trace_id": ast.Constant(value=base64.b64encode(bytes.fromhex(hex_id)).decode())},
+    )
+    response = execute_hogql_query(
+        query_type="TracingStoredTraceIdQuery", query=query, team=team, workload=Workload.LOGS
+    )
+    return hex_id if response.results else None

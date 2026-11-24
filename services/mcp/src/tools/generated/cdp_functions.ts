@@ -19,7 +19,7 @@ const CdpFunctionsCreateSchema = () => {
             'Source code for the function. For most types this is Hog code; for site_destination and site_app types this is TypeScript. Required if no template_id is provided.'
         ),
         enabled: HogFunctionsCreateBody.shape['enabled'].describe(
-            'Whether the function is active and processing events.'
+            'Omit this, or set it to false, when type is destination. Creating a destination with enabled=true is rejected. Always set type: a create without one counts as a destination here too. Test the destination with cdp-functions-invocations-create, then enable it with cdp-functions-partial-update. Other types, like internal_destination, can be created enabled.'
         ),
         execution_order: HogFunctionsCreateBody.shape['execution_order'].describe(
             'Execution priority for transformation functions (lower runs first). Only applies to type=transformation. If omitted, the function is appended at the end.'

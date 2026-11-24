@@ -46,7 +46,7 @@ The env var is needed because flox only sources `.env` on first activation, so t
 ## Things that bite
 
 - **`--stub` versus real is a money decision, not a speed one.** A real run launches a sandbox agent and spends LLM budget. Default to stub.
-- **The real-agent path needs more than an API key.** It runs in a Tasks sandbox, so it needs Tasks access and a working MCP server — if the sandbox agent cannot load the `autoresearch-*` MCP tools it will burn a full run doing nothing and fail with `"Agent recorded no iterations before the run ended."`
+- **The real-agent path needs more than an API key.** It runs in a Tasks sandbox, so it needs a working sandbox and MCP server — if the sandbox agent cannot load the `autoresearch-*` MCP tools it will burn a full run doing nothing and fail with `"Agent recorded no iterations before the run ended."`
 - **Check the team id.** Demo data does not reliably live on team 1 or team 2; confirm before targeting.
 - **Pick a target with volume.** Conversion-shaped events are rare by nature. Engagement events give far more positives, and autoresearch only trains on identified users, so raw event counts overstate what is available.
 - **`autoresearch_score` on a fresh pipeline emits nothing** if there is no champion yet — train first.

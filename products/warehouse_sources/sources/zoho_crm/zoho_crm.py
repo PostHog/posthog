@@ -2,12 +2,13 @@ import json
 import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, datetime
-from typing import Any, Optional
+from typing import Any, NoReturn, Optional
 
 import requests
 from structlog.types import FilteringBoundLogger
 
 from products.warehouse_sources.sources.sdk import (
+    DEFAULT_RETRY,
     RESTClientNonRetryableError,
     RESTClientRetryableError,
     ResumableSourceManager,
@@ -121,6 +122,15 @@ def _with_zoho_error_detail(error: requests.HTTPError) -> requests.HTTPError:
     return ZohoCRMApiError(f"{error} ({detail})", response=response)
 
 
+def _raise_with_zoho_error_detail(error: requests.HTTPError) -> NoReturn:
+    detailed = _with_zoho_error_detail(error)
+    if detailed is error:
+        # `raise error from error` makes the error its own cause, and Temporal's failure
+        # converter recurses on the cause chain until it hits RecursionError.
+        raise error
+    raise detailed from error
+
+
 class ZohoCRMAuthError(Exception):
     def __init__(self, error_code: Optional[str]) -> None:
         super().__init__(f"{TOKEN_REFRESH_FAILED_PREFIX}: {error_code or 'no access token returned'}")
@@ -184,10 +194,17 @@ def chunk_fields(names: list[str], size: int = MAX_FIELDS_PER_REQUEST) -> list[l
     return [names[index : index + size] for index in range(0, len(names), size)]
 
 
+# `DEFAULT_RETRY` retries only GET, HEAD, and OPTIONS. The token exchange is a POST, so a 5xx from
+# the accounts host would otherwise fail the run on the first attempt. Repeating a refresh-token
+# exchange is safe, because each exchange only mints a new access token.
+ZOHO_RETRY = DEFAULT_RETRY.new(allowed_methods=frozenset(DEFAULT_RETRY.allowed_methods or ()) | {"POST"})
+
+
 class ZohoCRMClient:
     """Minimal Zoho CRM client: refresh-token auth, regional hosts, JSON GETs.
 
-    Status-code retries (429/5xx) come from the tracked session, so nothing retries here.
+    Status-code retries (429/5xx) come from the tracked session, for the token POST too (see
+    `ZOHO_RETRY`), so nothing retries here.
     """
 
     def __init__(
@@ -209,7 +226,9 @@ class ZohoCRMClient:
         # capture: Zoho responses carry raw CRM records (contacts, notes, emails, phone numbers,
         # free-text) and the token exchange returns the access token in a bare `access_token`
         # field — content the name-based scrubbers can't reliably redact.
-        self._session = make_tracked_session(redact_values=(client_secret, refresh_token), capture=False)
+        self._session = make_tracked_session(
+            retry=ZOHO_RETRY, redact_values=(client_secret, refresh_token), capture=False
+        )
         self._access_token: Optional[str] = None
 
     @property
@@ -279,7 +298,7 @@ def readable_field_names(client: ZohoCRMClient, api_version: str, module: str) -
     try:
         response = client.get(f"/crm/{api_version}/settings/fields", params={"module": module})
     except requests.HTTPError as e:
-        raise _with_zoho_error_detail(e) from e
+        _raise_with_zoho_error_detail(e)
     if response.status_code in NO_CONTENT_STATUSES:
         return []
 
@@ -311,7 +330,7 @@ def _fetch_page(
     try:
         response = client.get(f"/crm/{api_version}/{path}", params=params, headers=headers)
     except requests.HTTPError as e:
-        raise _with_zoho_error_detail(e) from e
+        _raise_with_zoho_error_detail(e)
     if response.status_code in NO_CONTENT_STATUSES:
         return [], {}
 
@@ -647,7 +666,7 @@ def list_custom_modules(client: ZohoCRMClient, api_version: str) -> list[str]:
     try:
         response = client.get(f"/crm/{api_version}/settings/modules")
     except requests.HTTPError as e:
-        raise _with_zoho_error_detail(e) from e
+        _raise_with_zoho_error_detail(e)
     if response.status_code in NO_CONTENT_STATUSES:
         return []
     body = _parse_json_body(response) or {}

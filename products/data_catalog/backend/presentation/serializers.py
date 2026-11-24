@@ -477,7 +477,6 @@ class RelationshipProposalSerializer(serializers.ModelSerializer):
             "joining_table_key",
             "field_name",
             "configuration",
-            "confidence",
             "reasoning",
             "evidence",
             "status",
@@ -504,7 +503,6 @@ class RelationshipProposalSerializer(serializers.ModelSerializer):
             "joining_table_name": {"help_text": "Name of the table being joined in."},
             "joining_table_key": {"help_text": "HogQL key expression on the joining table (casts allowed)."},
             "field_name": {"help_text": "Accessor the join adds to the source table."},
-            "confidence": {"help_text": "Discovery confidence in this join, 0-1."},
             "reasoning": {"help_text": "Why this join is proposed."},
         }
 
@@ -619,6 +617,10 @@ class UncoveredGroupSerializer(serializers.Serializer):
     complexity = serializers.IntegerField(
         help_text="How hard the query is to write by hand: 1 low, 2 medium, 3 high, 0 when it does not parse."
     )
+    priority = serializers.FloatField(
+        help_text="Rank score from complexity and the people who built or viewed the measure. A higher score ranks "
+        "first. 0 on scans before the score existed."
+    )
 
 
 class ChartSourceSerializer(serializers.Serializer):
@@ -659,6 +661,10 @@ class ProposedMetricSerializer(serializers.Serializer):
     agents = AgentSourceSerializer(allow_null=True, help_text="Agent use, or null when no agent ran it.")
     complexity = serializers.IntegerField(
         help_text="How hard the query is to write by hand: 1 low, 2 medium, 3 high, 0 when it does not parse."
+    )
+    priority = serializers.FloatField(
+        help_text="Rank score from complexity, the people who built or viewed the measures, and how many measures "
+        "the proposal merges. A higher score ranks first. 0 on scans before the score existed."
     )
 
 
@@ -740,3 +746,14 @@ class PendingReviewCountsSerializer(serializers.Serializer):
     metrics = serializers.IntegerField(help_text="Proposed metrics you can see that wait for approval.")
     relationships = serializers.IntegerField(help_text="Proposed joins that wait to be accepted or rejected.")
     certifications = serializers.IntegerField(help_text="Proposed certifications that wait for review.")
+
+
+class CatalogAttentionSerializer(serializers.Serializer):
+    pending_review = PendingReviewCountsSerializer(
+        allow_null=True,
+        help_text="Items that wait in each review queue. Every count is 0 without data catalog access. "
+        "Null when the counts could not be read, so the badge keeps its last counts.",
+    )
+    failing_models = serializers.IntegerField(
+        help_text="Models whose last run failed or whose scheduled runs are suspended. 0 without data warehouse read access."
+    )

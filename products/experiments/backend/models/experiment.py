@@ -299,13 +299,13 @@ class Experiment(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixi
             return start_date
         return start_date if logged is None or logged < start_date else logged
 
-    def hours_since_launch(self, at: datetime | None = None, *, read_activity_log: bool) -> float | None:
-        """The hours from `launched_at` to `at`, or to now."""
+    def hours_since_launch(self, *, read_activity_log: bool) -> float | None:
+        """The hours from `launched_at` to now."""
         launched_at = self.launched_at(read_activity_log=read_activity_log)
         if launched_at is None:
             return None
         # Counts to now also after the end date.
-        return ((at or timezone.now()) - launched_at).total_seconds() / 3600
+        return (timezone.now() - launched_at).total_seconds() / 3600
 
     @property
     def is_paused(self) -> bool:

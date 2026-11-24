@@ -7,6 +7,7 @@ import { pathFromWindowToRoutes, urlPatternOptions } from 'lib/utils/kea-router'
 import { appScenes } from 'scenes/appScenes'
 import { getBootstrappedHomepage, homepageTargetPathname } from 'scenes/sceneLogic'
 import { redirects, routes } from 'scenes/scenes'
+import type { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 function matchesRoute(pattern: string, path: string): boolean {
@@ -54,6 +55,16 @@ export function sceneForPathname(pathname: string): string | null {
 }
 
 /**
+ * App.tsx loads the gate lazily, so without this a gated scene starts to download the gate only when it first
+ * renders, and the boot waits for that download before the scene is on screen.
+ */
+function prefetchEmptyStateGate(sceneModule: { scene?: SceneExport } | undefined): Promise<unknown> | undefined {
+    if (sceneModule?.scene?.emptyState) {
+        return import('lib/components/ProductEmptyState/ProductEmptyStateGate')
+    }
+}
+
+/**
  * Starts to load the code of the scene for this page, so it downloads while the app renders.
  * The boot timing event reports the scene, so a wrong guess shows up as a `prefetched_scene` that differs from `scene`.
  */
@@ -64,7 +75,9 @@ export function prefetchScene(): void {
         if (!scene || !importScene) {
             return
         }
-        Promise.resolve(importScene()).catch(() => {})
+        Promise.resolve(importScene())
+            .then(prefetchEmptyStateGate)
+            .catch(() => {})
         markBootPhase('scene_prefetched', { prefetched_scene: scene })
     } catch (error) {
         posthog.captureException(error, { extra: { source: 'prefetchScene' } })

@@ -147,16 +147,27 @@ def _build_base_url(config: EverhourEndpointConfig, window: dict[str, str] | Non
 
 
 def _iter_all_items(
-    base_url: str, page_size: int, headers: dict[str, str], logger: FilteringBoundLogger, session: requests.Session
+    base_url: str,
+    config: EverhourEndpointConfig,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    session: requests.Session,
 ) -> Iterator[dict[str, Any]]:
-    """Fully paginate one base URL via limit/offset, yielding individual records (used for discovery)."""
+    """Fully paginate one base URL via limit/offset, yielding each record once (used for discovery).
+
+    Some Everhour list endpoints (seen on /projects) ignore ``offset`` and serve the same full page
+    every time, so a page with no unseen rows ends pagination, like the guard in ``get_rows``.
+    """
+    seen_keys: set[tuple[Any, ...]] = set()
     offset = 0
     for _ in range(MAX_PAGES_PER_URL):
         items = _fetch_page(_with_query(base_url, {"offset": offset}), headers, logger, session)
-        yield from items
-        if len(items) < page_size:
+        new_items = [item for item in items if _row_key(item, config.dedupe_keys) not in seen_keys]
+        seen_keys.update(_row_key(item, config.dedupe_keys) for item in new_items)
+        yield from new_items
+        if len(items) < config.page_size or not new_items:
             return
-        offset += page_size
+        offset += config.page_size
     logger.warning(f"Everhour: hit max page cap while paginating {base_url}")
 
 
@@ -179,7 +190,7 @@ def _build_initial_urls(
     parent_url = _build_base_url(parent_config, None)
     return [
         _with_query(config.path_template.format(parent_id=parent["id"]), {"limit": config.page_size})
-        for parent in _iter_all_items(parent_url, parent_config.page_size, headers, logger, session)
+        for parent in _iter_all_items(parent_url, parent_config, headers, logger, session)
     ]
 
 

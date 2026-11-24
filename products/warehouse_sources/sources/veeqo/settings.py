@@ -41,6 +41,8 @@ class VeeqoEndpointConfig:
     nested: bool = False
     # Tables that need one request per parent-derived id.
     fanout: Optional[DependentEndpointConfig] = None
+    # Set for endpoints whose body is one object rather than a list.
+    data_selector: Optional[str] = None
     default_incremental_field: Optional[str] = None
 
     @property
@@ -174,6 +176,21 @@ VEEQO_ENDPOINTS: dict[str, VeeqoEndpointConfig] = {
             parent_params={"page_size": DEFAULT_PAGE_SIZE},
             child_response_actions=[{"status_code": 404, "action": "ignore"}],
         ),
+    ),
+    # `/products/{id}/product_property_specifics/{property_id}` needs a property id that no
+    # endpoint lists. Each sellable embeds the same records as `variant_option_specifics`.
+    "product_properties": VeeqoEndpointConfig(
+        name="product_properties",
+        path="/products",
+        primary_keys=["sellable_id", "id"],
+        nested=True,
+    ),
+    # `/current_company` returns the account's single company object.
+    "company": VeeqoEndpointConfig(
+        name="company",
+        path="/current_company",
+        single_page=True,
+        data_selector="$",
     ),
 }
 

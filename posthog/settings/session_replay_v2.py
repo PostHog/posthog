@@ -47,7 +47,15 @@ RECORDING_API_BLOCKS_JWT_SECRET = os.getenv(
     "RECORDING_API_BLOCKS_JWT_SECRET", "dev-recording-api-blocks-jwt-secret" if (TEST or DEBUG) else ""
 )
 
+# Signs the staff read tokens `recording_api_token` mints on toolbox pods, apart from RECORDING_API_JWT_SECRET so the toolbox holds no key that can delete or write.
+RECORDING_API_STAFF_JWT_SECRET = os.getenv(
+    "RECORDING_API_STAFF_JWT_SECRET", "dev-recording-api-staff-jwt-secret" if (TEST or DEBUG) else ""
+)
+
 # Signs the replay player's tokens for replay.ph-proxy.com, which holds the same comma-separated `new,old` keys.
 # Never reuse SECRET_KEY or JWT_SIGNING_KEY. No dev default, because a key in public source lets anyone mint tokens.
 # Empty means no token, so self-hosted installs never use the proxy.
 REPLAY_PROXY_JWT_SECRET = os.getenv("REPLAY_PROXY_JWT_SECRET", "")
+
+# The external-access role that recording exports assume before a customer's role. Customers trust it.
+RECORDING_EXPORT_S3_EXTERNAL_ROLE_ARN = os.getenv("RECORDING_EXPORT_S3_EXTERNAL_ROLE_ARN", "")
