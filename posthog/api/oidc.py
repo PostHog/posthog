@@ -41,9 +41,8 @@ OIDC_REQUEST_DURATION = Histogram(
     labelnames=["phase"],
 )
 
-# Authorization codes are short-lived; ten minutes covers a slow IdP round trip without
-# keeping old codes around long enough to collide with a new one.
-OIDC_AUTHORIZATION_CODE_CACHE_TTL_SECONDS = 60 * 10
+# 30 minutes is probably enough. I think all IdPs have a max lifetime of 1-10 minutes for codes.
+OIDC_AUTHORIZATION_CODE_CACHE_TTL_SECONDS = 60 * 30
 
 
 OIDC_FETCH_TIMEOUT_SECONDS = 10
