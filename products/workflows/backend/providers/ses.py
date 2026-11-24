@@ -35,7 +35,12 @@ from products.workflows.backend.facade.enums import (
     EmailDomainSetupRecordStatus,
     EmailDomainSetupStatus,
 )
-from products.workflows.backend.services.email_domain_dns import find_published_records
+from products.workflows.backend.services.email_domain_dns import (
+    PublishedRecords,
+    dmarc_record_in_force,
+    find_published_records,
+    inherited_dmarc_record,
+)
 from products.workflows.backend.services.email_domain_status import build_email_domain_check, build_email_domain_records
 
 if TYPE_CHECKING:
@@ -321,6 +326,16 @@ def _legacy_dns_record(record: EmailDomainStatusRecord) -> EmailDomainDnsRecord:
     if record.priority is not None:
         legacy["priority"] = record.priority
     return legacy
+
+
+def _find_published_records(
+    domain: str, records: Sequence[EmailDomainStatusRecord]
+) -> tuple[tuple[EmailDomainStatusRecord, ...], PublishedRecords]:
+    dmarc = next(record for record in records if record.kind == EmailDomainSetupRecordKind.DMARC)
+    inherited = inherited_dmarc_record(domain, dmarc)
+    published = find_published_records(domain, [*records, *([inherited] if inherited else [])])
+    in_force, published = dmarc_record_in_force(dmarc, inherited, published)
+    return tuple(in_force if record == dmarc else record for record in records), published
 
 
 _UNKNOWN = "Unknown"
@@ -793,33 +808,23 @@ class SESProvider:
         if refuses_lookups:
             logger.info("security.oob_domain_seen guard=ses_domain_status")
 
-        # DMARC: check via direct DNS lookup since AWS SES doesn't track it
-        dmarc_status = "Pending"
-        dmarc_record_value: str | None = None
+        published = PublishedRecords(records=frozenset())
         if not refuses_lookups:
-            try:
-                resolver = dns.resolver.Resolver()
-                resolver.lifetime = 5  # seconds — keep the request path responsive
-                answers = resolver.resolve(f"_dmarc.{domain}", "TXT")
-                for rdata in answers:
-                    txt_value = "".join(s.decode("utf-8") if isinstance(s, bytes) else s for s in rdata.strings)
-                    if txt_value.strip().lower().startswith("v=dmarc1"):
-                        dmarc_status = "Success"
-                        dmarc_record_value = txt_value.strip()
-                        break
-            except (
-                dns.resolver.NXDOMAIN,
-                dns.resolver.NoAnswer,
-                dns.resolver.NoNameservers,
-                dns.resolver.Timeout,
-            ):
-                pass  # No DMARC record found — fall back to "Pending" status
-            except Exception:
-                logger.exception("Unexpected error during DMARC lookup for %s", domain)
+            _, published = _find_published_records(
+                domain,
+                [
+                    record
+                    for record in records
+                    if record.kind in (EmailDomainSetupRecordKind.DMARC, EmailDomainSetupRecordKind.SPF)
+                ],
+            )
+        dmarc_record = next(
+            (record for record in published.records if record.kind == EmailDomainSetupRecordKind.DMARC), None
+        )
 
         # Normalize overall status
         overall: EmailDomainVerificationStatus
-        if identity.is_ready(dmarc_published=dmarc_status == "Success"):
+        if identity.is_ready(dmarc_published=dmarc_record is not None):
             overall = "success"
         elif "Failed" in identity.statuses:
             overall = "failed"
@@ -837,8 +842,7 @@ class SESProvider:
                 if record.kind == EmailDomainSetupRecordKind.VERIFICATION:
                     r["status"] = "success"
         # SES checks only the _amazonses token, so its success says nothing about the apex SPF record.
-        apex_spf = [record for record in records if record.kind == EmailDomainSetupRecordKind.SPF]
-        if not refuses_lookups and find_published_records(domain, apex_spf).records:
+        if any(record.kind == EmailDomainSetupRecordKind.SPF for record in published.records):
             for record, r in zip(records, dns_records):
                 if record.kind == EmailDomainSetupRecordKind.SPF:
                     r["status"] = "success"
@@ -871,12 +875,12 @@ class SESProvider:
             for r in dns_records:
                 if r["type"] == "mail_from":
                     r["status"] = "success"
-        if dmarc_status == "Success":
+        if dmarc_record:
             for r in dns_records:
                 if r["type"] == "dmarc":
                     r["status"] = "success"
-                    if dmarc_record_value:
-                        r["recordValue"] = dmarc_record_value
+                    r["recordHostname"] = dmarc_record.hostname
+                    r["recordValue"] = dmarc_record.value
 
         return {
             "status": overall,
@@ -905,7 +909,7 @@ class SESProvider:
             dkim_tokens=identity.dkim_tokens,
             ses_region=self._ses_region,
         )
-        published = find_published_records(domain, records)
+        records, published = _find_published_records(domain, records)
         dmarc_published = any(record.kind == EmailDomainSetupRecordKind.DMARC for record in published.records)
         is_ready = (
             identity.is_ready(dmarc_published=dmarc_published)

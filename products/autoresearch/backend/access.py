@@ -3,6 +3,8 @@
 Access is controlled by the `autoresearch` feature flag. The `autoresearch-report-notebook`
 flag gates the report notebook that a training run builds. Rollout is configured on each
 flag in PostHog, so code only asks whether it's enabled for this user/team.
+
+`access_refusal()` is the one gate for a training launch, from `/train` and from the daily sweep.
 """
 
 from django.conf import settings
@@ -10,6 +12,8 @@ from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
 
 import posthoganalytics
 
+from posthog.dataclasses import frozen
+from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.permissions import posthog_feature_flag_value
 
@@ -17,6 +21,30 @@ from products.feature_flags.backend.facade import api as feature_flags_facade
 
 AUTORESEARCH_FLAG = "autoresearch"
 REPORT_NOTEBOOK_FLAG = "autoresearch-report-notebook"
+
+
+@frozen
+class AccessRefusal:
+    code: str
+    detail: str
+
+
+def access_refusal(
+    user: AbstractBaseUser | AnonymousUser | None, organization: Organization, *, team_id: int
+) -> AccessRefusal | None:
+    """Why autoresearch may not act for this user in this organization, or None.
+
+    `/train` and the sweep's kickoff call it before a training launch, and the sweep calls it before it
+    scores or validates. The per-project limits in `limits.py` are checked after it, under the pipeline row lock.
+    """
+    # A null is_active counts as deactivated, as ActiveOrganizationPermission reads it.
+    if not organization.is_active or organization.is_pending_deletion:
+        return AccessRefusal(
+            code="organization_deactivated", detail="This organization is deactivated or pending deletion."
+        )
+    if not has_autoresearch_access(user, team_id=team_id, organization_id=str(organization.id)):
+        return AccessRefusal(code="autoresearch_not_enabled", detail="Autoresearch is not enabled for this team.")
+    return None
 
 
 def has_autoresearch_access(

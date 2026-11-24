@@ -224,9 +224,7 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_INTAKE_DLQ_DRAIN: boolean
     // An intake consumer's dead letters, on the cluster it reads from.
     CDP_INTAKE_DLQ_PRODUCER: CdpProducerName
-    // Teams whose routes produce accepted runs to the intake topics: a list of team ids, or `*`. Shadow still inserts
-    // each run itself and only measures the produce. Async answers on the broker's ack. Async wins over shadow.
-    CDP_INTAKE_KAFKA_SHADOW_TEAMS: string
+    // Teams whose routes answer accepted runs on the intake topic's ack: a list of team ids, or `*`.
     CDP_INTAKE_KAFKA_ASYNC_TEAMS: string
     // Per pod: batch email requests in flight. A batch over the cap gets 503 over_capacity.
     CDP_TRANSACTIONAL_EMAIL_BATCH_MAX_REQUESTS: number
@@ -278,6 +276,8 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_EMAIL_WORKFLOW_RUN_LINK_TAG_TEAMS: string
     CDP_EMAIL_JOB_OWNERSHIP_CHECK_TEAMS: string
     CDP_EMAIL_TEMPLATE_TAGS_TEAMS: string
+    // Comma-separated team ids, or "*", whose sends without text get a text/plain part made from their html.
+    CDP_EMAIL_TEXT_PART_TEAMS: string
     CDP_EMAIL_ATTACHMENTS_S3_BUCKET: string
     CDP_EMAIL_ATTACHMENTS_S3_REGION: string
     CDP_EMAIL_ATTACHMENTS_S3_PREFIX: string
@@ -538,7 +538,6 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_INTAKE_DLQ_TOPIC: KAFKA_CDP_INTAKE_DLQ,
         CDP_INTAKE_DLQ_DRAIN: false,
         CDP_INTAKE_DLQ_PRODUCER: MSK_CDP_INTAKE_PRODUCER,
-        CDP_INTAKE_KAFKA_SHADOW_TEAMS: '',
         CDP_INTAKE_KAFKA_ASYNC_TEAMS: '',
         CDP_TRANSACTIONAL_EMAIL_BATCH_MAX_REQUESTS: 8,
         CDP_INTAKE_MSK_PRODUCER: MSK_CDP_INTAKE_PRODUCER,
@@ -575,6 +574,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_EMAIL_WORKFLOW_RUN_LINK_TAG_TEAMS: '',
         CDP_EMAIL_JOB_OWNERSHIP_CHECK_TEAMS: '',
         CDP_EMAIL_TEMPLATE_TAGS_TEAMS: '',
+        CDP_EMAIL_TEXT_PART_TEAMS: '',
         CDP_EMAIL_ATTACHMENTS_S3_BUCKET: isDevEnv() || isTestEnv() ? 'email-attachments' : '',
         CDP_EMAIL_ATTACHMENTS_S3_REGION: 'us-east-1',
         CDP_EMAIL_ATTACHMENTS_S3_PREFIX: 'attachments',

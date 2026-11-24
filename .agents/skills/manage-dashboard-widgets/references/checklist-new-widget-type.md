@@ -53,7 +53,7 @@ Runtime validation = Pydantic in `widget_specs/`. OpenAPI components derive from
   - `products/dashboards/frontend/generated/widget-config-schemas/*.zod.ts` — per-component Orval Zod (`generateReusableSchemas`)
   - `products/dashboards/frontend/generated/widget-configs.zod.ts` — friendly re-exports, inferred types, form `.pick()` schemas (**import this**, not raw Orval component names)
   - `products/dashboards/frontend/generated/widget-config-property-keys.json` — per-type config property keys (`generate-widget-config-zod.mjs`)
-  - `products/dashboards/frontend/generated/widget-date-from-options.json` — date preset values + labels (`build-dashboard-widget-types.py`)
+  - `products/dashboards/frontend/generated/widget-date-from-options.json` — date preset values + labels (`build_widget_types.py`)
   - `products/dashboards/frontend/generated/widget-form-fields.json` — modal field manifest from `WidgetSpec.form_fields`
   - MCP tool schemas (`services/mcp/...`)
 - [ ] If `build:openapi-schema` warns on `widget_type` enum collision: `python manage.py find_enum_collisions` → add `{YourWidgetTypeEnum: ["your_widget_type"]}` to `ENUM_NAME_OVERRIDES` in `posthog/settings/web.py` (see [config-and-codegen.md § Codegen & CI](config-and-codegen.md#codegen--ci))
@@ -96,7 +96,7 @@ Use when introducing a new **`groupId`**, not just another variant in an existin
 | Product module          | Import query runner from `products/<product>/backend/…`   | Import list/UI from `products/<product>/frontend/…`     | `error_tracking_list` |
 | Scenes / posthog helper | Import shared helper (e.g. `posthog.session_recordings…`) | Import from `scenes/<area>/…` when UI still lives there | `session_replay_list` |
 
-- [ ] If importing **`products/<product>/frontend/…`**: add **`products.<product>`** to `tach.toml` → `products.dashboards` `depends_on`
+- [ ] Backend: import another product's code only through its facade (`products/<product>/backend/facade/…`). hoglint's `public-surface` rule reports a new import past it
 - [ ] RBAC: extend `DashboardWidgetProductAccess`, `WIDGET_PRODUCT_ACCESS_CHECKS`, BE `WidgetSpec.required_product_access` (+ optional `product_access_denied_message`)
 - [ ] Availability: new `WidgetAvailabilityRequirementId` in `widgetAvailability.ts` + BE `WidgetSpec.availability_requirements` when catalog uses `availability`; optional branch in `WidgetAvailabilitySetupPrompt`
 - [ ] Optional **`titleHref`** on catalog — product scene route for header "View" link (`urls.*` or scene path)

@@ -349,11 +349,7 @@ class TaskProcessingContext:
         )
 
     def _is_user_origin(self) -> bool:
-        return not self.origin_product or self.origin_product in (
-            Task.OriginProduct.USER_CREATED.value,
-            Task.OriginProduct.IMAGE_BUILDER.value,
-            Task.OriginProduct.SPACE_SETUP.value,
-        )
+        return Task.is_user_origin(self.origin_product)
 
     def max_run_duration(self) -> timedelta | None:
         """Hard wall-clock cap on total run time, or None when the run is exempt.
