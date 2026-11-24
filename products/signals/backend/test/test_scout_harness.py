@@ -46,6 +46,7 @@ from posthog.test.cascade_delete import delete_skipping_empty_tables
 
 from products.signals.backend.agent_runtime import AgentRuntime
 from products.signals.backend.daily_limit import DailyReportLimitGate
+from products.signals.backend.first_report_experiment import DISPATCHED_VARIANT_KEY
 from products.signals.backend.models import (
     SignalReport,
     SignalReportCheck,
@@ -53,6 +54,7 @@ from products.signals.backend.models import (
     SignalScoutPendingTrigger,
     SignalScoutRun,
     SignalSpend,
+    SignalTeamConfig,
 )
 from products.signals.backend.quota import SelfDrivingQuotaGate
 from products.signals.backend.report_charts import ReportChart
@@ -93,7 +95,7 @@ from products.signals.backend.scout_harness.runner import (
     _create_run_row,
     _failure_streak_runs_in_window,
     _inbox_reports_search_available,
-    _memory_upkeep_has_written,
+    _memory_upkeep_is_live,
     arun_signals_scout,
 )
 from products.signals.backend.scout_harness.skill_loader import (
@@ -500,7 +502,7 @@ class TestPromptCacheablePrefix(SimpleTestCase):
             github_read_access=github_read_access,
             business_knowledge_maintained=business_knowledge_maintained,
             project_has_governed_metrics=True,
-            memory_upkeep_has_written=True,
+            memory_upkeep_is_live=True,
             write_scopes=["dashboard:write"],
             structured_output_schema={"type": "object", "properties": {"verdict": {"type": "string"}}},
             mcp_server_names=["Datadog (EU)"],
@@ -579,8 +581,46 @@ class TestMemoryUpkeepCheck(SimpleTestCase):
             ),
             patch("products.signals.backend.scout_harness.runner.capture_exception") as capture,
         ):
-            assert _memory_upkeep_has_written(MagicMock()) is False
+            assert _memory_upkeep_is_live(MagicMock()) is False
         capture.assert_called_once()
+
+
+class TestMemoryUpkeepGate(BaseTest):
+    @parameterized.expand(
+        [
+            ("enabled_with_entry", SignalScoutConfig.Status.ACTIVE, True, True),
+            ("warned_with_entry", SignalScoutConfig.Status.PENDING_PAUSE, True, True),
+            ("paused_by_user_with_entry", SignalScoutConfig.Status.PAUSED_BY_USER, True, False),
+            ("paused_by_system_with_entry", SignalScoutConfig.Status.PAUSED_BY_SYSTEM, True, False),
+            ("no_config_with_entry", None, True, False),
+            ("enabled_without_entry", SignalScoutConfig.Status.ACTIVE, False, False),
+        ]
+    )
+    def test_section_is_live_only_while_the_upkeep_scout_is_enabled_and_has_written(
+        self, _name: str, status: str | None, has_entry: bool, expected: bool
+    ) -> None:
+        from products.signals.backend.scout_harness.tools.scratchpad import remember
+
+        if status is not None:
+            pause_reason = (
+                SignalScoutConfig.PauseReason.NO_OUTPUT
+                if status in (SignalScoutConfig.Status.PENDING_PAUSE, SignalScoutConfig.Status.PAUSED_BY_SYSTEM)
+                else None
+            )
+            SignalScoutConfig.objects.unscoped().create(
+                team_id=self.team.id,
+                skill_name=MEMORY_UPKEEP_SCOUT,
+                status=status,
+                pause_reason=pause_reason,
+                enabled=status in SignalScoutConfig.RUNNABLE_STATUSES,
+            )
+        if has_entry:
+            run = SignalScoutRun.objects.create(
+                task_run=_make_task_run(self.team), team=self.team, skill_name=MEMORY_UPKEEP_SCOUT, skill_version=1
+            )
+            remember(team_id=self.team.id, key="learned:area:checkout", content="pattern", run_id=str(run.id))
+
+        assert _memory_upkeep_is_live(self.team) is expected
 
 
 class TestActivitySummarySearchAvailability(SimpleTestCase):
@@ -1502,9 +1542,9 @@ class TestPromptBuilder(BaseTest):
                 ),
                 (
                     "memory_upkeep",
-                    "memory_upkeep_has_written",
+                    "memory_upkeep_is_live",
                     "# Memory upkeep",
-                    "dream:digest:<skill-name>",
+                    'key_prefix="learned:area:"',
                     ["signals-scout-dreaming", "dream:digest:", "learned:"],
                 ),
             )
@@ -1556,7 +1596,7 @@ class TestPromptBuilder(BaseTest):
             run_id="00000000-0000-0000-0000-000000000abc",
             team_id=self.team.id,
             started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
-            memory_upkeep_has_written=True,
+            memory_upkeep_is_live=True,
         )
 
         assert "# Memory upkeep" not in prompt
@@ -3200,17 +3240,36 @@ async def test_run_pins_sandbox_to_resolved_scout_model(
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "variant,runtime,adapter,model,tier",
+    "dispatched,flag,variant,runtime,adapter,model,tier",
     [
-        ("test-sol", "acp", "codex", "gpt-6.1-sol", "priority"),
-        ("test-deepseek", "pi", None, "deepseek-ai/deepseek-v4.1-flash-1017-fast", None),
-        ("control", None, None, None, None),
-        (False, None, None, None, None),
+        ({DISPATCHED_VARIANT_KEY: "test-terra"}, RuntimeError, "test-terra", "acp", "codex", "gpt-6.1-terra", None),
+        (
+            {DISPATCHED_VARIANT_KEY: None},
+            "test-terra",
+            None,
+            "pi",
+            None,
+            "deepseek-ai/deepseek-v4.1-flash-1017-fast",
+            None,
+        ),
+        ({}, "control", "control", "pi", None, "deepseek-ai/deepseek-v4.1-flash-1017-fast", None),
+        ({}, False, None, "pi", None, "deepseek-ai/deepseek-v4.1-flash-1017-fast", None),
     ],
 )
-async def test_first_report_experiment_restarts_and_records_assignment(ateam, variant, runtime, adapter, model, tier):
+async def test_first_report_experiment_restarts_and_records_assignment(
+    ateam, dispatched, flag, variant, runtime, adapter, model, tier
+):
     Task = apps.get_model("tasks", "Task")
     TaskRun = apps.get_model("tasks", "TaskRun")
+    await database_sync_to_async(SignalTeamConfig.objects.create)(team=ateam, onboarding=dispatched)
+
+    def evaluate_flag(key, *args, **kwargs):
+        if key != "self-driving-first-report-model":
+            return None
+        if flag is RuntimeError:
+            raise RuntimeError("Flag evaluation unavailable")
+        return flag
+
     await database_sync_to_async(LLMSkill.objects.create)(
         team=ateam, name="signals-scout-first-report", description="First report", body="Investigate"
     )
@@ -3259,8 +3318,9 @@ async def test_first_report_experiment_restarts_and_records_assignment(ateam, va
         patch("products.signals.backend.scout_harness.runner.MultiTurnSession.start", new=start),
         patch(
             "products.signals.backend.first_report_experiment.posthoganalytics.get_feature_flag",
-            side_effect=lambda key, *args, **kwargs: variant if key == "self-driving-banger-scout" else None,
+            side_effect=evaluate_flag,
         ),
+        patch("products.signals.backend.first_report_experiment.capture_exception"),
         patch(
             "products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env", return_value="env-id"
         ) as sandbox,
@@ -3273,24 +3333,17 @@ async def test_first_report_experiment_restarts_and_records_assignment(ateam, va
             team_id=ateam.id, skill_name="signals-scout-first-report", triggered_by="onboarding"
         )
         outcome = await env.run(run_signals_scout_activity, input)
-        if runtime is not None:
-            assert outcome.status == "completed"
-            first_run_id = outcome.run_id
-            replay = await env.run(run_signals_scout_activity, input)
-            assert replay.run_id == outcome.run_id
-            assert replay.task_run_id == outcome.task_run_id
-            assert replay.status == "completed"
-            env.info = replace(env.info, workflow_run_id=str(uuid4()))
-            outcome = await env.run(run_signals_scout_activity, input)
-            assert outcome.run_id != first_run_id
+        assert outcome.status == "completed"
+        first_run_id = outcome.run_id
+        replay = await env.run(run_signals_scout_activity, input)
+        assert replay.run_id == outcome.run_id
+        assert replay.task_run_id == outcome.task_run_id
+        assert replay.status == "completed"
+        env.info = replace(env.info, workflow_run_id=str(uuid4()))
+        outcome = await env.run(run_signals_scout_activity, input)
+        assert outcome.run_id != first_run_id
 
-    if runtime is None:
-        assert outcome.skip_reason == (
-            "first-report control arm" if variant == "control" else "first-report experiment disabled"
-        )
-        sandbox.assert_not_called()
-        assert not captured
-        return
+    sandbox.assert_called()
     assert outcome.status == "completed"
     context = captured["context"]
     assert captured["profile"] == FIRST_REPORT_SCOUT
@@ -3308,11 +3361,11 @@ async def test_first_report_experiment_restarts_and_records_assignment(ateam, va
     assert previous_task.idempotency_key == "first-report"
     assert previous_run.status == TaskRun.Status.FAILED
     assert run.metadata is not None
-    assert run.metadata["experiment_variant"] == variant
+    assert run.metadata.get("experiment_variant") == variant
     assert run.metadata["runtime"] == runtime
     events = {call.kwargs["event"]: call.kwargs["properties"] for call in capture.call_args_list}
-    assert events["signals_scout_run_started"]["experiment_variant"] == variant
-    assert events["signals_scout_run_finished"]["experiment_variant"] == variant
+    assert events["signals_scout_run_started"].get("experiment_variant") == variant
+    assert events["signals_scout_run_finished"].get("experiment_variant") == variant
     assert events["signals_scout_run_finished"]["first_report_outcome"] == "no_actionable_finding"
     assert events["signals_scout_run_finished"]["report_delivered"] is False
 
@@ -3366,7 +3419,7 @@ async def test_first_report_concurrent_dispatch_creates_one_task(ateam: Team, sa
         patch("products.signals.backend.scout_harness.runner.MultiTurnSession.start", new=start),
         patch(
             "products.signals.backend.first_report_experiment.posthoganalytics.get_feature_flag",
-            side_effect=lambda key, *args, **kwargs: "test-deepseek" if key == "self-driving-banger-scout" else None,
+            side_effect=lambda key, *args, **kwargs: "control" if key == "self-driving-first-report-model" else None,
         ),
         patch("products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env", return_value="env-id"),
         patch("products.signals.backend.temporal.agentic.resolve_acting_user_id_for_team", return_value=42),

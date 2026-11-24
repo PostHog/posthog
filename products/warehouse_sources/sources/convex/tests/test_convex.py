@@ -157,14 +157,15 @@ class TestValidateDeployUrl:
 
     @parameterized.expand(
         [
-            ("same_deployment", "prod:swift-lemur-123|abc", "Convex rejected your deploy key."),
-            ("unnamed_key", "abc123", "Convex rejected your deploy key."),
-            ("dev_key_for_prod_url", "dev:quiet-otter-456|abc", "belongs to a different Convex deployment"),
-            ("key_for_other_project", "prod:quiet-otter-456|abc", "belongs to a different Convex deployment"),
+            ("same_deployment", 401, "prod:swift-lemur-123|abc", "deployment:data:view permission"),
+            ("key_without_data_view", 403, "prod:swift-lemur-123|abc", "deployment:data:view permission"),
+            ("unnamed_key", 401, "abc123", "deployment:data:view permission"),
+            ("dev_key_for_prod_url", 401, "dev:quiet-otter-456|abc", "belongs to a different Convex deployment"),
+            ("key_for_other_project", 403, "prod:quiet-otter-456|abc", "belongs to a different Convex deployment"),
         ]
     )
-    def test_validate_credentials_explains_a_rejected_deploy_key(self, _name, deploy_key, expected):
-        with scripted_network([ScriptedResponse(status=401)]):
+    def test_validate_credentials_explains_a_rejected_deploy_key(self, _name, status_code, deploy_key, expected):
+        with scripted_network([ScriptedResponse(status=status_code)]):
             ok, err = validate_credentials("https://swift-lemur-123.eu-west-1.convex.cloud", deploy_key)
 
         assert not ok

@@ -1,6 +1,8 @@
 import { DateTime } from 'luxon'
 
 import { AsyncOutput } from '~/common/outputs'
+import { PersonhogUnprocessablePersonError } from '~/common/personhog/persons'
+import { logger } from '~/common/utils/logger'
 import { PersonContext, PersonOutputs } from '~/ingestion/common/persons/person-context'
 import { PersonEventProcessor } from '~/ingestion/common/persons/person-event-processor'
 import type { MergeFoldDecision } from '~/ingestion/common/persons/person-merge-fold'
@@ -8,12 +10,18 @@ import { PersonMergeService } from '~/ingestion/common/persons/person-merge-serv
 import { determineMergeMode } from '~/ingestion/common/persons/person-merge-types'
 import { PersonPropertyService } from '~/ingestion/common/persons/person-property-service'
 import { PersonsStoreForBatch } from '~/ingestion/common/persons/persons-store-for-batch'
-import { PipelineResult, isOkResult, ok } from '~/ingestion/framework/results'
+import { PipelineResult, drop, isOkResult, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { PluginEvent } from '~/plugin-scaffold'
 import { Person, Team } from '~/types'
 
 import { EventPipelineRunnerOptions } from './event-pipeline-options'
+
+const UNPROCESSABLE_PERSON_MESSAGE =
+    "This person's stored properties cannot be read, so events for this person are dropped. " +
+    'This usually means the properties are nested more than 128 levels deep, because an object such as ' +
+    'a DOM element or an SDK instance was set as a person property. Delete this person to resume ' +
+    'processing their events, and pass a plain value where the property is set.'
 
 export type ProcessPersonsInput = {
     normalizedEvent: PluginEvent
@@ -72,7 +80,36 @@ export function createProcessPersonsStep<TInput extends ProcessPersonsInput>(
             new PersonPropertyService(context),
             new PersonMergeService(context)
         )
-        const result = await processor.processEvent()
+        let result: PipelineResult<Person, AsyncOutput>
+        try {
+            result = await processor.processEvent()
+        } catch (error) {
+            if (!(error instanceof PersonhogUnprocessablePersonError)) {
+                throw error
+            }
+            logger.warn('🤔', 'stored person properties cannot be parsed; the event is dropped', {
+                team_id: error.teamId,
+                person_id: error.personId,
+                distinct_id: normalizedEvent.distinct_id,
+                event_uuid: normalizedEvent.uuid,
+            })
+            return drop(
+                'unprocessable_person',
+                [],
+                [
+                    {
+                        type: 'person_properties_depth_violation',
+                        details: {
+                            distinctId: normalizedEvent.distinct_id,
+                            eventUuid: normalizedEvent.uuid,
+                            message: UNPROCESSABLE_PERSON_MESSAGE,
+                        },
+                        pipelineStep: 'person-store',
+                        key: String(normalizedEvent.distinct_id),
+                    },
+                ]
+            )
+        }
 
         if (!isOkResult(result)) {
             return result

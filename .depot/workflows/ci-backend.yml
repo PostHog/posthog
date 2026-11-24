@@ -260,6 +260,7 @@ jobs:
             schema: ${{ steps.filter.outputs.schema || 'true' }}
             product_yamls: ${{ steps.filter.outputs.product_yamls || 'false' }}
             repo_invariants: ${{ steps.filter.outputs.repo_invariants || 'false' }}
+            hoglint: ${{ steps.filter.outputs.hoglint || 'false' }}
             sdk_manifests: ${{ steps.filter.outputs.sdk_manifests || 'true' }}
             product_yamls_files: ${{ steps.filter.outputs.product_yamls_files }}
             reused: ${{ steps.filter.outputs.reused }}
@@ -307,6 +308,7 @@ jobs:
                       timing_scripts
                       tasks_temporal
                       repo_invariants
+                      hoglint
                       sdk_manifests
                       product_yamls
                       openapi_types
@@ -380,12 +382,9 @@ jobs:
                         - pytest.ini
                         - conftest.py # Root conftest loads for every pytest run
                         - .test_quarantine.json # Un-quarantining must re-run the affected tests
-                        # turbo-discover reads the module graph for the dependent
-                        # cascade, and `tach check` validates it — a graph-only PR
-                        # must still dispatch both.
-                        - tach.toml
+                        # turbo-discover reads hoglint's import map for the dependent cascade, and
                         # repo-checks runs `hoglint compare`, which judges the policy, the ledger
-                        # and the exceptions, so a policy-only PR must still dispatch it.
+                        # and the exceptions, so a policy-only PR must still dispatch both.
                         - hoglint.toml
                         - hoglint.ledger
                         - hoglint.exceptions.toml
@@ -419,13 +418,12 @@ jobs:
                         # Transitional: branches that predate the move still carry the
                         # resolver at tools/owners.
                         - 'tools/owners/**'
-                        # product:lint --all checks these generated files against the tree,
-                        # so a baseline-only edit must run it too. The crossings baseline is
-                        # also what product:lint reads to let a wiring location leave a
-                        # product's turbo.json inputs, so both edits must run the checks.
-                        - products/isolation_baseline.txt
-                        - products/model_crossing_uses_baseline.txt
+                        # hoglint's Isolated level reads each product's contract-check
+                        # inputs, so an inputs-only edit must run `hoglint compare`. product:lint
+                        # --all checks the isolation baseline against those claims, so a
+                        # baseline-only edit must run it too.
                         - 'products/*/turbo.json'
+                        - products/isolation_baseline.txt
                         # Make sure we run if someone is explicitly changing the workflow
                         - .depot/workflows/ci-backend.yml
                         - .github/new-events-schema-targets.txt
@@ -622,6 +620,12 @@ jobs:
                         # That check and the other hogli commands in repo-checks import modules from
                         # this tree, and the backend filter matches only the ones the test setup imports.
                         - 'tools/hogli-commands/**'
+                      hoglint:
+                        # hoglint reads every Python file under the repo root (hoglint.toml
+                        # `source_roots`), and the backend filter leaves some of them out, such as
+                        # bin/, rust/, nodejs/ and the root scripts. A change to any of them must
+                        # still run `hoglint compare` in repo-checks.
+                        - '**/*.py'
                       sdk_manifests:
                         # Everything the SDK major-version guard reads. Lockfiles are listed
                         # because a floor-only or `*` spec can move to a new major through
@@ -909,8 +913,8 @@ jobs:
               run: node .github/scripts/backend-full-run-state.js >> "$GITHUB_OUTPUT"
             - name: Install turbo
               uses: ./.depot/actions/setup-turbo
-            # turbo-discover.js runs .github/scripts/tach_map.py under `uv run
-            # --no-project` for the dependent cascade; the script pins tach, so no
+            # turbo-discover.js runs .github/scripts/hoglint_map.py under `uv run
+            # --no-project` for the dependent cascade; the script pins hoglint, so no
             # Python project sync is needed. A missing uv widens the cascade to
             # every product rather than failing the job.
             - uses: ./.depot/actions/setup-uv
@@ -1751,8 +1755,9 @@ jobs:
     repo-checks:
         needs: [changes]
         # product_yamls: ownership-only PRs still need the owners.yaml lint below.
-        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.product_yamls == 'true' || needs.changes.outputs.repo_invariants == 'true') && github.event_name != 'schedule'
-        # Room for the shadow hoglint step's own 5-minute cap on top of the other checks.
+        # hoglint: Python the backend filter leaves out still needs `hoglint compare`.
+        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.product_yamls == 'true' || needs.changes.outputs.repo_invariants == 'true' || needs.changes.outputs.hoglint == 'true') && github.event_name != 'schedule'
+        # Room for the hoglint step's own 5-minute cap and the scaffold check on top of the other checks.
         timeout-minutes: 15
         outputs:
             deterministic_failure: ${{ steps.deterministic-failure.outputs.deterministic_failure || 'false' }}
@@ -1798,9 +1803,8 @@ jobs:
                   REPO: ${{ github.repository }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
               run: .github/scripts/list-removed-renamed-paths.sh > "$RUNNER_TEMP/deleted-migration-paths.txt"
-            # Above the boundary for the same reason. product:lint compares the crossings ledger,
-            # and `hoglint compare` the boundaries, with the merge commit's first parent, so the
-            # clone needs one more level of history.
+            # Above the boundary for the same reason. `hoglint compare` judges the boundaries
+            # against the merge commit's first parent, so the clone needs one more level of history.
             - name: Fetch the pull request base
               if: github.event_name == 'pull_request'
               run: |
@@ -1816,36 +1820,61 @@ jobs:
             - name: Check deleted migrations
               if: steps.fetch-deleted-migrations.outcome == 'success'
               run: ./bin/hogli lint:migration-deletions < "$RUNNER_TEMP/deleted-migration-paths.txt"
-            # hoglint runs in shadow, so the step always exits 0: it can never fail the job or flag
-            # a deterministic failure. A finding on a line the pull request adds or edits becomes
-            # an annotation. The step summary shows compare's own new findings and lists the other
-            # rows. The full view (`--all`) lists every row, which the default view can cut short.
-            # It runs before the scaffold, which edits tracked files that compare would read as part
-            # of the change.
-            - name: Check boundaries (hoglint, shadow)
-              env:
-                  HOGLINT_SHADOW_UNTIL: Tuesday, Nov 24
+            # The required boundary check. A pull request is judged against its base: old debt
+            # passes, and a new finding, a stale or new ledger line, a new unknown or a failed level
+            # claim fails the job. A crossing (public-surface, model-crossings, get-model) only
+            # reports. A finding on a line the pull request adds or edits becomes an annotation, and
+            # the step summary splits the rows that block from the rows that only report. The full
+            # view (`--all`) lists every row, which the default view can cut short. The script only
+            # reports; hoglint's exit decides the step. It runs before the scaffold, which edits
+            # tracked files that compare would read as part of the change. Exit 1 (violations) and 2
+            # (a blocking incomplete result or a config error) come from the tree, so they are a
+            # deterministic failure. Exit 2 with a line about "the base engine" is not: compare
+            # could not install, start or ask the engine the base pins, which a retry can fix. That
+            # case and any other status (3: hoglint could not run, 124 or 137: the timeout) set
+            # `transient`, so the job fails without cancelling the rest of the run.
+            - name: Check boundaries (hoglint)
+              id: hoglint
               run: |
                   output="$RUNNER_TEMP/hoglint.txt"
                   errors="$RUNNER_TEMP/hoglint-stderr.txt"
                   status=0
                   if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
                       timeout --kill-after=10s 5m hoglint compare --base HEAD^1 --all > "$output" 2> "$errors" || status=$?
-                      python .github/scripts/hoglint_shadow.py "$output" --stderr "$errors" --status "$status" --until "$HOGLINT_SHADOW_UNTIL" --base HEAD^1 || true
+                      python .github/scripts/hoglint_shadow.py "$output" --stderr "$errors" --status "$status" --base HEAD^1 || true
                   else
                       timeout --kill-after=10s 5m hoglint check --all > "$output" 2> "$errors" || status=$?
-                      python .github/scripts/hoglint_shadow.py "$output" --stderr "$errors" --status "$status" --until "$HOGLINT_SHADOW_UNTIL" || true
+                      python .github/scripts/hoglint_shadow.py "$output" --stderr "$errors" --status "$status" || true
                   fi
+                  transient=false
+                  case "$status" in
+                      0 | 1) ;;
+                      2) if grep -qs "the base engine" "$output" "$errors"; then transient=true; fi ;;
+                      *) transient=true ;;
+                  esac
+                  if [ "$transient" = true ]; then echo "transient=true" >> "$GITHUB_OUTPUT"; fi
+                  exit "$status"
             - name: Bootstrap scaffold product
               run: ./bin/hogli product:bootstrap spline_reticulator --non-interactive
+            # A bootstrapped product must pass hoglint from its first commit, its Isolated level
+            # included. Bootstrap writes the product's level line into this job's copy of the
+            # ledger, so a plain check also proves that bootstrap leaves the ledger complete.
+            - name: Check the scaffold product (hoglint)
+              id: hoglint-scaffold
+              run: |
+                  status=0
+                  hoglint check || status=$?
+                  case "$status" in
+                      0 | 1 | 2) ;;
+                      *) echo "transient=true" >> "$GITHUB_OUTPUT" ;;
+                  esac
+                  exit "$status"
             # Distributed owners.yaml tree: schema, product.yaml/owners.yaml
             # conflicts, dead rule globs, coverage (warn-only). No --live, so no
             # secrets — fork PRs get validated too (the --live slug check runs in
             # the fork-gated validate-product-yamls job instead).
             - parallel:
                   - name: Lint product structure
-                    env:
-                        CROSSINGS_LEDGER_BASE: ${{ github.event_name == 'pull_request' && 'HEAD^1' || '' }}
                     run: ./bin/hogli product:lint --all
                   - name: Lint owners.yaml files
                     run: ./bin/hogli owners:lint
@@ -1857,18 +1886,6 @@ jobs:
                     run: python .github/scripts/check-dwh-source-agnostic.py
                   - name: Check operator parity
                     run: python .github/scripts/check-operator-parity.py
-                  - name: Check module boundaries (tach)
-                    # Two passes: tests are in the interface graph but not the dependency graph.
-                    # A branch that predates the command still excludes tests in tach.toml, so
-                    # the old single pass is the right check there.
-                    run: |
-                        if ./bin/hogli lint:tach --help >/dev/null 2>&1; then
-                            ./bin/hogli lint:tach
-                        else
-                            tach check --dependencies --interfaces
-                        fi
-                  - name: Check product facade enforcement (import-linter)
-                    run: lint-imports
                   # These guards take the whole repo as input (import graph after
                   # django.setup(), signal registries, repo-wide AST scans), so diff-based
                   # test selection can't pick them and the Django matrix skips them on
@@ -1901,9 +1918,10 @@ jobs:
               run: python .github/scripts/check-new-events-schema-targets.py --against HEAD^1 --committed
             # Deterministic = a static check above failed after setup completed.
             # A retry can't fix it, so this signals the cancellation gate to stop the run.
+            # A hoglint step that could not finish says so with `transient`, and is not one.
             - name: Flag deterministic failure
               id: deterministic-failure
-              if: failure() && steps.setup-complete.outcome == 'success'
+              if: failure() && steps.setup-complete.outcome == 'success' && steps.hoglint.outputs.transient != 'true' && steps.hoglint-scaffold.outputs.transient != 'true'
               run: echo "deterministic_failure=true" >> "$GITHUB_OUTPUT"
 
     cancel-backend-on-repo-check-failure:

@@ -322,6 +322,12 @@ export const SignalsAnomaliesSearchRetrieveQueryParams = () => zod.object({
         .max(signalsAnomaliesSearchRetrieveQuerySearchMax)
         .optional()
         .describe('Only insights whose name contains this text, ignoring case.'),
+    viewed_within_days: zod
+        .union([zod.literal(7), zod.literal(14), zod.literal(30), zod.literal(45), zod.literal(90)])
+        .optional()
+        .describe(
+            'Only the insights the caller viewed in this many days: insights they opened, and insights on the dashboards they opened, with the tiles those dashboards have now. Views count only in the web app, not through the API or an MCP tool. Without it the search covers every insight in the project. When the caller viewed no insight in the window, the search covers every insight and `viewed_scope_empty` is true.\n\n\* `7` - 7\n\* `14` - 14\n\* `30` - 30\n\* `45` - 45\n\* `90` - 90'
+        ),
 })
 
 /**
@@ -638,6 +644,12 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .optional()
         .describe(
             'Keep only the steps of this plan report, in plan order: the same reports, in the same order, as `plan.steps` on the plan report. Archived steps are included without `include_all_statuses`. Other filters still apply. A report with no steps returns an empty page.'
+        ),
+    pr_targets: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Requires task_id. When true, keeps only the reports that the task's pull requests and commits link to: its source report, the reports the task attached a pull request to, and its pipeline, legacy and assignment associations. A report that the task only claimed is kept only when the task has no other report."
         ),
     priority: zod
         .string()

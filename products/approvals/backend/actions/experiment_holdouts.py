@@ -63,8 +63,8 @@ class ExperimentHoldoutActionBase(BaseAction):
 
     @classmethod
     def _load_holdout(cls, holdout_id, team_id):
-        # Imported from the holdout API module: approvals may depend on `ee`, not on the
-        # experiments product. See tach.toml.
+        # Imported from the holdout API module in `ee`, so approvals does not import the
+        # experiments product.
         from ee.clickhouse.views.experiment_holdouts import ExperimentHoldout
 
         # nosemgrep: idor-lookup-without-team (team_id comes from the approved change request)

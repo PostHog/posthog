@@ -105,6 +105,8 @@ function searchResponse(overrides: Partial<AnomalySearchResponseApi> = {}): Anom
         series_capped: false,
         message: null,
         scored_through: iso(NOW),
+        viewed_within_days: 30,
+        viewed_scope_empty: false,
         ...overrides,
     }
 }
@@ -131,6 +133,7 @@ const FLAGGED_SERIES = [
     makeSeries(1, 'Signups by referrer', 'Newsletter', 'day', dailyValues(8, 5, { 2: 30 }), [2]),
     makeSeries(1, 'Signups by referrer', 'Direct', 'day', dailyValues(64, 50, { 17: 20, 3: 30, 2: 28 }), [17, 3, 2]),
     makeSeries(1, 'Signups by referrer', 'Partners', 'day', dailyValues(5, 3, { 2: 18 }), [2]),
+    makeSeries(4, 'Invites sent', 'Invites sent', 'day', dailyValues(120, 80, { 1: 310 }), [1]),
     makeSeries(
         2,
         'Checkout started',
@@ -234,6 +237,32 @@ export const SeriesCapped: Story = {
 
 export const NothingFlagged: Story = {
     decorators: [mswDecorator({ get: { [SEARCH_URL]: searchResponse() } })],
+}
+
+export const ScopeFallback: Story = {
+    parameters: {
+        testOptions: {
+            snapshotBrowsers: [],
+            waitForLoadersToDisappear: true,
+            waitForSelector: '[data-attr="anomalies-tab-scope-fallback"]',
+        },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                [SEARCH_URL]: searchResponse({
+                    series: FLAGGED_SERIES.map(({ row }) => row),
+                    viewed_scope_empty: true,
+                }),
+            },
+            post: { [POINTS_URL]: pointsResponse() },
+        }),
+    ],
+}
+
+export const NothingFlaggedInWholeProject: Story = {
+    parameters: { pageUrl: `${urls.savedInsights()}?tab=${SavedInsightsTabs.Anomalies}&anomalies_scope=project` },
+    decorators: [mswDecorator({ get: { [SEARCH_URL]: searchResponse({ viewed_within_days: null }) } })],
 }
 
 export const NothingChecked: Story = {

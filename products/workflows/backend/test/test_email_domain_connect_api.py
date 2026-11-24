@@ -38,6 +38,7 @@ SIGNING_UNAVAILABLE = (
 )
 DISCOVERY_RECORD = f"_domainconnect.{ROOT_DOMAIN}"
 DMARC_LOOKUP = dns_operation(f"_dmarc.{DOMAIN}", "TXT")
+ORGANIZATIONAL_DMARC_LOOKUP = dns_operation(f"_dmarc.{ROOT_DOMAIN}", "TXT")
 
 
 @override_settings(DOMAIN_CONNECT_PRIVATE_KEY=domain_connect_signing_key_pem(), CLOUD_DEPLOYMENT="US")
@@ -141,21 +142,72 @@ class TestOneClickEmailDomainSetup(EmailDomainConnectTestCase):
         assert self.world.ses.writes == writes_before
         capture_exception.assert_not_called()
 
-    def test_approved_setup_keeps_an_existing_dmarc_record(self) -> None:
-        existing_dmarc = "v=DMARC1; p=reject; rua=mailto:dmarc@example.com"
-        self.world.dns.publish_txt(f"_dmarc.{DOMAIN}", existing_dmarc)
+    @parameterized.expand(
+        [
+            ("at_the_sender_domain", f"_dmarc.{DOMAIN}"),
+            ("inherited_from_the_organizational_domain", f"_dmarc.{ROOT_DOMAIN}"),
+            ("inherited_with_a_spaced_version_tag", f"_dmarc.{ROOT_DOMAIN}", "V = DMARC1 ; p=reject"),
+        ]
+    )
+    def test_approved_setup_keeps_an_existing_dmarc_record(
+        self, _name: str, existing_at: str, existing_dmarc: str = "v=DMARC1; p=reject; rua=mailto:dmarc@example.com"
+    ) -> None:
+        self.world.dns.publish_txt(existing_at, existing_dmarc)
         sender = self.create_sender(f"hello@{DOMAIN}")
 
         self.world.domain_connect.apply(self.apply_url(sender).json()["url"])
 
-        assert self.world.dns.txt_values(f"_dmarc.{DOMAIN}") == [existing_dmarc]
+        dmarc_names = (f"_dmarc.{DOMAIN}", f"_dmarc.{ROOT_DOMAIN}")
+        assert {name: self.world.dns.txt_values(name) for name in dmarc_names} == {
+            name: [existing_dmarc] if name == existing_at else [] for name in dmarc_names
+        }
         assert self.status_body(sender)["status"] == "verified"
+
+    @parameterized.expand(
+        [
+            ("version_tag_other_than_dmarc1", "v=DMARC10; p=reject"),
+            ("lowercase_version", "v=dmarc1; p=reject"),
+            ("preview_version", "V = DMARC1-preview; p=reject"),
+        ]
+    )
+    def test_approved_setup_publishes_dmarc_beneath_a_parent_record_receivers_ignore(
+        self, _name: str, parent_dmarc: str
+    ) -> None:
+        self.world.dns.publish_txt(f"_dmarc.{ROOT_DOMAIN}", parent_dmarc)
+        sender = self.create_sender(f"hello@{DOMAIN}")
+
+        self.world.domain_connect.apply(self.apply_url(sender).json()["url"])
+
+        assert self.world.dns.txt_values(f"_dmarc.{DOMAIN}") == ["v=DMARC1; p=none;"]
+        assert self.status_body(sender)["status"] == "verified"
+
+    def test_approved_setup_publishes_dmarc_beneath_the_record_of_a_private_suffix_operator(self) -> None:
+        self.world.dns.add_zone("eu.org", nameservers=CLOUDFLARE_NAMESERVERS)
+        self.world.dns.publish_txt("_dmarc.eu.org", "v=DMARC1; p=reject")
+        self.world.domain_connect.host("eu.org")
+        sender = self.create_sender("hello@send.name.eu.org")
+
+        self.world.domain_connect.apply(self.apply_url(sender).json()["url"])
+
+        assert self.world.dns.txt_values("_dmarc.send.name.eu.org") == ["v=DMARC1; p=none;"]
 
     @parameterized.expand(
         [
             ("dmarc_lookup_times_out", lambda world: world.faults.inject(DMARC_LOOKUP, DnsFault.TIMEOUT)),
             ("dmarc_lookup_fails", lambda world: world.faults.inject(DMARC_LOOKUP, DnsFault.SERVFAIL)),
             ("dmarc_record_is_not_utf8", lambda world: world.dns.publish(f"_dmarc.{DOMAIN}", "TXT", '"\\255"')),
+            (
+                "dmarc_record_has_a_line_break",
+                lambda world: world.dns.publish_txt(f"_dmarc.{DOMAIN}", "v=DMARC1\\010;p=reject"),
+            ),
+            (
+                "dmarc_record_has_a_line_feed_in_place_of_a_separator",
+                lambda world: world.dns.publish_txt(f"_dmarc.{DOMAIN}", "v=DMARC1\\010p=reject"),
+            ),
+            (
+                "organizational_dmarc_lookup_times_out",
+                lambda world: world.faults.inject(ORGANIZATIONAL_DMARC_LOOKUP, DnsFault.TIMEOUT),
+            ),
         ]
     )
     def test_approved_setup_leaves_dmarc_alone_when_an_existing_record_cannot_be_ruled_out(

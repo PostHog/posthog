@@ -4,7 +4,6 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { Node } from '@xyflow/react'
 import { BindLogic, useValues } from 'kea'
 import { router } from 'kea-router'
-import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -65,7 +64,7 @@ jest.mock('react-email-editor', () => {
     }
 })
 
-const LOGIC_PROPS: WorkflowLogicProps = { id: 'new' }
+const LOGIC_PROPS: WorkflowLogicProps = { id: '01a1fd90-70c5-7d67-a6be-f302e3c6f41c' }
 const STEP_ID = 'email_step'
 
 const SANDBOX_STATUS = {
@@ -154,6 +153,13 @@ const SANDBOX_STEP = {
     },
 } as HogFlowAction
 
+const TRIGGER = {
+    id: 'trigger_node',
+    type: 'trigger',
+    name: 'Trigger',
+    config: { type: 'event', filters: { events: [{ id: '$pageview', type: 'events' }] } },
+} as HogFlowAction
+
 function storedStep(): HogFlowAction | undefined {
     return workflowLogic(LOGIC_PROPS).values.workflow.actions.find((action) => action.id === STEP_ID)
 }
@@ -177,11 +183,22 @@ function showSenderRow(show = true): void {
     featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_EMAIL_HEADER]: show })
 }
 
+let savedStep: HogFlowAction
+
+function savedWorkflow(): Record<string, unknown> {
+    return {
+        id: LOGIC_PROPS.id,
+        name: 'Welcome',
+        status: 'draft',
+        trigger: TRIGGER.config,
+        actions: [TRIGGER, savedStep],
+        edges: [{ from: TRIGGER.id, to: savedStep.id, type: 'continue' }],
+    }
+}
+
 async function renderStep(step: HogFlowAction, readyTestId = 'workflow-email-sender-select'): Promise<void> {
-    const wfLogic = workflowLogic(LOGIC_PROPS)
-    wfLogic.mount()
-    await expectLogic(wfLogic).toDispatchActions(['loadHogFunctionTemplatesByIdSuccess'])
-    wfLogic.actions.setWorkflowInfo({ actions: [...wfLogic.values.workflow.actions, step] })
+    savedStep = step
+    workflowLogic(LOGIC_PROPS).mount()
     render(
         <BindLogic logic={workflowLogic} props={LOGIC_PROPS}>
             <StoredStepConfiguration />
@@ -220,6 +237,14 @@ describe('SandboxSenderChoiceProvider', () => {
                 '/api/projects/:team_id/hog_function_templates': { results: [EMAIL_TEMPLATE], count: 1 },
                 '/api/projects/:team_id/integrations/': { results: [OWN_SENDER], next: null },
                 '/api/projects/:team_id/workflow_email_sandbox/status/': SANDBOX_STATUS,
+                '/api/projects/:team_id/hog_flows/:id/': ({ params }) =>
+                    params.id === LOGIC_PROPS.id ? [200, savedWorkflow()] : [404, { detail: 'Not found.' }],
+            },
+            patch: {
+                '/api/projects/:team_id/hog_flows/:id/': async ({ request }) => [
+                    200,
+                    { ...savedWorkflow(), ...((await request.json()) as Record<string, unknown>) },
+                ],
             },
         })
         initKeaTests()
@@ -300,6 +325,21 @@ describe('SandboxSenderChoiceProvider', () => {
         }
     )
 
+    it.each(['legacy', 'sender row'])(
+        'moves a sandbox step to the own sender picked in the From picker, with the %s header',
+        async (header) => {
+            useSenderMocks([OWN_SENDER, SECOND_SENDER])
+            showSenderRow(header === 'sender row')
+            await renderStep(SANDBOX_STEP)
+
+            fireEvent.click(within(openFromPicker()).getByText('hello@example.com'))
+
+            await waitFor(() =>
+                expect(screen.getByTestId('workflow-email-sender-select')).toHaveTextContent('hello@example.com')
+            )
+        }
+    )
+
     it.each<[string, IntegrationType[], RegExp]>([
         ['a sender is still verifying', [VERIFYING_SENDER], /^hello@example\.com isn't verified yet\.$/],
         ['the only verified sender stopped sending', [STOPPED_SENDER], /^Sending stopped for example\.com: /],
@@ -313,13 +353,14 @@ describe('SandboxSenderChoiceProvider', () => {
         expect(within(row).getByText('PostHog test sender')).toBeInTheDocument()
         expect(within(row).queryByText(/verified yet\.|^Sending stopped for/)?.textContent ?? '').toMatch(warning)
         expect(
-            within(row).getByText('Save your changes, then reload this page after you verify a sender.')
+            within(row).getByText(
+                "Save your changes and wait until they're saved. Reload this page after you verify a sender."
+            )
         ).toBeInTheDocument()
-        expect(screen.getByTestId('workflow-email-test-sender-add')).toHaveAttribute(
-            'href',
-            expect.stringMatching(/\/workflows\/channels$/)
-        )
         expect(screen.queryByTestId('workflow-email-sender-select')).not.toBeInTheDocument()
+
+        fireEvent.click(screen.getByTestId('workflow-email-test-sender-add'))
+        await waitFor(() => expect(document.getElementById('email-domain-another-domain')).toBeInTheDocument())
     })
 
     it.each<[string, string, IntegrationType[], boolean]>([

@@ -12,7 +12,9 @@ from posthog.models.team.team import Team
 
 from products.workflows.backend.providers import SESProvider
 from products.workflows.backend.providers.ses import AWS_ACCOUNT_ID_CACHE_KEY
-from products.workflows.backend.services.email_domain_dns import PublishedRecords
+from products.workflows.backend.services.email_domain_dns import PublishedRecords, find_published_records
+from products.workflows.backend.tests.fakes.fake_dns import FakeDnsZone
+from products.workflows.backend.tests.fakes.faults import FaultInjector
 
 
 class TestEmailIntegrationCrossTenantStaleVerification(BaseTest):
@@ -58,16 +60,19 @@ class TestEmailIntegrationCrossTenantStaleVerification(BaseTest):
             "MailFromDomainAttributes": {domain: {"MailFromDomainStatus": "Success"}}
         }
 
-    @patch("products.workflows.backend.providers.ses.dns.resolver.Resolver")
-    def test_verify_email_domain_requires_team_tenant_association(self, mock_resolver_cls):
+    def test_verify_email_domain_requires_team_tenant_association(self):
         provider = self._build_ses_provider(tenants_for_domain={"partner.com": ["team-1"]})
         self._set_global_ses_success(provider, "partner.com")
-        dmarc_answer = MagicMock()
-        dmarc_answer.strings = [b"v=DMARC1; p=none;"]
-        mock_resolver_cls.return_value.resolve.return_value = [dmarc_answer]
+        dns_zone = FakeDnsZone(FaultInjector())
+        dns_zone.add_zone("partner.com")
+        dns_zone.publish_txt("_dmarc.partner.com", "v=DMARC1; p=none;")
 
-        result_team_a = provider.verify_email_domain("partner.com", "feedback", team_id=1)
-        result_team_b = provider.verify_email_domain("partner.com", "feedback", team_id=999)
+        with (
+            patch("products.workflows.backend.providers.ses.find_published_records", find_published_records),
+            dns_zone.installed(),
+        ):
+            result_team_a = provider.verify_email_domain("partner.com", "feedback", team_id=1)
+            result_team_b = provider.verify_email_domain("partner.com", "feedback", team_id=999)
 
         assert result_team_a["status"] == "success"
         assert result_team_b["status"] == "pending"
@@ -151,13 +156,12 @@ class TestEmailIntegrationCrossTenantStaleVerification(BaseTest):
             org_team_ids=[1, 2, 3, 4, 5],
         )
 
-    @patch("products.workflows.backend.providers.ses.dns.resolver.Resolver")
     @patch("products.workflows.backend.providers.SESProvider.create_email_domain")
-    def test_takeover_after_owner_deletes_integration_is_blocked(self, mock_create_email_domain, mock_resolver_cls):
+    def test_takeover_after_owner_deletes_integration_is_blocked(self, mock_create_email_domain):
         mock_create_email_domain.return_value = {"status": "success"}
-        dmarc_answer = MagicMock()
-        dmarc_answer.strings = [b"v=DMARC1; p=none;"]
-        mock_resolver_cls.return_value.resolve.return_value = [dmarc_answer]
+        dns_zone = FakeDnsZone(FaultInjector())
+        dns_zone.add_zone("partner.com")
+        dns_zone.publish_txt("_dmarc.partner.com", "v=DMARC1; p=none;")
 
         org_a = Organization.objects.create(name="org a")
         team_a = Team.objects.create(organization=org_a, name="team a")
@@ -190,7 +194,11 @@ class TestEmailIntegrationCrossTenantStaleVerification(BaseTest):
         self._set_global_ses_success(provider, "partner.com")
 
         email_b = EmailIntegration(integration_b)
-        with patch("products.workflows.backend.providers.SESProvider", return_value=provider):
+        with (
+            patch("products.workflows.backend.providers.SESProvider", return_value=provider),
+            patch("products.workflows.backend.providers.ses.find_published_records", find_published_records),
+            dns_zone.installed(),
+        ):
             result = email_b.verify()
 
         assert result["status"] == "pending"

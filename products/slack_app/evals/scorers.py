@@ -9,11 +9,13 @@ legible. Each scorer opts into a case through its own ``expected`` key and skips
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from products.posthog_ai.eval_harness.log_parser import LogParser
 from products.posthog_ai.eval_harness.scorers import BINARY_CHOICE_SCORES, JUDGE_MODEL, JudgedScorer
 from products.posthog_ai.eval_harness.scorers.contract import Score, Scorer
+from products.slack_app.backend.logic.onboarding.work_focus import CLIPPED
 
 DOCS_SEARCH_TOOL_NAME = "docs-search"
 
@@ -474,48 +476,350 @@ class NoForcedTip(Scorer):
         )
 
 
-INTERVIEW_SENTIMENT_KEY = "interview_sentiment"
+MESSAGE_SENTIMENT_KEY = "message_sentiment"
+_UNHAPPY = frozenset({"not_happy", "frustrated"})
 
 
-class InterviewSentimentMatch(Scorer):
+def _sentiment_score(name: str, output: dict | None, expected: dict | None, applies: Any, passed: Any) -> Score:
+    want = ((expected or {}).get(MESSAGE_SENTIMENT_KEY) or {}).get("sentiment")
+    if want is None:
+        return Score(name=name, score=None, metadata={"reason": "No expectation for this case"})
+    if not applies(want):
+        return Score(name=name, score=None, metadata={"reason": "Check does not apply to this case"})
+    if output and output.get("error"):
+        return Score(name=name, score=0.0, metadata={"reason": output["error"]})
+    got = (output or {}).get("sentiment")
+    return Score(
+        name=name,
+        score=1.0 if passed(want, got) else 0.0,
+        metadata={"expected": want, "actual": got, "verdict": (output or {}).get("verdict")},
+    )
+
+
+class MessageSentimentMatch(Scorer):
+    """The exact state, after production's confidence rule. The other three scorers grade what the state drives."""
+
     def _name(self) -> str:
-        return INTERVIEW_SENTIMENT_KEY
+        return MESSAGE_SENTIMENT_KEY
 
     def _run_eval_sync(self, output: dict | None, expected=None, **kwargs) -> Score:
-        want = (expected or {}).get(INTERVIEW_SENTIMENT_KEY) or {}
-        if "unhappy" not in want:
+        return _sentiment_score(self._name(), output, expected, lambda want: True, lambda want, got: got == want)
+
+
+class SentimentDetected(Scorer):
+    """Recall for one state: of the cases that expect it, the share that got it. ``message_sentiment``
+    averages over every case, so a weak state hides behind the strong ones there."""
+
+    def __init__(self, sentiment: str):
+        self.sentiment = sentiment
+
+    def _name(self) -> str:
+        return f"{self.sentiment}_detected"
+
+    def _run_eval_sync(self, output: dict | None, expected=None, **kwargs) -> Score:
+        return _sentiment_score(
+            self._name(),
+            output,
+            expected,
+            lambda want: want == self.sentiment,
+            lambda want, got: got == self.sentiment,
+        )
+
+
+class UnhappyDetected(Scorer):
+    """An unhappy person gets the reaction and the interview checks. ``not_happy`` read as ``frustrated``, or the
+    other way, still passes here, because both get the same reaction."""
+
+    def _name(self) -> str:
+        return "unhappy_detected"
+
+    def _run_eval_sync(self, output: dict | None, expected=None, **kwargs) -> Score:
+        return _sentiment_score(
+            self._name(), output, expected, lambda want: want in _UNHAPPY, lambda want, got: got in _UNHAPPY
+        )
+
+
+class NoUnaskedReaction(Scorer):
+    """The expensive direction: a reaction and an interview invitation to a calm person read as spam.
+
+    Skips on unhappy cases, so the score reads as a rate over the calm messages. A failed call reacts to
+    nobody, which is this scorer's passing answer, so an error scores 0 here to keep an outage visible.
+    """
+
+    def _name(self) -> str:
+        return "no_unasked_reaction"
+
+    def _run_eval_sync(self, output: dict | None, expected=None, **kwargs) -> Score:
+        return _sentiment_score(
+            self._name(), output, expected, lambda want: want not in _UNHAPPY, lambda want, got: got not in _UNHAPPY
+        )
+
+
+class NoUnaskedGif(Scorer):
+    """A calming GIF to a person who is only mildly dissatisfied, or not unhappy at all, reads as mockery."""
+
+    def _name(self) -> str:
+        return "no_unasked_gif"
+
+    def _run_eval_sync(self, output: dict | None, expected=None, **kwargs) -> Score:
+        return _sentiment_score(
+            self._name(),
+            output,
+            expected,
+            lambda want: want != "frustrated",
+            lambda want, got: got is not None and got != "frustrated",
+        )
+
+
+WORK_FOCUS_KEEP_KEY = "work_focus_keep"
+
+
+class WorkFocusKeepMatch(Scorer):
+    """Did Jev keep the message or thread as open work the way the person it is for would?"""
+
+    def _name(self) -> str:
+        return WORK_FOCUS_KEEP_KEY
+
+    def _run_eval_sync(self, output: dict | None, expected=None, **kwargs) -> Score:
+        want = (expected or {}).get(WORK_FOCUS_KEEP_KEY) or {}
+        if "keep" not in want:
             return Score(name=self._name(), score=None, metadata={"reason": "No expectation for this case"})
         if output and output.get("error"):
             return Score(name=self._name(), score=0.0, metadata={"reason": output["error"]})
 
-        got = (output or {}).get("unhappy")
+        got = (output or {}).get("kept")
         return Score(
             name=self._name(),
-            score=1.0 if got == want["unhappy"] else 0.0,
-            metadata={"expected": want["unhappy"], "actual": got, "verdict": (output or {}).get("verdict")},
+            score=1.0 if got == want["keep"] else 0.0,
+            metadata={"expected": want["keep"], "actual": got},
         )
 
 
-class NoUnaskedInvite(Scorer):
-    """The expensive direction: an interview invitation to a person who is not unhappy reads as spam.
+class NoHandedOffOffer(Scorer):
+    """The direction this suite exists for: an offer to do work someone already gave to another agent.
 
-    Skips on unhappy cases, so the score reads as a rate over the calm messages.
+    Skips every case that is not a handoff, so the score reads as a rate over the handoffs.
     """
 
     def _name(self) -> str:
-        return "no_unasked_invite"
+        return "no_handed_off_offer"
 
     def _run_eval_sync(self, output: dict | None, expected=None, **kwargs) -> Score:
-        want = (expected or {}).get(INTERVIEW_SENTIMENT_KEY) or {}
-        if want.get("unhappy") is not False:
-            return Score(name=self._name(), score=None, metadata={"reason": "Case is unhappy"})
+        want = (expected or {}).get(WORK_FOCUS_KEEP_KEY) or {}
+        if not want.get("handed_off"):
+            return Score(name=self._name(), score=None, metadata={"reason": "Case is not a handoff"})
         if output and output.get("error"):
-            # A failed call invites nobody, this scorer's passing answer, so it would hide an outage.
+            # A failed call keeps nothing, this scorer's passing answer, so it would hide an outage.
             return Score(name=self._name(), score=None, metadata={"reason": output["error"]})
 
-        got = (output or {}).get("unhappy")
+        got = (output or {}).get("kept")
+        return Score(name=self._name(), score=0.0 if got else 1.0, metadata={"actual": got})
+
+
+DAILY_SUMMARY_RANK_KEY = "daily_summary_rank"
+
+
+class DailySummaryRankMatch(Scorer):
+    """Did Jev judge a thread's root as news the way a teammate who missed the day would?"""
+
+    def _name(self) -> str:
+        return DAILY_SUMMARY_RANK_KEY
+
+    def _run_eval_sync(self, output: dict | None, expected=None, **kwargs) -> Score:
+        want = (expected or {}).get(DAILY_SUMMARY_RANK_KEY) or {}
+        if "newsworthy" not in want:
+            return Score(name=self._name(), score=None, metadata={"reason": "No expectation for this case"})
+        if output and output.get("error"):
+            return Score(name=self._name(), score=0.0, metadata={"reason": output["error"]})
+
+        got = (output or {}).get("newsworthy")
         return Score(
             name=self._name(),
-            score=1.0 if got is False else 0.0,
-            metadata={"actual": got, "verdict": (output or {}).get("verdict")},
+            score=1.0 if got == want["newsworthy"] else 0.0,
+            metadata={"expected": want["newsworthy"], "actual": got, "probability": (output or {}).get("probability")},
+        )
+
+
+DAILY_SUMMARY_WRITE_KEY = "daily_summary_write"
+
+
+def _summary_spec(expected: Any) -> dict[str, Any]:
+    spec = expected.get(DAILY_SUMMARY_WRITE_KEY) if isinstance(expected, dict) else None
+    return spec if isinstance(spec, dict) else {}
+
+
+def _summary_sources(output: dict | None) -> list[str]:
+    return [str(item.get("source")) for item in (output or {}).get("items") or []]
+
+
+class SummaryCovers(Scorer):
+    """The share of the threads that had to be in the summary, such as the day's incident, that it covers."""
+
+    def _name(self) -> str:
+        return "summary_covers"
+
+    def _run_eval_sync(self, output: dict | None, expected=None, **kwargs) -> Score:
+        must = _summary_spec(expected).get("must_cover") or []
+        if not must:
+            return Score(name=self._name(), score=None, metadata={"reason": "Case requires no thread"})
+        if output and output.get("error"):
+            return Score(name=self._name(), score=0.0, metadata={"reason": output["error"]})
+
+        sources = set(_summary_sources(output))
+        missed = [key for key in must if key not in sources]
+        return Score(name=self._name(), score=(len(must) - len(missed)) / len(must), metadata={"missed": missed})
+
+
+class SummaryOmitsChatter(Scorer):
+    """The summary leaves out the threads that are only chat, also the ones the person took part in."""
+
+    def _name(self) -> str:
+        return "summary_omits_chatter"
+
+    def _run_eval_sync(self, output: dict | None, expected=None, **kwargs) -> Score:
+        must_omit = _summary_spec(expected).get("must_omit") or []
+        if not must_omit:
+            return Score(name=self._name(), score=None, metadata={"reason": "Case has no chatter to leave out"})
+        if output and output.get("error"):
+            # A failed call writes nothing, this scorer's passing answer, so it would hide an outage.
+            return Score(name=self._name(), score=None, metadata={"reason": output["error"]})
+
+        included = [key for key in must_omit if key in _summary_sources(output)]
+        return Score(name=self._name(), score=0.0 if included else 1.0, metadata={"included": included})
+
+
+class SummaryVoice(Scorer):
+    """The items follow the writer's rules: "You" for what the person did, people as tokens and never by name,
+    and no em dash."""
+
+    def _name(self) -> str:
+        return "summary_voice"
+
+    def _run_eval_sync(self, output: dict | None, expected=None, **kwargs) -> Score:
+        spec = _summary_spec(expected)
+        items = (output or {}).get("items") or []
+        if output and output.get("error"):
+            return Score(name=self._name(), score=0.0, metadata={"reason": output["error"]})
+        if not items:
+            return Score(name=self._name(), score=None, metadata={"reason": "The summary has no items"})
+
+        you_for = set(spec.get("you_for") or [])
+        names = spec.get("names") or []
+        problems = []
+        for item in items:
+            text = str(item.get("text") or "")
+            if item.get("source") in you_for and not text.startswith("You"):
+                problems.append(f"does not start with 'You': {text}")
+            if named := [name for name in names if re.search(rf"\b{re.escape(name)}\b", text)]:
+                problems.append(f"names {', '.join(named)}: {text}")
+            if "—" in text:
+                problems.append(f"has an em dash: {text}")
+        return Score(name=self._name(), score=0.0 if problems else 1.0, metadata={"problems": problems})
+
+
+class SummaryNotClipped(Scorer):
+    """The intro and every item fit their limits, so the code never had to cut one short."""
+
+    def _name(self) -> str:
+        return "summary_not_clipped"
+
+    def _run_eval_sync(self, output: dict | None, expected=None, **kwargs) -> Score:
+        if output and output.get("error"):
+            # A failed call writes nothing, this scorer's passing answer, so it would hide an outage.
+            return Score(name=self._name(), score=None, metadata={"reason": output["error"]})
+
+        texts = [str((output or {}).get("intro") or "")]
+        texts += [str(item.get("text") or "") for item in (output or {}).get("items") or []]
+        clipped = [text for text in texts if text.endswith(CLIPPED)]
+        return Score(name=self._name(), score=0.0 if clipped else 1.0, metadata={"clipped": clipped})
+
+
+class SummaryIntroFits(JudgedScorer):
+    """Binary: does the intro lead into the items under it, without calling other people's work the person's own?"""
+
+    def _prepare(self, output, expected) -> dict[str, Any] | Score:
+        if not output:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "No output"})
+        if output.get("error"):
+            return Score(name=self._name(), score=0.0, metadata={"reason": output["error"]})
+        items = output.get("items") or []
+        if not items:
+            return Score(name=self._name(), score=None, metadata={"reason": "The summary has no items"})
+        return {
+            "output": {
+                "person": output.get("person") or "",
+                "intro": output.get("intro") or "",
+                "items": "\n".join(f"- {item['text']}" for item in items),
+            }
+        }
+
+    def __init__(self, **kwargs):
+        super().__init__(
+            name="summary_intro_fits",
+            prompt_template="""
+You are checking the first line of a daily digest that PostHog sent one person in Slack. People appear as Slack tokens such as <@U0ANA>. The digest is for {{output.person}}, so an item that starts with "You" is something {{output.person}} did.
+
+First line:
+<intro>
+{{output.intro}}
+</intro>
+
+Digest items under it:
+<items>
+{{output.items}}
+</items>
+
+Does the first line introduce these items? It passes when it describes what the items cover, or is a neutral lead-in to them. It fails when it describes topics the items do not contain, or calls the items the person's own work while most of them are things other people did. Answer `yes` when it passes, otherwise `no`.
+""".strip(),
+            choice_scores=BINARY_CHOICE_SCORES,
+            model=JUDGE_MODEL,
+            max_completion_tokens=256,
+            **kwargs,
+        )
+
+
+class SummaryFaithful(JudgedScorer):
+    """Binary: is every summary item supported by the thread it names as its source?"""
+
+    def _prepare(self, output, expected) -> dict[str, Any] | Score:
+        if not output:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "No output"})
+        if output.get("error"):
+            return Score(name=self._name(), score=0.0, metadata={"reason": output["error"]})
+        items = output.get("items") or []
+        if not items:
+            return Score(name=self._name(), score=None, metadata={"reason": "The summary has no items"})
+        threads = {thread["key"]: thread["text"] for thread in output.get("threads") or []}
+        return {
+            "output": {
+                "person": output.get("person") or "",
+                "items": "\n".join(f"- [{item['source']}] {item['text']}" for item in items),
+                "threads": "\n\n".join(f"[{key}]\n{text}" for key, text in threads.items()),
+            }
+        }
+
+    def __init__(self, **kwargs):
+        super().__init__(
+            name="summary_faithful",
+            prompt_template="""
+You are checking a daily digest that PostHog sent one person in Slack. Each digest item names the thread it summarises in brackets. People appear as Slack tokens such as <@U0ANA>.
+
+The digest is for {{output.person}}, so an item that starts with "You" credits {{output.person}}.
+
+Threads:
+<threads>
+{{output.threads}}
+</threads>
+
+Digest items:
+<items>
+{{output.items}}
+</items>
+
+Is every item supported by the thread it names? An item passes when its thread shows who did it and what was decided, reported, launched or asked. An item fails when it credits the wrong person, states an outcome the thread does not reach, or adds a fact the thread does not contain. Answer `yes` only when every item passes, otherwise `no`.
+""".strip(),
+            choice_scores=BINARY_CHOICE_SCORES,
+            model=JUDGE_MODEL,
+            max_completion_tokens=256,
+            **kwargs,
         )
