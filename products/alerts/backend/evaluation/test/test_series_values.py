@@ -1,10 +1,11 @@
+from datetime import datetime
 from typing import Any
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 from temporalio.exceptions import CancelledError
@@ -19,10 +20,12 @@ from products.alerts.backend.evaluation.dispatcher import check_alert_for_insigh
 from products.alerts.backend.evaluation.series_values_shadow import (
     SHADOW_BUILD_BUDGET_SECONDS,
     SHADOW_COMPARISON_EVENT,
+    compare_closed_values,
     compare_series_values_shadow,
 )
 from products.alerts.backend.models.alert import AlertConfiguration, Threshold
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
+from products.product_analytics.backend.facade.contracts import ClosedSeriesValues
 from products.product_analytics.backend.facade.models import Insight
 
 _NOW = "2024-01-15T12:00:00Z"
@@ -319,3 +322,28 @@ class TestSeriesValuesShadowForAlerts(ClickhouseTestMixin, APIBaseTest):
             self.assertRaises(CancelledError),
         ):
             check_alert_for_insight(alert)
+
+
+class TestCompareClosedValues(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("stored_values_agree", 2, "partial", 0.0),
+            ("stored_values_differ", 3, "mismatch", 1.0),
+        ]
+    )
+    def test_a_stored_day_missing_from_the_live_result_is_not_a_match(
+        self, _name: str, stored: int, outcome: str, max_abs_difference: float
+    ) -> None:
+        closed = ClosedSeriesValues(
+            values={datetime(2024, 1, 13): 5, datetime(2024, 1, 14): stored}, live_from=datetime(2024, 1, 15)
+        )
+        live = [{"days": ["2024-01-14", "2024-01-15"], "data": [2, 3]}]
+
+        comparison = compare_closed_values(closed, live)
+
+        assert (
+            comparison.outcome,
+            comparison.buckets_compared,
+            comparison.buckets_missing,
+            comparison.max_abs_difference,
+        ) == (outcome, 1, 1, max_abs_difference)
