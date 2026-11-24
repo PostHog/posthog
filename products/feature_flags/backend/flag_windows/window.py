@@ -8,9 +8,12 @@ applies:
 2. Reverted: the flag gives nobody a value that it didn't give before the edit, for example because someone on the team
    disabled it or put the old config back. This check comes before the score, so the scout never reports an edit that
    the team already rolled back.
-3. Superseded: the flag changed again in a way that moves people. When that edit raises exposure too, the next window
-   keeps the baseline and the evidence of this one, so the errors of an earlier rollout step stay out of the baseline of
-   the next step.
+3. Superseded: the flag changed again in a way that moves people, and still gives somebody a value that it didn't give
+   before the edit. When that edit raises exposure too, the next window watches it. Otherwise, such as after a partial
+   revert, the next window watches what is left of this edit, so that the people who keep the new value stay watched.
+   Either way it keeps the baseline of this window, and counts the exposure and the errors, in total and by hour, from
+   the edit of this window on. So the errors of an earlier rollout step stay out of the baseline of the next step, and
+   each tick computes the score again from those counts.
 4. Expired: `max_duration` passed since the edit.
 5. A suspicious window waits for the verdict of the judgment, and asks for the judgment again on each tick.
 6. No reach: nobody is exposed `no_reach_after` the edit.
@@ -36,15 +39,9 @@ from products.feature_flags.backend.exposure_change import (
 from products.feature_flags.backend.facade.config import is_v1_config
 from products.feature_flags.backend.flag_windows.baseline import HOUR, BaselineHour, HourErrors
 from products.feature_flags.backend.flag_windows.errors import ErrorCounts
-from products.feature_flags.backend.flag_windows.exposure import ExposureBucket
+from products.feature_flags.backend.flag_windows.exposure import ExposureBucket, exposure_share
 from products.feature_flags.backend.flag_windows.query import ConditionMatch, WatchedEdit
-from products.feature_flags.backend.flag_windows.score import (
-    WEB_PARAMETERS,
-    ScoreParameters,
-    WindowScore,
-    exposure_share,
-    score_window,
-)
+from products.feature_flags.backend.flag_windows.score import WEB_PARAMETERS, ScoreParameters, WindowScore, score_window
 
 
 class WindowState(StrEnum):
@@ -86,10 +83,13 @@ class WindowParameters:
             raise ValueError(f"Stability needs at least 2 buckets to compare, got {self.stable_buckets}")
         if not 0 < self.stable_share_change < 1:
             raise ValueError(f"The stable share change must be between 0 and 1, got {self.stable_share_change}")
-        if self.no_reach_after >= self.max_duration or self.post_stable >= self.max_duration:
+        # An edit in the last minutes of an hour completes its first bucket at once, so the first stable run ends just
+        # over `stable_buckets - 1` hours after the edit.
+        no_regression_after = self.post_stable + (self.stable_buckets - 1) * HOUR
+        if self.no_reach_after >= self.max_duration or no_regression_after >= self.max_duration:
             raise ValueError(
                 f"The window would expire after {self.max_duration} before it can close as no reach after "
-                f"{self.no_reach_after} or as no regression after {self.post_stable}"
+                f"{self.no_reach_after} or as no regression after {no_regression_after}"
             )
 
 
@@ -116,9 +116,9 @@ class ObservationWindow:
 class TickOutcome:
     state: WindowState
     close_reason: CloseReason | None
-    # True when the edit that superseded the window raises exposure too, so the window of that edit keeps the baseline
-    # and the evidence of this window.
-    successor_keeps_evidence: bool = False
+    # What the window that replaces a superseded window compares the flag with, as its `config_before`. None unless the
+    # window closed as superseded.
+    successor_config_before: FlagExposureConfig | None = None
     # None when the tick stopped before the score.
     score: WindowScore | None = None
 
@@ -158,12 +158,18 @@ def advance_window(
     if change_since_edit.kinds:
         return _closed(
             CloseReason.SUPERSEDED,
-            successor_keeps_evidence=change_since_edit.direction == ExposureDirection.RAISES,
+            successor_config_before=(
+                window.config_after if change_since_edit.direction == ExposureDirection.RAISES else window.config_before
+            ),
         )
     if now >= edited_at + parameters.max_duration:
         return _closed(CloseReason.EXPIRED)
     if window.state == WindowState.SUSPICIOUS:
         return TickOutcome(state=WindowState.SUSPICIOUS, close_reason=None)
+    # The exposure query has no bucket before the edit, so the share at the previous level is unknown. The level that it
+    # can show is zero: nobody exposed. That is the previous level of an edit that enables the flag or adds a condition,
+    # which the counts in the watched conditions see apart from the rest of the flag. An edit from a level above zero
+    # that reaches nobody closes later, as no regression.
     if now >= edited_at + parameters.no_reach_after and not _exposed_since_edit(exposure, condition_match):
         return _closed(CloseReason.NO_REACH)
 
@@ -179,21 +185,19 @@ def advance_window(
 
 
 def _closed(
-    reason: CloseReason, *, successor_keeps_evidence: bool = False, score: WindowScore | None = None
+    reason: CloseReason, *, successor_config_before: FlagExposureConfig | None = None, score: WindowScore | None = None
 ) -> TickOutcome:
     return TickOutcome(
         state=WindowState.CLOSED,
         close_reason=reason,
-        successor_keeps_evidence=successor_keeps_evidence,
+        successor_config_before=successor_config_before,
         score=score,
     )
 
 
 def _exposed_since_edit(exposure: Sequence[ExposureBucket], condition_match: ConditionMatch | None) -> int:
-    """The exposure query has no bucket before the edit, so the share at the previous level is unknown. The level that
-    it can show is zero: nobody exposed. That is the previous level of an edit that enables the flag or adds a
-    condition, which the counts in the watched conditions see apart from the rest of the flag. An edit from a level
-    above zero that reaches nobody closes later, as no regression."""
+    """The number of people (or groups) exposed since the edit in the watched conditions, or in the whole flag when those
+    have no counts."""
     if not exposure:
         return 0
     since_edit = exposure[-1].since_edit

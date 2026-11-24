@@ -29,7 +29,12 @@ from products.experiments.backend.facade.contracts import Proportion, Proportion
 from products.experiments.backend.facade.stats import sequential_proportion_test
 from products.feature_flags.backend.flag_windows.baseline import HOUR, BaselineHour, HourErrors
 from products.feature_flags.backend.flag_windows.errors import ConditionErrors, ErrorCounts, ErrorsByLastValue
-from products.feature_flags.backend.flag_windows.exposure import ConditionExposure, ExposureBucket, ExposureCounts
+from products.feature_flags.backend.flag_windows.exposure import (
+    ConditionExposure,
+    ExposureBucket,
+    ExposureCounts,
+    exposure_share,
+)
 from products.feature_flags.backend.flag_windows.query import ConditionMatch, WatchedEdit
 
 
@@ -254,10 +259,6 @@ def _proximity(hour: datetime, exposure_steps: Sequence[datetime], parameters: S
     if latest_step is None:
         return 0.0
     return math.exp(-(hour - latest_step) / parameters.decay)
-
-
-def exposure_share(counts: ExposureCounts) -> float:
-    return counts.exposed / counts.with_flag if counts.with_flag else 0.0
 
 
 def _split_people(

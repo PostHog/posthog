@@ -110,6 +110,9 @@ def _rising_then_flat(hours: int) -> list[float]:
 
 RISING = _rising_then_flat(2)
 RISING_EXPOSURE = _exposure(RISING)
+# The exposure query has no bucket for an hour in which nobody carried the flag. The flat buckets start at hours 1, 5 and
+# 6, so the share is stable from the end of hour 6.
+STABLE_WITH_A_GAP = [bucket for index, bucket in enumerate(_exposure(_rising_then_flat(30))) if index not in (2, 3, 4)]
 NOBODY_EXPOSED = _exposure([0.0] * 12, exposed=0)
 # Level 1 finds the exposed people significantly worse.
 SUSPICIOUS_ERRORS = ErrorCounts(
@@ -121,8 +124,8 @@ SUSPICIOUS_ERRORS = ErrorCounts(
 )
 
 
-def _closed(reason: CloseReason, successor_keeps_evidence: bool = False) -> TickOutcome:
-    return TickOutcome(state=WindowState.CLOSED, close_reason=reason, successor_keeps_evidence=successor_keeps_evidence)
+def _closed(reason: CloseReason, successor_config_before: FlagExposureConfig | None = None) -> TickOutcome:
+    return TickOutcome(state=WindowState.CLOSED, close_reason=reason, successor_config_before=successor_config_before)
 
 
 def _stays(state: WindowState) -> TickOutcome:
@@ -144,9 +147,13 @@ class TestAdvanceWindow(SimpleTestCase):
             param(
                 "superseded_by_a_raise",
                 flag=_flag(50),
-                expected=_closed(CloseReason.SUPERSEDED, successor_keeps_evidence=True),
+                expected=_closed(CloseReason.SUPERSEDED, successor_config_before=AFTER),
             ),
-            param("superseded_by_a_partial_revert", flag=_flag(15), expected=_closed(CloseReason.SUPERSEDED)),
+            param(
+                "superseded_by_a_partial_revert",
+                flag=_flag(15),
+                expected=_closed(CloseReason.SUPERSEDED, successor_config_before=BEFORE),
+            ),
             param(
                 "payload_change_keeps_the_window",
                 flag=_flag(25, payloads={"true": "{}"}),
@@ -212,6 +219,20 @@ class TestAdvanceWindow(SimpleTestCase):
                 scored=True,
             ),
             param(
+                "hours_without_a_bucket_delay_stability",
+                hours_since_edit=30,
+                exposure=STABLE_WITH_A_GAP,
+                expected=_stays(OPEN),
+                scored=True,
+            ),
+            param(
+                "hours_without_a_bucket_keep_the_stable_run",
+                hours_since_edit=31,
+                exposure=STABLE_WITH_A_GAP,
+                expected=_closed(CloseReason.NO_REGRESSION),
+                scored=True,
+            ),
+            param(
                 "hour_in_progress_stays_out_of_stability",
                 hours_since_edit=28.5,
                 exposure=_exposure([*_rising_then_flat(28), 0.40]),
@@ -242,7 +263,7 @@ class TestAdvanceWindow(SimpleTestCase):
                 "superseded_wins_over_expired",
                 flag=_flag(50),
                 hours_since_edit=8 * 24,
-                expected=_closed(CloseReason.SUPERSEDED, successor_keeps_evidence=True),
+                expected=_closed(CloseReason.SUPERSEDED, successor_config_before=AFTER),
             ),
             param(
                 "expired_wins_over_waiting_for_a_verdict",
@@ -334,7 +355,8 @@ class TestAdvanceWindow(SimpleTestCase):
             ("share_change_of_zero", {"stable_share_change": 0.0}, "between 0 and 1"),
             ("share_change_of_one", {"stable_share_change": 1.0}, "between 0 and 1"),
             ("no_reach_at_expiry", {"no_reach_after": timedelta(days=7)}, "would expire"),
-            ("post_stable_at_expiry", {"post_stable": timedelta(days=7)}, "would expire"),
+            # The share needs 2 hours to be stable for 3 buckets before the delay starts.
+            ("post_stable_within_a_stable_run_of_expiry", {"post_stable": timedelta(days=7, hours=-2)}, "would expire"),
         ]
     )
     def test_parameters_refuse(self, _name: str, changes: Mapping[str, Any], message: str) -> None:
