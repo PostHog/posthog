@@ -495,9 +495,11 @@ CONSTANCE_CONFIG = {
     ),
     "TEAM_DELETE_PERSONS_MAX_CONCURRENT_BATCHES": (
         get_from_env("TEAM_DELETE_PERSONS_MAX_CONCURRENT_BATCHES", 2, type_cast=int),
-        "Persons batches that project and organization deletions run at once across every worker in the region. "
+        "Persons batches that project deletions, organization deletions and queued person deletions run at once "
+        "across every worker in the region. "
         "Each batch adds storage read load on the persons writer, which slows down ingestion. "
-        "0 pauses the persons phase of every deletion. A change takes effect within a minute.",
+        "0 pauses the persons phase of every deletion. A queued person deletion that waits too long fails "
+        "and is logged for a requeue. A change takes effect within a minute.",
         int,
     ),
 }

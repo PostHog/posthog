@@ -12,9 +12,11 @@ from confluent_kafka import KafkaError
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 
+from posthog import redis
 from posthog.kafka_client.client import ProduceResult
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.person import Person
 from posthog.models.person.bulk_delete import (
     DeletionRun,
@@ -29,6 +31,7 @@ from posthog.models.person.bulk_delete import (
     resolve_persons_for_deletion,
     tombstone_and_publish_persons,
 )
+from posthog.models.person.team_delete_batch_slots import QUEUE_KEY, SLOTS_KEY, WAITERS_KEY, TeamDeletePersonsBatchSlots
 from posthog.models.person.util import (
     TOMBSTONE_DELIVERY_TIMEOUT_SECONDS,
     PersonTombstone,
@@ -796,6 +799,62 @@ class ProcessQueuedPersonDeletionTests(BaseTest):
         assert sorted(training.call_args.args[1]) == ["a", "b", "c"]
         assert started == [["a", "b", "c"]]
         rpc.assert_not_called()
+
+
+class QueuedDeletionBatchSlotTests(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self._clear_slots()
+        self.addCleanup(self._clear_slots)
+        self.enterContext(override_instance_config("TEAM_DELETE_PERSONS_MAX_CONCURRENT_BATCHES", 1))
+        self.enterContext(patch("posthog.models.person.bulk_delete.QUEUED_DELETION_SLOT_WAIT_SECONDS", 0))
+
+    @staticmethod
+    def _clear_slots() -> None:
+        redis.get_client().delete(SLOTS_KEY, QUEUE_KEY, WAITERS_KEY)
+
+    def _delete_from_the_queue(self, person: Person):
+        with _no_publish():
+            return process_queued_person_deletion(
+                self.team.pk,
+                [str(person.uuid)],
+                delete_profile=True,
+                delete_recordings=False,
+                actor=self.user,
+                was_impersonated=False,
+                organization_id=self.organization.id,
+            )
+
+    @parameterized.expand([("replica", "delete_persons"), ("leader", "lifecycle.delete_persons")])
+    def test_a_queued_delete_sends_no_tombstone_call_while_every_slot_is_held(self, write_path: str, rpc: str):
+        p = create_person(team=self.team, distinct_ids=["a"], properties={})
+        TeamDeletePersonsBatchSlots(max_concurrent=lambda: 1).acquire()
+
+        with override_settings(PERSONHOG_WRITE_PATH=write_path):
+            result = self._delete_from_the_queue(p)
+
+        assert rpc not in {call.method for call in get_active_fake().calls}
+        assert result.deleted_count == 0
+        assert [(f.step, f.person_uuid) for f in result.failures] == [(PersonDeletionStep.TOMBSTONE_POSTGRES, p.uuid)]
+        assert result.retryable_errors == [p.uuid]
+        assert get_active_fake()._persons_by_uuid[(self.team.pk, str(p.uuid))].is_deleted is False
+
+    def test_a_queued_delete_releases_its_slot(self):
+        p = create_person(team=self.team, distinct_ids=["a"], properties={})
+
+        result = self._delete_from_the_queue(p)
+
+        assert result.deleted_count == 1
+        assert redis.get_client().zcard(SLOTS_KEY) == 0
+
+    def test_a_request_path_delete_does_not_wait_for_a_slot(self):
+        p = create_person(team=self.team, distinct_ids=["a"], properties={})
+        TeamDeletePersonsBatchSlots(max_concurrent=lambda: 1).acquire()
+
+        with _no_publish():
+            result = delete_persons_profile(self.team.pk, [p], actor=self.user)
+
+        assert result.deleted_count == 1
 
 
 class QueueRecordingDeletionTests(BaseTest):

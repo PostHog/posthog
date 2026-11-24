@@ -48,7 +48,7 @@ return 1
 
 MAX_CONCURRENT_BATCHES_GAUGE = Gauge(
     "posthog_team_delete_persons_max_concurrent_batches",
-    "Persons batches that team deletions may run at once across all workers in the region.",
+    "Persons batches that team deletions and queued person deletions may run at once across the region.",
 )
 
 
@@ -57,7 +57,9 @@ class BatchSlotWaitTimeout(Exception):
 
 
 class TeamDeletePersonsBatchSlots:
-    """Caps the persons batches that team deletions run at once across every worker in the region.
+    """Caps the persons batches that run at once across every worker in the region.
+
+    Team deletions and queued person deletions share the slots, because both add read load on the persons writer.
 
     Slots go out in the order that callers started to wait, so a job that releases a slot waits behind
     the jobs that already wait. ``max_concurrent`` is read on every poll, so a change to the cap applies

@@ -1,8 +1,10 @@
+import time
 import uuid as uuid_lib
 import asyncio
 import builtins
 from collections import defaultdict
 from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
 from dataclasses import field
 from datetime import timedelta
 from enum import StrEnum
@@ -25,7 +27,9 @@ from posthog.models.activity_logging.activity_log import (
     bulk_log_activity,
 )
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
+from posthog.models.instance_setting import get_instance_setting
 from posthog.models.person import Person
+from posthog.models.person.team_delete_batch_slots import BatchSlotWaitTimeout, TeamDeletePersonsBatchSlots
 from posthog.models.person.util import (
     LIFECYCLE_DELETE_PERSONS_PER_RPC,
     DistinctIdForPerson,
@@ -84,6 +88,14 @@ PERSON_DELETION_DISTINCT_IDS_PER_PERSON = Histogram(
     "Distinct IDs fetched per person by the queued deletion, which shows how wide deleted persons are.",
     buckets=(1, 10, 100, 1_000, 10_000, 100_000, 1_000_000, float("inf")),
 )
+
+PERSON_DELETION_BATCH_SLOT_WAIT_SECONDS = Histogram(
+    "posthog_person_deletion_batch_slot_wait_seconds",
+    "Time that a queued person deletion batch waited for a persons batch slot.",
+    buckets=(0.1, 1, 10, 60, 300, 900, 1800, float("inf")),
+)
+
+QUEUED_DELETION_SLOT_WAIT_SECONDS = 30 * 60
 
 
 def _observe_person_outcomes(path: str, result: "PersonProfileDeletionResult") -> None:
@@ -186,11 +198,14 @@ class DeletionRun:
     started instead of being refused or starting a second one. Callers with a retry loop pass
     the id that loop keeps (the Celery task id, the Temporal workflow run id, the Dagster run id);
     a caller without one takes a fresh id. ``rpc_timeout`` bounds each saga call for the request
-    path; None keeps the lifecycle channel's default deadline.
+    path; None keeps the lifecycle channel's default deadline. ``wait_for_batch_slot`` makes each
+    Postgres tombstone call wait for one of the persons batch slots that team deletions share. Only
+    a background caller sets it, because the wait can outlast a request.
     """
 
     run_id: str
     rpc_timeout: float | None = None
+    wait_for_batch_slot: bool = False
 
     @classmethod
     def fresh(cls, *, rpc_timeout: float | None = None) -> "DeletionRun":
@@ -385,7 +400,7 @@ def process_queued_person_deletion(
         actor=actor,
         was_impersonated=was_impersonated,
         organization_id=organization_id,
-        run=DeletionRun(run_id=run_id) if run_id else DeletionRun.fresh(),
+        run=DeletionRun(run_id=run_id or str(uuid_lib.uuid4()), wait_for_batch_slot=True),
     )
     failures: builtins.list[PersonDeletionFailure] = []
     requested = [uuid_lib.UUID(u) for u in person_uuids]
@@ -670,7 +685,13 @@ def _tombstone_persons_at_exact_versions(
     for batch in _batches_by_distinct_id_count(persons, max_persons=None):
         uuids = [person.uuid for person in batch]
         try:
-            tombstones = tombstone_persons_in_postgres(team_id, uuids)
+            with _persons_batch_slot(run):
+                tombstones = tombstone_persons_in_postgres(team_id, uuids)
+        except BatchSlotWaitTimeout as exc:
+            _record_step_failure(
+                failures, step=PersonDeletionStep.TOMBSTONE_POSTGRES, team_id=team_id, exc=exc, person_uuids=uuids
+            )
+            continue
         except Exception as exc:
             tombstones = _committed_tombstones(team_id, uuids, exc, failures)
         to_publish = [
@@ -696,6 +717,23 @@ def _tombstone_persons_at_exact_versions(
     return deleted
 
 
+@contextmanager
+def _persons_batch_slot(run: DeletionRun) -> Iterator[None]:
+    if not run.wait_for_batch_slot:
+        yield
+        return
+    slots = TeamDeletePersonsBatchSlots(
+        lambda: get_instance_setting("TEAM_DELETE_PERSONS_MAX_CONCURRENT_BATCHES"),
+        max_wait_seconds=QUEUED_DELETION_SLOT_WAIT_SECONDS,
+    )
+    wait_started = time.monotonic()
+    slot_id = slots.acquire()
+    PERSON_DELETION_BATCH_SLOT_WAIT_SECONDS.observe(time.monotonic() - wait_started)
+    assert slot_id is not None
+    with slots.hold(slot_id):
+        yield
+
+
 def _tombstone_persons_via_lifecycle(
     team_id: int,
     persons: builtins.list[Person],
@@ -716,9 +754,19 @@ def _tombstone_persons_via_lifecycle(
     deleted: builtins.list[_DeletedPerson] = []
     for batch in _batches_by_distinct_id_count(persons, max_persons=LIFECYCLE_DELETE_PERSONS_PER_RPC):
         try:
-            outcome = tombstone_persons_via_lifecycle(
-                team_id, {person.pk: person.uuid for person in batch}, run_id=run.run_id, timeout=run.rpc_timeout
+            with _persons_batch_slot(run):
+                outcome = tombstone_persons_via_lifecycle(
+                    team_id, {person.pk: person.uuid for person in batch}, run_id=run.run_id, timeout=run.rpc_timeout
+                )
+        except BatchSlotWaitTimeout as exc:
+            _record_step_failure(
+                failures,
+                step=PersonDeletionStep.TOMBSTONE_POSTGRES,
+                team_id=team_id,
+                exc=exc,
+                person_uuids=[person.uuid for person in batch],
             )
+            continue
         except Exception as exc:
             committed = _committed_tombstones(team_id, [person.uuid for person in batch], exc, failures)
             deleted.extend(
