@@ -19,6 +19,7 @@ function ThrowChunkError(): JSX.Element {
 describe('RootErrorBoundary', () => {
     let consoleErrorSpy: jest.SpyInstance
     let sendBeacon: jest.Mock
+    const originalFetch = window.fetch
 
     beforeEach(() => {
         consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
@@ -34,6 +35,7 @@ describe('RootErrorBoundary', () => {
 
     afterEach(() => {
         consoleErrorSpy.mockRestore()
+        Object.defineProperty(window, 'fetch', { value: originalFetch, configurable: true, writable: true })
         delete window.JS_POSTHOG_API_KEY
         delete window.JS_POSTHOG_HOST
         delete window.IMPERSONATED_SESSION

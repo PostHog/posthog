@@ -13,7 +13,7 @@
  * failed attempt starts the next URL in the ladder: a stale CDN can refuse the hashed file but
  * serve the hashless copy, and a fresh query defeats a poisoned cache entry or a hung connection.
  * Each failure also sends an `$exception` beacon by hand, because posthog-js is not loaded this
- * early, the same way RootErrorBoundary reports boot failures.
+ * early, the same way frontend/src/reportBootFailure.ts reports boot failures.
  *
  * `window.ESBUILD_CSS_READY` resolves `true` once a stylesheet applies, and `false` once every
  * attempt has failed. The app entry waits on it before its first render (frontend/src/index.tsx).

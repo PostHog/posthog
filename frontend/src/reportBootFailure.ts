@@ -38,7 +38,7 @@ export function reportBootFailure(error: unknown): void {
     try {
         const apiKey = window.JS_POSTHOG_API_KEY
         if (!apiKey || window.IMPERSONATED_SESSION) {
-            return // capture is opted out for this instance
+            return
         }
         const host = window.JS_POSTHOG_HOST || window.location.origin
         const err = error instanceof Error ? error : new Error(String(error))
