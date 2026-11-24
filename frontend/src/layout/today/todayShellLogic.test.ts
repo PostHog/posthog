@@ -387,6 +387,8 @@ describe('todayShellLogic', () => {
     test.each([
         ['/project/1/replay/home', 'analytics'],
         ['/project/1/replay/0193a2b4-recording', 'analytics'],
+        ['/project/1/replay-vision/0193a2b4-scanner/overview', 'analytics'],
+        ['/project/1/insights/abc', 'analytics'],
         ['/project/1/heatmaps', 'analytics'],
         ['/project/1/sql', 'analytics'],
         ['/project/1/feature-flags', 'products'],

@@ -15990,11 +15990,15 @@ export namespace Schemas {
       AnalyticsMine: 'analytics_mine',
       Collections: 'collections',
       Dashboards: 'dashboards',
+      Insights: 'insights',
       Alerts: 'alerts',
       Subscriptions: 'subscriptions',
       ProductAnalytics: 'product_analytics',
       WebAnalytics: 'web_analytics',
       SqlEditor: 'sql_editor',
+      BusinessIntelligence: 'business_intelligence',
+      StreamlitApps: 'streamlit_apps',
+      EngineeringAnalytics: 'engineering_analytics',
       NewInsight: 'new_insight',
     } as const;
 

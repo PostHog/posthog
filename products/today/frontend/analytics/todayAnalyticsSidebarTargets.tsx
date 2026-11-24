@@ -1,21 +1,28 @@
 import {
     IconBell,
     IconBox,
+    IconBrowser,
     IconDashboard,
     IconDatabase,
     IconGraph,
     IconList,
     IconNotebook,
     IconNotification,
+    IconPageChart,
     IconPerson,
     IconPieChart,
     IconPlus,
+    IconStethoscope,
 } from '@posthog/icons'
 
+import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { sidebarProductCopy } from '~/layout/panel-layout/sidebarProductMeta'
+import { isTodayPaneEnabled } from '~/layout/today/todayPaneFlags'
 import type { TodayExplainerPreview } from '~/layout/today/todayPreviewCards'
+import type { TodayRailPane } from '~/layout/today/todayShellLogic'
+import type { FileSystemImport } from '~/queries/schema/schema-general'
 import { InsightShortId } from '~/types'
 
 import type {
@@ -41,6 +48,10 @@ export interface ResolvedSidebarTarget {
     /** The path that marks the target as open. */
     path: string
     explainer?: TodayExplainerPreview
+    /** Shown only while the Products pane lists this product page, which depends on the person's flags. */
+    productHref?: string
+    /** Hidden while this rail pane is on, because that pane lists the page instead. */
+    listedInPane?: TodayRailPane
 }
 
 function sidebarPage(
@@ -51,6 +62,11 @@ function sidebarPage(
     path: string = to
 ): ResolvedSidebarTarget {
     return { label, icon, to, path, explainer: explainer && { kind: 'explainer', label, icon, ...explainer } }
+}
+
+function productPage(label: string, icon: JSX.Element, to: string): ResolvedSidebarTarget {
+    const copy = sidebarProductCopy(label)
+    return { ...sidebarPage(label, icon, to, copy.description ? copy : undefined), productHref: to }
 }
 
 // Module constants, so the shared hover card gets the same payload on every render.
@@ -73,22 +89,29 @@ export const SIDEBAR_PAGES: Record<AnalyticsPageApi, ResolvedSidebarTarget> = {
         description: 'Browse every dashboard in your project and open the ones your team watches.',
         example: 'Open the weekly product metrics dashboard.',
     }),
+    insights: sidebarPage('Insights', <IconGraph />, urls.insights(), {
+        description: 'Browse every insight in your project, from trends and funnels to retention and paths.',
+        example: 'Find the signup funnel a teammate saved last week.',
+    }),
     alerts: sidebarPage('Alerts', <IconBell />, urls.alerts(), {
         description: 'Watch the metrics in your insights and get a notification when a value crosses a threshold.',
         example: 'Get an email when daily signups drop below 100.',
         docsHref: 'https://posthog.com/docs/alerts',
     }),
-    subscriptions: sidebarPage(
-        'Subscriptions',
-        <IconNotification />,
-        `${urls.subscriptions()}?tab=mine`,
-        {
-            description:
-                'Get insights and dashboards delivered on a schedule by email or Slack. Manage the subscriptions you have set up.',
-            example: 'Send the weekly activation dashboard to your team every Monday.',
-        },
-        urls.subscriptions()
-    ),
+    subscriptions: {
+        ...sidebarPage(
+            'Subscriptions',
+            <IconNotification />,
+            `${urls.subscriptions()}?tab=mine`,
+            {
+                description:
+                    'Get insights and dashboards delivered on a schedule by email or Slack. Manage the subscriptions you have set up.',
+                example: 'Send the weekly activation dashboard to your team every Monday.',
+            },
+            urls.subscriptions()
+        ),
+        listedInPane: 'automate',
+    },
     product_analytics: sidebarPage(
         'Product analytics',
         <IconGraph />,
@@ -102,10 +125,24 @@ export const SIDEBAR_PAGES: Record<AnalyticsPageApi, ResolvedSidebarTarget> = {
         sidebarProductCopy('Web analytics')
     ),
     sql_editor: sidebarPage('SQL editor', <IconDatabase />, urls.sqlEditor(), sidebarProductCopy('SQL editor')),
+    business_intelligence: productPage('Business intelligence', <IconPageChart />, urls.businessIntelligence()),
+    streamlit_apps: productPage('Apps', <IconBrowser />, urls.streamlitApps()),
+    engineering_analytics: productPage('Engineering analytics', <IconStethoscope />, urls.engineeringAnalytics()),
     new_insight: sidebarPage('New insight', <IconPlus />, urls.insightNew(), {
         description: 'Build a chart from your events, such as a trend, a funnel, or retention over time.',
         example: 'Chart how many people signed up each week this quarter.',
     }),
+}
+
+export function isSidebarTargetShown(
+    target: ResolvedSidebarTarget,
+    products: FileSystemImport[],
+    featureFlags: FeatureFlagsSet
+): boolean {
+    return (
+        (!target.productHref || products.some((product) => product.href === target.productHref)) &&
+        (!target.listedInPane || !isTodayPaneEnabled(target.listedInPane, featureFlags))
+    )
 }
 
 /** Where a layout item leads, or null for a page this version of the app does not know. */

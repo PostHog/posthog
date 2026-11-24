@@ -75,7 +75,7 @@ describe('Analytics sidebar options', () => {
         fireEvent.click(container.querySelector('[data-attr="analytics-sidebar-customize"]')!)
 
         expect(sidePanelStateLogic.values.selectedTab).toBe(SidePanelTab.Max)
-        expect(sidePanelStateLogic.values.selectedTabOptions).toMatch(/^!Help me personalize my Analytics sidebar/)
+        expect(sidePanelStateLogic.values.selectedTabOptions).toMatch(/^!Help me personalize my Analyze sidebar/)
         expect(router.values.location.pathname).toContain(urls.analyticsList())
     })
 

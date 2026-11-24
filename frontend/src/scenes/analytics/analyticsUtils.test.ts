@@ -1,8 +1,6 @@
-import { FEATURE_FLAGS } from 'lib/constants'
-
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
-import { fileSystemEntryToAnalytics, fromPostHogItems } from './analyticsUtils'
+import { fileSystemEntryToAnalytics, fromPostHogProducts } from './analyticsUtils'
 
 const entry = (overrides: Partial<FileSystemEntry>): FileSystemEntry =>
     ({
@@ -16,24 +14,16 @@ const entry = (overrides: Partial<FileSystemEntry>): FileSystemEntry =>
     }) as FileSystemEntry
 
 describe('analyticsUtils', () => {
-    test.each([
-        [true, undefined],
-        [true, false],
-        [true, 'control'],
-        [true, 'test'],
-        [true, true],
-        [false, undefined],
-        [false, false],
-        [false, 'control'],
-        [false, 'test'],
-        [false, true],
-    ] as const)('shows the Product analytics link with rail %s and Home flag %s', (railEnabled, homeFlag) => {
-        const items = fromPostHogItems({
-            [FEATURE_FLAGS.TODAY_RAIL_NAV]: railEnabled,
-            [FEATURE_FLAGS.PRODUCT_ANALYTICS_HOME_TAB]: homeFlag,
-        })
-
-        expect(items.some(({ key, href }) => key === 'product_analytics' && href === '/insights')).toBe(railEnabled)
+    it('lists the ready-made views By PostHog, leaving out Product analytics, which is the Insights row', () => {
+        expect(fromPostHogProducts().map(({ key }) => key)).toEqual([
+            'web_analytics',
+            'marketing_analytics',
+            'mcp_analytics',
+            'session_replay',
+            'replay_vision',
+            'activity',
+            'heatmap',
+        ])
     })
 
     it('reads an item from its file system row, resolving the creator and the escaped name', () => {

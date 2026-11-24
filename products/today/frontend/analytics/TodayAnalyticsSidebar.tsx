@@ -35,7 +35,8 @@ import { resolveSidebarTarget } from './todayAnalyticsSidebarTargets'
  * fills. The default layout is one more layout, so it draws the same way.
  */
 export function TodayAnalyticsSidebar(): JSX.Element {
-    const { fromPostHog, recentAnalytics, searchQuery, isSectionOpen } = useValues(todayAnalyticsLogic)
+    const { fromPostHog, recentAnalytics, searchQuery, isSectionOpen, isSidebarTargetShown } =
+        useValues(todayAnalyticsLogic)
     const { toggleSection, setSearchQuery } = useActions(todayAnalyticsLogic)
     const { pinnedAnalytics, hasAnalyticsItems } = useValues(analyticsPinnedLogic)
     const { showPinHint } = useActions(analyticsPinnedLogic)
@@ -170,8 +171,8 @@ export function TodayAnalyticsSidebar(): JSX.Element {
             search={{
                 query: searchQuery,
                 onChange: setSearchQuery,
-                label: 'Search analytics',
-                empty: 'Nothing in Analytics matches your search.',
+                label: 'Search Analyze',
+                empty: 'Nothing in Analyze matches your search.',
             }}
             sections={{ isOpen: isSectionOpen, toggle: toggleSection, dataAttrPrefix: 'analytics-section' }}
             navigation={{
@@ -182,7 +183,7 @@ export function TodayAnalyticsSidebar(): JSX.Element {
                 },
                 resolve: (item) => {
                     const target = resolveSidebarTarget(item.to, item.label, item.icon)
-                    return target
+                    return target && isSidebarTargetShown(target)
                         ? {
                               ...target,
                               active: isOpen(target.path),
@@ -204,7 +205,7 @@ export function TodayAnalyticsSidebar(): JSX.Element {
             }}
             customization={{
                 prompt:
-                    'Help me personalize my Analytics sidebar for my current work. Start by checking what is already there. ' +
+                    'Help me personalize my Analyze sidebar for my current work. Start by checking what is already there. ' +
                     'If I give a specific change, apply it directly and ask only for missing details. Otherwise, ask what ' +
                     'I need to open most often and which existing sections I want to keep. For a general redesign, use ' +
                     'my recent activity summary when available, together with Pinned and Recents, to suggest a few useful ' +
@@ -216,7 +217,7 @@ export function TodayAnalyticsSidebar(): JSX.Element {
                 event: 'analytics sidebar customize clicked',
             }}
             dataAttrPrefix="analytics-sidebar"
-            refreshError="Couldn’t refresh the Analytics sidebar."
+            refreshError="Couldn’t refresh the Analyze sidebar."
         />
     )
 }

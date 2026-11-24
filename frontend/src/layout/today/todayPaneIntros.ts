@@ -14,7 +14,7 @@ export const TODAY_PANE_INTROS: Record<TodayIntroPane, TodayPaneIntroCopy> = {
     },
     analytics: {
         title: 'See what’s happening, and why',
-        description: 'Dashboards, insights, SQL and replays of what your users do.',
+        description: 'Dashboards, insights, SQL and replays, on any of your data.',
     },
     people: {
         title: 'Know your users, and reach them',

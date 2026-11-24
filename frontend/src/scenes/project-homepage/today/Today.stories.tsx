@@ -1583,7 +1583,7 @@ export const RailHoverCard: Story = {
         ],
     },
     play: async ({ canvasElement }) => {
-        await userEvent.hover(await within(canvasElement).findByLabelText('Analytics'))
+        await userEvent.hover(await within(canvasElement).findByLabelText('Analyze'))
         await within(document.body).findByText('Daily active users')
     },
 }

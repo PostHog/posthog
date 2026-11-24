@@ -1,7 +1,9 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { fileSystemEntryToAnalytics } from 'scenes/analytics/analyticsUtils'
 
+import { getNavProductItems } from '~/layout/panel-layout/navbar/tabs/navProductItems'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import defaultSidebarFixture from '~/mocks/fixtures/api/today_analytics_sidebar.json'
 import { useMocks } from '~/mocks/jest'
@@ -11,6 +13,7 @@ import { initKeaTests } from '~/test/init'
 
 import { DEFAULT_ANALYTICS_SIDEBAR } from './analyticsSidebarConfiguration'
 import { DEFAULT_COLLAPSED_SECTIONS, todayAnalyticsLogic } from './todayAnalyticsLogic'
+import { SIDEBAR_PAGES, isSidebarTargetShown } from './todayAnalyticsSidebarTargets'
 
 describe('todayAnalyticsLogic', () => {
     afterEach(() => jest.restoreAllMocks())
@@ -22,6 +25,8 @@ describe('todayAnalyticsLogic', () => {
                 '/api/projects/:team_id/notebooks/': { results: [], next: null },
                 '/api/projects/:team_id/dashboards/': { results: [], next: null },
                 '/api/projects/:team_id/insights/': { results: [], next: null },
+                // Recents stay unloaded until a test loads them, so the saved list is what shows.
+                '/api/projects/:team_id/file_system/': () => new Promise(() => {}),
                 '/api/projects/:team_id/file_system_shortcut/': {
                     results: [{ id: 'sc-pinned', type: 'insight/trends', path: 'Retention', ref: 'i2' }],
                 },
@@ -34,6 +39,20 @@ describe('todayAnalyticsLogic', () => {
 
     it('uses the default layout that the API mock serves', () => {
         expect(DEFAULT_ANALYTICS_SIDEBAR).toEqual(defaultSidebarFixture)
+    })
+
+    test.each([
+        ['insights', {}, true],
+        ['business_intelligence', {}, true],
+        ['streamlit_apps', {}, false],
+        ['streamlit_apps', { [FEATURE_FLAGS.STREAMLIT_APPS]: true }, true],
+        ['engineering_analytics', {}, false],
+        ['engineering_analytics', { [FEATURE_FLAGS.ENGINEERING_ANALYTICS]: true }, true],
+        ['alerts', { [FEATURE_FLAGS.DATA_AREA]: true }, true],
+        ['subscriptions', {}, true],
+        ['subscriptions', { [FEATURE_FLAGS.DATA_AREA]: true }, false],
+    ] as const)('shows the %s row with flags %o: %s', (page, flags, shown) => {
+        expect(isSidebarTargetShown(SIDEBAR_PAGES[page], getNavProductItems(flags), flags)).toBe(shown)
     })
 
     it('starts with every section open, and remembers a toggled section', () => {
