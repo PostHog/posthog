@@ -431,14 +431,15 @@ class ReviewTriggerRequestSerializer(serializers.Serializer):
     )
     run_mode = serializers.ChoiceField(
         required=False,
-        default=ReviewTriggerRequestRunMode.REVIEW,
+        default=ReviewTriggerRequestRunMode.FLASH,
         choices=ReviewTriggerRequestRunMode.choices,
-        help_text="What to run on the pull request. 'review' (default) reviews it and, when the pull "
+        help_text="What to run on the pull request. 'flash' (default) runs a Standard review: a lower-cost model "
+        "for the review passes and validation, never resolves comments, and is refused once the PR has a published "
+        "Deep review. 'review' runs a Deep review and, when the pull "
         "request owner's resolve_comments setting is on, chains the resolution stage; 'review_only' "
         "reviews without resolving regardless of that setting; 'resolve_only' skips the review and only "
         "runs the resolution stage on the PR's existing unresolved review threads, which needs the owner's "
-        "opt-in; 'flash' runs a Standard review: a lower-cost model for the review passes and validation, never resolves "
-        "comments, and is refused once the PR has a published Deep review. The owner is the PR's author, "
+        "opt-in. The owner is the PR's author, "
         "or the Inbox reviewer of a pull request the PostHog app opened.",
     )
 
@@ -507,15 +508,23 @@ class ReviewPRStatusParamsSerializer(serializers.Serializer):
     )
     run_mode = serializers.ChoiceField(
         required=False,
-        default=ReviewTriggerRequestRunMode.REVIEW,
         choices=ReviewTriggerRequestRunMode.choices,
-        help_text="The `run_mode` the trigger was called with (default 'review'). Only used with `requested_at`.",
+        help_text="The `run_mode` the trigger was called with. Required with `requested_at`, and only used with it.",
     )
     head_sha = serializers.CharField(
         required=False,
         help_text="The `head_sha` the trigger returned. Lets a turn that was already running on that head when "
         "the request came in answer the request. Only used with `requested_at`.",
     )
+
+    def validate(self, attrs: dict) -> dict:
+        # A default mode here could differ from the mode the trigger ran, and a Standard turn would then
+        # answer a Deep request.
+        if attrs.get("requested_at") is not None and not attrs.get("run_mode"):
+            raise serializers.ValidationError(
+                {"run_mode": "Pass the `run_mode` the trigger was called with, together with `requested_at`."}
+            )
+        return attrs
 
 
 class ReviewPRStatusLatestReviewSerializer(serializers.Serializer):
@@ -1036,10 +1045,10 @@ class ReviewRecentReviewsViewSet(ReviewHogProjectViewSetMixin, viewsets.GenericV
         "access, and publish it back to the PR. The run appears under the requesting user's recent reviews. "
         "A Deep review uses the requester's enabled perspectives, blind-spot check, validator, and urgency "
         "threshold; a Standard review uses none of them. Resolution writes to the branch only when the pull "
-        "request owner opted in, whoever asks. `run_mode` picks the variant: 'review' is a Deep review that "
+        "request owner opted in, whoever asks. `run_mode` picks the variant: 'flash' (the default) is a lower-cost Standard review "
+        "that never resolves comments and is refused after a published Deep review, 'review' is a Deep review that "
         "chains the resolution stage per the owner's resolve_comments setting, 'review_only' is a Deep review "
-        "without resolving, 'resolve_only' runs resolution only, and 'flash' is a lower-cost Standard review "
-        "that never resolves comments and is refused after a published Deep review. "
+        "without resolving, and 'resolve_only' runs resolution only. "
         "Nonexistent, closed, and fork PRs are rejected synchronously. "
         "A PR whose current commit already has a published review in the requested mode returns "
         "'already_reviewed' without starting a run (resolve_only skips that check, because settling threads "
@@ -1114,7 +1123,7 @@ class ReviewRecentReviewsViewSet(ReviewHogProjectViewSetMixin, viewsets.GenericV
                 team_id=team_id,
                 pr_url=params.validated_data["pr_url"],
                 requested_at=params.validated_data.get("requested_at"),
-                run_mode=params.validated_data["run_mode"],
+                run_mode=params.validated_data.get("run_mode"),
                 head_sha=params.validated_data.get("head_sha"),
             )
         except InvalidPullRequestURLError:

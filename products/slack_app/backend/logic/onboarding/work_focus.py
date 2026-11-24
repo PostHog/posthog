@@ -1,4 +1,4 @@
-"""Suggests first tasks from the person's recent Slack messages, once, after they link their account.
+"""Suggests first tasks from the recent Slack messages that mention the person, once, after they link their account.
 
 Slack's search terms forbid storing or copying what `assistant.search.context` returns. So the messages stay in
 this process: one call searches, has Jev pick the messages that hold work, and has a model write the suggestions.
@@ -8,8 +8,10 @@ Only the suggestions and their links leave it.
 import re
 import json
 import asyncio
+from collections.abc import Iterable
 from dataclasses import field, replace
 from datetime import datetime, timedelta
+from itertools import islice
 from typing import Any, Literal
 from urllib.parse import parse_qs, urlsplit
 from zoneinfo import ZoneInfo
@@ -50,12 +52,18 @@ from products.slack_app.backend.logic.onboarding.daily_summary import (
     parallel_map,
     read_thread,
     summary_threads,
+    tagged_users,
     thread_text,
 )
 from products.slack_app.backend.logic.onboarding.step import OnboardingContext, read_action_value
-from products.slack_app.backend.services.slack_messages import context_block, mentions_slack_user, section_block
+from products.slack_app.backend.models import SlackUserProfileCache
+from products.slack_app.backend.services.slack_messages import context_block, section_block
 from products.slack_app.backend.services.slack_settings import resolve_onboarding, update_onboarding
-from products.slack_app.backend.services.slack_user_info import get_cached_bot_user_id, get_slack_user_info
+from products.slack_app.backend.services.slack_user_info import (
+    SLACK_USER_PROFILE_TTL,
+    get_cached_bot_user_id,
+    get_slack_user_info,
+)
 from products.slack_app.backend.services.slack_user_oauth import (
     LinkedUserToken,
     linked_posthog_distinct_id,
@@ -71,18 +79,26 @@ SUGGESTION_CLICKED_EVENT = "slack app work focus suggestion clicked"
 SUGGESTION_STARTED_EVENT = "slack app work focus suggestion started"
 WORK_FOCUS_SUGGESTION_BLOCK_PREFIX = "work_focus_suggestion_"
 
-# Slack returns at most 20 results a page and allows a person about 10 search calls a minute. Three pages for each
-# of the two searches stay at six calls, the most one person's run may take.
+# Slack returns at most 20 results a page and allows a person about 10 search calls a minute. Three pages stay at
+# three calls, the most one person's run may take.
 SEARCH_LIMIT = 20
 SEARCH_PAGES = 3
 # A workspace gets about 10 search calls a minute, so a burst of links waits for tokens.
 SEARCH_BUDGET = Budget(burst=10, per_hour=600)
-# A daily run reads one workday, so one page of each search is enough.
+# A daily run reads one workday, so one page is enough.
 DAILY_SEARCH_PAGES = 1
-DAILY_SEARCH_CALLS = 2 * DAILY_SEARCH_PAGES
+DAILY_SEARCH_CALLS = DAILY_SEARCH_PAGES
 # Daily runs in one workspace start this far apart, so together they stay within its search budget.
 DAILY_RUN_SPACING_SECONDS = 3600 * DAILY_SEARCH_CALLS // SEARCH_BUDGET.per_hour
 MAX_MESSAGE_CHARS = 500
+# users.info does not mark Slackbot with is_bot, but a person who tags Slackbot hands it the work like any other app.
+SLACKBOT_USER_ID = "USLACKBOT"
+# Message text decides which users are looked up, so anyone in a channel could otherwise make a run call users.info
+# for hundreds of made-up ids. The workspace shares that Slack limit with every other Slack app feature.
+MAX_BOT_LOOKUPS = 25
+BOT_LOOKUP_BUDGET = Budget(burst=MAX_BOT_LOOKUPS, per_hour=1800)
+# The same text decides the size of the cache query, so it reads at most this many users at a time.
+MAX_PRIMED_USERS = 200
 
 # The model calls spend the team's PostHog AI credits, the same as the other Slack app calls.
 WORK_FOCUS_AI_PRODUCT = "slack_app"
@@ -101,23 +117,26 @@ RANK_MIN_PROBABILITY = 0.5
 RANK_TIMEOUT_SECONDS = 15.0
 MAX_CANDIDATES = 5
 RANK_INSTRUCTIONS = (
-    "`person` is the person the digest is for. `messages` holds Slack messages that person wrote or that mention them. "
+    "`person` is the person the digest is for. `messages` holds Slack messages from other people that mention them. "
     "For the message this question names, "
     "decide whether it describes work that PostHog could do for this person now: answer a product data question, "
     "investigate a bug or an error, or change code in a connected repository."
 )
 RANK_TRUE = "The message asks for, reports or plans work of that kind."
 RANK_FALSE = (
-    "The message is chat, a greeting, a status note, something the person asked PostHog itself to do, or work that "
-    "PostHog cannot help with."
+    "The message is chat, a greeting, a status note, work someone handed to PostHog, another AI agent or another app, "
+    "or work that PostHog cannot help with."
 )
 RESOLVE_MIN_PROBABILITY = 0.5
 RESOLVE_INSTRUCTIONS = (
-    "`person` is the person the digest is for. `threads` holds Slack threads in which they asked for, reported or planned some work. For the thread this "
+    "`person` is the person the digest is for. `threads` holds Slack threads in which someone asked them for, reported or planned some work. For the thread this "
     "question names, decide whether that work is still open."
 )
 RESOLVE_TRUE = "Nobody answered, or the thread still asks for the work."
-RESOLVE_FALSE = "The thread answered it, says it is done, fixed or merged, or a pull request is open for it."
+RESOLVE_FALSE = (
+    "The thread answered it, says it is done, fixed or merged, a pull request is open for it, or someone handed it to "
+    "an AI agent or another app."
+)
 
 WRITE_MODEL = "gpt-6-luna"
 WRITE_TIMEOUT_SECONDS = 30.0
@@ -138,16 +157,17 @@ _CHANNEL_TYPE_SCOPES = {
 
 WRITE_INSTRUCTIONS = """You write a short, friendly direct message from PostHog to one person in Slack. PostHog is an \
 AI agent that answers questions from product data (analytics, session replay, errors, feature flags, experiments) and \
-opens pull requests in connected repositories. The numbered messages are recent Slack messages that the person wrote \
-or that mention them. The numbered threads, when given, are threads from the channels they are in that moved since \
+opens pull requests in connected repositories. The numbered messages are recent Slack messages from other people that \
+mention the person. The numbered threads, when given, are threads from the channels they are in that moved since \
 their last digest, and a thread marked "you are in this thread" is one they took part in. <person> names the \
 person the message goes to, with their Slack token and name. Write to them as "you" and never refer to them by \
 their token or their name.
 
 Return:
-- "intro": one short, warm sentence to the person, in the second person, that names what their recent work is \
-about. Start it with one fitting emoji. At most 120 characters. For example: "👀 Looks like your week is all about \
-Slack handoffs and feature tips."
+- "intro": one short, warm sentence to the person that leads into the items below it. When there are summary \
+items, name only what those items cover, such as "👀 Since yesterday: pricing calls, a workflows check and two database fixes." \
+When there are none, lead into the suggestions, such as "👀 A couple of asks for you came in." Never call the items \
+the person's own work unless the person did them. Start it with one fitting emoji. At most 120 characters.
 - "suggestions": at most 3 tasks that PostHog could do for them, the most useful first. Each task has:
   - "offer": one short line in the second person that ends with a question. At most 100 characters. For example: \
 "Chart previews ignore edited query params. Want me to find out why?"
@@ -157,15 +177,19 @@ ignore edited query parameters, and open a pull request with the fix." At most 5
 - "summary": at most 5 one-line items on what happened in the threads, the ones the person is in first, then the \
 most consequential. Each item has:
   - "text": one plain sentence of at most 110 characters that starts with who did it and says what was decided, \
-reported, launched or asked. When the person did it, start with "You". Refer to people only with the `<@U…>` tokens exactly as they appear, which Slack \
+reported, launched or asked. When the person did it, start with "You". Credit work to whoever did it: when a \
+thread says an AI agent such as Claude found or wrote something, say the agent did, not the person. Refer to people only with the `<@U…>` tokens exactly as they appear, which Slack \
 shows as names. Do not name the channel; it is added after the sentence.
   - "source": the number of the thread the item comes from.
-  Leave out a thread that is only chat or a status note, and a thread that already became a suggestion. Return an \
-empty list when no threads are given.
+  Write one item for every thread, up to 5, and do not choose a subset: the threads were already picked for this \
+person. Leave out only a thread that is just chat, a thread that is just a \
+status note such as someone being heads down, and a thread that already became a suggestion. An open problem, a \
+blocker or a request is never just a status note, even when its latest message is a status update. Return an empty \
+list when no threads are given.
 
 Keep it short and friendly, with no other emoji and no em dashes. Never quote a message, never write a person's name, \
-and never copy private details. Never offer work that a message asked PostHog itself to do, or that a thread already \
-answered. Suggest nothing when no message shows work that PostHog can help with."""
+and never copy private details. Never offer work that someone handed to PostHog, another AI agent or another app, or \
+that a thread already answered. Suggest nothing when no message shows work that PostHog can help with."""
 
 _RESPONSE_FORMAT: ResponseFormatJSONSchema = {
     "type": "json_schema",
@@ -215,7 +239,7 @@ class WorkFocusRateLimited(Exception):
 
 
 @frozen
-class _FoundMessage:
+class FoundMessage:
     content: str
     channel_id: str
     # The root of the thread the message is in, which the search only names in the permalink; its own ts otherwise.
@@ -223,12 +247,14 @@ class _FoundMessage:
     channel_name: str | None
     permalink: str | None
     author_id: str | None
+    # Read from the full message, because the content is cut to MAX_MESSAGE_CHARS.
+    tagged: tuple[str, ...] = ()
     # The thread read in full, when the bot could read it and it holds more than the message.
     thread: str | None = None
 
 
 @frozen
-class _Person:
+class DigestPerson:
     slack_user_id: str
     name: str | None
 
@@ -400,6 +426,8 @@ class _Found:
     message_count: int
     candidate_count: int
     thread_count: int
+    # Counts the person's own messages too.
+    handed_off_count: int
     flow: WorkFocusFlow
 
 
@@ -421,31 +449,36 @@ def _find(
     if messages is None:
         raise WorkFocusTransientError("search failed")
     bot_user_id = get_cached_bot_user_id(SlackIntegration(integration), integration)
-    if bot_user_id:
-        # A message that tagged the app already got its answer in its thread, so it is never offered again.
-        messages = [message for message in messages if not mentions_slack_user(message.content, bot_user_id)]
-    else:
+    if not bot_user_id:
         logger.warning("slack_app_work_focus_bot_user_unknown", integration_id=integration.id)
+    bots = _BotLookup(integration, bot_user_id)
+    found_count = len(messages)
+    messages = [message for message in messages if message.author_id != slack_user_id]
+    bots.prime(user for message in messages for user in message.tagged)
+    messages = [message for message in messages if not any(bots.is_bot(user) for user in message.tagged)]
+    handed_off_count = found_count - len(messages)
     # Read after the search, so a search that is rate limited retries without reading the channels again.
     threads = summary_threads(integration, slack_user_id, since=after, bot_user_id=bot_user_id)
-    candidates: list[_FoundMessage] = []
+    candidates: list[FoundMessage] = []
     if messages:
         try:
-            candidates = _still_open(
+            candidates, handed_off_threads = _still_open(
                 integration,
-                _rank(integration, messages, flow=flow, person=person),
+                rank_messages(integration.team_id, messages, flow=flow, person=person),
                 flow=flow,
                 bot_user_id=bot_user_id,
+                bots=bots,
                 person=person,
                 known={(thread.channel_id, thread.ts): thread for thread in threads},
             )
+            handed_off_count += handed_off_threads
         except Exception as error:
             logger.warning("slack_app_work_focus_rank_failed", exc_info=True)
             raise WorkFocusTransientError("rank failed") from error
     if not candidates and not threads:
         return "nothing_actionable" if messages else "not_enough_messages"
     try:
-        focus = _write(integration, candidates, flow=flow, threads=threads, person=person)
+        focus = write_work_focus(integration.team_id, candidates, flow=flow, threads=threads, person=person)
     except Exception as error:
         logger.warning("slack_app_work_focus_model_failed", exc_info=True)
         raise WorkFocusTransientError("write failed") from error
@@ -456,6 +489,7 @@ def _find(
         message_count=len(messages),
         candidate_count=len(candidates),
         thread_count=len(threads),
+        handed_off_count=handed_off_count,
         flow=flow,
     )
 
@@ -480,6 +514,7 @@ def _post(integration: WorkspaceIntegration, slack_user_id: str, found: _Found, 
         summary_count=len(found.focus.summary),
         message_count=found.message_count,
         candidate_count=found.candidate_count,
+        handed_off_count=found.handed_off_count,
         mode=_FLOW_MODES[found.flow],
     )
     return "sent"
@@ -507,7 +542,7 @@ def _previous_workday(integration: WorkspaceIntegration, slack_user_id: str) -> 
     return previous_run_before(now, zone, now.astimezone(zone).time())
 
 
-def _person(integration: WorkspaceIntegration, slack_user_id: str) -> _Person:
+def _person(integration: WorkspaceIntegration, slack_user_id: str) -> DigestPerson:
     """Who the digest is for, so the models can tell the person's own messages from everyone else's. The name comes
     from the cached Slack profile; without one, the token alone still tells them apart."""
     try:
@@ -517,15 +552,15 @@ def _person(integration: WorkspaceIntegration, slack_user_id: str) -> _Person:
     except Exception:
         logger.warning("slack_app_work_focus_person_failed", integration_id=integration.id, exc_info=True)
         name = None
-    return _Person(slack_user_id=slack_user_id, name=name)
+    return DigestPerson(slack_user_id=slack_user_id, name=name)
 
 
-def _jev_client(integration: WorkspaceIntegration, *, flow: WorkFocusFlow, classifier: str) -> Any:
+def _jev_client(team_id: int, *, flow: WorkFocusFlow, classifier: str) -> Any:
     # No TypeSafe fallback: the messages are customer text, and TypeSafe is a third party.
     return build_system_one_client(
         model=RANK_MODEL,
         ai_product=WORK_FOCUS_AI_PRODUCT,
-        team_id=integration.team_id,
+        team_id=team_id,
         properties={"slack_app_classifier": classifier, WORK_FOCUS_FLOW_PROPERTY: flow},
         timeout=RANK_TIMEOUT_SECONDS,
         privacy_mode=True,
@@ -539,40 +574,122 @@ def _thread_ts_in(permalink: object) -> str | None:
     return values[0] if values and values[0] else None
 
 
+class _BotLookup:
+    """Whether a Slack user is an app, such as PostHog or another AI agent. Slack marks every app user with is_bot,
+    so no list of agent names goes stale. An unknown user answers False, so a failed lookup never hides work: at worst
+    the DM offers work that someone already handed to an agent. That is why a rate limit stops the lookups instead of
+    retrying the run, which would spend the searches and AI credits again."""
+
+    def __init__(self, integration: WorkspaceIntegration, bot_user_id: str | None) -> None:
+        self._integration = integration
+        self._slack = SlackIntegration(integration)
+        self._known: dict[str, bool] = {user: True for user in (bot_user_id, SLACKBOT_USER_ID) if user}
+        self._lookups_left = MAX_BOT_LOOKUPS
+
+    def prime(self, users: Iterable[str]) -> None:
+        """Reads the fresh cached profiles in one query, so only the users the cache lacks cost a Slack call."""
+        wanted = list(islice(dict.fromkeys(user for user in users if user not in self._known), MAX_PRIMED_USERS))
+        if not wanted:
+            return
+        cached = SlackUserProfileCache.objects.filter(
+            integration_id=self._integration.id,
+            slack_user_id__in=wanted,
+            refreshed_at__gt=timezone.now() - SLACK_USER_PROFILE_TTL,
+        ).values_list("slack_user_id", "is_bot")
+        self._known.update(cached)
+
+    def is_bot(self, user_id: str) -> bool:
+        if user_id in self._known:
+            return self._known[user_id]
+        # Not stored once the lookups are spent, so made-up mentions cannot grow the dict.
+        if self._lookups_left <= 0:
+            return False
+        self._known[user_id] = self._look_up(user_id)
+        return self._known[user_id]
+
+    def _look_up(self, user_id: str) -> bool:
+        if self._lookups_left <= 0:
+            return False
+        decision = consume(f"slack_app:work_focus_bot_lookup:{self._integration.integration_id}", BOT_LOOKUP_BUDGET)
+        if isinstance(decision, BucketDecision) and not decision.allowed:
+            self._stop("budget_spent")
+            return False
+        self._lookups_left -= 1
+        try:
+            user = get_slack_user_info(self._slack, self._integration, user_id).get("user")
+        except SlackApiError as error:
+            if (error.response or {}).get("error") == "ratelimited":
+                self._stop("ratelimited")
+            return False
+        except (SlackClientError, OSError):
+            logger.warning("slack_app_work_focus_bot_lookup_failed", integration_id=self._integration.id, exc_info=True)
+            return False
+        return isinstance(user, dict) and bool(user.get("is_bot"))
+
+    def _stop(self, reason: str) -> None:
+        self._lookups_left = 0
+        logger.info("slack_app_work_focus_bot_lookups_stopped", reason=reason, integration_id=self._integration.id)
+
+
+@frozen
+class _CandidateThread:
+    text: str | None = None
+    app_replied: bool = False
+    tagged: tuple[str, ...] = ()
+
+
 def _still_open(
     integration: WorkspaceIntegration,
-    candidates: list[_FoundMessage],
+    candidates: list[FoundMessage],
     *,
     flow: WorkFocusFlow,
     bot_user_id: str | None,
-    person: _Person,
+    bots: _BotLookup,
+    person: DigestPerson,
     known: dict[tuple[str, str], SummaryThread],
-) -> list[_FoundMessage]:
-    """The candidates whose work the thread has not finished. A thread the app already replied in, or was tagged in,
-    is handled. Jev reads the rest of the threads the bot can read; a thread the bot cannot read, or a message with
-    no replies, keeps its candidate. A thread the summary already read is not read again."""
+) -> tuple[list[FoundMessage], int]:
+    """The candidates whose work the thread has not finished, and how many were handed to an app. A thread the app
+    already replied in, or where a person tagged any app, such as another AI agent, is handled. Jev reads the rest of
+    the threads the bot can read; a thread the bot cannot read, or a message with no replies, keeps its candidate. A
+    thread the summary already read is not read again."""
     slack = SlackIntegration(integration)
 
-    def thread_of(candidate: _FoundMessage) -> tuple[str | None, bool]:
+    def thread_of(candidate: FoundMessage) -> _CandidateThread:
         if (summary := known.get((candidate.channel_id, candidate.thread_ts))) is not None:
-            return summary.text, False
+            return _CandidateThread(text=summary.text, tagged=summary.tagged)
         read = read_thread(slack.client, candidate.channel_id, candidate.thread_ts, bot_user_id=bot_user_id)
         if read is None:
-            return None, False
-        # A lone root is the message itself, which Jev already read.
-        return (thread_text(read.messages) if len(read.messages) > 1 else None), read.app_took_part
+            return _CandidateThread()
+        return _CandidateThread(
+            # A lone root is the message itself, which Jev already read.
+            text=thread_text(read.messages) if len(read.messages) > 1 else None,
+            app_replied=read.app_took_part,
+            tagged=tagged_users(str(message.get("text") or "") for message in read.messages),
+        )
 
-    read = [
-        replace(candidate, thread=text)
-        for candidate, (text, app_replied) in zip(candidates, parallel_map(thread_of, candidates))
-        if not app_replied
-    ]
-    keys = {f"t{index}": index for index, candidate in enumerate(read) if candidate.thread}
+    threads = parallel_map(thread_of, candidates)
+    read: list[FoundMessage] = []
+    handed_off = 0
+    # The bot lookups run here, not in the reader threads, because they read the profile cache from the database.
+    bots.prime(user for thread in threads for user in thread.tagged)
+    for candidate, thread in zip(candidates, threads):
+        if thread.app_replied or any(bots.is_bot(user) for user in thread.tagged):
+            handed_off += 1
+        else:
+            read.append(replace(candidate, thread=thread.text))
+    return drop_finished(integration.team_id, read, flow=flow, person=person), handed_off
+
+
+def drop_finished(
+    team_id: int, candidates: list[FoundMessage], *, flow: WorkFocusFlow, person: DigestPerson
+) -> list[FoundMessage]:
+    """The candidates whose thread Jev reads as still open. A candidate without a thread keeps its place."""
+    keys = {f"t{index}": index for index, candidate in enumerate(candidates) if candidate.thread}
     if not keys:
-        return read
-    client = _jev_client(integration, flow=flow, classifier="work_focus_still_open")
+        return candidates
+    client = _jev_client(team_id, flow=flow, classifier="work_focus_still_open")
     result = client.decide(
-        state={"person": person.as_state(), "threads": {key: read[index].thread for key, index in keys.items()}},
+        state={"person": person.as_state(), "threads": {key: candidates[index].thread for key, index in keys.items()}},
         questions={
             key: NoulQuestion(
                 instructions=f"{RESOLVE_INSTRUCTIONS} This question names `threads.{key}`.",
@@ -587,7 +704,7 @@ def _still_open(
         for key, answer in result.answers.items()
         if key in keys and isinstance(answer, NoulAnswer) and answer.probability < RESOLVE_MIN_PROBABILITY
     }
-    return [candidate for index, candidate in enumerate(read) if index not in finished]
+    return [candidate for index, candidate in enumerate(candidates) if index not in finished]
 
 
 def _search_messages(
@@ -598,57 +715,58 @@ def _search_messages(
     *,
     after: datetime,
     pages: int,
-) -> list[_FoundMessage] | None:
+) -> list[FoundMessage] | None:
     client = SlackWebClient(
         access_token, source="slack_app_work_focus", workspace_id=integration.integration_id, app_id="posthog"
     )
-    found: dict[tuple[str, str], _FoundMessage] = {}
+    found: dict[tuple[str, str], FoundMessage] = {}
     # All calls are reserved at once, so two runs cannot each take one call and both fail on the next one.
     bucket = f"slack_app:work_focus_search:{integration.integration_id}"
-    cost = 2 * pages
+    cost = pages
     decision = consume(bucket, SEARCH_BUDGET, cost=cost)
     if isinstance(decision, BucketDecision) and not decision.allowed:
         raise WorkFocusRateLimited
+    # Only the messages that mention the person. Their own messages hold work they already know about or already
+    # handed to an app.
+    query = f"<@{slack_user_id}>"
     calls = 0
     try:
-        # The person's own messages, then the messages that mention them.
-        for query in (f"from:<@{slack_user_id}>", f"<@{slack_user_id}>"):
-            cursor = ""
-            for _ in range(pages):
-                params: dict[str, Any] = {
-                    "query": query,
-                    "channel_types": ",".join(channel_types),
-                    "content_types": "messages",
-                    "sort": "timestamp",
-                    "after": int(after.timestamp()),
-                    "limit": SEARCH_LIMIT,
-                    "include_bots": False,
-                }
-                if cursor:
-                    params["cursor"] = cursor
-                calls += 1
-                try:
-                    response = client.api_call("assistant.search.context", params=params)
-                except SlackApiError as error:
-                    if (error.response or {}).get("error") == "ratelimited":
-                        raise WorkFocusRateLimited from error
-                    logger.warning("slack_app_work_focus_search_failed", error=(error.response or {}).get("error"))
-                    return None
-                except (SlackClientError, OSError):
-                    logger.warning("slack_app_work_focus_search_failed", exc_info=True)
-                    return None
-                for message in ((response.get("results") or {}).get("messages")) or []:
-                    _collect(found, message)
-                cursor = str((response.get("response_metadata") or {}).get("next_cursor") or "")
-                if not cursor:
-                    break
+        cursor = ""
+        for _ in range(pages):
+            params: dict[str, Any] = {
+                "query": query,
+                "channel_types": ",".join(channel_types),
+                "content_types": "messages",
+                "sort": "timestamp",
+                "after": int(after.timestamp()),
+                "limit": SEARCH_LIMIT,
+                "include_bots": False,
+            }
+            if cursor:
+                params["cursor"] = cursor
+            calls += 1
+            try:
+                response = client.api_call("assistant.search.context", params=params)
+            except SlackApiError as error:
+                if (error.response or {}).get("error") == "ratelimited":
+                    raise WorkFocusRateLimited from error
+                logger.warning("slack_app_work_focus_search_failed", error=(error.response or {}).get("error"))
+                return None
+            except (SlackClientError, OSError):
+                logger.warning("slack_app_work_focus_search_failed", exc_info=True)
+                return None
+            for message in ((response.get("results") or {}).get("messages")) or []:
+                _collect(found, message)
+            cursor = str((response.get("response_metadata") or {}).get("next_cursor") or "")
+            if not cursor:
+                break
     finally:
         if calls < cost:
             refund(bucket, SEARCH_BUDGET, cost - calls)
     return list(found.values())
 
 
-def _collect(found: dict[tuple[str, str], _FoundMessage], message: dict[str, Any]) -> None:
+def _collect(found: dict[tuple[str, str], FoundMessage], message: dict[str, Any]) -> None:
     content = str(message.get("content") or "").strip()
     key = (str(message.get("channel_id") or ""), str(message.get("message_ts") or ""))
     if not content or message.get("is_author_bot") or key in found:
@@ -656,7 +774,7 @@ def _collect(found: dict[tuple[str, str], _FoundMessage], message: dict[str, Any
     channel_name = message.get("channel_name")
     permalink = message.get("permalink")
     author_id = message.get("author_user_id")
-    found[key] = _FoundMessage(
+    found[key] = FoundMessage(
         content=content[:MAX_MESSAGE_CHARS],
         channel_id=key[0],
         thread_ts=_thread_ts_in(permalink) or key[1],
@@ -666,14 +784,15 @@ def _collect(found: dict[tuple[str, str], _FoundMessage], message: dict[str, Any
         else None,
         author_id=author_id if isinstance(author_id, str) and author_id else None,
         permalink=permalink if isinstance(permalink, str) and permalink.startswith("https://") else None,
+        tagged=tagged_users([content]),
     )
 
 
-def _rank(
-    integration: WorkspaceIntegration, messages: list[_FoundMessage], *, flow: WorkFocusFlow, person: _Person
-) -> list[_FoundMessage]:
+def rank_messages(
+    team_id: int, messages: list[FoundMessage], *, flow: WorkFocusFlow, person: DigestPerson
+) -> list[FoundMessage]:
     """The messages most likely to hold work for PostHog, most likely first."""
-    client = _jev_client(integration, flow=flow, classifier="work_focus_rank")
+    client = _jev_client(team_id, flow=flow, classifier="work_focus_rank")
     scored: list[tuple[float, int]] = []
     for batch_start in range(0, len(messages), RANK_BATCH_SIZE):
         batch = messages[batch_start : batch_start + RANK_BATCH_SIZE]
@@ -700,13 +819,13 @@ def _rank(
     return [messages[index] for _, index in scored[:MAX_CANDIDATES]]
 
 
-def _write(
-    integration: WorkspaceIntegration,
-    candidates: list[_FoundMessage],
+def write_work_focus(
+    team_id: int,
+    candidates: list[FoundMessage],
     *,
     flow: WorkFocusFlow,
     threads: list[SummaryThread],
-    person: _Person,
+    person: DigestPerson,
 ) -> WorkFocus:
     client = build_ai_gateway_openai_client(
         settings.AI_GATEWAY_API_KEY,
@@ -714,7 +833,7 @@ def _write(
         properties={
             "slack_app_classifier": "work_focus_write",
             WORK_FOCUS_FLOW_PROPERTY: flow,
-            "team_id": str(integration.team_id),
+            "team_id": str(team_id),
         },
     ).with_options(timeout=WRITE_TIMEOUT_SECONDS, max_retries=0)
     numbered = "\n".join(
@@ -741,10 +860,24 @@ def _write(
     )
     parsed = extract_json_object(response.choices[0].message.content or "") or {}
     return WorkFocus(
-        intro=str(parsed.get("intro") or "").strip()[:MAX_INTRO_CHARS],
+        intro=clip(str(parsed.get("intro") or ""), MAX_INTRO_CHARS),
         suggestions=_clean_suggestions(parsed.get("suggestions"), candidates),
         summary=_clean_summary(parsed.get("summary"), threads),
     )
+
+
+CLIPPED = "…"
+
+
+def clip(text: str, limit: int) -> str:
+    """Cut model text that runs over its limit at a word boundary, so no word and no `<@U…>` mention is cut in half."""
+    text = text.strip()
+    if len(text) <= limit:
+        return text
+    head = text[: limit - len(CLIPPED)]
+    if not text[len(head)].isspace():
+        head = head.rsplit(None, 1)[0]
+    return head.rstrip(" ,;:") + CLIPPED
 
 
 def _clean_summary(raw: Any, threads: list[SummaryThread]) -> list[WorkFocusSummaryItem]:
@@ -752,7 +885,7 @@ def _clean_summary(raw: Any, threads: list[SummaryThread]) -> list[WorkFocusSumm
     for item in raw if isinstance(raw, list) else []:
         if not isinstance(item, dict):
             continue
-        text = str(item.get("text") or "").strip()[:MAX_SUMMARY_CHARS]
+        text = clip(str(item.get("text") or ""), MAX_SUMMARY_CHARS)
         source = item.get("source")
         thread = threads[source - 1] if isinstance(source, int) and 1 <= source <= len(threads) else None
         if text and thread is not None:
@@ -760,13 +893,13 @@ def _clean_summary(raw: Any, threads: list[SummaryThread]) -> list[WorkFocusSumm
     return items[:MAX_SUMMARY_ITEMS]
 
 
-def _clean_suggestions(raw: Any, candidates: list[_FoundMessage]) -> list[WorkFocusSuggestion]:
+def _clean_suggestions(raw: Any, candidates: list[FoundMessage]) -> list[WorkFocusSuggestion]:
     suggestions = []
     for item in raw if isinstance(raw, list) else []:
         if not isinstance(item, dict):
             continue
-        offer = str(item.get("offer") or "").strip()[:MAX_OFFER_CHARS]
-        request = str(item.get("request") or "").strip()[:MAX_REQUEST_CHARS]
+        offer = clip(str(item.get("offer") or ""), MAX_OFFER_CHARS)
+        request = clip(str(item.get("request") or ""), MAX_REQUEST_CHARS)
         source = item.get("source")
         if not offer or not request:
             continue

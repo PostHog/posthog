@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import re
+import sys
 import json
+import shutil
+import subprocess
 from collections.abc import Callable
 from pathlib import Path
 
 import click
 
-from .paths import DB_ROUTING_YAML, DJANGO_SETTINGS, FRONTEND_PACKAGE_JSON, PRODUCTS_DIR, TACH_TOML, load_structure
+from .paths import DB_ROUTING_YAML, DJANGO_SETTINGS, FRONTEND_PACKAGE_JSON, PRODUCTS_DIR, REPO_ROOT, load_structure
 
 
 def flatten_structure(files: dict, prefix: str = "", result: dict | None = None) -> dict[str, dict]:
@@ -73,31 +76,6 @@ def _register_in_file(
     if result is not None:
         file_path.write_text(result)
         click.echo(f"\n  Added to {label}: {needle}")
-
-
-def _add_to_tach_toml(product_name: str, *, dry_run: bool) -> None:
-    module_path = f"products.{product_name}"
-    block = (
-        f"\n[[modules]]\n"
-        f'path = "{module_path}"\n'
-        f'depends_on = ["posthog"]\n'
-        f'layer = "modules"\n'
-        f"\n[[interfaces]]\n"
-        f"expose = [\n"
-        f'    "backend\\\\.facade.*",\n'
-        f'    "backend\\\\.presentation\\\\.views.*",\n'
-        f"]\n"
-        f"from = [\n"
-        f'    "{module_path}",\n'
-        f"]\n"
-    )
-    _register_in_file(
-        TACH_TOML,
-        "tach.toml",
-        f'path = "{module_path}"',
-        lambda content: content.rstrip() + "\n" + block,
-        dry_run=dry_run,
-    )
 
 
 def _add_to_frontend_package_json(product_name: str, *, dry_run: bool) -> None:
@@ -209,6 +187,42 @@ def _prompt_for_separate_db(name: str) -> tuple[bool, str | None]:
     return True, db_name
 
 
+def _hoglint_command() -> str | None:
+    """The hoglint of the venv that runs hogli, else the one on PATH."""
+    venv_hoglint = Path(sys.executable).parent / "hoglint"
+    if venv_hoglint.exists():
+        return str(venv_hoglint)
+    return shutil.which("hoglint")
+
+
+def _record_isolated_level(name: str) -> None:
+    # The scaffold's turbo.json narrows the contract-check inputs, so the product claims hoglint's
+    # Isolated level. The ledger records each group that passes a level, and `hoglint compare`
+    # fails a pull request whose ledger lacks the new product's line.
+    ledger_step = (
+        "Commit hoglint.ledger in a commit of its own, after the product, "
+        "so that a reviewer sees the ledger change apart from the code."
+    )
+    hoglint = _hoglint_command()
+    if hoglint is None:
+        click.secho(
+            f"\n  ⚠ hoglint is not installed, so hoglint.ledger lacks the line for {name}. "
+            f"Run `hoglint check --write-ledger`. {ledger_step}",
+            fg="yellow",
+        )
+        return
+    click.echo(f"\n  Recording the Isolated level of {name} in hoglint.ledger (hoglint check --write-ledger)…")
+    result = subprocess.run([hoglint, "check", "--write-ledger"], cwd=REPO_ROOT, capture_output=True, text=True)
+    if result.returncode != 0:
+        click.secho(
+            f"  ⚠ hoglint check --write-ledger exited {result.returncode}, so hoglint.ledger may lack the line "
+            f"for {name}. Run it again and fix what it reports. {ledger_step}",
+            fg="yellow",
+        )
+        return
+    click.secho(f"  Added the level line for {name} to hoglint.ledger. {ledger_step}", fg="cyan")
+
+
 def bootstrap_product(
     name: str,
     dry_run: bool,
@@ -317,7 +331,6 @@ def bootstrap_product(
         if not owner:
             click.secho("  ⚠ Set the real team slug in product.yaml before merging.", fg="yellow")
 
-    _add_to_tach_toml(name, dry_run=dry_run)
     _add_to_frontend_package_json(name, dry_run=dry_run)
     _add_to_django_settings(name, dry_run=dry_run)
 
@@ -327,6 +340,7 @@ def bootstrap_product(
         click.echo("  Skipped db_routing entry. Models live in the main database.")
 
     if not dry_run:
+        _record_isolated_level(name)
         mixin = "ProductTeamModel" if separate_db else "TeamScopedRootMixin"
         click.secho(
             f"\n  Models inherit `{mixin}` (fail-closed team scoping). "

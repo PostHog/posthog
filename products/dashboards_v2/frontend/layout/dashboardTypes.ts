@@ -39,8 +39,6 @@ export interface ContentWidget {
     format?: 'number' | 'currency' | 'percentage'
     /** When the widget's data was last computed, as an ISO timestamp. */
     refreshedAt?: string
-    /** The pieces placed in the tile's footer, shown in this order. No pieces means no footer. */
-    footer?: TileFooterItem[]
     /** Which parts of the tile show. A part that is missing shows. */
     parts?: ContentWidgetParts
 }
@@ -51,10 +49,14 @@ export interface ContentWidgetParts {
     footer?: boolean
 }
 
-export type TileFooterItem =
-    | { type: 'text'; text: string }
-    | { type: 'updatedAt' }
-    | { type: 'link'; label: string; url: string }
+/** The widget types whose tiles have a footer. `WidgetFooter` holds what each one renders there. */
+export const FOOTER_WIDGET_TYPES = ['stat', 'line', 'bar'] as const satisfies readonly ContentWidget['type'][]
+
+export type FooterWidgetType = (typeof FOOTER_WIDGET_TYPES)[number]
+
+export function isFooterWidgetType(type: ContentWidget['type']): type is FooterWidgetType {
+    return FOOTER_WIDGET_TYPES.some((footerType) => footerType === type)
+}
 
 /**
  * A grid inside a tile. Its cells line up with the cells of the grid it sits in: one row for the header, then its
@@ -95,10 +97,26 @@ export function isSection(tile: Tile): tile is SectionTile {
     return tile.widget.type === 'section'
 }
 
-/** Whether a content tile shows a part. The description lives in the header, so hiding the header hides it too. */
+/** Whether a content tile has anything to put in a part. The description renders inside the header, so it needs a title. */
+export function hasPart(widget: ContentWidget, part: keyof ContentWidgetParts): boolean {
+    switch (part) {
+        case 'header':
+            return !!widget.title
+        case 'description':
+            return !!widget.title && !!widget.description
+        case 'footer':
+            return isFooterWidgetType(widget.type)
+    }
+}
+
+/** The description lives in the header, so hiding the header hides it too. */
 export function showsPart(widget: ContentWidget, part: keyof ContentWidgetParts): boolean {
     if (part === 'description' && widget.parts?.header === false) {
         return false
     }
     return widget.parts?.[part] !== false
+}
+
+export function isPartShown(widget: ContentWidget, part: keyof ContentWidgetParts): boolean {
+    return hasPart(widget, part) && showsPart(widget, part)
 }

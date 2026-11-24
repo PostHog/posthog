@@ -136,20 +136,22 @@ export function anomalyChartData(
     }
 }
 
+const AXIS_LABEL_FORMATS: Record<ChartSeries['interval'], string> = {
+    hour: 'MMM D, HH:mm',
+    day: 'MMM D',
+    week: 'MMM D',
+    month: 'MMM YYYY',
+}
+
 /**
- * Daily ticks label each Monday only. The default axis drops labels that overlap from left to right, so which days
- * keep a label changed with the chart width and the first bucket. A fixed weekday gives every daily row the same
- * ticks, and a week apart is the weekly pattern a daily chart shows.
+ * Labels only the first and the last bucket. The rows are short, so more labels crowd the plot, and the tooltip
+ * shows the date of each point.
  */
 export function anomalyAxisTickFormatter(
     interval: ChartSeries['interval'],
-    timezone: string
-): ((label: string) => string | null) | undefined {
-    if (interval !== 'day') {
-        return undefined
-    }
-    return (label) => {
-        const date = dayjs(label).tz(timezone)
-        return date.day() === 1 ? date.format('MMM D') : null
-    }
+    timezone: string,
+    labelCount: number
+): (label: string, index: number) => string | null {
+    return (label, index) =>
+        index === 0 || index === labelCount - 1 ? dayjs(label).tz(timezone).format(AXIS_LABEL_FORMATS[interval]) : null
 }

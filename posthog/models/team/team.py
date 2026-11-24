@@ -57,8 +57,6 @@ if TYPE_CHECKING:
 
     from posthog.models.user import User
 
-    from products.dashboards.backend.models.dashboard import Dashboard
-
 TIMEZONES = [(tz, tz) for tz in pytz.all_timezones]
 
 
@@ -617,25 +615,6 @@ class Team(UUIDTClassicModel):
         related_name="primary_dashboard_teams",
         blank=True,
     )  # Dashboard shown on project homepage
-
-    # Exposed as a field on TeamSerializer/ProjectSerializer, so this descriptor is required per
-    # posthog/models/team/README.md ("An extension exposed as a nested field on the team or
-    # project serializer is the exception, and does need the descriptor.").
-    @property
-    def home_tab_dashboard(self) -> "Dashboard | None":
-        from products.dashboards.backend.models import TeamHomeTabDashboardConfig
-
-        config = TeamHomeTabDashboardConfig.objects.for_team(self.pk).select_related("dashboard").first()
-        dashboard = config.dashboard if config else None
-        return dashboard if dashboard and not dashboard.deleted and dashboard.team_id == self.pk else None
-
-    @home_tab_dashboard.setter
-    def home_tab_dashboard(self, dashboard: "Dashboard | None") -> None:
-        from products.dashboards.backend.models import TeamHomeTabDashboardConfig
-
-        config, _ = TeamHomeTabDashboardConfig.objects.for_team(self.pk).get_or_create(team_id=self.pk)
-        config.dashboard = dashboard
-        config.save(update_fields=["dashboard"])
 
     default_data_theme = field_access_control(models.IntegerField(null=True, blank=True), "project", "admin")
 

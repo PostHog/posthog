@@ -41,9 +41,64 @@
 # ---
 # name: TestFormula.test_breakdown
   '''
+  SELECT breakdown_value AS breakdown_value,
+         total AS total,
+         count() OVER () AS values_count,
+         sum(total) OVER () AS all_values_total,
+         cityHash64(breakdown_value) AS breakdown_value_hash
+  FROM
+    (SELECT breakdown_value AS breakdown_value,
+            sum(total) AS total
+     FROM
+       (SELECT breakdown_value AS breakdown_value,
+               sum(count) AS total
+        FROM
+          (SELECT sum(total) AS count,
+                  breakdown_value AS breakdown_value
+           FROM
+             (SELECT count() AS total,
+                     ifNull(nullIf(leftUTF8(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'location'), ''), 'null'), '^"|"$', '')), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+              FROM events AS e
+              WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session start'))
+              GROUP BY breakdown_value)
+           GROUP BY breakdown_value)
+        GROUP BY breakdown_value
+        UNION ALL SELECT breakdown_value AS breakdown_value,
+                         sum(count) AS total
+        FROM
+          (SELECT sum(total) AS count,
+                  breakdown_value AS breakdown_value
+           FROM
+             (SELECT count() AS total,
+                     ifNull(nullIf(leftUTF8(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'location'), ''), 'null'), '^"|"$', '')), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+              FROM events AS e
+              WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session start'))
+              GROUP BY breakdown_value)
+           GROUP BY breakdown_value)
+        GROUP BY breakdown_value)
+     WHERE isNotNull(breakdown_value)
+     GROUP BY breakdown_value)
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, total DESC,
+                                                                                                                                                                         breakdown_value ASC
+  LIMIT 25 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestFormula.test_breakdown.1
+  '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+                      if(ifNull(notIn(cityHash64(breakdown_value), [15802005934875159175, 3507369097141014428]), 1), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -85,11 +140,11 @@
                        use_hive_partitioning=0
   '''
 # ---
-# name: TestFormula.test_breakdown.1
+# name: TestFormula.test_breakdown.2
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+                      if(ifNull(notIn(cityHash64(breakdown_value), [15802005934875159175, 3507369097141014428]), 1), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -133,8 +188,63 @@
 # ---
 # name: TestFormula.test_breakdown_aggregated
   '''
+  SELECT breakdown_value AS breakdown_value,
+         total AS total,
+         count() OVER () AS values_count,
+         sum(total) OVER () AS all_values_total,
+         cityHash64(breakdown_value) AS breakdown_value_hash
+  FROM
+    (SELECT breakdown_value AS breakdown_value,
+            sum(total) AS total
+     FROM
+       (SELECT breakdown_value AS breakdown_value,
+               sum(count) AS total
+        FROM
+          (SELECT sum(total) AS count,
+                  breakdown_value AS breakdown_value
+           FROM
+             (SELECT count() AS total,
+                     ifNull(nullIf(leftUTF8(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'location'), ''), 'null'), '^"|"$', '')), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+              FROM events AS e
+              WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session start'))
+              GROUP BY breakdown_value)
+           GROUP BY breakdown_value)
+        GROUP BY breakdown_value
+        UNION ALL SELECT breakdown_value AS breakdown_value,
+                         sum(count) AS total
+        FROM
+          (SELECT sum(total) AS count,
+                  breakdown_value AS breakdown_value
+           FROM
+             (SELECT count() AS total,
+                     ifNull(nullIf(leftUTF8(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'location'), ''), 'null'), '^"|"$', '')), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+              FROM events AS e
+              WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session start'))
+              GROUP BY breakdown_value)
+           GROUP BY breakdown_value)
+        GROUP BY breakdown_value)
+     WHERE isNotNull(breakdown_value)
+     GROUP BY breakdown_value)
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, total DESC,
+                                                                                                                                                                         breakdown_value ASC
+  LIMIT 25 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestFormula.test_breakdown_aggregated.1
+  '''
   SELECT sum(total) AS total,
-         if(ifNull(greaterOrEquals(row_number, 26), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+         if(ifNull(notIn(cityHash64(breakdown_value), [15802005934875159175, 3507369097141014428]), 1), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT count AS total,
                      breakdown_value AS breakdown_value,
@@ -171,10 +281,10 @@
                        use_hive_partitioning=0
   '''
 # ---
-# name: TestFormula.test_breakdown_aggregated.1
+# name: TestFormula.test_breakdown_aggregated.2
   '''
   SELECT avg(total) AS total,
-         if(ifNull(greaterOrEquals(row_number, 26), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+         if(ifNull(notIn(cityHash64(breakdown_value), [15802005934875159175, 3507369097141014428]), 1), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT count AS total,
                      breakdown_value AS breakdown_value,
@@ -427,9 +537,64 @@
 # ---
 # name: TestFormula.test_breakdown_hogql
   '''
+  SELECT breakdown_value AS breakdown_value,
+         total AS total,
+         count() OVER () AS values_count,
+         sum(total) OVER () AS all_values_total,
+         cityHash64(breakdown_value) AS breakdown_value_hash
+  FROM
+    (SELECT breakdown_value AS breakdown_value,
+            sum(total) AS total
+     FROM
+       (SELECT breakdown_value AS breakdown_value,
+               sum(count) AS total
+        FROM
+          (SELECT sum(total) AS count,
+                  breakdown_value AS breakdown_value
+           FROM
+             (SELECT count() AS total,
+                     ifNull(nullIf(leftUTF8(toString(concat(ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.person_properties, '$some_prop'), ''), 'null'), '^"|"$', '')), ''), ' : ', ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'location'), ''), 'null'), '^"|"$', '')), ''))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+              FROM events AS e
+              WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session start'))
+              GROUP BY breakdown_value)
+           GROUP BY breakdown_value)
+        GROUP BY breakdown_value
+        UNION ALL SELECT breakdown_value AS breakdown_value,
+                         sum(count) AS total
+        FROM
+          (SELECT sum(total) AS count,
+                  breakdown_value AS breakdown_value
+           FROM
+             (SELECT count() AS total,
+                     ifNull(nullIf(leftUTF8(toString(concat(ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.person_properties, '$some_prop'), ''), 'null'), '^"|"$', '')), ''), ' : ', ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'location'), ''), 'null'), '^"|"$', '')), ''))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+              FROM events AS e
+              WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session start'))
+              GROUP BY breakdown_value)
+           GROUP BY breakdown_value)
+        GROUP BY breakdown_value)
+     WHERE isNotNull(breakdown_value)
+     GROUP BY breakdown_value)
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, total DESC,
+                                                                                                                                                                         breakdown_value ASC
+  LIMIT 25 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestFormula.test_breakdown_hogql.1
+  '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+                      if(ifNull(notIn(cityHash64(breakdown_value), [12145315239369086538, 1289017501600763082]), 1), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -471,11 +636,11 @@
                        use_hive_partitioning=0
   '''
 # ---
-# name: TestFormula.test_breakdown_hogql.1
+# name: TestFormula.test_breakdown_hogql.2
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+                      if(ifNull(notIn(cityHash64(breakdown_value), [12145315239369086538, 1289017501600763082]), 1), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -519,9 +684,64 @@
 # ---
 # name: TestFormula.test_breakdown_hogql_with_as_alias
   '''
+  SELECT breakdown_value AS breakdown_value,
+         total AS total,
+         count() OVER () AS values_count,
+         sum(total) OVER () AS all_values_total,
+         cityHash64(breakdown_value) AS breakdown_value_hash
+  FROM
+    (SELECT breakdown_value AS breakdown_value,
+            sum(total) AS total
+     FROM
+       (SELECT breakdown_value AS breakdown_value,
+               sum(count) AS total
+        FROM
+          (SELECT sum(total) AS count,
+                  breakdown_value AS breakdown_value
+           FROM
+             (SELECT count() AS total,
+                     ifNull(nullIf(leftUTF8(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'location'), ''), 'null'), '^"|"$', '')), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+              FROM events AS e
+              WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session start'))
+              GROUP BY breakdown_value)
+           GROUP BY breakdown_value)
+        GROUP BY breakdown_value
+        UNION ALL SELECT breakdown_value AS breakdown_value,
+                         sum(count) AS total
+        FROM
+          (SELECT sum(total) AS count,
+                  breakdown_value AS breakdown_value
+           FROM
+             (SELECT count() AS total,
+                     ifNull(nullIf(leftUTF8(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'location'), ''), 'null'), '^"|"$', '')), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+              FROM events AS e
+              WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session start'))
+              GROUP BY breakdown_value)
+           GROUP BY breakdown_value)
+        GROUP BY breakdown_value)
+     WHERE isNotNull(breakdown_value)
+     GROUP BY breakdown_value)
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, total DESC,
+                                                                                                                                                                         breakdown_value ASC
+  LIMIT 25 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestFormula.test_breakdown_hogql_with_as_alias.1
+  '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+                      if(ifNull(notIn(cityHash64(breakdown_value), [15802005934875159175, 3507369097141014428]), 1), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -563,11 +783,11 @@
                        use_hive_partitioning=0
   '''
 # ---
-# name: TestFormula.test_breakdown_hogql_with_as_alias.1
+# name: TestFormula.test_breakdown_hogql_with_as_alias.2
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+                      if(ifNull(notIn(cityHash64(breakdown_value), [15802005934875159175, 3507369097141014428]), 1), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -611,9 +831,64 @@
 # ---
 # name: TestFormula.test_breakdown_with_different_breakdown_values_per_series
   '''
+  SELECT breakdown_value AS breakdown_value,
+         total AS total,
+         count() OVER () AS values_count,
+         sum(total) OVER () AS all_values_total,
+         cityHash64(breakdown_value) AS breakdown_value_hash
+  FROM
+    (SELECT breakdown_value AS breakdown_value,
+            sum(total) AS total
+     FROM
+       (SELECT breakdown_value AS breakdown_value,
+               sum(count) AS total
+        FROM
+          (SELECT sum(total) AS count,
+                  breakdown_value AS breakdown_value
+           FROM
+             (SELECT count() AS total,
+                     ifNull(nullIf(leftUTF8(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'location'), ''), 'null'), '^"|"$', '')), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+              FROM events AS e
+              WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session start'))
+              GROUP BY breakdown_value)
+           GROUP BY breakdown_value)
+        GROUP BY breakdown_value
+        UNION ALL SELECT breakdown_value AS breakdown_value,
+                         sum(count) AS total
+        FROM
+          (SELECT sum(total) AS count,
+                  breakdown_value AS breakdown_value
+           FROM
+             (SELECT count() AS total,
+                     ifNull(nullIf(leftUTF8(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'location'), ''), 'null'), '^"|"$', '')), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+              FROM events AS e
+              WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session end'))
+              GROUP BY breakdown_value)
+           GROUP BY breakdown_value)
+        GROUP BY breakdown_value)
+     WHERE isNotNull(breakdown_value)
+     GROUP BY breakdown_value)
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, total DESC,
+                                                                                                                                                                         breakdown_value ASC
+  LIMIT 25 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestFormula.test_breakdown_with_different_breakdown_values_per_series.1
+  '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+                      if(ifNull(notIn(cityHash64(breakdown_value), [15802005934875159175, 3507369097141014428, 15010945323047289263, 12356178675687749048]), 1), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -655,11 +930,11 @@
                        use_hive_partitioning=0
   '''
 # ---
-# name: TestFormula.test_breakdown_with_different_breakdown_values_per_series.1
+# name: TestFormula.test_breakdown_with_different_breakdown_values_per_series.2
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
-                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+                      if(ifNull(notIn(cityHash64(breakdown_value), [15802005934875159175, 3507369097141014428, 15010945323047289263, 12356178675687749048]), 1), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
     (SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
             arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)

@@ -113,6 +113,14 @@ def group_by_runtime(choices: tuple[ModelChoice, ...]) -> tuple[RuntimeGroup, ..
     )
 
 
+def find_model_choice(model: str | None, choices: tuple[ModelChoice, ...]) -> ModelChoice | None:
+    """Match a requested model id against the catalogue, case-insensitively."""
+    if not model:
+        return None
+    normalized = model_catalog.normalize_model_id(model)
+    return next((c for c in choices if model_catalog.normalize_model_id(c.model) == normalized), None)
+
+
 def _cache_quietly(key: str, value: tuple[GatewayModel, ...], timeout: int) -> None:
     """Caching is an optimization — an unreachable cache must not fail the caller."""
     try:
@@ -296,6 +304,7 @@ __all__ = [
     "offered_model_choices",
     "display_name_for_model",
     "filter_unsupported_effort",
+    "find_model_choice",
     "group_by_runtime",
     "label_for",
     "list_gateway_models",

@@ -194,6 +194,7 @@ export type SettingId =
     | 'error-tracking-custom-grouping'
     | 'error-tracking-exception-autocapture'
     | 'error-tracking-general'
+    | 'error-tracking-import'
     | 'error-tracking-ingestion-controls'
     | 'error-tracking-integrations'
     | 'error-tracking-rate-limits'
@@ -343,6 +344,7 @@ export type SettingId =
     | 'workflows-replay-vision-limits'
     | 'workflows-email-tracking-consent'
     | 'workflows-utm-defaults'
+    | 'workflows-email-run-link-tag'
     | 'workflows-engagement-events'
     | 'xaa-configuration'
 
