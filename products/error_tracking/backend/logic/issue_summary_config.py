@@ -18,6 +18,9 @@ ISSUE_SUMMARY_WRITE_BUDGET = Budget(burst=200, per_hour=60)
 # Summaries that people ask for spend this budget, so a burst of new issues and a person working through old issues
 # never take each other's tokens. It also stops a script that calls the summarize endpoint in a loop.
 ISSUE_SUMMARY_ON_DEMAND_BUDGET = Budget(burst=20, per_hour=20)
+# Every on-demand request spends one of these, including one that finds no stack trace and never reaches the model.
+# It caps the ClickHouse reads that the generation budget above does not count.
+ISSUE_SUMMARY_ON_DEMAND_ATTEMPT_BUDGET = Budget(burst=60, per_hour=60)
 
 # Holds one generation per issue at a time. The worker deletes its claim when it finishes, so the TTL only frees an
 # issue whose worker died.

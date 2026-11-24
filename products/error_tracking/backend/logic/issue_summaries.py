@@ -71,6 +71,7 @@ from products.error_tracking.backend.logic.issue_summary_config import (
     ISSUE_SUMMARY_LOCK_TTL_SECONDS,
     ISSUE_SUMMARY_MAX_OUTPUT_TOKENS,
     ISSUE_SUMMARY_MODEL,
+    ISSUE_SUMMARY_ON_DEMAND_ATTEMPT_BUDGET,
     ISSUE_SUMMARY_ON_DEMAND_BUDGET,
     ISSUE_SUMMARY_STACKTRACE_MAX_TOKENS,
     ISSUE_SUMMARY_WRITE_BUDGET,
@@ -99,6 +100,7 @@ logger = structlog.get_logger(__name__)
 
 ISSUE_SUMMARY_WRITE_BUDGET_KEY_PREFIX = "error_tracking_issue_summary_write"
 ISSUE_SUMMARY_ON_DEMAND_BUDGET_KEY_PREFIX = "error_tracking_issue_summary_on_demand"
+ISSUE_SUMMARY_ON_DEMAND_ATTEMPT_BUDGET_KEY_PREFIX = "error_tracking_issue_summary_on_demand_attempt"
 ISSUE_SUMMARY_LOCK_KEY_PREFIX = "error_tracking_issue_summary_lock"
 ISSUE_SUMMARY_AI_PRODUCT = "error_tracking_issue_summaries"
 ISSUE_SUMMARY_TASK_EVENT = "error_tracking_issue_summary_generation"
@@ -356,6 +358,12 @@ def generate_issue_summary_on_demand(team_id: int, issue_id: UUID | str, user: U
         return IssueSummaryResult(outcome=blocked, summary=None)
     if not summary_sources_readable(team_id, user):
         return IssueSummaryResult(outcome=IssueSummaryOutcome.RESTRICTED, summary=None)
+    attempt = consume(
+        f"{ISSUE_SUMMARY_ON_DEMAND_ATTEMPT_BUDGET_KEY_PREFIX}:{team_id}", ISSUE_SUMMARY_ON_DEMAND_ATTEMPT_BUDGET
+    )
+    if isinstance(attempt, BucketUnavailable) or not attempt.allowed:
+        record_outcome(team_id, issue_id, trigger, IssueSummaryOutcome.RATE_LIMITED)
+        return IssueSummaryResult(outcome=IssueSummaryOutcome.RATE_LIMITED, summary=None)
     return _generate_and_record(
         team_id,
         issue_id,

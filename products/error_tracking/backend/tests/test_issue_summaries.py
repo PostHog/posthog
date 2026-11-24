@@ -286,6 +286,11 @@ class TestIssueSummaryGeneration(BaseTest):
         self.enterContext(patch.object(issue_summaries, "ISSUE_SUMMARY_ON_DEMAND_BUDGET", tiny))
         consume(f"{issue_summaries.ISSUE_SUMMARY_ON_DEMAND_BUDGET_KEY_PREFIX}:{self.team.id}", tiny)
 
+    def _drain_on_demand_attempts(self) -> None:
+        tiny = Budget(burst=1, per_hour=1)
+        self.enterContext(patch.object(issue_summaries, "ISSUE_SUMMARY_ON_DEMAND_ATTEMPT_BUDGET", tiny))
+        consume(f"{issue_summaries.ISSUE_SUMMARY_ON_DEMAND_ATTEMPT_BUDGET_KEY_PREFIX}:{self.team.id}", tiny)
+
     def test_generates_and_stores_summary(self) -> None:
         assert self._generate_on_creation() == IssueSummaryOutcome.GENERATED
 
@@ -458,6 +463,12 @@ class TestIssueSummaryGeneration(BaseTest):
             (
                 "on_demand_budget_drained",
                 lambda test: test._drain_on_demand_budget(),
+                IssueSummaryOutcome.RATE_LIMITED,
+                True,
+            ),
+            (
+                "on_demand_attempts_drained",
+                lambda test: test._drain_on_demand_attempts(),
                 IssueSummaryOutcome.RATE_LIMITED,
                 True,
             ),
