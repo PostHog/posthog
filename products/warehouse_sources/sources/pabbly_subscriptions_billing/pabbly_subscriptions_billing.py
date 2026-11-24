@@ -80,10 +80,11 @@ def _fetch_page(
     limit: int,
     logger: FilteringBoundLogger,
     ignore_no_data_errors: bool,
+    single_object: bool = False,
 ) -> list[dict[str, Any]]:
     response = session.get(
         f"{PABBLY_BASE_URL}{path}",
-        params={"page": page, "limit": limit},
+        params=None if single_object else {"page": page, "limit": limit},
         timeout=REQUEST_TIMEOUT_SECONDS,
     )
 
@@ -116,7 +117,7 @@ def _fetch_page(
     if rows is None:
         return []
     if isinstance(rows, dict):
-        return [rows]
+        return [rows] if rows else []
     if not isinstance(rows, list):
         raise PabblyRetryableError(f"Pabbly returned an unexpected data field for {path}: {type(rows).__name__}")
     return rows
@@ -154,6 +155,15 @@ def _iter_children_of_parent(
     logger: FilteringBoundLogger,
 ) -> Iterator[list[dict[str, Any]]]:
     path = config.path.format(parent_id=parent_id)
+    if config.one_row_per_parent:
+        assert config.parent_field is not None
+        rows = _fetch_page(session, path, 1, PAGE_SIZE, logger, config.ignore_no_data_errors, single_object=True)
+        for row in rows:
+            row[config.parent_field] = parent_id
+        if rows:
+            yield rows
+        return
+
     page = 1
     while True:
         rows = _fetch_page(session, path, page, PAGE_SIZE, logger, config.ignore_no_data_errors)
