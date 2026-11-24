@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useContext, useEffect, useState } from 'react'
 
+import { RefreshContext } from '../refreshContext'
 import { cachedResult, runCachedQuery } from './queryCache'
 import type { QueryRequest, QueryResult, RunQuery } from './vizTypes'
 
@@ -29,16 +30,17 @@ export function afterRequestChange(previous: QueryFrames, cached: QueryFrames): 
     return unchanged(previous, cached) ? previous : cached
 }
 
-/** Runs a chart's query through the host's runner, and again whenever the query or its time range changes. */
+/** Runs a chart's query through the host's runner, and again when the query, its time range or the dashboard refresh changes. */
 export function useQueryFrames(request: QueryRequest, runQuery: RunQuery): QueryFrames {
     // An edit rebuilds the request object, so the query runs again only when its content changes.
     const queryKey = JSON.stringify(request)
+    const refresh = useContext(RefreshContext)
     const [result, setResult] = useState<QueryFrames>(() => initial(runQuery, queryKey))
     useEffect(() => {
         let cancelled = false
         const show = (next: QueryFrames): void => setResult((previous) => (unchanged(previous, next) ? previous : next))
         setResult((previous) => afterRequestChange(previous, initial(runQuery, queryKey)))
-        runCachedQuery(runQuery, queryKey).then(
+        runCachedQuery(runQuery, queryKey, refresh).then(
             (result) => !cancelled && show({ status: 'ready', refreshing: false, ...result }),
             (error: unknown) =>
                 !cancelled && show({ status: 'error', message: error instanceof Error ? error.message : String(error) })
@@ -46,6 +48,6 @@ export function useQueryFrames(request: QueryRequest, runQuery: RunQuery): Query
         return () => {
             cancelled = true
         }
-    }, [queryKey, runQuery])
+    }, [queryKey, runQuery, refresh])
     return result
 }

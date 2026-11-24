@@ -18,6 +18,23 @@ describe('queryCache', () => {
         expect(cachedResult(runQuery, KEY)).toBe(RESULT)
     })
 
+    it('runs a query again after a refresh, and once for every tile showing it', async () => {
+        const fresh: QueryResult = { frames: [{ fields: [] }] }
+        const runQuery = jest
+            .fn<ReturnType<RunQuery>, Parameters<RunQuery>>()
+            .mockResolvedValueOnce(RESULT)
+            .mockResolvedValue(fresh)
+
+        await runCachedQuery(runQuery, KEY)
+        const first = runCachedQuery(runQuery, KEY, 1)
+        const second = runCachedQuery(runQuery, KEY, 1)
+
+        await expect(first).resolves.toBe(fresh)
+        await expect(second).resolves.toBe(fresh)
+        expect(runQuery).toHaveBeenCalledTimes(2)
+        expect(cachedResult(runQuery, KEY)).toBe(fresh)
+    })
+
     it('runs a failed query again on the next mount', async () => {
         const runQuery = jest
             .fn<ReturnType<RunQuery>, Parameters<RunQuery>>()

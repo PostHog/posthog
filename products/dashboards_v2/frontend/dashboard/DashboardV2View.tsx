@@ -13,6 +13,7 @@ import { stackTiles } from '../grid/gridTiles'
 import { CapturingTileContext, TileMountContext, createTileMountScheduler } from '../grid/tileMounting'
 import { DashboardTileGrid } from '../tiles/DashboardTileGrid'
 import { PresentedTile } from '../tiles/PresentedTile'
+import { RefreshContext } from '../widgets/refreshContext'
 import { DEFAULT_TIME_RANGE, TimeRangeContext } from '../widgets/timeRangeContext'
 import { sizeOfWidgets } from '../widgets/widgetSpec'
 import { withFolds } from './dashboardEdits'
@@ -21,6 +22,7 @@ import { type Dashboard, GRID, activeGridTab, gridTabs } from './dashboardTypes'
 import { type DashboardV2Controller, type DashboardV2State, DashboardV2StateContext } from './dashboardV2Context'
 import { DashboardV2Tabs } from './DashboardV2Tabs'
 import { findTile } from './tileTree'
+import { useDashboardRefresh } from './useDashboardRefresh'
 
 // A stacked column is not the saved layout, so only dragging and resizing tiles in it is blocked.
 const STACKED_REASON = 'Open this dashboard on a wider screen to arrange tiles'
@@ -38,7 +40,6 @@ function isTyping(target: EventTarget | null): boolean {
     )
 }
 
-/** A whole dashboard: tabs and grid. Its own state is only what the screen and a drag in progress decide. */
 /** The image's file name and the toasts while it is drawn. */
 function imageWords(
     dashboard: Dashboard,
@@ -72,6 +73,7 @@ function imageWords(
     return { file: dashboard.title, pending: 'Drawing every tile', success: 'Image downloaded' }
 }
 
+/** A whole dashboard: tabs and grid. Its own state is only what the screen and a drag in progress decide. */
 export function DashboardV2View({ controller, header }: DashboardV2ViewProps): JSX.Element {
     const { width, containerRef, mounted } = useContainerWidth()
     const stacked = width > 0 && width < GRID.stackBelowPx
@@ -85,6 +87,7 @@ export function DashboardV2View({ controller, header }: DashboardV2ViewProps): J
     )
     const rootRef = useRef<HTMLDivElement>(null)
     const [presentedTileId, presentTile] = useState<string | null>(null)
+    const refresh = useDashboardRefresh(controller.refresh)
     // A capture mounts what it shows, so the image has no placeholders: the whole tab, or with `tileId` that tile only.
     const [capturing, setCapturing] = useState<{ tileId?: string } | null>(null)
     const downloadingImage = capturing !== null
@@ -131,8 +134,19 @@ export function DashboardV2View({ controller, header }: DashboardV2ViewProps): J
             downloadingImage,
             presentedTileId,
             presentTile,
+            refresh: refresh.button,
         }
-    }, [controller, stacked, sizeOf, folds, onSectionFoldedChange, downloadImage, downloadingImage, presentedTileId])
+    }, [
+        controller,
+        stacked,
+        sizeOf,
+        folds,
+        onSectionFoldedChange,
+        downloadImage,
+        downloadingImage,
+        presentedTileId,
+        refresh.button,
+    ])
     const drag = useMemo<GridDragState>(() => ({ dropTarget, setDropTarget }), [dropTarget])
     const [mountScheduler] = useState(createTileMountScheduler)
     useEffect(() => () => mountScheduler.dispose(), [mountScheduler])
@@ -170,37 +184,39 @@ export function DashboardV2View({ controller, header }: DashboardV2ViewProps): J
         <DashboardV2StateContext.Provider value={state}>
             <GridDragContext.Provider value={drag}>
                 <TimeRangeContext.Provider value={controller.dashboard.time ?? DEFAULT_TIME_RANGE}>
-                    <TileMountContext.Provider value={capturing && !capturing.tileId ? null : mountScheduler}>
-                        <CapturingTileContext.Provider value={capturing?.tileId ?? null}>
-                            <div
-                                ref={rootRef}
-                                data-quill
-                                className={clsx(
-                                    'DashboardV2 flex shrink-0 flex-col gap-4 p-4 min-h-full bg-background text-foreground',
-                                    downloadingImage && 'DashboardV2View--capturing'
-                                )}
-                            >
-                                {header}
-                                <DashboardV2Tabs />
+                    <RefreshContext.Provider value={refresh.count}>
+                        <TileMountContext.Provider value={capturing && !capturing.tileId ? null : mountScheduler}>
+                            <CapturingTileContext.Provider value={capturing?.tileId ?? null}>
                                 <div
-                                    ref={containerRef as RefObject<HTMLDivElement>}
-                                    className="DashboardV2View__canvas"
-                                >
-                                    {mounted && width > 0 && (
-                                        <DashboardTileGrid
-                                            key={`${activeTab.id}-${stacked ? 'stacked' : 'grid'}`}
-                                            gridId={activeTab.id}
-                                            tiles={tiles}
-                                            cols={GRID.columns}
-                                            width={width}
-                                            editable={can('placeTiles')}
-                                        />
+                                    ref={rootRef}
+                                    data-quill
+                                    className={clsx(
+                                        'DashboardV2 flex shrink-0 flex-col gap-4 p-4 min-h-full bg-background text-foreground',
+                                        downloadingImage && 'DashboardV2View--capturing'
                                     )}
+                                >
+                                    {header}
+                                    <DashboardV2Tabs />
+                                    <div
+                                        ref={containerRef as RefObject<HTMLDivElement>}
+                                        className="DashboardV2View__canvas"
+                                    >
+                                        {mounted && width > 0 && (
+                                            <DashboardTileGrid
+                                                key={`${activeTab.id}-${stacked ? 'stacked' : 'grid'}`}
+                                                gridId={activeTab.id}
+                                                tiles={tiles}
+                                                cols={GRID.columns}
+                                                width={width}
+                                                editable={can('placeTiles')}
+                                            />
+                                        )}
+                                    </div>
                                 </div>
-                            </div>
-                            <PresentedTile />
-                        </CapturingTileContext.Provider>
-                    </TileMountContext.Provider>
+                                <PresentedTile />
+                            </CapturingTileContext.Provider>
+                        </TileMountContext.Provider>
+                    </RefreshContext.Provider>
                 </TimeRangeContext.Provider>
             </GridDragContext.Provider>
         </DashboardV2StateContext.Provider>

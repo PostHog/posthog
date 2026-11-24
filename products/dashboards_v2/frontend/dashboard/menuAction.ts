@@ -20,7 +20,16 @@ export interface MenuAction {
      * elsewhere, and `display` for how it looks. Left out, it sits with the other actions, first. A `destructive` action
      * always sits last, on its own.
      */
-    group?: 'dashboard' | 'view' | 'display'
+    group?: MenuGroup
     /** Picking it leaves the menu open, for a choice someone may want to compare with the next one. */
     keepOpen?: boolean
 }
+
+/** In menu order, after the ungrouped actions. */
+export const MENU_GROUPS = [
+    { group: 'dashboard', label: 'Dashboard' },
+    { group: 'view', label: 'View & share' },
+    { group: 'display', label: 'Display' },
+] as const
+
+export type MenuGroup = (typeof MENU_GROUPS)[number]['group']
