@@ -18,6 +18,7 @@ from posthog.project_creation_limits import (
     membership_can_create_projects,
     organization_project_limit_reached,
 )
+from posthog.scopes.checks import scopes_not_covered
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 
@@ -47,7 +48,14 @@ class ProjectCreationRefusedError(Exception):
 PROJECT_CREATION_FORBIDDEN_CODE = "forbidden"
 PROJECT_LIMIT_REACHED_CODE = "project_limit_reached"
 
+PROJECT_RENAME_SCOPE = "project:write"
+
 UNCLAIMED_PROJECT_ID = Q(stripe_project_id__isnull=True) | Q(stripe_project_id="")
+
+
+def _token_can_rename_project(access_token: OAuthAccessToken) -> bool:
+    held_scopes = (access_token.scope or "").split()
+    return "*" in held_scopes or not scopes_not_covered(held_scopes, [PROJECT_RENAME_SCOPE])
 
 
 def _user_can_administer_team(user: User, team: Team) -> bool:
@@ -184,8 +192,13 @@ def resolve_or_create_project_team(
     except IntegrityError:
         return _resolve_race_winner(project_id, scoped_teams, user, access_token, enforce_ip_policy)
     if claimed_team is not None:
-        # Renaming a project needs project admin access everywhere else, so a member keeps the existing name.
-        if "project_name" in configuration and _user_can_administer_team(user, claimed_team):
+        # Renaming a project needs a token that covers project:write and project admin access
+        # everywhere else, so without both the claimed project keeps its existing name.
+        if (
+            "project_name" in configuration
+            and _token_can_rename_project(access_token)
+            and _user_can_administer_team(user, claimed_team)
+        ):
             claimed_team.name = configuration["project_name"]
             claimed_team.save(update_fields=["name"])
         return ensure_team_in_token_scopes(access_token, scoped_teams, claimed_team)

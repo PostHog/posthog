@@ -25,6 +25,7 @@ from ee.api.agentic_provisioning.test.base import ProvisioningTestBase, provisio
 RESOURCES_URL = "/api/agentic/provisioning/resources"
 UNLIMITED_PROJECTS_FEATURE = {"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": "Projects", "limit": None}
 ONE_PROJECT_FEATURE = {"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": "Projects", "limit": 1}
+PROJECT_WRITE_SCOPES = ["query:read", "project:write"]
 MEMBERS_CAN_CREATE_PROJECTS_FEATURE = {
     "key": AvailableFeature.ORGANIZATION_INVITE_SETTINGS,
     "name": AvailableFeature.ORGANIZATION_INVITE_SETTINGS,
@@ -37,6 +38,12 @@ class TestProvisioningResources(ProvisioningTestBase):
         self._set_organization_features([UNLIMITED_PROJECTS_FEATURE])
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
+
+    def _bearer_token_with_scopes(self, scopes: list[str]) -> str:
+        # The partner's own scopes cap what a token can carry, so widen them first.
+        self.partner.scopes = sorted({*self.partner.scopes, *scopes})
+        self.partner.save()
+        return self._request_bearer_token(scopes=scopes).json()["access_token"]
 
     def _set_organization_features(self, features: list[dict]) -> None:
         self.organization.available_product_features = features
@@ -101,7 +108,7 @@ class TestProvisioningResources(ProvisioningTestBase):
     def test_first_new_project_id_claims_the_partner_project_and_a_second_is_refused_on_free_plan(self) -> None:
         self._set_organization_features([])
         TeamProvisioningConfig.objects.create(team=self.team, application=self.partner)
-        token = self._get_bearer_token()
+        token = self._bearer_token_with_scopes(PROJECT_WRITE_SCOPES)
 
         first = self._post_with_bearer(
             RESOURCES_URL,
@@ -122,19 +129,20 @@ class TestProvisioningResources(ProvisioningTestBase):
 
     @parameterized.expand(
         [
-            ("admin", OrganizationMembership.Level.ADMIN, "Partner app"),
-            ("member", OrganizationMembership.Level.MEMBER, "Bootstrap project"),
+            ("admin", OrganizationMembership.Level.ADMIN, PROJECT_WRITE_SCOPES, "Partner app"),
+            ("admin_with_a_read_only_token", OrganizationMembership.Level.ADMIN, ["query:read"], "Bootstrap project"),
+            ("member", OrganizationMembership.Level.MEMBER, PROJECT_WRITE_SCOPES, "Bootstrap project"),
         ]
     )
-    def test_claim_applies_the_requested_name_only_for_project_admins(
-        self, _name: str, level: OrganizationMembership.Level, expected_name: str
+    def test_claim_applies_the_requested_name_only_for_project_admins_with_project_write(
+        self, _name: str, level: OrganizationMembership.Level, scopes: list[str], expected_name: str
     ) -> None:
         self.organization_membership.level = level
         self.organization_membership.save()
         self.team.name = "Bootstrap project"
         self.team.save()
         TeamProvisioningConfig.objects.create(team=self.team, application=self.partner)
-        token = self._get_bearer_token()
+        token = self._bearer_token_with_scopes(scopes)
 
         res = self._post_with_bearer(
             RESOURCES_URL,
