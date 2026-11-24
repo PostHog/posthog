@@ -1,61 +1,20 @@
 import { useActions, useValues } from 'kea'
 import { type RefObject, useState } from 'react'
 
-import { IconCopy, IconDownload, IconShare } from '@posthog/icons'
+import { IconDownload } from '@posthog/icons'
 import { LemonButton, lemonToast } from '@posthog/lemon-ui'
 
 import { downloadBlob } from 'lib/components/ExportButton/exporter'
 
 import { mcpWrappedLogic } from './mcpWrappedLogic'
-import { canShareFiles, captureShareCard, copyShareCard, shareShareCard } from './shareImage'
-import { ARCHETYPE_NAMES } from './storyCards'
+import { captureShareCard } from './shareImage'
 
-const MCP_ANALYTICS_URL = 'https://posthog.com/mcp-analytics'
-
-/** Share, copy and download for the share card. It sits under the card, so it is never part of the picture. */
+/** Downloads the share card as an image. It sits under the card, so it is never part of the picture. */
 export function ShareActions({ cardRef }: { cardRef: RefObject<HTMLDivElement> }): JSX.Element {
     const { wrapped } = useValues(mcpWrappedLogic)
     const { shareCaptured } = useActions(mcpWrappedLogic)
     const [busy, setBusy] = useState(false)
     const year = wrapped?.year ?? new Date().getFullYear()
-    const archetype = wrapped ? ARCHETYPE_NAMES[wrapped.cards.archetype.archetype] : null
-    const fileName = `mcp-wrapped-${year}.png`
-    const disabledReason = busy ? 'Creating the image' : undefined
-
-    const share = async (): Promise<void> => {
-        if (!cardRef.current) {
-            return
-        }
-        setBusy(true)
-        const outcome = await shareShareCard(
-            cardRef.current,
-            fileName,
-            archetype
-                ? `Our MCP server got its ${year} Wrapped: ${archetype}. What's yours? ${MCP_ANALYTICS_URL}`
-                : `Our MCP server got its ${year} Wrapped. What's yours? ${MCP_ANALYTICS_URL}`
-        )
-        setBusy(false)
-        if (outcome === 'done') {
-            shareCaptured('share')
-        } else if (outcome !== 'cancelled') {
-            lemonToast.error('Couldn’t share the image. Try Download instead.')
-        }
-    }
-
-    const copy = async (): Promise<void> => {
-        if (!cardRef.current) {
-            return
-        }
-        setBusy(true)
-        const outcome = await copyShareCard(cardRef.current)
-        setBusy(false)
-        if (outcome === 'done') {
-            lemonToast.success('Image copied')
-            shareCaptured('copy')
-        } else {
-            lemonToast.error('Couldn’t copy the image. Try Download instead.')
-        }
-    }
 
     const download = async (): Promise<void> => {
         if (!cardRef.current) {
@@ -63,7 +22,7 @@ export function ShareActions({ cardRef }: { cardRef: RefObject<HTMLDivElement> }
         }
         setBusy(true)
         try {
-            downloadBlob(await captureShareCard(cardRef.current), fileName)
+            downloadBlob(await captureShareCard(cardRef.current), `mcp-wrapped-${year}.png`)
             shareCaptured('download')
         } catch {
             lemonToast.error('Couldn’t create the image. Try again.')
@@ -73,35 +32,13 @@ export function ShareActions({ cardRef }: { cardRef: RefObject<HTMLDivElement> }
     }
 
     return (
-        <div className="mt-3 flex justify-center gap-2">
-            {canShareFiles() && (
-                <LemonButton
-                    type="primary"
-                    size="small"
-                    icon={<IconShare />}
-                    onClick={() => void share()}
-                    disabledReason={disabledReason}
-                    data-attr="mcp-wrapped-share-native"
-                >
-                    Share
-                </LemonButton>
-            )}
+        <div className="mt-3 flex justify-center">
             <LemonButton
-                type={canShareFiles() ? 'secondary' : 'primary'}
-                size="small"
-                icon={<IconCopy />}
-                onClick={() => void copy()}
-                disabledReason={disabledReason}
-                data-attr="mcp-wrapped-share-copy"
-            >
-                Copy image
-            </LemonButton>
-            <LemonButton
-                type="secondary"
-                size="small"
+                type="primary"
+                className="MCPWrapped__download"
                 icon={<IconDownload />}
                 onClick={() => void download()}
-                disabledReason={disabledReason}
+                loading={busy}
                 data-attr="mcp-wrapped-share-download"
             >
                 Download

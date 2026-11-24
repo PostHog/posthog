@@ -9,7 +9,10 @@ import {
     formatDuration,
     formatPercent,
     reliabilityLine,
+    reliabilityTier,
     speedLine,
+    speedTier,
+    dayPart,
     peakMultiple,
     rushHourLine,
     wrappableToolName,
@@ -136,13 +139,16 @@ describe('storyCards', () => {
         expect(formatDuration(ms)).toBe(expected)
     })
 
+    // The tier picks the card's color, so it has to agree with the line on every side of each boundary.
     it.each([
-        [0.999, 'Your server rarely missed a beat.'],
-        [0.96, 'Your agents could count on you.'],
-        [0.92, 'Mostly on point, with a few bumps.'],
-        [0.8, 'A bumpy year, with room to improve.'],
-    ])('describes a success rate of %d', (rate, expected) => {
-        expect(reliabilityLine(rate)).toBe(expected)
+        [0.999, 'Your server rarely missed a beat.', 'healthy'],
+        [0.95, 'Your agents could count on you.', 'healthy'],
+        [0.949, 'Mostly on point, with a few bumps.', 'bumpy'],
+        [0.9, 'Mostly on point, with a few bumps.', 'bumpy'],
+        [0.8, 'A bumpy year, with room to improve.', 'rough'],
+    ])('describes a success rate of %d', (rate, line, tier) => {
+        expect(reliabilityLine(rate)).toBe(line)
+        expect(reliabilityTier(rate)).toBe(tier)
     })
 
     it.each([
@@ -155,12 +161,25 @@ describe('storyCards', () => {
     })
 
     it.each([
-        [120, 'Lightning fast.'],
-        [450, 'Quick on the draw.'],
-        [4000, 'Your agents rarely waited long.'],
-        [7100, 'Some calls kept agents waiting.'],
-    ])('describes a p95 of %d ms', (p95, expected) => {
-        expect(speedLine(p95)).toBe(expected)
+        [120, 'Lightning fast.', 'fast'],
+        [999, 'Quick on the draw.', 'fast'],
+        [1000, 'Your agents rarely waited long.', 'steady'],
+        [4999, 'Your agents rarely waited long.', 'steady'],
+        [5000, 'Some calls kept agents waiting.', 'slow'],
+    ])('describes a p95 of %d ms', (p95, line, tier) => {
+        expect(speedLine(p95)).toBe(line)
+        expect(speedTier(p95)).toBe(tier)
+    })
+
+    it.each([
+        [4, false, 'night'],
+        [5, false, 'morning'],
+        [9, false, 'day'],
+        [17, false, 'evening'],
+        [22, false, 'night'],
+        [14, true, 'night'],
+    ])('puts a busiest hour of %i (night shift: %s) in the %s', (hour, nightShift, part) => {
+        expect(dayPart(hour, nightShift)).toBe(part)
     })
 
     it.each([

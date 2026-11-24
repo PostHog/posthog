@@ -1,18 +1,23 @@
 import { IconStar, IconWarning } from '@posthog/icons'
 
 import type { MCPWrappedReliabilityCardApi } from '../../generated/api.schemas'
-import { errorLine, formatCallCount, formatPercent, reliabilityLine } from '../storyCards'
+import { errorLine, formatCallCount, formatPercent, reliabilityLine, reliabilityTier } from '../storyCards'
 import { WrappedCard } from '../WrappedCard'
+import { RELIABILITY_THEMES } from '../wrappedTheme'
 import { ToolAward } from './ToolAward'
 
 export function ReliabilityCard({ card }: { card: MCPWrappedReliabilityCardApi }): JSX.Element {
     const { most_reliable_tool: mvp, struggling_tool: struggling } = card
     const errors = errorLine(card.success_rate)
     return (
-        <WrappedCard cardKey="reliability" kicker="Reliability">
+        <WrappedCard
+            cardKey="reliability"
+            kicker="Reliability"
+            theme={RELIABILITY_THEMES[reliabilityTier(card.success_rate)]}
+        >
             <div className="MCPWrapped__pop flex flex-wrap items-baseline gap-x-2">
-                <span className="text-5xl font-bold leading-none tabular-nums">{formatPercent(card.success_rate)}</span>
-                <span className="text-xl font-bold">error-free</span>
+                <span className="text-6xl font-bold leading-none tabular-nums">{formatPercent(card.success_rate)}</span>
+                <span className="text-2xl font-bold">error-free</span>
             </div>
             <p className="MCPWrapped__rise m-0 text-base">
                 <strong className="block">{reliabilityLine(card.success_rate)}</strong>

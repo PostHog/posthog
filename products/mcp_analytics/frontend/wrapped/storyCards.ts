@@ -235,6 +235,30 @@ export function formatTimezone(timezone: string): string {
     }
 }
 
+export type DayPart = 'morning' | 'day' | 'evening' | 'night'
+
+/** Where in the day the busiest hour falls, on the same boundaries rushHourLine uses. */
+export function dayPart(hour: number, nightShift: boolean): DayPart {
+    if (nightShift || hour >= 22 || hour < 5) {
+        return 'night'
+    }
+    return hour < 9 ? 'morning' : hour < 17 ? 'day' : 'evening'
+}
+
+export type ReliabilityTier = 'healthy' | 'bumpy' | 'rough'
+
+/** How the year went for errors, on the same boundaries reliabilityLine uses. */
+export function reliabilityTier(rate: number): ReliabilityTier {
+    return rate >= 0.95 ? 'healthy' : rate >= 0.9 ? 'bumpy' : 'rough'
+}
+
+export type SpeedTier = 'fast' | 'steady' | 'slow'
+
+/** How quick answers came back, on the same boundaries speedLine uses. */
+export function speedTier(p95Ms: number): SpeedTier {
+    return p95Ms < 1000 ? 'fast' : p95Ms < 5000 ? 'steady' : 'slow'
+}
+
 /** One line on what the busiest hour says about the agents. Weekday runs 1 (Monday) to 7 (Sunday). */
 export function rushHourLine(weekday: number, hour: number, nightShift: boolean): string {
     if (nightShift || hour >= 22 || hour < 5) {

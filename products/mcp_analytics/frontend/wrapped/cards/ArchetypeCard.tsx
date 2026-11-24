@@ -1,7 +1,7 @@
 import type { MCPWrappedArchetypeCardApi } from '../../generated/api.schemas'
 import { ARCHETYPE_NAMES, ARCHETYPE_TAGLINES, formatDuration, formatPercent } from '../storyCards'
 import { WrappedCard } from '../WrappedCard'
-import { ARCHETYPE_HOGGIES } from '../wrappedTheme'
+import { ARCHETYPE_HOGGIES, archetypeTheme } from '../wrappedTheme'
 
 function describe(card: MCPWrappedArchetypeCardApi): string {
     const evidence = card.evidence ?? 0
@@ -28,7 +28,12 @@ function describe(card: MCPWrappedArchetypeCardApi): string {
 export function ArchetypeCard({ card }: { card: MCPWrappedArchetypeCardApi }): JSX.Element {
     const Hoggie = ARCHETYPE_HOGGIES[card.archetype]
     return (
-        <WrappedCard cardKey="archetype" kicker="Your server's personality" hideHoggie>
+        <WrappedCard
+            cardKey="archetype"
+            kicker="Your server's personality"
+            theme={archetypeTheme(card.archetype)}
+            hideHoggie
+        >
             <h2 className="MCPWrapped__pop m-0 text-4xl font-bold leading-tight">{ARCHETYPE_NAMES[card.archetype]}</h2>
             <p className="MCPWrapped__rise m-0 text-base">
                 <strong className="block">{ARCHETYPE_TAGLINES[card.archetype]}</strong>

@@ -1,31 +1,28 @@
-import { ComponentType, forwardRef } from 'react'
-
-import { HoggiePngProps } from 'lib/brand/hoggies'
-import { cn } from 'lib/utils/css-classes'
+import { forwardRef } from 'react'
 
 import type { WrappedCardKey } from './storyCards'
-import { CARD_THEMES } from './wrappedTheme'
+import { CARD_THEMES, type WrappedCardTheme } from './wrappedTheme'
 
 export interface WrappedCardProps {
     cardKey: WrappedCardKey
     kicker: string
     children: React.ReactNode
-    hoggie?: ComponentType<HoggiePngProps>
+    // For a card whose data picks its ground and hedgehog, in place of the card's fixed theme.
+    theme?: WrappedCardTheme
     // For a card that shows its own, larger hedgehog instead of the one in the corner.
     hideHoggie?: boolean
 }
 
 /** The poster every story card sits on: its ground, a small heading, and a hedgehog in the corner. */
 export const WrappedCard = forwardRef<HTMLDivElement, WrappedCardProps>(function WrappedCard(
-    { cardKey, kicker, children, hoggie, hideHoggie },
+    { cardKey, kicker, children, theme = CARD_THEMES[cardKey], hideHoggie },
     ref
 ): JSX.Element {
-    const theme = CARD_THEMES[cardKey]
-    const Hoggie = hoggie ?? theme.hoggie
+    const Hoggie = theme.hoggie
     return (
         <div
             ref={ref}
-            className={cn('MCPWrapped__card', theme.light && 'MCPWrapped__card--light')}
+            className="MCPWrapped__card"
             style={{ background: theme.background }}
             data-attr={`mcp-wrapped-card-${cardKey}`}
         >

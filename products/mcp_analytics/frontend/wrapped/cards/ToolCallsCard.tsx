@@ -1,9 +1,9 @@
-import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import type { MCPWrappedToolCallsCardApi } from '../../generated/api.schemas'
 import { chartMonths, formatCallCount, formatCompact, formatMonth } from '../storyCards'
 import { WrappedCard } from '../WrappedCard'
+import { StoryBar } from './StoryBar'
 
 export function ToolCallsCard({ card }: { card: MCPWrappedToolCallsCardApi }): JSX.Element {
     const months = chartMonths(card.months)
@@ -29,29 +29,19 @@ export function ToolCallsCard({ card }: { card: MCPWrappedToolCallsCardApi }): J
                         ` Calls grew ${card.growth_multiple}× since ${formatMonth(card.months[1]?.month ?? card.months[0].month)}.`}
                 </p>
             )}
+            {/* Fewer months get thicker bars, so a short year still fills the card and a long one still fits. */}
             <ol className="m-0 mt-2 flex list-none flex-col gap-2 p-0" aria-label="Tool calls by month">
                 {months.map((month, index) => (
-                    <li
+                    <StoryBar
                         key={month.month}
-                        className="MCPWrapped__rise grid grid-cols-[2.25rem_1fr_3rem] items-center gap-2 text-sm tabular-nums"
-                        style={{ animationDelay: `${index * 80}ms` }}
-                    >
-                        <span>{formatMonth(month.month, 'short')}</span>
-                        <span className="h-3 overflow-hidden rounded-full bg-white/20">
-                            <span
-                                className={cn(
-                                    'MCPWrapped__grow-x block h-full rounded-full',
-                                    month.calls === busiest ? 'bg-white' : 'bg-white/60'
-                                )}
-                                style={{
-                                    width: `${Math.max(2, (month.calls / busiest) * 100)}%`,
-                                    animationDelay: `${index * 80}ms`,
-                                }}
-                                title={`${humanFriendlyNumber(month.calls)} calls`}
-                            />
-                        </span>
-                        <span className="text-right">{formatCompact(month.calls)}</span>
-                    </li>
+                        index={index}
+                        label={formatMonth(month.month, 'short')}
+                        value={formatCompact(month.calls)}
+                        fraction={month.calls / busiest}
+                        emphasized={month.calls === busiest}
+                        size={months.length <= 4 ? 'large' : months.length <= 6 ? 'medium' : 'small'}
+                        title={`${humanFriendlyNumber(month.calls)} calls`}
+                    />
                 ))}
             </ol>
         </WrappedCard>

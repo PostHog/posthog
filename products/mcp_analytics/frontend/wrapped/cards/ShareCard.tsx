@@ -18,7 +18,7 @@ import {
     wrappableToolName,
 } from '../storyCards'
 import { WrappedCard } from '../WrappedCard'
-import { ARCHETYPE_HOGGIES } from '../wrappedTheme'
+import { ARCHETYPE_HOGGIES, shareTheme } from '../wrappedTheme'
 import { SharePlug } from './SharePlug'
 
 // Each number gets its own brand colour, so the list reads like a poster rather than a table.
@@ -78,7 +78,13 @@ export const ShareCard = forwardRef<HTMLDivElement, { cards: MCPWrappedCardsApi;
         const Hoggie = ARCHETYPE_HOGGIES[archetype]
         const tiles = shareTiles(cards)
         return (
-            <WrappedCard ref={ref} cardKey="share" kicker={`MCP Wrapped ${year} · by PostHog`} hideHoggie>
+            <WrappedCard
+                ref={ref}
+                cardKey="share"
+                kicker={`MCP Wrapped ${year} · by PostHog`}
+                theme={shareTheme(archetype)}
+                hideHoggie
+            >
                 <div className="MCPWrapped__rise">
                     <div className="text-base opacity-75">
                         <strong>{projectName}</strong>'s MCP server is
@@ -104,7 +110,7 @@ export const ShareCard = forwardRef<HTMLDivElement, { cards: MCPWrappedCardsApi;
                         >
                             <StatIcon tile={tile} />
                             <div className="min-w-0">
-                                <dt className="text-xs opacity-60">{tile.label}</dt>
+                                <dt className="text-xs opacity-75">{tile.label}</dt>
                                 <dd className={cn('m-0 font-bold', valueClassName(tile))} title={tile.value}>
                                     {tile.kind === 'tool' ? wrappableToolName(tile.value) : tile.value}
                                 </dd>

@@ -3,6 +3,7 @@ import { cn } from 'lib/utils/css-classes'
 import type { MCPWrappedTopToolsCardApi } from '../../generated/api.schemas'
 import { formatCallCount, formatPercent, toolNameSize } from '../storyCards'
 import { WrappedCard } from '../WrappedCard'
+import { StoryBar } from './StoryBar'
 
 export function TopToolsCard({
     card,
@@ -34,31 +35,22 @@ export function TopToolsCard({
                     </p>
                 </>
             )}
-            <ol className="m-0 mt-2 flex list-none flex-col gap-3 p-0">
+            <ol className="m-0 mt-2 flex list-none flex-col gap-2 p-0" aria-label="Most-called tools">
                 {card.tools.map((tool, index) => (
-                    <li
+                    <StoryBar
                         key={tool.tool}
-                        className="MCPWrapped__rise grid grid-cols-[1.25rem_1fr_auto] items-center gap-x-2 gap-y-1.5 text-sm tabular-nums"
-                        style={{ animationDelay: `${index * 80}ms` }}
-                    >
-                        <span className="font-bold">{index + 1}</span>
-                        <span className="truncate font-mono" title={tool.tool}>
-                            {tool.tool}
-                        </span>
-                        <span title={`${tool.calls.toLocaleString('en-US')} calls`}>{formatCallCount(tool.calls)}</span>
-                        <span className="col-span-2 col-start-2 h-3 overflow-hidden rounded-full bg-white/20">
-                            <span
-                                className={cn(
-                                    'MCPWrapped__grow-x block h-full rounded-full',
-                                    index === 0 ? 'bg-white' : 'bg-white/60'
-                                )}
-                                style={{
-                                    width: `${Math.max(2, (tool.calls / busiest) * 100)}%`,
-                                    animationDelay: `${index * 80}ms`,
-                                }}
-                            />
-                        </span>
-                    </li>
+                        index={index}
+                        label={
+                            <>
+                                <span className="w-3 shrink-0">{index + 1}</span>
+                                <span className="truncate font-mono">{tool.tool}</span>
+                            </>
+                        }
+                        value={formatCallCount(tool.calls)}
+                        fraction={tool.calls / busiest}
+                        emphasized={index === 0}
+                        title={`${tool.tool}: ${tool.calls.toLocaleString('en-US')} calls`}
+                    />
                 ))}
             </ol>
         </WrappedCard>
