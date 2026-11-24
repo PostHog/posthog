@@ -43,7 +43,6 @@ export function EvaluationResultExpanded({ row }: { row: EvaluationResultApi }):
         return <EvaluationDrawerEmptyState row={row} />
     }
 
-    // The drawer steps through the examples, so the trace drawer gets all of them as its list.
     const openExample = (example: EvaluationExample, examples: EvaluationExample[]): void => {
         const rows: TraceListRow[] = examples.flatMap(({ run }) =>
             run.traceId

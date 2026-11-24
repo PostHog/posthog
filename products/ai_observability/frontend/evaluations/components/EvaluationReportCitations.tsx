@@ -1,6 +1,8 @@
 import { useValues } from 'kea'
 import { router } from 'kea-router'
 
+import { LemonDivider } from '@posthog/lemon-ui'
+
 import { dayjs } from 'lib/dayjs'
 
 import { reportCitationSamplesLogic } from '../reportCitationSamplesLogic'
@@ -88,17 +90,20 @@ export function EvaluationReportCitations({
         return null
     }
     return (
-        <EvaluationDrawerSection
-            title="Cited examples"
-            subtitle="The traces the report points to. Open one to read it."
-        >
-            <CitationRows
-                runId={runId}
-                periodStart={periodStart}
-                periodEnd={periodEnd}
-                rows={rows}
-                onOpenTrace={onOpenTrace}
-            />
-        </EvaluationDrawerSection>
+        <>
+            <LemonDivider className="my-0" />
+            <EvaluationDrawerSection
+                title="Cited examples"
+                subtitle="The traces the report points to. Open one to read it."
+            >
+                <CitationRows
+                    runId={runId}
+                    periodStart={periodStart}
+                    periodEnd={periodEnd}
+                    rows={rows}
+                    onOpenTrace={onOpenTrace}
+                />
+            </EvaluationDrawerSection>
+        </>
     )
 }

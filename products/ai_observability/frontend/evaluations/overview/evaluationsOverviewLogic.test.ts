@@ -642,7 +642,6 @@ describe('evaluationsOverviewLogic', () => {
         expect(requests.map((params) => params.get('evaluation_ids'))).toEqual([
             'worse-5,worse-sentiment,worse-12,worse-8',
         ])
-        // The filter pills keep counting the whole scope while one of them narrows the page.
         expect(logic.values.attentionCounts).toMatchObject({ all: 8, any: 6, worse: 4 })
     })
 
@@ -722,7 +721,6 @@ describe('evaluationsOverviewLogic', () => {
             expected: [...exampleReads('eval-b'), 'score_distribution eval-b'],
             details: { examples: [], scoreDistribution: HISTOGRAM },
         },
-        // Without a passing rule an outcome filter is refused, so the examples are the newest graded runs.
         {
             kind: 'score',
             id: 'eval-c',

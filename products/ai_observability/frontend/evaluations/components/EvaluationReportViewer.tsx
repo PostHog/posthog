@@ -135,7 +135,6 @@ export function EvaluationReportViewer({
                 </EvaluationDrawerSection>
             ))}
 
-            {citations.length > 0 && <LemonDivider className="my-0" />}
             <EvaluationReportCitations
                 runId={reportRun.id}
                 periodStart={reportRun.period_start}

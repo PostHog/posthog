@@ -854,8 +854,7 @@ export const evaluationsOverviewLogic = kea<evaluationsOverviewLogicType>([
                 return { params, ready: true, notice: null }
             },
         ],
-        // The attention filter scopes the whole page, so the overview is read again for just the matching
-        // evaluations. Which ones match is only known from a read of the whole scope, so that read comes first.
+        // Which evaluations match is only known from a read of the whole scope, so that read comes first.
         request: [
             (s) => [s.baseRequest, s.attentionFilter, s.attentionBase],
             (
@@ -996,7 +995,6 @@ export const evaluationsOverviewLogic = kea<evaluationsOverviewLogicType>([
             (evaluations: EvaluationConfig[]): Map<string, EvaluationConfig> =>
                 new Map(evaluations.map((evaluation) => [evaluation.id, evaluation])),
         ],
-        // Counted over the whole scope, so the pills keep their numbers while one of them filters the page.
         attentionCounts: [
             (s) => [s.rows, s.attentionBase, s.baseRequest],
             (

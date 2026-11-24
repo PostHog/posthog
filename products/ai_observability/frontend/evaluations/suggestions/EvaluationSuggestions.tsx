@@ -19,8 +19,7 @@ export function EvaluationSuggestions(): JSX.Element | null {
     const overviewLogic = evaluationsOverviewLogic.findMounted()
     const drawerLogic = evaluationResultDrawerLogic.findMounted()
 
-    // A broken eval opens in the eval drawer, where its chart shows what is wrong. Without its results row, for
-    // example on the empty page, the suggestion drawer shows it instead.
+    // A broken eval opens in its own drawer, where the chart shows what is wrong, when its results row is loaded.
     const open = (suggestion: EvalSuggestionApi): void => {
         const target = suggestion.kind === 'fix_eval' ? suggestion.target_evaluation : null
         if (target && drawerLogic && overviewLogic?.values.rowsById.has(target)) {

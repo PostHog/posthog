@@ -111,8 +111,7 @@ export const TRACE_DRAWER_LISTS: Record<TraceDrawerListId, TraceDrawerListConfig
         backLabel: 'Back to evaluations',
         rowClick: false,
     },
-    // Shares its path with eval suggestions: the page mounts this list while an evaluation's drawer is open, and the
-    // suggestions list otherwise.
+    // Shares its path with eval suggestions, so the page mounts only one of the two lists at a time.
     'evaluation-overview': {
         pathMatcher: /^\/ai-evals\/evaluations$/,
         backTo: 'evaluations',

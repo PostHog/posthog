@@ -21,7 +21,6 @@ import {
     failureOf,
 } from './evaluationsOverviewLogic'
 
-// The trace drawer list examples open in. Its id is the `list` property of `llma trace drawer opened`.
 export const EVALUATION_OVERVIEW_TRACES: TraceDrawerListId = 'evaluation-overview'
 
 /** How long the pointer rests on a row name before its details are read. */

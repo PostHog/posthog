@@ -44,8 +44,7 @@ export function EvaluationDetailDrawer({
 
     const onCloseRef = useRef(onClose)
     onCloseRef.current = onClose
-    // Registered once on mount, so it runs before the listener of a trace or report drawer opened on top. That
-    // drawer takes the first Escape, and this one closes on the next press.
+    // Registered once on mount, so a trace or report drawer opened on top later handles Escape first.
     useEffect(() => {
         const closeOnEscape = (event: KeyboardEvent): void => {
             const { searchParams } = router.values

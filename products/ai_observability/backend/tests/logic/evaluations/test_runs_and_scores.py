@@ -104,7 +104,6 @@ class TestEvaluationRunsAndScores(ClickhouseTestMixin, BaseTest):
         assert len(scored) == 5 and {run.outcome for run in scored} == {None}
         with pytest.raises(NoPassingRuleError):
             get_evaluation_runs(self.team, None, str(fraction.id), PERIOD, "failed", 5)
-        # N/A needs no passing rule, so an evaluation without one still lists its N/A runs.
         fraction_not_applicable = get_evaluation_runs(self.team, None, str(fraction.id), PERIOD, "not_applicable", 5)
         assert [run.outcome for run in fraction_not_applicable.results] == ["not_applicable"]
 
