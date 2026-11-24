@@ -23,11 +23,14 @@ import requests
 from dateutil.relativedelta import relativedelta
 
 from posthog.api.snuffle_proxy import SNUFFLE_API_FEATURE_FLAG, SnuffleNotConfiguredError, snuffle_request
+from posthog.api_queries_budget import BudgetSpec, budget_enabled, budget_spec_for, refill_and_read
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.limit import get_app_telemetry_queries_rate_limiter
 from posthog.dataclasses import frozen
-from posthog.hogql_queries.query_runner import api_queries_budget_enforcement_enabled, get_api_queries_budget_status
+from posthog.exceptions_capture import capture_exception
+from posthog.hogql_queries.query_runner import api_queries_budget_enforcement_enabled
 from posthog.models.team import Team
+from posthog.models.team.team_event_volume import events_last_year_for
 from posthog.models.user import User
 from posthog.permissions import posthog_feature_flag_enabled
 
@@ -204,18 +207,31 @@ def _decode(raw: bytes) -> Any:
         return None
 
 
-def _assert_budget_left(team: Team) -> None:
+def logql_budget(team: Team) -> Optional[BudgetSpec]:
+    """The read-byte budget that LogQL targets are held to, or None when it is not enforced. The batch reads it
+    once, because the spec costs a Postgres read, and each target then reads only its balance."""
+    if not budget_enabled() or not api_queries_budget_enforcement_enabled(team):
+        return None
+    try:
+        return budget_spec_for(team.organization, events_last_year_for(team.pk))
+    except Exception as e:
+        # The budget fails open, as it does for the Loki API.
+        capture_exception(e)
+        return None
+
+
+def _assert_budget_left(team: Team, budget: Optional[BudgetSpec]) -> None:
     """The Loki API refuses a read once the read-byte budget is spent, so a LogQL panel does too."""
-    if not api_queries_budget_enforcement_enabled(team):
+    if budget is None:
         return
-    budget_status = get_api_queries_budget_status(team)
-    if budget_status is not None and budget_status.remaining_bytes <= 0:
+    remaining = refill_and_read(str(team.pk), budget)
+    if remaining is not None and remaining <= 0:
         raise TelemetryTargetError("This project has used its query budget for now. Try again later.")
 
 
-def _query_range(team: Team, data: dict[str, str]) -> Any:
+def _query_range(team: Team, data: dict[str, str], budget: Optional[BudgetSpec]) -> Any:
     """The body is read inside the telemetry slot, so a slow or large response keeps holding it."""
-    _assert_budget_left(team)
+    _assert_budget_left(team, budget)
     with get_app_telemetry_queries_rate_limiter().run(org_id=team.organization_id, team_id=team.pk, is_api=False):
         deadline = monotonic() + settings.SNUFFLE_APM_TIMEOUT_SECONDS
         try:
@@ -253,6 +269,7 @@ def run_logql(
     date_to: str,
     min_interval: Optional[str],
     max_data_points: Optional[int],
+    budget: Optional[BudgetSpec] = None,
 ) -> dict[str, Any]:
     """Run a LogQL range query on Snuffle, uncached. Returns Loki's `data` as `results`. The caller has
     checked logs access with `assert_can_read_logs`."""
@@ -271,7 +288,7 @@ def run_logql(
         "step": str(step),
         "limit": str(LOG_LINE_LIMIT),
     }
-    results = _query_range(team, data)
+    results = _query_range(team, data, budget)
     return {
         "results": results,
         "start": start.isoformat(),
