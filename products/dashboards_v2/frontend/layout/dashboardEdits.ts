@@ -1,3 +1,4 @@
+import { type PlacedItem, bottomOf, placeTiles } from '../grid/placeTiles'
 import {
     type ContentWidgetParts,
     type Dashboard,
@@ -9,7 +10,6 @@ import {
     type Widget,
     isSection,
 } from './dashboardTypes'
-import { type PlacedItem, bottomOf, placeTiles } from './placeTiles'
 import { widgetSize } from './widgetSizes'
 
 export type DashboardEdit =
