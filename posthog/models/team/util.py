@@ -103,7 +103,7 @@ def delete_bulky_postgres_data(team_ids: list[int]):
     _delete_persons_for_teams(team_ids)
 
 
-def _delete_misc_small_tables_for_teams(team_ids: list[int]) -> None:
+def _delete_misc_small_tables_for_teams(team_ids: list[int], should_stop: Callable[[], bool] | None = None) -> None:
     """Batch-delete the per-team tables that have no dedicated bulk path.
 
     These previously used a single unbatched DELETE each, which could hit a statement
@@ -138,7 +138,7 @@ def _delete_misc_small_tables_for_teams(team_ids: list[int]) -> None:
     # FeatureFlagHashKeyOverride references Person, so it must go before persons are deleted.
     _delete_hash_key_overrides_for_teams(team_ids)
     _delete_llm_evaluations_for_teams(team_ids)
-    _delete_event_definitions_for_teams(team_ids)
+    _delete_event_definitions_for_teams(team_ids, should_stop=should_stop)
     _delete_retired_session_summaries_for_teams(team_ids)
     _delete_retired_loops_for_teams(team_ids)
     _delete_retired_warehouse_source_inputs_backups_for_teams(team_ids)
@@ -160,21 +160,34 @@ def _delete_llm_evaluations_for_teams(team_ids: list[int]) -> None:
     Evaluation.objects.filter(team_id__in=team_ids).delete()
 
 
-def _delete_event_definitions_for_teams(team_ids: list[int], batch_size: int = 10000) -> None:
+def _delete_event_definitions_for_teams(
+    team_ids: list[int], should_stop: Callable[[], bool] | None = None, batch_size: int = 10000
+) -> None:
     """Delete the teams' event definitions in batches before the Team cascade reaches them.
 
     The cascade loads every event definition of a team into memory at once, so a team with millions of them
     runs the worker out of memory. A queryset delete per batch keeps memory bounded, and it still cascades to
     the rows that reference each definition, such as EnterpriseEventDefinition.
+
+    Each batch resumes the (team_id, name) index walk at the last name it deleted, so no batch reads the index
+    entries of rows that earlier batches deleted. ``should_stop`` is checked before each batch.
     """
     for team_id in team_ids:
+        last_name = ""
         while True:
-            batch = list(EventDefinition.objects.filter(team_id=team_id).values_list("id", flat=True)[:batch_size])
+            if should_stop is not None and should_stop():
+                raise TeamPurgeStopped(f"The event definition purge of team {team_id} stopped before it finished")
+            batch = list(
+                EventDefinition.objects.filter(team_id=team_id, name__gte=last_name)
+                .order_by("name")
+                .values_list("id", "name")[:batch_size]
+            )
             if not batch:
                 break
-            EventDefinition.objects.filter(id__in=batch).delete()
+            EventDefinition.objects.filter(id__in=[row[0] for row in batch]).delete()
             if len(batch) < batch_size:
                 break
+            last_name = batch[-1][1]
             time.sleep(0.1)
 
 

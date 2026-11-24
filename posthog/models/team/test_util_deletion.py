@@ -231,6 +231,15 @@ class TestDeleteEventDefinitionsForTeams(BaseTest):
         assert EventDefinition.objects.filter(team_id=other_team.id).count() == 5
         assert EnterpriseEventDefinition.objects.filter(team_id=other_team.id).count() == 1
 
+    def test_stop_ends_the_purge_between_batches(self, _sleep: MagicMock) -> None:
+        self._create_event_definitions(self.team)
+        stops = iter([False, True])
+
+        with self.assertRaises(TeamPurgeStopped):
+            _delete_event_definitions_for_teams([self.team.id], should_stop=lambda: next(stops), batch_size=2)
+
+        assert EventDefinition.objects.filter(team_id=self.team.id).count() == 3
+
     def test_misc_small_tables_step_deletes_event_definitions(self, _sleep: MagicMock) -> None:
         self._create_event_definitions(self.team)
 
