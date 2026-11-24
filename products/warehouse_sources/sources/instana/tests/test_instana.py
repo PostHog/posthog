@@ -400,6 +400,46 @@ class TestFanOutRows:
         }
         assert result.items == [[{"apdexId": "APDEX1", "apdexScore": [[1, 0.9]], "from": 1, "to": 2}]]
 
+    @pytest.mark.parametrize(
+        ("endpoint", "parent_body", "child_path", "child_field"),
+        [
+            (
+                "application_alert_configs",
+                {"items": [{"id": "APP1"}, {"id": "APP_GONE"}, {"id": "APP2"}], "page": 1, "totalHits": 3},
+                "/api/events/settings/application-alert-configs",
+                "applicationId",
+            ),
+            (
+                "website_alert_configs",
+                [{"id": "APP1"}, {"id": "APP_GONE"}, {"id": "APP2"}],
+                "/api/events/settings/website-alert-configs",
+                "websiteId",
+            ),
+        ],
+    )
+    def test_alert_configs_send_parent_id_as_query_param(
+        self, endpoint: str, parent_body: Any, child_path: str, child_field: str
+    ) -> None:
+        result = DRIVER.run(
+            endpoint,
+            [
+                ScriptedResponse(json=parent_body),
+                ScriptedResponse(json=[{"id": "A1", "name": "high error rate"}, {"id": "A2", "name": "slow calls"}]),
+                ScriptedResponse(status=404, json={"message": "not found"}),
+                ScriptedResponse(json=[]),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths[1:] == [child_path] * 3
+        assert result.queries[1:] == [{child_field: (parent_id,)} for parent_id in ("APP1", "APP_GONE", "APP2")]
+        assert result.items == [
+            [
+                {"id": "A1", "name": "high error rate", child_field: "APP1"},
+                {"id": "A2", "name": "slow calls", child_field: "APP1"},
+            ]
+        ]
+
 
 class TestListRows:
     def test_bare_list_body_is_yielded(self) -> None:
