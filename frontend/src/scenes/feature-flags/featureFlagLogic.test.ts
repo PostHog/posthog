@@ -3719,6 +3719,40 @@ describe('featureFlagLogic', () => {
 
             expect(logic.values.scheduleFormState).toEqual('expanded')
         })
+
+        describe('cron next run in the create form', () => {
+            beforeEach(() => {
+                jest.useFakeTimers()
+                jest.setSystemTime(new Date('2026-11-12T15:27:00.000Z'))
+            })
+
+            it('keeps a day picked before choosing Custom (cron) and typing the cron', () => {
+                logic.actions.setSchedulePickedDay(dayjs('2026-12-04 09:00'))
+                logic.actions.setScheduleDateMarker(dayjs('2026-12-04 09:00'))
+                logic.actions.setRepeatsValue('cron')
+                for (const cron of ['0 1 * * 5', '0 13 * * 5']) {
+                    logic.actions.setCronExpression(cron)
+                }
+
+                expect(logic.values.scheduleDateMarker?.format('YYYY-MM-DD HH:mm')).toBe('2026-12-04 13:00')
+            })
+
+            it('searches from now when no day was picked', () => {
+                logic.actions.setRepeatsValue('cron')
+                for (const cron of ['0 1 * * 5', '0 13 * * 5']) {
+                    logic.actions.setCronExpression(cron)
+                }
+
+                expect(logic.values.scheduleDateMarker?.format('YYYY-MM-DD HH:mm')).toBe('2026-11-13 13:00')
+            })
+
+            it('forgets the picked day when the form resets', () => {
+                logic.actions.setSchedulePickedDay(dayjs('2026-12-04 09:00'))
+                logic.actions.setScheduleDateMarker(null)
+
+                expect(logic.values.schedulePickedDay).toBeNull()
+            })
+        })
     })
 
     describe('default release conditions', () => {
@@ -4952,6 +4986,8 @@ describe('validateFeatureFlagVariantKey', () => {
         { key: 'a'.repeat(401), error: '400 characters', desc: 'over 400 characters' },
         { key: 'null', error: 'reserved', desc: 'null on a new flag' },
         { key: 'null', savedKeys: ['control', 'test'], error: 'reserved', desc: 'null the saved flag lacks' },
+        { key: 'true', error: 'reserved', desc: 'true on a new flag' },
+        { key: 'false', savedKeys: ['control', 'test'], error: 'reserved', desc: 'false the saved flag lacks' },
     ])('rejects variant key with $desc', ({ key, savedKeys, error }) => {
         expect(validateFeatureFlagVariantKey(key, savedKeys)).toContain(error)
     })

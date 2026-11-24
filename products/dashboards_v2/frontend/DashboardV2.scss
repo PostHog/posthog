@@ -237,8 +237,44 @@
     }
 }
 
+// A bar on the side a dragged tab will land, drawn outside the trigger so quill's own styles leave it alone.
+.DashboardV2__tab--insert-before,
+.DashboardV2__tab--insert-after {
+    position: relative;
+
+    &::after {
+        position: absolute;
+        top: 15%;
+        bottom: 15%;
+        width: 2px;
+        content: '';
+        background: var(--color-accent);
+        border-radius: 1px;
+    }
+}
+
+.DashboardV2__tab--insert-before::after {
+    left: -1px;
+}
+
+.DashboardV2__tab--insert-after::after {
+    right: -1px;
+}
+
 .DashboardV2__tab--drop-target {
     border-radius: var(--radius);
     outline: 2px solid var(--color-accent);
     outline-offset: 2px;
+}
+
+// A tile's title sits on its content without quill's divider, so a dashboard of small tiles reads as less boxed in.
+.DashboardV2__card > .quill-card__header {
+    padding-bottom: 0;
+    border-bottom: 0;
+}
+
+// Markdown headings in a text tile carry LemonMarkdown's rule underneath; a tile already frames its text.
+.DashboardV2__card .LemonMarkdown :is(h1, h2) {
+    padding-bottom: 0;
+    border-bottom: 0;
 }

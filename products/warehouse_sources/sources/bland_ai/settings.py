@@ -113,6 +113,27 @@ class BlandAIEndpointConfig:
 #
 # - `knowledge_bases` — GET /v1/knowledge. The knowledge base items that agents answer from.
 #   Page-number pagination (`page` + `limit`, max 100) and no timestamp filters, so full refresh.
+#
+# - `contacts` — GET /v1/contacts. The people behind calls and SMS threads, with their identifiers
+#   and per-persona memories inline. Offset pagination (`offset` + `limit`, max 200) with
+#   `pagination.total`, and no timestamp filters, so full refresh.
+#
+# - `triage_issues` — GET /v1/triage/issues. Problems flagged on calls by the Triage monitor or by
+#   hand. Keyset pagination (`cursor` + `data.next_cursor`, max 100), sorted by `created_at` with a
+#   stable secondary sort on `id`. The only date filter is a relative window (`date_range=7d`), so
+#   full refresh.
+#
+# - `alarms` — GET /v1/alarms. The alarm configurations of the organization. Single unpaginated
+#   page, no timestamp filters, so full refresh.
+#
+# - `alarm_events` — GET /v1/alarms/history. The state changes of those alarms. The endpoint returns
+#   only the most recent events (`limit` max 200), with no pagination or timestamp filters, so each
+#   full refresh holds the latest 200 events.
+#
+# - `outcomes` — GET /v1/dispositions. The org-level outcome scripts that classify finished calls
+#   and SMS conversations (the API calls them dispositions). Page-number pagination (`page` +
+#   `limit`, max 100) with `data.pagination.total_pages`, and no timestamp filters, so full
+#   refresh. Off by default: outcomes are an Enterprise feature.
 BLAND_AI_ENDPOINTS: dict[str, BlandAIEndpointConfig] = {
     "calls": BlandAIEndpointConfig(
         name="calls",
@@ -335,6 +356,50 @@ BLAND_AI_ENDPOINTS: dict[str, BlandAIEndpointConfig] = {
         description=(
             "Your knowledge base items — the files, web pages and text that agents answer from — with "
             "their processing status. Full refresh only."
+        ),
+    ),
+    "contacts": BlandAIEndpointConfig(
+        name="contacts",
+        primary_keys=["id"],
+        partition_key="created_at",
+        description=(
+            "The contacts of your organization — the people behind your calls and SMS conversations — with "
+            "their phone numbers, emails and the memories each persona keeps about them. Full refresh only."
+        ),
+    ),
+    "triage_issues": BlandAIEndpointConfig(
+        name="triage_issues",
+        primary_keys=["id"],
+        partition_key="created_at",
+        description=(
+            "The issues flagged on your calls in Triage, with their status, severity, category, assignee "
+            "and the count of attached calls and flags. Full refresh only."
+        ),
+    ),
+    "alarms": BlandAIEndpointConfig(
+        name="alarms",
+        primary_keys=["id"],
+        description=(
+            "Your alarm configurations: the metric each alarm watches, its threshold, whether it is enabled "
+            "and where it sends notifications. Full refresh only."
+        ),
+    ),
+    "alarm_events": BlandAIEndpointConfig(
+        name="alarm_events",
+        primary_keys=["id"],
+        partition_key="created_at",
+        description=(
+            "The state changes of your alarms, such as a detected or recovered deviation. Bland returns only "
+            "the 200 most recent events, so each sync replaces the table with those. Full refresh only."
+        ),
+    ),
+    "outcomes": BlandAIEndpointConfig(
+        name="outcomes",
+        primary_keys=["id"],
+        should_sync_default=False,
+        description=(
+            "Your outcomes — the scripts that classify finished calls and SMS conversations (dispositions "
+            "in the API). Outcomes are an Enterprise feature. Full refresh only."
         ),
     ),
 }

@@ -1612,6 +1612,7 @@ async fn every_warm_of_a_partition_gets_a_fill_and_tracking_ends_with_it() {
         Arc::clone(&producers),
         Arc::clone(&cache),
         Some(fill),
+        common::UNPACED_FILLS,
         &writer_group,
     );
 
@@ -1668,6 +1669,105 @@ async fn every_warm_of_a_partition_gets_a_fill_and_tracking_ends_with_it() {
 }
 
 #[tokio::test]
+async fn a_pods_fills_run_side_by_side_on_one_pace() {
+    use personhog_leader::cache::{PartitionedCache, PersonCacheKey};
+    use personhog_leader::warming::{FillConfig, FillSchedule};
+    use rdkafka::consumer::{BaseConsumer, CommitMode, Consumer};
+
+    const OFFSETS_PER_SEC: u32 = 16;
+    const CHUNK_OFFSETS: i64 = 2;
+    const HISTORY: i64 = 16;
+    let topic = format!("fence_fill_pace_{}", uuid::Uuid::new_v4().simple());
+    common::create_broker_topic(&topic, 2).await;
+    let writer_group = format!("writer_{topic}");
+    let producers = Arc::new(fenced_producers(1));
+    let cache = Arc::new(PartitionedCache::new(1 << 20));
+    let fill = FillConfig {
+        lookback: Duration::from_secs(3600),
+        chunk_offsets: CHUNK_OFFSETS,
+        room_fraction: 0.9,
+    };
+    let schedule = FillSchedule {
+        offsets_per_sec: OFFSETS_PER_SEC,
+        concurrency: 2,
+    };
+    let handler = common::test_handoff_handler_with_fill(
+        &topic,
+        Arc::clone(&producers),
+        Arc::clone(&cache),
+        Some(fill),
+        schedule,
+        &writer_group,
+    );
+
+    // Long enough that one fill alone runs for seconds, well past any warm.
+    let writer: BaseConsumer = rdkafka::ClientConfig::new()
+        .set("bootstrap.servers", KAFKA_BOOTSTRAP)
+        .set("group.id", &writer_group)
+        .set("enable.auto.commit", "false")
+        .create()
+        .expect("writer-group consumer");
+    let mut offsets = 0;
+    let mut tpl = rdkafka::TopicPartitionList::new();
+    for partition in 0..2u32 {
+        producers
+            .acquire(partition, &target(&topic))
+            .await
+            .expect("acquire");
+        for version in 1..=HISTORY {
+            let person = Person {
+                id: 7 + i64::from(partition),
+                ..test_person(version)
+            };
+            producers
+                .produce(partition, &person)
+                .await
+                .expect("history record");
+        }
+        let (_, end) = writer
+            .fetch_watermarks(&topic, partition as i32, Duration::from_secs(5))
+            .expect("watermarks");
+        offsets += end;
+        tpl.add_partition_offset(&topic, partition as i32, rdkafka::Offset::Offset(end))
+            .expect("tpl");
+    }
+    writer
+        .commit(&tpl, CommitMode::Sync)
+        .expect("writer commit");
+
+    let key = |partition: u32| PersonCacheKey {
+        team_id: 1,
+        person_id: 7 + i64::from(partition),
+    };
+    let filling = |partition: u32| {
+        cache
+            .serving_cache(partition)
+            .is_some_and(|serving| serving.was_put(&key(partition)))
+    };
+    let started = std::time::Instant::now();
+    handler.warm_partition(0).await.expect("warm partition 0");
+    handler.warm_partition(1).await.expect("warm partition 1");
+
+    // One at a time, partition 1's fill would start only after partition 0's had ended.
+    wait_until("partition 1's fill to insert", || filling(1)).await;
+    assert!(
+        filling(0),
+        "partition 0's fill ended before partition 1's began"
+    );
+    wait_until("both fills to end", || !filling(0) && !filling(1)).await;
+
+    // On one shared pace the last turn comes once nearly every offset of both partitions
+    // is paid for: all but a chunk of each, since a fill starts at its first record.
+    let shared =
+        Duration::from_secs_f64((offsets - 2 * CHUNK_OFFSETS) as f64 / f64::from(OFFSETS_PER_SEC));
+    assert!(
+        started.elapsed() >= shared,
+        "{offsets} offsets ended in {:?}, before {shared:?}",
+        started.elapsed()
+    );
+}
+
+#[tokio::test]
 async fn a_warm_tracks_no_puts_when_no_fill_is_configured() {
     use personhog_leader::cache::{FillOutcome, PartitionedCache, PersonCacheKey};
 
@@ -1680,6 +1780,7 @@ async fn a_warm_tracks_no_puts_when_no_fill_is_configured() {
         Arc::clone(&producers),
         Arc::clone(&cache),
         None,
+        common::UNPACED_FILLS,
         &format!("writer_{topic}"),
     );
     producers

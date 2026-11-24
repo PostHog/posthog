@@ -6,12 +6,7 @@ import { IngestionOutputMessage } from '~/common/outputs/types'
 import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
 
-import {
-    CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_OUTPUT,
-    CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_OUTPUT,
-    CDP_INTAKE_TRANSACTIONAL_EMAIL_OUTPUT,
-    CDP_INTAKE_WORKFLOW_WEBHOOK_OUTPUT,
-} from '../outputs/outputs'
+import { CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_OUTPUT, CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_OUTPUT } from '../outputs/outputs'
 import { CyclotronJobInvocationHogFlow } from '../types'
 import {
     INTAKE_ACK_DEADLINE_MS,
@@ -36,8 +31,6 @@ describe('IntakeProducer', () => {
             checkTopicExists: () => Promise.resolve(),
         })
         return new IngestionOutputs({
-            [CDP_INTAKE_TRANSACTIONAL_EMAIL_OUTPUT]: recorder(CDP_INTAKE_TRANSACTIONAL_EMAIL_OUTPUT),
-            [CDP_INTAKE_WORKFLOW_WEBHOOK_OUTPUT]: recorder(CDP_INTAKE_WORKFLOW_WEBHOOK_OUTPUT),
             [CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_OUTPUT]: recorder(CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_OUTPUT),
             [CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_OUTPUT]: recorder(CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_OUTPUT),
         })
@@ -66,12 +59,12 @@ describe('IntakeProducer', () => {
     })
 
     it.each([
-        ['transactional-email', CDP_INTAKE_TRANSACTIONAL_EMAIL_OUTPUT, 'fingerprint-a'],
-        ['workflow-webhook', CDP_INTAKE_WORKFLOW_WEBHOOK_OUTPUT, undefined],
+        ['transactional-email', CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_OUTPUT, 'fingerprint-a'],
+        ['workflow-webhook', CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_OUTPUT, undefined],
     ] as const)('produces a %s run to its topic, keyed by its run id', async (kind, output, fingerprint) => {
         const run = invocation({ acceptedAt: '2026-11-12T10:00:00.000Z' })
 
-        const outcome = await new IntakeProducer(outputs()).produce({ kind, invocation: run, fingerprint }, 'shadow')
+        const outcome = await new IntakeProducer(outputs()).produce({ kind, invocation: run, fingerprint }, 'async')
 
         expect(outcome).toBe('acked')
         expect(produced).toEqual([
@@ -90,17 +83,11 @@ describe('IntakeProducer', () => {
     })
 
     it.each([
-        ['b-1:9094', '7', 'shadow', 'transactional-email', CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_OUTPUT, 'msk'],
-        ['b-1:9094', '*', 'async', 'workflow-webhook', CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_OUTPUT, 'msk'],
-        ['b-1:9094', '8', 'shadow', 'transactional-email', CDP_INTAKE_TRANSACTIONAL_EMAIL_OUTPUT, 'warpstream'],
-        ['', '*', 'async', 'workflow-webhook', CDP_INTAKE_WORKFLOW_WEBHOOK_OUTPUT, 'warpstream'],
+        ['async', 'transactional-email', 'msk-broker:9094', 'msk'],
+        ['async', 'workflow-webhook', '', 'warpstream'],
     ] as const)(
-        'with MSK brokers %p and MSK teams %p, routes a %s %s run of team 7 to %s',
-        async (brokers, mskTeams, mode, kind, output, cluster) => {
-            const clusterOf = intakeClusterOf({
-                KAFKA_MSK_CDP_INTAKE_PRODUCER_METADATA_BROKER_LIST: brokers,
-                CDP_INTAKE_MSK_TEAMS: mskTeams,
-            })
+        'counts an acked %s %s run with brokers %p under the %s cluster label',
+        async (mode, kind, brokers, cluster) => {
             const acked = async (): Promise<number> => {
                 const metric = await register.getSingleMetric('cdp_intake_launches_total')!.get()
                 return metric.values
@@ -115,12 +102,13 @@ describe('IntakeProducer', () => {
             }
             const before = await acked()
 
-            await new IntakeProducer(outputs(), undefined, undefined, clusterOf).produce(
-                { kind, invocation: invocation() },
-                mode
-            )
+            await new IntakeProducer(
+                outputs(),
+                undefined,
+                undefined,
+                intakeClusterOf({ KAFKA_MSK_CDP_INTAKE_PRODUCER_METADATA_BROKER_LIST: brokers })
+            ).produce({ kind, invocation: invocation() }, mode)
 
-            expect(produced.map((p) => p.output)).toEqual([output])
             expect((await acked()) - before).toBe(1)
         }
     )
@@ -130,7 +118,7 @@ describe('IntakeProducer', () => {
 
         const outcome = await new IntakeProducer(outputs()).produce(
             { kind: 'transactional-email', invocation: run },
-            'shadow'
+            'async'
         )
 
         expect(outcome).toBe('too_large')
@@ -146,7 +134,7 @@ describe('IntakeProducer', () => {
 
         const outcome = new IntakeProducer(outputs()).produce(
             { kind: 'workflow-webhook', invocation: invocation() },
-            'shadow'
+            'async'
         )
         await jest.advanceTimersByTimeAsync(INTAKE_ACK_DEADLINE_MS)
 
@@ -281,7 +269,7 @@ describe('IntakeProducer', () => {
 
         const outcome = new IntakeProducer(outputs()).produce(
             { kind: 'workflow-webhook', invocation: invocation() },
-            'shadow'
+            'async'
         )
         await jest.advanceTimersByTimeAsync(400)
 
@@ -290,14 +278,12 @@ describe('IntakeProducer', () => {
     })
 
     it.each([
-        ['', '', 'off'],
-        ['7', '', 'shadow'],
-        ['*', '', 'shadow'],
-        ['', '7', 'async'],
-        ['7', '7', 'async'],
-        ['8,9', '10', 'off'],
-    ])('runs team 7 with shadow teams %p and async teams %p as %s', (shadow, asyncTeams, mode) => {
-        const modeOf = intakeModeOf({ CDP_INTAKE_KAFKA_SHADOW_TEAMS: shadow, CDP_INTAKE_KAFKA_ASYNC_TEAMS: asyncTeams })
+        ['', 'off'],
+        ['7', 'async'],
+        ['*', 'async'],
+        ['10', 'off'],
+    ])('runs team 7 with async teams %p as %s', (asyncTeams, mode) => {
+        const modeOf = intakeModeOf({ CDP_INTAKE_KAFKA_ASYNC_TEAMS: asyncTeams })
 
         expect(modeOf(7)).toBe(mode)
     })

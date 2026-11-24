@@ -1874,6 +1874,26 @@ describe('Cyclotron V2', () => {
                 expect(await totalJobCount()).toBe(1)
             })
 
+            it('reads claims in bulk by any spelling of their id, in the order asked', async () => {
+                const first = uuidv7()
+                const second = uuidv7()
+                await manager.createJobsIdempotently([keyed(first, 'a'), keyed(second, 'b')])
+
+                expect(
+                    await manager.findIdempotencyKeys([
+                        second.toUpperCase(),
+                        uuidv7(),
+                        first.replace(/-/g, ''),
+                        `{${second}}`,
+                    ])
+                ).toEqual([
+                    { fingerprint: 'b', reply: null },
+                    null,
+                    { fingerprint: 'a', reply: null },
+                    { fingerprint: 'b', reply: null },
+                ])
+            })
+
             it('reports the stored fingerprint of a key that answers replayed or mismatch', async () => {
                 const id = uuidv7()
                 await manager.claimJobs([keyed(id, 'a')])

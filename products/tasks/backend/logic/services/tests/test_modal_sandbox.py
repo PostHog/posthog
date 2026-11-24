@@ -1982,8 +1982,27 @@ class TestModalSandboxCreateAllowlist:
 
         assert mock_create.call_args.kwargs["outbound_domain_allowlist"] == []
 
-    @pytest.mark.parametrize("probe,observation", [(False, False), (True, False), (False, True)])
-    def test_create_sets_vm_runtime_experimental_option(self, probe: bool, observation: bool) -> None:
+    @pytest.mark.parametrize(
+        "probe,observation,enrollment",
+        [(False, False, False), (True, False, False), (False, True, False), (False, True, True)],
+    )
+    def test_create_sets_vm_runtime_experimental_option(self, probe: bool, observation: bool, enrollment: bool) -> None:
+        if enrollment:
+            with override_settings(
+                DEBUG=False,
+                TEST=False,
+                CLOUD_DEPLOYMENT="DEV",
+                SANDBOX_PROVIDER="modal",
+                AGENT_EGRESS_ENROLLMENT_CONFIG="",
+            ):
+                config = SandboxConfig(name="enrollment", vm_runtime=True, agent_egress_observation=True)
+                mock_create = self._create_with_config(config)
+            assert mock_create.call_args.kwargs["experimental_options"] == {
+                "vm_runtime": True,
+                "vm_sidecar_memory_reserve_mib": 1024,
+            }
+            assert "outbound_cidr_allowlist" not in mock_create.call_args.kwargs
+            return
         config = SandboxConfig(
             name="t",
             vm_runtime=True,

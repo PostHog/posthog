@@ -14,7 +14,7 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { initKeaTests } from '~/test/init'
-import { InsightModel, SavedInsightsTabs } from '~/types'
+import { InsightModel, InsightShortId, SavedInsightsTabs } from '~/types'
 
 import { DeleteDashboardForm, deleteDashboardLogic } from 'products/dashboards/frontend/deleteDashboardLogic'
 import { DuplicateDashboardForm, duplicateDashboardLogic } from 'products/dashboards/frontend/duplicateDashboardLogic'
@@ -31,7 +31,9 @@ import {
 jest.spyOn(api, 'create')
 
 const blankScene = (): any => ({ scene: { component: () => null, logic: null } })
-const scenes: any = { [Scene.SavedInsights]: blankScene }
+// The insight scene's code never finishes loading, so a navigation to an insight leaves the list as the active scene.
+const neverLoadedScene = (): Promise<any> => new Promise(() => {})
+const scenes: any = { [Scene.SavedInsights]: blankScene, [Scene.Insight]: neverLoadedScene }
 
 const createInsight = (id: number, string = 'hi'): InsightModel =>
     ({
@@ -271,6 +273,17 @@ describe('savedInsightsLogic', () => {
             .toDispatchActions(['loadInsightsSuccess'])
             .toMatchValues({ filters: partial({ search: 'hoi' }) })
             .toMatchValues(router, { searchParams: { search: 'hoi' } })
+    })
+
+    it('does not push the list url when the user opens an insight before a search applies', async () => {
+        logic.actions.setSavedInsightsFilters({ search: 'hello' })
+        const insightUrl = urls.project(MOCK_TEAM_ID, urls.insightView('abc123' as InsightShortId))
+        router.actions.push(insightUrl)
+        expect(sceneLogic.values.activeSceneId).toEqual(Scene.SavedInsights)
+
+        await expectLogic(logic).toDispatchActions(['loadInsights', 'loadInsightsSuccess'])
+
+        expect(router.values.location.pathname).toEqual(insightUrl)
     })
 
     it('makes a direct ID query if searching for a number', async () => {
