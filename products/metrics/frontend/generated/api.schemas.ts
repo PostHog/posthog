@@ -623,10 +623,15 @@ export interface DashboardImportInputApi {
      */
     grafana_json: string | null
     /**
-     * The screenshot as base64 PNG, without a data URL prefix, when the source is 'screenshot'.
+     * The screenshot as base64, without a data URL prefix, when the source is 'screenshot'.
      * @nullable
      */
     image_base64: string | null
+    /**
+     * Media type of `image_base64`, for example 'image/png'. Null without a screenshot.
+     * @nullable
+     */
+    image_content_type: string | null
 }
 
 /**

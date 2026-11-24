@@ -1,5 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -15,6 +16,7 @@ import {
 import type {
     DashboardImportApi,
     DashboardImportCreateApi,
+    DashboardImportInputApi,
     DashboardImportSourceEnumApi,
 } from 'products/metrics/frontend/generated/api.schemas'
 
@@ -144,6 +146,7 @@ describe('metricsDashboardImportLogic', () => {
             name: 'Orders',
             grafana_json: '{"panels": [1]}',
             image_base64: null,
+            image_content_type: null,
         })
         logic.actions.openImport(importStatus({ status: 'failed' }))
 
@@ -152,6 +155,43 @@ describe('metricsDashboardImportLogic', () => {
         )
 
         expect(logic.values).toMatchObject({ step: 'input', grafanaJson: '{"panels": [1]}', dashboardName: 'Orders' })
+    })
+
+    it('drops a retry input that arrives after the user opened another import', async () => {
+        let resolveInput: (input: DashboardImportInputApi) => void = () => {}
+        jest.mocked(metricsDashboardImportsInputRetrieve).mockReturnValue(
+            new Promise((resolve) => {
+                resolveInput = resolve
+            })
+        )
+        const first = importStatus({ id: 'first', status: 'failed' })
+        const second = importStatus({ id: 'second', status: 'failed' })
+        logic.actions.openImport(first)
+        logic.actions.retryImport(first)
+        logic.actions.closeImportModal()
+        logic.actions.openImport(second)
+
+        resolveInput({
+            source: 'grafana',
+            name: null,
+            grafana_json: '{"panels": [1]}',
+            image_base64: null,
+            image_content_type: null,
+        })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values).toMatchObject({ currentImport: second, grafanaJson: '', retrying: false })
+    })
+
+    it('keeps the failed summary open when the input does not load', async () => {
+        jest.mocked(metricsDashboardImportsInputRetrieve).mockRejectedValue(new ApiError('Server error', 500))
+        const failed = importStatus({ status: 'failed' })
+        logic.actions.openImport(failed)
+
+        await expectLogic(logic, () => logic.actions.retryImport(failed)).toDispatchActions(['retryImportDone'])
+
+        expect(logic.values.step).toBe('summary')
+        expect(lemonToast.error).toHaveBeenCalledTimes(1)
     })
 
     it('a dismissed import leaves the list and closes its dialog', async () => {

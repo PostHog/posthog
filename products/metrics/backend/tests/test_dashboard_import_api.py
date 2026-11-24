@@ -1,4 +1,5 @@
 import io
+import os
 import json
 import base64
 from datetime import datetime, timedelta
@@ -8,7 +9,7 @@ import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -21,7 +22,12 @@ from posthog.models import User
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.metrics.backend.dashboard_import.catalog import CatalogEntry, MetricCatalog
-from products.metrics.backend.dashboard_import.importer import AGENT_MCP_SCOPES, IMPORT_STATE_KEY
+from products.metrics.backend.dashboard_import.importer import (
+    AGENT_MCP_SCOPES,
+    IMPORT_STATE_KEY,
+    MAX_IMAGE_BYTES,
+    _image_for_retry,
+)
 from products.metrics.backend.facade.api import check_dashboard_import_layout, finalize_dashboard_import
 from products.metrics.backend.facade.contracts import MetricPoint, MetricSeries
 from products.tasks.backend.models import Task, TaskRun
@@ -303,6 +309,11 @@ class TestDashboardImportAPI(APIBaseTest):
         assert self.client.post(dismiss_url).status_code == status.HTTP_409_CONFLICT
 
         self._finish_run(started["id"], run_status=TaskRun.Status.FAILED, output=None)
+        self.storage.delete.side_effect = OSError("storage unavailable")
+        assert self.client.post(dismiss_url).status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert [item["id"] for item in self.client.get(self.url).json()] == [started["id"]]
+
+        self.storage.delete.side_effect = lambda path: self.stored.pop(path, None)
         assert self.client.post(dismiss_url).status_code == status.HTTP_204_NO_CONTENT
 
         assert self.client.get(self.url).json() == []
@@ -688,3 +699,14 @@ class TestDashboardImportAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
         assert [(item["id"], item["status"], item["phase"]) for item in listed] == [(own["id"], "running", "starting")]
+
+
+class TestImageForRetry(SimpleTestCase):
+    def test_a_screenshot_too_large_as_png_comes_back_within_the_upload_limit(self) -> None:
+        buffer = io.BytesIO()
+        Image.frombytes("RGB", (1568, 1568), os.urandom(1568 * 1568 * 3)).save(buffer, format="PNG")
+        assert len(buffer.getvalue()) > MAX_IMAGE_BYTES
+
+        content, content_type = _image_for_retry(buffer.getvalue())
+
+        assert (content_type, len(content) <= MAX_IMAGE_BYTES) == ("image/jpeg", True)

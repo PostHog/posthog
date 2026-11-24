@@ -103,6 +103,7 @@ from products.metrics.backend.facade.contracts import (
     DashboardImportPanelProgress,
     DashboardImportRequest,
     DashboardImportStatus,
+    DashboardImportStorageError,
     DashboardImportSummary,
     PanelQueryCheckRequest,
     PanelQueryCheckResult,
@@ -452,7 +453,13 @@ class DashboardImporter:
             if source == DashboardImportSource.SCREENSHOT and SCREENSHOT_FILE_NAME in paths:
                 image = object_storage.read_bytes(paths[SCREENSHOT_FILE_NAME], missing_ok=True)
                 if image:
-                    return DashboardImportInput(source=source, name=name, image_base64=base64.b64encode(image).decode())
+                    content, content_type = _image_for_retry(image)
+                    return DashboardImportInput(
+                        source=source,
+                        name=name,
+                        image_base64=base64.b64encode(content).decode(),
+                        image_content_type=content_type,
+                    )
         except Exception:
             logger.warning("metrics_dashboard_import_input_read_failed", team_id=self._team.id, exc_info=True)
         return None
@@ -461,17 +468,24 @@ class DashboardImporter:
         state = self._owned_state(import_id)
         if state is None:
             return False
-        if state.result is None:
+        # A screenshot import keeps running while it checks the layout, after it saved a result.
+        current = self.status(import_id, finalize=False)
+        if current is None or current.status == DashboardImportState.RUNNING:
             raise DashboardImportInProgress("This import is still running. Wait for it to finish.")
-        updated = _update_state(
+        failed = _delete_inputs(state.input_paths)
+        _update_state(
             self._team.id,
             import_id,
-            lambda current: (
-                None if current.dismissed else current.model_copy(update={"dismissed": True, "input_paths": []})
+            lambda latest: latest.model_copy(
+                update={
+                    "dismissed": latest.dismissed or not failed,
+                    "input_paths": [path for path in latest.input_paths if path in failed],
+                }
             ),
         )
-        if updated is not None:
-            _delete_inputs(state.input_paths)
+        # The import stays listed until its files are gone, so the user can dismiss it again.
+        if failed:
+            raise DashboardImportStorageError("PostHog could not delete what this import read. Try again.")
         return True
 
     def _owned_state(self, import_id: str) -> ImportState | None:
@@ -972,12 +986,27 @@ def _new_tile(tile: TileDraft) -> NewInsightTile | NewTextTile:
     )
 
 
-def _delete_inputs(paths: list[str]) -> None:
+def _delete_inputs(paths: list[str]) -> list[str]:
+    """Delete the stored inputs. Returns the paths that could not be deleted."""
+    failed: list[str] = []
     for path in paths:
         try:
             object_storage.delete(path)
         except Exception:
             logger.warning("metrics_dashboard_import_input_delete_failed")
+            failed.append(path)
+    return failed
+
+
+def _image_for_retry(png: bytes) -> tuple[bytes, str]:
+    """The stored screenshot in a form that a new import accepts, with its content type."""
+    if len(png) <= MAX_IMAGE_BYTES:
+        return png, "image/png"
+    # Converting a photo-like JPEG to PNG can make it larger than the upload limit, so send it back as JPEG.
+    with Image.open(io.BytesIO(png)) as opened:
+        buffer = io.BytesIO()
+        opened.convert("RGB").save(buffer, format="JPEG", quality=90)
+    return buffer.getvalue(), "image/jpeg"
 
 
 def _claim(team_id: int, task_id: str) -> ImportState | None:

@@ -8,7 +8,7 @@ from typing import Any, cast
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
+from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -40,6 +40,7 @@ from products.metrics.backend.facade.contracts import (
     DashboardImportInProgress,
     DashboardImportNotAllowed,
     DashboardImportRequest,
+    DashboardImportStorageError,
     PanelQueryCheckRequest,
 )
 from products.metrics.backend.facade.enums import (
@@ -189,7 +190,10 @@ class DashboardImportInputSerializer(serializers.Serializer):
     )
     image_base64 = serializers.CharField(
         allow_null=True,
-        help_text="The screenshot as base64 PNG, without a data URL prefix, when the source is 'screenshot'.",
+        help_text="The screenshot as base64, without a data URL prefix, when the source is 'screenshot'.",
+    )
+    image_content_type = serializers.CharField(
+        allow_null=True, help_text="Media type of `image_base64`, for example 'image/png'. Null without a screenshot."
     )
 
 
@@ -281,6 +285,11 @@ class PanelQueryCheckResultSerializer(serializers.Serializer):
 
 class PanelQueryCheckResponseSerializer(serializers.Serializer):
     results = PanelQueryCheckResultSerializer(many=True, help_text="One result for each checked panel.")
+
+
+class _StorageUnavailable(APIException):
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_code = "storage_unavailable"
 
 
 class MetricsDashboardImportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
@@ -395,6 +404,7 @@ class MetricsDashboardImportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             204: OpenApiResponse(description="The import no longer shows in the recent imports."),
             404: OpenApiResponse(description="No dashboard import with this id."),
             409: OpenApiResponse(description="The import is still running."),
+            503: OpenApiResponse(description="The stored input could not be deleted. The import stays listed."),
         },
     )
     @action(detail=True, methods=["POST"])
@@ -405,6 +415,8 @@ class MetricsDashboardImportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             found = dismiss_dashboard_import(team=self.team, user=cast(User, request.user), import_id=str(pk))
         except DashboardImportInProgress as error:
             raise Conflict(str(error))
+        except DashboardImportStorageError as error:
+            raise _StorageUnavailable(str(error))
         if not found:
             raise NotFound("No dashboard import with this id.")
         return Response(status=status.HTTP_204_NO_CONTENT)

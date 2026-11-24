@@ -515,6 +515,10 @@ class DashboardImportInProgress(DashboardImportError):
     """The user already has a dashboard import that has not finished."""
 
 
+class DashboardImportStorageError(DashboardImportError):
+    """Object storage refused an operation on the import's stored input."""
+
+
 class DashboardImportNotAllowed(DashboardImportError):
     """The organization does not allow the import: AI data processing is off, or the AI credits ran out."""
 
@@ -590,6 +594,7 @@ class DashboardImportInput:
     name: str | None = None
     grafana_json: str | None = None
     image_base64: str | None = None
+    image_content_type: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

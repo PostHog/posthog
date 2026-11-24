@@ -28,6 +28,7 @@ import {
 import type {
     DashboardImportApi,
     DashboardImportCreateApi,
+    DashboardImportInputApi,
     DashboardImportPanelApi,
     DashboardImportSourceEnumApi,
     PanelImportOutcomeEnumApi,
@@ -243,7 +244,7 @@ export const metricsDashboardImportLogic = kea<metricsDashboardImportLogicType>(
                 resetImport: () => null,
             },
         ],
-        retrying: [false, { retryImport: () => true, retryImportDone: () => false }],
+        retrying: [false, { retryImport: () => true, retryImportDone: () => false, closeImportModal: () => false }],
         starting: [
             false,
             { startImport: () => true, startImportSuccess: () => false, startImportFailure: () => false },
@@ -433,13 +434,26 @@ export const metricsDashboardImportLogic = kea<metricsDashboardImportLogicType>(
                 cache.disposables.dispose(POLL_KEY)
             }
         },
-        retryImport: async ({ dashboardImport }) => {
-            // A failed import keeps what it read, so the form starts from it. Without it, the form starts empty.
-            const input = dashboardImport.id
-                ? await metricsDashboardImportsInputRetrieve(String(values.currentTeamId), dashboardImport.id).catch(
-                      () => null
-                  )
-                : null
+        retryImport: async ({ dashboardImport }, breakpoint) => {
+            // A failed import keeps what it read, so the form starts from it. An expired input (404) starts it empty.
+            let input: DashboardImportInputApi | null = null
+            if (dashboardImport.id) {
+                try {
+                    input = await metricsDashboardImportsInputRetrieve(String(values.currentTeamId), dashboardImport.id)
+                } catch (error) {
+                    if (!(error instanceof ApiError && error.status === 404)) {
+                        actions.retryImportDone()
+                        lemonToast.error('The import could not be loaded again. Try again.')
+                        return
+                    }
+                }
+            }
+            breakpoint()
+            // The user can close the dialog or open another import while the input loads.
+            if (!values.isModalOpen || values.currentImport?.id !== dashboardImport.id) {
+                actions.retryImportDone()
+                return
+            }
             actions.backToInput()
             if (input) {
                 actions.setDashboardName(input.name ?? '')
@@ -447,7 +461,9 @@ export const metricsDashboardImportLogic = kea<metricsDashboardImportLogicType>(
                     actions.setGrafanaJson(input.grafana_json)
                 }
                 if (input.image_base64) {
-                    actions.setScreenshot(`data:image/png;base64,${input.image_base64}`)
+                    actions.setScreenshot(
+                        `data:${input.image_content_type ?? 'image/png'};base64,${input.image_base64}`
+                    )
                 }
             }
             actions.retryImportDone()

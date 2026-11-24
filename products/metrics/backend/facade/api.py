@@ -1299,7 +1299,8 @@ def get_dashboard_import_input(*, team: Team, user: User, import_id: str) -> Das
 def dismiss_dashboard_import(*, team: Team, user: User, import_id: str) -> bool:
     """Hide the user's ended import from the recent imports and delete its input. False when there is no such import.
 
-    Raises `DashboardImportInProgress` while the import runs.
+    Raises `DashboardImportInProgress` while the import runs, and `DashboardImportStorageError` when its stored input
+    could not be deleted. The import then stays listed.
     """
     from products.metrics.backend.dashboard_import.importer import (  # noqa: PLC0415 — keeps the image and task code off the facade import path
         DashboardImporter,
