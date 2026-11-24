@@ -363,7 +363,7 @@ Leaves are evaluated with the Rust HogVM, configured the same way in every proce
 - A program that fails at runtime, calls an unknown function, or returns a non-boolean counts as `false`.
   Failures are counted by reason.
   The save path refuses a leaf that calls a function outside the Hog standard library, so an unknown function reaches the evaluator only in bytecode stored before that check.
-  A function name typed in another case, such as `NOT (x)` or `COALESCE(a, b)`, compiles to its lowercase library function when HogQL accepts that spelling.
+  A function name typed in another case, such as `NOT (x)` or `COALESCE(a, b)`, compiles to its lowercase library function when HogQL reads both spellings as the same function.
 - An event with malformed `properties` JSON skips only the behavioral side.
   Malformed `person_properties` skips the whole event when the person side has to evaluate.
   An event with an unparseable timestamp is skipped.

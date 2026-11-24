@@ -539,6 +539,7 @@ class BytecodeCompiler(Visitor):
             or self._names_a_variable(node.name)
             or not self._is_library_function(lowered)
             or find_hogql_function(node.name) is None
+            or find_hogql_function(node.name) is not find_hogql_function(lowered)
         ):
             return node
         return dataclasses.replace(node, name=lowered)
@@ -641,7 +642,7 @@ class BytecodeCompiler(Visitor):
                     )
                 elif self.context.allowed_functions is not None:
                     pass  # checked by _check_declared_call
-                elif node.name in self.supported_functions or node.name in STL or node.name in BYTECODE_STL:
+                elif self._is_library_function(node.name):
                     pass
                 else:
                     self.context.add_error(

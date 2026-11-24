@@ -594,10 +594,17 @@ class TestBytecode(BaseTest):
         )
         self.assertEqual(context.errors, [])
 
-    def test_bytecode_call_in_any_case_without_a_library_function_is_not_implemented(self):
+    @parameterized.expand(
+        [
+            ("TOSTRING",),
+            ("TYPEOF",),
+            ("MD5",),
+        ]
+    )
+    def test_bytecode_call_in_any_case_without_a_library_function_is_not_implemented(self, name: str):
         context = HogQLContext(team_id=None)
-        create_bytecode(parse_expr("TOSTRING(properties.a)"), context=context)
-        self.assertEqual([error.message for error in context.errors], ["Hog function `TOSTRING` is not implemented"])
+        create_bytecode(parse_expr(f"{name}(properties.a)"), context=context)
+        self.assertEqual([error.message for error in context.errors], [f"Hog function `{name}` is not implemented"])
 
     def test_bytecode_null_safe_comparison_calls_isNull(self):
         context = HogQLContext(team_id=None)
