@@ -78,10 +78,12 @@ tools:
         operation: messaging_send_push_create
         enabled: false
         disabled_reason:
-            A send uses the push's content at the moment it goes out, so an edit between the user's confirmation and the
-            send, or while it waits for a device, changes what is sent. A confirmation can't show what will go out until
-            a send is tied to the content the user saw. Code sends through the API.
+            A send uses the push's content at the moment it goes out, so an edit between the user's confirmation
+            and the send, or while it waits for a device, changes what is sent. A confirmation can't show what will go
+            out until a send is tied to the content the user saw. Code sends through the API.
     workflows-send-push-batch:
         operation: messaging_send_push_batch_create
         enabled: false
-        disabled_reason: The confirmation can't show who gets the pushes or what they say, and a single send is off for the same reason.
+        disabled_reason:
+            The confirmation can't show who gets the pushes or what they say, and a single send is off for the same
+            reason.
