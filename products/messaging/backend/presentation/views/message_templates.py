@@ -46,6 +46,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.auth import PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication, ProjectSecretAPIKeyUser
 from posthog.event_usage import get_event_source, get_mcp_properties, groups, report_user_action, sanitize_header_value
+from posthog.exceptions_capture import capture_exception
 from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models import ProjectSecretAPIKey, User
 from posthog.models.file_system.constants import resolved_workflows_list_v2
@@ -56,7 +57,7 @@ from posthog.permissions import (
     legacy_scope_object_used,
     scopes_caller_lacks,
 )
-from posthog.rate_limit import is_rate_limit_enabled
+from posthog.rate_limit import RATE_LIMIT_EXCEEDED_COUNTER, get_route_from_path, is_rate_limit_enabled
 from posthog.token_bucket import BucketUnavailable, Budget, consume
 
 from products.cdp.backend.presentation.hog_functions import build_html_wrap_design, html_wrap_design_needs_refresh
@@ -1069,14 +1070,19 @@ TRANSACTIONAL_EMAIL_SEND_FLOOR = Budget(burst=600, per_hour=20_000)
 
 def transactional_email_send_budget(team_id: int) -> Budget:
     # The tier lookup reads Postgres, so cache it rather than repeat it on every send.
-    daily_cap: int = (
-        cache.get_or_set(
-            f"transactional_email_send_daily_cap:{team_id}",
-            lambda: get_enforced_email_sending_daily_cap(team_id) or 0,
-            60,
+    try:
+        daily_cap: int = (
+            cache.get_or_set(
+                f"transactional_email_send_daily_cap:{team_id}",
+                lambda: get_enforced_email_sending_daily_cap(team_id) or 0,
+                60,
+            )
+            or 0
         )
-        or 0
-    )
+    except Exception as e:
+        # A cache outage must not refuse sends, so the floor applies until it recovers.
+        capture_exception(e)
+        daily_cap = 0
     return Budget(
         burst=max(TRANSACTIONAL_EMAIL_SEND_FLOOR.burst, daily_cap // 100),
         per_hour=max(TRANSACTIONAL_EMAIL_SEND_FLOOR.per_hour, daily_cap // 10),
@@ -1096,9 +1102,9 @@ class TransactionalEmailSendThrottle(BaseThrottle):
             request.successful_authenticator, (ProjectSecretAPIKeyAuthentication, PersonalAPIKeyAuthentication)
         ):
             return True
-        return self.allow_units(1)
+        return self.allow_units(request, 1)
 
-    def allow_units(self, units: int) -> bool:
+    def allow_units(self, request: Request, units: int) -> bool:
         if not is_rate_limit_enabled(round(time.time() / 60)):
             return True
         decision = consume(
@@ -1106,6 +1112,10 @@ class TransactionalEmailSendThrottle(BaseThrottle):
         )
         if isinstance(decision, BucketUnavailable) or decision.allowed:
             return True
+        route = get_route_from_path(request.path)
+        RATE_LIMIT_EXCEEDED_COUNTER.labels(
+            team_id=self.team_id, scope="transactional_email_send", path=route, route=route
+        ).inc()
         self.retry_after = decision.retry_after
         return False
 

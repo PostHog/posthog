@@ -118,7 +118,7 @@ class KeyScopedMessagingSendViewSet(MessagingSendViewSet):
             recipients = check_email_batch(data["recipients"], message_data=data["message_data"], email=email)
             if len(recipients) > 1:
                 throttle = TransactionalEmailSendThrottle(self.team_id)
-                if not throttle.allow_units(len(recipients) - 1):
+                if not throttle.allow_units(request, len(recipients) - 1):
                     raise Throttled(wait=throttle.wait())
             if email is not None:
                 self._require_code_email_access(email.key)
