@@ -28,6 +28,16 @@ export const ARCHETYPE_NAMES: Record<ArchetypeEnumApi, string> = {
     all_rounder: 'The All-Rounder',
 }
 
+export const ARCHETYPE_TAGLINES: Record<ArchetypeEnumApi, string> = {
+    one_hit_wonder: 'One tool to rule them all.',
+    swiss_army_knife: 'A tool for every job.',
+    night_owl: 'Your agents worked the late shift.',
+    weekend_warrior: 'No days off.',
+    speed_demon: 'Fast and light on its feet.',
+    rocket: 'Growing like a rocket.',
+    all_rounder: 'A bit of everything, done well.',
+}
+
 const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 const OTHER = 'Other'
 
