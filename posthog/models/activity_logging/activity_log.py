@@ -123,6 +123,7 @@ ActivityScope = Literal[
     "LLMSkill",
     "LLMTrace",
     "TraceReview",
+    "ScoreDefinition",
     "AIGatewayCredit",
     "WebAnalyticsFilterPreset",
     "CustomerProfileConfig",
@@ -1638,7 +1639,9 @@ def log_activity(
             "team_id": team_id,
             "user": user,
             "was_impersonated": was_impersonated,
-            "is_system": user is None and not external_actor,
+            "is_system": user is None
+            and not external_actor
+            and not (credential and credential.type == "project_secret_key"),
             "item_id": str(item_id) if item_id is not None else None,
             "scope": scope,
             "activity": activity,

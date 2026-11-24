@@ -83979,11 +83979,15 @@ export namespace Schemas {
       readonly config: ScoreDefinitionConfig;
       /** User who created the scorer. */
       readonly created_by: UserBasic | null;
+      /** @nullable */
+      readonly created_by_project_key_id: string | null;
       readonly created_at: string;
       /** @nullable */
       readonly updated_at: string | null;
       /** User who last updated the scorer or created a version. */
       readonly updated_by: UserBasic | null;
+      /** @nullable */
+      readonly updated_by_project_key_id: string | null;
       readonly team: number;
     }
 
@@ -116268,6 +116272,8 @@ export namespace Schemas {
       readonly created_at: string;
       /** User who created this version. */
       readonly created_by: UserBasic | null;
+      /** @nullable */
+      readonly created_by_project_key_id: string | null;
     }
 
     /**
@@ -136691,6 +136697,7 @@ export namespace Schemas {
      * * `LLMSkill` - LLMSkill
      * * `LLMTrace` - LLMTrace
      * * `TraceReview` - TraceReview
+     * * `ScoreDefinition` - ScoreDefinition
      * * `AIGatewayCredit` - AIGatewayCredit
      * * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
      * * `CustomerProfileConfig` - CustomerProfileConfig
@@ -136818,6 +136825,7 @@ export namespace Schemas {
       LLMSkill: 'LLMSkill',
       LLMTrace: 'LLMTrace',
       TraceReview: 'TraceReview',
+      ScoreDefinition: 'ScoreDefinition',
       AIGatewayCredit: 'AIGatewayCredit',
       WebAnalyticsFilterPreset: 'WebAnalyticsFilterPreset',
       CustomerProfileConfig: 'CustomerProfileConfig',
@@ -136931,6 +136939,7 @@ export namespace Schemas {
      * * `LLMSkill` - LLMSkill
      * * `LLMTrace` - LLMTrace
      * * `TraceReview` - TraceReview
+     * * `ScoreDefinition` - ScoreDefinition
      * * `AIGatewayCredit` - AIGatewayCredit
      * * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
      * * `CustomerProfileConfig` - CustomerProfileConfig
@@ -137046,6 +137055,7 @@ export namespace Schemas {
       LLMSkill: 'LLMSkill',
       LLMTrace: 'LLMTrace',
       TraceReview: 'TraceReview',
+      ScoreDefinition: 'ScoreDefinition',
       AIGatewayCredit: 'AIGatewayCredit',
       WebAnalyticsFilterPreset: 'WebAnalyticsFilterPreset',
       CustomerProfileConfig: 'CustomerProfileConfig',

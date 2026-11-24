@@ -22,7 +22,7 @@ from posthog.api.monitoring import monitor
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
 from posthog.models import Team
-from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+from posthog.models.activity_logging.activity_log import Change
 from posthog.permissions import AccessControlPermission
 
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
@@ -30,7 +30,11 @@ from products.ai_observability.backend.api.metrics import llma_track_latency
 from products.ai_observability.backend.models.review_queues import ReviewQueueItem
 from products.ai_observability.backend.models.score_definitions import ScoreDefinition
 from products.ai_observability.backend.models.trace_reviews import TraceReview, TraceReviewScore
-from products.ai_observability.backend.presentation.project_keys import AIObservabilityProjectKeyMixin, attribution_user
+from products.ai_observability.backend.presentation.project_keys import (
+    AIObservabilityProjectKeyMixin,
+    attribution_user,
+    log_project_key_activity,
+)
 from products.ai_observability.backend.score_definition_configs import (
     ScoreDefinitionConfigField,
     normalize_score_definition_key,
@@ -413,6 +417,7 @@ class BaseTraceReviewWriteSerializer(serializers.Serializer):
 
         self._clear_pending_queue_item(team=team, trace_id=review.trace_id, queue_id=queue_id)
         self._replace_scores(review, resolved_scores)
+        log_project_key_activity(request, team=team, scope="TraceReview", item_id=review.pk, activity="created")
         return review
 
     @transaction.atomic
@@ -426,6 +431,7 @@ class BaseTraceReviewWriteSerializer(serializers.Serializer):
         validated_data.pop("trace_id", None)
 
         instance = get_object_or_404(TraceReview.objects.select_for_update(), team=team, pk=instance.pk, deleted=False)
+        self._clear_pending_queue_item(team=team, trace_id=instance.trace_id, queue_id=queue_id)
         if review_user is None:
             changes = []
             if "comment" in validated_data and validated_data["comment"] != instance.comment:
@@ -435,23 +441,13 @@ class BaseTraceReviewWriteSerializer(serializers.Serializer):
             else:
                 resolved_scores = None
             if not changes:
-                if queue_id:
-                    self._clear_pending_queue_item(team=team, trace_id=instance.trace_id, queue_id=queue_id)
                 return instance
             if instance.reviewed_by_id is not None:
                 changes.append(
                     Change(type="TraceReview", action="changed", field="reviewed_by", before=instance.reviewed_by_id)
                 )
-            log_activity(
-                organization_id=team.organization_id,
-                team_id=team.id,
-                user=None,
-                item_id=instance.pk,
-                scope="TraceReview",
-                activity="updated",
-                detail=Detail(changes=changes),
-                was_impersonated=False,
-                strict=True,
+            log_project_key_activity(
+                request, team=team, scope="TraceReview", item_id=instance.pk, activity="updated", changes=changes
             )
 
         if "comment" in validated_data:
@@ -459,8 +455,6 @@ class BaseTraceReviewWriteSerializer(serializers.Serializer):
 
         instance.reviewed_by = review_user
         instance.save(update_fields=["comment", "reviewed_by", "updated_at"])
-
-        self._clear_pending_queue_item(team=team, trace_id=instance.trace_id, queue_id=queue_id)
 
         if resolved_scores is not None:
             self._replace_scores(instance, resolved_scores)
@@ -667,17 +661,28 @@ class TraceReviewViewSet(AIObservabilityProjectKeyMixin, AccessControlViewSetMix
     @monitor(feature=None, endpoint="llma_trace_reviews_destroy", method="DELETE")
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         review = self.get_object()
-        if not review.deleted:
+        with transaction.atomic():
+            review = get_object_or_404(
+                TraceReview.objects.select_for_update(), team_id=self.team_id, pk=review.pk, deleted=False
+            )
             review.deleted = True
             review.deleted_at = timezone.now()
             review.save(update_fields=["deleted", "deleted_at", "updated_at"])
-
-            report_user_action(
-                request.user,
-                "llma trace review deleted",
-                self._event_properties(review),
-                team=self.team,
-                request=request,
+            changes = (
+                [Change(type="TraceReview", action="deleted", field="reviewed_by", before=review.reviewed_by_id)]
+                if review.reviewed_by_id is not None
+                else None
             )
+            log_project_key_activity(
+                request, team=self.team, scope="TraceReview", item_id=review.pk, activity="deleted", changes=changes
+            )
+
+        report_user_action(
+            request.user,
+            "llma trace review deleted",
+            self._event_properties(review),
+            team=self.team,
+            request=request,
+        )
 
         return Response(status=status.HTTP_204_NO_CONTENT)

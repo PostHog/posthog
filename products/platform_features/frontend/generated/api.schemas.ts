@@ -1688,6 +1688,7 @@ export type ActivityLogListParams = {
      * * `LLMSkill` - LLMSkill
      * * `LLMTrace` - LLMTrace
      * * `TraceReview` - TraceReview
+     * * `ScoreDefinition` - ScoreDefinition
      * * `AIGatewayCredit` - AIGatewayCredit
      * * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
      * * `CustomerProfileConfig` - CustomerProfileConfig
@@ -1814,6 +1815,7 @@ export const ActivityLogListScope = {
     LLMSkill: 'LLMSkill',
     LLMTrace: 'LLMTrace',
     TraceReview: 'TraceReview',
+    ScoreDefinition: 'ScoreDefinition',
     AIGatewayCredit: 'AIGatewayCredit',
     WebAnalyticsFilterPreset: 'WebAnalyticsFilterPreset',
     CustomerProfileConfig: 'CustomerProfileConfig',
@@ -1927,6 +1929,7 @@ export const ActivityLogListScope = {
  * * `LLMSkill` - LLMSkill
  * * `LLMTrace` - LLMTrace
  * * `TraceReview` - TraceReview
+ * * `ScoreDefinition` - ScoreDefinition
  * * `AIGatewayCredit` - AIGatewayCredit
  * * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
  * * `CustomerProfileConfig` - CustomerProfileConfig
@@ -2041,6 +2044,7 @@ export const ActivityLogListScopesItem = {
     LLMSkill: 'LLMSkill',
     LLMTrace: 'LLMTrace',
     TraceReview: 'TraceReview',
+    ScoreDefinition: 'ScoreDefinition',
     AIGatewayCredit: 'AIGatewayCredit',
     WebAnalyticsFilterPreset: 'WebAnalyticsFilterPreset',
     CustomerProfileConfig: 'CustomerProfileConfig',

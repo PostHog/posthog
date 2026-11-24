@@ -758,7 +758,7 @@ export const DatasetsExportsCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Refresh retention for a dataset and optionally one revision, with the same access required to read them.
+ * Refresh retention for a dataset and optionally one revision. Project secret API keys require dataset:write. Users need read access to the dataset.
  */
 
 export const DatasetsExtendRetentionCreateBody = /* @__PURE__ */ zod.object({

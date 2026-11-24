@@ -35,6 +35,7 @@ from posthog.permissions import (
     PostHogFeatureFlagPermission,
     TeamMemberAccessPermission,
     get_authenticator_client,
+    is_service_auth,
 )
 from posthog.rate_limit import PersonalApiKeyOrUserRateThrottle
 
@@ -709,6 +710,11 @@ class DatasetViewSet(AIObservabilityProjectKeyMixin, AccessControlViewSetMixin, 
     def _should_skip_parents_filter(self) -> bool:
         return True
 
+    def dangerously_get_required_scopes(self, request: Request, view: GenericViewSet) -> list[str] | None:
+        if self.action == "extend_retention" and is_service_auth(request):
+            return ["dataset:write"]
+        return None
+
     def safely_get_queryset(self, queryset: QuerySet[Dataset, Dataset]) -> QuerySet[Dataset, Dataset]:
         return queryset.filter(team_id=self.team.id)
 
@@ -839,7 +845,7 @@ class DatasetViewSet(AIObservabilityProjectKeyMixin, AccessControlViewSetMixin, 
     @extend_schema(
         request=DatasetExtendRetentionSerializer,
         responses=DatasetRetentionEntrySerializer,
-        description="Refresh retention for a dataset and optionally one revision, with the same access required to read them.",
+        description="Refresh retention for a dataset and optionally one revision. Project secret API keys require dataset:write. Users need read access to the dataset.",
         tags=["AI observability"],
     )
     @action(detail=True, methods=["post"])

@@ -73,6 +73,9 @@ class ActivityLogSerializer(serializers.Serializer):
 
     @extend_schema_field({"type": "object", "nullable": True})
     def get_user(self, activity_log: ActivityLog):
+        if activity_log.credential_type == "project_secret_key" and activity_log.user_id is None:
+            key_id = activity_log.customer_visible_credential_id
+            return {"first_name": f"Project key {key_id}" if key_id else "Project key", "email": None}
         if activity_log.is_system:
             return {"first_name": "System", "email": None, "is_system": True}
         else:

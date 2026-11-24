@@ -156,8 +156,8 @@ export function humanize(
                     ? workloadActorLabel(workload)
                     : logItem.was_impersonated
                       ? `PostHog Support${impersonatedUserName ? ` (as ${impersonatedUserName})` : ''}`
-                      : impersonatedUserName,
-                isSystem: logItem.is_system,
+                      : (projectKeyActorName(logItem) ?? impersonatedUserName),
+                isSystem: logItem.is_system && logItem.credential_type !== 'project_secret_key',
                 wasImpersonated: logItem.was_impersonated,
                 client: logItem.client,
                 description,
@@ -173,7 +173,18 @@ export function humanize(
     return logLines
 }
 
+function projectKeyActorName(logItem: ActivityLogItem): string | undefined {
+    if (logItem.credential_type === 'project_secret_key') {
+        return logItem.credential_id ? `Project key ${logItem.credential_id}` : 'Project key'
+    }
+    return undefined
+}
+
 export function userNameForLogItem(logItem: ActivityLogItem): string {
+    const keyName = projectKeyActorName(logItem)
+    if (keyName) {
+        return keyName
+    }
     if (logItem.is_system) {
         return 'PostHog'
     }

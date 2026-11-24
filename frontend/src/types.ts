@@ -6210,6 +6210,7 @@ export enum ActivityScope {
     LLM_SKILL = 'LLMSkill',
     LLM_TRACE = 'LLMTrace',
     TRACE_REVIEW = 'TraceReview',
+    SCORE_DEFINITION = 'ScoreDefinition',
     LOG = 'Log',
     LOGS_ALERT_CONFIGURATION = 'LogsAlertConfiguration',
     PLATFORM_ALERT_CONFIGURATION = 'PlatformAlertConfiguration',

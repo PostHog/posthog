@@ -1,4 +1,5 @@
-from typing import cast
+from typing import Literal, cast
+from uuid import UUID
 
 from rest_framework.request import Request
 from rest_framework.throttling import BaseThrottle
@@ -6,7 +7,8 @@ from rest_framework.views import APIView
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import ProjectSecretAPIKeyAuthentication
-from posthog.models import User
+from posthog.models import Team, User
+from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.permissions import is_service_auth
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -20,6 +22,36 @@ from products.ai_observability.backend.presentation.throttles import (
 
 def attribution_user(request: Request) -> User | None:
     return None if is_service_auth(request) else cast(User, request.user)
+
+
+def project_key_id(request: Request) -> str | None:
+    authenticator = request.successful_authenticator
+    if isinstance(authenticator, ProjectSecretAPIKeyAuthentication):
+        return authenticator.project_secret_api_key.id
+    return None
+
+
+def log_project_key_activity(
+    request: Request,
+    *,
+    team: Team,
+    scope: Literal["TraceReview", "ScoreDefinition"],
+    item_id: UUID,
+    activity: Literal["created", "updated", "deleted"],
+    changes: list[Change] | None = None,
+) -> None:
+    if is_service_auth(request):
+        log_activity(
+            organization_id=team.organization_id,
+            team_id=team.id,
+            user=None,
+            item_id=item_id,
+            scope=scope,
+            activity=activity,
+            detail=Detail(changes=changes),
+            was_impersonated=False,
+            strict=True,
+        )
 
 
 class AIObservabilityProjectKeyMixin(TeamAndOrgViewSetMixin):

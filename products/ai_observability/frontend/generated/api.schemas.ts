@@ -5793,11 +5793,15 @@ export interface ScoreDefinitionApi {
     readonly config: ScoreDefinitionConfigApi
     /** User who created the scorer. */
     readonly created_by: UserBasicApi | null
+    /** @nullable */
+    readonly created_by_project_key_id: string | null
     readonly created_at: string
     /** @nullable */
     readonly updated_at: string | null
     /** User who last updated the scorer or created a version. */
     readonly updated_by: UserBasicApi | null
+    /** @nullable */
+    readonly updated_by_project_key_id: string | null
     readonly team: number
 }
 
@@ -5930,6 +5934,8 @@ export interface ScoreDefinitionVersionApi {
     readonly created_at: string
     /** User who created this version. */
     readonly created_by: UserBasicApi | null
+    /** @nullable */
+    readonly created_by_project_key_id: string | null
 }
 
 /**

@@ -287,6 +287,11 @@ describe('humanizeActivity', () => {
             ['falls back to the placeholder when there is no user', {}, 'A user'],
             ['renders system activity as PostHog', { is_system: true }, 'PostHog'],
             [
+                'identifies the project key even on older system-classified rows',
+                { is_system: true, credential_type: 'project_secret_key' as const, credential_id: 'example-key-id' },
+                'Project key example-key-id',
+            ],
+            [
                 'falls back to email for impersonated actors with a blank name',
                 { was_impersonated: true, user: { first_name: '', last_name: '', email: 'ada@posthog.com' } },
                 'PostHog Support (as ada@posthog.com)',
