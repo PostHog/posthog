@@ -138,6 +138,48 @@ describe('dependency watch', () => {
         }
     })
 
+    const NO_PORT = 'connect EADDRNOTAVAIL 127.0.0.1:4566 - Local (0.0.0.0:0)'
+    const REFUSED = 'connect ECONNREFUSED 127.0.0.1:4566'
+
+    it.each([
+        {
+            title: 'the host limit, not the timeout of its busy confirming check',
+            first: { name: 'provider-edge', reason: NO_PORT, unanswered: false, hostLimit: 'local ports' },
+            again: { name: 'provider-edge', reason: 'connect to 127.0.0.1:4566 timed out', unanswered: true },
+            reason: `the run host ran out of local ports to check provider-edge in the 320x step (${NO_PORT}), a harness limit: the run cannot tell whether it stayed up`,
+        },
+        {
+            title: 'the refusal of a dependency that went away, not the host limit of its confirming check',
+            first: { name: 'provider-edge', reason: REFUSED, unanswered: false },
+            again: { name: 'provider-edge', reason: NO_PORT, unanswered: false, hostLimit: 'local ports' },
+            reason: `dependencies went away: provider-edge in the 320x step (${REFUSED})`,
+        },
+    ])('quotes $title', async ({ first, again, reason }) => {
+        const attempts: ProbeFailure[][] = [[first], [again]]
+
+        const watchedReason = (await watching(() => Promise.resolve(attempts.shift() ?? []), 200)).reason
+
+        expect(watchedReason).toEqual(reason)
+    })
+
+    it('answers from a fresh probe process after the last one stopped answering', async () => {
+        const probes = startProbeProcess(
+            { edgeUrl: edge.url, postgresUrl: POSTGRES, sesValkey: VALKEY, only: ['provider-edge'] },
+            8_000
+        )
+        try {
+            await expect(probes.check()).resolves.toEqual([])
+            const stuck = probes.pid!
+            process.kill(stuck, 'SIGSTOP')
+
+            await expect(probes.check()).rejects.toThrow('the probe process did not answer within 8000 ms')
+            await expect(probes.check()).resolves.toEqual([])
+            expect(probes.pid).not.toEqual(stuck)
+        } finally {
+            probes.close()
+        }
+    }, 40_000)
+
     it('names a harness limit when a busy Redis check runs out its budget without an answer', async () => {
         const silentValkey = dependencyProbes(edge.url, POSTGRES, { host: '127.0.0.1', port: silentPort })[
             'ses-rate-limiter-valkey'

@@ -452,10 +452,16 @@ const TIMER_SLACK_MS = 10
 
 const SOCKET_GROUPS_KEPT = 20
 
+// A host out of local ports lists tens of thousands of sockets, which is past execFile's 1 MiB default.
+const SOCKET_LISTING_MAX_BYTES = 64 * 1024 * 1024
+
 // What held the host's ports is gone once the run ends, so the check keeps the busiest TCP states and peers.
 async function socketsOf(): Promise<Record<string, number> | undefined> {
     try {
-        const { stdout } = await promisify(execFile)('ss', ['-tanH'], { timeout: PROBE_TIMEOUT_MS })
+        const { stdout } = await promisify(execFile)('ss', ['-tanH'], {
+            timeout: PROBE_TIMEOUT_MS,
+            maxBuffer: SOCKET_LISTING_MAX_BYTES,
+        })
         const counts = new Map<string, number>()
         for (const line of stdout.split('\n')) {
             const [state, , , , peer] = line.trim().split(/\s+/)
@@ -506,9 +512,3 @@ export async function failedProbes(probes: Probes): Promise<ProbeFailure[]> {
     )
     return results.filter((failure): failure is ProbeFailure => failure !== null)
 }
-
-export const downServices = (
-    edgeUrl: string | undefined,
-    postgresUrl: string,
-    sesValkey: { host: string; port: number }
-): Promise<ProbeFailure[]> => failedProbes(dependencyProbes(edgeUrl, postgresUrl, sesValkey))

@@ -52,18 +52,37 @@ function kindOf(
     return (failure.hostLimit ?? again.hostLimit) ? 'host-limit' : 'unheard'
 }
 
+// The reason quotes the check that supports the verdict: the error of the check that no limit explains for a dependency
+// that went away, and the error that showed the host limit, even when the other check only timed out.
+function evidenceOf(
+    kind: DependencyLoss['kind'],
+    failure: ProbeFailure,
+    again: ProbeFailure | undefined,
+    second: Attempt
+): ProbeFailure {
+    if (again === undefined) {
+        return failure
+    }
+    if (kind === 'gone') {
+        return limited(again, second) ? failure : again
+    }
+    if (kind === 'host-limit') {
+        return again.hostLimit ? again : failure
+    }
+    return again
+}
+
 function lossesOf(first: Attempt, second: Attempt): DependencyLoss[] {
     return first.failures.map((failure) => {
         const again = second.failures.find(({ name }) => name === failure.name)
-        const last = again ?? failure
-        const hostLimit = again?.hostLimit ?? failure.hostLimit
-        const sockets = again?.sockets ?? failure.sockets
+        const kind = kindOf(failure, again, first, second)
+        const { reason, hostLimit, sockets } = evidenceOf(kind, failure, again, second)
         return {
             name: failure.name,
             at: first.at,
-            reason: last.reason,
+            reason,
             runnerBusy: Math.max(first.runnerBusy, second.runnerBusy),
-            kind: kindOf(failure, again, first, second),
+            kind,
             ...(hostLimit ? { hostLimit } : {}),
             ...(sockets ? { sockets } : {}),
         }

@@ -1,4 +1,4 @@
-import { fork } from 'child_process'
+import { ChildProcess, fork } from 'child_process'
 import { pathToFileURL } from 'url'
 
 import { parseJSON } from '~/common/utils/json-parse'
@@ -12,10 +12,15 @@ export type ProbeTarget = {
     only?: string[]
 }
 
-export type ProbeProcess = { check(): Promise<ProbeFailure[]>; close(): void }
+export type ProbeProcess = { check(): Promise<ProbeFailure[]>; close(): void; readonly pid: number | undefined }
 
 type Request = { id: number }
 type Reply = { id: number; failures: ProbeFailure[] }
+type Pending = { resolve(failures: ProbeFailure[]): void; reject(error: Error): void; deadline: NodeJS.Timeout }
+
+// A check waits for every probe's own timeout, the socket listing at a host limit, and on its first check the
+// child's start-up under tsx. A child that answers nothing in this time is stuck, and the runner would wait for it.
+const PROBE_PROCESS_DEADLINE_MS = 30_000
 
 function serveProbes(target: ProbeTarget): void {
     const all = dependencyProbes(target.edgeUrl, target.postgresUrl, target.sesValkey)
@@ -29,39 +34,70 @@ function serveProbes(target: ProbeTarget): void {
 
 // The probes run in their own process, so a drive that saturates the runner's event loop cannot time them out.
 // A thread is not enough: node-rdkafka loads once per process.
-export function startProbeProcess(target: ProbeTarget): ProbeProcess {
-    const child = fork(__filename, [JSON.stringify(target)], {
-        execArgv: ['--import', pathToFileURL(require.resolve('tsx')).href],
-        stdio: ['ignore', 'ignore', 'inherit', 'ipc'],
-    })
-    child.unref()
-    child.channel?.unref()
-    const pending = new Map<number, { resolve(failures: ProbeFailure[]): void; reject(error: Error): void }>()
-    let ended: Error | undefined
-    const end = (error: Error): void => {
-        ended ??= error
-        pending.forEach(({ reject }) => reject(ended!))
+export function startProbeProcess(target: ProbeTarget, deadlineMs = PROBE_PROCESS_DEADLINE_MS): ProbeProcess {
+    const pending = new Map<number, Pending>()
+    let child: ChildProcess | undefined
+    let closed = false
+    let next = 0
+
+    // Ending a child fails its checks and kills it, so the next check starts a fresh one.
+    const end = (ended: ChildProcess, error: Error): void => {
+        if (child !== ended) {
+            return
+        }
+        child = undefined
+        ended.kill('SIGKILL')
+        pending.forEach(({ reject, deadline }) => {
+            clearTimeout(deadline)
+            reject(error)
+        })
         pending.clear()
     }
-    child.on('message', ({ id, failures }: Reply) => {
-        pending.get(id)?.resolve(failures)
-        pending.delete(id)
-    })
-    child.on('error', (error) => end(new Error(`the probe process failed: ${error.message}`)))
-    child.on('exit', (code, signal) => end(new Error(`the probe process exited with ${signal ?? code}`)))
-    let next = 0
+
+    const started = (): ChildProcess => {
+        const forked = fork(__filename, [JSON.stringify(target)], {
+            execArgv: ['--import', pathToFileURL(require.resolve('tsx')).href],
+            stdio: ['ignore', 'ignore', 'inherit', 'ipc'],
+        })
+        forked.unref()
+        forked.channel?.unref()
+        forked.on('message', ({ id, failures }: Reply) => {
+            const request = pending.get(id)
+            if (request) {
+                clearTimeout(request.deadline)
+                pending.delete(id)
+                request.resolve(failures)
+            }
+        })
+        forked.on('error', (error) => end(forked, new Error(`the probe process failed: ${error.message}`)))
+        forked.on('exit', (code, signal) => end(forked, new Error(`the probe process exited with ${signal ?? code}`)))
+        return forked
+    }
+
     return {
-        check: () =>
-            ended
-                ? Promise.reject(ended)
-                : new Promise((resolve, reject) => {
-                      const id = next++
-                      pending.set(id, { resolve, reject })
-                      child.send({ id } satisfies Request)
-                  }),
+        check: () => {
+            if (closed) {
+                return Promise.reject(new Error('the probe process was closed'))
+            }
+            const checking = (child ??= started())
+            return new Promise((resolve, reject) => {
+                const id = next++
+                const deadline = setTimeout(
+                    () => end(checking, new Error(`the probe process did not answer within ${deadlineMs} ms`)),
+                    deadlineMs
+                )
+                pending.set(id, { resolve, reject, deadline })
+                checking.send({ id } satisfies Request)
+            })
+        },
         close: () => {
-            end(new Error('the probe process was closed'))
-            child.kill()
+            closed = true
+            if (child) {
+                end(child, new Error('the probe process was closed'))
+            }
+        },
+        get pid() {
+            return child?.pid
         },
     }
 }
