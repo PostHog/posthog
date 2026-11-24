@@ -58,7 +58,7 @@ import { addTeamToContext } from './subpipelines/helpers'
  *     team-aware processing                    .pipe / .pipeChunk / .gather /
  *                                              .concurrentlyPerGroup /
  *                                              .fanOut(…).via(…).fanIn(…) /
- *                                              .compose
+ *                                              .compose / .timeoutBarrier
  *     handleIngestionWarnings                  (automatic)
  *   handleResults                              (automatic)
  *   handleSideEffects                          (automatic)
@@ -167,6 +167,7 @@ interface Chain<TStart, C, ROut extends string, TCurrent> {
         step: ProcessingStep<TCurrent, U, R2>,
         options?: { retry?: RetryOptions }
     ): Chain<TStart, C, ROut, U>
+    timeoutBarrier(): Chain<TStart, C, ROut, TCurrent>
 }
 
 function pendingChain<TStart, C, ROut extends string, TBlock, TCurrent>(
@@ -176,6 +177,7 @@ function pendingChain<TStart, C, ROut extends string, TBlock, TCurrent>(
     return {
         build: () => (builder) => committed(builder).sequentially(pending),
         extend: (step, options) => pendingChain(committed, (start) => pending(start).pipe(step, options)),
+        timeoutBarrier: () => pendingChain(committed, (start) => pending(start).timeoutBarrier()),
     }
 }
 
@@ -185,6 +187,7 @@ function committedChain<TStart, C, ROut extends string, TCurrent>(
     return {
         build: () => committed,
         extend: (step, options) => pendingChain(committed, (start) => start.pipe(step, options)),
+        timeoutBarrier: () => pendingChain(committed, (start) => start.timeoutBarrier()),
     }
 }
 
@@ -433,6 +436,16 @@ export class CommonTeamStage<
             this.beforeBatchCallback,
             this.preTeamTransform,
             committedChain((builder) => committed(builder).pipeChunk(step, options))
+        )
+    }
+
+    /** Past this point the budget no longer stops an element (mirrors the framework method). */
+    timeoutBarrier(): CommonTeamStage<TInput, TContext, ROut, CBatch, TPost, TCurrent> {
+        return new CommonTeamStage(
+            this.config,
+            this.beforeBatchCallback,
+            this.preTeamTransform,
+            this.chain.timeoutBarrier()
         )
     }
 

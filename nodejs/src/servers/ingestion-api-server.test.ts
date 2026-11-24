@@ -14,6 +14,12 @@ describe('IngestionApiServer', () => {
         expect((server as any).isHealthy().status).toBe('ok')
     })
 
+    it('refuses a pipeline it cannot run instead of starting analytics for it', () => {
+        const misconfigured = new IngestionApiServer({ INGESTION_PIPELINE: 'errortracking' })
+
+        expect(() => (misconfigured as any).startPipeline()).toThrow('errortracking')
+    })
+
     describe('cleanup', () => {
         // groupStore.flush() no longer produces ClickHouse messages itself (see
         // batch-writing-group-store.ts) — it returns them for the caller to

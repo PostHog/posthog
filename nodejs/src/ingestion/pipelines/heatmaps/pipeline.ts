@@ -44,6 +44,7 @@ export interface HeatmapsPipelineConfig {
     promiseScheduler: PromiseScheduler
     topHog: TopHogRegistry
     teamsPrefetchEnabled: boolean
+    concurrentBatches: number
 }
 
 interface HeatmapsPipelineInput {
@@ -54,9 +55,11 @@ interface HeatmapsPipelineContext {
     message: Message
 }
 
-export function createHeatmapsPipeline<TInput extends HeatmapsPipelineInput, TContext extends HeatmapsPipelineContext>(
-    config: HeatmapsPipelineConfig
-) {
+export function createHeatmapsPipeline<
+    TInput extends HeatmapsPipelineInput,
+    TContext extends HeatmapsPipelineContext,
+    CFeed extends object = Record<never, never>,
+>(config: HeatmapsPipelineConfig) {
     const {
         outputs,
         teamManager,
@@ -66,6 +69,7 @@ export function createHeatmapsPipeline<TInput extends HeatmapsPipelineInput, TCo
         promiseScheduler,
         topHog,
         teamsPrefetchEnabled,
+        concurrentBatches,
     } = config
 
     return (
@@ -73,7 +77,7 @@ export function createHeatmapsPipeline<TInput extends HeatmapsPipelineInput, TCo
             teamManager,
             outputs,
             promiseScheduler,
-            concurrentBatches: 1,
+            concurrentBatches,
             topHog,
         })
             .beforeBatch((b) => b.pipe(createEventFiltersBatchAppMetricsBeforeBatchStep(outputs)))
@@ -96,9 +100,11 @@ export function createHeatmapsPipeline<TInput extends HeatmapsPipelineInput, TCo
             .pipe(createDisablePersonProcessingStep())
             .pipe(createNormalizeEventStep())
             .pipe(createPrepareEventStep())
+            // From here on the event produces its heatmap rows, so a redelivery would duplicate them.
+            .timeoutBarrier()
             .pipe(createExtractHeatmapDataStep(outputs))
             .pipe(createRecordIngestionLagStep())
             .afterBatch((b) => b.pipe(createFlushEventFiltersBatchAppMetricsStep()))
-            .build()
+            .build<CFeed>()
     )
 }

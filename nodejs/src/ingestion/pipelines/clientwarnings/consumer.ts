@@ -14,9 +14,12 @@ import { RedisPool } from '~/types'
 import { createOutputsRegistry } from './outputs/registry'
 import { createClientWarningsPipeline } from './pipeline'
 
+export type ClientWarningsScopeConfig = IngestionOutputsConfig &
+    Pick<IngestionConsumerConfig, 'DROP_EVENTS_BY_TOKEN_DISTINCT_ID'>
+
 export type ClientWarningsConsumerConfig = CommonIngestionConsumerConfig &
-    IngestionOutputsConfig &
-    Pick<IngestionConsumerConfig, 'DROP_EVENTS_BY_TOKEN_DISTINCT_ID' | 'TEAMS_PREFETCH_ENABLED'>
+    ClientWarningsScopeConfig &
+    Pick<IngestionConsumerConfig, 'TEAMS_PREFETCH_ENABLED'>
 
 export type ClientWarningsSharedScope = Scope<{
     postgres: PostgresRouter
@@ -25,12 +28,9 @@ export type ClientWarningsSharedScope = Scope<{
     producerRegistry: KafkaProducerRegistry<ProducerName>
 }>
 
-export function createClientWarningsConsumer(
-    config: ClientWarningsConsumerConfig,
-    sharedScope: ClientWarningsSharedScope
-) {
+export function createClientWarningsScope(config: ClientWarningsScopeConfig, sharedScope: ClientWarningsSharedScope) {
     const staticDropEventTokens = config.DROP_EVENTS_BY_TOKEN_DISTINCT_ID.split(',').filter((x) => !!x)
-    const scope = extend(sharedScope, 'clientwarnings', (container, builder) =>
+    return extend(sharedScope, 'clientwarnings', (container, builder) =>
         builder
             .add('promiseScheduler', new PromiseSchedulerComponent())
             .add(
@@ -49,8 +49,19 @@ export function createClientWarningsConsumer(
                 new IngestionOutputsComponent(() => createOutputsRegistry().build(container.producerRegistry, config))
             )
     )
+}
+
+export function createClientWarningsConsumer(
+    config: ClientWarningsConsumerConfig,
+    sharedScope: ClientWarningsSharedScope
+) {
+    const scope = createClientWarningsScope(config, sharedScope)
 
     return new CommonIngestionConsumerScope('clientwarnings', config, scope, ({ container }) =>
-        createClientWarningsPipeline({ ...container, teamsPrefetchEnabled: config.TEAMS_PREFETCH_ENABLED })
+        createClientWarningsPipeline({
+            ...container,
+            teamsPrefetchEnabled: config.TEAMS_PREFETCH_ENABLED,
+            concurrentBatches: 1,
+        })
     )
 }

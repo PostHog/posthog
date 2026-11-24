@@ -20,6 +20,10 @@ export class StartPipelineBuilder<T, C> {
         return new PipelineBuilder(new StepPipeline(wrappedStep, new StartPipeline<T, C>()))
     }
 
+    timeoutBarrier(): PipelineBuilder<T, T, C> {
+        return new PipelineBuilder(new TimeoutBarrierPipeline(new StartPipeline<T, C>()))
+    }
+
     branching<TBranch extends string, U, RBranch extends string = never>(
         decisionFn: BranchDecisionFn<T, TBranch>,
         callback: (
