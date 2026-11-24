@@ -38,7 +38,12 @@ class TestToolbarOAuthAuthorize(APIBaseTest):
         assert response.status_code == 400
 
     def test_disallowed_domain_returns_error_page_with_hostname(self):
-        response = self._get_authorize(redirect_url="https://evil.com/page")
+        response = self.client.get(
+            "/toolbar_oauth/authorize/",
+            {"redirect": "https://evil.com/page", "code_challenge": "test_challenge"},
+            follow=True,
+        )
+        assert response.redirect_chain == [("/toolbar_oauth/error", 302)]
         assert response.status_code == 403
         assert response.context["posthog_app_context"]["toolbar_oauth_error"] == {
             "title": "Domain not authorized",

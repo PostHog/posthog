@@ -15,7 +15,7 @@ export const scene: SceneExport = {
     component: ToolbarOAuthError,
 }
 
-// Only an in-app navigation to a toolbar sign-in endpoint reaches the page without the server's error.
+// The server passes the error only once, so a reload or a direct visit shows this generic error.
 const FALLBACK_ERROR: ToolbarOAuthErrorContext = {
     title: 'The toolbar could not open',
     message: 'Open the toolbar from your site again.',

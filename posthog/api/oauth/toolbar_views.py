@@ -2,14 +2,18 @@ from typing import cast
 from urllib.parse import urlencode, urlparse
 
 from django.http import HttpRequest, HttpResponse
+from django.shortcuts import redirect
 
 from posthog.api.utils import hostname_in_allowed_url_list
 from posthog.constants import PERMITTED_FORUM_DOMAINS
 from posthog.models import User
 from posthog.utils import render_template
 
+TOOLBAR_OAUTH_ERROR_PATH = "/toolbar_oauth/error"
+TOOLBAR_OAUTH_ERROR_SESSION_KEY = "toolbar_oauth_error"
 
-def render_toolbar_oauth_error(
+
+def redirect_to_toolbar_oauth_error(
     request: HttpRequest,
     *,
     title: str,
@@ -18,20 +22,28 @@ def render_toolbar_oauth_error(
     detail: str | None = None,
     links_to_authorized_urls: bool = False,
 ) -> HttpResponse:
-    """Render the app's toolbar sign-in error page, which reads this error from the app context."""
-    return render_template(
-        "index.html",
-        request,
-        context={
-            "toolbar_oauth_error": {
-                "title": title,
-                "message": message,
-                "detail": detail,
-                "links_to_authorized_urls": links_to_authorized_urls,
-            },
-        },
-        status_code=status_code,
-    )
+    """Redirect to the toolbar sign-in error page, which reads this error from the session.
+
+    The refused request's URL can hold an unredeemed authorization code, the OAuth state, or a URL of the user's
+    site. The error page loads the app, and the app's analytics and session replay record the page URL. So the
+    error page has its own URL with no query string, and the error goes to it through the session.
+    """
+    request.session[TOOLBAR_OAUTH_ERROR_SESSION_KEY] = {
+        "title": title,
+        "message": message,
+        "detail": detail,
+        "links_to_authorized_urls": links_to_authorized_urls,
+        "status_code": status_code,
+    }
+    return redirect(TOOLBAR_OAUTH_ERROR_PATH)
+
+
+def toolbar_oauth_error(request: HttpRequest) -> HttpResponse:
+    error = request.session.pop(TOOLBAR_OAUTH_ERROR_SESSION_KEY, None)
+    if not error:
+        return render_template("index.html", request)
+    status_code = error.pop("status_code")
+    return render_template("index.html", request, context={"toolbar_oauth_error": error}, status_code=status_code)
 
 
 def authorize_and_redirect(request: HttpRequest) -> HttpResponse:
@@ -51,7 +63,7 @@ def authorize_and_redirect(request: HttpRequest) -> HttpResponse:
         or (not is_forum_login and not hostname_in_allowed_url_list(current_team.app_urls, redirect_url.hostname))
     ):
         hostname = redirect_url.hostname or request.GET["redirect"]
-        return render_toolbar_oauth_error(
+        return redirect_to_toolbar_oauth_error(
             request,
             title="Domain not authorized",
             message="The toolbar cannot authenticate on this domain because it is not in your project's authorized URLs.",

@@ -63,7 +63,7 @@ from posthog.api.oauth.toolbar_service import (
     refresh_tokens,
     validate_and_consume_toolbar_oauth_state,
 )
-from posthog.api.oauth.toolbar_views import render_toolbar_oauth_error
+from posthog.api.oauth.toolbar_views import redirect_to_toolbar_oauth_error
 from posthog.api.organization import OrganizationSerializer
 from posthog.api.services.flags_service import get_flags_from_service
 from posthog.api.shared import OrganizationBasicSerializer, OrganizationNotificationLockSerializer, TeamBasicSerializer
@@ -1931,7 +1931,7 @@ def toolbar_oauth_authorize(request):
         if exc.code == "forbidden_app_url":
             parsed_redirect = urllib.parse.urlparse(redirect_url)
             hostname = parsed_redirect.hostname or redirect_url
-            return render_toolbar_oauth_error(
+            return redirect_to_toolbar_oauth_error(
                 request,
                 title="Domain not authorized",
                 message="The toolbar cannot authenticate on this domain because it is not in your project's authorized URLs.",
@@ -2000,9 +2000,13 @@ def toolbar_oauth_callback(request):
         )
         oauth_app = get_or_create_toolbar_oauth_application(user=request.user)
     except ToolbarOAuthError as exc:
+        # The code is never sent to the toolbar after a refused state, so remove the grant before anyone can redeem it.
+        OAuthGrant.objects.filter(
+            code=code, user=request.user, application__name=settings.TOOLBAR_OAUTH_APPLICATION_NAME
+        ).delete()
         if exc.code == "invalid_state":
             # The state lives a few minutes, and a sign-in prompt on the way can outlast it. Say how to start over.
-            return render_toolbar_oauth_error(
+            return redirect_to_toolbar_oauth_error(
                 request,
                 title="This toolbar sign-in expired",
                 message="Open the toolbar from your site again to start a new sign-in.",
@@ -2286,7 +2290,7 @@ def redirect_to_site(request):
             app_url=app_url,
             team_id=team.id,
         )
-        return render_toolbar_oauth_error(
+        return redirect_to_toolbar_oauth_error(
             request,
             title="Domain not authorized",
             message="The toolbar cannot load on this domain because it is not in your project's authorized URLs.",

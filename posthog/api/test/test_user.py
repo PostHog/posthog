@@ -2454,9 +2454,9 @@ class TestUserAPI(APIBaseTest):
             self.assertTrue(f"{url}#__posthog=" in location)
 
         def assert_forbidden_url(url):
-            response = self.client.get(f"/api/user/redirect_to_site/?appUrl={quote(url)}")
+            response = self.client.get(f"/api/user/redirect_to_site/?appUrl={quote(url)}", follow=True)
+            self.assertEqual(response.redirect_chain, [("/toolbar_oauth/error", 302)])
             self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-            self.assertEqual(response.headers.get("location"), None)
             self.assertEqual(
                 response.context["posthog_app_context"]["toolbar_oauth_error"],
                 {
@@ -2497,10 +2497,10 @@ class TestUserAPI(APIBaseTest):
         self.team.save()
 
         app_url = f"https://www.example.com{terminator}@evil.example.net/"
-        response = self.client.get(f"/api/user/redirect_to_site/?appUrl={quote(app_url, safe='')}")
+        response = self.client.get(f"/api/user/redirect_to_site/?appUrl={quote(app_url, safe='')}", follow=True)
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert response.headers.get("location") is None
+        assert response.redirect_chain == [("/toolbar_oauth/error", 302)]
 
     @parameterized.expand(
         [
@@ -2512,10 +2512,10 @@ class TestUserAPI(APIBaseTest):
         self.team.app_urls = ["https://www.example.com"]
         self.team.save()
 
-        response = self.client.get(f"/api/user/redirect_to_site/?appUrl={quote(app_url, safe='')}")
+        response = self.client.get(f"/api/user/redirect_to_site/?appUrl={quote(app_url, safe='')}", follow=True)
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert response.headers.get("location") is None
+        assert response.redirect_chain == [("/toolbar_oauth/error", 302)]
 
     @parameterized.expand([("http", "http%3A%2F%2Fwww.example.com"), ("https", "https%3A%2F%2Fwww.example.com")])
     def test_redirect_to_site_accepts_a_fully_encoded_app_url(self, _name: str, encoded: str) -> None:

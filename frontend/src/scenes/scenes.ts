@@ -954,11 +954,8 @@ export const routes: Record<string, [Scene | string, string]> = {
     [`${urls.verifyEmail(':uuid')}/:token`]: [Scene.VerifyEmail, 'verifyEmailWithToken'],
     [urls.vercelConnect()]: [Scene.VercelConnect, 'vercelConnect'],
     [urls.vercelLinkError()]: [Scene.VercelLinkError, 'vercelLinkError'],
-    // pinned: Django paths in posthog/urls.py, which render the app when they refuse a toolbar sign-in.
-    '/toolbar_oauth/authorize': [Scene.ToolbarOAuthError, 'toolbarOAuthAuthorizeError'],
-    '/toolbar_oauth/callback': [Scene.ToolbarOAuthError, 'toolbarOAuthCallbackError'],
-    '/api/user/redirect_to_site': [Scene.ToolbarOAuthError, 'toolbarRedirectToSiteError'],
-    '/authorize_and_redirect': [Scene.ToolbarOAuthError, 'toolbarAuthorizeAndRedirectError'],
+    // pinned: the Django path in posthog/urls.py that every refused toolbar sign-in redirects to.
+    '/toolbar_oauth/error': [Scene.ToolbarOAuthError, 'toolbarOAuthError'],
     [urls.agenticAccountMismatch()]: [Scene.AgenticAccountMismatch, 'agenticAccountMismatch'],
     [urls.unsubscribe()]: [Scene.Unsubscribe, 'unsubscribe'],
     [urls.codeCanvasLink(':channelId', ':dashboardId')]: [Scene.CodeCanvasLink, 'codeCanvasLink'],
