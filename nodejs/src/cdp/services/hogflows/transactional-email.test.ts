@@ -45,6 +45,16 @@ describe('marketingSendRefusal', () => {
             undefined,
         ],
         [
+            'an unless/elsif/else conditional with unsubscribe_url in every branch',
+            '<a href="{% unless variables.a %}{{ unsubscribe_url }}{% elsif variables.b %}{{ unsubscribe_url }}?b=1{% else %}{{ unsubscribe_url }}?c=1{% endunless %}">Unsubscribe</a>',
+            undefined,
+        ],
+        [
+            'an unless/elsif/else suffix conditional after unsubscribe_url',
+            '<a href="{{ unsubscribe_url }}{% unless variables.a %}?a=1{% elsif variables.b %}?b=2{% else %}?c=3{% endunless %}">Unsubscribe</a>',
+            undefined,
+        ],
+        [
             'a case/when conditional',
             '<a href="{% case variables.kind %}{% when \'one\' %}{{ unsubscribe_url_one_click }}{% else %}{{ unsubscribe_url }}{% endcase %}">Unsubscribe</a>',
             undefined,
@@ -142,6 +152,11 @@ describe('marketingSendRefusal', () => {
         [
             'a duplicate else clause',
             '<a href="{% if a %}{{ unsubscribe_url }}{% else %}https://example.com{% else %}https://example.org{% endif %}">Unsubscribe</a>',
+            'unsubscribe_link_required',
+        ],
+        [
+            'an elsif clause placed after else in an unless conditional',
+            '<a href="{% unless a %}https://example.com{% else %}https://example.org{% elsif b %}{{ unsubscribe_url }}{% endunless %}">Unsubscribe</a>',
             'unsubscribe_link_required',
         ],
         [

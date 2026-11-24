@@ -900,6 +900,9 @@ export class EmailService {
             const sendDeadlineAt = Date.now() + sendDeadlineMs
             const deadline = params.attachments?.length ? AbortSignal.timeout(sendDeadlineMs) : undefined
             const files = deadline ? await this.loadAttachments(invocation.teamId, params.attachments!, deadline) : []
+            if (await this.optedOutOfMarketingApiSend(invocation, sendParams.to?.email)) {
+                return this.applySkip(result, invocation, isTest, addLog, MARKETING_OPT_OUT_SKIP)
+            }
             const ownershipCheckRetries: number = invocation.queueMetadata?.ownershipCheckRetries ?? 0
             const ownershipCheckTimeoutMs = this.sesConfig.ownershipCheckTimeoutMs ?? OWNERSHIP_CHECK_TIMEOUT_MS
             const halfTheSendTimeLeftMs = Math.max(0, Math.floor((sendDeadlineAt - Date.now()) / 2))
@@ -933,10 +936,6 @@ export class EmailService {
                     milliseconds: pickAttachmentLoadRetryDelayMs(retries),
                 })
                 return result
-            }
-
-            if (await this.optedOutOfMarketingApiSend(invocation, sendParams.to?.email)) {
-                return this.applySkip(result, invocation, isTest, addLog, MARKETING_OPT_OUT_SKIP)
             }
 
             if (provider === 'maildev') {

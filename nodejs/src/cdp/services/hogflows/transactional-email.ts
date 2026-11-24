@@ -399,7 +399,7 @@ const isLiquidUnsubscribeHref = (rawHref: string): boolean => {
                 return false
             }
             if (
-                (keyword === 'elsif' && current.openTag !== 'if') ||
+                (keyword === 'elsif' && current.openTag !== 'if' && current.openTag !== 'unless') ||
                 (keyword === 'when' && current.openTag !== 'case')
             ) {
                 return false

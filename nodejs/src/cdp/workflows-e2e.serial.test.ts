@@ -57,7 +57,7 @@ import { createTeam, getFirstTeam, resetBehavioralCohortsDatabase, resetTestData
 import { Hub, Team } from '../../src/types'
 import { createRedisV2PoolFromConfig } from '../common/redis/redis-v2'
 import { FixtureHogFlowBuilder } from './_tests/builders/hogflow.builder'
-import { StoredFile, attachmentStoreConfig, uploadAttachment } from './_tests/email-delivery-fakes'
+import { PostgresProxy, StoredFile, attachmentStoreConfig, uploadAttachment } from './_tests/email-delivery-fakes'
 import { HOG_FILTERS_EXAMPLES, HOG_FLOW_MASK_EXAMPLES } from './_tests/examples'
 import { startFakeSes } from './_tests/fake-ses'
 import {
@@ -89,6 +89,7 @@ import {
     serializeResolverState,
 } from './services/hogflows/batch-resolver.types'
 import { HogFlowBatchPersonQueryService } from './services/hogflows/hogflow-batch-person-query.service'
+import { ASYNC_REFUSAL_BUDGET_MS } from './services/hogflows/transactional-sends'
 import { CyclotronJobQueueKafka } from './services/job-queue/job-queue-kafka'
 import { CyclotronJobQueuePostgresV2 } from './services/job-queue/job-queue-postgres-v2'
 import { CyclotronJobQueueRateLimitedPostgresV2 } from './services/job-queue/job-queue-rate-limited-postgres-v2'
@@ -100,6 +101,7 @@ import { SesWebhookHandler } from './services/messaging/helpers/ses'
 import { EmailTrackingCodeSigner } from './services/messaging/helpers/tracking-code'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
 import { sandboxReadRouter } from './services/messaging/sandbox/sandbox-authorization'
+import { RECIPIENT_READ_TIMEOUT_MS } from './services/messaging/sandbox/sandbox-recipient-checks'
 import { HogInvocationResultsService } from './services/monitoring/hog-invocation-results.service'
 import { RateLimiterService } from './services/rate-limiter/rate-limiter.service'
 import { HogFunctionInvocationGlobals } from './types'
@@ -4434,7 +4436,13 @@ describe('Workflows E2E (email queue)', () => {
             const to = `reader-${new UUIDT().toString()}@example.com`
             await optOut(to, newsletterId)
 
-            const onePoolPostgres = new PostgresRouter({ ...hub, POSTGRES_CONNECTION_POOL_SIZE: 1 })
+            const dbProxy = await PostgresProxy.start(new URL(hub.DATABASE_URL))
+            const onePoolPostgres = new PostgresRouter({
+                ...hub,
+                DATABASE_URL: dbProxy.url,
+                DATABASE_READONLY_URL: dbProxy.url,
+                POSTGRES_CONNECTION_POOL_SIZE: 1,
+            })
             const boundedConfig = { ...hub, CDP_INTAKE_KAFKA_ASYNC_TEAMS: String(team.id) }
             const boundedDeps = { ...createCdpConsumerDeps(hub, kafkaProducer), postgres: onePoolPostgres }
             const boundedApi = new CdpApi(
@@ -4451,8 +4459,6 @@ describe('Workflows E2E (email queue)', () => {
             boundedApp.use('/', boundedApi.router())
             const boundedServer = boundedApp.listen(0, () => {})
 
-            const locker = await hub.postgres.connect(PostgresUse.COMMON_WRITE)
-            let locked = false
             try {
                 const warmup = await post(
                     'code',
@@ -4462,18 +4468,29 @@ describe('Workflows E2E (email queue)', () => {
                 )
                 expect(warmup.status).toEqual(422)
 
-                await locker.query('BEGIN')
-                await locker.query(`SET LOCAL idle_in_transaction_session_timeout = '15s'`)
-                await locker.query('LOCK TABLE posthog_messagerecipientpreference IN ACCESS EXCLUSIVE MODE')
-                locked = true
-
+                jest.useFakeTimers({
+                    doNotFake: [
+                        'nextTick',
+                        'setImmediate',
+                        'clearImmediate',
+                        'queueMicrotask',
+                        'hrtime',
+                        'performance',
+                    ],
+                })
                 for (let attempt = 0; attempt < 2; attempt += 1) {
-                    const res = await post(
+                    const stalledRead = dbProxy.hold((request) =>
+                        request.includes('posthog_messagerecipientpreference')
+                    )
+                    const pending = post(
                         'code',
                         flow,
                         { to, distinct_id: 'reader', ...codeSendIn(newsletter) },
                         boundedApp
                     )
+                    await stalledRead
+                    await jest.advanceTimersByTimeAsync(ASYNC_REFUSAL_BUDGET_MS)
+                    const res = await pending
                     expect(res.status).toEqual(202)
                 }
 
@@ -4498,60 +4515,96 @@ describe('Workflows E2E (email queue)', () => {
                     ).rows
                 ).toEqual([{ answered: 1 }])
 
-                await locker.query('COMMIT')
-                locked = false
-
-                const afterUnlock = await post(
+                jest.useRealTimers()
+                const afterRecovery = await post(
                     'code',
                     flow,
                     { to, distinct_id: 'reader', ...codeSendIn(newsletter) },
                     boundedApp
                 )
-                expect(afterUnlock.status).toEqual(422)
-                expect(afterUnlock.body).toEqual({ error: 'recipient_opted_out' })
+                expect(afterRecovery.status).toEqual(422)
+                expect(afterRecovery.body).toEqual({ error: 'recipient_opted_out' })
             } finally {
-                if (locked) {
-                    await locker.query('COMMIT').catch(() => undefined)
-                }
-                locker.release()
+                jest.useRealTimers()
+                dbProxy.releaseAll()
                 boundedServer.close()
                 await boundedApi.stop()
                 await onePoolPostgres.end()
+                await dbProxy.close()
             }
         })
 
-        it('bounds the email worker preference read and parks on retry backoff when primary preferences are locked', async () => {
+        it('bounds the email worker preference read and parks on retry backoff when primary preferences stall', async () => {
             const flow = await insertHogFlow(hub.postgres, sendFlow('code', 'transactional'))
             const to = `reader-${new UUIDT().toString()}@example.com`
 
             const res = await post('code', flow, { to, distinct_id: 'reader', ...codeSendIn(newsletter) })
             expect(res.status).toEqual(202)
 
-            const onePoolPostgres = new PostgresRouter({ ...hub, POSTGRES_CONNECTION_POOL_SIZE: 1 })
+            const dbProxy = await PostgresProxy.start(new URL(hub.DATABASE_URL))
+            const onePoolPostgres = new PostgresRouter({
+                ...hub,
+                DATABASE_URL: dbProxy.url,
+                DATABASE_READONLY_URL: dbProxy.url,
+                POSTGRES_CONNECTION_POOL_SIZE: 1,
+            })
             const workerDeps = { ...createCdpConsumerDeps(hub, kafkaProducer), postgres: onePoolPostgres }
-            const locker = await hub.postgres.connect(PostgresUse.COMMON_WRITE)
             let worker: CdpCyclotronWorkerEmail | undefined
-            let locked = false
             try {
-                await locker.query('BEGIN')
-                await locker.query(`SET LOCAL idle_in_transaction_session_timeout = '15s'`)
-                await locker.query('LOCK TABLE posthog_messagerecipientpreference IN ACCESS EXCLUSIVE MODE')
-                locked = true
+                const stalledRead = dbProxy.hold((request) => request.includes('posthog_messagerecipientpreference'))
+                let readStalled = false
+                void stalledRead.then(() => {
+                    readStalled = true
+                })
+
+                const clockStart = Date.now()
+                jest.useFakeTimers({
+                    now: clockStart,
+                    doNotFake: [
+                        'nextTick',
+                        'setImmediate',
+                        'clearImmediate',
+                        'queueMicrotask',
+                        'hrtime',
+                        'performance',
+                    ],
+                })
 
                 worker = new CdpCyclotronWorkerEmail(
                     hub,
                     workerDeps,
                     new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
                 )
-                const attemptStart = Date.now()
                 await worker.start()
 
-                await waitForExpect(async () => {
+                const stallDeadline = performance.now() + 10_000
+                while (!readStalled && performance.now() < stallDeadline) {
+                    await queryCyclotronJobs()
+                    await jest.advanceTimersByTimeAsync(10)
+                }
+                expect(readStalled).toBe(true)
+
+                await jest.advanceTimersByTimeAsync(RECIPIENT_READ_TIMEOUT_MS)
+                const parkedBy = Date.now()
+
+                let parkedJob: any
+                const parkDeadline = performance.now() + 10_000
+                while (!parkedJob && performance.now() < parkDeadline) {
                     const jobs = await queryCyclotronJobs()
-                    expect(jobs).toHaveLength(1)
-                    expect(jobs[0]).toMatchObject({ queue_name: 'email', status: 'available' })
-                    expect(new Date(jobs[0].scheduled).getTime()).toBeGreaterThanOrEqual(attemptStart + 30_000)
-                }, 15_000)
+                    if (
+                        jobs.length === 1 &&
+                        jobs[0].status === 'available' &&
+                        new Date(jobs[0].scheduled).getTime() > parkedBy
+                    ) {
+                        parkedJob = jobs[0]
+                    } else {
+                        await new Promise((resolve) => setImmediate(resolve))
+                    }
+                }
+                expect(parkedJob).toMatchObject({ queue_name: 'email', status: 'available' })
+                const scheduledAt = new Date(parkedJob.scheduled).getTime()
+                expect(scheduledAt).toBeGreaterThanOrEqual(clockStart + RECIPIENT_READ_TIMEOUT_MS + 30_000)
+                expect(scheduledAt).toBeLessThanOrEqual(parkedBy + 60_000)
 
                 expect(await emailsTo(to)).toEqual([])
                 expect(
@@ -4575,26 +4628,29 @@ describe('Workflows E2E (email queue)', () => {
                     ).rows
                 ).toEqual([{ answered: 1 }])
 
-                await locker.query('COMMIT')
-                locked = false
-
                 await cyclotronPool.query(`UPDATE cyclotron_jobs SET scheduled = NOW() WHERE id = $1`, [
                     res.body.invocation_id,
                 ])
-                await waitForExpect(async () => {
+                const completeDeadline = performance.now() + 10_000
+                let completed = false
+                while (!completed && performance.now() < completeDeadline) {
                     const jobs = await queryCyclotronJobs()
-                    expect(jobs.every((job: any) => job.status === 'completed')).toBe(true)
-                }, 15_000)
+                    if (jobs.length > 0 && jobs.every((job: any) => job.status === 'completed')) {
+                        completed = true
+                    } else {
+                        await jest.advanceTimersByTimeAsync(10)
+                    }
+                }
+                expect(completed).toBe(true)
                 expect(await emailsTo(to)).toHaveLength(1)
             } finally {
-                if (locked) {
-                    await locker.query('COMMIT').catch(() => undefined)
-                }
-                locker.release()
+                jest.useRealTimers()
+                dbProxy.releaseAll()
                 if (worker) {
                     await worker.stop()
                 }
                 await onePoolPostgres.end()
+                await dbProxy.close()
             }
         })
 
