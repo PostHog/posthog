@@ -66,7 +66,7 @@ const COLUMNS: LemonTableColumns<PlatformAlertConfigurationApi> = [
         title: 'Interval',
         render: (_, configuration) => (
             <Tooltip title={describeSchedule(configuration)}>
-                <span>{describeInterval(configuration)}</span>
+                <span className="border-dotted border-b">{describeInterval(configuration)}</span>
             </Tooltip>
         ),
     },

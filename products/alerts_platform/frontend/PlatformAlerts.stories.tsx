@@ -285,6 +285,16 @@ export const ListIntervalTooltipOpen: Story = {
     },
 }
 
+export const ListTypeTooltipOpen: Story = {
+    parameters: { pageUrl: urls.platformAlerts() },
+    play: async ({ canvasElement }) => {
+        const name = await within(canvasElement).findByText('S3 export failing')
+        const type = within(name.closest('tr') as HTMLElement).getByRole('img', { name: 'Warehouse destination' })
+        await userEvent.hover(type)
+        await within(document.body).findByText('Warehouse destination')
+    },
+}
+
 export const Detail: Story = {
     parameters: { pageUrl: urls.platformAlert(CONFIGURATION.id) },
 }
