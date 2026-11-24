@@ -75,6 +75,21 @@ class TestContentAutopilotAPI(APIBaseTest):
         self.assertEqual(kwargs["organization_id"], self.organization.id)
         self.assertEqual(kwargs["team_id"], self.team.id)
 
+    @parameterized.expand(
+        [
+            ("profiles", "_profiles_url", status.HTTP_200_OK),
+            ("runs", "_runs_url", status.HTTP_403_FORBIDDEN),
+            ("proposals", "_proposals_url", status.HTTP_403_FORBIDDEN),
+            ("opportunities", "_opportunities_url", status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_drafting_endpoints_require_the_drafting_flag(self, _name: str, url: str, expected: int) -> None:
+        self.feature_enabled.side_effect = lambda flag, *args, **kwargs: flag == CONTENT_AUTOPILOT_FEATURE_FLAG
+
+        response = self.client.get(getattr(self, url)())
+
+        self.assertEqual(response.status_code, expected)
+
     def test_requires_an_authenticated_project_member(self) -> None:
         self.client.logout()
 

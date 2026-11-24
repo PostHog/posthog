@@ -52,6 +52,7 @@ from products.web_analytics.backend.facade.models import (
 )
 
 CONTENT_AUTOPILOT_FEATURE_FLAG = "web-analytics-content-autopilot"
+CONTENT_AUTOPILOT_DRAFTING_FEATURE_FLAG = "web-analytics-content-autopilot-drafting"
 DUPLICATE_DOMAIN_CONSTRAINT = "content_auto_profile_team_domain"
 DUPLICATE_DOMAIN_MESSAGE = "This site is already configured for the project."
 
@@ -65,6 +66,28 @@ def duplicate_domain_as_validation_error() -> Iterator[None]:
         if DUPLICATE_DOMAIN_CONSTRAINT in str(error):
             raise ValidationError({"domain": DUPLICATE_DOMAIN_MESSAGE}) from error
         raise
+
+
+class _DraftingFlagView:
+    """The view as the flag permission reads it, with the drafting flag in place of the view's own flag."""
+
+    posthog_feature_flag = CONTENT_AUTOPILOT_DRAFTING_FEATURE_FLAG
+
+    def __init__(self, view: Any) -> None:
+        self._view = view
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._view, name)
+
+
+class ContentAutopilotDraftingPermission(PostHogFeatureFlagPermission):
+    """Runs, drafts and opportunities need the drafting flag on top of the AI visibility flag.
+
+    `PostHogFeatureFlagPermission` passes on the first flag in its config that is on, so one view config
+    cannot require two flags. This permission checks the second one on its own."""
+
+    def has_permission(self, request: Request, view: Any) -> bool:
+        return super().has_permission(request, _DraftingFlagView(view))
 
 
 class ContentAutopilotViewSetMixin(TeamAndOrgViewSetMixin):
@@ -606,6 +629,7 @@ class ContentAutopilotSiteProfileViewSet(ContentAutopilotViewSetMixin, viewsets.
 
 @extend_schema_view(list=extend_schema(parameters=[ContentAutopilotRunListQuerySerializer]))
 class ContentAutopilotRunViewSet(ContentAutopilotViewSetMixin, viewsets.ReadOnlyModelViewSet):
+    permission_classes = [PostHogFeatureFlagPermission, ContentAutopilotDraftingPermission]
     serializer_class = ContentAutopilotRunSerializer
     queryset = ContentAutopilotRun.objects.unscoped()
 
@@ -654,6 +678,7 @@ class ContentAutopilotRunViewSet(ContentAutopilotViewSetMixin, viewsets.ReadOnly
     )
 )
 class ContentAutopilotProposalViewSet(ContentAutopilotViewSetMixin, viewsets.ReadOnlyModelViewSet):
+    permission_classes = [PostHogFeatureFlagPermission, ContentAutopilotDraftingPermission]
     serializer_class = ContentAutopilotProposalSerializer
     queryset = ContentAutopilotProposal.objects.unscoped()
 
@@ -725,6 +750,7 @@ class ContentAutopilotProposalViewSet(ContentAutopilotViewSetMixin, viewsets.Rea
 
 @extend_schema_view(list=extend_schema(parameters=[ContentAutopilotOpportunityListQuerySerializer]))
 class ContentAutopilotOpportunityViewSet(ContentAutopilotViewSetMixin, viewsets.ReadOnlyModelViewSet):
+    permission_classes = [PostHogFeatureFlagPermission, ContentAutopilotDraftingPermission]
     serializer_class = ContentAutopilotOpportunitySerializer
     queryset = ContentAutopilotOpportunity.objects.unscoped()
 
