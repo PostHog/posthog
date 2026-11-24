@@ -7345,12 +7345,12 @@ Today (31): `accounting_accounts`, `contact_groups`, `contacts`, `credit_notes`,
 
 Diffed against: <https://www.holded.com/en-us/developers/api-reference/accounting/list-chart-of-accounts>
 
-- [ ] `Recurring invoices (GET /api/v2/recurring-invoices)` — subscription-style billing templates, needed for MRR and forecast reporting; invoices synced today show only the generated documents (high)
+- [x] `Recurring invoices (GET /api/v2/recurring-invoices)` — subscription-style billing templates, needed for MRR and forecast reporting; invoices synced today show only the generated documents (high) → `recurring_invoices` (full refresh)
 - [ ] `Payslips (GET /api/v2/payslips)` — payroll cost per employee and period, joins to the employees table we sync (medium)
 - [ ] `Salary records (GET /api/v2/salary-records)` — salary history per employee for headcount cost analysis (medium)
-- [ ] `Employee time-off requests (GET /api/v2/employees/time-offs)` — absences and holidays per employee, joins to employees (medium)
-- [ ] `Production orders (GET /api/v2/production-orders)` — manufacturing orders that consume and create stock, joins to products and warehouses (medium)
-- [ ] `Bank account movements (GET /api/v2/treasury/accounts/{accountId}/movements)` — transaction-level cash movements for the treasury_accounts we sync, fan-out per account (high)
+- [x] `Employee time-off requests (GET /api/v2/employees/time-offs)` — absences and holidays per employee, joins to employees (medium) → `employee_time_offs` (full refresh, over one wide `start_date_from`/`start_date_to` range, which the endpoint requires)
+- [x] `Production orders (GET /api/v2/production-orders)` — manufacturing orders that consume and create stock, joins to products and warehouses (medium) → `production_orders` (full refresh)
+- [x] `Bank account movements (GET /api/v2/treasury/accounts/{accountId}/movements)` — transaction-level cash movements for the treasury_accounts we sync, fan-out per account (high) → `bank_movements` (full refresh, fan-out over `treasury_accounts`). The real path is `/api/v2/treasury/accounts/{id}/bank-movements`. Cash-type accounts return an empty list there; their entries are at `/cash-movements`, which is not built yet.
 - [ ] `Remittances (GET /api/v2/treasury/remittances)` — SEPA remittance batches grouping payments (low)
 - [ ] `Price lists (GET /api/v2/price-lists)` — lookup for price list IDs used on contacts and products (medium)
 - [ ] `Sales channels (GET /api/v2/sales-channels)` — lookup for the sales channel carried on sales documents (medium)
@@ -7923,7 +7923,7 @@ Note: Parsed the official Swagger resource index and individual JSON definitions
 
 ## Intercom — gaps
 
-Today (30): `activity_logs`, `admins`, `articles`, `audiences`, `collections`, `companies`, `company_attributes`, `company_segments`, `contact_activities`, `contact_attributes`, `contacts`, `content_snippets`, `conversation_attributes`, `conversation_hitl_events`, `conversation_parts`, `conversations`, `deleted_contacts`, `dynamic_contents`, `folders`, `help_centers`, `macros`, `news_items`, `newsfeeds`, `segments`, `subscription_types`, `tags`, `teams`, `ticket_states`, `ticket_types`, `tickets`
+Today (34): `activity_logs`, `admins`, `articles`, `audiences`, `calls`, `collections`, `companies`, `company_attributes`, `company_segments`, `contact_activities`, `contact_attributes`, `contact_notes`, `contacts`, `content_snippets`, `conversation_attributes`, `conversation_handling_events`, `conversation_hitl_events`, `conversation_parts`, `conversations`, `data_connectors`, `deleted_contacts`, `dynamic_contents`, `folders`, `help_centers`, `macros`, `news_items`, `newsfeeds`, `segments`, `subscription_types`, `tags`, `teams`, `ticket_states`, `ticket_types`, `tickets`
 
 Diffed against: <https://github.com/intercom/Intercom-OpenAPI/blob/main/descriptions/2.16/api.intercom.io.yaml>
 
@@ -7944,16 +7944,16 @@ These endpoints were announced in the 2.17 changelog and are only in the 2.17 de
 
 Re-audited 2026-11-19 against: <https://github.com/intercom/Intercom-OpenAPI/blob/main/descriptions/2.17/api.intercom.io.yaml>
 
-- [ ] `Calls (GET /calls)` — Phone call records with timing and outcome, for call volume and handling analysis next to conversations (high)
-- [ ] `Contact notes (GET /contacts/{contact_id}/notes)` — Internal notes teammates write on the contacts we sync, fanned out over contacts (medium)
+- [x] `Calls (GET /calls)` — Phone call records with timing and outcome, for call volume and handling analysis next to conversations (high). Added as `calls` for sources pinned to 2.15 or later, full refresh (no timestamp filter).
+- [x] `Contact notes (GET /contacts/{contact_id}/notes)` — Internal notes teammates write on the contacts we sync, fanned out over contacts (medium). Added as `contact_notes`, fanned out over the contacts search, full refresh because a new note does not reliably move the contact's `updated_at`.
 - [ ] `Company notes (GET /companies/{company_id}/notes)` — Internal notes on the companies we sync, fanned out over companies (low)
-- [ ] `Conversation handling events (GET /conversations/{id}/handling_events)` — Assignment, Fin and teammate handling history per conversation, fanned out over conversations (medium)
+- [x] `Conversation handling events (GET /conversations/{id}/handling_events)` — Assignment, Fin and teammate handling history per conversation, fanned out over conversations (medium). Added as `conversation_handling_events` for sources pinned to 2.15 or later. The endpoint returns only teammate pause and resume events, not assignment or Fin history. Incremental on the parent's `updated_at`, like `conversation_hitl_events`.
 - [ ] `Brands (GET /brands)` — Workspace brands, a lookup for multi-brand setups (low)
 - [ ] `Away status reasons (GET /away_status_reasons)` — Lookup for the reasons an admin can set when away; admins carry away mode state (low)
 - [ ] `Office hours schedules (GET /office_hours_schedules; GET /office_hours_schedules/{id}/office_hours_exceptions)` — Support hours and exceptions, context for response and SLA metrics (low)
 - [ ] `Internal articles (GET /internal_articles)` — Internal knowledge articles for teammates, separate from public articles (low)
 - [ ] `Article versions (GET /articles/{article_id}/versions)` — Edit history of the articles we sync, fanned out over articles (low)
-- [ ] `Data connectors (GET /data_connectors)` — Definitions of external data connectors used by Fin and workflows (low)
+- [x] `Data connectors (GET /data_connectors)` — Definitions of external data connectors used by Fin and workflows (low). Added as `data_connectors` for sources pinned to 2.16 or later, full refresh (no timestamp filter).
 
 Note (2026-11-19): Parsed the 2.17 OpenAPI description by regex over every GET and search path, and compared with the 30 tables. The routes above also exist in 2.16. Excluded: events (needs a user per call), contact tags, segments and companies fan-outs (covered by tags, segments, company_segments), search POSTs (duplicates of list tables), side conversations, merge histories, export and download jobs, content import sources, external pages, email settings and single-record GETs. Most are fan-outs and may need a parent id per call.
 
@@ -8283,17 +8283,17 @@ Note: Two API versions in play: the resource endpoints PostHog syncs are /cloud/
 
 ## Kajabi — gaps
 
-Today (12): `contact_offers`, `contact_taggings`, `contact_tags`, `contacts`, `courses`, `customers`, `offers`, `order_items`, `orders`, `products`, `purchases`, `transactions`
+Today (16): `contact_offers`, `contact_taggings`, `contact_tags`, `contacts`, `courses`, `customers`, `form_submissions`, `forms`, `offer_products`, `offers`, `order_items`, `orders`, `payouts`, `products`, `purchases`, `transactions`
 
 Diffed against: <https://developers.kajabi.com/llms.txt>
 
-- [ ] `Forms (GET /v1/forms)` — Lead capture forms, the parent lookup for form submissions (medium)
-- [ ] `Form submissions (GET /v1/form_submissions)` — Each lead capture submission, a top of funnel fact table next to contacts (high)
-- [ ] `Payouts (GET /v1/kajabi_payments_payouts)` — Payouts from Kajabi Payments, for reconciling revenue against transactions we sync (high)
+- [x] `Forms (GET /v1/forms)` — Lead capture forms, the parent lookup for form submissions (medium)
+- [x] `Form submissions (GET /v1/form_submissions)` — Each lead capture submission, a top of funnel fact table next to contacts (high)
+- [x] `Payouts (GET /v1/kajabi_payments_payouts)` — Payouts from Kajabi Payments, for reconciling revenue against transactions we sync (high)
 - [ ] `Contact notes (GET /v1/contact_notes)` — Notes teammates write on the contacts we sync (medium)
 - [ ] `Custom fields (GET /v1/custom_fields)` — Definitions of custom contact fields, a lookup for custom field values on contacts (medium)
 - [ ] `Customer offers (GET /v1/customers/{customer_id}/relationships/offers)` — Offers each customer holds, fanned out over customers, like the contact_offers table (medium)
-- [ ] `Offer products (GET /v1/offers/{offer_id}/relationships/products)` — Join table from offers to the products and courses they grant (medium)
+- [x] `Offer products (GET /v1/offers/{offer_id}/relationships/products)` — Join table from offers to the products and courses they grant (medium)
 - [ ] `Sites (GET /v1/sites)` — Sites in the account, a lookup for the site_id filter and site level analysis (low)
 - [ ] `Website pages (GET /v1/website_pages)` — Site pages catalog for content inventory (low)
 - [ ] `Landing pages (GET /v1/landing_pages)` — Landing page catalog for marketing analysis (low)
@@ -8519,7 +8519,7 @@ Note (2026-11-19): Parsed the revision 2026-10-15 OpenAPI spec and listed the to
 
 ## Knock — gaps
 
-Today (13): `audience_members`, `message_activities`, `message_delivery_logs`, `message_events`, `messages`, `objects`, `schedules`, `tenants`, `user_feed_items`, `user_preferences`, `user_subscriptions`, `users`, `workflow_recipient_runs`
+Today (17): `audience_members`, `audiences`, `audit_logs`, `channels`, `message_activities`, `message_delivery_logs`, `message_events`, `messages`, `objects`, `schedules`, `tenants`, `user_feed_items`, `user_preferences`, `user_subscriptions`, `users`, `workflow_recipient_runs`, `workflows`
 
 Diffed against: <https://docs.knock.app/llms.txt>
 
@@ -8538,15 +8538,17 @@ Note: Knock has no publicly downloadable OpenAPI file (docs.knock.app/openapi.js
 
 Re-audited 2026-11-19 against: <https://docs.knock.app/mapi/openapi.json>
 
-- [ ] `Workflows (GET /v1/workflows)` — workflow definitions, to resolve the workflow key carried on messages and workflow runs (high)
-- [ ] `Channels (GET /v1/channels)` — channel definitions, to resolve the channel_id on messages and delivery logs (high)
-- [ ] `Audiences (GET /v1/audiences)` — lists audience keys, which our audience_members table needs as configuration today (medium)
-- [ ] `Audit logs (GET /v1/audit_logs)` — account change history across environments, ordered newest first, with since and until filters (medium)
+- [x] `Workflows (GET /v1/workflows)` — workflow definitions, to resolve the workflow key carried on messages and workflow runs (high)
+- [x] `Channels (GET /v1/channels)` — channel definitions, to resolve the channel_id on messages and delivery logs (high)
+- [x] `Audiences (GET /v1/audiences)` — lists audience keys, which our audience_members table needs as configuration today (medium)
+- [x] `Audit logs (GET /v1/audit_logs)` — account change history across environments, ordered newest first, with since and until filters (medium)
 - [ ] `Message types (GET /v1/message_types)` — in-app message type definitions used by feed items (low)
 - [ ] `Broadcasts (GET /v1/broadcasts)` — broadcast campaigns, with the workflow they run (low)
 - [ ] `Members (GET /v1/members)` — account members, to resolve actor ids in audit logs and commits (low)
 
 Note (2026-11-19): The main API spec at docs.knock.app/openapi.json is now published and covers only routes we already sync (messages, users, objects, tenants, schedules, workflow runs, audiences members). The gaps come from the separate Management API spec (docs.knock.app/mapi/openapi.json, server https://control.knock.app). It uses a different bearer token (a service token) and per-environment filters, so an implementer needs a second credential. List routes take after, before and limit cursors.
+
+Note (2026-11-24): `workflows`, `channels`, `audiences` and `audit_logs` read the Management API with an optional `service_token` source field. `workflows` and `audiences` read the environment in the `management_environment` sync setting, or the account default when it is empty. The four tables sync by default only when a service token is set. Pages use `limit=100`, the cap that the Knock CLI enforces.
 
 ## Knowbe4 — gaps
 
@@ -9300,7 +9302,7 @@ Re-audited 2026-11-19 against <https://loops.so/docs/openapi.json>: no new gaps 
 
 ## Lovable — gaps
 
-Today (9): `ProjectAnalytics`, `ProjectPiiLabels`, `ProjectSecurityScanFindings`, `ProjectSecurityScans`, `Projects`, `WorkspaceAnalytics`, `WorkspaceGroups`, `WorkspaceMembers`, `Workspaces`
+Today (11): `ProjectAnalytics`, `ProjectAnalyticsBreakdowns`, `ProjectPiiLabels`, `ProjectSecurityScanFindings`, `ProjectSecurityScans`, `Projects`, `WorkspaceAnalytics`, `WorkspaceGroups`, `WorkspaceMembers`, `WorkspaceSecurityInsightProjects`, `Workspaces`
 
 Diffed against: <https://api.lovable.dev/v1/openapi.yaml>
 
@@ -9308,8 +9310,8 @@ Diffed against: <https://api.lovable.dev/v1/openapi.yaml>
 - [x] `Project analytics (GET /v1/projects/{project_id}/analytics)` — measure published website traffic and visitors over time (high)
 - [x] `Security scan findings (GET /v1/projects/{project_id}/security-scans/{scan_id}/findings)` — analyze vulnerability details and remediation states absent from scan metadata (high)
 - [x] `Workspace analytics (GET /v1/workspaces/{workspace_id}/analytics)` — measure workspace traffic, including historical visits to deleted projects (medium)
-- [ ] `Project analytics breakdowns (GET /v1/projects/{project_id}/analytics/breakdowns)` — analyze traffic by page, referring domain, device type, and country (medium)
-- [ ] `Workspace security project inventory (GET /v1/workspaces/{workspace_id}/security-center/insights/projects)` — compare project review priorities, finding counts, and activity across a workspace (medium)
+- [x] `Project analytics breakdowns (GET /v1/projects/{project_id}/analytics/breakdowns)` — analyze traffic by page, referring domain, device type, and country (medium)
+- [x] `Workspace security project inventory (GET /v1/workspaces/{workspace_id}/security-center/insights/projects)` — compare project review priorities, finding counts, and activity across a workspace (medium)
 
 Note: Parsed the official OpenAPI YAML for stable version 2026-09-11 and compared it with the default source catalog. Legacy credit history and collaborators exist in the older source catalog but are absent from this stable reference. Groups and scan findings need parent fan-out; analytics require date windows and Business access, while security inventory requires Enterprise. Excluded publishing operations, status polling, and transient realtime analytics.
 
