@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any, Optional, TypeVar, cast
 
 from django.conf import settings
 from django.db import DEFAULT_DB_ALIAS, InterfaceError, OperationalError, connections
+from django.db.models import QuerySet
 from django.utils import timezone
 
 import structlog
@@ -1958,6 +1959,17 @@ def mint_population_marker(cohort: Cohort, *, team_id: int) -> datetime | None:
     return marker
 
 
+def _owned_population_run(
+    cohort: Cohort, *, marker: datetime | None, mode: str | None, claimed_at: datetime | None
+) -> QuerySet[Cohort]:
+    return Cohort.objects.filter(
+        pk=cohort.pk,
+        population_marker=marker,
+        pending_population_mode=mode,
+        population_claimed_at=claimed_at,
+    )
+
+
 def owns_population_run(
     cohort: Cohort, *, marker: datetime | None, mode: str | None, claimed_at: datetime | None
 ) -> bool:
@@ -1965,12 +1977,7 @@ def owns_population_run(
 
     A newer claim stamps its own ``population_claimed_at``, and a newer attempt mints its own marker. Nothing is cleared here.
     """
-    return Cohort.objects.filter(
-        pk=cohort.pk,
-        population_marker=marker,
-        pending_population_mode=mode,
-        population_claimed_at=claimed_at,
-    ).exists()
+    return _owned_population_run(cohort, marker=marker, mode=mode, claimed_at=claimed_at).exists()
 
 
 def clear_population_run_fields(
@@ -1992,12 +1999,7 @@ def clear_population_run_fields(
     if marker is None and mode is None:
         Cohort.objects.filter(pk=cohort.pk).update(**state)
         return True
-    owned = Cohort.objects.filter(
-        pk=cohort.pk,
-        population_marker=marker,
-        pending_population_mode=mode,
-        population_claimed_at=claimed_at,
-    )
+    owned = _owned_population_run(cohort, marker=marker, mode=mode, claimed_at=claimed_at)
     # A replace that finished records its marker and floor in the same update, so appends and adds ignore the
     # rows it removes from the moment it stops owning the cohort.
     finished = (
