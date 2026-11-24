@@ -7345,12 +7345,12 @@ Today (31): `accounting_accounts`, `contact_groups`, `contacts`, `credit_notes`,
 
 Diffed against: <https://www.holded.com/en-us/developers/api-reference/accounting/list-chart-of-accounts>
 
-- [ ] `Recurring invoices (GET /api/v2/recurring-invoices)` — subscription-style billing templates, needed for MRR and forecast reporting; invoices synced today show only the generated documents (high)
+- [x] `Recurring invoices (GET /api/v2/recurring-invoices)` — subscription-style billing templates, needed for MRR and forecast reporting; invoices synced today show only the generated documents (high) → `recurring_invoices` (full refresh)
 - [ ] `Payslips (GET /api/v2/payslips)` — payroll cost per employee and period, joins to the employees table we sync (medium)
 - [ ] `Salary records (GET /api/v2/salary-records)` — salary history per employee for headcount cost analysis (medium)
-- [ ] `Employee time-off requests (GET /api/v2/employees/time-offs)` — absences and holidays per employee, joins to employees (medium)
-- [ ] `Production orders (GET /api/v2/production-orders)` — manufacturing orders that consume and create stock, joins to products and warehouses (medium)
-- [ ] `Bank account movements (GET /api/v2/treasury/accounts/{accountId}/movements)` — transaction-level cash movements for the treasury_accounts we sync, fan-out per account (high)
+- [x] `Employee time-off requests (GET /api/v2/employees/time-offs)` — absences and holidays per employee, joins to employees (medium) → `employee_time_offs` (full refresh, over one wide `start_date_from`/`start_date_to` range, which the endpoint requires)
+- [x] `Production orders (GET /api/v2/production-orders)` — manufacturing orders that consume and create stock, joins to products and warehouses (medium) → `production_orders` (full refresh)
+- [x] `Bank account movements (GET /api/v2/treasury/accounts/{accountId}/movements)` — transaction-level cash movements for the treasury_accounts we sync, fan-out per account (high) → `bank_movements` (full refresh, fan-out over `treasury_accounts`). The real path is `/api/v2/treasury/accounts/{id}/bank-movements`. Cash-type accounts return an empty list there; their entries are at `/cash-movements`, which is not built yet.
 - [ ] `Remittances (GET /api/v2/treasury/remittances)` — SEPA remittance batches grouping payments (low)
 - [ ] `Price lists (GET /api/v2/price-lists)` — lookup for price list IDs used on contacts and products (medium)
 - [ ] `Sales channels (GET /api/v2/sales-channels)` — lookup for the sales channel carried on sales documents (medium)

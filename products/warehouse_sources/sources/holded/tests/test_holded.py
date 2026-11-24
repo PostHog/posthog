@@ -7,7 +7,13 @@ import requests
 from products.warehouse_sources.sources.holded._config import HoldedSourceConfig
 from products.warehouse_sources.sources.holded.holded import HoldedResumeConfig
 from products.warehouse_sources.sources.holded.source import INVALID_KEY_MESSAGE, HoldedSource
-from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
+from products.warehouse_sources.sources.sdk.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    route,
+    scripted_network,
+)
 
 # Holded's verbatim answer to a request with a missing or unknown key.
 ACCESS_DENIED = {
@@ -69,6 +75,11 @@ class TestHoldedPagination:
                 {"start_date": ("1970-01-01",), "end_date": ("2099-12-31",), "limit": ("200",)},
             ),
             ("services", "/api/v2/services", {"include_archived": ("true",), "limit": ("100",)}),
+            (
+                "employee_time_offs",
+                "/api/v2/employees/time-offs",
+                {"start_date_from": ("1970-01-01",), "start_date_to": ("2099-12-31",), "limit": ("100",)},
+            ),
             ("contacts", "/api/v2/contacts", {"limit": ("100",)}),
             ("warehouses", "/api/v2/warehouses", {}),
             (
@@ -91,6 +102,68 @@ class TestHoldedPagination:
         assert result.raised is None
         assert result.paths == ["/api/v2/taxes"]
         assert [row["id"] for row in result.rows] == ["vat"]
+
+
+ACCOUNTS = "/api/v2/treasury/accounts"
+
+
+def _movements(account_id: str) -> str:
+    return f"/api/v2/treasury/accounts/{account_id}/bank-movements"
+
+
+def _bank_movement_script() -> Any:
+    return route(
+        {
+            _movements("acc1"): [_page(["m1"], "c1"), _page(["m2"], None)],
+            _movements("acc2"): [_page(["m3"], None)],
+            ACCOUNTS: [_page(["acc1"], "p1"), _page(["acc2"], None)],
+        }
+    )
+
+
+class TestHoldedBankMovements:
+    def test_fans_out_over_every_treasury_account_page_and_movement_page(self) -> None:
+        result = _driver().run("bank_movements", _bank_movement_script())
+
+        assert result.raised is None
+        assert [(row["treasury_account_id"], row["id"]) for row in result.rows] == [
+            ("acc1", "m1"),
+            ("acc1", "m2"),
+            ("acc2", "m3"),
+        ]
+        by_path = [(r.path, r.param("cursor"), r.param("limit")) for r in result.requests]
+        assert [entry for entry in by_path if entry[0] == ACCOUNTS] == [
+            (ACCOUNTS, None, "100"),
+            (ACCOUNTS, "p1", "100"),
+        ]
+        assert [entry for entry in by_path if entry[0] == _movements("acc1")] == [
+            (_movements("acc1"), None, "200"),
+            (_movements("acc1"), "c1", "200"),
+        ]
+
+    def test_resume_continues_the_account_that_was_in_progress(self) -> None:
+        first = _driver().run("bank_movements", _bank_movement_script())
+        mid_account = next(
+            state
+            for state in first.saved_states
+            if state.fanout_state and state.fanout_state.get("child_state", {}) and not state.fanout_state["completed"]
+        )
+
+        result = _driver().run(
+            "bank_movements",
+            route(
+                {
+                    _movements("acc1"): [_page(["m2"], None)],
+                    _movements("acc2"): [_page(["m3"], None)],
+                    ACCOUNTS: [_page(["acc1"], "p1"), _page(["acc2"], None)],
+                }
+            ),
+            resume_state=mid_account,
+        )
+
+        assert result.raised is None
+        assert [r.param("cursor") for r in result.requests if r.path == _movements("acc1")] == ["c1"]
+        assert [row["id"] for row in result.rows] == ["m2", "m3"]
 
 
 class TestHoldedValidateCredentials:
