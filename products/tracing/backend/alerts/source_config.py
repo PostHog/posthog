@@ -21,7 +21,7 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertConfigurationEdit,
     SourceConfigSpec,
 )
-from products.tracing.backend.alerts.destinations import EVENT_IDS_BY_INCIDENT_ACTION
+from products.tracing.backend.alerts.destinations import EVENT_IDS_BY_INCIDENT_ACTION, EVENT_IDS_BY_KIND
 from products.tracing.backend.alerts.group_columns import GROUP_COLUMNS
 from products.tracing.backend.alerts.wording import alert_url
 
@@ -113,5 +113,6 @@ TRACES_ALERT_CONFIG: Final = SourceConfigSpec(
     ),
     incident_event_ids=EVENT_IDS_BY_INCIDENT_ACTION,
     alert_url=alert_url,
+    event_ids_by_kind=EVENT_IDS_BY_KIND,
     rollout_flag="platform-alerts-source-traces",
 )

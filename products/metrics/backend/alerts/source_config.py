@@ -13,7 +13,7 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertConfigurationEdit,
     SourceConfigSpec,
 )
-from products.metrics.backend.alerts.destinations import EVENT_IDS_BY_INCIDENT_ACTION
+from products.metrics.backend.alerts.destinations import EVENT_IDS_BY_INCIDENT_ACTION, EVENT_IDS_BY_KIND
 from products.metrics.backend.alerts.wording import alert_url
 
 # A metrics alert checks the latest value of each series, so by default it runs as often as the platform allows.
@@ -81,6 +81,7 @@ METRICS_ALERT_CONFIG: Final = SourceConfigSpec(
     ),
     incident_event_ids=EVENT_IDS_BY_INCIDENT_ACTION,
     alert_url=alert_url,
+    event_ids_by_kind=EVENT_IDS_BY_KIND,
     rollout_flag="platform-alerts-source-metrics",
     # Prometheus fires at the first evaluation a full `for:` after the first breach, so a `for:` of a day
     # at one-minute checks needs a day of checks plus the one that starts it.

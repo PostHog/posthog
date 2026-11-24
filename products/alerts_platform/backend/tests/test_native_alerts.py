@@ -18,6 +18,8 @@ from posthog.models.scoping import team_scope
 from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.api import count_configurations
 from products.alerts_platform.backend.facade.contracts import (
+    AlertDeliveryRequest,
+    AlertEventKind,
     Grouping,
     IncidentAction,
     InvalidPlatformAlertEdit,
@@ -27,13 +29,16 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertNotEditable,
     SourceConfigSpec,
     SourceKind,
+    UnknownPlatformAlertGroup,
 )
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
 from products.alerts_platform.backend.logic import platform_writes
-from products.alerts_platform.backend.models import PlatformAlertConfiguration
+from products.alerts_platform.backend.logic.platform_alert_events import announcement
+from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration
 
 _SOURCE_CONFIGS = "products.alerts_platform.backend.logic.source_configs.spec"
 _DELIVER_INLINE = "products.alerts_platform.backend.temporal.web_start.deliver_inline"
+_DELIVER = "products.alerts_platform.backend.temporal.web_start.deliver"
 
 
 class _WatchedRows(BaseModel):
@@ -174,6 +179,83 @@ class TestNativeAlerts(ClickhouseTestMixin, APIBaseTest):
                 snoozed.append((view.snooze_until, tuple(alert.state for alert in view.alerts)))
 
         assert snoozed == [(until, (PlatformAlertState.NOT_FIRING,)), (None, (PlatformAlertState.NOT_FIRING,))]
+
+    @parameterized.expand([("unmuted", False), ("muted_group", True)])
+    def test_resolving_a_firing_group_announces_it_in_its_firing_and_fences_a_running_check(
+        self, _name: str, muted: bool
+    ) -> None:
+        spec = replace(self.spec, event_ids_by_kind={AlertEventKind.RESOLVED.value: "$x_alert_resolved"})
+        configuration_id = self._create()
+        fired_at = datetime(2026, 1, 1, tzinfo=UTC)
+        with team_scope(self.team.id):
+            platform_testing.start_firing(configuration_id, team_id=self.team.id, at=fired_at)
+            if muted:
+                PlatformAlert.objects.filter(configuration_id=configuration_id).update(
+                    snooze_until=django_timezone.now() + timedelta(hours=1)
+                )
+        sent: list[AlertDeliveryRequest] = []
+
+        with (
+            patch(_SOURCE_CONFIGS, return_value=spec),
+            patch(_DELIVER, side_effect=sent.append),
+            team_scope(self.team.id),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            group = platform_writes.resolve_group(
+                team_id=self.team.id,
+                source_kinds=[SourceKind.LOGS.value],
+                configuration_id=configuration_id,
+                grouping_key="",
+            )
+
+        assert group is not None and group.state == PlatformAlertState.NOT_FIRING
+        (request,) = sent
+        assert (request.sends_messages, request.event_ids_by_kind, request.incident_actions) == (
+            not muted,
+            {} if muted else {AlertEventKind.RESOLVED.value: "$x_alert_resolved"},
+            {"": IncidentAction.RESOLVE},
+        )
+        announced = announcement(
+            self.team.id,
+            str(configuration_id),
+            request.evaluation_key,
+            source=SourceKind.LOGS,
+            incident_grouping_keys=request.incident_actions.keys(),
+        )
+        assert announced is not None
+        assert [(t.kind, t.episode_started_at) for t in announced.transitions] == [
+            (AlertEventKind.CHECK if muted else AlertEventKind.RESOLVED, fired_at)
+        ]
+        with team_scope(self.team.id):
+            assert platform_testing.count_still_due([configuration_id], at=django_timezone.now()) == 0
+
+    @parameterized.expand(
+        [
+            ("not_firing", "", False, InvalidPlatformAlertEdit),
+            ("unknown_group", "web", True, UnknownPlatformAlertGroup),
+        ]
+    )
+    def test_a_refused_group_resolve_sends_nothing(
+        self, _name: str, grouping_key: str, firing: bool, refusal: type[Exception]
+    ) -> None:
+        configuration_id = self._create()
+        with team_scope(self.team.id):
+            PlatformAlert.objects.create(
+                team=self.team,
+                configuration_id=configuration_id,
+                state=PlatformAlertState.FIRING if firing else PlatformAlertState.NOT_FIRING,
+            )
+
+        with patch(_DELIVER) as deliver, team_scope(self.team.id), self.captureOnCommitCallbacks(execute=True):
+            with pytest.raises(refusal):
+                platform_writes.resolve_group(
+                    team_id=self.team.id,
+                    source_kinds=[SourceKind.LOGS.value],
+                    configuration_id=configuration_id,
+                    grouping_key=grouping_key,
+                )
+
+        deliver.assert_not_called()
 
     @parameterized.expand([("source_mirrors_its_row", True), ("source_keeps_nothing_on_its_row", False)])
     def test_a_snooze_of_a_copy_is_refused_only_when_its_source_row_keeps_the_settings(

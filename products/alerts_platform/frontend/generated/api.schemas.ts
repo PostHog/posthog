@@ -2832,6 +2832,14 @@ export interface PlatformAlertEventApi {
     condition: PlatformAlertEventApiCondition
 }
 
+export interface PlatformAlertGroupResolveApi {
+    /**
+     * Key of the group to resolve, as the grouping_key of one of the alert's instances. An empty string is the one group of an alert that is not grouped.
+     * @maxLength 255
+     */
+    grouping_key: string
+}
+
 export interface PlatformAlertSnoozeApi {
     /**
      * Time until which every group's notifications are muted. Must be in the future and at most 30 days away. Null clears the snooze. The alert keeps being checked.

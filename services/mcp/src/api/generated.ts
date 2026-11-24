@@ -102478,6 +102478,14 @@ export namespace Schemas {
       condition: PlatformAlertEventCondition;
     }
 
+    export interface PlatformAlertGroupResolve {
+      /**
+         * Key of the group to resolve, as the grouping_key of one of the alert's instances. An empty string is the one group of an alert that is not grouped.
+         * @maxLength 255
+         */
+      grouping_key: string;
+    }
+
     export interface PlatformAlertGroupSnooze {
       /**
          * Key of the group to snooze, as the grouping_key of one of the alert's instances.

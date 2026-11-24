@@ -27,6 +27,7 @@ import type {
     PlatformAlertDeleteDestinationApi,
     PlatformAlertDestinationApi,
     PlatformAlertEventApi,
+    PlatformAlertGroupResolveApi,
     PlatformAlertGroupSnoozeApi,
     PlatformAlertSnoozeApi,
     PlatformAlertsEventsListParams,
@@ -444,6 +445,28 @@ export const platformAlertsResetCreate = async (
     return apiMutator<PlatformAlertConfigurationApi>(getPlatformAlertsResetCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getPlatformAlertsResolveGroupCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/platform_alerts/${id}/resolve_group/`
+}
+
+/**
+ * Moves one firing group to not firing and sends the same resolved notification and incident close that a check sends. The alert stays enabled, so a group that still breaches fires again at a later check.
+ * @summary Resolve one group of an alert
+ */
+export const platformAlertsResolveGroupCreate = async (
+    projectId: string,
+    id: string,
+    platformAlertGroupResolveApi: PlatformAlertGroupResolveApi,
+    options?: RequestInit
+): Promise<PlatformAlertApi> => {
+    return apiMutator<PlatformAlertApi>(getPlatformAlertsResolveGroupCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(platformAlertGroupResolveApi),
     })
 }
 

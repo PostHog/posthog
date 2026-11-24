@@ -700,6 +700,21 @@ def snooze_group(
     )
 
 
+def resolve_group(
+    *, team_id: int, source_kinds: Sequence[str], configuration_id: UUID, grouping_key: str
+) -> PlatformAlertSnapshot | None:
+    """Moves one open group of a configuration the platform owns to not firing, and sends the resolved
+    message and incident close a check that found it clear would. Returns the group, or None when
+    the caller cannot read the configuration.
+
+    Raises `PlatformAlertNotEditable` for a configuration its source owns, `UnknownPlatformAlertGroup`
+    for a key with no instance, and `InvalidPlatformAlertEdit` for a group that is not open.
+    """
+    return platform_writes.resolve_group(
+        team_id=team_id, source_kinds=source_kinds, configuration_id=configuration_id, grouping_key=grouping_key
+    )
+
+
 def update_owned_copy(
     *,
     team_id: int,

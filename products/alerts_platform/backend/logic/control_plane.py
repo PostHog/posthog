@@ -5,6 +5,9 @@ on the logs stack. An incident manager needs one resolve for every trigger, and 
 send it: discovery skips a disabled or snoozed alert, and a deleted one is gone. So the change writes
 the end of each firing to history and sends the resolve itself. Only an incident destination acts on
 it, so no message goes out, as the logs stack sends only its incident close.
+
+A person who resolves one group is the exception. That resolve stands in for the check that would
+have found the group clear, so it also sends that check's resolved message.
 """
 
 from datetime import datetime
@@ -24,10 +27,18 @@ from products.alerts_platform.backend.facade.contracts import (
 )
 from products.alerts_platform.backend.facade.enums import PlatformAlertState
 from products.alerts_platform.backend.facade.grouping import parts_for
+from products.alerts_platform.backend.facade.lifecycle import NotificationAction
 from products.alerts_platform.backend.logic import source_configs
 from products.alerts_platform.backend.logic.platform_alert_events import PlatformAlertEventRow
-from products.alerts_platform.backend.logic.platform_lifecycle import end_firing_instances, event_row, record_history
-from products.alerts_platform.backend.models import PlatformAlertConfiguration
+from products.alerts_platform.backend.logic.platform_lifecycle import (
+    composed_instance,
+    end_firing_instances,
+    end_instance,
+    event_row,
+    record_history,
+    record_history_after_commit,
+)
+from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration
 
 # The settings whose change makes a firing meaningless, as a threshold or filter change does on the
 # logs stack. A rename or a quiet-hours change leaves it running.
@@ -82,6 +93,8 @@ class PendingClose:
     configuration_id: UUID
     destination_alert_id: UUID
     rows: tuple[PlatformAlertEventRow, ...]
+    # Set by a person's resolve, which announces as a check that found the group clear would.
+    sends_messages: bool = False
 
 
 def end_firings(configuration: PlatformAlertConfiguration, *, reason: str, now: datetime) -> PendingClose | None:
@@ -119,6 +132,50 @@ def end_firings(configuration: PlatformAlertConfiguration, *, reason: str, now: 
     )
 
 
+def resolve_instance(
+    configuration: PlatformAlertConfiguration, alert: PlatformAlert, *, now: datetime
+) -> PendingClose | None:
+    """Moves one open instance of a configuration locked by the caller to not firing, for a person.
+
+    Unlike `end_firings`, the row is a resolve, so the group's destinations get the resolved message
+    a check that found the group clear would send, in the firing's thread, and an incident manager
+    gets its close. A mute holds the message as it holds a check's, and the close still goes out.
+    None when the instance had no firing open, so there is nothing to announce. Its row is still
+    recorded, after the caller's transaction commits.
+    """
+    found = composed_instance(configuration, alert)
+    episode_started_at = alert.firing_started_at
+    was_firing = alert.state == PlatformAlertState.FIRING or episode_started_at is not None
+    muted = found.snooze_until is not None and found.snooze_until > now
+    announces = was_firing and not muted
+    end_instance(configuration, alert, now=now)
+    row = event_row(
+        configuration,
+        alert=alert,
+        evaluation_key=f"control:resolved:{now.isoformat()}",
+        kind=(AlertEventKind.RESOLVED if announces else AlertEventKind.CHECK).value,
+        previous_state=found.state,
+        state=PlatformAlertState.NOT_FIRING.value,
+        episode_started_at=episode_started_at,
+        labels=alert.labels,
+        consecutive_failures=configuration.consecutive_failures,
+        muted_notification=NotificationAction.RESOLVE.value if was_firing and muted else "",
+        now=now,
+    )
+    pending = PendingClose(
+        team_id=configuration.team_id,
+        source_kind=configuration.source_kind,
+        configuration_id=configuration.id,
+        destination_alert_id=configuration.destination_alert_id,
+        rows=(row,),
+        sends_messages=announces,
+    )
+    if not was_firing:
+        record_history_after_commit(pending.team_id, pending.rows)
+        return None
+    return pending
+
+
 def announce_after_commit(pending: PendingClose | None) -> None:
     """Writes the history and starts the resolve's delivery once the change commits."""
     if pending is not None:
@@ -153,7 +210,11 @@ def _announce(pending: PendingClose, *, inline: bool) -> None:
 
 def _resolve_delivery(pending: PendingClose) -> AlertDeliveryRequest | None:
     spec = source_configs.spec(SourceKind(pending.source_kind))
-    if spec is None or spec.incident_event_ids is None:
+    if spec is None:
+        return None
+    event_ids_by_kind = dict(spec.event_ids_by_kind or {}) if pending.sends_messages else {}
+    sends_messages = AlertEventKind.RESOLVED.value in event_ids_by_kind
+    if not sends_messages and spec.incident_event_ids is None:
         return None
     grouping_keys = [row.grouping_key for row in pending.rows]
     return AlertDeliveryRequest(
@@ -163,10 +224,12 @@ def _resolve_delivery(pending: PendingClose) -> AlertDeliveryRequest | None:
         evaluation_key=pending.rows[0].evaluation_key,
         # The id the alert's destinations are matched on, as on every check's delivery.
         destination_alert_id=str(pending.destination_alert_id),
-        event_ids_by_kind={},
-        incident_actions=dict.fromkeys(grouping_keys, IncidentAction.RESOLVE),
-        sends_messages=False,
-        event_ids_by_incident_action=dict(spec.incident_event_ids),
+        event_ids_by_kind=event_ids_by_kind,
+        incident_actions=(
+            dict.fromkeys(grouping_keys, IncidentAction.RESOLVE) if spec.incident_event_ids is not None else {}
+        ),
+        sends_messages=sends_messages,
+        event_ids_by_incident_action=dict(spec.incident_event_ids or {}),
         source_alert_url=spec.alert_url(pending.team_id, pending.destination_alert_id) if spec.alert_url else None,
         owned_by_platform=True,
         parts=parts_for(len(grouping_keys)),

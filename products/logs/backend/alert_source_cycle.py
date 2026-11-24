@@ -482,7 +482,7 @@ def _request(
         # workflow id that has to be unique across alerts joins this to the configuration itself.
         evaluation_key=recorded.evaluation_key,
         destination_alert_id=destination_alert_id,
-        event_ids_by_kind=_EVENT_IDS_BY_KIND,
+        event_ids_by_kind=EVENT_IDS_BY_KIND,
         event_ids_by_incident_action=EVENT_IDS_BY_INCIDENT_ACTION,
         incident_actions=actions,
         sends_messages=sends_messages,
@@ -517,7 +517,7 @@ def _has_incident_destination(check: PlatformAlertCheckInput) -> bool:
 
 # Which event id each announced kind's destinations filter on. Resolved here because the
 # platform imports no source and cannot read `EVENT_KIND_CONFIG`.
-_EVENT_IDS_BY_KIND: Final[dict[str, str]] = {
+EVENT_IDS_BY_KIND: Final[dict[str, str]] = {
     kind.value: EVENT_KIND_CONFIG[cast(EventKind, kind.value)].event_id
     for kind in AlertEventKind
     if kind.value in EVENT_KIND_CONFIG

@@ -1534,6 +1534,10 @@ class SourceConfigSpec:
     # source's product. A control-plane close needs both to address its resolve.
     incident_event_ids: Mapping[str, str] | None = None
     alert_url: Callable[[int, UUID], str] | None = None
+    # The event id each announced kind's destinations listen on, as the source's check deliveries
+    # carry it. A person's resolve of one group sends its resolved message through these, and a
+    # kind without one sends no message.
+    event_ids_by_kind: Mapping[str, str] | None = None
     native: NativeAlertLifecycle | None = None
     # For a kind with both `create` and `native`: whether a team's new alert gets no source row.
     native_create: Callable[[int], bool] | None = None

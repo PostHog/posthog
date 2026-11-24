@@ -648,6 +648,34 @@ class TestPlatformAlertAPI(APIBaseTest):
             assert response.json()["attr"] == field
         assert self._snoozes(configuration) == {"checkout": None, "api": None}
 
+    @parameterized.expand(
+        [
+            ("platform_owned", "platform", status.HTTP_200_OK, "not_firing"),
+            ("owned_by_its_source", "source", status.HTTP_409_CONFLICT, "firing"),
+        ]
+    )
+    def test_resolving_a_group(self, _name: str, owner: str, expected: int, checkout_after: str) -> None:
+        self._set_flag(True)
+        configuration = self._grouped_configuration(owner=owner)
+
+        with patch("products.alerts_platform.backend.temporal.web_start.deliver"):
+            response = self.client.post(
+                f"{self._edit_url(configuration)}resolve_group/", {"grouping_key": "checkout"}, format="json"
+            )
+
+        assert response.status_code == expected, response.json()
+        with team_scope(self.team.id):
+            states = dict(
+                PlatformAlert.objects.filter(configuration=configuration).values_list("grouping_key", "state")
+            )
+        assert states == {"checkout": checkout_after, "api": "firing"}
+        logged = ActivityLog.objects.filter(
+            scope="PlatformAlertConfiguration", activity="resolved_group", item_id=str(configuration.id)
+        )
+        assert [(log.user, log.detail["changes"][0]["after"]) for log in logged] == (
+            [(self.user, "not_firing")] if expected == status.HTTP_200_OK else []
+        )
+
     def _native_traces_alert(self, **fields: Any) -> PlatformAlertConfiguration:
         configuration = self._create_configuration(
             self.team,

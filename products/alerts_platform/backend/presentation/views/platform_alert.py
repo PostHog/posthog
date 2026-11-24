@@ -537,6 +537,15 @@ class PlatformAlertGroupSnoozeSerializer(serializers.Serializer):
     )
 
 
+class PlatformAlertGroupResolveSerializer(serializers.Serializer):
+    grouping_key = serializers.CharField(
+        max_length=255,
+        allow_blank=True,
+        help_text="Key of the group to resolve, as the grouping_key of one of the alert's instances. "
+        "An empty string is the one group of an alert that is not grouped.",
+    )
+
+
 # The same bound a group's snooze has, so the whole alert and one group mute for as long as each other.
 MAX_ALERT_SNOOZE: Final = timedelta(days=30)
 EVENTS_LOOKBACK: Final = timedelta(days=30)
@@ -944,6 +953,73 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
             raise ValidationError({error.field_name: str(error)}) from error
         if group is None:
             raise NotFound()
+        return Response(PlatformAlertSerializer(group).data)
+
+    @validated_request(
+        PlatformAlertGroupResolveSerializer,
+        responses={
+            200: PlatformAlertSerializer,
+            400: OpenApiResponse(description="The group is not firing."),
+            403: OpenApiResponse(description="The caller cannot write alerts of this source kind."),
+            404: OpenApiResponse(
+                description="No alert with this id that the caller can read, or no group with this key."
+            ),
+            409: OpenApiResponse(description="The source product owns this alert, so only its own API changes it."),
+        },
+        summary="Resolve one group of an alert",
+        description=(
+            "Moves one firing group to not firing and sends the same resolved notification and incident close "
+            "that a check sends. The alert stays enabled, so a group that still breaches fires again at a "
+            "later check."
+        ),
+    )
+    @action(detail=True, methods=["post"], required_scopes=["alert:write"])
+    def resolve_group(self, request: ValidatedRequest, pk: str, **kwargs) -> Response:
+        configuration_id = serializers.UUIDField().run_validation(pk)
+        team_id = self._canonical_team_id()
+        current = self._writable_configuration(team_id, configuration_id, "resolve")
+        grouping_key = request.validated_data["grouping_key"]
+        try:
+            group = platform_api.resolve_group(
+                team_id=team_id,
+                source_kinds=self._writable_source_kinds,
+                configuration_id=configuration_id,
+                grouping_key=grouping_key,
+            )
+        except PlatformAlertNotEditable as error:
+            raise Conflict(str(error)) from error
+        except UnknownPlatformAlertGroup as error:
+            raise NotFound(
+                "This alert has no group with that key. A group that stays quiet is removed, so refresh the "
+                "alert to see its current groups."
+            ) from error
+        except InvalidPlatformAlertEdit as error:
+            raise ValidationError({error.field_name: str(error)}) from error
+        if group is None:
+            raise NotFound()
+        before = next((alert.state for alert in current.alerts if alert.grouping_key == grouping_key), None)
+        # The resolve writes only runtime fields, which the model's own activity signal leaves out.
+        log_activity(
+            organization_id=self.team.organization_id,
+            team_id=team_id,
+            user=cast(User, request.user),
+            was_impersonated=is_impersonated(request),
+            item_id=configuration_id,
+            scope="PlatformAlertConfiguration",
+            activity="resolved_group",
+            detail=Detail(
+                name=f"{current.name} ({grouping_key})" if grouping_key else current.name,
+                changes=[
+                    Change(
+                        type="PlatformAlertConfiguration",
+                        action="changed",
+                        field="state",
+                        before=before,
+                        after=group.state,
+                    )
+                ],
+            ),
+        )
         return Response(PlatformAlertSerializer(group).data)
 
     @validated_request(

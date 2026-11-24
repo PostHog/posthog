@@ -3683,6 +3683,21 @@ export const PlatformAlertsDestinationsDeleteCreateBody = /* @__PURE__ */ zod.ob
 })
 
 /**
+ * Moves one firing group to not firing and sends the same resolved notification and incident close that a check sends. The alert stays enabled, so a group that still breaches fires again at a later check.
+ * @summary Resolve one group of an alert
+ */
+export const platformAlertsResolveGroupCreateBodyGroupingKeyMax = 255
+
+export const PlatformAlertsResolveGroupCreateBody = /* @__PURE__ */ zod.object({
+    grouping_key: zod
+        .string()
+        .max(platformAlertsResolveGroupCreateBodyGroupingKeyMax)
+        .describe(
+            "Key of the group to resolve, as the grouping_key of one of the alert's instances. An empty string is the one group of an alert that is not grouped."
+        ),
+})
+
+/**
  * @summary Snooze a whole alert
  */
 export const PlatformAlertsSnoozeCreateBody = /* @__PURE__ */ zod.object({

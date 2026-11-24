@@ -999,9 +999,27 @@ def end_firing_instances(configuration: PlatformAlertConfiguration, *, now: date
     firing = list(instances)
     if firing:
         instances.update(state=PlatformAlertState.NOT_FIRING, firing_started_at=None)
-        configuration.next_check_at = max(configuration.next_check_at or now, now + _REVIVE_FENCE)
-        configuration.save(update_fields=["next_check_at"])
+        _fence_running_check(configuration, now=now)
     return firing
+
+
+def end_instance(configuration: PlatformAlertConfiguration, alert: PlatformAlert, *, now: datetime) -> None:
+    """Moves one instance of a configuration locked by the caller to not firing, behind the same
+    fence as `end_firing_instances`, so a check already running cannot write back the state it read."""
+    alert.state = PlatformAlertState.NOT_FIRING.value
+    alert.firing_started_at = None
+    alert.save(update_fields=["state", "firing_started_at"])
+    _fence_running_check(configuration, now=now)
+
+
+def composed_instance(configuration: PlatformAlertConfiguration, alert: PlatformAlert) -> InstanceCheckState:
+    """The instance as a check and history see it, with its configuration's mute and check status."""
+    return _composed(configuration, alert)
+
+
+def _fence_running_check(configuration: PlatformAlertConfiguration, *, now: datetime) -> None:
+    configuration.next_check_at = max(configuration.next_check_at or now, now + _REVIVE_FENCE)
+    configuration.save(update_fields=["next_check_at"])
 
 
 def write_snooze(configuration: PlatformAlertConfiguration, snooze_until: datetime | None, *, now: datetime) -> None:
