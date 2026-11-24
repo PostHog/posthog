@@ -103,7 +103,7 @@ def mock_clickhouse_client():
 )
 @pytest.mark.parametrize("is_backfill", [False, True])
 @pytest.mark.parametrize("backfill_within_last_6_days", [False, True])
-@pytest.mark.parametrize("data_interval_end", [TEST_DATA_INTERVAL_END, TEST_DATA_INTERVAL_END - dt.timedelta(days=20)])
+@pytest.mark.parametrize("data_interval_end", [TEST_DATA_INTERVAL_END])
 async def test_insert_into_stage_activity_executes_the_expected_query_for_events_model(
     mock_clickhouse_client,
     interval,
@@ -126,17 +126,12 @@ async def test_insert_into_stage_activity_executes_the_expected_query_for_events
 
     if not is_backfill and backfill_within_last_6_days:
         pytest.skip("No need to test backfill within last 6 days for non-backfill")
-    is_late_run = data_interval_end != TEST_DATA_INTERVAL_END
-    if is_backfill and is_late_run:
-        pytest.skip("A backfill's table depends on its start, not on when its run ends")
 
-    reads_recent_range = (not is_backfill and not is_late_run) or backfill_within_last_6_days
-    if use_native_schema:
-        expected_table = "events_recent" if reads_recent_range else "events_json"
-    elif not is_backfill and interval == "every 5 minutes":
+    expected_table = "distributed_events_recent"
+    if not is_backfill and interval == "every 5 minutes":
         expected_table = "events_recent"
-    else:
-        expected_table = "distributed_events_recent" if reads_recent_range else "events"
+    elif is_backfill and not backfill_within_last_6_days:
+        expected_table = "events_json" if use_native_schema else "events"
 
     if backfill_within_last_6_days:
         backfill_start_at = (data_interval_end - dt.timedelta(days=3)).isoformat()
@@ -166,17 +161,7 @@ async def test_insert_into_stage_activity_executes_the_expected_query_for_events
         destination_default_fields=None,
     )
 
-    batch_exports_url = "http://batch-exports.example.com:8123/"
-    with (
-        override_settings(
-            CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=use_native_schema,
-            CLICKHOUSE_BATCH_EXPORTS_HTTP_URL=batch_exports_url,
-        ),
-        patch(
-            "products.batch_exports.backend.temporal.pipeline.internal_stage.get_client",
-            return_value=mock_clickhouse_client.mock_client_cm,
-        ) as get_client,
-    ):
+    with override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=use_native_schema):
         await activity_environment.run(insert_into_internal_stage_activity, insert_inputs)
     mock_clickhouse_client.expect_select_from_table(expected_table)
     mock_clickhouse_client.expect_properties_in_log_comment(
@@ -186,9 +171,6 @@ async def test_insert_into_stage_activity_executes_the_expected_query_for_events
             "product": "batch_export",
         },
     )
-    reads_recent_table = expected_table in ("events_recent", "distributed_events_recent")
-    connected_url = get_client.call_args.kwargs["clickhouse_url"]
-    assert (connected_url == batch_exports_url) == reads_recent_table
 
 
 @pytest.mark.parametrize(
@@ -236,10 +218,11 @@ async def test_insert_into_stage_activity_reads_native_events_for_workflows(
 @pytest.mark.parametrize("interval", ["day"], indirect=True)
 @pytest.mark.parametrize("data_interval_end", [TEST_DATA_INTERVAL_END])
 @pytest.mark.parametrize(
-    "reads_native_table,backfill_days_ago,expected_table",
-    [(False, 3, "distributed_events_recent"), (True, 3, "events_recent"), (True, 10, "events_json")],
-    ids=["legacy-recent-table", "native-recent-table", "native-table"],
+    "backfill_days_ago,expected_table,reads_native_table",
+    [(3, "distributed_events_recent", False), (10, "events_json", True)],
+    ids=["legacy-recent-table", "native-table"],
 )
+@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
 async def test_insert_into_stage_activity_compiles_custom_fields_and_filters_for_the_table_it_reads(
     mock_clickhouse_client,
     interval,
@@ -250,9 +233,7 @@ async def test_insert_into_stage_activity_compiles_custom_fields_and_filters_for
     backfill_days_ago: int,
     expected_table: str,
     reads_native_table: bool,
-    settings: "Settings",
 ):
-    settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA = reads_native_table
     with patch(
         "products.access_control.backend.facade.api.get_restricted_properties_with_group_type_index_for_team",
         return_value={RestrictedProperty(name="secret", property_type=PropertyDefinition.Type.EVENT)},
@@ -545,6 +526,49 @@ async def test_insert_into_stage_activity_for_events_model(
     assert {record["uuid"]: record["person_id"] for record in records_exported} == {
         event["uuid"]: event["person_id"] for event in events_to_export_created
     }
+
+
+@pytest.mark.parametrize("interval", ["every 5 minutes"], indirect=True)
+@pytest.mark.parametrize("data_interval_end", [TEST_DATA_INTERVAL_END])
+@pytest.mark.parametrize("test_properties", [{"$feature/checkout": True, "plan": "pro"}], indirect=True)
+@pytest.mark.parametrize(
+    "use_native_schema,expected_properties",
+    [
+        (False, {"$feature/checkout": True, "plan": "pro"}),
+        (True, {"$feature_flags": {"checkout": "true"}, "plan": "pro"}),
+    ],
+    ids=["legacy-schema-stored-text", "new-schema-cleaned-document"],
+)
+async def test_insert_into_stage_activity_cleans_recent_properties_on_the_new_events_schema(
+    generate_test_data,
+    interval,
+    activity_environment,
+    data_interval_start,
+    object_storage_client,
+    data_interval_end,
+    ateam,
+    session_id,
+    truncate_clickhouse_tables,
+    use_native_schema: bool,
+    expected_properties: dict,
+):
+    with override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=use_native_schema):
+        records_exported = await _run_activity(
+            activity_environment=activity_environment,
+            object_storage_client=object_storage_client,
+            team_id=ateam.pk,
+            data_interval_start=data_interval_start,
+            data_interval_end=data_interval_end,
+            model=BatchExportEventsModel(),
+        )
+
+    exported_properties = [
+        json.loads(record["properties"])
+        for record in records_exported
+        if not record["event"].startswith("test-no-prop")
+    ]
+    assert exported_properties
+    assert all(properties == expected_properties | {"$session_id": session_id} for properties in exported_properties)
 
 
 @pytest.mark.parametrize("interval", ["day"], indirect=True)

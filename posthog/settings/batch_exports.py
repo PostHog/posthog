@@ -109,14 +109,6 @@ OVERRIDE_TIMESTAMP_TEAM_IDS: dict[int, int] = dict(
     [map(int, o.split(":")) for o in os.getenv("OVERRIDE_TIMESTAMP_TEAM_IDS", "").split(",") if o]  # type: ignore
 )
 
-
-# Teams whose new events schema exports from `events_recent` include `$feature_flag_called` events.
-# This is a temporary workaround until HogQL exports are generally available and these events can be
-# exported from `flag_evaluations`. Note that `events_json` does not include FFC events regardless.
-BATCH_EXPORTS_INCLUDE_FEATURE_FLAG_CALLED_TEAM_IDS: list[str] = get_list(
-    os.getenv("BATCH_EXPORTS_INCLUDE_FEATURE_FLAG_CALLED_TEAM_IDS", "")
-)
-
 CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST: str | None = os.getenv("CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST", None)
 # Insert blocks are formed before ClickHouse partitions the rows into staging files.
 BATCH_EXPORTS_CLICKHOUSE_MAX_INSERT_BLOCK_SIZE_BYTES: int = get_from_env(

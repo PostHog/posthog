@@ -17,7 +17,7 @@ def assert_records_match_events(records, events):
 
     Naturally, they should match, but with some transformations:
     * We set UTC as a timezone for dates.
-    * We parse dict fields, as the tables differ in how they format the JSON text
+    * We dump dict fields
     """
     all_expected = sorted(events, key=operator.itemgetter("event"))
     all_record = sorted(records, key=operator.itemgetter("event"))
@@ -38,16 +38,15 @@ def assert_records_match_events(records, events):
             ):
                 assert value == dt.datetime.fromisoformat(expected[key.removeprefix("_")]).replace(tzinfo=dt.UTC), msg
             elif isinstance(expected[key], dict):
-                assert value is not None and json.loads(value) == expected[key], msg
+                assert value == json.dumps(expected[key]), msg
             else:
                 assert value == expected[key]
 
 
 @pytest.mark.parametrize("use_native_schema", [False, True])
 @pytest.mark.parametrize("interval_minutes", [5, 60])
-async def test_iter_records(clickhouse_client, use_native_schema, interval_minutes, settings):
+async def test_iter_records(clickhouse_client, use_native_schema, interval_minutes):
     """Test the rows returned by iter_records."""
-    settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA = use_native_schema
     team_id = randint(1, 1000000)
     data_interval_end = dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)
     data_interval_start = data_interval_end - dt.timedelta(minutes=interval_minutes)
@@ -76,9 +75,6 @@ async def test_iter_records(clickhouse_client, use_native_schema, interval_minut
         for record in record_batch.to_pylist()
     ]
 
-    if use_native_schema:
-        # The new tables store an event without properties as an empty document.
-        events = [{**event, "properties": event["properties"] or {}} for event in events]
     assert_records_match_events(records, events)
     assert {record["uuid"]: record["person_id"] for record in records} == {
         event["uuid"]: event["person_id"] for event in events

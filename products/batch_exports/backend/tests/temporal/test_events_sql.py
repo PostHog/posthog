@@ -1,22 +1,14 @@
 import json
-import uuid
-import datetime as dt
 
 import pytest
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.events_json import TEMPORARY_PROPERTIES_JSON_TYPE
 from posthog.models.event.sql import EVENTS_JSON_CLEANER, EVENTS_PROPERTIES_JSON_TYPE
-from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import ClickHouseClient
-from posthog.temporal.tests.utils.events import generate_test_events, insert_event_values_in_clickhouse
 
-from products.batch_exports.backend.temporal.destinations.http_batch_export import http_default_fields
-from products.batch_exports.backend.temporal.filters import compose_filters_clause
 from products.batch_exports.backend.temporal.sql.events import (
     _NATIVE_EVENTS_FIELD_EXPRESSIONS,
     native_events_export_query,
-    native_recent_events_export_query,
 )
 
 QUERY_PARAMETERS: dict[str, object] = {
@@ -51,218 +43,27 @@ def test_native_events_export_query_matches_legacy_json_text(setting: str) -> No
 
 
 @pytest.mark.parametrize(
-    "sent_properties,expected,expected_set",
+    "sent_properties,expected",
     [
-        (
-            {"cart": {"items": 2, "note": None}, "tags": ["a"]},
-            {"cart": {"items": 2, "note": None}, "tags": ["a"]},
-            None,
-        ),
+        ({"cart": {"items": 2, "note": None}, "tags": ["a"]}, {"cart": {"items": 2, "note": None}, "tags": ["a"]}),
         (
             {"$browser": "Firefox", "$feature/checkout": True},
             {"$browser": "Firefox", "$feature_flags": {"checkout": "true"}},
-            None,
-        ),
-        (
-            {"plan": "pro", "$set": {"email": "a@example.com"}},
-            {"plan": "pro", "$set": {"email": "a@example.com"}},
-            {"email": "a@example.com"},
         ),
     ],
-    ids=["no-flags-or-built-in-properties", "flags-and-built-in-properties", "temporary-properties"],
+    ids=["no-flags-or-built-in-properties", "flags-and-built-in-properties"],
 )
 @pytest.mark.django_db
 def test_native_events_export_sends_properties_without_storage_defaults(
-    sent_properties: dict[str, object], expected: dict[str, object], expected_set: dict[str, object] | None
+    sent_properties: dict[str, object], expected: dict[str, object]
 ) -> None:
     """The exported document puts back what the ingestion cleaner stores as text, and leaves out its defaults."""
     result = sync_execute(
-        f"SELECT {_NATIVE_EVENTS_FIELD_EXPRESSIONS['properties']}, {_NATIVE_EVENTS_FIELD_EXPRESSIONS['set']} FROM ("
-        f"SELECT CAST(cleaned.properties, '{EVENTS_PROPERTIES_JSON_TYPE()}') AS properties, "
-        f"CAST(cleaned.temporary_properties, '{TEMPORARY_PROPERTIES_JSON_TYPE}') AS temporary_properties "
+        f"SELECT {_NATIVE_EVENTS_FIELD_EXPRESSIONS['properties']} FROM ("
+        f"SELECT CAST(cleaned.properties, '{EVENTS_PROPERTIES_JSON_TYPE()}') AS properties "
         f"FROM (SELECT {EVENTS_JSON_CLEANER}(%(properties)s, '{{}}') AS cleaned)"
         ") AS events",
         {"properties": json.dumps(sent_properties)},
     )
 
-    [(properties, set_field)] = result
-    assert json.loads(properties) == expected
-    assert (json.loads(set_field) if set_field is not None else None) == expected_set
-
-
-_SENT_AND_EXPORTED_RECENT_PROPERTIES: dict[str, tuple[dict, dict]] = {
-    "with-flag": (
-        {
-            "$browser": "Chrome",
-            "$feature/checkout": True,
-            "page": "/a/b",
-            "$set": {"email": "a@example.com"},
-            "$set_once": {"plan": "free"},
-        },
-        {
-            "$browser": "Chrome",
-            "$feature_flags": {"checkout": "true"},
-            "page": "/a/b",
-            "$set": {"email": "a@example.com"},
-            "$set_once": {"plan": "free"},
-        },
-    ),
-    "without-flag": ({"$browser": "Firefox", "$os": "Mac OS X"}, {"$browser": "Firefox", "$os": "Mac OS X"}),
-    "$feature_flag_called": (
-        {"$feature_flag": "checkout", "$feature_flag_response": "true"},
-        {"$feature_flag": "checkout", "$feature_flag_response": "true"},
-    ),
-}
-
-
-def _export_recent_events(
-    team_id: int, fields: list, filters: list[dict], *, includes_feature_flag_called: bool
-) -> list[tuple]:
-    now = dt.datetime.now(tz=dt.UTC)
-    sync_execute(
-        """
-        INSERT INTO sharded_events_recent
-            (uuid, event, properties, person_properties, team_id, distinct_id, timestamp, inserted_at)
-        VALUES
-        """,
-        [
-            (uuid.uuid4(), event, json.dumps(sent), '{"email":"a@example.com"}', team_id, "d1", now, now)
-            for event, (sent, _) in _SENT_AND_EXPORTED_RECENT_PROPERTIES.items()
-        ],
-    )
-    filters_str, filter_values = (
-        compose_filters_clause(filters, team_id=team_id, use_new_events_schema=True) if filters else ("", {})
-    )
-    query = native_recent_events_export_query(
-        fields,
-        filters_str,
-        includes_feature_flag_called=includes_feature_flag_called,
-    ).replace("FORMAT ArrowStream", "")
-    return sync_execute(
-        query,
-        {
-            **filter_values,
-            "team_id": team_id,
-            "interval_start": now - dt.timedelta(hours=1),
-            "interval_end": now + dt.timedelta(hours=1),
-            "include_events": [],
-            "exclude_events": [],
-        },
-    )
-
-
-@pytest.mark.parametrize(
-    "includes_feature_flag_called,expected_events",
-    [
-        (False, {"with-flag", "without-flag"}),
-        (True, {"with-flag", "without-flag", "$feature_flag_called"}),
-    ],
-    ids=["feature-flag-called-left-out", "feature-flag-called-allowed"],
-)
-@pytest.mark.django_db
-def test_native_recent_events_export_sends_cleaned_documents(
-    team, includes_feature_flag_called: bool, expected_events: set[str]
-) -> None:
-    rows = _export_recent_events(
-        team.pk,
-        [
-            {"expression": "event", "alias": "event"},
-            {"expression": "properties", "alias": "properties"},
-            {"expression": "person_properties", "alias": "person_properties"},
-            {"expression": "set", "alias": "set"},
-            {"expression": "set_once", "alias": "set_once"},
-        ],
-        [],
-        includes_feature_flag_called=includes_feature_flag_called,
-    )
-
-    assert {row[0] for row in rows} == expected_events
-    for event, properties, person_properties, set_field, set_once_field in rows:
-        assert json.loads(properties) == _SENT_AND_EXPORTED_RECENT_PROPERTIES[event][1]
-        assert person_properties == '{"email":"a@example.com"}'
-        expected_set_fields = ({"email": "a@example.com"}, {"plan": "free"}) if event == "with-flag" else (None, None)
-        assert (set_field and json.loads(set_field), set_once_field and json.loads(set_once_field)) == (
-            expected_set_fields
-        )
-
-
-@pytest.mark.django_db
-def test_native_recent_events_export_rebuilds_whole_documents_without_repeating_temporary_properties(team) -> None:
-    fields = http_default_fields(reads_native_events=True)
-    rows = _export_recent_events(team.pk, fields, [], includes_feature_flag_called=False)
-
-    aliases = [field["alias"] for field in fields]
-    properties_by_event = {row[aliases.index("event")]: row[aliases.index("properties")] for row in rows}
-    members = json.loads(properties_by_event["with-flag"], object_pairs_hook=lambda pairs: pairs)
-    assert [key for key, _ in members].count("$set") == 1
-
-
-_SENT_EVENTS = {
-    "nested": (
-        {"cart": {"plan": "pro"}, "tags": ["a"], "$feature/checkout": True, "$set": {"email": "a@example.com"}},
-        {"org": {"tier": "gold"}},
-    ),
-    "flat": ({"cart": "pro", "$os": "Mac OS X"}, {"org": "gold"}),
-}
-
-
-@pytest.mark.parametrize(
-    "filters,expected_events",
-    [
-        ([{"key": "properties.cart.plan = 'pro'", "type": "hogql"}], {"nested"}),
-        ([{"key": "person.properties.org.tier = 'gold'", "type": "hogql"}], {"nested"}),
-        ([{"key": "properties.cart = 'pro'", "type": "hogql"}], {"flat"}),
-        ([{"key": "$feature/checkout", "type": "event", "operator": "exact", "value": ["true"]}], {"nested"}),
-        ([{"key": "$os", "type": "event", "operator": "is_not_set"}], {"nested"}),
-    ],
-    ids=["nested-property", "nested-person-property", "top-level-property", "flag", "declared-property-not-set"],
-)
-@pytest.mark.django_db
-async def test_native_recent_events_export_filters_like_the_native_events_export(
-    clickhouse_client, ateam, settings, filters: list[dict], expected_events: set[str]
-) -> None:
-    settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA = True
-    now = dt.datetime.now(tz=dt.UTC)
-    await insert_event_values_in_clickhouse(
-        clickhouse_client,
-        [
-            sent_event
-            for event, (properties, person_properties) in _SENT_EVENTS.items()
-            for sent_event in generate_test_events(
-                count=1,
-                team_id=ateam.pk,
-                possible_datetimes=[now],
-                event_name=event,
-                inserted_at=now,
-                properties=properties,
-                person_properties=person_properties,
-            )
-        ],
-    )
-    filters_str, filter_values = await database_sync_to_async(compose_filters_clause)(
-        filters, team_id=ateam.pk, use_new_events_schema=True
-    )
-    fields = [{"expression": "event", "alias": "event"}]
-    parameters = {
-        **filter_values,
-        "team_id": ateam.pk,
-        "interval_start": (now - dt.timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S"),
-        "interval_end": (now + dt.timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S"),
-        "include_events": [],
-        "exclude_events": [],
-    }
-
-    exported_events = {}
-    for table, query in (
-        ("events_json", native_events_export_query(fields, filters_str)),
-        (
-            "events_recent",
-            native_recent_events_export_query(fields, filters_str, includes_feature_flag_called=False),
-        ),
-    ):
-        rows = await clickhouse_client.read_query_as_jsonl(
-            query.replace("FORMAT ArrowStream", "FORMAT JSONEachRow"), parameters
-        )
-        exported_events[table] = {row["event"] for row in rows}
-
-    assert exported_events == {"events_json": expected_events, "events_recent": expected_events}
+    assert json.loads(result[0][0]) == expected

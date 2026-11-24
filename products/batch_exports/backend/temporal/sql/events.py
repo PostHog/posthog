@@ -6,19 +6,11 @@ from string import Template
 
 from posthog.hogql.printer.events_json_document import (
     EVENTS_PROPERTIES_DECLARED_STRING_PATHS,
-    json_member_pairs_sql,
+    json_document_sql,
     person_document_sql,
 )
 
-from posthog.clickhouse.events_json import EVENTS_JSON_INSERT_SETTINGS
 from posthog.models.event.sql import EVENTS_JSON_EXPORT_CLEANER
-
-from products.batch_exports.backend.temporal.sql.typed_events_json_recent import (
-    STORED_DOCUMENT_FIELD_EXPRESSIONS,
-    STORED_TEMPORARY_PROPERTIES_COLUMN,
-    build_typed_recent_events_source,
-    needs_typed_columns,
-)
 
 if typing.TYPE_CHECKING:
     from products.batch_exports.backend.service import BatchExportField
@@ -238,6 +230,7 @@ FROM (
         person_id,
         properties,
         person_properties,
+        $cleaned_columns
         set,
         set_once,
         ip
@@ -256,6 +249,7 @@ FROM (
             toString(person_id) AS person_id,
             nullIf(properties, '') AS properties,
             nullIf(person_properties, '') AS person_properties,
+            $cleaned_select
             JSONExtract(ifNull(properties, ''), 'Tuple(`$$set` String, `$$set_once` String, `$$ip` String)') AS extracted_properties,
             nullIf(extracted_properties.1, '') AS set,
             nullIf(extracted_properties.2, '') AS set_once,
@@ -367,6 +361,7 @@ FROM (
         person_id,
         properties,
         person_properties,
+        $cleaned_columns
         set,
         set_once,
         ip
@@ -385,6 +380,7 @@ FROM (
             toString(person_id) AS person_id,
             nullIf(properties, '') AS properties,
             nullIf(person_properties, '') AS person_properties,
+            $cleaned_select
             JSONExtract(ifNull(properties, ''), 'Tuple(`$$set` String, `$$set_once` String, `$$ip` String)') AS extracted_properties,
             nullIf(extracted_properties.1, '') AS set,
             nullIf(extracted_properties.2, '') AS set_once,
@@ -501,11 +497,26 @@ SETTINGS
 # `ip` column, because the expression itself parses the document one more time.
 EXTRACTED_FIELD_EXPRESSIONS = {"nullIf(JSONExtractString(properties, '$ip'), '')": "ip"}
 
+# On the new events schema, the recent exports send `properties` and `person_properties` as a read of `events_json`
+# returns them. `events_recent` stores them as ingestion sent them, so the export cleaner builds the documents in the
+# query. Filters and custom fields still read the stored text.
+CLEANED_FIELD_EXPRESSIONS = {"properties": "cleaned_properties", "person_properties": "cleaned_person_properties"}
 
-def build_event_count_by_interval_query(*, includes_feature_flag_called: bool) -> str:
-    """Count the events a 5-minute export reads from `events_recent`, per interval, for monitoring."""
-    feature_flag_called_filter = "" if includes_feature_flag_called else "AND event != '$feature_flag_called'"
-    return """
+
+def export_cleaner_sql(*, enabled: bool) -> dict[str, str]:
+    """The `$cleaned_select` and `$cleaned_columns` parts of a recent export template."""
+    if not enabled:
+        return {"cleaned_select": "", "cleaned_columns": ""}
+    return {
+        "cleaned_select": (
+            f"{EVENTS_JSON_EXPORT_CLEANER}(ifNull(properties, ''), ifNull(person_properties, '')) AS cleaned, "
+            "cleaned.properties AS cleaned_properties, cleaned.person_properties AS cleaned_person_properties,"
+        ),
+        "cleaned_columns": "cleaned_properties, cleaned_person_properties,",
+    }
+
+
+EVENT_COUNT_BY_INTERVAL = """
 SELECT
     toStartOfInterval(_inserted_at, INTERVAL %(interval)s) AS interval_start,
     interval_start + INTERVAL %(interval)s AS interval_end,
@@ -522,60 +533,32 @@ FROM (
         team_id = %(team_id)s::Int64
         AND (length(%(include_events)s::Array(String)) = 0 OR event IN %(include_events)s::Array(String))
         AND (length(%(exclude_events)s::Array(String)) = 0 OR event NOT IN %(exclude_events)s::Array(String))
-        {feature_flag_called_filter}
 )
 GROUP BY interval_start
 ORDER BY interval_start ASC
 SETTINGS
     max_replica_delay_for_distributed_queries=1,
     optimize_aggregation_in_order=1
-""".format(feature_flag_called_filter=feature_flag_called_filter)
-
-
-EVENT_COUNT_BY_INTERVAL = build_event_count_by_interval_query(includes_feature_flag_called=True)
-
-
-def _build_temporary_property_fields(temporary_properties_text: str) -> dict[str, str]:
-    """The legacy `set`, `set_once`, `unset` and `group_set` fields, from the temporary properties as JSON text.
-
-    `set` and `set_once` use the expression the legacy queries apply to `properties`. ClickHouse's `JSONExtractString`
-    returns an object member as its JSON text, so the fields carry the same text as before.
-    """
-    return {
-        "set": f"nullIf(JSONExtractString({temporary_properties_text}, '$set'), '')",
-        "set_once": f"nullIf(JSONExtractString({temporary_properties_text}, '$set_once'), '')",
-        **dict.fromkeys(("unset", "group_set"), "CAST(NULL, 'Nullable(String)')"),
-    }
-
-
-def _build_properties_document_sql(properties: str, temporary_properties: str) -> str:
-    """The `properties` column as document text in its stored shape, with the temporary properties after the others."""
-    pairs = (
-        json_member_pairs_sql(
-            properties,
-            exclude_empty_key="$feature_flags",
-            declared_string_paths=EVENTS_PROPERTIES_DECLARED_STRING_PATHS,
-        ),
-        json_member_pairs_sql(temporary_properties),
-    )
-    return f"concat('{{', arrayStringConcat(arrayConcat({', '.join(pairs)}), ','), '}}')"
+"""
 
 
 # The native table exports `properties` and `person_properties` in their stored shape, built member by member the
 # way a HogQL read of the whole document builds them. Unlike the legacy tables:
 # - flags are sent in one `$feature_flags` map, which is left out when the event has no flags.
-# - temporary properties, such as `$set`, follow the other members of `properties`, as the export cleaner writes
-#   them. ClickHouse clears them from `events_json` 60 days after an event is inserted.
-# - the legacy `set` and `set_once` fields are read from the temporary properties, which hold `$set` and `$set_once`.
-#   `unset` and `group_set` are always empty.
+# - temporary properties are not exported, so the legacy `set`, `set_once`, `unset` and `group_set`
+#   fields are always empty.
 # `toJSONString` prints a stored dotted key as `a%2Eb` unless the query sets `json_type_escape_dots_in_keys`, which is
 # why the native query's SETTINGS carry it.
-# The recent export query builds the same `properties` documents with the export cleaner, so a change here needs the
-# matching change in `clickhouse-udfs/util/cmd/json_clean_posthog_event_properties_udf/export.go`.
+# `events_json_recent` stores the same `properties` documents, written at insert time by the export cleaner, so a change
+# here needs the matching change in `clickhouse-udfs/util/cmd/json_clean_posthog_event_properties_udf/export.go`.
 _NATIVE_EVENTS_FIELD_EXPRESSIONS = {
-    "properties": _build_properties_document_sql("events.properties", "events.temporary_properties"),
+    "properties": json_document_sql(
+        "events.properties",
+        exclude_empty_key="$feature_flags",
+        declared_string_paths=EVENTS_PROPERTIES_DECLARED_STRING_PATHS,
+    ),
     "person_properties": person_document_sql("events.person_properties"),
-    **_build_temporary_property_fields("toJSONString(events.temporary_properties)"),
+    **dict.fromkeys(("set", "set_once", "unset", "group_set"), "CAST(NULL, 'Nullable(String)')"),
 }
 
 
@@ -592,7 +575,10 @@ def native_events_export_query(
     `events.properties` and `events.person_properties` columns, which the query turns into text only for the export's
     own `properties` and `person_properties` fields.
     """
-    select = _select_fields(fields, _NATIVE_EVENTS_FIELD_EXPRESSIONS)
+    select = ", ".join(
+        f"{_NATIVE_EVENTS_FIELD_EXPRESSIONS.get(field['expression'], field['expression'])} AS {field['alias']}"
+        for field in fields
+    )
     return f"""
 {"INSERT INTO FUNCTION " + s3_function if s3_function else ""}
 SELECT {select}
@@ -615,81 +601,6 @@ SETTINGS
     fallback_to_stale_replicas_for_distributed_queries=0,
     optimize_aggregation_in_order=1,
     json_type_escape_dots_in_keys=1,
-    output_format_json_escape_forward_slashes=0
-{", log_comment=%(log_comment)s" if s3_function else ""}
-"""
-
-
-def _select_fields(fields: Sequence["BatchExportField"], replacements: dict[str, str]) -> str:
-    return ", ".join(
-        f"{replacements.get(field['expression'], field['expression'])} AS {field['alias']}" for field in fields
-    )
-
-
-def _build_cleaned_events_recent_source(*, includes_feature_flag_called: bool) -> str:
-    """`events_recent` with its documents in the shape a read of `events_json` returns.
-
-    `events_recent` stores `properties` and `person_properties` as ingestion sent them. The export cleaner turns each
-    row into the documents the native export sends, so recent and older ranges of one export carry the same shape
-    without a second copy of the recent events.
-
-    The subquery repeats the row filters of the export query, so the cleaner, which is an executable UDF, runs only on
-    the rows the export reads.
-    """
-    return f"""(
-    SELECT
-        * EXCEPT (cleaned) REPLACE (cleaned.properties AS properties, cleaned.person_properties AS person_properties),
-        cleaned.temporary_properties AS temporary_properties
-    FROM (
-        SELECT *, {EVENTS_JSON_EXPORT_CLEANER}(properties, person_properties) AS cleaned
-        FROM events_recent
-        WHERE team_id = %(team_id)s::Int64
-            AND inserted_at >= %(interval_start)s::DateTime64
-            AND inserted_at < %(interval_end)s::DateTime64
-            AND (length(%(include_events)s::Array(String)) = 0 OR event IN %(include_events)s::Array(String))
-            AND (length(%(exclude_events)s::Array(String)) = 0 OR event NOT IN %(exclude_events)s::Array(String))
-            {"" if includes_feature_flag_called else "AND event != '$feature_flag_called'"}
-    )
-)"""
-
-
-def native_recent_events_export_query(
-    fields: Sequence["BatchExportField"],
-    filters: str = "",
-    *,
-    includes_feature_flag_called: bool,
-    order: str = "",
-    s3_function: str | None = None,
-) -> str:
-    """The export query for the ranges `events_recent` holds, on the new events schema.
-
-    The query sends the `properties` and `person_properties` text the export cleaner builds. `filters` and any custom
-    field expressions must be printed for the new events schema, as for `native_events_export_query`. They read typed
-    JSON columns, so an export that has any reads them through `typed_events_json_recent` instead.
-    """
-    source = _build_cleaned_events_recent_source(includes_feature_flag_called=includes_feature_flag_called)
-    if needs_typed_columns(fields, filters, plain_expressions=_NATIVE_EVENTS_FIELD_EXPRESSIONS.keys()):
-        source = build_typed_recent_events_source(source)
-        replacements = STORED_DOCUMENT_FIELD_EXPRESSIONS | _build_temporary_property_fields(
-            f"events.{STORED_TEMPORARY_PROPERTIES_COLUMN}"
-        )
-    else:
-        replacements = _build_temporary_property_fields("events.temporary_properties")
-    return f"""
-{"INSERT INTO FUNCTION " + s3_function if s3_function else ""}
-SELECT {_select_fields(fields, replacements)}
-FROM (
-    SELECT DISTINCT ON (team_id, event, cityHash64(events.distinct_id), cityHash64(events.uuid))
-        * REPLACE (toString(uuid) AS uuid, toString(person_id) AS person_id), inserted_at AS _inserted_at
-    FROM {source} AS events
-    {"WHERE " + filters if filters else ""}
-    {order}
-) AS events
-{"" if s3_function else "FORMAT ArrowStream"}
-SETTINGS
-    max_bytes_before_external_sort=50000000000,
-    optimize_aggregation_in_order=1,
-    {EVENTS_JSON_INSERT_SETTINGS},
     output_format_json_escape_forward_slashes=0
 {", log_comment=%(log_comment)s" if s3_function else ""}
 """

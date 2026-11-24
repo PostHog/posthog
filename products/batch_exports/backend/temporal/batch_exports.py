@@ -27,7 +27,6 @@ from posthog.temporal.common.logger import get_logger, get_write_only_logger
 from posthog.usage_ingestion.client import UsageRecord, areport_usage
 
 from products.batch_exports.backend.billing import is_billable_run
-from products.batch_exports.backend.events_table import exports_feature_flag_called_events
 from products.batch_exports.backend.facade.enums import BatchExportRunStatus
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportRun
 from products.batch_exports.backend.service import (
@@ -51,7 +50,6 @@ from products.batch_exports.backend.temporal.sql.events import (
     SELECT_FROM_EVENTS_VIEW_BACKFILL,
     SELECT_FROM_EVENTS_VIEW_RECENT,
     native_events_export_query,
-    native_recent_events_export_query,
 )
 from products.cdp.backend.internal_events import InternalEventEvent, create_internal_event, internal_event_to_dict
 from products.notifications.backend.facade.api import (
@@ -241,31 +239,27 @@ def select_events_query_template(
     return SELECT_FROM_EVENTS_VIEW
 
 
-def _build_new_events_records_query(
+def reads_native_events_table(
     *,
     team_id: int,
     interval_start: str | None,
-    fields: list[BatchExportField],
-    filters_str: str,
-    is_backfill: bool,
-    backfill_details: BackfillDetails | None,
-) -> str:
-    """The `iter_records` query on the new events tables, which `events_recent` serves for the ranges it holds."""
-    start_at = dt.datetime.fromisoformat(interval_start) if interval_start is not None else None
-    # TODO: this can be simplified once all backfill inputs are migrated
-    is_backfill = (backfill_details is not None) or is_backfill
-    order = "ORDER BY _inserted_at, event"
-
-    if use_distributed_events_recent_table(
-        is_backfill=is_backfill, backfill_details=backfill_details, data_interval_start=start_at
-    ):
-        return native_recent_events_export_query(
-            fields,
-            filters_str,
-            includes_feature_flag_called=exports_feature_flag_called_events(team_id),
-            order=order,
+    interval_end: str,
+    use_new_events_schema: bool,
+    is_backfill: bool = False,
+    backfill_details: BackfillDetails | None = None,
+) -> bool:
+    """Whether `iter_records` reads the native events table, so its filters must be printed for the new schema."""
+    return (
+        use_new_events_schema
+        and select_events_query_template(
+            team_id=team_id,
+            interval_start=interval_start,
+            interval_end=interval_end,
+            is_backfill=is_backfill,
+            backfill_details=backfill_details,
         )
-    return native_events_export_query(fields, filters_str, order=order)
+        is SELECT_FROM_EVENTS_VIEW_BACKFILL
+    )
 
 
 def iter_records(
@@ -328,29 +322,22 @@ def iter_records(
         "include_events": events_to_include_array,
     }
 
-    if use_new_events_schema:
-        query_str = _build_new_events_records_query(
-            team_id=team_id,
-            interval_start=interval_start,
-            fields=select_fields,
-            filters_str=filters_str or "",
-            is_backfill=is_backfill,
-            backfill_details=backfill_details,
+    query = select_events_query_template(
+        team_id=team_id,
+        interval_start=interval_start,
+        interval_end=interval_end,
+        is_backfill=is_backfill,
+        backfill_details=backfill_details,
+    )
+
+    if query is SELECT_FROM_EVENTS_VIEW:
+        base_query_parameters["lookback_days"] = settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(
+            team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS
         )
+
+    if use_new_events_schema and query is SELECT_FROM_EVENTS_VIEW_BACKFILL:
+        query_str = native_events_export_query(select_fields, filters_str or "", order="ORDER BY _inserted_at, event")
     else:
-        query = select_events_query_template(
-            team_id=team_id,
-            interval_start=interval_start,
-            interval_end=interval_end,
-            is_backfill=is_backfill,
-            backfill_details=backfill_details,
-        )
-
-        if query is SELECT_FROM_EVENTS_VIEW:
-            base_query_parameters["lookback_days"] = settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(
-                team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS
-            )
-
         query_fields = ",".join(
             f"{EXTRACTED_FIELD_EXPRESSIONS.get(field['expression'], field['expression'])} AS {field['alias']}"
             for field in select_fields
