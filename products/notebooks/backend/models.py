@@ -88,6 +88,7 @@ class NotebookAppRelease(TeamScopedRootMixin, UUIDModel):
     revision = models.PositiveIntegerField()
     published_at = models.DateTimeField(auto_now_add=True)
     results_as_of = models.DateTimeField(null=True, blank=True)
+    sql_rows: JSONField = JSONField(null=True, blank=True)
     title = models.CharField(max_length=256, blank=True)
     layout = models.JSONField()
     markdown = models.TextField(blank=True)

@@ -973,6 +973,18 @@ export interface NotebookAppReleaseReviewApi {
     results_as_of: string | null
 }
 
+export interface NotebookAppViewerRequestApi {
+    /** @minimum 0 */
+    revision: number
+    variables: NotebookVariableApi[]
+}
+
+export interface NotebookAppViewerQueryApi {
+    node_id: string
+    query: string
+    matches_defaults: boolean
+}
+
 export interface NotebookAppReleaseApi {
     revision: number
     /** @nullable */
@@ -1460,7 +1472,7 @@ export interface NotebookSQLV2RunStatusResponseApi {
      * @nullable
      */
     error?: string | null
-    /** SQL (hogql) runs only: the full capped row set for client-side paging, present while the query manager's transient result is alive (~20 minutes). Absent afterwards and for kernel (python/duckdb) runs, which keep only the envelope's first_page preview. */
+    /** Capped SQL rows for paging, available from the query cache or a retained app release. The result envelope also includes the first saved page. */
     rows?: unknown[][]
 }
 
