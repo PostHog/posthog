@@ -507,6 +507,9 @@ importers:
       '@jest/test-sequencer':
         specifier: ^30.0.5
         version: 30.0.5
+      '@modelcontextprotocol/ext-apps':
+        specifier: ^1.7.5
+        version: 1.7.5(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(supports-color@10.2.2)(zod@4.6.7))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(zod@4.6.7)
       '@posthog/frontend':
         specifier: workspace:*
         version: link:../../frontend
@@ -1599,9 +1602,6 @@ importers:
       jsonc-parser:
         specifier: 3.3.1
         version: 3.3.1
-      pako:
-        specifier: 2.2.0
-        version: 2.2.0
       yaml:
         specifier: 2.9.1
         version: 2.9.1
@@ -1612,9 +1612,6 @@ importers:
       '@types/bun':
         specifier: 1.3.14
         version: 1.3.14
-      '@types/pako':
-        specifier: 2.0.4
-        version: 2.0.4
       typescript:
         specifier: catalog:compiler-api
         version: '@typescript/typescript6@6.0.2'
@@ -6475,6 +6472,9 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: ^1.29.0
         version: 1.29.0(@cfworker/json-schema@4.1.1)(supports-color@10.2.2)(zod@4.3.6)
+      '@posthog/brand':
+        specifier: 'catalog:'
+        version: 0.17.0(react@18.3.1)
       '@posthog/llm-normalizer':
         specifier: workspace:*
         version: link:../../packages/llm-normalizer
@@ -15072,9 +15072,6 @@ packages:
   '@types/oracledb@6.5.2':
     resolution: {integrity: sha512-kK1eBS/Adeyis+3OlBDMeQQuasIDLUYXsi2T15ccNJ0iyUpQ4xDF7svFu3+bGVrI0CMBUclPciz+lsQR3JX3TQ==}
 
-  '@types/pako@2.0.4':
-    resolution: {integrity: sha512-VWDCbrLeVXJM9fihYodcLiIv0ku+AlOa/TQ1SvYOaBuyrSKgEcro95LJyIsJ4vSo6BXIxOKxiJAat04CmST9Fw==}
-
   '@types/papaparse@5.3.8':
     resolution: {integrity: sha512-ArKIEOOWULbhi53wkAiRy1ze4wvrTfhpAj7Yfzva+EkmX2sV8PpFB+xqzJfzXNzK4me95FJH9QZt5NXFVGzOoQ==}
 
@@ -21477,9 +21474,6 @@ packages:
 
   package-manager-detector@1.6.0:
     resolution: {integrity: sha512-61A5ThoTiDG/C8s8UMZwSorAGwMJ0ERVGj2OjoW5pAalsNOg15+iQiPzrLJ4jhZ1HJzmC2PIHT2oEiH3R5fzNA==}
-
-  pako@2.2.0:
-    resolution: {integrity: sha512-zJq6RP/5q+TO2OpFV3FHzlPnFjmkb7Nc99a5SNjJE+uu/PkpChs+NIZSSzbBoD+6kjiISXjfYdwj1ZRQ81dz/w==}
 
   papaparse@5.5.4:
     resolution: {integrity: sha512-SwzWD9gl/ElwYLCI0nUja1mFJzjq2D8ziShfNBa7zCHzkOozeOGDwHWQ+tvCzEZcewecWZ5U7kUopDnG+DFYEQ==}
@@ -30511,6 +30505,15 @@ snapshots:
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
 
+  '@modelcontextprotocol/ext-apps@1.7.5(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(supports-color@10.2.2)(zod@4.6.7))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(zod@4.6.7)':
+    dependencies:
+      '@modelcontextprotocol/sdk': 1.29.0(@cfworker/json-schema@4.1.1)(supports-color@10.2.2)(zod@4.6.7)
+      '@standard-schema/spec': 1.1.0
+      zod: 4.6.7
+    optionalDependencies:
+      react: 18.3.1
+      react-dom: 18.3.1(react@18.3.1)
+
   '@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(supports-color@10.2.2)(zod@4.3.6)':
     dependencies:
       '@hono/node-server': 1.19.14(hono@4.13.14)
@@ -30530,6 +30533,30 @@ snapshots:
       raw-body: 3.0.1
       zod: 4.3.6
       zod-to-json-schema: 3.25.1(zod@4.3.6)
+    optionalDependencies:
+      '@cfworker/json-schema': 4.1.1
+    transitivePeerDependencies:
+      - supports-color
+
+  '@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(supports-color@10.2.2)(zod@4.6.7)':
+    dependencies:
+      '@hono/node-server': 1.19.14(hono@4.13.14)
+      ajv: 8.20.0
+      ajv-formats: 3.0.1(ajv@8.20.0)
+      content-type: 1.0.5
+      cors: 2.8.6
+      cross-spawn: 7.0.6
+      eventsource: 3.0.7
+      eventsource-parser: 3.0.6
+      express: 5.2.1(supports-color@10.2.2)
+      express-rate-limit: 8.5.2(express@5.2.1(supports-color@10.2.2))
+      hono: 4.13.14
+      jose: 6.2.3
+      json-schema-typed: 8.0.2
+      pkce-challenge: 5.0.0
+      raw-body: 3.0.1
+      zod: 4.6.7
+      zod-to-json-schema: 3.25.1(zod@4.6.7)
     optionalDependencies:
       '@cfworker/json-schema': 4.1.1
     transitivePeerDependencies:
@@ -35582,8 +35609,6 @@ snapshots:
   '@types/oracledb@6.5.2':
     dependencies:
       '@types/node': 26.6.6
-
-  '@types/pako@2.0.4': {}
 
   '@types/papaparse@5.3.8':
     dependencies:
@@ -44134,8 +44159,6 @@ snapshots:
 
   package-manager-detector@1.6.0: {}
 
-  pako@2.2.0: {}
-
   papaparse@5.5.4: {}
 
   parcel@2.16.4:
@@ -49464,6 +49487,10 @@ snapshots:
   zod-to-json-schema@3.25.1(zod@4.3.6):
     dependencies:
       zod: 4.3.6
+
+  zod-to-json-schema@3.25.1(zod@4.6.7):
+    dependencies:
+      zod: 4.6.7
 
   zod@3.25.76: {}
 

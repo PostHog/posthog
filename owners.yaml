@@ -86,7 +86,7 @@ rules:
     - match: '/bin/inject_mcp_intents.py'
       owners: mcp-analytics
     - match: '/.agents/skills/manage-dashboard-widgets/'
-      owners: team-product-analytics
+      owners: team-dashboards-and-charts
     - match: ['/.claude/', '/.depot/']
       owners: team-devex
     - match: '/.claude/agents/ingestion/'
@@ -241,6 +241,7 @@ rules:
           - '/frontend/src/layout/panel-layout/ProjectTree/*.test.*'
           - '/frontend/src/layout/panel-layout/ProjectTree/menus/*.test.*'
           - '/frontend/src/layout/panel-layout/navbar/*.test.*'
+          - '/frontend/src/layout/scenes/components/QuillSceneName.test.tsx'
           - '/frontend/src/layout/today/TodayPhoneHeader.test.tsx'
           - '/frontend/src/layout/today/TodayPreviewCardProvider.test.tsx'
           - '/frontend/src/layout/today/todayPaneIntroLogic.test.ts'
@@ -296,14 +297,16 @@ rules:
           - '/frontend/src/queries/nodes/DataTable/ColumnConfigurator/*.test.*'
           - '/frontend/src/queries/nodes/DataTable/TableView/*.test.*'
           - '/frontend/src/queries/nodes/DataVisualization/*.test.*'
-          - '/frontend/src/queries/nodes/DataVisualization/Components/Charts/*.test.*'
           - '/frontend/src/queries/nodes/DataVisualization/Components/Heatmap/*.test.*'
           - '/frontend/src/queries/nodes/DataVisualization/Components/Variables/*.test.*'
           - '/frontend/src/queries/nodes/InsightQuery/utils/*.test.*'
           - '/frontend/src/queries/nodes/InsightViz/*.test.*'
           - '/playwright/e2e/persons/*.spec.*'
           - '/playwright/e2e/product-analytics/insights/*.spec.*'
-      owners: team-product-analytics
+      owners: team-analytics
+    - match:
+          - '/frontend/src/queries/nodes/DataVisualization/Components/Charts/*.test.*'
+      owners: team-dashboards-and-charts
     - match:
           - '/common/replay-headless/src/__tests__/*.test.*'
           - '/common/replay-shared/src/*.test.*'

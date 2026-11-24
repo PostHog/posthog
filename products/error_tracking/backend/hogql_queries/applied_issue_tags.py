@@ -1,6 +1,6 @@
 from collections.abc import Collection
 
-from posthog.schema import ErrorTrackingIssueTagFilter
+from posthog.schema import ErrorTrackingIssueTagsFilter
 
 from posthog.hogql import ast
 from posthog.hogql.database.argmax import argmax_select
@@ -53,17 +53,36 @@ def applied_issue_tags_query(keys: Collection[str], issue_ids: Collection[str] |
     return query
 
 
-def issue_tag_filter_expr(issue_id: ast.Expr, tag_filter: ErrorTrackingIssueTagFilter) -> ast.Expr:
-    """Keep the issues the tag is applied to, or every other issue when `applied` is false."""
-    tagged_issues = ast.SelectQuery(
-        select=[ast.Field(chain=["issue_id"])],
-        select_from=ast.JoinExpr(table=applied_issue_tags_query([tag_filter.key])),
-    )
-    # An issue the tag is not applied to can have no row to select, so `applied` false excludes the tagged issues.
-    # GLOBAL builds the set once on the initiator. The tags table is on another cluster, so a plain IN in the
+def issue_tags_filter_exprs(issue_id: ast.Expr, tags_filter: ErrorTrackingIssueTagsFilter) -> list[ast.Expr]:
+    """Keep the issues that have every tag in `has` and no tag in `hasNot`."""
+    # GLOBAL builds each set once on the initiator. The tags table is on another cluster, so a plain IN in the
     # legacy shape, which filters events on each shard, would make every shard read the tags table again.
-    return ast.CompareOperation(
-        op=ast.CompareOperationOp.GlobalIn if tag_filter.applied else ast.CompareOperationOp.GlobalNotIn,
-        left=issue_id,
-        right=tagged_issues,
+    exprs: list[ast.Expr] = []
+    if tags_filter.has:
+        issues_with_every_tag = _tagged_issues(tags_filter.has)
+        # applied_issue_tags_query gives one row for each issue and applied tag, so an issue with every tag in `has`
+        # has one row for each distinct key.
+        issues_with_every_tag.group_by = [ast.Field(chain=["issue_id"])]
+        issues_with_every_tag.having = ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=ast.Call(name="count", args=[]),
+            right=ast.Constant(value=len(set(tags_filter.has))),
+        )
+        exprs.append(
+            ast.CompareOperation(op=ast.CompareOperationOp.GlobalIn, left=issue_id, right=issues_with_every_tag)
+        )
+    if tags_filter.hasNot:
+        # An issue without a tag has no row to select, so `hasNot` uses NOT IN against the tagged issues.
+        exprs.append(
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.GlobalNotIn, left=issue_id, right=_tagged_issues(tags_filter.hasNot)
+            )
+        )
+    return exprs
+
+
+def _tagged_issues(keys: Collection[str]) -> ast.SelectQuery:
+    return ast.SelectQuery(
+        select=[ast.Field(chain=["issue_id"])],
+        select_from=ast.JoinExpr(table=applied_issue_tags_query(keys)),
     )

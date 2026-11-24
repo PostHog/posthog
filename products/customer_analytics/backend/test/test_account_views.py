@@ -110,6 +110,7 @@ class TestAccountViewContentValidation(SimpleTestCase):
                 "Recent recordings",
             ),
             ('<Automations nodeId="automations-one" span={6} />', "Automations"),
+            ('<Context nodeId="context-one" span={12} />', "Context"),
             ('<DotMatrix nodeId="matrix-one" span={6} />', "Dot matrix"),
         ]
     )

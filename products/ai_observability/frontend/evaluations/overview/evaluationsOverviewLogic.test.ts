@@ -32,7 +32,6 @@ const EMPTY_OVERVIEW = {
         entries: [],
         median: null,
         medianComparison: null,
-        medianTrend: [],
     },
 }
 

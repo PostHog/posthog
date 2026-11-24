@@ -8,6 +8,7 @@ import { parseNumberFromEnv } from '~/common/config'
 import { getDefaultConfig } from '~/common/config/config'
 
 import { EMAIL_ACTION, TRAFFIC } from '../generator/traffic'
+import { roleFreeze, roleKill } from '../valves/valves'
 import { DEFINITIONS, Definition, Definitions } from './definitions'
 import { Card, Named, Profile, stepsOf } from './schema'
 import { Target, targetProblems } from './target'
@@ -166,6 +167,21 @@ function checkWorkflowRate(card: Card, profile: Profile, defaults: Settings): st
     })
 }
 
+const ROLE_STOPPING_VALVES = [roleKill.name, roleFreeze.name]
+
+function checkIntakeReplicaValves(card: Card, profile: Profile): string[] {
+    if ((profile.replicas['cdp-api'] ?? 1) === 1) {
+        return []
+    }
+    return card.valves.flatMap(({ valve, target }, i) =>
+        ROLE_STOPPING_VALVES.includes(valve) && target === 'cdp-api'
+            ? [
+                  `valves.${i}.target: ${valve} stops cdp-api replica 0 only, and the runner keeps sending every other request to it; run one cdp-api replica on this card`,
+              ]
+            : []
+    )
+}
+
 const SES_SHARE = 0.5
 
 const withoutFloatNoise = (value: number): number => Number(value.toFixed(6))
@@ -281,6 +297,7 @@ function check(
                   ...checkProfile(card, loaded.profile, DEFINITIONS, defaults),
                   ...checkWorkflowRate(card, loaded.profile, defaults),
                   ...checkSesLimiter(card, loaded.profile, defaults),
+                  ...checkIntakeReplicaValves(card, loaded.profile),
                   ...targetProblems(card, loaded.profile, target),
               ]
             : loaded.problems),

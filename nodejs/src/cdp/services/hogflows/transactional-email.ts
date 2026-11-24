@@ -227,6 +227,11 @@ export const AcceptedSendSchema = z
     .strict()
     .readonly()
 
+export const BatchSendSchema = AcceptedSendSchema.unwrap()
+    .omit({ cc: true, bcc: true, attachments: true, message_category: true })
+    .strict()
+    .readonly()
+
 export type AcceptedSend = Omit<z.infer<typeof AcceptedSendSchema>, 'message_category'>
 
 export type QueuedSend = Omit<AcceptedSend, 'attachments'> & { attachments?: readonly EmailAttachmentMetadata[] }
