@@ -546,13 +546,80 @@ class TestQueryAiEventsTypedProperties(ClickhouseTestMixin, BaseTest):
                 "ELSE '7' END) FROM posthog.ai_events",
                 9,
             ),
+            (
+                "max_if",
+                "Numeric",
+                ("9", "10", "99"),
+                "SELECT toIntOrZero(maxIf(properties.example_value, distinct_id != 'example-user-2')) "
+                "FROM posthog.ai_events",
+                9,
+            ),
+            (
+                "argmax",
+                "Numeric",
+                ("9", "10"),
+                "SELECT toIntOrZero(argMax(properties.example_value, properties.example_value)) FROM posthog.ai_events",
+                9,
+            ),
+            (
+                "numeric_branch",
+                "Numeric",
+                ("9",),
+                "SELECT if(true, properties.example_value, 0) FROM posthog.ai_events",
+                9,
+            ),
+            (
+                "aggregate_with_numeric_default",
+                "Numeric",
+                ("9", "10"),
+                "SELECT max(coalesce(properties.example_value, 0)) FROM posthog.ai_events",
+                10,
+            ),
+            (
+                "conditional_with_nested_numeric_default",
+                "Numeric",
+                ("9",),
+                "SELECT if(true, properties.example_value, coalesce(properties.example_value, 0)) FROM posthog.ai_events",
+                9,
+            ),
+            (
+                "arithmetic_branch",
+                "Numeric",
+                ("9",),
+                "SELECT if(true, properties.example_value + 1, 0) FROM posthog.ai_events",
+                10,
+            ),
+            (
+                "scalar_subquery",
+                "Numeric",
+                ("9",),
+                "SELECT if(true, (SELECT count() FROM posthog.ai_events WHERE properties.example_value > 7), 0)",
+                1,
+            ),
+            (
+                "numeric_cte_then_any",
+                "Numeric",
+                ("9",),
+                "WITH projected AS (SELECT properties.example_value AS value FROM posthog.ai_events) "
+                "SELECT toFloatOrZero(any(value)) FROM projected",
+                9.0,
+            ),
+            (
+                "datetime_cte_then_if",
+                "DateTime",
+                ("2024-04-05T06:07:08Z",),
+                "WITH projected AS (SELECT distinct_id, properties.example_value AS value FROM posthog.ai_events) "
+                "SELECT toYear(toDateTime(if(distinct_id = 'example-user-0', value, NULL))) FROM projected",
+                2024,
+            ),
         ]
     )
-    def test_string_parsers_preserve_nested_ai_property_values(
+    def test_ai_property_types_inside_selection_functions(
         self, _name: str, property_type: str, values: tuple[str, ...], query: str, expected: float | int
     ) -> None:
         PropertyDefinition.objects.create(team=self.team, name="example_value", property_type=property_type)
-        self._create_generations("posthog.ai_events", *({"example_value": value} for value in values))
+        properties: list[dict[str, str | int | bool]] = [{"example_value": value} for value in values]
+        self._create_generations("posthog.ai_events", *properties)
 
         result = execute_hogql_query(query, team=self.team, workload=Workload.ONLINE)
 

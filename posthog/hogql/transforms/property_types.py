@@ -197,7 +197,7 @@ class PropertySwapper(CloningVisitor):
         self._inside_call_depth = 0
         self._inside_where_depth = 0
         self._suppress_numeric_conversion = False
-        self._preserve_ai_property_strings = False
+        self._ai_string_operand: ast.Expr | None = None
         self._string_compared_operand_ids: frozenset[int] = frozenset()
         self.before_lazy_tables = before_lazy_tables
         self._union_scan_depth = 0
@@ -360,9 +360,9 @@ class PropertySwapper(CloningVisitor):
         # toFloatOrZero(toString(prop))) correctly reset the flag. A null default
         # passes the property through, so it keeps the flag of the call around it.
         saved_suppress = self._suppress_numeric_conversion
-        saved_ai_strings = self._preserve_ai_property_strings
         name = node.name.lower()
         is_null_default = name in NULL_DEFAULT_FUNCTIONS
+        result_indices = self._selection_result_indices(name, len(node.args))
         self._suppress_numeric_conversion = node.name in STRING_INPUT_CONVERSIONS or (
             saved_suppress and is_null_default
         )
@@ -371,51 +371,83 @@ class PropertySwapper(CloningVisitor):
         try:
             if node.name in JSON_FUNCTIONS and node.args:
                 result = self._visit_json_function_call(node)
-            elif name in _AI_STRING_AGGREGATES or name in _AI_STRING_CONDITIONALS:
-                result = self._visit_ai_string_value_call(node, name)
+            elif result_indices is not None:
+                result = self._visit_selection_call(node, name, result_indices)
+            elif is_null_default and node is self._ai_string_operand and self._can_keep_ai_string(node):
+                result = self._visit_call_with_ai_strings(node, set(range(len(node.args))))
             else:
                 result = super().visit_call(node)
         finally:
             self._inside_call_depth -= 1
             self._suppress_numeric_conversion = saved_suppress
-            self._preserve_ai_property_strings = saved_ai_strings
 
-        if is_null_default:
-            self._refresh_null_default_type(result)
+        if is_null_default or result_indices is not None:
+            self._refresh_value_call_type(result, result_indices)
         return self._maybe_extract_exception_string_array(result)
 
-    def _visit_ai_string_value_call(self, node: ast.Call, name: str) -> ast.Call:
-        if name in _AI_STRING_AGGREGATES:
-            value_indices = range(1)
-            fallback = -1
-        else:
-            fallback = len(node.args) - 1
+    @staticmethod
+    def _selection_result_indices(name: str, arg_count: int) -> tuple[int, ...] | None:
+        if arg_count and name.removesuffix("if") in _AI_STRING_AGGREGATES:
+            return (0,)
+        if arg_count and name in _AI_STRING_CONDITIONALS:
             first_result = 2 if name == "_casewithexpression" else 1
-            value_indices = range(first_result, fallback, 2)
+            return (*range(first_result, arg_count - 1, 2), arg_count - 1)
+        return None
 
-        # Converting these values changes string ordering or makes existing string fallbacks incompatible.
-        args = []
-        for index, arg in enumerate(node.args):
-            self._preserve_ai_property_strings = index in value_indices or index == fallback
-            args.append(self.visit(arg))
-        self._preserve_ai_property_strings = False
+    def _visit_selection_call(self, node: ast.Call, name: str, result_indices: tuple[int, ...]) -> ast.Call:
+        if name in _AI_STRING_CONDITIONALS and not all(
+            self._can_keep_ai_string(node.args[index]) for index in result_indices
+        ):
+            return super().visit_call(node)
+
+        # Preserve string ordering for both the result and the sort key of argMin and argMax.
+        source_indices = {0, 1} if name.removesuffix("if") in {"argmin", "argmax"} else set(result_indices)
+        return self._visit_call_with_ai_strings(node, source_indices)
+
+    def _can_keep_ai_string(self, arg: ast.Expr) -> bool:
+        while isinstance(arg, ast.Alias):
+            arg = arg.expr
+        if isinstance(arg, ast.Call) and arg.name.lower() in NULL_DEFAULT_FUNCTIONS:
+            return all(self._can_keep_ai_string(value) for value in arg.args)
+        if isinstance(arg.type, ast.PropertyType):
+            return not self.converts(arg.type, keep_ai_string=True)
+        return arg.type is None or isinstance(
+            arg.type.resolve_constant_type(self.context), (ast.StringType, ast.UnknownType)
+        )
+
+    def _visit_call_with_ai_strings(self, node: ast.Call, source_indices: set[int]) -> ast.Call:
+        args = [
+            self._visit_ai_string_operand(arg) if index in source_indices else self.visit(arg)
+            for index, arg in enumerate(node.args)
+        ]
         result = super().visit_call(dataclasses.replace(node, args=[]))
         result.args = args
         return result
 
-    def _refresh_null_default_type(self, node: ast.Call) -> None:
+    def _visit_ai_string_operand(self, arg: ast.Expr) -> ast.Expr:
+        saved_operand = self._ai_string_operand
+        operand = arg
+        while isinstance(operand, ast.Alias):
+            operand = operand.expr
+        self._ai_string_operand = operand
+        try:
+            return self.visit(arg)
+        finally:
+            self._ai_string_operand = saved_operand
+
+    def _refresh_value_call_type(self, node: ast.Call, result_indices: tuple[int, ...] | None) -> None:
         call_type = node.type
-        if not isinstance(call_type, ast.CallType):
+        if not isinstance(call_type, ast.CallType) or len(call_type.arg_types) != len(node.args):
             return
-        arg_types = [
-            arg.type.resolve_constant_type(self.context)
-            if arg.type is not None and not isinstance(arg.type, ast.PropertyType)
-            else original
-            for arg, original in zip(node.args, call_type.arg_types, strict=True)
-        ]
+        indices = range(len(node.args)) if result_indices is None else result_indices
+        arg_types = call_type.arg_types.copy()
+        for index in indices:
+            arg_type = node.args[index].type
+            if arg_type is not None and not isinstance(arg_type, ast.PropertyType):
+                arg_types[index] = arg_type.resolve_constant_type(self.context)
         if arg_types != call_type.arg_types:
             call_type.arg_types = arg_types
-            return_type = least_common_supertype(arg_types)
+            return_type = least_common_supertype([arg_types[index] for index in indices])
             if return_type != call_type.return_type:
                 call_type.return_type = return_type
                 self._retyped_calls.add(id(call_type))
@@ -887,12 +919,14 @@ class PropertySwapper(CloningVisitor):
             # The read is consumed as JSON text, so it keeps the stored value whatever the property's type.
             return node
         if isinstance(type, ast.PropertyType):
-            definition = self._property_definition(type)
+            definition = self._property_definition(type, keep_ai_string=node is self._ai_string_operand)
             if definition is not None:
                 return self._convert_string_property_to_type(node, *definition)
         return node
 
-    def _property_definition(self, type: ast.PropertyType) -> tuple[Literal["event", "person", "group"], str] | None:
+    def _property_definition(
+        self, type: ast.PropertyType, *, keep_ai_string: bool = False
+    ) -> tuple[Literal["event", "person", "group"], str] | None:
         """The metadata entry that applies to this property read, as its kind and key, or None when none does."""
         if type.field_type.name == "properties" and len(type.chain) == 1:
             property_name = str(type.chain[0])
@@ -927,7 +961,7 @@ class PropertySwapper(CloningVisitor):
                 elif isinstance(resolved_table, _EVENT_PROPERTY_TABLES):
                     # Detection can misclassify IDs, so native String AI columns keep their schema types.
                     if isinstance(resolved_table, AiEventsTable) and (
-                        self._preserve_ai_property_strings or resolved_table.maps_to_native_string_column(property_name)
+                        keep_ai_string or resolved_table.maps_to_native_string_column(property_name)
                     ):
                         return None
                     if property_name in self.event_properties:
@@ -941,10 +975,10 @@ class PropertySwapper(CloningVisitor):
                         return ("person", property_name)
         return None
 
-    def converts(self, type: ast.PropertyType) -> bool:
+    def converts(self, type: ast.PropertyType, *, keep_ai_string: bool = False) -> bool:
         """Whether this pass replaces the property read with a typed conversion, so a caller that serializes the read
         itself knows whether the stored value or the converted value is what a direct read yields."""
-        definition = self._property_definition(type)
+        definition = self._property_definition(type, keep_ai_string=keep_ai_string)
         if definition is None:
             return False
         kind, property_name = definition

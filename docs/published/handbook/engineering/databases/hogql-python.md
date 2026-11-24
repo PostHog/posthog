@@ -320,8 +320,8 @@ Direct property aliases in subqueries and CTEs expose their converted types.
 CTE comparisons on untyped person and group aliases use the original field even when another column changes type.
 Type inference also sees those converted types in `UNION ALL` projections and in direct arguments to `coalesce` and `ifNull`.
 
-On `posthog.ai_events`, result branches of `if` and `CASE` and value arguments to aggregates such as `any` and `max` keep properties as stored strings.
-Use an explicit conversion such as `max(toFloat(properties.score))` for numeric ordering.
+On `posthog.ai_events`, direct property reads keep their stored strings in string-compatible `if` and `CASE` branches and in aggregates such as `any` and `max`.
+For numeric ordering, use an explicit conversion such as `max(toFloat(properties.score))`. A CTE column that already carries a converted type keeps that type through these expressions.
 
 `LIKE`, regex functions such as `match`, and other string-only functions can raise ClickHouse error 43 (`ILLEGAL_TYPE_OF_ARGUMENT`) when a property definition converts their input to another type.
 Use `toString(properties.score)` when a string comparison or function should read the converted value as text.
