@@ -21,6 +21,7 @@ import {
     filterSearchParams,
     inboxFiltersLogic,
     InboxFilterState,
+    inboxReportsUrlForTag,
     InboxSortField,
     parseFilterSearchParams,
 } from './inboxFiltersLogic'
@@ -136,6 +137,17 @@ describe('inboxFiltersLogic', () => {
         ])('round-trips %s through encode/decode', (_name, state, expectedParams) => {
             expect(filterSearchParams(state)).toEqual(expectedParams)
             expect(parseFilterSearchParams(expectedParams)).toEqual(state)
+        })
+
+        // The report page tag link must land on a list filtered by its tag, even when the selection is full.
+        it('links a tag to the Reports list with that tag replacing the selection and the other filters kept', () => {
+            const fullTagFilter = Array.from({ length: 10 }, (_, i) => `tag-${i}`)
+            expect(
+                inboxReportsUrlForTag(
+                    { ...DEFAULT_STATE, scope: 'entire-project', tagFilter: fullTagFilter },
+                    'billing'
+                )
+            ).toBe('/inbox/reports?scope=entire-project&tags=billing')
         })
 
         // A shared link is authoritative but untrusted: unknown values (a malformed teammate id, which would
