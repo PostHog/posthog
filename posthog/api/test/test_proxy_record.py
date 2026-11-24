@@ -7,6 +7,7 @@ from django.db import DatabaseError
 from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
+from redis.exceptions import RedisError
 from rest_framework import status
 from temporalio.client import Client
 from temporalio.common import WorkflowIDConflictPolicy
@@ -110,6 +111,20 @@ class TestProxyRecordAPI(APIBaseTest):
         record.refresh_from_db()
         self.assertEqual(record.status, ProxyRecord.Status.WAITING)
         self.assertIsNone(record.root_redirect_url)
+
+    @parameterized.expand([("patch",), ("delete",)])
+    def test_foreign_proxy_write_returns_not_found_without_redis(self, method: str) -> None:
+        record = ProxyRecord.objects.create(
+            organization=Organization.objects.create(name="Other organization"),
+            domain="foreign.example.com",
+            target_cname="foreign.proxy.example.com",
+        )
+        url = f"/api/organizations/{self.organization.id}/proxy_records/{record.id}/"
+
+        with patch("posthog.api.proxy_record.cloudflare_proxy_lock", side_effect=RedisError("Redis unavailable")):
+            response = getattr(self.client, method)(url, data={})
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_list_returns_max_proxy_records_from_feature(self):
         response = self.client.get(f"/api/organizations/{self.organization.id}/proxy_records/")
