@@ -52,7 +52,7 @@ class TestScheduledTasks(SimpleTestCase):
                 for call in sender.add_periodic_task.call_args_list
                 if call.kwargs.get("name") == schedule_name
             )
-            with patch.object(app, "connection_for_write", return_value=connection):
+            with patch.object(app, "producer_or_acquire", return_value=connection.Producer()):
                 signature.apply(throw=True)
             with connection.SimpleQueue("usage_reports") as queue:
                 message = queue.get(block=False)
@@ -81,7 +81,7 @@ class TestScheduledTasks(SimpleTestCase):
             self.settings(CLOUD_DEPLOYMENT="EU"),
             patch("posthog.tasks.tasks.posthoganalytics.get_feature_flag_payload", return_value=payload),
             Connection("memory://") as connection,
-            patch.object(app, "connection_for_write", return_value=connection),
+            patch.object(app, "producer_or_acquire", return_value=connection.Producer()),
         ):
             send_delayed_org_usage_reports.apply(throw=True)
             with connection.SimpleQueue("usage_reports") as queue:
