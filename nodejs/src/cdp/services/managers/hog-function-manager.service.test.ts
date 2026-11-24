@@ -314,6 +314,11 @@ describe('HogFunctionManager - deactivated organizations', () => {
             type: 'transformation',
             hog: 'return event',
         })
+        await insertHogFunction(hub.postgres, teamId, {
+            name: 'Log transformation',
+            type: 'transformation_log',
+            hog: 'return record',
+        })
     })
 
     afterEach(async () => {
@@ -332,13 +337,17 @@ describe('HogFunctionManager - deactivated organizations', () => {
     }
 
     it.each([
-        ['on', true, ['transformation']],
-        ['off', false, ['destination', 'transformation']],
+        ['on', true, ['transformation', 'transformation_log']],
+        ['off', false, ['destination', 'transformation', 'transformation_log']],
     ])('loads only the functions that still run with the switch %s', async (_name, skip, types) => {
         const manager = new HogFunctionManagerService(hub.postgres, hub.pubSub, hub.encryptedFields, skip)
         await setOrganizationActive(manager, false)
 
-        const items = await manager.getHogFunctionsForTeam(teamId, ['destination', 'transformation'])
+        const items = await manager.getHogFunctionsForTeam(teamId, [
+            'destination',
+            'transformation',
+            'transformation_log',
+        ])
 
         expect(items.map((item) => item.type).sort()).toEqual(types)
         items.forEach((item) => expect(item).not.toHaveProperty('organization_inactive'))

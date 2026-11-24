@@ -36,10 +36,10 @@ const HOG_FUNCTION_FIELDS = [
 
 export type HogFunctionTeamInfo = Pick<HogFunctionType, 'id' | 'team_id' | 'type'>
 
-// Transformations rewrite events at ingestion, such as to drop personal data, so they keep running for a
+// Transformations rewrite events and logs at ingestion, such as to drop personal data, so they keep running for a
 // deactivated organization.
 const runsForDeactivatedOrganizations = (hogFunction: Pick<HogFunctionType, 'type'>): boolean =>
-    hogFunction.type === 'transformation'
+    hogFunction.type === 'transformation' || hogFunction.type === 'transformation_log'
 
 // /**
 //  * Sorts HogFunctions by their execution_order and creation date.
