@@ -141,6 +141,7 @@ REVIEW_MIN_SPEND_SHARE = 0.05
 # A brand search is worth a pause test once it takes this share of the account's search term spend. A share, unlike
 # a CPA, also works for an account that only bids on its brand.
 BRAND_OVERLAP_MIN_SPEND_SHARE = 0.0025
+BRAND_LEAK_MIN_SPEND_SHARE = 0.05
 MINOR_IMPACT_SHARE = 0.01
 # From this many non-brand conversions a campaign's own CPA is stable enough to judge its search terms by.
 MIN_CAMPAIGN_BENCHMARK_CONVERSIONS = 15
@@ -659,6 +660,7 @@ class _Recommender:
             budget = (
                 None
                 if self._is_brand_campaign(campaign, brand_spend)
+                or self._holds_spend_advice(campaign, self._leak_to_fix(campaign, brand_spend))
                 else self._budget_constrained(campaign, self._campaign_benchmark(campaign))
             )
             # Campaigns that share a budget each report it as constrained, so one row covers the shared budget.
@@ -673,18 +675,18 @@ class _Recommender:
         for campaign in self.campaigns.values():
             if campaign.channel_type != "PERFORMANCE_MAX" or campaign.primary_status in INACTIVE_STATUSES:
                 continue
-            leak = brand_spend.get(campaign.id)
-            if leak and leak.cost >= 0.05 * max(self._term_cost(campaign.id), 1):
+            leak = self._leak_to_fix(campaign, brand_spend)
+            if leak:
                 recommendations.append(self._brand_leak(campaign, leak, has_brand_campaign))
-            if campaign.conversions > 0 and (campaign.lost_to_rank or 0) >= 0.4:
+            elif campaign.conversions > 0 and (campaign.lost_to_rank or 0) >= 0.4:
                 recommendations.append(self._performance_max_rank(campaign))
 
         search_leaks: list[tuple[CampaignStats, _BrandSpend]] = []
         for campaign in search_campaigns:
             if campaign.primary_status in INACTIVE_STATUSES:
                 continue
-            leak = brand_spend.get(campaign.id)
-            if leak and leak.cost >= 0.05 * max(self._term_cost(campaign.id), 1):
+            leak = self._leak_to_fix(campaign, brand_spend)
+            if leak:
                 search_leaks.append((campaign, leak))
             benchmark = self._campaign_benchmark(campaign)
             if benchmark is None:
@@ -693,7 +695,8 @@ class _Recommender:
             cpa = self._compared_cpa(campaign, benchmark)
             lost = (campaign.lost_to_budget or 0) + (campaign.lost_to_rank or 0)
             if cpa and compared.conversions >= 5 and cpa <= benchmark.cpa and lost >= 0.4:
-                recommendations.append(self._scale(campaign, cpa, benchmark, lost))
+                if not self._holds_spend_advice(campaign, leak):
+                    recommendations.append(self._scale(campaign, cpa, benchmark, lost))
             elif self._needs_review(campaign, benchmark):
                 recommendations.append(self._review(campaign, cpa, compared.cost, benchmark))
         recommendations.extend(self._search_brand_leaks(search_leaks, has_brand_campaign))
@@ -1537,6 +1540,20 @@ class _Recommender:
     def _is_brand_campaign(self, campaign: CampaignStats, brand_spend: dict[str, _BrandSpend]) -> bool:
         spend = brand_spend.get(campaign.id)
         return spend is not None and spend.cost >= 0.5 * max(self._term_cost(campaign.id), 1)
+
+    def _leak_to_fix(self, campaign: CampaignStats, brand_spend: dict[str, _BrandSpend]) -> _BrandSpend | None:
+        leak = brand_spend.get(campaign.id)
+        if leak and leak.cost >= BRAND_LEAK_MIN_SPEND_SHARE * max(self._term_cost(campaign.id), 1):
+            return leak
+        return None
+
+    # Advice to spend more waits for the brand negatives: blocking brand searches frees budget and changes the
+    # impression share that advice relies on. Once the negative is in place, the leak card counts as applied and
+    # leaves the list, so holding the advice longer would leave nothing on screen.
+    def _holds_spend_advice(self, campaign: CampaignStats, leak: _BrandSpend | None) -> bool:
+        if leak is None:
+            return False
+        return not self._brand_negated(self._brand_spelled_by(leak.top_term) or leak.top_term, {campaign.id})
 
     def _term_cost(self, campaign_id: str) -> float:
         return self.term_cost_by_campaign.get(campaign_id, 0.0)
