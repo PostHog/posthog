@@ -11,6 +11,7 @@ from products.visual_review.backend.tests.logic.ledger_fakes import (
     SEED,
     FakeGit,
     LedgerFlow,
+    approve,
     seeded_repo,
 )
 
@@ -18,6 +19,8 @@ RED = (255, 0, 0, 255)
 BLUE = (0, 0, 255, 255)
 GREEN = (0, 255, 0, 255)
 GREY = (128, 128, 128, 255)
+YELLOW = (255, 255, 0, 255)
+CYAN = (0, 255, 255, 255)
 
 
 @pytest.fixture
@@ -37,6 +40,8 @@ def flow(repo, mocker) -> LedgerFlow:
     flow.picture("b1", BLUE)
     flow.picture("b2", GREEN)
     flow.picture("c0", GREY)
+    flow.picture("g1", YELLOW)
+    flow.picture("b9", CYAN)
     return flow
 
 
@@ -246,3 +251,41 @@ class TestLedgerFlow:
 
         assert _ledger(repo)["Button"] == "b1"
         assert _last_status(flow, "p2a") == ("success", "Visual changes approved")
+
+    @pytest.mark.parametrize(
+        ("between_hash", "top_ledger_base_hash"),
+        [
+            pytest.param("b9", "b0", id="an_unrelated_pull_request_lands_another_picture"),
+            pytest.param("b0", "g1", id="a_revert_of_the_bottom_layer_lands"),
+        ],
+    )
+    def test_a_landing_between_the_queue_run_and_the_stack_landing_conflicts_the_stack_top(
+        self, repo, git, flow, between_hash, top_ledger_base_hash
+    ) -> None:
+        git.open_pull_request(1, git.commit("g1a", SEED))
+        approve(repo, 1, "Button", "g1", commit_sha="g1a")
+        _queue_run(flow, git, "q1", "g1a", {"Button": "g1", "Card": "c0"})
+        git.merge(1, "m1", squash=True)
+        ledger_advance.advance(repo)
+
+        git.open_pull_request(2, git.commit("p2a", "g1a"))
+        git.open_pull_request(3, git.commit("c3a", "p2a"))
+        approve(repo, 2, "Button", "b1", effective_base_hash="g1", commit_sha="p2a")
+        top = approve(
+            repo, 3, "Button", "b2", ledger_base_hash=top_ledger_base_hash, effective_base_hash="b1", commit_sha="c3a"
+        )
+        batch = _queue_run(flow, git, "q2", "c3a", {"Button": "b2", "Card": "c0"})
+        assert _drift(batch) == (0, 0, 0)
+
+        git.open_pull_request(4, git.commit("u4a", "m1"))
+        approve(repo, 4, "Button", between_hash, ledger_base_hash="g1", commit_sha="u4a")
+        _queue_run(flow, git, "q3", "u4a", {"Button": between_hash, "Card": "c0"})
+        git.merge(4, "m2", squash=True)
+        ledger_advance.advance(repo)
+        git.merge(2, "m3", squash=True)
+        git.merge(3, "m4", squash=True)
+        ledger_advance.advance(repo)
+
+        top.refresh_from_db()
+        assert top.state == BaselineApprovalState.CONFLICTED
+        assert _ledger(repo)["Button"] == between_hash
