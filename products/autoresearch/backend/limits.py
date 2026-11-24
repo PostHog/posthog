@@ -226,11 +226,13 @@ def training_spend(team_id: int, limits: TeamLimits) -> TrainingSpend:
     """This month's spend on the project's sandbox training runs, a run in progress included."""
     month_start = timezone.now().astimezone(UTC).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     resets_at = (month_start + timedelta(days=32)).replace(day=1)
-    run_ids = list(
-        counted_training_runs(team_id)
+    run_ids = [
+        run_id
+        for run_id in counted_training_runs(team_id)
         .filter(created_at__gte=month_start, task_run_id__isnull=False)
         .values_list("task_run_id", flat=True)
-    )
+        if run_id is not None
+    ]
     spends = get_task_runs_spend(team_id=team_id, run_ids=run_ids) if run_ids else []
     spent_microusd = sum((spend.cost_microusd or 0) + spend.compute_cost_microusd for spend in spends)
     # A run that has not reached the gateway yet, or whose sandbox did not route through it, has no
