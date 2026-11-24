@@ -7,6 +7,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { AccessControlLevel } from '~/types'
 
 import { ProductConfigOption, onboardingProductConfigurationLogic } from './onboardingProductConfigurationLogic'
 
@@ -62,12 +63,17 @@ describe('onboardingProductConfigurationLogic', () => {
     ]
 
     it.each([
-        ['member', OrganizationMembershipLevel.Member, false],
-        ['admin', OrganizationMembershipLevel.Admin, true],
-        ['owner', OrganizationMembershipLevel.Owner, true],
-        ['unknown membership', null, false],
-    ])('saves only permitted configuration for a project %s', async (_, membershipLevel, isAdmin) => {
-        const team = { ...MOCK_DEFAULT_TEAM, effective_membership_level: membershipLevel }
+        ['member', OrganizationMembershipLevel.Member, AccessControlLevel.Member, false],
+        ['admin', OrganizationMembershipLevel.Admin, AccessControlLevel.Admin, true],
+        ['owner', OrganizationMembershipLevel.Owner, AccessControlLevel.Admin, true],
+        ['unknown membership', null, AccessControlLevel.Member, false],
+        ['admin granted by access control', OrganizationMembershipLevel.Member, AccessControlLevel.Admin, true],
+    ])('saves only permitted configuration for a project %s', async (_, membershipLevel, accessLevel, isAdmin) => {
+        const team = {
+            ...MOCK_DEFAULT_TEAM,
+            effective_membership_level: membershipLevel,
+            user_access_level: accessLevel,
+        }
         initKeaTests(true, team)
         const requests: unknown[] = []
         useMocks({
@@ -110,7 +116,11 @@ describe('onboardingProductConfigurationLogic', () => {
     it.each([false, true])(
         'filters callback output and skips empty member updates (callback: %s)',
         async (useCallback) => {
-            initKeaTests(true, { ...MOCK_DEFAULT_TEAM, effective_membership_level: OrganizationMembershipLevel.Member })
+            initKeaTests(true, {
+                ...MOCK_DEFAULT_TEAM,
+                effective_membership_level: OrganizationMembershipLevel.Member,
+                user_access_level: AccessControlLevel.Member,
+            })
             const requests: unknown[] = []
             useMocks({
                 patch: {
