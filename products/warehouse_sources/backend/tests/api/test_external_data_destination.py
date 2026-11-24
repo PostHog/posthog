@@ -1641,6 +1641,15 @@ class TestDestinationLinkEndpoints(DestinationAPITestBase):
         assert not ExternalDataSchemaDestination.objects.for_team(self.team.pk).filter(schema=self.schema).exists()
         assert not ExternalDataSourceDestination.objects.for_team(self.team.pk).filter(source=self.source).exists()
 
+    def test_a_source_edit_leaves_a_table_with_its_own_destinations_alone(self) -> None:
+        self._keep_history("both")
+        warehouse = get_or_create_warehouse_destination(self.team.pk)
+        assert self.client.patch(self.schema_url, {"destination_ids": [str(warehouse.id)]}).status_code == 200
+
+        response = self.client.patch(self.source_url, {"destination_ids": [str(self.destination.id)]})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
     @parameterized.expand(
         [
             ("both_without_the_warehouse", "both", False, "PostHog warehouse"),

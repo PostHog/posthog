@@ -45,6 +45,7 @@ _LAZY = {
     "is_another_schemas_history_table": "cdc.history_table",
     "incremental_history_refusal": "incremental_history",
     "history_destinations_refusal": "incremental_history",
+    "source_destinations_history_refusal": "incremental_history",
     "is_incremental_history_enabled_for_team": "incremental_history",
     "incremental_history_table": "incremental_history",
     "registered_history_columns": "incremental_history",

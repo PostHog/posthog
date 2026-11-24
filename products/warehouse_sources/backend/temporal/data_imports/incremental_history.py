@@ -4,7 +4,7 @@ Each version starts at the row's incremental field value, and the lane writes ve
 """
 
 import functools
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from datetime import UTC, datetime
 from typing import TypeVar
 
@@ -20,9 +20,11 @@ from products.warehouse_sources.backend.facade.contracts import LegacyHistoryTab
 from products.warehouse_sources.backend.facade.types import IncrementalFieldType
 from products.warehouse_sources.backend.models.external_data_destination import (
     ExternalDataDestination,
+    ExternalDataSchemaDestination,
     resolve_destinations,
 )
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
     CAPTURE_COLUMNS,
@@ -90,15 +92,51 @@ HISTORY_ONLY_STAYS_IN_THE_WAREHOUSE = (
 )
 
 
+def history_destination_types_refusal(types: Collection[str], *, history_only: bool) -> str | None:
+    if ExternalDataDestination.Type.POSTHOG_WAREHOUSE not in types:
+        return HISTORY_NEEDS_THE_WAREHOUSE
+    if history_only and set(types) != {ExternalDataDestination.Type.POSTHOG_WAREHOUSE}:
+        return HISTORY_ONLY_STAYS_IN_THE_WAREHOUSE
+    return None
+
+
 def history_destinations_refusal(schema: ExternalDataSchema, *, history_only: bool) -> str | None:
     """Why the schema's saved destinations can't take its history table, the same check a run makes."""
     if not is_multi_destination_enabled(schema.team_id, schema.source.source_type):
         return None
     types = {destination.type for destination in resolve_destinations(schema)}
-    if ExternalDataDestination.Type.POSTHOG_WAREHOUSE not in types:
-        return HISTORY_NEEDS_THE_WAREHOUSE
-    if history_only and types != {ExternalDataDestination.Type.POSTHOG_WAREHOUSE}:
-        return HISTORY_ONLY_STAYS_IN_THE_WAREHOUSE
+    return history_destination_types_refusal(types, history_only=history_only)
+
+
+def source_destinations_history_refusal(
+    source: ExternalDataSource, destinations: Sequence[ExternalDataDestination]
+) -> str | None:
+    """Why a source's new destinations can't take the history table of a table that follows them, naming the table.
+
+    A table with destinations of its own doesn't follow its source, so the source's set doesn't reach it.
+    """
+    keeping = [
+        schema
+        for schema in ExternalDataSchema.objects.filter(team_id=source.team_id, source_id=source.id).exclude(
+            deleted=True
+        )
+        if schema.is_incremental and schema.keeps_history
+    ]
+    if not keeping:
+        return None
+    overridden = set(
+        ExternalDataSchemaDestination.objects.for_team(source.team_id)
+        .filter(schema_id__in=[schema.id for schema in keeping])
+        .values_list("schema_id", flat=True)
+    )
+    following = [schema for schema in keeping if schema.id not in overridden]
+    if not following or not is_multi_destination_enabled(source.team_id, source.source_type):
+        return None
+    types = {destination.type for destination in destinations}
+    for schema in following:
+        refusal = history_destination_types_refusal(types, history_only=schema.cdc_table_mode == "cdc_only")
+        if refusal:
+            return f"{schema.name}: {refusal}"
     return None
 
 

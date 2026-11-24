@@ -21,7 +21,10 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSource,
     ExternalDataSourceDestination,
 )
-from products.warehouse_sources.backend.facade.source_management import history_destinations_refusal
+from products.warehouse_sources.backend.facade.source_management import (
+    history_destinations_refusal,
+    source_destinations_history_refusal,
+)
 
 EMPTY_SET_MESSAGE = (
     "Pick at least one destination. To stop syncing this data, turn off syncing instead of removing every destination."
@@ -84,14 +87,11 @@ def _resolve_destinations(team_id: int, destination_ids: list) -> list[ExternalD
     return destinations
 
 
-def _refuse_history_without_the_warehouse(schemas: list[ExternalDataSchema], *, name_tables: bool) -> None:
-    # Checked against the links this edit just wrote, so it covers a cleared override and a source's set alike.
-    for schema in schemas:
-        if not (schema.is_incremental and schema.keeps_history):
-            continue
-        refusal = history_destinations_refusal(schema, history_only=schema.cdc_table_mode == "cdc_only")
-        if refusal:
-            raise ValidationError({"destination_ids": f"{schema.name}: {refusal}" if name_tables else refusal})
+def _refuse_history_without_the_warehouse(schema: ExternalDataSchema) -> None:
+    # Checked against the links this edit just wrote, so a cleared override is checked against its source's set.
+    if schema.is_incremental and schema.keeps_history:
+        if refusal := history_destinations_refusal(schema, history_only=schema.cdc_table_mode == "cdc_only"):
+            raise ValidationError({"destination_ids": refusal})
 
 
 def _resume_paused(
@@ -160,20 +160,14 @@ def set_source_destinations(
     # the source with a partial set, and every table without an override would sync to it. Locking
     # the source also serializes this edit with the destination backfill.
     with transaction.atomic():
-        ExternalDataSource.objects.select_for_update(of=("self",)).get(pk=source_id, team_id=team_id)
+        source = ExternalDataSource.objects.select_for_update(of=("self",)).get(pk=source_id, team_id=team_id)
         ExternalDataSourceDestination.objects.for_team(team_id).filter(source_id=source_id).delete()
         for destination in destinations:
             ExternalDataSourceDestination.objects.for_team(team_id).create(
                 team_id=team_id, source_id=source_id, destination=destination
             )
-        _refuse_history_without_the_warehouse(
-            list(
-                ExternalDataSchema.objects.filter(team_id=team_id, source_id=source_id)
-                .exclude(deleted=True)
-                .select_related("source")
-            ),
-            name_tables=True,
-        )
+        if refusal := source_destinations_history_refusal(source, destinations):
+            raise ValidationError({"destination_ids": refusal})
         _resume_paused(destinations, authorize_resume)
     return [str(d.id) for d in destinations]
 
@@ -207,8 +201,7 @@ def set_schema_destinations(
                 team_id=team_id, schema_id=schema_id, destination=destination
             )
         _refuse_history_without_the_warehouse(
-            [ExternalDataSchema.objects.select_related("source").get(id=schema_id, team_id=team_id)],
-            name_tables=False,
+            ExternalDataSchema.objects.select_related("source").get(id=schema_id, team_id=team_id)
         )
         if destination_ids is None:
             return None
