@@ -760,6 +760,28 @@ class TestReplayConsoleTool(ClickhouseTestMixin, APIBaseTest):
         assert b"Requests sent" in response.content
 
     @patch("products.cdp.backend.services.invocation_replay.rerun_hog_invocations")
+    def test_delivery_bar_fills_with_finished_runs_and_stops_pulsing_when_the_page_stops_waiting(
+        self, rerun: MagicMock
+    ) -> None:
+        rerun.return_value = MagicMock(status_code=200, text="{}")
+        plan = plan_replay(_criteria())
+        claim = claim_replay(plan, actor="test")
+        assert claim
+        execute_replay(plan, actor="test", claim=claim)
+        after_send = int(datetime.now(UTC).timestamp() * 1_000_000) + 1_000_000
+        _insert(self.function, [_row("a1", "failed", RECOVERED + 5, first_minutes=0, is_retry=1, version=after_send)])
+
+        waiting = self.staff_client.get(f"{self.url}?plan={plan.fingerprint}").content.decode()
+        with patch("products.cdp.backend.services.invocation_replay.OUTCOME_WAIT", timedelta(0)):
+            stopped = self.staff_client.get(f"{self.url}?plan={plan.fingerprint}").content.decode()
+
+        for page in (waiting, stopped):
+            assert "0 of 2 runs delivered, 1 failed again" in page
+            assert "width: 50.000%" in page
+        assert "animate-pulse" in waiting
+        assert "animate-pulse" not in stopped
+
+    @patch("products.cdp.backend.services.invocation_replay.rerun_hog_invocations")
     def test_status_page_of_a_replay_sent_by_an_older_version_does_not_claim_an_outcome(self, rerun: MagicMock) -> None:
         rerun.return_value = MagicMock(status_code=200, text="{}")
         plan = plan_replay(_criteria())

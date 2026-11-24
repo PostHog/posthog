@@ -37,6 +37,37 @@ class GroupRow:
 
 
 @frozen
+class ProgressPart:
+    count: int
+    tone: Tone
+
+
+@frozen
+class Progress:
+    """How much of a known total is done, as a bar above a table. `parts` fill it in order, and the rest stays gray.
+
+    Set `active` only while the work can still move, so the bar does not pulse for a part that will never fill.
+    """
+
+    text: str
+    total: int
+    parts: tuple[ProgressPart, ...]
+    active: bool = False
+
+    def __post_init__(self) -> None:
+        if not 0 < self.total or any(part.count < 0 for part in self.parts) or self.filled > self.total:
+            raise ValueError(f"Progress parts {[part.count for part in self.parts]} do not fit a total of {self.total}")
+
+    @property
+    def filled(self) -> int:
+        return sum(part.count for part in self.parts)
+
+    def bars(self) -> list[tuple[Tone, str]]:
+        # Strings, because a template would write a float with a decimal comma in some locales.
+        return [(part.tone, f"{part.count / self.total * 100:.3f}") for part in self.parts if part.count]
+
+
+@frozen
 class Table:
     kind: ClassVar[str] = "table"
     columns: tuple[str, ...]
@@ -46,6 +77,7 @@ class Table:
     numeric_columns: tuple[int, ...] = ()
     # For a long table above something staff must reach. It scrolls inside its card instead of growing the page.
     scrolls: bool = False
+    progress: Progress | None = None
 
 
 @frozen

@@ -66,6 +66,8 @@ from posthog.admin.console.tools import (
     Notice,
     Page,
     Paging,
+    Progress,
+    ProgressPart,
     Row,
     Secret,
     Stat,
@@ -452,6 +454,11 @@ class TestAdminConsoleContract(SimpleTestCase):
                 "table_row_missing_a_cell",
                 lambda: Page(blocks=(Table(columns=("Team", "Months"), rows=(Row(cells=(Cell(text="a"),)),)),)),
                 "1 cells for 2 columns",
+            ),
+            (
+                "progress_parts_over_the_total",
+                lambda: Progress(text="Done", total=3, parts=(ProgressPart(count=4, tone=Tone.SUCCESS),)),
+                "do not fit a total of 3",
             ),
             (
                 "decision_value_that_a_button_also_posts",
