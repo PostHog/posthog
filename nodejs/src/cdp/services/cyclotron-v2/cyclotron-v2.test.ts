@@ -4020,6 +4020,41 @@ describe('Cyclotron V2', () => {
                 expect(jobs.map((j) => j.id)).toEqual([expected])
             })
 
+            it.each([
+                {
+                    lane: 'plain poll',
+                    withFiles: false,
+                    overrides: { sendsWithFiles: { room: () => 0, stalled: () => false, overdueAfterMs: DAY_MS } },
+                },
+                {
+                    lane: 'poll for sends with files',
+                    withFiles: true,
+                    overrides: { sendsWithFiles: { room: () => 1, stalled: () => false, overdueAfterMs: DAY_MS } },
+                    Worker: FilesPollOnly,
+                },
+            ])(
+                'claims only its own kind of send from the $lane when more are due than the candidate cap',
+                async ({ withFiles, overrides, Worker }) => {
+                    const due = new Date(Date.now() - 3_600_000)
+                    const fileBytes = (files: boolean): number | null => (files ? 1000 : null)
+                    await manager.bulkCreateJobs([
+                        { teamId: 100, queueName: EMAIL_QUEUE, scheduled: due, fileBytes: fileBytes(!withFiles) },
+                    ])
+                    const own = await manager.bulkCreateJobs(
+                        Array.from({ length: FAIR_DEQUEUE_CANDIDATE_CAP + 1 }, () => ({
+                            teamId: 200,
+                            queueName: EMAIL_QUEUE,
+                            scheduled: due,
+                            fileBytes: fileBytes(withFiles),
+                        }))
+                    )
+
+                    const jobs = await dequeueOneBatch(createFairWorker({ batchMaxSize: 1, ...overrides }, Worker))
+
+                    expect(jobs.map((j) => own.includes(j.id))).toEqual([true])
+                }
+            )
+
             it('dequeues the fast class before an earlier-enqueued bulk backlog', async () => {
                 // A bulk broadcast (priority 1) is already queued when two fast-class
                 // sends (priority 0) arrive, one from the same team. Without priority
