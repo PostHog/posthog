@@ -148,7 +148,7 @@ class ToTimeZoneParts:
 
 _PERSON_PROPERTIES_TABLES = (*EVENTS_TABLE_TYPES, EventsWithFlagCallsTable)
 
-# Explicit parsers must receive stored strings before property metadata applies a conversion.
+# These parsers read the stored strings, so property definitions must skip conversion here.
 STRING_INPUT_CONVERSIONS = frozenset({"toFloatOrZero", "toIntOrZero", "toFloatOrDefault", "toIntOrDefault"})
 
 # These functions return one of their arguments unchanged, so the call around them receives the property itself.

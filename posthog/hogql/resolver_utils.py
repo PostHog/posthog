@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import difflib
+import dataclasses
 from collections.abc import Callable, Generator, Iterable
 from typing import Optional, cast
 
@@ -465,10 +466,15 @@ def _recursively_resolve_column(
     context: HogQLContext,
 ) -> None:
     if isinstance(column, ast.FieldAliasType):
-        if column.constant_type is not None:
-            fields[name] = _constant_type_to_database_field(name, column.constant_type)
-            return
-        return _recursively_resolve_column(name, column.type, fields, context)
+        constant_type = column.constant_type
+        if constant_type is None:
+            return _recursively_resolve_column(name, column.type, fields, context)
+        if isinstance(column.type, ast.PropertyType) and column.type.joined_subquery is None:
+            source = column.type.field_type.resolve_database_field(context)
+            if isinstance(source, DatabaseField):
+                # Keep missing-property comparisons consistent when an alias changes the projected value type.
+                constant_type = dataclasses.replace(constant_type, nullable=source.is_nullable())
+        fields[name] = _constant_type_to_database_field(name, constant_type)
     elif isinstance(column, ast.FieldType):
         db_field = column.resolve_database_field(context)
         if db_field:

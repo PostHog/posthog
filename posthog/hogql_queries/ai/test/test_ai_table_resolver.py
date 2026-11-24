@@ -284,23 +284,15 @@ class TestQueryAiEventsPersonJoin(ClickhouseTestMixin, BaseTest):
 
 
 class TestQueryAiEventsTypedProperties(ClickhouseTestMixin, BaseTest):
-    @parameterized.expand(
-        [
-            (table, predicate)
-            for table in ("events", "posthog.ai_events")
-            for predicate in ("value = 'kept'", "value != 'excluded'")
-        ]
-    )
-    def test_string_cte_comparisons_exclude_missing_properties(self, table: str, predicate: str) -> None:
-        PropertyDefinition.objects.create(team=self.team, name="example_text", property_type="String")
+    def _create_generations(self, table: str, *properties: dict[str, str | int | bool]) -> None:
         events = [
             {
                 "event": "$ai_generation",
                 "team": self.team,
-                "distinct_id": "example-user",
-                "properties": properties,
+                "distinct_id": f"example-user-{index}",
+                "properties": event_properties,
             }
-            for properties in ({"example_text": "kept"}, {"example_text": "excluded"}, {})
+            for index, event_properties in enumerate(properties)
         ]
         if table == "events":
             for event in events:
@@ -308,27 +300,60 @@ class TestQueryAiEventsTypedProperties(ClickhouseTestMixin, BaseTest):
         else:
             bulk_create_ai_events(events)
 
-        source = f"SELECT properties.example_text AS value FROM {table}"
-        query = f"WITH texts AS ({source}) SELECT value FROM texts WHERE {predicate}"
+    @parameterized.expand(
+        [
+            (f"{table}_{property_type}_{comparison}", table, property_type, values, predicate)
+            for table in ("events", "posthog.ai_events")
+            for property_type, values, kept_literal, excluded_literal in (
+                ("String", ("kept", "excluded"), "'kept'", "'excluded'"),
+                ("Numeric", (7, 8), "7", "8"),
+                ("Boolean", (True, False), "true", "false"),
+                ("Duration", (7, 8), "'7'", "'8'"),
+                (
+                    "DateTime",
+                    ("2024-04-05T06:07:08Z", "2024-04-06T06:07:08Z"),
+                    "'2024-04-05T06:07:08Z'",
+                    "'2024-04-06T06:07:08Z'",
+                ),
+            )
+            for comparison, predicate in (("eq", f"value = {kept_literal}"), ("ne", f"value != {excluded_literal}"))
+        ]
+    )
+    def test_cte_comparisons_exclude_missing_properties(
+        self,
+        _name: str,
+        table: str,
+        property_type: str,
+        values: tuple[str | int | bool, str | int | bool],
+        predicate: str,
+    ) -> None:
+        PropertyDefinition.objects.create(team=self.team, name="example_value", property_type=property_type)
+        self._create_generations(table, {"example_value": values[0]}, {"example_value": values[1]}, {})
+
+        source = f"SELECT distinct_id, properties.example_value AS value FROM {table}"
+        query = f"WITH projected AS ({source}) SELECT distinct_id FROM projected WHERE {predicate}"
         result = execute_hogql_query(query, team=self.team, workload=Workload.ONLINE)
 
-        assert result.results == [("kept",)]
+        assert result.results == [("example-user-0",)]
+
+    def test_cte_comparison_excludes_missing_native_string_id(self) -> None:
+        PropertyDefinition.objects.create(team=self.team, name="$ai_trace_id", property_type="Numeric")
+        self._create_generations("posthog.ai_events", {"$ai_trace_id": "00123"}, {"$ai_trace_id": "00456"}, {})
+
+        query = (
+            "WITH traces AS (SELECT properties.$ai_trace_id AS value FROM posthog.ai_events) "
+            "SELECT value FROM traces WHERE value != '00456'"
+        )
+        result = execute_hogql_query(query, team=self.team, workload=Workload.ONLINE)
+
+        assert result.results == [("00123",)]
 
     @parameterized.expand(
         [(table, projection) for table in ("events", "posthog.ai_events") for projection in ("cte", "subquery")]
     )
     def test_duration_property_through_projection(self, table: str, projection: str) -> None:
         PropertyDefinition.objects.create(team=self.team, name="example_duration", property_type="Duration")
-        event = {
-            "event": "$ai_generation",
-            "team": self.team,
-            "distinct_id": "example-user",
-            "properties": {"example_duration": 123},
-        }
-        if table == "events":
-            _create_event(**event)
-        else:
-            bulk_create_ai_events([event])
+        self._create_generations(table, {"example_duration": 123})
 
         source = f"SELECT properties.example_duration AS d FROM {table}"
         select = "SELECT toFloatOrZero(d), isNull(toDateTime(d))"
@@ -367,16 +392,7 @@ class TestQueryAiEventsTypedProperties(ClickhouseTestMixin, BaseTest):
         expected: tuple[float | int, ...],
     ) -> None:
         PropertyDefinition.objects.create(team=self.team, name="example_number", property_type=property_type)
-        event = {
-            "event": "$ai_generation",
-            "team": self.team,
-            "distinct_id": "example-user",
-            "properties": {"example_number": value},
-        }
-        if table == "events":
-            _create_event(**event)
-        else:
-            bulk_create_ai_events([event])
+        self._create_generations(table, {"example_number": value})
 
         source = f"SELECT properties.example_number AS n FROM {table}"
         select = "SELECT toFloatOrZero(n), toIntOrZero(n)"
@@ -401,17 +417,7 @@ class TestQueryAiEventsTypedProperties(ClickhouseTestMixin, BaseTest):
         self, _name: str, key: str, property_type: str, match: bool | int, other: bool | int
     ) -> None:
         PropertyDefinition.objects.create(team=self.team, name=key, property_type=property_type)
-        bulk_create_ai_events(
-            [
-                {
-                    "event": "$ai_generation",
-                    "team": self.team,
-                    "distinct_id": "example-user",
-                    "properties": {key: value},
-                }
-                for value in (match, other)
-            ]
-        )
+        self._create_generations("posthog.ai_events", {key: match}, {key: other})
 
         result = query_ai_events(
             query=parse_select("SELECT {property} FROM posthog.ai_events WHERE {where_clause}"),
@@ -459,17 +465,7 @@ class TestQueryAiEventsTypedProperties(ClickhouseTestMixin, BaseTest):
         self, _name: str, key: str, property_type: str, match: bool | int, other: bool | int, query: str
     ) -> None:
         PropertyDefinition.objects.create(team=self.team, name=key, property_type=property_type)
-        bulk_create_ai_events(
-            [
-                {
-                    "event": "$ai_generation",
-                    "team": self.team,
-                    "distinct_id": "example-user",
-                    "properties": {key: value},
-                }
-                for value in (match, other)
-            ]
-        )
+        self._create_generations("posthog.ai_events", {key: match}, {key: other})
 
         result = execute_hogql_query(query, team=self.team, workload=Workload.ONLINE)
 
@@ -479,34 +475,34 @@ class TestQueryAiEventsTypedProperties(ClickhouseTestMixin, BaseTest):
         [
             (
                 "subquery",
-                False,
+                "posthog.ai_events",
                 "SELECT toYear(toDateTime(d)) FROM (SELECT properties.example_date AS d FROM posthog.ai_events)",
                 2024,
             ),
             (
                 "cte",
-                False,
+                "posthog.ai_events",
                 "WITH dated_events AS (SELECT properties.example_date AS d FROM posthog.ai_events) "
                 "SELECT toYear(toDateTime(d)) FROM dated_events",
                 2024,
             ),
             (
                 "events_cte",
-                True,
+                "events",
                 "WITH dated_events AS (SELECT properties.example_date AS d FROM events) "
                 "SELECT toYear(toDateTime(d)) FROM dated_events",
                 2024,
             ),
             (
                 "scalar_cte",
-                False,
+                "posthog.ai_events",
                 "SELECT toFloatOrZero((WITH dated_events AS "
                 "(SELECT properties.example_date AS d FROM posthog.ai_events) SELECT d FROM dated_events))",
                 0.0,
             ),
             (
                 "events_scalar_cte",
-                True,
+                "events",
                 "SELECT toFloatOrZero((WITH dated_events AS "
                 "(SELECT properties.example_date AS d FROM events) SELECT d FROM dated_events))",
                 0.0,
@@ -514,19 +510,10 @@ class TestQueryAiEventsTypedProperties(ClickhouseTestMixin, BaseTest):
         ]
     )
     def test_datetime_property_through_projection(
-        self, _name: str, use_events: bool, query: str, expected: int | float
+        self, _name: str, table: str, query: str, expected: int | float
     ) -> None:
         PropertyDefinition.objects.create(team=self.team, name="example_date", property_type="DateTime")
-        event = {
-            "event": "$ai_generation",
-            "team": self.team,
-            "distinct_id": "example-user",
-            "properties": {"example_date": "2024-04-05T06:07:08Z"},
-        }
-        if use_events:
-            _create_event(**event)
-        else:
-            bulk_create_ai_events([event])
+        self._create_generations(table, {"example_date": "2024-04-05T06:07:08Z"})
 
         result = execute_hogql_query(query, team=self.team, workload=Workload.ONLINE)
 
@@ -552,16 +539,7 @@ class TestQueryAiEventsTypedProperties(ClickhouseTestMixin, BaseTest):
     )
     def test_native_id_ignores_detected_numeric_type(self, _name: str, query: str) -> None:
         PropertyDefinition.objects.create(team=self.team, name="$ai_trace_id", property_type="Numeric")
-        bulk_create_ai_events(
-            [
-                {
-                    "event": "$ai_generation",
-                    "team": self.team,
-                    "distinct_id": "example-user",
-                    "properties": {"$ai_trace_id": "00123"},
-                }
-            ]
-        )
+        self._create_generations("posthog.ai_events", {"$ai_trace_id": "00123"})
 
         result = execute_hogql_query(
             query,

@@ -1130,6 +1130,7 @@ class ClickHousePrinter(BasePrinter):
     def visit_call(self, node: ast.Call):
         if is_decision_call(node.name):
             raise QueryError(f"{node.name} must run through the HogQL query executor. It cannot be embedded in SQL.")
+        # Direct property reads keep their stored strings here even when metadata reports a different type.
         if (
             node.name in ("toFloatOrZero", "toIntOrZero")
             and node.args
