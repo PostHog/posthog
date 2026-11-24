@@ -97,4 +97,45 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "docs_url": "https://developers.kajabi.com/api-reference/contacts/list-contacts-tags",
         "columns": {"contact_id": "Kajabi contact ID.", "id": "Kajabi contact tag ID."},
     },
+    "offer_products": {
+        "description": "Products and courses that each offer grants.",
+        "docs_url": "https://developers.kajabi.com/api-reference/offers/list-offers-products",
+        "columns": {"offer_id": "Kajabi offer ID.", "id": "Kajabi product ID.", "type": "Related resource type."},
+    },
+    "forms": {
+        "description": "Lead capture forms on the selected site.",
+        "docs_url": "https://developers.kajabi.com/api-reference/forms/list-forms",
+        "columns": {
+            "id": "Kajabi form ID.",
+            "title": "Form title.",
+            "default": "Whether the form is the site's default form.",
+            "url": "Public URL of the form.",
+            "created_at": "Time when Kajabi created the form.",
+            "relationships": "Links to the form's site, offer, and fields.",
+        },
+    },
+    "form_submissions": {
+        "description": "Submissions to the site's lead capture forms.",
+        "docs_url": "https://developers.kajabi.com/api-reference/forms/list-form-submissions",
+        "columns": {
+            "id": "Kajabi form submission ID.",
+            "name": "Name of the person who submitted the form.",
+            "email": "Email address of the person who submitted the form.",
+            "phone_number": "Phone number from the submission.",
+            "relationships": "Links to the submission's site and form.",
+        },
+    },
+    "payouts": {
+        "description": "Kajabi Payments payouts to the site owner's bank account.",
+        "docs_url": "https://developers.kajabi.com/api-reference/kajabi-payments-payouts/list-payouts",
+        "columns": {
+            "id": "Kajabi payout ID.",
+            "status": "Payout status, such as pending, in transit, paid, failed, or canceled.",
+            "amount": "Payout amount in the payout currency.",
+            "currency": "Payout currency.",
+            "initiated_date": "Time in UTC when Kajabi created the payout.",
+            "estimated_arrival_date": "Expected time in UTC when the payout reaches the bank.",
+            "bank_account": "Bank account that receives the payout.",
+        },
+    },
 }

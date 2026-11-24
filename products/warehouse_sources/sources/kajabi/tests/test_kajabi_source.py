@@ -50,33 +50,44 @@ def test_token_exchange_errors_return_safe_messages(config: KajabiSourceConfig, 
 
 
 @pytest.mark.parametrize(
-    ("contacts", "parent_status", "child_status", "valid"),
+    ("schema", "parent_path", "child_path"),
+    [
+        ("contact_offers", "/v1/contacts", "/v1/contacts/p%2F1/relationships/offers"),
+        ("offer_products", "/v1/offers", "/v1/offers/p%2F1/relationships/products"),
+    ],
+)
+@pytest.mark.parametrize(
+    ("parents", "parent_status", "child_status", "valid"),
     [
         ([], 200, None, True),
-        ([{"id": "c/1"}], 200, 200, True),
-        ([{"id": "c/1"}], 200, 403, False),
+        ([{"id": "p/1"}], 200, 200, True),
+        ([{"id": "p/1"}], 200, 403, False),
         ([], 403, None, False),
     ],
 )
-def test_relationship_probe_uses_a_contact_from_the_selected_site(
+def test_relationship_probe_uses_a_parent_from_the_selected_site(
     config: KajabiSourceConfig,
-    contacts: list[dict[str, str]],
+    schema: str,
+    parent_path: str,
+    child_path: str,
+    parents: list[dict[str, str]],
     parent_status: int,
     child_status: int | None,
     valid: bool,
 ) -> None:
     script = [
         ScriptedResponse(json={"access_token": "test-access-token", "expires_in": 3600}),
-        ScriptedResponse(status=parent_status, json={"data": contacts}),
+        ScriptedResponse(status=parent_status, json={"data": parents}),
     ]
     if child_status is not None:
         script.append(ScriptedResponse(status=child_status, json={"data": []}))
     with scripted_network(script) as network:
-        accepted, _ = KajabiSource().validate_credentials(config, 1, "contact_offers")
+        accepted, _ = KajabiSource().validate_credentials(config, 1, schema)
     assert accepted is valid
+    assert network.requests_log[1].path == parent_path
     assert network.requests_log[1].param("filter[site_id]") == "123"
     if child_status is not None:
-        assert network.requests_log[-1].path == "/v1/contacts/c%2F1/relationships/offers"
+        assert network.requests_log[-1].path == child_path
 
 
 def test_unknown_schema_is_rejected_before_network_access(config: KajabiSourceConfig) -> None:
