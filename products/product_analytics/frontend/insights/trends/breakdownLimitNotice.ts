@@ -18,7 +18,7 @@ export function getBreakdownLimitNotice(results: TrendResult[], breakdownLimit: 
     ).size
     const otherValuesCount = Math.max(0, ...rankedResults.map((result) => result.breakdown_other_values_count ?? 0))
 
-    const limited = `Breakdown limited to the ${humanFriendlyNumber(shownValuesCount)} ${
+    const limited = `Showing the ${humanFriendlyNumber(shownValuesCount)} breakdown ${
         shownValuesCount === 1 ? 'value' : 'values'
     } with the most events across all series.`
     if (otherValuesCount === 0) {

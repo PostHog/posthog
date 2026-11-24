@@ -34,12 +34,12 @@ describe('getBreakdownLimitNotice', () => {
                 row(OTHER, { order: 0, compare_label: CompareLabelType.Previous, breakdown_other_values_count: 9 }),
             ],
             expected:
-                'Breakdown limited to the 2 values with the most events across all series. 7 more are grouped in Other.',
+                'Showing the 2 breakdown values with the most events across all series. 7 more are grouped in Other.',
         },
         {
             name: 'leaves out Other when every value has a row',
             results: [row('home')],
-            expected: 'Breakdown limited to the 1 value with the most events across all series.',
+            expected: 'Showing the 1 breakdown value with the most events across all series.',
         },
         {
             name: 'keeps the plain limit when the query did not rank by event count',
