@@ -172,7 +172,6 @@ def clear_github_env_from_gitlab_sandbox(sandbox: "SandboxBase") -> bool:
         def fail(error):
             raise error
 
-        # A run that never cloned anything has no repositories root, so there is nothing to scrub.
         if not os.path.isdir(sys.argv[1]):
             sys.exit(0)
         for directory, dirs, files in os.walk(sys.argv[1], onerror=fail):

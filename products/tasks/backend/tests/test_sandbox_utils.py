@@ -17,12 +17,15 @@ from posthog.models.integration import GitHubIntegration
 from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration
 from posthog.temporal.common.posthog_client import is_expected_activity_failure
 
+from products.tasks.backend.constants import SANDBOX_REPOSITORIES_ROOT
 from products.tasks.backend.exceptions import (
     CredentialUnavailableError,
     GitHubAuthenticationError,
     GitHubRateLimitedError,
     ProcessTaskTransientError,
 )
+from products.tasks.backend.logic.services.agentsh import GITHUB_ENV_FILE
+from products.tasks.backend.logic.services.sandbox import ExecutionResult
 from products.tasks.backend.redis import get_tasks_cache
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.utils import (
@@ -341,6 +344,77 @@ async def test_github_token_failure_maps_to_run_error(
         assert raised.value is error
     if isinstance(raised.value, GitHubRateLimitedError):
         assert raised.value.next_retry_delay == timedelta(seconds=30)
+
+
+_REPO_LESS_CONTEXT = TaskProcessingContext(
+    task_id="t",
+    run_id="r",
+    team_id=1,
+    team_uuid="u",
+    organization_id="o",
+    github_integration_id=5,
+    repository=None,
+    distinct_id="d",
+    state={},
+)
+
+
+@patch("products.tasks.backend.temporal.process_task.activities.provision_sandbox.emit_agent_log")
+@patch(
+    "products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_sandbox_github_token",
+    side_effect=ReauthorizationRequired("relink GitHub"),
+)
+def test_repo_less_run_starts_without_github_when_reauthorization_is_required(
+    _mock_full: MagicMock, _mock_log: MagicMock
+) -> None:
+    from products.tasks.backend.temporal.process_task.activities.provision_sandbox import (  # noqa: PLC0415 — activities import the workflow stack; keep it off this module's import path
+        _resolve_sandbox_github_token,
+    )
+
+    token = _resolve_sandbox_github_token(
+        _REPO_LESS_CONTEXT, task=MagicMock(), actor_user=None, repository=None, has_repo=False
+    )
+
+    assert token == ""
+
+
+@patch("products.tasks.backend.temporal.process_task.activities.provision_sandbox.emit_agent_log")
+@patch(
+    "products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_sandbox_github_token",
+    side_effect=ReauthorizationRequired("relink GitHub"),
+)
+async def test_repo_less_resume_scrubs_and_continues_when_reauthorization_is_required(
+    _mock_full: MagicMock, _mock_log: MagicMock
+) -> None:
+    from products.tasks.backend.temporal.process_task.activities.provision_sandbox import (  # noqa: PLC0415 — activities import the workflow stack; keep it off this module's import path
+        InjectFreshTokensOnResumeInput,
+        inject_fresh_tokens_on_resume,
+    )
+
+    sandbox = MagicMock()
+    sandbox.execute.return_value = ExecutionResult(stdout="", stderr="", exit_code=0)
+    sandbox.write_file.return_value = ExecutionResult(stdout="", stderr="", exit_code=0)
+    with (
+        patch("products.tasks.backend.temporal.process_task.activities.provision_sandbox._load_task"),
+        patch("products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_task_run_credential_user"),
+        patch(
+            "products.tasks.backend.temporal.process_task.activities.provision_sandbox.create_oauth_access_token_for_run",
+            return_value="oauth",
+        ),
+        patch(
+            "products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_sandbox_class_for_sandbox_id",
+            **{"return_value.get_by_id.return_value": sandbox},
+        ),
+    ):
+        await ActivityEnvironment().run(
+            inject_fresh_tokens_on_resume,
+            InjectFreshTokensOnResumeInput(context=_REPO_LESS_CONTEXT, sandbox_id="sandbox-id", repository=None),
+        )
+
+    assert any(SANDBOX_REPOSITORIES_ROOT in call.args[0] for call in sandbox.execute.call_args_list)
+    github_env_writes = [call.args[1] for call in sandbox.write_file.call_args_list if call.args[0] == GITHUB_ENV_FILE]
+    assert github_env_writes
+    assert set(github_env_writes) == {b""}
 
 
 @pytest.mark.parametrize(
