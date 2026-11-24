@@ -153,12 +153,22 @@ class TestListTraces(ClickhouseTestMixin, BaseTest):
         with patch.object(trace_queries, "PAGE_ROW_CAP_PER_TRACE", 2):
             items = self._list().items
 
-        assert {item.id: (item.totals_partial, item.totals.input_tokens, item.default_node_id) for item in items} == {
-            "big": (True, 20, None),
-            "small": (False, 10, "00000000-0000-4000-8000-000000000003"),
+        assert {
+            item.id: (
+                item.totals_partial,
+                item.cost_and_latency_partial,
+                item.totals.input_tokens,
+                item.default_node_id,
+            )
+            for item in items
+        } == {
+            "big": (True, False, 20, None),
+            "small": (False, False, 10, "00000000-0000-4000-8000-000000000003"),
         }
 
-    def test_a_trace_read_from_the_shared_table_from_the_edge_of_the_read_reports_partial_totals(self) -> None:
+    def test_a_trace_read_from_the_shared_table_from_the_edge_of_the_read_reports_partial_totals_cost_and_latency(
+        self,
+    ) -> None:
         read_start_minutes = int((SELECTION.window.read_bounds().start - STARTED_AT) / timedelta(minutes=1))
         for trace_id, first_minutes in (
             ("aged-at-edge", read_start_minutes),
@@ -171,10 +181,10 @@ class TestListTraces(ClickhouseTestMixin, BaseTest):
 
         items = self._list().items
 
-        assert {item.id: item.totals_partial for item in items} == {
-            "aged-at-edge": True,
-            "aged-inside": False,
-            "kept-at-edge": False,
+        assert {item.id: (item.totals_partial, item.cost_and_latency_partial) for item in items} == {
+            "aged-at-edge": (True, True),
+            "aged-inside": (False, False),
+            "kept-at-edge": (False, False),
         }
 
     def test_a_support_trace_is_marked(self) -> None:

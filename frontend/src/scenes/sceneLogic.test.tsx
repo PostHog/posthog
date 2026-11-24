@@ -369,6 +369,28 @@ describe('sceneLogic', () => {
         }
     )
 
+    it.each([
+        ['/data-pipelines/overview', urls.sources()],
+        ['/data-pipelines/destinations', urls.destinations()],
+        ['/data-pipelines/transformations', urls.transformations()],
+        ['/data-pipelines/batch-exports', urls.destinations('batch')],
+        ['/data-pipelines/new/destination', urls.dataPipelinesNew('destination')],
+        ['/messaging', urls.workflows()],
+        ['/messaging/campaigns', urls.workflows()],
+        ['/messaging/opt-outs', urls.workflows('opt-outs')],
+        ['/messaging/broadcasts', urls.broadcasts()],
+        [
+            '/messaging/broadcasts/01a1f39d-0000-7000-8000-000000000001',
+            urls.broadcast('01a1f39d-0000-7000-8000-000000000001'),
+        ],
+    ])('redirects the unrouted %s to %s instead of a 404', async (path, expected) => {
+        router.actions.push(path)
+        await expectLogic(logic).delay(1)
+        expect(removeProjectIdIfPresent(router.values.location.pathname) + router.values.location.search).toEqual(
+            expected
+        )
+    })
+
     it('sends a tab-less data warehouse source path to the source instead of a 404', async () => {
         router.actions.push('/data-management/sources/src-1')
         await expectLogic(logic).delay(1)

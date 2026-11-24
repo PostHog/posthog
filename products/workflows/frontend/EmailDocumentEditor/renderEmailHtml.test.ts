@@ -2,7 +2,13 @@ import type { JSONContent } from '@tiptap/core'
 
 import { resolvePageStyle } from './emailDocument'
 import { blockStyleToCanvasCss } from './emailExtensions'
-import { renderEmailHtml, renderEmailText, safeEmailDoc, withoutLiquidBetweenRows } from './renderEmailHtml'
+import {
+    htmlSentAsWritten,
+    renderEmailHtml,
+    renderEmailText,
+    safeEmailDoc,
+    withoutLiquidBetweenRows,
+} from './renderEmailHtml'
 
 function doc(...content: JSONContent[]): JSONContent {
     return { type: 'doc', attrs: { page: {} }, content }
@@ -154,6 +160,27 @@ describe('renderEmailHtml', () => {
         const own = '<!DOCTYPE html><html><body><p>Mine</p></body></html>'
 
         expect(renderEmailHtml(doc({ type: 'emailHtml', attrs: { html: own } }))).toEqual(own)
+    })
+
+    const wholeDocument = { type: 'emailHtml', attrs: { html: '<html><body>Mine</body></html>' } }
+    const fragment = { type: 'emailHtml', attrs: { html: '<p>Mine</p>' } }
+    it.each([
+        {
+            name: 'a whole document and an empty last line',
+            content: [wholeDocument, { type: 'paragraph' }],
+            sent: true,
+        },
+        { name: 'an imported fragment', content: [fragment], page: { htmlAsWritten: true }, sent: true },
+        { name: 'a fragment written in the editor', content: [fragment], sent: false },
+        { name: 'a wrapped whole document', content: [wholeDocument], page: { wrapFullHtml: true }, sent: false },
+        { name: 'a block above', content: [paragraph('Hi'), wholeDocument], sent: false },
+        { name: 'a block below', content: [fragment, paragraph('Hi')], page: { htmlAsWritten: true }, sent: false },
+    ])('tells whether the page style applies to $name', ({ content, page = {}, sent }) => {
+        const email = { type: 'doc', attrs: { page }, content }
+        const restyled = { type: 'doc', attrs: { page: { ...page, bodyWidth: 500 } }, content }
+
+        expect(htmlSentAsWritten(email) !== null).toEqual(sent)
+        expect(renderEmailHtml(restyled) === renderEmailHtml(email)).toEqual(sent)
     })
 
     it('unwraps a whole HTML document that sits next to other blocks', () => {

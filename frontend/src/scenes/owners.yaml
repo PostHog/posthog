@@ -4,15 +4,15 @@ rules:
     - match: '/FeatureFlagPermissions.tsx'
       owners: team-feature-flags
     - match: '/actions/'
-      owners: team-product-analytics
+      owners: team-analytics
     - match: '/activity/'
-      owners: team-web-analytics
+      owners: team-analytics
     - match: '/agentic/'
       owners: team-growth
     - match: '/alerts/'
-      owners: team-product-analytics
+      owners: team-analytics
     - match: '/annotations/'
-      owners: team-product-analytics
+      owners: team-analytics
     - match: ['/approvals/', '/audit-logs/', '/authentication/']
       owners: team-platform-features
     - match: '/billing/'
@@ -24,11 +24,11 @@ rules:
     - match: '/coupons/'
       owners: team-billing
     - match: '/dashboard/'
-      owners: team-product-analytics
+      owners: team-dashboards-and-charts
     - match: '/data-management/'
       owners: team-warehouse-sources
     - match: '/data-management/schema/'
-      owners: team-product-analytics
+      owners: team-analytics
     - match: '/data-pipelines/'
       owners: team-workflows
     # Narrower than the rule above, which would otherwise route the batch exports
@@ -40,23 +40,23 @@ rules:
     - match: '/experiments/'
       owners: team-experiments
     - match: '/exports/'
-      owners: team-product-analytics
+      owners: team-analytics
     - match: '/feature-flags/'
       owners: team-feature-flags
     - match: ['/funnels/', '/groups/']
-      owners: team-product-analytics
+      owners: team-analytics
     - match: '/health-alerts/'
-      owners: team-product-analytics
+      owners: team-analytics
     - match: '/health/'
       owners: team-growth
     - match: '/hog-functions/'
       owners: team-workflows
     - match: '/insights/'
-      owners: team-product-analytics
+      owners: team-analytics
     - match: '/instance/'
       owners: team-growth
     - match: '/marketing-analytics/'
-      owners: team-web-analytics
+      owners: team-analytics
     - match: '/max/'
       owners: team-surfaces
     - match: '/settings/aiSubscriptions.test.ts'
@@ -75,7 +75,7 @@ rules:
     - match: '/onboarding/legacy/sdks/surveys/'
       owners: conversations
     - match: ['/paths-v2/', '/paths/', '/persons-management/', '/persons/']
-      owners: team-product-analytics
+      owners: team-analytics
     - match: '/project-homepage/'
       owners: team-growth
     # Narrower than the rule above, which would otherwise route the Today homepage to growth.
@@ -84,7 +84,7 @@ rules:
     - match: '/resource-transfer/'
       owners: team-platform-features
     - match: ['/retention/', '/saved-insights/']
-      owners: team-product-analytics
+      owners: team-analytics
     - match: '/session-recordings/'
       owners: team-replay
     - match: '/sessions/'
@@ -99,11 +99,11 @@ rules:
     - match: '/surveys/'
       owners: conversations
     - match: ['/themes/', '/trends/']
-      owners: team-product-analytics
+      owners: team-analytics
     - match: '/toolbar-launch/'
       owners: team-growth
     - match: '/web-analytics/'
-      owners: team-web-analytics
+      owners: team-analytics
     - match: '/welcome/'
       owners: team-growth
     - match:
@@ -122,7 +122,7 @@ rules:
       owners: team-platform-features
     - match:
           - '/analytics/*.test.*'
-      owners: team-product-analytics
+      owners: team-analytics
     - match:
           - '/integrations/components/*.test.*'
       owners: team-self-driving
@@ -131,7 +131,7 @@ rules:
       owners: team-surfaces
     - match:
           - '/team-activity/customer_analytics_config/*.test.*'
-      owners: team-web-analytics
+      owners: team-analytics
     - match:
           - '/integrations/aws-s3/*.test.*'
       owners: team-workflows

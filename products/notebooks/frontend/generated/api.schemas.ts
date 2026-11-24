@@ -1417,6 +1417,8 @@ export interface NotebookSQLV2EnvelopeApi {
      * @nullable
      */
     result_id?: string | null
+    /** How the run returned its rows. */
+    delivery?: string
     /**
      * Error message when status is 'error'.
      * @nullable
@@ -1445,6 +1447,17 @@ export interface NotebookSQLV2InterruptResponseApi {
     status: string
     /** Present when the interrupt could not take effect yet, e.g. the run has not reached the kernel. */
     detail?: string
+}
+
+export interface NotebookSQLV2PageResponseApi {
+    /** Column names in result order. */
+    columns: string[]
+    /** Column name and type pairs in result order. */
+    types: string[][]
+    /** Rows of cell values in column order. */
+    rows: unknown[][]
+    /** Whether another page follows these rows. */
+    has_more: boolean
 }
 
 export interface NotebookKernelStateApi {
@@ -1907,6 +1920,27 @@ export type NotebooksListParams = {
      * If any value is provided for this parameter, return notebooks created by the logged in user.
      */
     user?: string
+}
+
+export type NotebooksSqlV2RunsRetrieveParams = {
+    /**
+     * Only return the run if it belongs to this cell.
+     */
+    node_id?: string
+}
+
+export type NotebooksSqlV2RunsPageRetrieveParams = {
+    /**
+     * Rows per page.
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /**
+     * Number of rows to skip in the stored result frame.
+     * @minimum 0
+     */
+    offset?: number
 }
 
 export type NotebooksWidgetSnapshotFrameParams = {

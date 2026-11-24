@@ -13,7 +13,7 @@ from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 
-from products.slack_app.backend.logic import interview_recruitment
+from products.slack_app.backend.logic import interview_recruitment, message_sentiment
 from products.slack_app.backend.logic.feature_tips.state import get_state, update_state
 from products.slack_app.backend.logic.interview_recruitment import (
     BOOKING_URL,
@@ -52,7 +52,7 @@ class TestFrustrationInvite:
             patch.object(interview_recruitment, "post_slack_ephemeral") as self.post,
             patch.object(interview_recruitment, "SlackIntegration"),
             patch.object(interview_recruitment, "capture_slack_event") as self.capture,
-            patch.object(interview_recruitment, "build_system_one_client", return_value=_verdict("unhappy", 0.9)),
+            patch.object(message_sentiment, "build_system_one_client", return_value=_verdict("frustrated", 0.9)),
         ):
             yield
 
@@ -72,7 +72,7 @@ class TestFrustrationInvite:
                 mentioning_slack_user_id=SLACK_USER,
             )
 
-    def _offer(self, signal: FrustrationSignal = "message") -> bool:
+    def _offer(self, signal: FrustrationSignal = "message", unhappy: bool | None = None) -> bool:
         return offer_frustration_invite(
             FrustrationInviteRequest(
                 integration=self.integration,
@@ -82,6 +82,7 @@ class TestFrustrationInvite:
                 thread_ts="1.1",
                 signal=signal,
                 person_message="this is the third time you got the funnel wrong",
+                unhappy=unhappy,
             )
         )
 
@@ -97,12 +98,12 @@ class TestFrustrationInvite:
 
     @parameterized.expand(
         [
-            ("calm_message", 3, _verdict("not_unhappy", 0.95), None),
-            ("unsure_model", 3, _verdict("unhappy", 0.5), None),
-            ("new_reader", 2, _verdict("unhappy", 0.9), None),
-            ("tips_turned_off", 3, _verdict("unhappy", 0.9), "opted_out_at"),
-            ("invitations_turned_off", 3, _verdict("unhappy", 0.9), "interview_opted_out_at"),
-            ("tip_under_the_same_answer", 3, _verdict("unhappy", 0.9), "last_shown_at"),
+            ("calm_message", 3, _verdict("neutral", 0.95), None),
+            ("unsure_model", 3, _verdict("frustrated", 0.5), None),
+            ("new_reader", 2, _verdict("frustrated", 0.9), None),
+            ("tips_turned_off", 3, _verdict("frustrated", 0.9), "opted_out_at"),
+            ("invitations_turned_off", 3, _verdict("frustrated", 0.9), "interview_opted_out_at"),
+            ("tip_under_the_same_answer", 3, _verdict("frustrated", 0.9), "last_shown_at"),
         ]
     )
     def test_no_invitation_when_a_gate_fails(self, _name, threads, client, stamped_field):
@@ -110,7 +111,7 @@ class TestFrustrationInvite:
         if stamped_field:
             update_state(WORKSPACE, SLACK_USER, lambda state: setattr(state, stamped_field, timezone.now()))
 
-        with patch.object(interview_recruitment, "build_system_one_client", return_value=client):
+        with patch.object(message_sentiment, "build_system_one_client", return_value=client):
             assert self._offer() is False
         self.post.assert_not_called()
 
@@ -120,11 +121,12 @@ class TestFrustrationInvite:
 
         assert [self._offer(), self._offer()] == [False, True]
 
-    def test_a_thumbs_down_reaction_needs_no_model(self):
+    @parameterized.expand([("thumbs_down_reaction", "reaction", None), ("verdict_from_the_caller", "message", True)])
+    def test_an_invitation_with_a_known_signal_needs_no_model(self, _name, signal, unhappy):
         self._threads(3)
 
-        with patch.object(interview_recruitment, "build_system_one_client", side_effect=RuntimeError) as model:
-            assert self._offer(signal="reaction") is True
+        with patch.object(message_sentiment, "build_system_one_client", side_effect=RuntimeError) as model:
+            assert self._offer(signal=signal, unhappy=unhappy) is True
         model.assert_not_called()
 
     def test_dont_ask_again_stops_every_later_invitation(self):

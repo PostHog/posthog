@@ -204,6 +204,8 @@ export interface runInteractionLogicValues {
     respondingToPermission: boolean // runStreamLogic
     runOpening: boolean // runStreamLogic
     runStarted: boolean // runStreamLogic
+    sessionEffort: string | null // runStreamLogic
+    sessionModel: string | null // runStreamLogic
     defaultEffort: string | null // taskRunDefaultsLogic
     defaultModel: string | null // taskRunDefaultsLogic
     acceptedReplySuggestion: string | null
@@ -340,6 +342,9 @@ export interface runInteractionLogicActions {
     markPermissionRequestResolved: (requestId: string) => {
         requestId: string
     } // runStreamLogic
+    markRunStarted: () => {
+        value: true
+    } // runStreamLogic
     markTurnComplete: (isReplay?: boolean | undefined) => {
         isReplay: boolean
     } // runStreamLogic
@@ -378,6 +383,13 @@ export interface runInteractionLogicActions {
     } // runStreamLogic
     setCurrentMode: (mode: string) => {
         mode: string
+    } // runStreamLogic
+    setSessionConfig: (
+        model: string | null,
+        effort: string | null
+    ) => {
+        effort: string | null
+        model: string | null
     } // runStreamLogic
     startOptimisticResume: (
         message: string,
@@ -597,6 +609,7 @@ export interface runInteractionLogicMeta {
         sessionBaseline: (defaultModel: string | null, defaultEffort: string | null, arg: any) => SessionBaseline
         selectedModel: (
             modelOverride: string | null,
+            sessionModel: string | null,
             arg: any,
             sessionBaseline: SessionBaseline,
             catalogue: ModelChoiceApi[],
@@ -606,6 +619,7 @@ export interface runInteractionLogicMeta {
         ) => string
         selectedEffort: (
             effortOverride: string | null,
+            sessionEffort: string | null,
             arg: any,
             sessionBaseline: SessionBaseline,
             selectedModel: string,
@@ -729,6 +743,8 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                 'bootstrappedRunId',
                 'bootstrappedTaskId',
                 'replySuggestions',
+                'sessionModel',
+                'sessionEffort',
             ],
             attachedContextLogic,
             ['sentContextKeysByTask', 'seenContextLinesByTask'],
@@ -757,6 +773,8 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                 'cancelRun',
                 'markTurnComplete',
                 'setCurrentMode',
+                'markRunStarted',
+                'setSessionConfig',
                 'handleTerminalStatus',
                 'markPermissionRequestResolved',
                 'permissionResponseFailed',
@@ -954,12 +972,16 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             null as string | null,
             {
                 setModel: (_, { model }) => model,
+                // The agent's confirmed config is authoritative, like its mode below. A stale pick that
+                // stayed would show the wrong model and sync it back on the next send.
+                setSessionConfig: (state, { model }) => (model ? null : state),
             },
         ],
         effortOverride: [
             null as string | null,
             {
                 setEffort: (_, { effort }) => effort,
+                setSessionConfig: (state, { effort }) => (effort ? null : state),
             },
         ],
         modeOverride: [
@@ -987,12 +1009,16 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             null as string | null,
             {
                 setSentModel: (_, { model }) => model,
+                setSessionConfig: (state, { model }) => model ?? state,
+                markRunStarted: () => null,
             },
         ],
         sentEffort: [
             null as string | null,
             {
                 setSentEffort: (_, { effort }) => effort,
+                setSessionConfig: (state, { effort }) => effort ?? state,
+                markRunStarted: () => null,
             },
         ],
         sentMode: [
@@ -1111,6 +1137,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
         selectedModel: [
             (s) => [
                 s.modelOverride,
+                s.sessionModel,
                 (_, p) => p.currentModel,
                 s.sessionBaseline,
                 s.catalogue,
@@ -1120,6 +1147,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             ],
             (
                 override: string | null,
+                sessionModel: string | null,
                 current: string | null | undefined,
                 baseline: SessionBaseline,
                 catalogue: ModelChoiceApi[],
@@ -1134,19 +1162,33 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     getRuntimeAdapterForModel(catalogue, override) !== runtimeAdapter
                         ? null
                         : override
-                return compatibleOverride ?? current ?? baseline.model ?? getDefaultModelForTaskRuntime(taskRuntime)
+                return (
+                    compatibleOverride ??
+                    sessionModel ??
+                    current ??
+                    baseline.model ??
+                    getDefaultModelForTaskRuntime(taskRuntime)
+                )
             },
         ],
         selectedEffort: [
-            (s) => [s.effortOverride, (_, p) => p.currentEffort, s.sessionBaseline, s.selectedModel, s.catalogue],
+            (s) => [
+                s.effortOverride,
+                s.sessionEffort,
+                (_, p) => p.currentEffort,
+                s.sessionBaseline,
+                s.selectedModel,
+                s.catalogue,
+            ],
             (
                 override: string | null,
+                sessionEffort: string | null,
                 current: string | null | undefined,
                 baseline: SessionBaseline,
                 model: string,
                 catalogue: ModelChoiceApi[]
             ): ReasoningEffortEnumApi =>
-                resolveEffortForModel(catalogue, override ?? current ?? baseline.effort, model),
+                resolveEffortForModel(catalogue, override ?? sessionEffort ?? current ?? baseline.effort, model),
         ],
         // The permission mode to display and launch with: the client-side override, else the session's live
         // mode (from the stream's `current_mode_update` frames), else the run's stored launch mode, else the
@@ -1540,19 +1582,23 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                         values.sentEffort ?? props.currentEffort ?? values.sessionBaseline.effort,
                         activeModel
                     )
-                    if (values.selectedModel !== activeModel) {
-                        await setConfigOption(MODEL_CONFIG_ID, values.selectedModel)
+                    // Read once, before the first command: the agent confirms the model with its whole config,
+                    // which clears the effort pick while the effort command is still to come.
+                    const wantedModel = values.selectedModel
+                    const wantedEffort = values.selectedEffort
+                    if (wantedModel !== activeModel) {
+                        await setConfigOption(MODEL_CONFIG_ID, wantedModel)
                         if (!isCurrent()) {
                             return
                         }
-                        actions.setSentModel(values.selectedModel)
+                        actions.setSentModel(wantedModel)
                     }
-                    if (values.selectedEffort !== activeEffort) {
-                        await setConfigOption(EFFORT_CONFIG_ID, values.selectedEffort)
+                    if (wantedEffort !== activeEffort) {
+                        await setConfigOption(EFFORT_CONFIG_ID, wantedEffort)
                         if (!isCurrent()) {
                             return
                         }
-                        actions.setSentEffort(values.selectedEffort)
+                        actions.setSentEffort(wantedEffort)
                     }
                     if (!isPiTaskRuntime(props.taskRuntime)) {
                         const modeAdapter = props.currentRuntimeAdapter ?? RuntimeAdapterEnumApi.Claude

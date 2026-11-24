@@ -32,6 +32,7 @@ import {
     EXAMPLE_OPPORTUNITIES,
     EXAMPLE_PROFILE,
     EXAMPLE_PROMPT_SET_CITATION_RESPONSE,
+    EXAMPLE_PROMPT_SET_MOVERS,
     EXAMPLE_PROMPT_SET_OVERVIEW,
     EXAMPLE_PROMPT_SET_RANKINGS,
     EXAMPLE_PROMPT_SET_SOURCES_RESPONSE,
@@ -49,10 +50,9 @@ import {
     EXAMPLE_SECOND_PROFILE,
 } from './contentAutopilotStoryFixtures'
 
-const echoedFilters = (url: string): { days: number; branded: string; engine: string | null; topic: string | null } => {
+const echoedFilters = (url: string): { branded: string; engine: string | null; topic: string | null } => {
     const params = new URL(url).searchParams
     return {
-        days: Number(params.get('days') ?? 30),
         branded: params.get('branded') ?? 'all',
         engine: params.get('engine'),
         topic: params.get('topic'),
@@ -63,6 +63,21 @@ const echoedFilters = (url: string): { days: number; branded: string; engine: st
 const queryResponse = async ({ request }: { request: Request }): Promise<[number, Record<string, unknown>]> => {
     const body = await request.json()
     const sql: string = body?.query?.query ?? ''
+    // The keyword report looks for a Search Console table, then reads each keyword's Google impressions from it.
+    if (body?.query?.kind === 'DatabaseSchemaQuery') {
+        const name = 'googlesearchconsole.search_analytics_by_query'
+        return [200, { tables: { [name]: { type: 'data_warehouse', id: name, name, fields: {} } }, joins: [] }]
+    }
+    if (sql.includes('search_analytics_by_query')) {
+        const results = EXAMPLE_KEYWORD_REPORT.keywords.map(({ keyword }, index) => [
+            keyword,
+            26200 - index * 4300,
+            510 - index * 90,
+            480 - index * 70,
+            6.1 + index,
+        ])
+        return [200, { results, columns: ['keyword', 'impressions', 'clicks', 'searches', 'position'], hogql: sql }]
+    }
     const response = sql.includes('domain(url)')
         ? EXAMPLE_PROMPT_SET_SOURCES_RESPONSE
         : EXAMPLE_PROMPT_SET_CITATION_RESPONSE
@@ -123,19 +138,19 @@ const workspaceHandlers = ({
                 200,
                 { ...EXAMPLE_PROMPT_SET_RANKINGS, ...echoedFilters(request.url) },
             ],
+            '/api/projects/:team_id/aeo_prompts/movers/': ({ request }) => [
+                200,
+                { ...EXAMPLE_PROMPT_SET_MOVERS, ...echoedFilters(request.url) },
+            ],
             '/api/projects/:team_id/aeo_keywords/': () => [200, keywords],
-            '/api/projects/:team_id/aeo_keywords/report/': ({ request }) => [
+            '/api/projects/:team_id/aeo_keywords/report/': () => [
                 200,
                 {
                     ...EXAMPLE_KEYWORD_REPORT,
-                    days: echoedFilters(request.url).days,
                     keywords: keywords.length ? EXAMPLE_KEYWORD_REPORT.keywords : [],
                 },
             ],
-            '/api/projects/:team_id/aeo_keywords/modifiers/': ({ request }) => [
-                200,
-                { ...EXAMPLE_KEYWORD_MODIFIERS, days: echoedFilters(request.url).days },
-            ],
+            '/api/projects/:team_id/aeo_keywords/modifiers/': () => [200, EXAMPLE_KEYWORD_MODIFIERS],
             '/api/projects/:team_id/aeo_brands/': () => [
                 200,
                 {
@@ -339,7 +354,7 @@ OverviewTab.parameters = { testOptions: { snapshotBrowsers: [] } }
 export const OverviewTabFiltered: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="overview" />
 OverviewTabFiltered.decorators = OverviewTab.decorators
 OverviewTabFiltered.parameters = {
-    pageUrl: '/web/content-autopilot?days=7&engine=claude-web-search&topic=Product%20analytics',
+    pageUrl: '/web/content-autopilot?date_from=-7d&engine=claude-web-search&topic=Product%20analytics',
     testOptions: { snapshotBrowsers: [] },
 }
 
@@ -400,7 +415,8 @@ const CitationsStory = ({
 const CITED_SITE: CitationsLookup = {
     kind: 'domain',
     value: 'analytics-review.example.com',
-    days: 30,
+    dateFrom: '-30d',
+    dateTo: null,
     branded: 'non_branded',
 }
 export const CitationsOfACitedSite: StoryFn<typeof ContentAutopilot> = () => (
@@ -412,7 +428,8 @@ CitationsOfACitedSite.parameters = { testOptions: { snapshotBrowsers: [] } }
 const OWN_PAGE: CitationsLookup = {
     kind: 'url',
     value: 'https://example.com/docs/product-analytics',
-    days: 30,
+    dateFrom: '-30d',
+    dateTo: null,
     branded: 'non_branded',
 }
 export const CitationsOfYourPage: StoryFn<typeof ContentAutopilot> = () => (
@@ -421,7 +438,13 @@ export const CitationsOfYourPage: StoryFn<typeof ContentAutopilot> = () => (
 CitationsOfYourPage.decorators = OverviewTab.decorators
 CitationsOfYourPage.parameters = { testOptions: { snapshotBrowsers: [] } }
 
-const SEARCH: CitationsLookup = { kind: 'search', value: 'open source product analytics', days: 30, branded: 'all' }
+const SEARCH: CitationsLookup = {
+    kind: 'search',
+    value: 'open source product analytics',
+    dateFrom: '-30d',
+    dateTo: null,
+    branded: 'all',
+}
 export const CitationsOfASearch: StoryFn<typeof ContentAutopilot> = () => (
     <CitationsStory tab="overview" lookup={SEARCH} />
 )

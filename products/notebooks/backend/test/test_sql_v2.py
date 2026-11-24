@@ -1573,6 +1573,12 @@ class TestSQLV2RunResult(APIBaseTest):
             )
         self.assertEqual(self.client.get(self._url(str(other_run.id))).status_code, 404)
 
+    def test_result_for_a_specific_cell_requires_a_matching_node_id(self):
+        run = self._create_run(NotebookNodeRun.Status.DONE, envelope={"first_page": [[42]]})
+        url = self._url(str(run.id))
+        self.assertEqual(self.client.get(url, {"node_id": run.node_id}).status_code, 200)
+        self.assertEqual(self.client.get(url, {"node_id": "another-cell"}).status_code, 404)
+
     def test_query_restricted_member_cannot_read_result(self):
         # The result envelope is analytics rows, so a query-denied notebook reader must not read them back.
         run = self._create_run(NotebookNodeRun.Status.DONE, envelope={"first_page": [[42]]})

@@ -1330,6 +1330,7 @@ def forward_posthog_code_followup_activity(
         message_id=_slack_followup_message_id(channel, user_message_ts, thread_ts),
         actor_slack_user_id=slack_user_id,
         person_message=person_message,
+        person_message_ts=user_message_ts,
         # The join check above applied the thread creator's choice about who may join, and a
         # run on a plan bills the creator's plan whoever sends the turn.
         plan_owner_consented=True,

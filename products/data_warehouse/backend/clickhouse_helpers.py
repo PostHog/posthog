@@ -263,6 +263,7 @@ def reproject_direct_clickhouse_table(
             schema_row.incremental_field,
             # Direct-ClickHouse columns are keyed by raw, case-sensitive source names.
             normalize=False,
+            fall_back_to_all_columns=False,
         ),
         source_database=source_database,
         source_table_name=source_table_name,
