@@ -896,8 +896,8 @@ tools:
         description: >
             Get a single data warehouse source by ID. By default (`compact: true`) it returns source health: source
             type, prefix, status and latest error rolled up from its enabled tables, last sync timestamp, and one
-            summary row per table (id, name, should_sync, status, last_synced_at, last_checked_at, latest_error).
-            Errors are cut to 500 characters. Judge staleness with `last_checked_at`, not `last_synced_at`. Pass
+            summary row per table (id, name, should_sync, status, last_synced_at, last_checked_at, latest_error). Errors
+            are cut to 500 characters. Judge staleness with `last_checked_at`, not `last_synced_at`. Pass
             `include_schemas: false` to leave out the tables. Pass `compact: false` for connection settings (secrets
             redacted) and the full sync configuration of each table; per-table column definitions are still omitted —
             use external-data-schemas-retrieve for a single table's columns.
