@@ -105,6 +105,7 @@ class GetTaskProcessingContextInput:
     resumed_sandbox_backend: str | None = None
     stream_generation: str | None = None
     launches_agent: bool = False
+    resume_agent_egress_enrollment: bool = False
 
 
 @dataclass(frozen=False)
@@ -168,6 +169,7 @@ class TaskProcessingContext:
     agent_shadow_enabled: bool = False
     agent_egress_observation_config: str | None = None
     agent_egress_enrollment_enabled: bool = False
+    agent_egress_maintain_for_run: bool = False
     agent_proxy_keep_stream_open: bool = True  # Temporal payload compatibility
     # Set only when the run resolved to the VM runtime — custom images layer on the VM base.
     custom_image_name: str | None = None
@@ -959,10 +961,9 @@ def _compile_effective_network_policy(allowed_domains: list[str]) -> EffectiveNe
     )
 
 
-def _agent_egress_eligible(context: TaskProcessingContext, *, resumed: bool) -> bool:
+def _agent_egress_eligible(context: TaskProcessingContext, *, resumed: bool, handoff: bool = False) -> bool:
     return (
-        not resumed
-        and not context.is_snapshot_resume
+        (handoff or (not resumed and not context.is_snapshot_resume))
         and context.environment == "cloud"
         and context.mode != "interactive"
         and context.sandbox_backend == "modal"
@@ -972,23 +973,30 @@ def _agent_egress_eligible(context: TaskProcessingContext, *, resumed: bool) -> 
     )
 
 
-def _agent_egress_enrollment_selected(
-    context: TaskProcessingContext, *, flags: FlagsAndPayloads, resumed: bool
-) -> bool:
-    if not _agent_egress_eligible(context, resumed=resumed) or not _flag_enabled(
+def _agent_egress_enrollment_config(
+    context: TaskProcessingContext, *, flags: FlagsAndPayloads, input: GetTaskProcessingContextInput
+) -> AgentEgressEnrollmentConfig | None:
+    resumed = input.resumed_sandbox_id is not None
+    handoff = (
+        resumed
+        and input.resume_agent_egress_enrollment
+        and input.resumed_sandbox_id == (context.state or {}).get("sandbox_id")
+        and (context.state or {}).get("sandbox_backend", "modal") == "modal"
+    )
+    if not _agent_egress_eligible(context, resumed=resumed, handoff=handoff) or not _flag_enabled(
         flags, AGENT_EGRESS_ENROLLMENT_FEATURE_FLAG
     ):
-        return False
+        return None
     if not settings.AGENT_EGRESS_ENROLLMENT_CONFIG:
-        return False
+        return None
     try:
-        AgentEgressEnrollmentConfig.load()
+        config = AgentEgressEnrollmentConfig.load()
     except ValueError:
         get_bound_logger(run_id=context.run_id, team_id=context.team_id).warning(
             "agent_egress_enrollment_disabled", reason="invalid_configuration"
         )
-        return False
-    return True
+        return None
+    return config if not resumed or config.maintain_for_run else None
 
 
 def _agent_egress_observation_config(context: TaskProcessingContext, *, resumed: bool) -> str | None:
@@ -1514,9 +1522,9 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         and _flag_enabled(flags, PERSIST_AGENT_MEMORY_FEATURE_FLAG),
     )
     if input.launches_agent:
-        context.agent_egress_enrollment_enabled = _agent_egress_enrollment_selected(
-            context, flags=flags, resumed=input.resumed_sandbox_id is not None
-        )
+        enrollment = _agent_egress_enrollment_config(context, flags=flags, input=input)
+        context.agent_egress_enrollment_enabled = enrollment is not None
+        context.agent_egress_maintain_for_run = enrollment is not None and enrollment.maintain_for_run
         context.agent_egress_observation_config = (
             settings.AGENT_EGRESS_ENROLLMENT_CONFIG
             if context.agent_egress_enrollment_enabled

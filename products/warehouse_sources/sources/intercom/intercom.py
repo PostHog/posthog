@@ -46,7 +46,8 @@ class IntercomResumeConfig:
     # The `updated_at >` filter value the search cursor belongs to. A cursor only continues the
     # query that issued it, so a resume replays this value even when the watermark has moved.
     query_value: int | None = None
-    # conversation_parts: conversations in the page at `cursor` whose parts are already yielded.
+    # Search fan-outs (conversation_parts, contact_notes, ...): parents in the page at `cursor`
+    # whose children are already yielded.
     completed_conversation_ids: list[str] = dataclasses.field(default_factory=list)
     # company_segments: every company id that sorts at or before this one is already yielded.
     last_company_id: str | None = None
@@ -483,24 +484,59 @@ def _fetch_conversation_parts(session: Session, conversation: dict[str, Any]) ->
     return (full.get("conversation_parts") or {}).get("conversation_parts") or []
 
 
+def _fetch_handling_events(session: Session, conversation: dict[str, Any]) -> list[dict[str, Any]]:
+    events = _intercom_get(session, f"/conversations/{conversation['id']}/handling_events").get("handling_events") or []
+    for event in events:
+        # Intercom types the teammate id as a number here and as a string elsewhere.
+        teammate_id = (event.get("teammate") or {}).get("id")
+        event["teammate_id"] = str(teammate_id) if teammate_id is not None else None
+    return events
+
+
+_CONTACT_NOTES_MAX_PAGES = 100
+
+
+def _fetch_contact_notes(session: Session, contact: dict[str, Any]) -> list[dict[str, Any]]:
+    page_size = INTERCOM_ENDPOINTS["contact_notes"].page_size
+    notes: list[dict[str, Any]] = []
+    page = 1
+    while True:
+        payload = _intercom_get(
+            session, f"/contacts/{contact['id']}/notes", params={"page": page, "per_page": page_size}
+        )
+        notes.extend(payload.get("data") or [])
+        pages = payload.get("pages") or {}
+        # Stop unless the response confirms it served the requested page, so a version that
+        # ignores `page` cannot return the first page again.
+        if pages.get("page") != page or page >= (pages.get("total_pages") or 0):
+            return notes
+        if page >= _CONTACT_NOTES_MAX_PAGES:
+            logger.warning("intercom_contact_notes_page_cap_reached", contact_id=contact["id"], pages=page)
+            return notes
+        page += 1
+
+
 def _conversation_parts_generator(
     session: Session,
     incremental_field: str,
     db_incremental_field_last_value: Optional[Any],
     resumable_source_manager: ResumableSourceManager[IntercomResumeConfig] | None = None,
     fetch_children: Callable[[Session, dict[str, Any]], list[dict[str, Any]]] = _fetch_conversation_parts,
+    parent: str = "conversations",
 ) -> Iterator[dict[str, Any]]:
     """Yield each conversation part, or the rows `fetch_children` returns for each
-    conversation. Parents come from `POST /conversations/search` with the same
-    `updated_at >` server-side filter the conversations endpoint uses, so only parents
+    parent. Parents come from the `POST /<parent>/search` walk of the `parent` endpoint,
+    with the same `updated_at >` server-side filter that endpoint uses, so only parents
     whose timestamp advanced are refetched. Part rows carry their own `updated_at`, so
-    the pipeline's cursor watermark advances per-part. `conversation_id` is injected onto
-    each row for joinability.
+    the pipeline's cursor watermark advances per-part. `conversation_id` (or `contact_id`
+    for contact parents) is injected onto each row for joinability.
 
-    The resume cursor is the parent page plus the conversations in it that are done,
-    staged after each conversation's children are yielded. A resume refetches that page
-    and skips the done conversations."""
-    body = _build_search_body(INTERCOM_ENDPOINTS["conversations"], incremental_field, db_incremental_field_last_value)
+    The resume cursor is the parent page plus the parents in it that are done, staged
+    after each parent's children are yielded. A resume refetches that page and skips
+    the done parents."""
+    parent_cfg = INTERCOM_ENDPOINTS[parent]
+    parent_key = "contact_id" if parent == "contacts" else "conversation_id"
+    body = _build_search_body(parent_cfg, incremental_field, db_incremental_field_last_value)
     completed: list[str] = []
     resume = _load_resume_state(resumable_source_manager)
     if resume is not None and resume.query_value is not None:
@@ -517,29 +553,29 @@ def _conversation_parts_generator(
             IntercomResumeConfig(cursor=page_cursor, query_value=query_value, completed_conversation_ids=list(done))
         )
         # Every row the staged cursor covers is yielded and nothing is buffered here. Many
-        # conversations have no children, so the walk can make many requests between rows.
+        # parents have no children, so the walk can make many requests between rows.
         resumable_source_manager.safe_point()
 
     while True:
         page_cursor = body["pagination"].get("starting_after")
-        payload = _intercom_post(session, "/conversations/search", body)
+        payload = _intercom_post(session, parent_cfg.path, body)
         done_ids = set(completed)
-        for conv in payload.get("conversations") or []:
-            conversation_id = str(conv["id"])
-            if conversation_id in done_ids:
+        for parent_row in payload.get(parent_cfg.data_selector) or []:
+            parent_id = str(parent_row["id"])
+            if parent_id in done_ids:
                 continue
             try:
-                children = fetch_children(session, conv)
+                children = fetch_children(session, parent_row)
             except HTTPError as exc:
                 if not _is_not_found(exc):
                     raise
-                logger.warning("intercom_conversation_not_found", conversation_id=conv["id"])
+                logger.warning("intercom_parent_not_found", parent=parent, parent_id=parent_row["id"])
             else:
                 for child in children:
-                    child["conversation_id"] = conv["id"]
+                    child[parent_key] = parent_row["id"]
                     yield child
-            completed.append(conversation_id)
-            done_ids.add(conversation_id)
+            completed.append(parent_id)
+            done_ids.add(parent_id)
             stage(page_cursor, completed)
         next_block = (payload.get("pages") or {}).get("next") or {}
         cursor = next_block.get("starting_after") if isinstance(next_block, dict) else None
@@ -719,24 +755,30 @@ def _company_segments_generator(
             resumable_source_manager.safe_point()
 
 
-def _conversation_hitl_events_generator(
+def _fetch_hitl_events(session: Session, conversation: dict[str, Any]) -> list[dict[str, Any]]:
+    events = _intercom_get(session, f"/conversations/{conversation['id']}/hitl_events").get("data") or []
+    for event in events:
+        # Rounds of one consultation share every other key column, sometimes `created_at` too.
+        event["round_index"] = (event.get("data") or {}).get("round_index") or 0
+    return events
+
+
+def _conversation_events_generator(
     session: Session,
     should_use_incremental_field: bool,
     cursor_manager: SourceCursorManager[IntercomConversationCursor] | None,
+    fetch_rows: Callable[[Session, dict[str, Any]], list[dict[str, Any]]],
     resumable_source_manager: ResumableSourceManager[IntercomResumeConfig] | None = None,
 ) -> Iterator[dict[str, Any]]:
-    """Yield the HITL events of each conversation, with `conversation_id` and `round_index` injected.
+    """Yield the events `fetch_rows` returns for each conversation, with `conversation_id` injected.
 
-    The events carry only `created_at`, and many workspaces have none, so a watermark taken from
-    the rows would never move. The source cursor holds the newest parent `updated_at` the walk
-    reached instead, and the next run searches only conversations updated after it."""
+    HITL and handling events carry no `updated_at`, and many workspaces have none, so a watermark
+    taken from the rows would never move. The source cursor holds the newest parent `updated_at`
+    the walk reached instead, and the next run searches only conversations updated after it."""
     stored = cursor_manager.load() if should_use_incremental_field and cursor_manager is not None else None
 
     def fetch_events(session: Session, conversation: dict[str, Any]) -> list[dict[str, Any]]:
-        events = _intercom_get(session, f"/conversations/{conversation['id']}/hitl_events").get("data") or []
-        for event in events:
-            # Rounds of one consultation share every other key column, sometimes `created_at` too.
-            event["round_index"] = (event.get("data") or {}).get("round_index") or 0
+        events = fetch_rows(session, conversation)
         if cursor_manager is not None and conversation.get("updated_at") is not None:
             cursor_manager.stage(IntercomConversationCursor(updated_at=int(conversation["updated_at"])))
         return events
@@ -748,6 +790,14 @@ def _conversation_hitl_events_generator(
         resumable_source_manager,
         fetch_children=fetch_events,
     )
+
+
+# Conversation fan-outs that keep the parent `updated_at` source cursor (see `_conversation_events_generator`).
+_CONVERSATION_EVENT_FETCHERS: dict[str, Callable[[Session, dict[str, Any]], list[dict[str, Any]]]] = {
+    "conversation_hitl_events": _fetch_hitl_events,
+    "conversation_handling_events": _fetch_handling_events,
+}
+CURSOR_ENDPOINTS = frozenset(_CONVERSATION_EVENT_FETCHERS)
 
 
 def _substream_items(
@@ -767,9 +817,22 @@ def _substream_items(
         return _conversation_parts_generator(
             session, incremental_field, db_incremental_field_last_value, resumable_source_manager
         )
-    if endpoint == "conversation_hitl_events":
-        return _conversation_hitl_events_generator(
-            session, incremental_field is not None, cursor_manager, resumable_source_manager
+    if endpoint in _CONVERSATION_EVENT_FETCHERS:
+        return _conversation_events_generator(
+            session,
+            incremental_field is not None,
+            cursor_manager,
+            _CONVERSATION_EVENT_FETCHERS[endpoint],
+            resumable_source_manager,
+        )
+    if endpoint == "contact_notes":
+        return _conversation_parts_generator(
+            session,
+            "updated_at",
+            None,
+            resumable_source_manager,
+            fetch_children=_fetch_contact_notes,
+            parent="contacts",
         )
     if endpoint == "company_segments":
         return _company_segments_generator(session, resumable_source_manager)

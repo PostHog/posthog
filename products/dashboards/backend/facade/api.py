@@ -18,7 +18,7 @@ subscriptions facade, which loads the exports facade, and the exports facade imp
 """
 
 import re
-from collections.abc import Callable, Collection, Iterator, Sequence
+from collections.abc import AsyncIterator, Callable, Collection, Iterator, Sequence
 from contextlib import contextmanager
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
@@ -52,6 +52,8 @@ from products.dashboards.backend.facade.contracts import (
     InsightPlacement,
     MembershipChange,
     PlacedInsightTile,
+    QueryBatchBusy,
+    QueryBatchInput,
     TeamDashboardRef,
     TilePlacement,
 )
@@ -74,8 +76,10 @@ from products.dashboards.backend.v2 import (
     cached_tiles as v2_cached_tiles,
     first_load as v2_first_load,
     flag as v2_flag,
+    query_batch as v2_query_batch,
 )
 from products.dashboards.backend.v2.cached_tiles import CachedTileStatus
+from products.dashboards.backend.v2.query_batch import MAX_QUERIES_PER_BATCH
 
 if TYPE_CHECKING:
     from posthog.api.services.query import PlannedQuery
@@ -169,8 +173,14 @@ def create_dashboard_from_tiles(
     template = DashboardTemplate(
         template_name=name, dashboard_description=description, dashboard_filters=filters, tiles=tiles, tags=tags
     )
+    # With the template's values set here, the template step logs no second "updated" activity entry.
     dashboard = Dashboard.objects.create(
-        team_id=team.id, name=name, created_by=user, creation_mode=Dashboard.CreationMode.TEMPLATE
+        team_id=team.id,
+        name=name,
+        description=description,
+        filters=filters,
+        created_by=user,
+        creation_mode=Dashboard.CreationMode.TEMPLATE,
     )
     from posthog.helpers.dashboard_templates import create_from_template
 
@@ -1005,6 +1015,15 @@ def create_starter_dashboard(*, team_id: int) -> DashboardRef:
     return DashboardRef(id=dashboard.id, name=dashboard.name)
 
 
+def create_unlisted_dashboard(*, team: "Team", user: User, template: DashboardTemplateDefinition) -> DashboardRef:
+    """Create an unlisted dashboard from a template definition, with the template's tiles.
+
+    Run inside the caller's transaction. The caller enforces one unlisted dashboard per template tag.
+    """
+    dashboard = templates_logic.create_unlisted_dashboard(team=team, user=user, template=template)
+    return DashboardRef(id=dashboard.id, name=dashboard.name)
+
+
 def widget_type_label(widget_type: str) -> str | None:
     """The catalog label of a widget type, or None for a type the catalog does not list."""
     # Imported at call time: the catalog loads every widget spec, and they import posthog.schema.
@@ -1195,10 +1214,12 @@ __all__ = [
     "DashboardInsights",
     "DashboardNotEditable",
     "DashboardNotFound",
+    "QueryBatchBusy",
     "DashboardNotViewable",
     "DashboardRef",
     "DashboardSummary",
     "InsightTilePlacement",
+    "MAX_QUERIES_PER_BATCH",
     "MembershipChange",
     "PlacedInsightTile",
     "active_tile_count",
@@ -1314,3 +1335,25 @@ def read_cached_tiles(
 def board_stream_cached_event(cached: list[dict[str, Any]], *, force: bool) -> DashboardQuerySharingCachedEvent:
     """The first event of a `dashboard-v2` board stream, built from `read_cached_tiles` output."""
     return v2_board_stream.cached_event(cached, force=force)
+
+
+def query_batch_stream(
+    *,
+    team: "Team",
+    user: User,
+    inputs: Sequence[QueryBatchInput],
+    dashboard_id: int | None,
+    client_query_id: str,
+    asynchronous: bool,
+) -> Iterator[bytes] | AsyncIterator[bytes]:
+    """The `dashboard-v2` query batch as NDJSON: plans every query for `user` and reads the cache before it returns,
+    then streams one line per query. Pass a `dashboard_id` the user may view to run its queries as that dashboard's
+    tiles, under the dashboard query limits. Raises `QueryBatchBusy` when the batch cannot be admitted."""
+    batch = v2_query_batch.QueryBatch(
+        team=team,
+        user=user,
+        inputs=inputs,
+        dashboard_id=dashboard_id,
+        client_query_id=client_query_id,
+    )
+    return batch.astream() if asynchronous else batch.stream()

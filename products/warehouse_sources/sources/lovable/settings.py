@@ -19,6 +19,9 @@ LOVABLE_URL_VERSION_SEGMENT = "v1"
 
 # Analytics endpoints reject a date range longer than 365 days.
 ANALYTICS_MAX_RANGE_DAYS = 365
+# Breakdowns take one request per project per day against a 300-a-minute analytics limit, so a full
+# refresh reads a shorter history than the other analytics tables. Some projects keep only 90 days.
+BREAKDOWN_BACKFILL_DAYS = 90
 
 
 @frozen
@@ -39,8 +42,15 @@ class LovableEndpointConfig:
     # The endpoint returns one unpaginated `time_series` object over a required date range instead
     # of a cursor page of rows.
     time_series: bool = False
+    # The endpoint returns one unpaginated object of top-10 lists over a required date range. The
+    # source asks for one UTC day per request, so each row is the day's rank for one label.
+    breakdowns: bool = False
     # Lovable answers 404 for an unpublished project, so only published projects are fanned out.
     published_projects_only: bool = False
+
+    @property
+    def takes_date_range(self) -> bool:
+        return self.time_series or self.breakdowns
 
 
 LOVABLE_ENDPOINTS: dict[str, LovableEndpointConfig] = {
@@ -174,6 +184,26 @@ LOVABLE_ENDPOINTS_2026_09_11: dict[str, LovableEndpointConfig] = {
         minimum_plan="Business",
         time_series=True,
     ),
+    "ProjectAnalyticsBreakdowns": LovableEndpointConfig(
+        name="ProjectAnalyticsBreakdowns",
+        path="/projects/{project_id}/analytics/breakdowns",
+        scope="project",
+        # Keyed on the list slot, not the label: a re-read of a day overwrites every slot, so a label that
+        # left the top 10 cannot stay behind. Late data only adds sessions, so a list never gets shorter.
+        primary_keys=["project_id", "timestamp", "breakdown", "rank"],
+        partition_key="timestamp",
+        minimum_plan="Business",
+        breakdowns=True,
+        published_projects_only=True,
+    ),
+    "WorkspaceSecurityInsightProjects": LovableEndpointConfig(
+        name="WorkspaceSecurityInsightProjects",
+        path="/workspaces/{workspace_id}/security-center/insights/projects",
+        scope="workspace",
+        primary_keys=["workspace_id", "id"],
+        # Rows carry no creation time, only `last_edited_at`, which moves.
+        minimum_plan="Enterprise",
+    ),
 }
 
 
@@ -212,6 +242,7 @@ def version_config(api_version: str) -> LovableVersionConfig:
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     "ProjectAnalytics": [incremental_field("timestamp", IncrementalFieldType.DateTime)],
     "WorkspaceAnalytics": [incremental_field("timestamp", IncrementalFieldType.DateTime)],
+    "ProjectAnalyticsBreakdowns": [incremental_field("timestamp", IncrementalFieldType.DateTime)],
 }
 
 # An incremental analytics run reads the watermark day again, so append would duplicate that bucket.

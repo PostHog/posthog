@@ -178,7 +178,10 @@ class SendGridImportProvider(ImportProvider):
             description=(
                 "Opts people out of the category for each group they left. Needs asm.groups.read and suppression.read."
             ),
-            count_labels=(("opted_out", "People with a new opt-out"), ("invalid", "Skipped, address isn't valid")),
+            count_labels=(
+                ("opted_out", "New opt-outs, counted per group"),
+                ("invalid", "Skipped, address isn't valid"),
+            ),
         ),
         ImportStepSpec(
             key="templates",

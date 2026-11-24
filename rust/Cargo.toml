@@ -53,6 +53,7 @@ members = [
   "embedding-worker",
   "common/geoip",
   "common/hogvm",
+  "common/ingestion-response",
   "common/ingestion_warnings",
   "deltalite/core",
   "deltalite/python",
