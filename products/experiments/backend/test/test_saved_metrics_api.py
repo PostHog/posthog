@@ -1102,6 +1102,11 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
     @parameterized.expand(
         [
             ("creator", lambda t: {"created_by_id": f"[{t.user.id}]"}, {"Mine mean growth", "Mine funnel checkout"}),
+            (
+                "creators_comma_separated",
+                lambda t: {"created_by_id": f"{t.user.id},{t.other_user_id}", "metric_type": "funnel"},
+                {"Mine funnel checkout", "Other legacy funnel"},
+            ),
             ("one_tag", lambda t: {"tags": '["growth"]'}, {"Mine mean growth", "Other ratio both tags"}),
             # A metric carrying both tags is still listed once.
             (

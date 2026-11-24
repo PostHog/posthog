@@ -45,6 +45,17 @@ class ExperimentResultConfigurationStatus(LabeledStrEnum):
     UNKNOWN = "unknown", "Settings not recorded"
 
 
+class SharedMetricType(LabeledStrEnum):
+    """The type a shared metric shows in the list. `funnel` and `trend` also cover the legacy query kinds."""
+
+    MEAN = "mean", "Mean"
+    FUNNEL = "funnel", "Funnel"
+    RATIO = "ratio", "Ratio"
+    RETENTION = "retention", "Retention"
+    QUANTILE = "quantile", "Percentile"
+    TREND = "trend", "Trend"
+
+
 class RecalculationStartOutcome(StrEnum):
     STARTED = "started"
     # An active run already existed, so no new run was created.

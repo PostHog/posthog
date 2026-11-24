@@ -16,7 +16,7 @@ from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.dataclasses import frozen
 from posthog.enums import LabeledStrEnum
 
-from products.experiments.backend.facade.enums import RecalculationStartOutcome
+from products.experiments.backend.facade.enums import RecalculationStartOutcome, SharedMetricType
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -1182,6 +1182,12 @@ class SavedMetricListFilters:
     search_terms: tuple[str, ...] = ()
     # Keeps the metrics whose query references this event, directly or through an action.
     event: str | None = None
+    # Keeps the metrics that any of these users created.
+    created_by_ids: tuple[int, ...] = ()
+    # Keeps the metrics that carry at least one of these tags.
+    tags: tuple[str, ...] = ()
+    # Keeps the metrics of this type. `funnel` also keeps legacy funnels, and `trend` keeps legacy trends.
+    metric_type: SharedMetricType | None = None
 
 
 SavedMetricWriteField = Literal["name", "description", "query", "tags"]

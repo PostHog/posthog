@@ -90,7 +90,6 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     resolve_default_exposure_event,
     rule_exposure_criteria_error,
 )
-from products.experiments.backend.list_filters import parse_tag_names
 from products.experiments.backend.logic.result_stats import MetricTimeseries
 from products.experiments.backend.logic.timeseries_text import ExperimentTimeseriesFormatter
 from products.experiments.backend.metric_calculation.config import (
@@ -127,6 +126,7 @@ from products.experiments.backend.models.experiment import (
     experiment_variants,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.experiments.backend.presentation.list_filters import parse_tag_names
 from products.experiments.backend.result_serialization import strip_step_sessions
 from products.experiments.backend.task_profiles import CLEANUP
 from products.experiments.backend.warehouse_access_control import validate_warehouse_metrics
