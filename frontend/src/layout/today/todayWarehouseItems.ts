@@ -240,11 +240,6 @@ export const WAREHOUSE_ITEMS: WarehouseItem[] = [
     },
 ]
 
-// Warehouse pages that no menu item names: the new-source wizard and the source connect flow.
-// The destination and migration connect pages share the `/data-warehouse` prefix but are not warehouse pages.
-// The Sources pages are a product of their own, reached from the Source data page.
-const EXTRA_WAREHOUSE_PATHS = ['/data-warehouse/new-source', '/data-warehouse/connect']
-
 export function hrefPath(href: string): string {
     return href.split(/[?#]/)[0]
 }
@@ -257,7 +252,8 @@ function itemPaths(item: WarehouseItem): string[] {
     return [hrefPath(item.href), ...(item.extraPaths ?? []).map(hrefPath)]
 }
 
-const WAREHOUSE_ROUTE_ROOTS = [...new Set([...WAREHOUSE_ITEMS.flatMap(itemPaths), ...EXTRA_WAREHOUSE_PATHS])]
+// Sources, the new-source wizard and the connect flows are a product of their own, so none is a warehouse page.
+const WAREHOUSE_ROUTE_ROOTS = [...new Set(WAREHOUSE_ITEMS.flatMap(itemPaths))]
 
 export function isWarehousePath(path: string): boolean {
     return WAREHOUSE_ROUTE_ROOTS.some((root) => isUnder(path, root))
