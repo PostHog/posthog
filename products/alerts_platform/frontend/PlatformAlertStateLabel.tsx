@@ -2,29 +2,16 @@ import { IconBug, IconCheckCircle, IconCircleDashed, IconClock, IconPause, IconX
 
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
 
-import { PlatformAlertConfigurationStatus } from './platformAlertFormat'
+import { PlatformAlertConfigurationStatus, STATUS_LABELS } from './platformAlertFormat'
 
-interface StatusDisplay {
-    label: string
-    icon: JSX.Element
-}
-
-const STATUS_CONFIG: Record<PlatformAlertConfigurationStatus, StatusDisplay> = {
-    not_firing: { label: 'OK', icon: <IconCheckCircle className="text-success" /> },
-    firing: { label: 'Firing', icon: <IconErrorOutline className="text-danger" /> },
-    errored: { label: 'Errored', icon: <IconXCircle className="text-warning" /> },
-    broken: { label: 'Broken', icon: <IconBug className="text-warning" /> },
-    snoozed: { label: 'Snoozed', icon: <IconClock className="text-muted" /> },
-    disabled: { label: 'Disabled', icon: <IconPause className="text-muted" /> },
-    not_checked: { label: 'Not checked yet', icon: <IconCircleDashed className="text-muted" /> },
-}
-
-const UNKNOWN_STATUS_DISPLAY: Omit<StatusDisplay, 'label'> = { icon: <IconCircleDashed /> }
-
-// A state added on the backend before this map knows it still renders.
-function statusDisplay(status: string): StatusDisplay {
-    const displays: Partial<Record<string, StatusDisplay>> = STATUS_CONFIG
-    return displays[status] ?? { ...UNKNOWN_STATUS_DISPLAY, label: status }
+const STATUS_ICONS: Record<PlatformAlertConfigurationStatus, JSX.Element> = {
+    not_firing: <IconCheckCircle className="text-success" />,
+    firing: <IconErrorOutline className="text-danger" />,
+    errored: <IconXCircle className="text-warning" />,
+    broken: <IconBug className="text-warning" />,
+    snoozed: <IconClock className="text-muted" />,
+    disabled: <IconPause className="text-muted" />,
+    not_checked: <IconCircleDashed className="text-muted" />,
 }
 
 export function PlatformAlertStateLabel({
@@ -34,7 +21,9 @@ export function PlatformAlertStateLabel({
     status: PlatformAlertConfigurationStatus
     count?: number
 }): JSX.Element {
-    const { label, icon } = statusDisplay(status)
+    // A state added on the backend before these maps know it still renders.
+    const label = STATUS_LABELS[status] ?? status
+    const icon = STATUS_ICONS[status] ?? <IconCircleDashed />
     return (
         <span
             className="flex items-center gap-1 whitespace-nowrap"
