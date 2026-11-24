@@ -822,12 +822,16 @@ export interface MCPWrappedToolErrorRateApi {
     readonly tool: string
     /** Share of the tool's calls that errored, 0 to 1. */
     readonly error_rate: number
+    /** The tool's calls this year. */
+    readonly calls: number
 }
 
 export interface MCPWrappedReliabilityCardApi {
     /** Share of calls without an error, 0 to 1. */
     readonly success_rate: number
-    /** The tool with the highest error rate among tools with 100+ calls, when 3 or more qualify. */
+    /** The tool with the lowest error rate among tools with 100+ calls, more calls winning a tie, when 3 or more qualify. */
+    readonly most_reliable_tool: MCPWrappedToolErrorRateApi | null
+    /** The tool with the highest error rate among tools with 100+ calls, when 3 or more qualify and its rate is above the most reliable tool's. */
     readonly struggling_tool: MCPWrappedToolErrorRateApi | null
 }
 

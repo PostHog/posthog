@@ -68,7 +68,11 @@ const CARDS: MCPWrappedCardsApi = {
         ],
     },
     rush_hour: { weekday: 2, hour: 15, timezone: 'Europe/Lisbon', heat, quiet_weekends: true, night_shift: false },
-    reliability: { success_rate: 0.976, struggling_tool: { tool: 'create_alert', error_rate: 0.082 } },
+    reliability: {
+        success_rate: 0.976,
+        most_reliable_tool: { tool: 'get_forecast', error_rate: 0.002, calls: 1540000 },
+        struggling_tool: { tool: 'create_alert', error_rate: 0.082, calls: 361000 },
+    },
     speed: {
         p95_duration_ms: 410,
         quickest_busy_tool: { tool: 'list_alerts', p95_duration_ms: 120 },

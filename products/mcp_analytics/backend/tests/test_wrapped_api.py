@@ -21,7 +21,7 @@ CARDS: dict[str, Any] = {
     "labs": None,
     "models": None,
     "rush_hour": None,
-    "reliability": {"success_rate": 0.9178, "struggling_tool": None},
+    "reliability": {"success_rate": 0.9178, "most_reliable_tool": None, "struggling_tool": None},
     "speed": None,
     "archetype": {"archetype": "one_hit_wonder", "evidence": 0.7397},
 }

@@ -20,7 +20,7 @@ const BASE: MCPWrappedCardsApi = {
     labs: null,
     models: null,
     rush_hour: null,
-    reliability: { success_rate: 0.976, struggling_tool: null },
+    reliability: { success_rate: 0.976, most_reliable_tool: null, struggling_tool: null },
     speed: { p95_duration_ms: 410, quickest_busy_tool: null, slowest_tool: null },
     archetype: { archetype: 'all_rounder', evidence: null },
 }

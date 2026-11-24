@@ -1138,14 +1138,20 @@ class MCPWrappedRushHourCardSerializer(serializers.Serializer):
 class MCPWrappedToolErrorRateSerializer(serializers.Serializer):
     tool = serializers.CharField(read_only=True, help_text="Tool name.")
     error_rate = serializers.FloatField(read_only=True, help_text="Share of the tool's calls that errored, 0 to 1.")
+    calls = serializers.IntegerField(read_only=True, help_text="The tool's calls this year.")
 
 
 class MCPWrappedReliabilityCardSerializer(serializers.Serializer):
     success_rate = serializers.FloatField(read_only=True, help_text="Share of calls without an error, 0 to 1.")
+    most_reliable_tool = MCPWrappedToolErrorRateSerializer(
+        read_only=True,
+        allow_null=True,
+        help_text="The tool with the lowest error rate among tools with 100+ calls, more calls winning a tie, when 3 or more qualify.",
+    )
     struggling_tool = MCPWrappedToolErrorRateSerializer(
         read_only=True,
         allow_null=True,
-        help_text="The tool with the highest error rate among tools with 100+ calls, when 3 or more qualify.",
+        help_text="The tool with the highest error rate among tools with 100+ calls, when 3 or more qualify and its rate is above the most reliable tool's.",
     )
 
 
