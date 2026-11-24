@@ -23,7 +23,6 @@ from django.db.models import (
     Count,
     Exists,
     ExpressionWrapper,
-    F,
     Max,
     Min,
     OuterRef,
@@ -788,12 +787,21 @@ def _compute_prompt_set_overview(
         )
         for key in sorted(active_prompts.keys() | topic_checks.keys())
     )
+    # Each engine row takes the label its topic shows in `topics`, so the two lists name a topic the same way.
+    topic_labels = {key: (active_prompts.get(key) or topic_checks[key])["label"] for key in topic_checks}
     engine_topics = tuple(
-        PromptSetEngineTopicCounts(**row)
+        PromptSetEngineTopicCounts(
+            engine=row["engine"],
+            topic=topic_labels.get(row["topic_key"], row["label"]),
+            answers=row["answers"],
+            mentioned=row["mentioned"],
+        )
         for row in current.filter(check_failed=False)
-        .values("engine", topic=F("prompt_topic"))
-        .annotate(answers=Count("id"), mentioned=Count("id", filter=mention_filter()))
-        .order_by("engine", "topic")
+        .values("engine", topic_key=Lower("prompt_topic"))
+        .annotate(
+            answers=Count("id"), mentioned=Count("id", filter=mention_filter()), label=_topic_label("prompt_topic")
+        )
+        .order_by("engine", "topic_key")
     )
 
     current_counts = PromptSetCounts(**_set_counts(current.aggregate(**counts)))
