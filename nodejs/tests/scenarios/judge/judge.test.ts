@@ -777,9 +777,11 @@ describe('judge', () => {
     describe('reading a large truth', () => {
         const LARGE_TRUTH_RECORDS = 1_500_000
         const PAGE = 1000
-        const PAGE_TIMEOUT_MS = 1000
+        const POLL_BOUND_MS = 100
+        const FINAL_BOUND_MS = 5000
+        const SLOW_PAGE_MS = 300
 
-        type PageFault = 'hang' | 'reset' | 'empty' | 'stale' | undefined
+        type PageFault = 'slow' | 'reset' | 'empty' | 'stale' | undefined
 
         let truth: Truth
         let edge: ProviderEdge
@@ -810,13 +812,20 @@ describe('judge', () => {
                     res.writeHead(200, { 'content-type': 'application/json' })
                     res.end(JSON.stringify({ records, next: after + 1 }))
                 }
-                if (fault !== undefined) {
+                if (fault !== undefined && fault !== 'slow') {
                     return
                 }
-                http.get(`${edge.url}${req.url}`, (answer) => {
-                    res.writeHead(answer.statusCode ?? 502, answer.headers)
-                    answer.pipe(res)
-                })
+                const forward = (): void => {
+                    http.get(`${edge.url}${req.url}`, (answer) => {
+                        res.writeHead(answer.statusCode ?? 502, answer.headers)
+                        answer.pipe(res)
+                    })
+                }
+                if (fault === 'slow') {
+                    setTimeout(forward, SLOW_PAGE_MS)
+                    return
+                }
+                forward()
             })
             await new Promise<void>((resolve) => front.listen(0, '127.0.0.1', resolve))
         })
@@ -827,15 +836,20 @@ describe('judge', () => {
             await edge.close()
         })
 
+        const distinctOf = (records: TruthRecord[]): number => new Set(records.map(({ seq }) => seq)).size
+
         const append = (records: number): void => {
             for (let i = 1; i <= records; i++) {
                 truth.append({ kind: 'ses.send', status: 200, unitId: `run-a-${i}`, actionId: 'email', detail: {} })
             }
         }
 
-        const hangingOnce = (at: number) => (): ((after: number) => PageFault) => {
-            let hung = false
-            return (after) => (after === at && !hung && (hung = true) ? 'hang' : undefined)
+        const slowAt = (at: number) => (): ((after: number) => PageFault) => (after) =>
+            after === at ? 'slow' : undefined
+
+        const resettingOnce = (at: number) => (): ((after: number) => PageFault) => {
+            let reset = false
+            return (after) => (after === at && !reset && (reset = true) ? 'reset' : undefined)
         }
 
         const resettingFrom = (at: number) => (): ((after: number) => PageFault) => (after) =>
@@ -853,7 +867,10 @@ describe('judge', () => {
 
         const judgeOf = (backoffMs: number): Judge =>
             createJudge({
-                truth: edgeTruth(`http://127.0.0.1:${(front.address() as AddressInfo).port}`, PAGE_TIMEOUT_MS),
+                truth: edgeTruth(`http://127.0.0.1:${(front.address() as AddressInfo).port}`, {
+                    pollMs: POLL_BOUND_MS,
+                    finalMs: FINAL_BOUND_MS,
+                }),
                 probe: { unfinishedJobs: () => Promise.resolve(0) },
                 fetchRetries: 3,
                 finalRead: { attempts: 3, backoffMs },
@@ -861,10 +878,16 @@ describe('judge', () => {
 
         it.each<[string, number, () => (after: number) => PageFault, object]>([
             [
-                'reads all of it when one page request hangs once',
+                'reads all of it when one page answers slower than a converge poll waits',
                 LARGE_TRUTH_RECORDS,
-                hangingOnce(LARGE_TRUTH_RECORDS / 2),
+                slowAt(LARGE_TRUTH_RECORDS / 2),
                 { read: LARGE_TRUTH_RECORDS, unread: undefined },
+            ],
+            [
+                'reads all of it when one page request fails once',
+                3 * PAGE,
+                resettingOnce(PAGE),
+                { read: 3 * PAGE, unread: undefined },
             ],
             [
                 'reads up to the head it took first, leaving out what the edge records after it',
@@ -910,7 +933,7 @@ describe('judge', () => {
             await judge.check([], {}, NO_RESETS)
 
             const { truth: read, unread } = judge.evidence()
-            expect({ read: read.length, unread }).toEqual(expected)
+            expect({ read: distinctOf(read), unread }).toEqual(expected)
         })
 
         const stoppingAt =
@@ -929,33 +952,44 @@ describe('judge', () => {
                 if (after < at) {
                     return undefined
                 }
-                setTimeout(() => run.abort(), 100)
+                run.abort()
                 return 'reset'
             }
 
-        it.each<[string, (run: AbortController) => (after: number) => PageFault, string | RegExp]>([
+        it.each<[string, (run: AbortController) => (after: number) => PageFault, number, string | RegExp]>([
+            [
+                'before it starts',
+                (run) => {
+                    run.abort()
+                    return () => undefined
+                },
+                0,
+                'the truth read hit a harness limit at record 0: the run was stopped',
+            ],
             [
                 'between pages the edge answers',
                 (run) => stoppingAt(PAGE, run),
+                2 * PAGE,
                 'the truth read hit a harness limit at record 2000 of 3000: the run was stopped',
             ],
             [
                 'while it waits to retry a failed page',
                 (run) => stoppingOnceResetFrom(2 * PAGE, run),
+                2 * PAGE,
                 /^the truth read hit a harness limit at record 2000 of 3000: 1 of 3 attempts failed, the last with /,
             ],
-        ])('stops the read when the run is stopped %s', async (_story, fault, expected) => {
+        ])('stops the read when the run is stopped %s', async (_story, fault, records, expected) => {
             const run = new AbortController()
-            faultOf = fault(run)
             const judge = judgeOf(600_000)
             await judge.open(SEED)
             append(3 * PAGE)
+            faultOf = fault(run)
 
             await judge.check([], {}, NO_RESETS, run.signal)
 
             const { truth: read, unread } = judge.evidence()
-            expect({ read: read.length, unread }).toEqual({
-                read: 2 * PAGE,
+            expect({ read: distinctOf(read), unread }).toEqual({
+                read: records,
                 unread: typeof expected === 'string' ? expected : expect.stringMatching(expected),
             })
         })
@@ -970,7 +1004,7 @@ describe('judge', () => {
             await judge.check([], {}, NO_RESETS)
 
             const { truth: read, unread } = judge.evidence()
-            expect({ read: read.length, unread }).toEqual({
+            expect({ read: distinctOf(read), unread }).toEqual({
                 read: 0,
                 unread: 'the truth read hit a harness limit at record 0: the edge answered no head',
             })

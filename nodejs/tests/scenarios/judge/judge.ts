@@ -88,7 +88,7 @@ async function retried<T>(
         try {
             return await read()
         } catch (error) {
-            if (attempt < attempts && !signal?.aborted) {
+            if (attempt < attempts) {
                 await sleep(backoffMs * attempt, undefined, { signal }).catch(() => undefined)
             }
             if (attempt >= attempts || signal?.aborted) {
@@ -127,6 +127,9 @@ export function createJudge({
     const pullToHead = async (signal?: AbortSignal): Promise<void> => {
         let head: number | undefined
         try {
+            if (signal?.aborted) {
+                throw new Error('the run was stopped')
+            }
             const sampled = await retried(() => source.head(FINAL), finalRead, signal)
             if (!Number.isInteger(sampled)) {
                 throw new Error('the edge answered no head')

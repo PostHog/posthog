@@ -12,9 +12,14 @@ export interface TruthSource {
     after(cursor: number, read?: TruthRead): Promise<TruthPage>
 }
 
-export function edgeTruth(edgeUrl: string, finalTimeoutMs = FULL_PAGE_FROM_A_BUSY_EDGE_MS): TruthSource {
+export type TruthBounds = { pollMs?: number; finalMs?: number }
+
+export function edgeTruth(
+    edgeUrl: string,
+    { pollMs, finalMs = FULL_PAGE_FROM_A_BUSY_EDGE_MS }: TruthBounds = {}
+): TruthSource {
     const get = async <T>(route: string, query: string, { timeoutMs, final }: TruthRead = {}): Promise<T> => {
-        const bound = timeoutMs ?? (final ? finalTimeoutMs : undefined)
+        const bound = timeoutMs ?? (final ? finalMs : pollMs)
         const response = await internalFetch(`${edgeUrl}${route}${query}`, bound ? { timeoutMs: bound } : undefined)
         if (response.status !== 200) {
             throw new Error(`The edge answered ${route} with ${response.status}`)
