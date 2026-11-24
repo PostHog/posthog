@@ -1,6 +1,7 @@
 import { LemonInput } from '@posthog/lemon-ui'
 
 import { EmailFieldRow } from './EmailFieldRow'
+import { numberOrUnset } from './numberOrUnset'
 
 export function EmailNumberField({
     label,
@@ -33,7 +34,7 @@ export function EmailNumberField({
                 value={value ?? ('' as unknown as number)}
                 placeholder={placeholder === undefined ? undefined : String(placeholder)}
                 suffix={<span className="text-xs text-secondary">{suffix}</span>}
-                onChange={(next) => onChange(next === undefined || Number.isNaN(next) ? undefined : next)}
+                onChange={(next) => onChange(numberOrUnset(next))}
                 data-attr={attr}
             />
         </EmailFieldRow>

@@ -9,8 +9,13 @@ export interface DragAutoScroll {
     stopAutoScroll: () => void
 }
 
-/** Scrolls `#main-content` while a dragged tile is near its top or bottom edge. */
-export function useDragAutoScroll(): DragAutoScroll {
+/**
+ * Scrolls a container while a dragged tile is near its top or bottom edge. `findContainer` runs when a drag starts and
+ * defaults to the app's `#main-content`.
+ */
+export function useDragAutoScroll(
+    findContainer: () => HTMLElement | null = () => document.getElementById('main-content')
+): DragAutoScroll {
     const scrollContainerRef = useRef<HTMLElement | null>(null)
     const scrollContainerRectRef = useRef<DOMRect | null>(null)
     const scrollAnimationRef = useRef<number | null>(null)
@@ -30,8 +35,10 @@ export function useDragAutoScroll(): DragAutoScroll {
 
     useEffect(() => stopAutoScroll, [stopAutoScroll])
 
+    const findContainerRef = useRef(findContainer)
+    findContainerRef.current = findContainer
     const startAutoScroll = useCallback((): void => {
-        scrollContainerRef.current = document.getElementById('main-content')
+        scrollContainerRef.current = findContainerRef.current()
         scrollContainerRectRef.current = scrollContainerRef.current?.getBoundingClientRect() ?? null
     }, [])
 

@@ -213,6 +213,46 @@ class TestBillingManager(BaseTest):
         }
         assert response["usage_summary"]["period"] == ["2022-10-07T11:12:48", "2022-11-07T11:12:48"]
 
+    @patch("ee.billing.billing_manager.http_session.get")
+    def test_get_billing_read_only_writes_nothing_to_the_organization_or_license(self, mock_get: MagicMock):
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=timezone.now() + datetime.timedelta(days=1),
+        )
+        valid_until_before = license.valid_until
+        self.organization.usage = {
+            "events": {"usage": 500, "limit": None, "todays_usage": 40},
+            "recordings": {"usage": 0, "limit": None, "todays_usage": 0},
+            "period": ["2026-08-01T00:00:00Z", "2026-09-01T00:00:00Z"],
+        }
+        self.organization.save()
+        billing_status = cast(dict[str, Any], self._billing_status(None, events_usage=500, events_limit=1000))
+        billing_status["license"] = {"type": "enterprise"}
+        billing_status["customer"].update(
+            customer_id="cus_example",
+            available_product_features=_SURVEYS,
+            products=[{"type": "product_analytics", "usage_key": "events"}],
+        )
+        mock_get.return_value.status_code = 200
+        mock_get.return_value.json.side_effect = lambda: copy.deepcopy(billing_status)
+
+        def stored_organization() -> dict[str, Any]:
+            return Organization.objects.values("usage", "available_product_features", "customer_id").get(
+                id=self.organization.id
+            )
+
+        organization_before = stored_organization()
+
+        read_only_response = BillingManager(license).get_billing_read_only(self.organization)
+
+        assert stored_organization() == organization_before
+        license.refresh_from_db()
+        assert license.valid_until == valid_until_before
+
+        assert BillingManager(license).get_billing(self.organization) == read_only_response
+        assert stored_organization()["customer_id"] == "cus_example"
+
     @parameterized.expand(
         [
             ("with_ip", "203.0.113.7", True),
