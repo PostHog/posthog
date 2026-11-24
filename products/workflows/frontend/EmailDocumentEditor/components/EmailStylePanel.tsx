@@ -33,8 +33,8 @@ export function EmailStylePanel({ editor, onClose }: { editor: Editor; onClose?:
             <div className="flex items-center gap-1">
                 {sentAsWritten ? (
                     <span className="text-xs text-secondary flex-1" data-attr="email-editor-no-page-style">
-                        This email is sent exactly as its HTML is written, so page style doesn't apply.
-                        {showPage ? ' Select the HTML block to edit it.' : ''}
+                        <span>This email is sent exactly as its HTML is written, so page style doesn't apply.</span>
+                        {showPage ? <span> Select the HTML block to edit it.</span> : null}
                     </span>
                 ) : showPage ? (
                     <h3 className="text-sm font-semibold m-0 flex-1">Page style</h3>
