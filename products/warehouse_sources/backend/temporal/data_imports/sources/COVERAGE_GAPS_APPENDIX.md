@@ -15403,10 +15403,10 @@ Diffed against: <https://raw.githubusercontent.com/twentyhq/twenty/main/packages
 - [x] `Note targets (GET /rest/noteTargets)` — connect notes to the people, companies, and opportunities they describe (high) → `note_targets` (incremental on `updatedAt`/`createdAt`)
 - [x] `Task targets (GET /rest/taskTargets)` — connect tasks to customer and opportunity records for follow-up and sales activity analysis (high) → `task_targets` (incremental on `updatedAt`/`createdAt`)
 - [ ] `Custom objects (GET /rest/{objectNamePlural})` — import workspace-specific business objects that the six fixed table definitions cannot discover (high) — skipped: needs per-workspace discovery through the metadata API, which the static table catalog does not support
-- [ ] `Messages (GET /rest/messages)` — analyze customer email volume, communication timing, and message content alongside CRM records (medium)
-- [ ] `Message participants (GET /rest/messageParticipants)` — connect email senders and recipients to people and workspace members (medium)
-- [ ] `Message threads (GET /rest/messageThreads)` — group emails into customer conversations for engagement analysis (medium)
-- [ ] `Calendar events (GET /rest/calendarEvents)` — measure customer meetings, meeting duration, and sales activity over time (medium)
+- [x] `Messages (GET /rest/messages)` — analyze customer email volume, communication timing, and message content alongside CRM records (medium) → `messages` (incremental on `updatedAt`/`createdAt`)
+- [x] `Message participants (GET /rest/messageParticipants)` — connect email senders and recipients to people and workspace members (medium) → `message_participants` (incremental on `updatedAt`/`createdAt`)
+- [x] `Message threads (GET /rest/messageThreads)` — group emails into customer conversations for engagement analysis (medium) → `message_threads` (incremental on `updatedAt`/`createdAt`)
+- [x] `Calendar events (GET /rest/calendarEvents)` — measure customer meetings, meeting duration, and sales activity over time (medium) → `calendar_events` (incremental on `updatedAt`/`createdAt`)
 - [ ] `Calendar event participants (GET /rest/calendarEventParticipants)` — connect meetings to customers and staff to assess relationship coverage (medium)
 - [ ] `Calendar event targets (GET /rest/calendarEventTargets)` — attribute meeting activity to companies, people, and opportunities (medium)
 
