@@ -1,5 +1,7 @@
 ---
 name: authoring-data-quality-checks
+metadata:
+  audience: customer
 description: >
   Adds and runs data quality checks (dbt-test style assertions) on a project's warehouse tables and
   saved-query views, and HogQL catalog metrics: not-null, uniqueness, accepted values, referential

@@ -1,5 +1,7 @@
 ---
 name: exploring-autocapture-events
+metadata:
+  audience: customer
 description: >
   Guides exploration of $autocapture events captured by posthog-js to understand user interactions,
   find CSS selectors (especially data-attr attributes), evaluate selector uniqueness, query matching

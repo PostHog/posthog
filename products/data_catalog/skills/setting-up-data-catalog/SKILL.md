@@ -1,5 +1,7 @@
 ---
 name: setting-up-data-catalog
+metadata:
+  audience: customer
 description: >
   Populates and maintains a project's data catalog (semantic layer): canonical metrics, trust marks
   (certifications) on warehouse tables/views, and reviewed table relationships. Use when asked to set

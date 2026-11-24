@@ -1,5 +1,7 @@
 ---
 name: syncing-migrated-self-managed-tables
+metadata:
+  audience: customer
 description: >
   Turn on syncing for warehouse tables that PostHog moved from self-managed tables to managed sources (Amazon S3,
   Google Cloud Storage, Azure Blob, Cloudflare R2 or File upload). Use when the user asks "what happened to my

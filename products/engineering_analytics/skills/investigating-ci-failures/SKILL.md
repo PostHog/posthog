@@ -1,5 +1,8 @@
 ---
 name: investigating-ci-failures
+metadata:
+  audience: customer
+  feature_flag: engineering-analytics
 description: 'Investigates one CI failure to a verdict: whose fault it is, which commit caused it, who wrote that commit, and whether a fix has landed. Use for "who broke master", "why did this test fail in CI", "is this failure my PR or everyone", "is this test flaky or broken", "when did this failure start", "what is broken in CI right now", and "why did the merge queue kick my PR". Works from the engineering-analytics-broken-tests tool, the CI failure log tools, and two warehouse views: engineering_analytics_ci_failures and engineering_analytics_ci_job_history. Not for aggregate CI health, cost, or merge bottlenecks (use diagnosing-ci-and-merge-bottlenecks), and not for saved insights (use turning-engineering-analytics-into-insights).'
 ---
 

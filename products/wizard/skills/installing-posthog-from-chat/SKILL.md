@@ -1,5 +1,7 @@
 ---
 name: installing-posthog-from-chat
+metadata:
+  audience: customer
 description: >-
   Set up PostHog in a user's GitHub repository from a chat, without a terminal. Wizard, PostHog's
   setup agent, runs in the cloud, adds the SDK and first events, and opens a pull request. Use only

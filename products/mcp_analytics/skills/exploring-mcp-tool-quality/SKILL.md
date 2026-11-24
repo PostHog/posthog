@@ -1,5 +1,7 @@
 ---
 name: exploring-mcp-tool-quality
+metadata:
+  audience: customer
 description: >
   Investigate the quality of PostHog MCP tool calls — error rates, latency,
   reach, and which tools are failing or slow. Use when the user asks "which

@@ -1,5 +1,7 @@
 ---
 name: choosing-trend-or-slope-view
+metadata:
+  audience: customer
 description: >
   Clarify how to visualize change over a time range before building a trend.
   Use whenever the user asks how much something changed, grew, dropped,

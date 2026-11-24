@@ -43,6 +43,7 @@ describe('served skills', () => {
         { label: 'an empty flag', entry: { feature_flag: '' } },
         { label: 'a flag that is not a string', entry: { feature_flag: true } },
         { label: 'a consumer the server does not know', entry: { consumers: ['slak'] } },
+        { label: 'an audience the server does not serve', entry: { audience: 'internal' } },
         { label: 'an empty consumer list', entry: { consumers: [] } },
     ])('rejects $label, so a typo cannot change who gets a skill', ({ entry }) => {
         expect(() => parseServedSkills({ skills: { 'some-skill': entry }, context_mill_skills: {} })).toThrow()

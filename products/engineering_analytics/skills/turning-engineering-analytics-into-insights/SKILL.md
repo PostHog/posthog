@@ -1,5 +1,8 @@
 ---
 name: turning-engineering-analytics-into-insights
+metadata:
+  audience: customer
+  feature_flag: engineering-analytics
 description: 'Turns engineering analytics (PR and CI) data into saved PostHog insights, dashboards, and subscriptions, and explains how to query the data with SQL. Covers finding the per-team GitHub warehouse tables with engineering-analytics-sources, writing HogQL that matches the product''s own rules, reading the managed engineering_analytics_* warehouse views for CI cost, job history, and fingerprinted failures, saving queries with insight-create, and scheduling delivery with subscriptions-create. Use when asked to "save this as an insight", "put CI health or merge times on a dashboard", "email me PR throughput weekly", "chart CI cost", "track time to first review", "subscribe to these numbers", "alert on CI success rate", or "what tables and views does engineering analytics read". For one-off CI and merge questions use diagnosing-ci-and-merge-bottlenecks. To investigate one CI failure use investigating-ci-failures.'
 ---
 

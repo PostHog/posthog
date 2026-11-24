@@ -1,5 +1,7 @@
 ---
 name: finding-deleted-feature-flags
+metadata:
+  audience: customer
 description: 'Find feature flags that were soft-deleted in the active project within a recent time window. Use when the user asks "what flags were deleted in the last N days", "show me recently deleted feature flags", "who deleted flag X", "audit recent flag deletions", or anything similar. Handles the non-obvious gotcha that system.feature_flags exposes the deleted boolean but does not expose a deletion timestamp — the actual deleted-at time lives in the per-flag activity log and must be cross-referenced.'
 ---
 

@@ -1,5 +1,7 @@
 ---
 name: auditing-endpoints
+metadata:
+  audience: customer
 description: >
   Audit every endpoint in a PostHog project for staleness, failed materialisations, and unused
   materialised versions. Use when the user asks "what endpoints can I clean up?", "are any of my

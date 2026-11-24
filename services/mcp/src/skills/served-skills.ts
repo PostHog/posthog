@@ -1,14 +1,17 @@
 import z from 'zod'
 
+import servedSkillsJson from '@/generated/served-skills.json'
 import { POSTHOG_AI_CONSUMER, SLACK_CONSUMER } from '@/lib/client-detection'
 import type { EvaluatedFlags } from '@/lib/posthog/flags'
 
-import servedSkillsJson from './served-skills.json'
+import contextMillSkillsJson from './context-mill-skills.json'
 
 // The PostHog-run agents that read skills through `learn`. Other PostHog consumers read an installed copy.
 const SkillConsumerSchema = z.enum([SLACK_CONSUMER, POSTHOG_AI_CONSUMER])
 
 const ServedSkillSchema = z.strictObject({
+    // The generated file carries each product skill's audience. A skill with any other audience must not be in it.
+    audience: z.enum(['customer', 'scout']).optional(),
     feature_flag: z.string().min(1).optional(),
     consumers: z.array(SkillConsumerSchema).min(1).optional(),
 })
@@ -37,7 +40,8 @@ export function parseServedSkills(json: unknown): ServedSkills {
     return new Map([...Object.entries(skills), ...Object.entries(context_mill_skills)])
 }
 
-const SERVED_SKILLS = parseServedSkills(servedSkillsJson)
+// Product skills come from the file generated from their headers. Context-mill skills live in another repo, so their list is kept here.
+const SERVED_SKILLS = parseServedSkills({ skills: servedSkillsJson.skills, context_mill_skills: contextMillSkillsJson })
 
 export function getServedSkillFeatureFlags(served: ServedSkills = SERVED_SKILLS): string[] {
     return [...new Set([...served.values()].flatMap(({ feature_flag }) => (feature_flag ? [feature_flag] : [])))]

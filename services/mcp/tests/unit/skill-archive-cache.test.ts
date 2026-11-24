@@ -1,13 +1,13 @@
 import { strToU8, zipSync } from 'fflate'
 import { describe, expect, it, vi } from 'vitest'
 
+import servedSkillsJson from '@/generated/served-skills.json'
 import { OmnibusSkillsCache } from '@/hono/cache/OmnibusSkillsCache'
 import type { RedisLike } from '@/hono/cache/RedisCache'
 import { hashBytes } from '@/hono/cache/SharedBlobCache'
 import { SkillArchiveCache, type SkillArchiveFetchResult } from '@/hono/cache/SkillArchiveCache'
 import { skillArchiveLastValidatedTimestampSeconds } from '@/hono/metrics'
 import { SkillCatalogService } from '@/hono/skill-catalog-service'
-import servedSkillsJson from '@/skills/served-skills.json'
 
 import { makeSharedBlobRedisStubs } from '../hono/helpers/shared-blob-redis-stubs'
 

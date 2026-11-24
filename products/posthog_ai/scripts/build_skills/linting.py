@@ -32,7 +32,7 @@ class SkillLinter:
     - Jinja2 syntax validation via parse-only (all .j2 files)
     - Frontmatter validation for product and project skill entry points
     - Tool/skill reference validation in markdown (against the MCP schema registries)
-    - Every product skill is in the MCP served-skills list or has `audience: internal`, and every listed name is a skill
+    - Every product skill states its audience, and the MCP served-skills file matches the skill headers
     """
 
     def __init__(self, repo_root: Path, skills: list[skill_manifest.DiscoveredSkill]) -> None:
@@ -66,9 +66,8 @@ class SkillLinter:
 
     def _warn_about_large_served_skills(self) -> None:
         """Advisory only. `learn` loads a served skill's SKILL.md into a customer agent's context in one piece."""
-        served_names = skill_audience._load_served_skill_names(self.repo_root) or set()
         for skill in self.skills:
-            if discovery._unrendered_skill_name(skill) not in served_names:
+            if not skill_audience._is_served(skill):
                 continue
             warning = skill_size.size_warning(skill_size.measure_entry(skill.source_file))
             if warning is None:

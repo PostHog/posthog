@@ -1,5 +1,7 @@
 ---
 name: managing-endpoint-versions
+metadata:
+  audience: customer
 description: >
   Work safely with endpoint versions — preview a draft in the playground, roll back to an older
   version, update settings on one version without bumping query history, deactivate a specific

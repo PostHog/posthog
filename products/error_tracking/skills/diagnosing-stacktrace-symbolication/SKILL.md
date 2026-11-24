@@ -1,5 +1,7 @@
 ---
 name: diagnosing-stacktrace-symbolication
+metadata:
+  audience: customer
 description: >
   Help users debug PostHog Error Tracking stack-trace symbolication for any supported platform — JavaScript/TypeScript
   web, React Native (Hermes), Android (Proguard / R8), or iOS / macOS (dSYM). The PostHog symbol-set lookup flow is

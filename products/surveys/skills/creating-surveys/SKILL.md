@@ -1,5 +1,7 @@
 ---
 name: creating-surveys
+metadata:
+  audience: customer
 description: >
   Creates and launches PostHog surveys through MCP, including NPS/CSAT popovers,
   hosted feedback forms, and headless surveys. Guides survey type selection,

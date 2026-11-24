@@ -1,5 +1,7 @@
 ---
 name: managing-llm-prompts
+metadata:
+  audience: customer
 description: >
   Create, version, release, and wire up LLM prompts with PostHog prompt management.
   Use when a user asks to create or edit a prompt in PostHog, move hardcoded prompts

@@ -1,5 +1,8 @@
 ---
 name: exploring-mcp-intent-clusters
+metadata:
+  audience: customer
+  feature_flag: mcp-analytics-intent-routing
 description: >
   Explore PostHog MCP intent clusters — agent goals grouped by semantic
   similarity, with each cluster's tool distribution and error rates, plus the
