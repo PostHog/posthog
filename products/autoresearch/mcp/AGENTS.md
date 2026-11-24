@@ -36,7 +36,7 @@ The descriptions here already do real work, and that is the standard to hold. Ex
 
 - `autoresearch-create` spells out the mutual exclusion — pass `target_event` _or_ `target_definition`, exactly one — and names the next call (`autoresearch-train-create`).
 - It also tells the caller to run `autoresearch-validate-create` first _and_ warns that the endpoint does not block on validation errors, so the model knows the check is advisory.
-- `autoresearch-train-create` says what happens to the existing champion on a retrain and names every refusal (run in progress, paused pipeline, deactivated organization, daily limit).
+- `autoresearch-train-create` says what happens to the existing champion on a retrain and names every refusal (run in progress, paused pipeline, deactivated organization, daily limit, monthly budget).
 
 Write for a model that has read nothing else. Name the prerequisite call, the next call, and the failure mode.
 
