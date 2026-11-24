@@ -4,6 +4,7 @@ use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
 use async_trait::async_trait;
+use futures::future::join_all;
 use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio::time::Instant;
@@ -438,13 +439,19 @@ async fn run_batch<W: CoalescedWrite>(inner: Arc<dyn IdentityStorage>, batch: Ba
                 "Coalesced {} transaction failed; rerunning each call alone",
                 W::NAME
             );
-            for pending in callers {
-                if pending.reply.is_closed() {
-                    continue;
-                }
-                let result = write_with_batch_labels::<W>(&*inner, &pending.items).await;
-                pending.reply.send(result).ok();
-            }
+            // Concurrent, so that a rerun that waits on a lock delays only
+            // its own caller.
+            let reruns = callers
+                .into_iter()
+                .filter(|pending| !pending.reply.is_closed())
+                .map(|pending| {
+                    let inner = &*inner;
+                    async move {
+                        let result = write_with_batch_labels::<W>(inner, &pending.items).await;
+                        pending.reply.send(result).ok();
+                    }
+                });
+            join_all(reruns).await;
         }
         Err(e) => {
             for pending in callers {
@@ -559,6 +566,7 @@ mod tests {
         calls: std::sync::Mutex<Vec<Vec<String>>>,
         gate: std::sync::Mutex<Option<(oneshot::Sender<()>, oneshot::Receiver<()>)>>,
         poison: Option<Poison>,
+        held: std::sync::Mutex<Option<(&'static str, oneshot::Receiver<()>)>>,
     }
 
     impl ScriptedStorage {
@@ -567,6 +575,7 @@ mod tests {
                 calls: std::sync::Mutex::new(Vec::new()),
                 gate: std::sync::Mutex::new(None),
                 poison,
+                held: std::sync::Mutex::new(None),
             })
         }
 
@@ -579,8 +588,16 @@ mod tests {
                 calls: std::sync::Mutex::new(Vec::new()),
                 gate: std::sync::Mutex::new(Some((started_tx, release_rx))),
                 poison,
+                held: std::sync::Mutex::new(None),
             });
             (storage, started_rx, release_tx)
+        }
+
+        /// A lone call for `distinct_id` waits until the returned sender fires.
+        fn hold_lone(&self, distinct_id: &'static str) -> oneshot::Sender<()> {
+            let (release_tx, release_rx) = oneshot::channel();
+            *self.held.lock().unwrap() = Some((distinct_id, release_rx));
+            release_tx
         }
 
         fn primary_ids_per_call(&self) -> Vec<Vec<String>> {
@@ -635,6 +652,16 @@ mod tests {
                     panic!("scripted panic");
                 }
                 _ => {}
+            }
+            let held = {
+                let mut held = self.held.lock().unwrap();
+                match held.as_ref() {
+                    Some((id, _)) if stubs.len() == 1 && stubs[0].distinct_id == *id => held.take(),
+                    _ => None,
+                }
+            };
+            if let Some((_, release)) = held {
+                release.await.unwrap();
             }
             Ok(stubs
                 .iter()
@@ -856,6 +883,43 @@ mod tests {
         assert_eq!(uuids(&results[1]), vec![person_uuid(1, "b")]);
         assert!(matches!(results[2], Err(StorageError::Query(_))));
         assert_eq!(uuids(&results[3]), vec![person_uuid(1, "c")]);
+    }
+
+    // The paused clock fires the timeout as soon as every task is idle, so a
+    // rerun stuck behind the held one fails the test at once.
+    #[tokio::test(start_paused = true)]
+    async fn a_rerun_that_blocks_does_not_hold_back_the_other_reruns() {
+        let (inner, started_rx, release_tx) =
+            ScriptedStorage::gated(Some(Poison::Error("poisoned")));
+        let unblock = inner.hold_lone("held");
+        let storage = CoalescingIdentityStorage::spawn(inner.clone(), Some(settings(1)), None);
+        let (first, held, poisoned, free) = (
+            vec![stub(1, "a", &[])],
+            vec![stub(1, "held", &[])],
+            vec![stub(1, "poisoned", &[])],
+            vec![stub(1, "free", &[])],
+        );
+
+        let mut running = storage.create_person_stubs(&first);
+        assert!(futures::poll!(&mut running).is_pending());
+        started_rx.await.unwrap();
+        let mut blocked = storage.create_person_stubs(&held);
+        let mut failing = storage.create_person_stubs(&poisoned);
+        let mut healthy = storage.create_person_stubs(&free);
+        assert!(futures::poll!(&mut blocked).is_pending());
+        assert!(futures::poll!(&mut failing).is_pending());
+        assert!(futures::poll!(&mut healthy).is_pending());
+        release_tx.send(()).unwrap();
+        running.await.unwrap();
+
+        let healthy = tokio::time::timeout(Duration::from_secs(1), healthy).await;
+        assert_eq!(
+            uuids(&healthy.expect("the healthy rerun waited behind the held one")),
+            vec![person_uuid(1, "free")]
+        );
+        assert!(matches!(failing.await, Err(StorageError::Query(_))));
+        unblock.send(()).unwrap();
+        assert_eq!(uuids(&blocked.await), vec![person_uuid(1, "held")]);
     }
 
     #[tokio::test]

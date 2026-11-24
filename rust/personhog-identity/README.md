@@ -25,6 +25,7 @@ A worker takes one queued call and every call already queued behind it, up to `S
 Calls share a transaction only when they would otherwise wait for a worker, so latency does not change while a worker is free.
 Calls that share a distinct id never share a transaction, so each call gets the outcome its own transaction would give.
 When a shared transaction fails with a query error or a timeout, the worker reruns each call in its own transaction, so the failure reaches only the call that caused it.
+The reruns run at the same time, so a rerun that waits on a lock delays only its own call.
 A connection error or an exhausted pool fails every call in the batch, and callers retry as they do for any storage error.
 The worker count also caps the heavy connections that stub creation can hold, so keep it well below `HEAVY_MAX_PG_CONNECTIONS`.
 At most `STUB_CREATE_MAX_QUEUED_CALLS` calls (default 1000) wait for a worker, and a call that no worker has started stops waiting after `HEAVY_ACQUIRE_TIMEOUT_SECS`.
