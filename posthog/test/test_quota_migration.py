@@ -248,6 +248,29 @@ class TestQuotaMigration(SimpleTestCase):
                 compare_quota_stores([self.key])
         get_secondary.assert_called_once_with(maintenance=True)
 
+    @parameterized.expand([("snapshot",), ("compare",)])
+    def test_copy_reads_use_bounded_pages(self, operation: str) -> None:
+        members = {f"team-{index}": 1794484798 + index for index in range(7)}
+        copy_members = {**members, "team-6": 1794484900, "copy-only": 1794484900}
+        self.shared.zadd(self.key, members)  # type: ignore[arg-type]
+        self.secondary.zadd(self.key, copy_members)  # type: ignore[arg-type]
+        with (
+            patch("posthog.quota_migration.QUOTA_READ_PAGE_SIZE", 2, create=True),
+            patch("posthog.quota_migration.sleep"),
+            patch.object(self.secondary, "execute_command", wraps=self.secondary.execute_command) as commands,
+        ):
+            if operation == "snapshot":
+                secondary = snapshot_quota_stores({self.key: []}).secondary
+                assert secondary is not None
+                assert sorted(secondary[self.key]) == ["copy-only", "team-2", "team-3", "team-4", "team-5", "team-6"]
+            else:
+                assert compare_quota_stores([self.key])
+                assert QUOTA_COMPARE_MISMATCHES.labels(key=self.key)._value.get() == 2
+        reads = [call.args for call in commands.call_args_list]
+        assert {read[0] for read in reads} == {"ZSCAN"}
+        assert {read[3:] for read in reads} == {(b"COUNT", 2)}
+        assert len(reads) > 1
+
     def test_secondary_failure_does_not_fail_shared_write(self) -> None:
         with patch.object(self.secondary, "zadd", side_effect=RedisTimeoutError("secondary unavailable")):
             add_limited_team_tokens(self.resource, {"new": 1900000100}, self.cache)
@@ -327,7 +350,7 @@ class TestQuotaMigration(SimpleTestCase):
     def test_failed_secondary_snapshot_skips_reconciliation_even_after_recovery(self) -> None:
         self.shared.zadd(self.key, {"old": 1900000000})
         self.secondary.zadd(self.key, {"unknown": 1900000000})
-        with patch.object(self.secondary, "zrangebyscore", side_effect=RedisTimeoutError("unavailable")):
+        with patch.object(self.secondary, "zscan", side_effect=RedisTimeoutError("unavailable")):
             snapshots = snapshot_quota_stores({self.key: ["old"]})
         _retry_after.clear()
         reconcile_limited_team_tokens(self.resource, ["old"], {}, self.cache, store_snapshots=snapshots)
@@ -348,7 +371,7 @@ class TestQuotaMigration(SimpleTestCase):
         labels = {"operation": "reconcile", "result": "run_budget_exceeded"}
         before = REGISTRY.get_sample_value("billing_quota_secondary_operations_total", labels) or 0
         execute = self.secondary.execute_command
-        delays = {"ZRANGEBYSCORE": read_seconds, "ZADD": 200}
+        delays = {"ZSCAN": read_seconds, "ZADD": 200}
         clock = 0
 
         def slow_secondary(*arguments: object, **options: object) -> object:
@@ -381,10 +404,14 @@ class TestQuotaMigration(SimpleTestCase):
         reconcile_secondary_quota_sets(snapshots, dict.fromkeys(keys, verdict))
         assert [self.secondary.zrange(key, 0, -1) for key in keys] == [[b"limited"]] * len(keys)
 
-    def test_snapshot_over_the_run_budget_skips_reconciliation(self) -> None:
+    @parameterized.expand([("slow_set", 1, 300, 1), ("slow_page", 7, 100, 3)])
+    def test_snapshot_over_the_run_budget_skips_reconciliation(
+        self, _name: str, members: int, read_seconds: int, expected_reads: int
+    ) -> None:
         keys = [self.key, f"{self.cache.value}{QuotaResource.RECORDINGS.value}"]
         for key in keys:
-            self.secondary.zadd(key, {"unknown": 1900000000})
+            self.secondary.zadd(key, {f"unknown-{index}": 1900000000 for index in range(members)})
+        stored = [self.secondary.zrange(key, 0, -1) for key in keys]
         labels = {"operation": "snapshot", "result": "failure"}
         before = REGISTRY.get_sample_value("billing_quota_secondary_operations_total", labels) or 0
         execute = self.secondary.execute_command
@@ -392,19 +419,21 @@ class TestQuotaMigration(SimpleTestCase):
 
         def slow_read(*arguments: object, **options: object) -> object:
             nonlocal clock
-            clock += 300
+            clock += read_seconds
             return execute(*arguments, **options)
 
         with (
+            patch("posthog.quota_migration.QUOTA_READ_PAGE_SIZE", 2, create=True),
             patch("posthog.quota_migration.monotonic", side_effect=lambda: clock),
-            patch.object(self.secondary, "execute_command", side_effect=slow_read),
+            patch.object(self.secondary, "execute_command", side_effect=slow_read) as commands,
         ):
             snapshots = snapshot_quota_stores(dict.fromkeys(keys, []))
         assert snapshots.secondary is None
+        assert commands.call_count == expected_reads
         assert REGISTRY.get_sample_value("billing_quota_secondary_operations_total", labels) == before + 1
         _retry_after.clear()
         reconcile_secondary_quota_sets(snapshots, dict.fromkeys(keys, {}))
-        assert [self.secondary.zrange(key, 0, -1) for key in keys] == [[b"unknown"]] * len(keys)
+        assert [self.secondary.zrange(key, 0, -1) for key in keys] == stored
 
     @override_settings(QUOTA_LIMITING_REDIS_URL=None)
     def test_unconfigured_secondary_preserves_shared_writes(self) -> None:
@@ -441,7 +470,7 @@ class TestQuotaMigration(SimpleTestCase):
         with (
             capture_logs() as logs,
             patch("posthog.quota_migration.sleep"),
-            patch.object(self.secondary, "zrange", side_effect=[[], RedisTimeoutError("member=private-token")]),
+            patch.object(self.secondary, "zscan", side_effect=[(0, []), RedisTimeoutError("member=private-token")]),
         ):
             assert not compare_quota_stores([self.key])
         assert logs == [{"event": "quota_comparison_failed", "error_type": "TimeoutError", "log_level": "warning"}]
