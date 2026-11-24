@@ -55,6 +55,8 @@ IMPACT_COUNTS = {
     "not_clicked": 3,
     "untracked": 2,
     "window_days": 7,
+    "sessions": 2,
+    "link_tagging_enabled": True,
 }
 LONG_ID_SENDS = 20
 SMALL_MAX_QUERY_SIZE = 16 * 1024
@@ -704,8 +706,10 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             (6_000, "bounced", [("sent", 1, "untracked"), ("bounced", 2, "")], timedelta(hours=1)),
             (7_000, None, [("sent", 1, ""), ("clicked", 3600, "")], None),
         ]
+        message_ids: dict[str, str] = {}
         for minutes_ago, distinct_id, statuses, purchase_after_send in sends:
             message_id = self._send(minutes_ago, f"{distinct_id}@example.com", statuses)
+            message_ids[str(distinct_id)] = message_id
             sent_at = NOW - timedelta(minutes=minutes_ago)
             if distinct_id:
                 self._record_distinct_id(message_id, distinct_id, f"{distinct_id}@example.com", sent_at)
@@ -715,8 +719,25 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
                     team=self.team, event="purchase", distinct_id=purchaser, timestamp=sent_at + purchase_after_send
                 )
         other_workflow = create_workflow_for_test(team_id=self.team.id, name="Welcome").id
-        self._send(500, "clicker@example.com", clicked_an_hour_in, workflow_id=other_workflow)
+        welcome_id = self._send(500, "clicker@example.com", clicked_an_hour_in, workflow_id=other_workflow)
         self._send(400, "reader@example.com", [("sent", 1, "untracked")], workflow_id=other_workflow)
+        landings = [
+            ("clicker", "clicker-session", message_ids["clicker"]),
+            ("clicker", "clicker-session", message_ids["clicker"]),
+            ("early", "early-session", message_ids["early"]),
+            ("reader", "opened-only-session", message_ids["reader"]),
+            ("clicker", "welcome-session", welcome_id),
+            ("early", "untagged-session", None),
+        ]
+        for distinct_id, session_id, run_id in landings:
+            query = f"?plan=pro&ph_workflow_run={run_id}" if run_id else "?plan=pro"
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=distinct_id,
+                timestamp=NOW - timedelta(minutes=100),
+                properties={"$current_url": f"https://example.com/reset{query}", "$session_id": session_id},
+            )
         flush_persons_and_events()
 
     def _impact(self, **params: str) -> dict:
@@ -724,13 +745,18 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         return response.json()
 
-    def test_impact_counts_how_far_this_workflows_sends_got(self, _flag):
+    @parameterized.expand([("link tagging on", True, 2), ("link tagging off", False, None)])
+    def test_impact_counts_how_far_this_workflows_sends_got(self, _flag, _name, link_tagging_enabled, sessions):
+        self.team.workflows_config.email_workflow_run_link_tag_enabled = link_tagging_enabled
+        self.team.workflows_config.save()
         self._seed_impact_sends()
 
         assert self._impact(date_from=(NOW - timedelta(days=29)).isoformat()) == {
             **IMPACT_COUNTS,
             "after_click": None,
             "without_click": None,
+            "sessions": sessions,
+            "link_tagging_enabled": link_tagging_enabled,
         }
 
     def test_counts_conversions_within_a_week_of_the_click_against_sends_nobody_clicked(self, _flag):
@@ -816,6 +842,8 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             "window_days": 7,
             "after_click": {"sends": 1, "converted": 1},
             "without_click": {"sends": 0, "converted": 0},
+            "sessions": 0,
+            "link_tagging_enabled": True,
         }
 
     def test_counts_a_send_with_tracking_off_in_the_period_it_was_queued_in(self, _flag):
@@ -923,6 +951,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         results = self.client.get(self._url("results/"), {"workflow_id": self.workflow_id, "event": "purchase"})
 
         assert funnel.status_code == status.HTTP_200_OK, funnel.json()
+        assert (funnel.json()["sessions"], funnel.json()["link_tagging_enabled"]) == (None, True)
         assert conversions.status_code == status.HTTP_403_FORBIDDEN, conversions.json()
         assert results.status_code == status.HTTP_403_FORBIDDEN, results.json()
 

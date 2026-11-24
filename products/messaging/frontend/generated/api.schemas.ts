@@ -1750,6 +1750,13 @@ export interface TransactionalEmailImpactApi {
     after_click: TransactionalEmailConversionsApi | null
     /** Delivered sends nobody clicked and how many converted. Null without an event. */
     without_click: TransactionalEmailConversionsApi | null
+    /**
+     * Sessions that started from a click in this email, counted from pageviews whose URL carries the send's ph_workflow_run tag, up to window_days after the period. Reads the newest 10,000 clicked sends at most. Null when link_tagging_enabled is false, or the user has no access to querying events.
+     * @nullable
+     */
+    sessions: number | null
+    /** Whether the project tags tracked links on the sender's own domain with ph_workflow_run, which connects a click to the session it starts. When false, sessions is null. Set it with workflows_config.email_workflow_run_link_tag_enabled in the project settings. */
+    link_tagging_enabled: boolean
 }
 
 export interface TransactionalEmailResultsApi {

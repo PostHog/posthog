@@ -608,11 +608,12 @@ def transactional_email_impact(
     workflow_id: str,
     event: str | None,
     *,
+    can_query_events: bool,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
 ) -> TransactionalEmailImpact:
-    """How far one email's sends got, from sent to clicked, and how often the person behind a send did `event` within
-    a week of clicking, against sends that were delivered and never clicked."""
+    """How far one email's sends got, from sent to clicked, how many sessions the clicks started, and how often the
+    person behind a send did `event` within a week of clicking, against sends that were delivered and never clicked."""
     period = _window(date_from, date_to)
     params: dict[str, Any] = {
         "start": period.start,
@@ -643,20 +644,17 @@ def transactional_email_impact(
         params,
         _GROUP_AS_READ,
     )
-    if not event:
-        return TransactionalEmailImpact(
-            sent=sent,
-            delivered=delivered,
-            opened=opened,
-            clicked=clicked,
-            not_clicked=not_clicked,
-            untracked=untracked,
-            window_days=IMPACT_WINDOW_DAYS,
-            after_click=None,
-            without_click=None,
-        )
-    sends = _sends_to_follow(team, user, workflow_id, period)
-    converted = _converted_sends(team, user, event, sends)
+    link_tagging_enabled = team.workflows_config.email_workflow_run_link_tag_enabled
+    sessions: int | None = None
+    if link_tagging_enabled and can_query_events:
+        sessions = _sessions_started_by_clicks(team, user, workflow_id, period) if clicked else 0
+    after_click: TransactionalEmailConversions | None = None
+    without_click: TransactionalEmailConversions | None = None
+    if event:
+        sends = _sends_to_follow(team, user, workflow_id, period)
+        converted = _converted_sends(team, user, event, sends)
+        after_click = _conversions_of([send for send in sends if send.clicked], converted)
+        without_click = _conversions_of([send for send in sends if not send.clicked], converted)
     return TransactionalEmailImpact(
         sent=sent,
         delivered=delivered,
@@ -665,9 +663,64 @@ def transactional_email_impact(
         not_clicked=not_clicked,
         untracked=untracked,
         window_days=IMPACT_WINDOW_DAYS,
-        after_click=_conversions_of([send for send in sends if send.clicked], converted),
-        without_click=_conversions_of([send for send in sends if not send.clicked], converted),
+        after_click=after_click,
+        without_click=without_click,
+        sessions=sessions,
+        link_tagging_enabled=link_tagging_enabled,
     )
+
+
+def _sessions_started_by_clicks(team: Team, user: User | None, workflow_id: str, period: _Period) -> int:
+    rows = _execute(
+        team.id,
+        f"""
+        SELECT toString(message_id)
+        FROM (
+            SELECT {_MESSAGE_COLUMNS}
+            FROM {EMAIL_STATUS_EVENTS_TABLE}
+            WHERE team_id = %(team_id)s AND created_at >= %(start)s AND created_at < %(end)s
+            GROUP BY created_at, message_id
+        )
+        WHERE message_function_id = %(workflow_id)s AND delivery_status != '' AND was_clicked
+        ORDER BY queued_at DESC
+        LIMIT %(limit)s
+        """,
+        {"start": period.start, "end": period.end, "workflow_id": workflow_id, "limit": MAX_RESULTS_RECIPIENTS},
+        _GROUP_AS_READ,
+    )
+    # A session is counted twice only when it opened links of two sends that a small team query size split into
+    # separate batches.
+    return sum(
+        _sessions_in_batch(team, user, batch, period)
+        for batch in _batches_by_query_size(team.id, [message_id for (message_id,) in rows], _escaped_literal_bytes)
+    )
+
+
+def _sessions_in_batch(team: Team, user: User | None, message_ids: list[str], period: _Period) -> int:
+    # The email worker tags each link on the sender's own domain with ph_workflow_run=<invocation id>, and the
+    # invocation id is the send's message id.
+    response = execute_hogql_query(
+        """
+        SELECT count(DISTINCT $session_id)
+        FROM events
+        WHERE event = '$pageview'
+          AND timestamp >= {start} AND timestamp < {end}
+          AND $session_id != ''
+          AND position(properties.$current_url, 'ph_workflow_run=') > 0
+          AND extractURLParameter(properties.$current_url, 'ph_workflow_run') IN {message_ids}
+        """,
+        team=team,
+        user=user,
+        placeholders={
+            "start": ast.Constant(value=period.start),
+            "end": ast.Constant(value=period.end + timedelta(days=IMPACT_WINDOW_DAYS)),
+            "message_ids": ast.Constant(value=message_ids),
+        },
+        query_type="transactional_email_impact_sessions",
+        workload=Workload.ONLINE,
+    )
+    [(sessions,)] = response.results
+    return sessions
 
 
 @frozen
