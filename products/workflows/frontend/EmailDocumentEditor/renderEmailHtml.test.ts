@@ -285,6 +285,44 @@ describe('renderEmailHtml', () => {
         ).toEqual('{% if vip %}Private\n{% else %}Public\n{% endif %}')
     })
 
+    it.each([
+        {
+            name: 'a text link once, after all of its text',
+            block: {
+                type: 'paragraph',
+                content: ['Read ', 'all'].map((text, index) => ({
+                    type: 'text',
+                    text,
+                    marks: [
+                        { type: 'link', attrs: { href: '{{ unsubscribe_url }}' } },
+                        ...(index ? [{ type: 'bold' }] : []),
+                    ],
+                })),
+            },
+            expected: 'Read all ({{ unsubscribe_url }})',
+        },
+        {
+            name: 'an image link in a column',
+            block: {
+                type: 'emailColumns',
+                content: [
+                    {
+                        type: 'emailColumn',
+                        content: [
+                            {
+                                type: 'emailImage',
+                                attrs: { src: 'https://example.com/a.png', alt: 'Shop', href: 'https://example.com' },
+                            },
+                        ],
+                    },
+                ],
+            },
+            expected: 'Shop (https://example.com)',
+        },
+    ])('writes the address of $name', ({ block, expected }) => {
+        expect(renderEmailText(doc(block))).toEqual(expected)
+    })
+
     it('keeps text between Liquid tags in its place, and lets a tag alone on its line sit between rows', () => {
         const paragraph = (text: string): Record<string, any> => ({
             type: 'paragraph',

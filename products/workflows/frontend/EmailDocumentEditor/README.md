@@ -47,3 +47,11 @@ The new editor reaches `emailTemplaterLogic` through `emailEditorAdapter`, which
 ## Email output
 
 `renderEmailHtml` writes tables and inline styles. Columns are inline-blocks capped at their width, so they stack on a phone without a media query, with ghost tables for Outlook. Liquid passes through unescaped outside attributes.
+
+## Plain text
+
+An edit writes `text` again from the document (`renderEmailText`), with the address of every link.
+`htmlToEmailText` does that for HTML blocks. It keeps every Liquid tag in its order, because one tag out of place fails the whole send.
+
+Text that came with the html from an import or the API, and that doesn't only repeat it, stays as it is on every edit.
+The document's `ownPlainText` attribute holds that, and the editor shows a button that ends it.
