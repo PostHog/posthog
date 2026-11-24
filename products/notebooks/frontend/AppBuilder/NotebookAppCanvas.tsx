@@ -29,6 +29,7 @@ export function NotebookAppCanvas({
     onSource,
     onInput,
     onCellOutput,
+    renderOutput,
 }: {
     layout: NotebookAppLayoutApi
     activeTab: string
@@ -38,14 +39,15 @@ export function NotebookAppCanvas({
     editing: boolean
     selectedId: string | null
     canInteract: boolean
-    onSelect: (id: string) => void
-    onMove: (id: string, beforeId: string) => void
-    onMoveBy: (id: string, direction: number) => void
-    onDuplicate: (id: string) => void
-    onRemove: (id: string) => void
-    onSource: (id: string) => void
+    onSelect?: (id: string) => void
+    onMove?: (id: string, beforeId: string) => void
+    onMoveBy?: (id: string, direction: number) => void
+    onDuplicate?: (id: string) => void
+    onRemove?: (id: string) => void
+    onSource?: (id: string) => void
     onInput: (name: string, value: NotebookVariableValue) => void
-    onCellOutput: (nodeId: string, markdown: string) => void
+    onCellOutput?: (nodeId: string, markdown: string) => void
+    renderOutput?: (cell: NotebookBlockNode) => JSX.Element | undefined
 }): JSX.Element {
     const blocks = layout.blocks.filter((block) => block.tab_id === activeTab)
     return (
@@ -60,7 +62,7 @@ export function NotebookAppCanvas({
                         editing
                             ? (event) => {
                                   event.preventDefault()
-                                  onMove(event.dataTransfer.getData('application/x-notebook-app-block'), block.id)
+                                  onMove?.(event.dataTransfer.getData('application/x-notebook-app-block'), block.id)
                               }
                             : undefined
                     }
@@ -75,7 +77,7 @@ export function NotebookAppCanvas({
                                     size="xsmall"
                                     type={selectedId === block.id ? 'secondary' : 'tertiary'}
                                     icon={<IconPencil />}
-                                    onClick={() => onSelect(block.id)}
+                                    onClick={() => onSelect?.(block.id)}
                                     data-attr="notebook-app-edit-component"
                                 >
                                     {block.kind === 'cell'
@@ -105,25 +107,25 @@ export function NotebookAppCanvas({
                                                 label: 'Move up',
                                                 icon: <IconChevronDown className="rotate-180" />,
                                                 disabledReason: index === 0 ? 'Already first' : undefined,
-                                                onClick: () => onMoveBy(block.id, -1),
+                                                onClick: () => onMoveBy?.(block.id, -1),
                                             },
                                             {
                                                 label: 'Move down',
                                                 icon: <IconChevronDown />,
                                                 disabledReason:
                                                     index === blocks.length - 1 ? 'Already last' : undefined,
-                                                onClick: () => onMoveBy(block.id, 1),
+                                                onClick: () => onMoveBy?.(block.id, 1),
                                             },
                                             {
                                                 label: 'Duplicate',
                                                 icon: <IconCopy />,
-                                                onClick: () => onDuplicate(block.id),
+                                                onClick: () => onDuplicate?.(block.id),
                                             },
                                             ...(block.kind === 'cell'
                                                 ? [
                                                       {
                                                           label: 'Open source cell',
-                                                          onClick: () => onSource(block.node_id || ''),
+                                                          onClick: () => onSource?.(block.node_id || ''),
                                                       },
                                                   ]
                                                 : []),
@@ -131,7 +133,7 @@ export function NotebookAppCanvas({
                                                 label: 'Remove from app',
                                                 icon: <IconTrash />,
                                                 status: 'danger',
-                                                onClick: () => onRemove(block.id),
+                                                onClick: () => onRemove?.(block.id),
                                             },
                                         ]}
                                     >
@@ -151,6 +153,7 @@ export function NotebookAppCanvas({
                             canInteract={canInteract}
                             onInput={onInput}
                             onCellOutput={onCellOutput}
+                            renderOutput={renderOutput}
                         />
                     </LemonCard>
                 </div>

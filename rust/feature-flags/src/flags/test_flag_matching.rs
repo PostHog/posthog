@@ -5001,6 +5001,89 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_realtime_cohort_membership_from_provider_matches_flag_on_including_cohort() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        let realtime_cohort = context
+            .insert_cohort_with_type_and_condition_type(
+                team.id,
+                Some("Realtime Cohort".to_string()),
+                plan_cohort_filters("enterprise"),
+                false,
+                Some(CohortType::Realtime),
+                Some(Utc::now()),
+                None,
+                Some(behavioral_condition_type()),
+                None,
+            )
+            .await
+            .unwrap();
+        let wrapper_cohort = context
+            .insert_cohort(
+                team.id,
+                Some("Wrapper Cohort".to_string()),
+                json!({
+                    "properties": {
+                        "type": "AND",
+                        "values": [{
+                            "type": "AND",
+                            "values": [
+                                {"key": "plan", "type": "person", "value": ["free"], "operator": "exact"},
+                                {"key": "id", "type": "cohort", "value": realtime_cohort.id}
+                            ]
+                        }]
+                    }
+                }),
+                false,
+            )
+            .await
+            .unwrap();
+
+        let distinct_id = "realtime_nested_member_user".to_string();
+        context
+            .insert_person(team.id, distinct_id.clone(), Some(json!({"plan": "free"})))
+            .await
+            .unwrap();
+
+        let flag = flag_targeting_cohort(team.id, wrapper_cohort.id);
+
+        let provider = Arc::new(FixedMembershipProvider::new(HashMap::from([(
+            realtime_cohort.id,
+            true,
+        )])));
+        let mut matcher = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            None,
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache,
+            empty_group_type_cache(),
+            None,
+        )
+        .with_cohort_membership_provider(provider.clone())
+        .with_realtime_cohort_evaluation(true);
+
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+
+        let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
+
+        assert!(
+            result.matches,
+            "The wrapper should read the provider's membership for the realtime cohort it includes"
+        );
+        assert_eq!(provider.calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
     async fn test_realtime_cohort_provider_error_degrades_to_non_member() {
         let context = TestContext::new(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(

@@ -6,7 +6,7 @@ import structlog
 from cachetools import TTLCache
 from posthoganalytics import Posthog
 
-from llm_gateway.config import get_settings
+from llm_gateway.config import POSTHOG_SYNC_SEND_MAX_RETRIES, get_settings
 
 logger = structlog.get_logger(__name__)
 
@@ -26,6 +26,7 @@ def _get_client() -> Posthog | None:
             settings.posthog_project_token,
             host=settings.posthog_host,
             sync_mode=True,
+            max_retries=POSTHOG_SYNC_SEND_MAX_RETRIES,
             enable_local_evaluation=False,
             feature_flags_request_timeout_seconds=2,
         )

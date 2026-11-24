@@ -8,6 +8,13 @@ import { highlightSegments } from './commandKRanking'
 import { CommandKSearchTime } from './CommandKSearchTime'
 import { CommandKRow } from './commandKSections'
 
+const TYPE_LABELS: Record<string, string> = {
+    persons: 'Person',
+    settings: 'Setting',
+    accounts: 'Account',
+    sidebar: 'Sidebar',
+}
+
 const userFolder = (item: SearchItem): string | null => {
     const segments = splitPath(String(item.record?.path ?? '')).slice(0, -1)
     return segments.length === 0 || segments[0] === 'Unfiled' ? null : segments.join(' › ')
@@ -40,13 +47,7 @@ export function CommandKSearchRankedItem({ row }: { row: Extract<CommandKRow, { 
         ? null
         : item.category === 'results'
           ? getItemTypeDisplayName(item.itemType)
-          : item.category === 'persons'
-            ? 'Person'
-            : item.category === 'settings'
-              ? 'Setting'
-              : item.category === 'accounts'
-                ? 'Account'
-                : 'Product'
+          : (TYPE_LABELS[item.category] ?? 'Product')
     const context = rankedContext(item, !!row.showCreator)
     return (
         <>

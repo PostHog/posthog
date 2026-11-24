@@ -162,7 +162,7 @@ type TimeWindowConfig = ActionOf<'wait_until_time_window'>['config']
 
 const WEEKDAY_NAMES = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
 
-function isWindowDay(day: TimeWindowConfig['day'], weekday: number): boolean {
+export function isWindowDay(day: TimeWindowConfig['day'], weekday: number): boolean {
     return (
         day === 'any' ||
         (day === 'weekday' && weekday < 5) ||

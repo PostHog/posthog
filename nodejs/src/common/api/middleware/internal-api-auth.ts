@@ -41,6 +41,9 @@ const SCOPED_AUTH_PATH_PATTERNS = [
     // CdpApi.postTransactionalEmail, verified against WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET, audience-pinned.
     /^\/api\/projects\/[^/]+\/hog_flows\/[^/]+\/transactional_email$/,
     /^\/api\/projects\/[^/]+\/hog_flows\/[^/]+\/transactional_email\/send$/,
+    // CdpApi.postTransactionalEmailBatch, one token kind per route.
+    /^\/api\/projects\/[^/]+\/hog_flows\/[^/]+\/transactional_email\/batch$/,
+    /^\/api\/projects\/[^/]+\/hog_flows\/[^/]+\/transactional_email\/send\/batch$/,
     /^\/api\/projects\/[^/]+\/transactional_email\/attachments\/uploads$/,
     /^\/api\/projects\/[^/]+\/transactional_emails\/[^/]+\/cancel$/,
     /^\/api\/projects\/[^/]+\/transactional_emails\/[^/]+\/reschedule$/,

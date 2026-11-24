@@ -70,6 +70,12 @@ ENDPOINTS: dict[str, Endpoint] = {
         primary_keys=("resource_arn",),
         description="Idle resources across resource types, with utilization metrics and estimated savings.",
     ),
+    "license_recommendations": Endpoint(
+        operation="GetLicenseRecommendations",
+        result_key="licenseRecommendations",
+        primary_keys=("resource_arn",),
+        description="License recommendations for EC2 instances that run licensed software, with estimated savings.",
+    ),
     "ec2_recommendation_projected_metrics": Endpoint(
         operation="GetEC2RecommendationProjectedMetrics",
         result_key="recommendedOptionProjectedMetrics",
@@ -86,6 +92,15 @@ ENDPOINTS: dict[str, Endpoint] = {
         description="Daily peak CPU and memory utilization bounds projected for each recommended ECS service size.",
         fanout=ProjectedMetricsFanout(
             parent="ecs_service_recommendations", arn_field="serviceArn", lookback_field="lookbackPeriodInDays"
+        ),
+    ),
+    "rds_database_recommendation_projected_metrics": Endpoint(
+        operation="GetRDSDatabaseRecommendationProjectedMetrics",
+        result_key="recommendedOptionProjectedMetrics",
+        primary_keys=("resource_arn", "rank", "metric_name", "timestamp"),
+        description="Daily peak utilization projected for each recommended Aurora or RDS DB instance class.",
+        fanout=ProjectedMetricsFanout(
+            parent="rds_database_recommendations", arn_field="resourceArn", lookback_field="lookbackPeriodInDays"
         ),
     ),
     "recommendation_summaries": Endpoint(

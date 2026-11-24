@@ -134,24 +134,6 @@ export const manifest: ProductManifest = {
             layout: 'app-container',
             iconType: 'llm_evaluations',
         },
-        AIObservabilityTags: {
-            import: () => import('./frontend/tags/AIObservabilityTagsScene'),
-            projectBased: true,
-            name: 'Taggers',
-            description: 'Add custom tags to your AI generations automatically.',
-            activityScope: 'AIObservability',
-            layout: 'app-container',
-            iconType: 'llm_tags',
-            docsHref: 'https://posthog.com/docs/ai-evals/taggers',
-        },
-        AIObservabilityTag: {
-            import: () => import('./frontend/tags/AIObservabilityTagScene'),
-            projectBased: true,
-            name: 'Tagger',
-            activityScope: 'AIObservability',
-            layout: 'app-container',
-            iconType: 'llm_tags',
-        },
         AIObservabilityPrompts: {
             import: () => import('./frontend/prompts/LLMPromptsScene'),
             projectBased: true,
@@ -203,8 +185,6 @@ export const manifest: ProductManifest = {
         '/ai-observability/clusters/:runId': ['AIObservabilityClusters', 'aiObservabilityClusters'],
         [AI_OBSERVABILITY_CLUSTER_URL_PATTERN]: ['AIObservabilityCluster', 'aiObservabilityCluster'],
         '/ai-evals/evaluations/offline/datasets/:id': ['AIObservabilityDataset', 'aiObservabilityDataset'],
-        '/ai-evals/taggers': ['AIObservabilityTags', 'aiObservabilityTags'],
-        '/ai-evals/taggers/:id': ['AIObservabilityTag', 'aiObservabilityTag'],
         '/ai-evals/evaluations': ['AIObservabilityEvaluations', 'aiObservabilityEvaluations'],
         '/ai-evals/evaluations/offline/experiments': [
             'AIObservabilityOfflineExperiments',
@@ -252,10 +232,19 @@ export const manifest: ProductManifest = {
             combineUrl(urls.aiObservabilityDataset(params.id), searchParams, hashParams).url,
         '/ai-evals/evaluations/offline': (_params, searchParams, hashParams) =>
             combineUrl(urls.aiObservabilityOfflineEvaluations(), searchParams, hashParams).url,
+        // Taggers were retired in favor of categorical evaluations, so old tagger links land on evaluations.
+        '/ai-evals/taggers': (_params, searchParams, hashParams) =>
+            combineUrl(urls.aiObservabilityEvaluations(), searchParams, hashParams).url,
+        '/ai-evals/taggers/:id': (_params, searchParams, hashParams) =>
+            combineUrl(urls.aiObservabilityEvaluations(), searchParams, hashParams).url,
         '/ai-evals/tags': (_params, searchParams, hashParams) =>
-            combineUrl(urls.aiObservabilityTags(), searchParams, hashParams).url,
-        '/ai-evals/tags/:id': (params, searchParams, hashParams) =>
-            combineUrl(urls.aiObservabilityTag(params.id), searchParams, hashParams).url,
+            combineUrl(urls.aiObservabilityEvaluations(), searchParams, hashParams).url,
+        '/ai-evals/tags/:id': (_params, searchParams, hashParams) =>
+            combineUrl(urls.aiObservabilityEvaluations(), searchParams, hashParams).url,
+        '/llm-analytics/tags': (_params, searchParams, hashParams) =>
+            combineUrl(urls.aiObservabilityEvaluations(), searchParams, hashParams).url,
+        '/llm-analytics/tags/:id': (_params, searchParams, hashParams) =>
+            combineUrl(urls.aiObservabilityEvaluations(), searchParams, hashParams).url,
         '/prompt-management': (_params, searchParams, hashParams) =>
             combineUrl(urls.aiObservabilityPrompts(), searchParams, hashParams).url,
         '/llm-analytics': (_params, searchParams, hashParams) =>
@@ -312,10 +301,6 @@ export const manifest: ProductManifest = {
             combineUrl(urls.aiObservabilityDatasets(), { ...searchParams, tab: 'datasets' }, hashParams).url,
         '/llm-analytics/datasets/:id': (params, searchParams, hashParams) =>
             combineUrl(urls.aiObservabilityDataset(params.id), searchParams, hashParams).url,
-        '/llm-analytics/tags': (_params, searchParams, hashParams) =>
-            combineUrl(urls.aiObservabilityTags(), searchParams, hashParams).url,
-        '/llm-analytics/tags/:id': (params, searchParams, hashParams) =>
-            combineUrl(urls.aiObservabilityTag(params.id), searchParams, hashParams).url,
         '/llm-analytics/evaluations': (_params, searchParams, hashParams) =>
             combineUrl(urls.aiObservabilityEvaluations(), searchParams, hashParams).url,
         '/llm-analytics/evaluations/offline': (_params, searchParams, hashParams) =>
@@ -420,8 +405,6 @@ export const manifest: ProductManifest = {
         aiObservabilityDatasets: (): string => '/ai-evals/evaluations/offline/experiments?tab=datasets',
         aiObservabilityDataset: (id: string, params?: { item?: string }): string =>
             combineUrl(`/ai-evals/evaluations/offline/datasets/${id}`, params).url,
-        aiObservabilityTags: (): string => '/ai-evals/taggers',
-        aiObservabilityTag: (id: string): string => `/ai-evals/taggers/${id}`,
         aiObservabilityEvaluations: (): string => '/ai-evals/evaluations',
         aiObservabilityScorers: (): string => '/ai-evals/evaluations/scorers',
         aiObservabilityScorer: (scorerId: string, params?: { duplicate?: string }): string =>
@@ -512,19 +495,6 @@ export const manifest: ProductManifest = {
                 { name: 'Scorers', href: urls.aiObservabilityScorers() },
             ],
             sceneKey: 'AIObservabilityEvaluations',
-        },
-        {
-            path: 'Taggers',
-            intents: [ProductKey.AI_OBSERVABILITY],
-            category: ProductItemCategory.AI_ENGINEERING,
-            type: 'llm_tags',
-            iconType: 'llm_tags' as FileSystemIconType,
-            iconColor: ['var(--color-product-llm-tags-light)', 'var(--color-product-llm-tags-dark)'],
-            href: urls.aiObservabilityTags(),
-            searchKeywords: ['llm tags', 'auto-tagging'],
-            flag: FEATURE_FLAGS.LLM_ANALYTICS_TAGS,
-            tags: ['alpha'],
-            sceneKey: 'AIObservabilityTags',
         },
         {
             path: 'Prompts',

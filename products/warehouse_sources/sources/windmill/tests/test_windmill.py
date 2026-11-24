@@ -181,21 +181,137 @@ class TestSync:
         assert result.requests[0].url.startswith(BASE_URL)
 
     @pytest.mark.parametrize(
-        "endpoint, page_sizes, expected_pages",
+        "endpoint, page_sizes, expected_pages, expected_path",
         [
             # A short page ends the walk for endpoints whose pages are filled by LIMIT/OFFSET.
-            ("completed_jobs", [PER_PAGE, 1], ["1", "2"]),
+            ("completed_jobs", [PER_PAGE, 1], ["1", "2"], f"/api/w/{WORKSPACE}/jobs/completed/list"),
             # listFolders drops out-of-scope folders after LIMIT, so a short page can precede more
             # rows and only an empty page ends the walk.
-            ("folders", [PER_PAGE, 1, 3, 0], ["1", "2", "3", "4"]),
+            ("folders", [PER_PAGE, 1, 3, 0], ["1", "2", "3", "4"], f"/api/w/{WORKSPACE}/folders/list"),
+            # Workers are instance-level, so the path has no workspace segment.
+            ("workers", [PER_PAGE, 1], ["1", "2"], "/api/workers/list"),
         ],
     )
-    def test_page_walk_terminates(self, endpoint, page_sizes, expected_pages):
+    def test_page_walk_terminates(self, endpoint, page_sizes, expected_pages, expected_path):
         result = _driver().run(endpoint, [_json_response(_page(n)) for n in page_sizes])
 
         assert result.raised is None
         assert result.params("page") == expected_pages
+        assert set(result.paths) == {expected_path}
         assert len(result.rows) == sum(page_sizes)
+
+    def test_assets_walk_follows_body_cursor(self):
+        cursor = {"created_at": "2026-05-01T10:00:00.123456Z", "id": 41}
+        result = _driver().run(
+            "assets",
+            [
+                _json_response(
+                    {"assets": [{"path": "f/data/orders", "kind": "resource", "usages": []}], "next_cursor": cursor}
+                ),
+                _json_response(
+                    {"assets": [{"path": "bucket/raw.csv", "kind": "s3object", "usages": []}], "next_cursor": None}
+                ),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == [f"/api/w/{WORKSPACE}/assets/list"] * 2
+        assert "cursor_id" not in result.requests[0].query
+        assert result.requests[1].param("cursor_created_at") == cursor["created_at"]
+        assert result.requests[1].param("cursor_id") == "41"
+        assert [(row["path"], row["kind"]) for row in result.rows] == [
+            ("f/data/orders", "resource"),
+            ("bucket/raw.csv", "s3object"),
+        ]
+
+    def test_assets_walk_stops_on_repeated_cursor(self):
+        page = {"assets": [{"path": "a", "kind": "volume", "usages": []}], "next_cursor": {"created_at": "x", "id": 1}}
+
+        result = _driver().run("assets", [_json_response(page), _json_response(page), _json_response(page)])
+
+        assert isinstance(result.raised, ValueError)
+        assert len(result.requests) == 2
+
+    def test_queue_metrics_explodes_samples_into_rows(self):
+        body = [
+            {
+                "id": "queue_count_default",
+                "values": [
+                    {"created_at": "2026-05-01T10:00:00Z", "value": 3},
+                    {"created_at": "2026-05-01T10:00:30Z", "value": 0},
+                ],
+            },
+            {"id": "queue_delay_gpu", "values": []},
+            {"id": "queue_delay_default", "values": [{"created_at": "2026-05-01T10:00:00Z", "value": 1.5}]},
+        ]
+
+        result = _driver().run("queue_metrics", [_json_response(body)])
+
+        assert result.raised is None
+        assert result.urls == [f"{BASE_URL}/api/workers/queue_metrics"]
+        assert result.rows == [
+            {"id": "queue_count_default", "created_at": "2026-05-01T10:00:00Z", "value": 3},
+            {"id": "queue_count_default", "created_at": "2026-05-01T10:00:30Z", "value": 0},
+            {"id": "queue_delay_default", "created_at": "2026-05-01T10:00:00Z", "value": 1.5},
+        ]
+
+    @pytest.mark.parametrize(
+        "endpoint, kind, parent_column, version",
+        [
+            ("script_versions", "scripts", "script_path", {"script_hash": "a1b2", "deployment_msg": "fix"}),
+            ("flow_versions", "flows", "flow_path", {"id": 7, "created_at": "2026-05-01T10:00:00Z"}),
+            ("app_versions", "apps", "app_path", {"version": 3, "deployment_msg": None}),
+        ],
+    )
+    def test_history_fetches_each_runnable_and_names_its_path(self, endpoint, kind, parent_column, version):
+        result = _driver().run(
+            endpoint,
+            route(
+                {
+                    # A scoped token's list drops paths after LIMIT, so a short page precedes more rows.
+                    f"/{kind}/list": [
+                        _json_response([{"path": "u/ann/etl"}]),
+                        _json_response([{"path": "f/ops/gone"}]),
+                        _json_response([]),
+                    ],
+                    # Runnable paths keep their slashes: the history route matches them with a wildcard.
+                    f"/{kind}/history/p/u/ann/etl": [_json_response([version])],
+                    f"/{kind}/history/p/f/ops/gone": [_json_response({"error": "not found"}, status_code=404)],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert result.paths == [
+            f"/api/w/{WORKSPACE}/{kind}/list",
+            f"/api/w/{WORKSPACE}/{kind}/history/p/u/ann/etl",
+            f"/api/w/{WORKSPACE}/{kind}/list",
+            f"/api/w/{WORKSPACE}/{kind}/history/p/f/ops/gone",
+            f"/api/w/{WORKSPACE}/{kind}/list",
+        ]
+        assert result.rows == [{**version, parent_column: "u/ann/etl"}]
+
+    def test_history_resumes_after_finished_runnables(self):
+        resumed = _driver().run(
+            "script_versions",
+            route(
+                {
+                    "/scripts/list": [
+                        _json_response([{"path": "u/ann/etl"}, {"path": "u/bob/sync"}]),
+                        _json_response([]),
+                    ],
+                    "/scripts/history/p/u/bob/sync": [_json_response([{"script_hash": "c3"}])],
+                }
+            ),
+            resume_state=WindmillResumeConfig(
+                fanout_state={"completed": ["/scripts/history/p/u/ann/etl"], "current": None, "child_state": None}
+            ),
+        )
+
+        assert resumed.raised is None
+        assert resumed.saved_states and all(state.fanout_state for state in resumed.saved_states)
+        assert f"/api/w/{WORKSPACE}/scripts/history/p/u/ann/etl" not in resumed.paths
+        assert resumed.rows == [{"script_hash": "c3", "script_path": "u/bob/sync"}]
 
     @pytest.mark.parametrize(
         "endpoint, expected_url",

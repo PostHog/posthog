@@ -8,18 +8,17 @@ import { sendRequest } from '@/posthog/api'
 import { hostUrl } from '@/posthog/host'
 import type { KeySession } from '@/posthog/key-session'
 
-import { contentHash } from './container'
-
 // The symbol set upload protocol of posthog-cli (`api/symbol_sets.rs`). Bodies, endpoints, retry
 // counts and the release-mismatch fallback match it, so PostHog sees the same requests from either
 // CLI. Only the user agent differs.
 
-export interface SymbolSetUpload {
+export interface SymbolSetFile {
     chunkId: string
     releaseId: string | null
-    data: Uint8Array
-    // Set when the hash covers something other than the whole container, like event-mode sourcemaps.
-    contentHash?: string
+    // Null in a dry run, which writes and sends nothing.
+    file: string | null
+    size: number
+    contentHash: string
 }
 
 export type UploadStatus = 'uploaded' | 'already_present' | 'too_large'
@@ -196,7 +195,7 @@ export class SymbolSetClient {
         return parseOrThrow(schema, response.json, failure)
     }
 
-    async upload(uploads: SymbolSetUpload[], options: UploadOptions): Promise<UploadOutcome> {
+    async upload(uploads: SymbolSetFile[], options: UploadOptions): Promise<UploadOutcome> {
         const runId = uuidv7(this.runtime.now())
         try {
             return await this.uploadOnce(uploads, options, runId)
@@ -214,22 +213,17 @@ export class SymbolSetClient {
         }
     }
 
-    private async uploadOnce(
-        uploads: SymbolSetUpload[],
-        options: UploadOptions,
-        runId: string
-    ): Promise<UploadOutcome> {
+    private async uploadOnce(uploads: SymbolSetFile[], options: UploadOptions, runId: string): Promise<UploadOutcome> {
         const status = options.progress ?? new Map<string, UploadStatus>()
         const contentHashes = new Map<string, string>()
-        const kept: (SymbolSetUpload & { hash: string })[] = []
+        const kept: SymbolSetFile[] = []
         for (const upload of uploads) {
-            if (upload.data.length > MAX_FILE_SIZE) {
+            if (upload.size > MAX_FILE_SIZE) {
                 status.set(upload.chunkId, 'too_large')
                 continue
             }
-            const hash = upload.contentHash ?? contentHash(upload.data)
-            contentHashes.set(upload.chunkId, hash)
-            kept.push({ ...upload, hash })
+            contentHashes.set(upload.chunkId, upload.contentHash)
+            kept.push(upload)
         }
 
         const needed = await this.check(kept, options)
@@ -248,7 +242,7 @@ export class SymbolSetClient {
         return { status, contentHashes }
     }
 
-    private entry(upload: SymbolSetUpload & { hash: string }): {
+    private entry(upload: SymbolSetFile): {
         chunk_id: string
         release_id: string | null
         content_hash: string
@@ -257,14 +251,14 @@ export class SymbolSetClient {
         return {
             chunk_id: upload.chunkId,
             release_id: upload.releaseId,
-            content_hash: upload.hash,
-            content_length: upload.data.length,
+            content_hash: upload.contentHash,
+            content_length: upload.size,
         }
     }
 
     // Asks which chunks the server still needs. A failed check is not fatal: every chunk from the
     // failed slice onward is sent, and the start call decides.
-    private async check(uploads: (SymbolSetUpload & { hash: string })[], options: UploadOptions): Promise<Set<string>> {
+    private async check(uploads: SymbolSetFile[], options: UploadOptions): Promise<Set<string>> {
         const needed = new Set<string>()
         for (let start = 0; start < uploads.length; start += CHECK_BATCH_SIZE) {
             const slice = uploads.slice(start, start + CHECK_BATCH_SIZE)
@@ -300,7 +294,7 @@ export class SymbolSetClient {
     }
 
     private async uploadBatch(
-        batch: (SymbolSetUpload & { hash: string })[],
+        batch: SymbolSetFile[],
         options: UploadOptions,
         runId: string
     ): Promise<Map<string, UploadStatus>> {
@@ -345,11 +339,11 @@ export class SymbolSetClient {
             }
         }
         await runWithConcurrency(entries, options.concurrency ?? 10, async ([chunkId, entry]) => {
-            await this.store(byChunk.get(chunkId)!.data, entry)
+            await this.store(byChunk.get(chunkId)!, entry)
         })
         const finishHashes: Record<string, string> = {}
         for (const [chunkId, entry] of entries) {
-            finishHashes[entry.symbol_set_id] = byChunk.get(chunkId)!.hash
+            finishHashes[entry.symbol_set_id] = byChunk.get(chunkId)!.contentHash
             results.set(chunkId, 'uploaded')
         }
         try {
@@ -373,7 +367,7 @@ export class SymbolSetClient {
 
     // Sends one container to object storage. A target falls back to its alternate endpoint after two
     // transport errors in a row on the primary, like posthog-cli's endpoint router.
-    private async store(data: Uint8Array, entry: StartEntry): Promise<void> {
+    private async store(upload: SymbolSetFile, entry: StartEntry): Promise<void> {
         const primary: Target | undefined = entry.presigned_put_url
             ? { kind: 'put', url: entry.presigned_put_url }
             : entry.presigned_url
@@ -399,7 +393,7 @@ export class SymbolSetClient {
             const target = useFallback ? fallback! : primary
             let response: Response
             try {
-                response = await this.send(data, target)
+                response = await this.send(upload, target)
             } catch (error) {
                 if (useFallback) {
                     fallbackTransportErrors++
@@ -427,12 +421,20 @@ export class SymbolSetClient {
         })
     }
 
-    private send(data: Uint8Array, target: Target): Promise<Response> {
+    // The container is read from disk as it is sent, so an upload holds none of it in memory.
+    private send(upload: SymbolSetFile, target: Target): Promise<Response> {
+        if (upload.file === null) {
+            throw new Error(`The symbol set for chunk ${upload.chunkId} was never written to a file.`)
+        }
+        const file = Bun.file(upload.file)
         if (target.kind === 'put') {
             return this.runtime.fetch(target.url, {
                 method: 'PUT',
-                body: data as BodyInit,
-                timeoutMs: transferTimeout(data.length),
+                // A file as the body would add a Content-Type header. Its stream needs the length, or
+                // the request goes out chunked, which object storage refuses.
+                body: file.stream(),
+                headers: { 'Content-Length': String(upload.size) },
+                timeoutMs: transferTimeout(upload.size),
                 skipRateLimit: true,
             })
         }
@@ -441,11 +443,11 @@ export class SymbolSetClient {
             form.append(key, value)
         }
         // SeaweedFS and MinIO need a filename on the file part.
-        form.append('file', new Blob([data as BlobPart]), 'file')
+        form.append('file', file, 'file')
         return this.runtime.fetch(target.form.url, {
             method: 'POST',
             body: form,
-            timeoutMs: transferTimeout(data.length),
+            timeoutMs: transferTimeout(upload.size),
             skipRateLimit: true,
         })
     }

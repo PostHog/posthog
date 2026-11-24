@@ -99,6 +99,13 @@ describe('ImpactFunnelCard', () => {
         [
             'every click went untracked',
             { opened: 0, clicked: 0, untracked: 10 },
+            'No clicks were recorded, because every send in this period went out with tracking off.',
+            '',
+        ],
+        ['no tracked send was clicked', { clicked: 0 }, 'No clicks were recorded in this period.', ''],
+        [
+            'every send went untracked but an open was recorded',
+            { opened: 1, clicked: 0, untracked: 10 },
             'No clicks were recorded in this period.',
             '',
         ],

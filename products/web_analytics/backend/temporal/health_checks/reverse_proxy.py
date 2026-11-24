@@ -26,7 +26,7 @@ REVERSE_PROXY_MIN_BROWSER_EVENTS = 50
 class ReverseProxyCheck(RollupHealthCheck):
     name = "reverse_proxy"
     kind = "reverse_proxy"
-    owner = JobOwners.TEAM_WEB_ANALYTICS
+    owner = JobOwners.TEAM_ANALYTICS
     schedule = "30 6 * * *"
     active_since_days = 30
     rollup_model = EventsHealthDaily

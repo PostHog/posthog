@@ -7,18 +7,19 @@ import type { CyclotronProbe } from '../probe/cyclotron-probe'
 import type { TruthRecord } from '../provider-edge'
 import { INVARIANTS, deliveryKey, residentBacklogIntact } from './invariants'
 import type { JudgeEvidence } from './invariants'
-import type { TruthSource } from './truth'
+import type { TruthRead, TruthSource } from './truth'
 
-export type IntakeAnswer =
+export type IntakeAnswer = (
     | { accepted: true }
     | { accepted: false; transportError: string }
     | { accepted: false; status: number; outcome?: string }
+) & { retries?: number }
 
 export type FollowUpAnswer = IntakeAnswer | { notSent: string }
 
 export type JournalEntry = {
     unitId: string
-    kind: 'event' | 'transactional'
+    kind: 'event' | 'capture' | 'transactional'
     teamId: number
     offeredAt: number
     step?: number
@@ -27,7 +28,13 @@ export type JournalEntry = {
     followUp?: FollowUpAnswer
 }
 
-export type Convergence = { converged: boolean; unfinishedJobs: number; unrecorded: string[]; tookMs: number }
+export type Convergence = {
+    converged: boolean
+    unfinishedJobs: number | null
+    unrecorded: string[]
+    tookMs: number
+    unread?: string
+}
 
 export type InvariantResult = {
     name: string
@@ -45,8 +52,13 @@ export interface Judge {
     open(seed: Pick<SeedState, 'teamIds'>): Promise<void>
     record(unit: JournalEntry): void
     converge(withinMs: number, signal: AbortSignal): Promise<Convergence>
-    check(invariants: Named[], gates: Record<string, number>, run: RunEvidence): Promise<InvariantResult[]>
-    evidence(): { journal: JournalEntry[]; truth: TruthRecord[]; fetchRetries: number }
+    check(
+        invariants: Named[],
+        gates: Record<string, number>,
+        run: RunEvidence,
+        signal?: AbortSignal
+    ): Promise<InvariantResult[]>
+    evidence(): { journal: JournalEntry[]; truth: TruthRecord[]; fetchRetries: number; unread?: string }
 }
 
 export type JudgeOptions = {
@@ -54,8 +66,36 @@ export type JudgeOptions = {
     probe: Pick<CyclotronProbe, 'unfinishedJobs'>
     fetchRetries: number
     residentBacklog?: () => Promise<ResidentBacklog>
+    finalRead?: FinalRead
     pollMs?: number
     now?: () => number
+}
+
+export type FinalRead = { attempts: number; backoffMs: number }
+
+const FINAL_READ: FinalRead = { attempts: 3, backoffMs: 1000 }
+const FINAL: TruthRead = { final: true }
+
+const messageOf = (error: unknown): string =>
+    typeof error === 'object' && error !== null && 'message' in error ? String(error.message) : String(error)
+
+async function retried<T>(
+    read: () => Promise<T>,
+    { attempts, backoffMs }: FinalRead,
+    signal?: AbortSignal
+): Promise<T> {
+    for (let attempt = 1; ; attempt++) {
+        try {
+            return await read()
+        } catch (error) {
+            if (attempt < attempts) {
+                await sleep(backoffMs * attempt, undefined, { signal }).catch(() => undefined)
+            }
+            if (attempt >= attempts || signal?.aborted) {
+                throw new Error(`${attempt} of ${attempts} attempts failed, the last with ${messageOf(error)}`)
+            }
+        }
+    }
 }
 
 export function createJudge({
@@ -63,6 +103,7 @@ export function createJudge({
     probe,
     fetchRetries,
     residentBacklog,
+    finalRead = FINAL_READ,
     pollMs = 1000,
     now = Date.now,
 }: JudgeOptions): Judge {
@@ -70,6 +111,7 @@ export function createJudge({
     let truth: TruthRecord[] = []
     let cursor = 0
     let teams: number[] = []
+    let unread: string | undefined
 
     const pullTruth = async (): Promise<void> => {
         for (;;) {
@@ -79,6 +121,46 @@ export function createJudge({
             }
             truth.push(...page.records)
             cursor = page.next
+        }
+    }
+
+    const pullToHead = async (signal?: AbortSignal): Promise<void> => {
+        let head: number | undefined
+        try {
+            if (signal?.aborted) {
+                throw new Error('the run was stopped')
+            }
+            const sampled = await retried(() => source.head(FINAL), finalRead, signal)
+            if (!Number.isInteger(sampled)) {
+                throw new Error('the edge answered no head')
+            }
+            head = sampled
+            while (cursor < head) {
+                if (signal?.aborted) {
+                    throw new Error('the run was stopped')
+                }
+                const page = await retried(() => source.after(cursor, FINAL), finalRead, signal)
+                const records = page.records.filter(({ seq }) => seq > cursor && seq <= head!)
+                if (records.length === 0) {
+                    throw new Error(`the edge answered no records past ${cursor}`)
+                }
+                truth.push(...records)
+                cursor = records.at(-1)!.seq
+            }
+        } catch (error) {
+            const at = head === undefined ? cursor : `${cursor} of ${head}`
+            throw new Error(`the truth read hit a harness limit at record ${at}: ${messageOf(error)}`)
+        }
+    }
+
+    const read = async <T>(what: () => Promise<T>): Promise<T | undefined> => {
+        try {
+            const value = await what()
+            unread = undefined
+            return value
+        } catch (error) {
+            unread = messageOf(error)
+            return undefined
         }
     }
 
@@ -102,6 +184,7 @@ export function createJudge({
             journal = []
             cursor = await source.head()
             truth = []
+            unread = undefined
             teams = [...seed.teamIds]
         },
 
@@ -112,20 +195,28 @@ export function createJudge({
         async converge(withinMs, signal) {
             const startedAt = now()
             for (;;) {
-                await pullTruth()
-                const unfinishedJobs = await probe.unfinishedJobs({ teams, queues: ['hogflow', 'email'] })
+                const polled = await read(async () => {
+                    await pullTruth()
+                    return probe.unfinishedJobs({ teams, queues: ['hogflow', 'email'] })
+                })
                 const unrecorded = unrecordedUnits()
                 const tookMs = now() - startedAt
-                const converged = unfinishedJobs === 0 && unrecorded.length === 0 && tookMs <= withinMs
+                const converged = polled === 0 && unrecorded.length === 0 && tookMs <= withinMs
                 if (converged || tookMs >= withinMs || signal.aborted) {
-                    return { converged, unfinishedJobs, unrecorded, tookMs }
+                    return {
+                        converged,
+                        unfinishedJobs: polled ?? null,
+                        unrecorded,
+                        tookMs,
+                        ...(unread !== undefined && { unread }),
+                    }
                 }
                 await sleep(Math.min(pollMs, withinMs - tookMs), undefined, { signal }).catch(() => undefined)
             }
         },
 
-        async check(invariants, gates, run) {
-            await pullTruth()
+        async check(invariants, gates, run, signal) {
+            await read(() => pullToHead(signal))
             const resident = invariants.some(({ name }) => name === residentBacklogIntact.name)
                 ? await residentBacklog?.()
                 : undefined
@@ -139,6 +230,11 @@ export function createJudge({
             })
         },
 
-        evidence: () => ({ journal: [...journal], truth: [...truth], fetchRetries }),
+        evidence: () => ({
+            journal: [...journal],
+            truth: [...truth],
+            fetchRetries,
+            ...(unread !== undefined && { unread }),
+        }),
     }
 }

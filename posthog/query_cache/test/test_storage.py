@@ -17,12 +17,14 @@ from posthog.query_cache import (
     QueryCache,
     get_stale_insights,
     prefetched_entries,
+    results as qc_results,
     storage as qc_storage,
 )
 from posthog.query_cache.serialization import encode_split_cached_response
 from posthog.query_cache.size_tracker import TeamCacheSizeTracker
 from posthog.query_cache.storage import S3_POINTER_MAGIC, ZSTD_FRAME_MAGIC, entry_redis_key
 from posthog.storage.object_storage import ObjectStorageError
+from posthog.test.waiting import wait_until
 
 
 class FakeObjectStorage:
@@ -389,6 +391,53 @@ class TestQueryCacheS3Routing(BaseTest):
             assert {key: entry.as_full_response() for key, entry in served.items() if entry} == responses
 
         assert all(QueryCache(team_id=self.team.pk, cache_key=key).lookup().entry is None for key in keys)
+
+    def test_concurrent_prefetches_share_one_bounded_pool_of_blob_reads(self):
+        pointer_keys = [f"prefetch_bound_{i}_{self.team.pk}" for i in range(6)]
+        with patch("posthog.query_cache.storage.s3_write_mode", return_value="on"):
+            for i, cache_key in enumerate(pointer_keys):
+                response = {**self._large_response(), "cache_key": str(i)}
+                QueryCache(team_id=self.team.pk, cache_key=cache_key).store_result(response=response, target_age=None)
+
+        in_flight = 0
+        peak = 0
+        counter_lock = threading.Lock()
+        over_bound = threading.Event()
+        release = threading.Event()
+        read_bytes = self.storage.read_bytes
+
+        def held_read(*args, **kwargs):
+            nonlocal in_flight, peak
+            with counter_lock:
+                in_flight += 1
+                peak = max(peak, in_flight)
+                if in_flight > 2:
+                    over_bound.set()
+            release.wait(timeout=5)
+            with counter_lock:
+                in_flight -= 1
+            return read_bytes(*args, **kwargs)
+
+        def board_load(keys: list[str]) -> None:
+            with prefetched_entries(keys, team_id=self.team.pk):
+                pass
+
+        with (
+            patch.object(qc_results, "_PREFETCH_S3_CONCURRENCY", 2),
+            patch.object(qc_results, "_prefetch_executor", None),
+            patch.object(self.storage, "read_bytes", side_effect=held_read),
+        ):
+            boards = [threading.Thread(target=board_load, args=(pointer_keys[i : i + 2],)) for i in range(0, 6, 2)]
+            for board in boards:
+                board.start()
+            wait_until(lambda: in_flight == 2)
+            assert not over_bound.wait(timeout=0.5)
+            release.set()
+            for board in boards:
+                board.join(timeout=5)
+            qc_results._get_prefetch_executor().shutdown(wait=True)
+
+        assert peak == 2
 
     def test_pointer_write_updates_freshness_index(self):
         cache_key = f"s3_freshness_{self.team.pk}"

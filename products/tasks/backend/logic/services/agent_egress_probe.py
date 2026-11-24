@@ -26,6 +26,16 @@ from products.tasks.backend.models import TaskRun
 AGENT_EGRESS_CAPABILITY_REFRESH_SECONDS = 180
 
 
+def read_agent_egress_config(path: Path) -> bytes:
+    if not settings.AGENT_EGRESS_PROBE_CONFIG_DIR:
+        raise ValueError("Set AGENT_EGRESS_PROBE_CONFIG_DIR to a dedicated probe configuration directory")
+    directory = Path(settings.AGENT_EGRESS_PROBE_CONFIG_DIR).resolve(strict=True)
+    resolved = path.resolve(strict=True)
+    if not resolved.is_relative_to(directory):
+        raise ValueError("The egress configuration is outside its directory")
+    return resolved.read_bytes()
+
+
 class AgentEgressProbeConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -66,11 +76,7 @@ class AgentEgressProbeConfig(BaseModel):
         if not settings.AGENT_EGRESS_PROBE_CONFIG_DIR:
             raise ValueError("Set AGENT_EGRESS_PROBE_CONFIG_DIR to a dedicated probe configuration directory")
         try:
-            directory = Path(settings.AGENT_EGRESS_PROBE_CONFIG_DIR).resolve(strict=True)
-            resolved = path.resolve(strict=True)
-            if not resolved.is_relative_to(directory):
-                raise ValueError("The probe configuration is outside its directory")
-            config = cls.model_validate_json(resolved.read_bytes())
+            config = cls.model_validate_json(read_agent_egress_config(path))
             config.validate_controller(cleanup=cleanup)
             return config
         except (OSError, ValueError):

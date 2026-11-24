@@ -6,6 +6,7 @@ from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
+from products.tasks.backend.agent_run_policy import agent_policy_for_origin
 from products.tasks.backend.facade.profiles import (
     DrivePolicy,
     GithubAccess,
@@ -198,3 +199,7 @@ class TestTaskProfilesMatchMaster(SimpleTestCase):
     @parameterized.expand(PROFILES)
     def test_default_sandbox_template_matches_master(self, _key: str, profile: TaskProfile) -> None:
         self.assertEqual(profile.sandbox_templates[0], parse_requested_sandbox_template(None).value)
+
+    @parameterized.expand(PROFILES)
+    def test_agent_policy_matches_master(self, _key: str, profile: TaskProfile) -> None:
+        self.assertEqual(profile.agent_policy, agent_policy_for_origin(profile.origin_product))

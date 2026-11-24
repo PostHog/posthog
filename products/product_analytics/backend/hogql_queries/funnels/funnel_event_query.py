@@ -644,6 +644,7 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
             team=team,
             interval=query.interval,
             now=now,
+            earliest_timestamp_fallback=self.context.earliest_timestamp_fallback,
         )
 
         return date_range
