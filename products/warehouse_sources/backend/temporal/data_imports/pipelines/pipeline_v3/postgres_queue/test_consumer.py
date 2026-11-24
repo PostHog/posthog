@@ -1399,6 +1399,51 @@ class TestAdminShutdownErrorClassification:
         mock_capture.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_poll_survives_a_read_only_queue_db_and_redials(self):
+        # A failover leaves the poll connection on a read-only node for longer than the
+        # in-poll retry budget. psycopg raises InternalError, not OperationalError, so the
+        # poll loop must still back off and poll again on a new connection.
+        config = ConsumerConfig(
+            database_url="postgres://unused:unused@localhost/unused",
+            poll_interval_seconds=0.01,
+        )
+        consumer = BatchConsumer(config=config, process_batch=AsyncMock())
+
+        read_only_conns: list[Any] = []
+        recovered_conns: list[Any] = []
+        recovered = asyncio.Event()
+
+        async def fetch(conn: Any, *args: Any, **kwargs: Any) -> list[PendingBatch]:
+            if len(read_only_conns) < QUEUE_RETRY_MAX_ATTEMPTS:
+                read_only_conns.append(conn)
+                raise psycopg.errors.ReadOnlySqlTransaction("cannot execute SELECT in a read-only transaction")
+            recovered_conns.append(conn)
+            recovered.set()
+            return []
+
+        with (
+            patch.object(
+                consumer, "_connect", new_callable=AsyncMock, side_effect=lambda **kwargs: _make_healthy_conn()
+            ),
+            patch.object(consumer, "_install_signal_handlers"),
+            patch.object(consumer, "_recovery_sweep_with_timeout", new_callable=AsyncMock),
+            patch.object(consumer._adapter, "observe_queue_gauges", new_callable=AsyncMock, return_value=False),
+            patch(f"{batch_consumer_module.__name__}._queue_retry_delay", return_value=0),
+            patch.object(consumer_module.BatchQueue, "get_unprocessed_and_lock", side_effect=fetch),
+            patch.object(consumer_module.BatchQueue, "release_all_owned_leases", new_callable=AsyncMock),
+            patch(f"{batch_consumer_module.__name__}.capture_exception") as mock_capture,
+        ):
+            run_task = asyncio.create_task(consumer.run())
+            await asyncio.wait_for(recovered.wait(), timeout=2.0)
+            consumer._shutdown.set()
+            await asyncio.wait_for(run_task, timeout=5.0)
+
+        mock_capture.assert_not_called()
+        # Every attempt, the last one included, dropped its session, so no later poll reuses a
+        # connection that is still on the read-only node.
+        assert len({id(conn) for conn in read_only_conns + recovered_conns[:1]}) == QUEUE_RETRY_MAX_ATTEMPTS + 1
+
+    @pytest.mark.asyncio
     async def test_queue_gauges_are_probed_before_the_first_poll(self):
         consumer = _make_consumer()
         calls: list[str] = []
@@ -1501,6 +1546,7 @@ class TestAdminShutdownErrorClassification:
                 psycopg.OperationalError("consuming input failed: server closed the connection unexpectedly"),
                 True,
             ),
+            (psycopg.errors.ReadOnlySqlTransaction("cannot execute DELETE in a read-only transaction"), False),
         ],
     )
     async def test_close_does_not_report_expected_lease_release_errors(
@@ -3602,7 +3648,10 @@ class TestQueueDbRetry:
                 True,
                 True,
             ),
+            (psycopg.errors.ReadOnlySqlTransaction("cannot execute UPDATE in a read-only transaction"), True, True),
             (psycopg.errors.DeadlockDetected("deadlock detected"), False, True),
+            # Same SQLSTATE class 25 as read-only, but a transaction-handling bug, not a failover.
+            (psycopg.errors.InFailedSqlTransaction("current transaction is aborted"), False, False),
             (psycopg.errors.ProtocolViolation("invalid message length"), False, False),
             (psycopg.OperationalError("relation permission denied"), False, False),
             (psycopg.errors.UndefinedColumn("column does not exist"), False, False),
@@ -3618,8 +3667,9 @@ class TestQueueDbRetry:
             psycopg.OperationalError("consuming input failed: server closed the connection unexpectedly"),
             psycopg.errors.ConnectionTimeout("connection timeout expired"),
             psycopg.errors.ProtocolViolation("query_wait_timeout"),
+            psycopg.errors.ReadOnlySqlTransaction("cannot execute SELECT in a read-only transaction"),
         ],
-        ids=["dropped_connection", "connect_timeout", "pooler_wait_timeout"],
+        ids=["dropped_connection", "connect_timeout", "pooler_wait_timeout", "read_only_after_failover"],
     )
     @pytest.mark.asyncio
     async def test_transient_failure_redials_and_succeeds(self, error) -> None:
@@ -4647,6 +4697,14 @@ class TestBatchHeartbeat:
             ),
             pytest.param(psycopg.OperationalError("broken pipe"), False, True, True, True, id="broken_connection"),
             pytest.param(psycopg.errors.AdminShutdown("terminating"), False, False, True, True, id="admin_shutdown"),
+            pytest.param(
+                psycopg.errors.ReadOnlySqlTransaction("cannot execute UPDATE in a read-only transaction"),
+                False,
+                False,
+                True,
+                True,
+                id="read_only_after_failover",
+            ),
             pytest.param(ConnectionError("blip"), False, False, True, False, id="non_psycopg_blip"),
             pytest.param(psycopg.errors.DeadlockDetected("deadlock"), False, False, True, False, id="deadlock"),
             pytest.param(

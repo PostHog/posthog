@@ -145,6 +145,16 @@ def _is_admin_shutdown_error(error: BaseException) -> bool:
     return isinstance(error, psycopg.errors.AdminShutdown)
 
 
+# SQLSTATE 25006 (read_only_sql_transaction): during a primary/replica failover the connection
+# briefly reaches a node that is read-only, until promotion finishes or the pooler points at the
+# new primary. Postgres rejects the statement before it runs, so nothing is half applied. psycopg
+# raises this as InternalError, not OperationalError, so the OperationalError guards above do not
+# match it. A pooled session can stay on the demoted node, so callers must redial rather than
+# reuse the connection. Mirrors the app-DB classifier in posthog/temporal/common/db_errors.py.
+def _is_read_only_transaction_error(error: BaseException) -> bool:
+    return isinstance(error, psycopg.errors.ReadOnlySqlTransaction)
+
+
 # SQLSTATE 42703/42P01: a column or table a sweep query references does not exist yet on the
 # queue DB. The migration adding it and the code querying it ship in the same commit, but a
 # worker can roll out ahead of the migration completing, so this is a self-healing race, not a
@@ -179,6 +189,7 @@ def _is_dead_group_connection_error(error: BaseException, conn: psycopg.AsyncCon
         isinstance(error, psycopg.InterfaceError)
         or _is_connection_dropped_error(error)
         or _is_admin_shutdown_error(error)
+        or _is_read_only_transaction_error(error)
     )
 
 
@@ -279,6 +290,7 @@ def _is_transient_queue_db_error(error: BaseException) -> bool:
         or _is_pooler_query_wait_timeout_error(error)
         or _is_pooler_login_retry_cached_error(error)
         or _is_connection_refused_error(error)
+        or _is_read_only_transaction_error(error)
     )
 
 
@@ -769,6 +781,10 @@ class BatchConsumer:
                 conn = await self._ensure_queue_conn(conn_attr)
                 return await operation(conn)
             except Exception as error:
+                if _is_read_only_transaction_error(error):
+                    # Drop the session also when this is the last attempt, because the next
+                    # cycle would otherwise reuse a connection that is still on the read-only node.
+                    await self._drop_conn(conn_attr)
                 if (
                     attempt == QUEUE_RETRY_MAX_ATTEMPTS
                     or not _is_retryable_queue_db_error(error)
@@ -923,6 +939,11 @@ class BatchConsumer:
                         logger.warning(self._event("poll_failed_queue_db_admin_shutdown"), error=str(e))
                     else:
                         self._report_queue_failure(self._event("poll_failed_queue_db_unreachable"), e)
+                    self._note_poll_failure("db_unreachable", duration=time.monotonic() - poll_start)
+                    await self._wait_or_shutdown(self._poll_retry_delay())
+                    continue
+                except psycopg.errors.ReadOnlySqlTransaction as e:
+                    logger.warning(self._event("poll_failed_queue_db_read_only"), error=str(e))
                     self._note_poll_failure("db_unreachable", duration=time.monotonic() - poll_start)
                     await self._wait_or_shutdown(self._poll_retry_delay())
                     continue
@@ -2334,6 +2355,10 @@ class BatchConsumer:
                 if _is_admin_shutdown_error(e):
                     # Admin-initiated disconnect during teardown is expected; the lease just expires.
                     logger.warning(self._event("release_all_owned_admin_shutdown"), error=str(e))
+                elif _is_read_only_transaction_error(e):
+                    # A failover left the poll connection on a read-only node, so the DELETE cannot
+                    # run. The lease expires and a surviving pod reclaims it.
+                    logger.warning(self._event("release_all_owned_queue_db_read_only"), error=str(e))
                 elif _is_transient_connection_error(e, self._poll_conn):
                     # The connection died mid-teardown rather than release_all_owned itself
                     # being wrong — nothing to retry with here, so the lease just expires
