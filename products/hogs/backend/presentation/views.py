@@ -301,7 +301,7 @@ class HogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
         if started is None:
             raise NotFound()
-        return Response({"started": started})
+        return Response(ReportFollowUpResultSerializer({"started": started}).data)
 
     @validated_request(responses={200: OpenApiResponse(response=HogActionSerializer(many=True))})
     @action(detail=True, methods=["get"])

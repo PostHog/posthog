@@ -188,7 +188,7 @@ class HogEventSerializer(DataclassSerializer):
 
 class EvidenceInputSerializer(serializers.Serializer):
     description = serializers.CharField(max_length=500, help_text="What this piece of evidence shows.")
-    source = serializers.CharField(
+    source = serializers.CharField(  # type: ignore[assignment]
         max_length=1000, help_text="A link or an identifier a person can check, such as an insight URL or an issue ID."
     )
     kind = serializers.ChoiceField(
@@ -264,7 +264,7 @@ class ProposeActionSerializer(serializers.Serializer):
         help_text="A short, stable name for the class of side effect, such as slack-message, github-pr or "
         "email-send. The owner's rules match on it, so reuse the same kind for the same sort of action.",
     )
-    label = serializers.CharField(max_length=200, help_text="One line saying what you would do and to whom.")
+    label = serializers.CharField(max_length=200, help_text="One line saying what you would do and to whom.")  # type: ignore[assignment]
     draft = serializers.CharField(
         max_length=8000,
         required=False,
