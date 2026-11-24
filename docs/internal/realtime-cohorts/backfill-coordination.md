@@ -338,7 +338,7 @@ At 10:17 the task creates R2 for the 14-day window, and R2 seeds all 14 days.
 - Readiness stamps are written with a queryset update that bypasses model signals, so the finalizer invalidates the flags cache explicitly after it stamps.
 - A `PATCH` or `PUT` that leaves any behavioral leaf in a cohort used by an active feature flag, directly or through a nested cohort, is refused.
   That covers every filter edit of a behavioral or mixed cohort, not only behavioral edits, and it keeps a live flag out of the window where the stamp is cleared.
-  The refusal names the active flags that use the cohort, except flags the caller can't view, which it only counts.
+  The refusal names the active flags that use the cohort, except flags the caller can't view and flags of another environment in the project, which it only counts.
   The exception is a save that resends the unchanged criteria of a realtime cohort, as the cohort page does on a rename.
   The API does not recompile that cohort, so the save clears no stamp.
 - Copying a cohort to another project drops its stamps.

@@ -229,14 +229,16 @@ def _visible_workflows(
 def _visible_flags(
     request: Request,
     user_access_control: Optional[UserAccessControl],
-    project_id: int,
     flags: list[FeatureFlag],
 ) -> list[FeatureFlag]:
-    if user_access_control is None or not _token_can_read(request, "feature_flag"):
+    # The access control loads the access rows of its own team only, so it can't tell whether the caller
+    # may view a flag of another environment in the project. Such a flag is counted and not named.
+    team = user_access_control.team if user_access_control is not None else None
+    if user_access_control is None or team is None or not _token_can_read(request, "feature_flag"):
         return []
     visible_ids = set(
         user_access_control.filter_queryset_by_access_level(
-            FeatureFlag.objects.filter(team__project_id=project_id, id__in=[flag.id for flag in flags]),
+            FeatureFlag.objects.filter(team_id=team.id, id__in=[flag.id for flag in flags]),
             include_all_if_admin=True,
         ).values_list("id", flat=True)
     )
@@ -258,6 +260,15 @@ def _workflow_names_suffix(
 ) -> str:
     visible = _visible_workflows(request, user_access_control, team_id, workflows)
     return _names_suffix([workflow.name for workflow in visible], len(workflows))
+
+
+def _flag_names_suffix(
+    request: Request,
+    user_access_control: Optional[UserAccessControl],
+    flags: list[FeatureFlag],
+) -> str:
+    visible = _visible_flags(request, user_access_control, flags)
+    return _names_suffix([flag.name or flag.key for flag in visible], len(flags))
 
 
 COHORT_USED_BY_WORKFLOWS_ERROR_CODE = "cohort_used_by_workflows"
@@ -2195,12 +2206,10 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             if prop.type == "cohort":
                 self._validate_nested_cohort_behavioral_filters(prop, flags)
 
-    def _flag_lock_error(self, flags: list[FeatureFlag], blocked: str) -> serializers.ValidationError:
-        instance = cast(Cohort, self.instance)
-        visible = _visible_flags(self.context["request"], self._user_access_control(), instance.team.project_id, flags)
-        names = _names_suffix([flag.name or flag.key for flag in visible], len(flags))
+    def _flag_lock_error(self, flags: list[FeatureFlag], reason: str) -> serializers.ValidationError:
+        names = _flag_names_suffix(self.context["request"], self._user_access_control(), flags)
         return serializers.ValidationError(
-            detail=f"This cohort is used in {len(flags)} active feature flag(s){names}. {blocked} "
+            detail=f"This cohort is used in {len(flags)} active feature flag(s){names}. {reason} "
             "Remove this cohort, or the cohort that includes it, from these flags, then save again. "
             "You can add it back once feature flags can target it.",
             code="behavioral_cohort_found",
@@ -2409,9 +2418,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             if deleted_state:
                 flags_with_cohort = get_flags_blocking_cohort_deletion(cohort)
                 if flags_with_cohort:
-                    visible_flags = _visible_flags(
-                        request, self._user_access_control(), cohort.team.project_id, flags_with_cohort
-                    )
+                    visible_flags = _visible_flags(request, self._user_access_control(), flags_with_cohort)
                     names = _names_suffix([flag.name or flag.key for flag in visible_flags], len(flags_with_cohort))
                     message = (
                         f"This cohort is used in {len(flags_with_cohort)} feature flag(s){names}. "
@@ -2648,6 +2655,7 @@ def _flags_with_cohort_filters(cohort: Cohort) -> QuerySet[FeatureFlag]:
         FeatureFlag.objects.filter(team__project_id=cohort.team.project_id, deleted=False)
         .extra(where=["""jsonb_path_exists(filters, '$.** ? (@.type == "cohort")')"""])
         .select_related("team")
+        .defer(*(f"team__{attr}" for attr in DEPRECATED_ATTRS))
     )
 
 
@@ -3355,8 +3363,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         if has_event_criteria(cohort):
             flags = get_flags_blocking_cohort_deletion(cohort)
             if flags:
-                visible_flags = _visible_flags(request, self.user_access_control, cohort.team.project_id, flags)
-                names = _names_suffix([flag.name or flag.key for flag in visible_flags], len(flags))
+                names = _flag_names_suffix(request, self.user_access_control, flags)
                 self._refuse_turning_off(
                     request,
                     cohort,

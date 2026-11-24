@@ -3664,7 +3664,7 @@ email@example.org,
             response = self.client.post(cohorts_url, data={"name": "cohort A", "deleted": True, **criteria})
         elif save == "update":
             cohort_a = Cohort.objects.create(team=self.team, name="cohort A")
-            # _validate_nested_cohort_behavioral_filters runs only on a PATCH to a cohort that an active flag uses.
+            # _validate_nested_cohort_behavioral_filters runs only on a PATCH or PUT to a cohort that an active flag uses.
             FeatureFlag.objects.create(
                 team=self.team,
                 key="cohort-flag",
@@ -4301,6 +4301,74 @@ email@example.org,
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_update_cohort_used_in_flags_names_only_the_flags_the_member_can_view(
+        self, patch_calculate_cohort: MagicMock, patch_capture: MagicMock
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="cohort A",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [{"key": "$some_prop", "value": "something", "type": "person", "operator": "exact"}],
+                }
+            },
+        )
+        flag_filters = {"groups": [{"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}]}]}
+        FeatureFlag.objects.create(
+            team=self.team, filters=flag_filters, name="Visible flag", key="a-visible-flag", created_by=self.user
+        )
+        sibling_team = Team.objects.create(organization=self.organization, project=self.team.project, name="Staging")
+        flag_owner = self._create_user("flag-owner@example.com")
+        for team, key in ((self.team, "b-hidden-flag"), (sibling_team, "c-hidden-sibling-flag")):
+            hidden_flag = FeatureFlag.objects.create(
+                team=team, filters=flag_filters, name=key, key=key, created_by=flag_owner
+            )
+            AccessControl.objects.create(
+                team=team,
+                resource="feature_flag",
+                resource_id=str(hidden_flag.id),
+                access_level="none",
+                organization_member=self.organization_membership,
+            )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort.pk}",
+            data={
+                "filters": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "key": "$pageview",
+                                "event_type": "events",
+                                "time_value": 1,
+                                "time_interval": "day",
+                                "value": "performed_event",
+                                "type": "behavioral",
+                            }
+                        ],
+                    }
+                }
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertEqual(
+            response.json()["detail"],
+            "This cohort is used in 3 active feature flag(s): Visible flag and 2 more. "
+            "Its criteria include events, so they can't change while these flags use it. "
+            "Remove this cohort, or the cohort that includes it, from these flags, then save again. "
+            "You can add it back once feature flags can target it.",
+        )
+
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
     def test_update_cohort_used_in_flags_allows_static_snapshot_cohort_that_preserves_behavioral_filters(
         self, patch_calculate_cohort, patch_capture
     ) -> None:
@@ -4530,11 +4598,17 @@ email@example.org,
         # The save also repairs a legacy list in place: the persisted value is the unwrapped scalar.
         self.assertEqual(static_cohort.filters["properties"]["values"][0].get("value"), value)
 
-    @parameterized.expand([("with_filters", True), ("without_filters", False)])
+    @parameterized.expand(
+        [
+            ("with_filters", True, "patch"),
+            ("without_filters", False, "patch"),
+            ("without_filters_put", False, "put"),
+        ]
+    )
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
     def test_update_static_cohort_used_in_flag_rejects_static_to_dynamic_behavioral_filters(
-        self, _name: str, include_filters: bool, patch_calculate_cohort, patch_capture
+        self, _name: str, include_filters: bool, method: str, patch_calculate_cohort, patch_capture
     ) -> None:
         def cohort_filter(cohort_id: int) -> dict[str, Any]:
             return {"key": "id", "value": cohort_id, "type": "cohort"}
@@ -4573,7 +4647,7 @@ email@example.org,
         if include_filters:
             data["filters"] = static_filters
 
-        response = self.client.patch(
+        response = getattr(self.client, method)(
             f"/api/projects/{self.team.id}/cohorts/{static_cohort.pk}",
             data=data,
         )
