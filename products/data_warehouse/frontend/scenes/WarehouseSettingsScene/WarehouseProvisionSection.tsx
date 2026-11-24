@@ -43,7 +43,7 @@ export function WarehouseProvisionSection({ failed }: { failed: boolean }): JSX.
     return (
         <WarehouseSection
             title={failed ? 'Retry setup' : 'Set up your warehouse'}
-            description="One managed warehouse is shared by every project in your organization. Setup takes a few minutes."
+            description="One warehouse is shared by every project in your organization. Setup takes a few minutes."
         >
             <div className="flex max-w-xl flex-col gap-4">
                 <WarehouseNameField
@@ -98,11 +98,11 @@ export function WarehouseProvisionSection({ failed }: { failed: boolean }): JSX.
                         <AlertDialogContent>
                             <AlertDialogHeader>
                                 <AlertDialogTitle>
-                                    {failed ? 'Retry setting up the warehouse?' : 'Set up the managed warehouse?'}
+                                    {failed ? 'Retry setting up the warehouse?' : 'Set up the warehouse?'}
                                 </AlertDialogTitle>
                                 <AlertDialogDescription>
-                                    This creates a managed warehouse for your organization, shared by every project in
-                                    it. It takes less than 5 minutes.
+                                    This creates a warehouse for your organization, shared by every project in it. It
+                                    takes less than 5 minutes.
                                 </AlertDialogDescription>
                             </AlertDialogHeader>
                             <AlertDialogFooter>

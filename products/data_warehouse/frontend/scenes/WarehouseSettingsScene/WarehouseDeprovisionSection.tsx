@@ -45,10 +45,10 @@ export function WarehouseDeprovisionSection(): JSX.Element {
                 </AlertDialogTrigger>
                 <AlertDialogContent>
                     <AlertDialogHeader>
-                        <AlertDialogTitle>Deprovision the managed warehouse?</AlertDialogTitle>
+                        <AlertDialogTitle>Deprovision the warehouse?</AlertDialogTitle>
                         <AlertDialogDescription>
-                            This deletes the managed warehouse for your organization and every project in it. This
-                            cannot be undone.
+                            This deletes the warehouse for your organization and every project in it. This cannot be
+                            undone.
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>

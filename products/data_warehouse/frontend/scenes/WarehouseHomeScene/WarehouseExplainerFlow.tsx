@@ -62,7 +62,7 @@ export function WarehouseExplainerFlow(): JSX.Element {
     return (
         <div
             role="img"
-            aria-label={`PostHog data and source tables land in the managed warehouse. You use it in PostHog through ${POSTHOG_FEATURES.join(', ')}, or from your own tools through a Trino-compatible connection.`}
+            aria-label={`PostHog data and source tables land in the warehouse, which has dedicated query compute for your organization. You use it in PostHog through ${POSTHOG_FEATURES.join(', ')}, or from your own tools through a Trino-compatible connection.`}
             className="grid items-center gap-3 @2xl/warehouse-home:grid-cols-[1fr_auto_1fr_auto_1fr]"
             data-attr="warehouse-explainer-flow"
         >
@@ -71,12 +71,14 @@ export function WarehouseExplainerFlow(): JSX.Element {
                 <FlowNode icon={<IconPlug />} title="Sources" detail="Tables from each sync" />
             </div>
             <FlowArrow />
-            <FlowNode
-                icon={<IconDatabase />}
-                title="Managed warehouse"
-                detail="Shared by your organization"
-                emphasized
-            />
+            <FlowNode icon={<IconDatabase />} title="Warehouse" emphasized>
+                <div className="mt-1 flex flex-col items-start gap-1">
+                    <Badge variant="info">Dedicated query compute</Badge>
+                    <Text size="xs" variant="muted" render={<span />}>
+                        For your organization only
+                    </Text>
+                </div>
+            </FlowNode>
             <FlowArrow />
             <div className="flex flex-col gap-2">
                 <FlowNode icon={<IconCode />} title="In PostHog">

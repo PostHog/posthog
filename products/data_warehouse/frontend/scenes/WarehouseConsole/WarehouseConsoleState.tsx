@@ -44,11 +44,11 @@ export function WarehouseConsoleState({ page }: { page: string }): JSX.Element |
         <Empty>
             <EmptyHeader>
                 <EmptyTitle>
-                    {consoleState === 'no_warehouse' ? 'No managed warehouse yet' : 'Warehouse not ready yet'}
+                    {consoleState === 'no_warehouse' ? 'No warehouse yet' : 'Warehouse not ready yet'}
                 </EmptyTitle>
                 <EmptyDescription>
                     {consoleState === 'no_warehouse'
-                        ? 'Set up your managed warehouse in Settings first. This page works once it is ready.'
+                        ? 'Set up your warehouse in Settings first. This page works once it is ready.'
                         : 'Your warehouse is still being set up, or its query engine is not ready. Check its status in Settings.'}
                 </EmptyDescription>
             </EmptyHeader>
