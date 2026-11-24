@@ -220,6 +220,16 @@ def insight_ids_modified_since(*, team_ids: Collection[int], since: datetime) ->
     )
 
 
+def insight_ids_by_short_ids(*, team_id: int, short_ids: Collection[str]) -> set[int]:
+    if not short_ids:
+        return set()
+    return set(
+        Insight.objects.filter(team_id=team_id, short_id__in=list(short_ids), deleted=False).values_list(
+            "id", flat=True
+        )
+    )
+
+
 def insight_ids_named_like(*, team_id: int, search: str) -> set[int]:
     unnamed = Q(name__isnull=True) | Q(name="")
     return set(
@@ -340,6 +350,21 @@ def get_or_create_saved_insight(
         insight.deleted = False
         insight.save(update_fields=["deleted"])
     return insight.id, created
+
+
+def create_sample_insight(*, team_id: int, name: str, description: str, query: dict[str, Any]) -> int:
+    return Insight.objects.create(team_id=team_id, name=name, description=description, is_sample=True, query=query).id
+
+
+def update_insight_description_and_query(
+    *, team_id: int, insight_id: int, description: str, query: dict[str, Any]
+) -> None:
+    insight = Insight.objects.filter(team_id=team_id, pk=insight_id).first()
+    if insight is None:
+        return
+    insight.description = description
+    insight.query = query
+    insight.save()
 
 
 def create_insight_explanation(

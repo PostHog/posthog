@@ -12,7 +12,8 @@
                 "backend/routes.py",
                 "backend/apps.py",
                 "backend/task_profiles.py",
-                "backend/console.py"
+                "backend/console.py",
+                "backend/admin.py"
             ],
             "outputs": [],
             "cache": true

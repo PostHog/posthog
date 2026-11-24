@@ -81,6 +81,7 @@ from products.batch_exports.backend.temporal.sql.events import (
     EXPORT_TO_S3_FROM_EVENTS_BACKFILL,
     EXPORT_TO_S3_FROM_EVENTS_RECENT,
     EXPORT_TO_S3_FROM_EVENTS_WORKFLOWS,
+    EXTRACTED_FIELD_EXPRESSIONS,
     native_events_export_query,
 )
 from products.batch_exports.backend.temporal.sql.persons import (
@@ -455,10 +456,11 @@ async def _stage_query_results(
     if record_batch_model is not None:
         query_or_model: str | RecordBatchModel = record_batch_model
         query_parameters: dict[str, typing.Any] = {}
+        reads_recent_events = False
     else:
         if full_range[1] is None or inputs.data_interval_end is None:
             raise MissingRequiredInputsError("Fixed batch export models require data_interval_end")
-        query_or_model, query_parameters = await _get_query(
+        query_or_model, query_parameters, reads_recent_events = await _get_query(
             model_name=model_name,
             backfill_details=inputs.backfill_details,
             team_id=inputs.team_id,
@@ -490,6 +492,7 @@ async def _stage_query_results(
             s3_staging_folder_url=s3_staging_folder.url,
             num_partitions=num_partitions,
             run_id=run_id,
+            reads_recent_events=reads_recent_events,
         )
     except ClickHouseUnknownTableError as e:
         if isinstance(record_batch_model, HogQLQueryRecordBatchModel):
@@ -594,6 +597,7 @@ async def _get_query(
             fields = destination_default_fields
 
     extra_query_parameters = parameters.pop("extra_query_parameters", {}) or {}
+    reads_recent_events = False
 
     is_backfill = backfill_details is not None
     # The number of partitions controls how many files ClickHouse writes to concurrently.
@@ -666,6 +670,10 @@ async def _get_query(
             lookback_days = settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS)
             parameters["lookback_days"] = lookback_days
 
+        reads_recent_events = query_template in (
+            EXPORT_TO_S3_FROM_EVENTS_RECENT,
+            EXPORT_TO_S3_FROM_DISTRIBUTED_EVENTS_RECENT,
+        )
         native_source = (
             query_template in (EXPORT_TO_S3_FROM_EVENTS_BACKFILL, EXPORT_TO_S3_FROM_EVENTS_WORKFLOWS)
             and batch_exports_read_new_events_table()
@@ -693,7 +701,7 @@ async def _get_query(
         if native_source:
             query = native_events_export_query(fields, filters_str, s3_function=s3_function)
         else:
-            query_fields = ",".join(f"{field['expression']} AS {field['alias']}" for field in fields)
+            query_fields = _select_list(fields, extracts_ip=query_template is not EXPORT_TO_S3_FROM_EVENTS_WORKFLOWS)
             if filters_str:
                 filters_str = f"AND {filters_str}"
             query = query_template.safe_substitute(
@@ -713,7 +721,14 @@ async def _get_query(
     parameters["log_comment"] = tags.to_json()
 
     parameters = {**parameters, **extra_query_parameters}
-    return query, parameters
+    return query, parameters, reads_recent_events
+
+
+def _select_list(fields: list[BatchExportField], *, extracts_ip: bool) -> str:
+    field_expressions = EXTRACTED_FIELD_EXPRESSIONS if extracts_ip else {}
+    return ",".join(
+        f"{field_expressions.get(field['expression'], field['expression'])} AS {field['alias']}" for field in fields
+    )
 
 
 def get_base_s3_staging_folder(
@@ -776,6 +791,7 @@ async def _write_batch_export_record_batches_to_internal_stage(
     s3_staging_folder_url: str,
     num_partitions: int | None = None,
     run_id: str | None = None,
+    reads_recent_events: bool = False,
 ) -> int | None:
     """Write record batches to our own internal S3 staging area.
 
@@ -841,13 +857,19 @@ async def _write_batch_export_record_batches_to_internal_stage(
         query_settings["output_format_arrow_record_batch_size_bytes"] = str(record_batch_size_bytes)
 
     clickhouse_url = None
+    cluster = None
+    # The recent events tables are stored on the batch exports cluster, so a query that reads one runs there.
+    if reads_recent_events and settings.CLICKHOUSE_BATCH_EXPORTS_HTTP_URL:
+        clickhouse_url = settings.CLICKHOUSE_BATCH_EXPORTS_HTTP_URL
+        cluster = settings.CLICKHOUSE_BATCH_EXPORTS_CLUSTER
     # 5 min batch exports should query a single node, which is known to have zero replication lag
-    if workload in (Workload.DEFAULT, Workload.OFFLINE) and is_5_min_batch_export(full_range=full_range):
+    elif workload in (Workload.DEFAULT, Workload.OFFLINE) and is_5_min_batch_export(full_range=full_range):
         clickhouse_url = settings.CLICKHOUSE_OFFLINE_5MIN_CLUSTER_HOST
 
     async with get_client(
         team_id=team_id,
         clickhouse_url=clickhouse_url,
+        cluster=cluster,
         workload=workload,
         # TODO: Strict limits are available in ClickHouse 26.4
         # We should uncomment all of these here to let max_insert_block_size_bytes dictate the size

@@ -14,6 +14,7 @@ from pydantic import ValidationError
 
 from posthog.dataclasses import frozen
 
+from products.cdp.backend.abuse.account import AccountTier
 from products.ml_inference.backend.facade.contracts import (
     DEFAULT_DECISION_MODEL,
     DecisionGatewayError,
@@ -86,6 +87,15 @@ class FailureReason(StrEnum):
     NOT_CONFIGURED = "not_configured"
 
 
+class AlertGate(StrEnum):
+    """A reason a model score from the alert threshold up to the block threshold does not alert. Each gate that
+    holds is recorded, so the event shows which gates a score passed."""
+
+    NORMAL_INTEGRATION = "normal_integration"
+    # A paying customer's long history outweighs a moderate score. Rules and block-level scores still apply.
+    ESTABLISHED_ACCOUNT = "established_account"
+
+
 class ClassificationFailed(Exception):
     def __init__(self, reason: FailureReason) -> None:
         super().__init__(reason.value)
@@ -126,6 +136,7 @@ class AbuseVerdict:
     risk_score: float
     would_alert: bool
     would_block: bool
+    model_alert_gates: tuple[AlertGate, ...]
     state_truncated: bool
     model: str
     latency_ms: float
@@ -269,6 +280,7 @@ def classify(
     team_id: int,
     thresholds: Thresholds,
     outbound_call: bool,
+    account_tier: AccountTier,
 ) -> AbuseVerdict:
     # The facade pulls the LLM SDKs through the gateway client, which must stay out of Django startup.
     from posthog.llm.gateway_client import GatewayNotConfiguredError  # noqa: PLC0415
@@ -306,11 +318,13 @@ def classify(
     acted_on_risk = max(
         scores[question] for question in MALICIOUS_QUESTIONS if outbound_call or question not in OUTBOUND_QUESTIONS
     )
+    gates = _model_alert_gates(scores, acted_on_risk, thresholds, account_tier)
     return AbuseVerdict(
         scores=scores,
         risk_score=risk_score,
-        would_alert=_would_alert(scores, acted_on_risk, thresholds),
+        would_alert=acted_on_risk >= thresholds.alert and not gates,
         would_block=acted_on_risk >= thresholds.block,
+        model_alert_gates=gates,
         state_truncated=truncated,
         model=result.model,
         latency_ms=latency_ms,
@@ -318,11 +332,17 @@ def classify(
     )
 
 
-def _would_alert(scores: Mapping[str, float], risk_score: float, thresholds: Thresholds) -> bool:
-    if risk_score < thresholds.alert:
-        return False
-    looks_like_a_normal_integration = scores[CONTROL_QUESTION] >= thresholds.control
-    return not looks_like_a_normal_integration or risk_score >= thresholds.block
+def _model_alert_gates(
+    scores: Mapping[str, float], risk_score: float, thresholds: Thresholds, account_tier: AccountTier
+) -> tuple[AlertGate, ...]:
+    if not thresholds.alert <= risk_score < thresholds.block:
+        return ()
+    gates: list[AlertGate] = []
+    if scores[CONTROL_QUESTION] >= thresholds.control:
+        gates.append(AlertGate.NORMAL_INTEGRATION)
+    if account_tier is AccountTier.ESTABLISHED:
+        gates.append(AlertGate.ESTABLISHED_ACCOUNT)
+    return tuple(gates)
 
 
 def _scores(answers: Mapping[str, object]) -> dict[str, float]:

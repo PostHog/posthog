@@ -38,12 +38,8 @@ from products.signals.backend.agent_runtime import STEP_SCOUT, AgentRuntime, res
 from products.signals.backend.constants import FIRST_REPORT_SCOUT, FIRST_REPORT_SCOUT_TIMEOUT_SECONDS
 from products.signals.backend.facade.source_scouts import refresh_source_scout
 from products.signals.backend.first_report_completion import complete_first_report_investigation
-from products.signals.backend.first_report_experiment import FirstReportExperiment, resolve_first_report_experiment
-from products.signals.backend.first_report_scout import (
-    FirstReportRunInProgress,
-    lock_first_report_start,
-    set_first_report_state,
-)
+from products.signals.backend.first_report_experiment import FirstReportExperiment, dispatched_first_report_experiment
+from products.signals.backend.first_report_scout import FirstReportRunInProgress, lock_first_report_start
 from products.signals.backend.first_report_scout_types import FirstReportScoutResult
 from products.signals.backend.github_optional import ResearchAccessPolicy
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
@@ -535,19 +531,7 @@ async def _arun_signals_scout(
     # model+runtime as a pair, and overriding one without the other would mis-route.
     experiment = None
     if skill.name == FIRST_REPORT_SCOUT and agent_runtime is None and trial is None:
-        experiment = await database_sync_to_async(resolve_first_report_experiment, thread_sensitive=False)(team)
-        if experiment is None or experiment.agent_runtime is None:
-            await database_sync_to_async(set_first_report_state, thread_sensitive=False)(team.id, "incomplete")
-            return RunResult(
-                run_id=None,
-                task_run_id=None,
-                status=None,
-                last_message=None,
-                runtime_s=0.0,
-                skill_name=skill.name,
-                skill_version=skill.version,
-                skip_reason="first-report experiment disabled" if experiment is None else "first-report control arm",
-            )
+        experiment = await database_sync_to_async(dispatched_first_report_experiment, thread_sensitive=False)(team)
         agent_runtime = experiment.agent_runtime
     preserve_trial_model = skill.origin == "canonical" and skill.name in canonical_scouts_preserving_trial_model()
     if trial is None and experiment is None and not preserve_trial_model:
@@ -992,15 +976,23 @@ def _project_has_governed_metrics(team: Team, user_id: int) -> bool:
         return False
 
 
-def _memory_upkeep_has_written(team: Team) -> bool:
+def _memory_upkeep_is_live(team: Team) -> bool:
     """Whether the run's prompt should describe the memory upkeep scout's entries.
 
-    True once that scout has a live scratchpad entry on the project, so an upkeep run that wrote
-    nothing leaves the section off. Every scout run reads the team's whole scratchpad, so there is
-    no per-user access to check. A failed read is False: the section is optional steering.
+    True while that scout is enabled on the project and has a live scratchpad entry there, so an
+    upkeep run that wrote nothing leaves the section off. The enabled check matters because the
+    scout's cursor never expires: without it, every other scout keeps reading learnings that stopped
+    changing when the upkeep scout was switched off. Every scout run reads the team's whole
+    scratchpad, so there is no per-user access to check. A failed read is False: the section is
+    optional steering.
     """
     try:
-        return has_live_entry_created_by(team_id=team.id, skill_name=MEMORY_UPKEEP_SCOUT)
+        enabled = (
+            SignalScoutConfig.objects.for_team(team.parent_team_id or team.id, canonical=True)
+            .filter(skill_name=MEMORY_UPKEEP_SCOUT, status__in=SignalScoutConfig.RUNNABLE_STATUSES)
+            .exists()
+        )
+        return enabled and has_live_entry_created_by(team_id=team.id, skill_name=MEMORY_UPKEEP_SCOUT)
     except Exception as error:
         capture_exception(error)
         return False
@@ -1290,7 +1282,7 @@ async def _spawn_and_run(
     project_has_governed_metrics = await database_sync_to_async(_project_has_governed_metrics, thread_sensitive=False)(
         team, user_id
     )
-    memory_upkeep_has_written = await database_sync_to_async(_memory_upkeep_has_written, thread_sensitive=False)(team)
+    memory_upkeep_is_live = await database_sync_to_async(_memory_upkeep_is_live, thread_sensitive=False)(team)
     mcp_server_names = await database_sync_to_async(_mcp_server_names_for_run, thread_sensitive=False)(
         team, user_id, config
     )
@@ -1311,7 +1303,7 @@ async def _spawn_and_run(
         project_timezone=team.timezone,
         github_read_access=github_guidance,
         project_has_governed_metrics=project_has_governed_metrics,
-        memory_upkeep_has_written=memory_upkeep_has_written,
+        memory_upkeep_is_live=memory_upkeep_is_live,
         activity_summary_search_available=activity_summary_search,
         inbox_reports_search_available=inbox_reports_search,
         # Names the external MCP servers the sandbox will mount, so *How to call tools* can carve

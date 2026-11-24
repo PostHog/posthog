@@ -23,6 +23,7 @@ import type {
     AEOPromptApi,
     AEOPromptBulkImportRequestApi,
     AEOPromptImportResultApi,
+    AEOPromptSetMoversApi,
     AEOPromptSetOverviewApi,
     AEOPromptSetRankingsApi,
     AEOPromptStatsApi,
@@ -44,6 +45,7 @@ import type {
     AeoPromptsChecksParams,
     AeoPromptsCitationsParams,
     AeoPromptsListParams,
+    AeoPromptsMoversParams,
     AeoPromptsOverviewParams,
     AeoPromptsRankingsParams,
     ApplyPathCleaningSuggestionResponseApi,
@@ -380,7 +382,7 @@ export const getAeoKeywordsModifiersUrl = (projectId: string, params?: AeoKeywor
 }
 
 /**
- * Gets the words and two-word phrases the engines added to their web searches beyond the prompt over the last 'days' days (default 7), such as years, 'pricing', 'vs' or 'site:'. They show the content the engines look for. Each modifier has a kind, how many answers used it, the citation rate in those answers against the baseline, the engines that used it and example searches. Pass 'keyword' to only count answers whose searches contain it, and 'branded', 'engine' or 'topic' to count only the answers to branded or non-branded prompts, of one answer engine, or of one topic.
+ * Gets the words and two-word phrases the engines added to their web searches beyond the prompt from 'date_from' to 'date_to' (default the last 7 days), such as years, 'pricing', 'vs' or 'site:'. They show the content the engines look for. Each modifier has a kind, how many answers used it, the citation rate in those answers against the baseline, the engines that used it and example searches. Pass 'keyword' to only count answers whose searches contain it, and 'branded', 'engine' or 'topic' to count only the answers to branded or non-branded prompts, of one answer engine, or of one topic.
  * @summary Get AEO search modifiers
  */
 export const aeoKeywordsModifiers = async (
@@ -411,7 +413,7 @@ export const getAeoKeywordsReportUrl = (projectId: string, params?: AeoKeywordsR
 }
 
 /**
- * Gets one row per keyword for the last 'days' days (default 7) in the project's timezone: how many prompts contain it and how those answers mention and cite the project, how often the engines searched for it and the citation rate in those answers, and how often answers use it, with the brand-mention rate, citation position and how early the brand is named in those answers. All rates are over answered checks. A keyword matches as a phrase, case ignored. Pass 'branded', 'engine' or 'topic' to count only the answers to branded or non-branded prompts, of one answer engine, or of one topic.
+ * Gets one row per keyword from 'date_from' to 'date_to' (default the last 7 days) in the project's timezone: how many prompts contain it and how those answers mention and cite the project, how often the engines searched for it and the citation rate in those answers, and how often answers use it, with the brand-mention rate, citation position and how early the brand is named in those answers. All rates are over answered checks. A keyword matches as a phrase, case ignored. Pass 'branded', 'engine' or 'topic' to count only the answers to branded or non-branded prompts, of one answer engine, or of one topic.
  * @summary Get the AEO keyword report
  */
 export const aeoKeywordsReport = async (
@@ -482,7 +484,7 @@ export const getAeoPromptsListUrl = (projectId: string, params?: AeoPromptsListP
 }
 
 /**
- * Lists the project's AEO prompt set, ordered by topic and then rank, one page at a time. Filter by topic, by on/off state, by whether the prompt names the brand, or to the prompts that need improvement, optionally over 'days' days and one 'engine'. Archived prompts are left out unless include_archived is true. Each prompt carries its latest check per answer engine.
+ * Lists the project's AEO prompt set, ordered by topic and then rank, one page at a time. Filter by topic, by on/off state, by whether the prompt names the brand, or to the prompts that need improvement, optionally from 'date_from' to 'date_to' and for one 'engine'. Archived prompts are left out unless include_archived is true. Each prompt carries its latest check per answer engine.
  * @summary List AEO prompts
  */
 export const aeoPromptsList = async (
@@ -660,7 +662,7 @@ export const getAeoPromptsCitationsUrl = (projectId: string, params?: AeoPrompts
 }
 
 /**
- * Lists the answered web-search checks across the whole prompt set that cited one URL, cited a page on one domain, or ran one web search, over the last 'days' days (default 30) in the project's timezone, newest first, one page at a time. Pass exactly one of url, domain or search. Each row has the prompt as it ran, whether the answer cited or mentioned the project, the URLs it cited and the searches it ran. Use it to see which prompts and answers sit behind a domain, page or search from the overview or the rankings, with the same 'days' and 'branded' values.
+ * Lists the answered web-search checks across the whole prompt set that cited one URL, cited a page on one domain, or ran one web search, from 'date_from' to 'date_to' (default the last 30 days) in the project's timezone, newest first, one page at a time. Pass exactly one of url, domain or search. Each row has the prompt as it ran, whether the answer cited or mentioned the project, the URLs it cited and the searches it ran. Use it to see which prompts and answers sit behind a domain, page or search from the overview or the rankings, with the same 'date_from', 'date_to' and 'branded' values.
  * @summary List the answers behind a cited page, site or search
  */
 export const aeoPromptsCitations = async (
@@ -692,6 +694,37 @@ export const aeoPromptsCreateDashboard = async (
     })
 }
 
+export const getAeoPromptsMoversUrl = (projectId: string, params?: AeoPromptsMoversParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/aeo_prompts/movers/?${stringifiedParams}`
+        : `/api/projects/${projectId}/aeo_prompts/movers/`
+}
+
+/**
+ * Gets the tracked prompts and the pages on the project's own domains that gained and lost the most visibility between 'date_from' and 'date_to' (default the last 30 days) in the project's timezone and the range of the same length before it. A prompt is ranked by the change in its mention rate, the share of its answers that name the brand, and a page by the change in its citation rate, the share of all answers that cite it. A prompt needs at least 3 answers in each window, and archived prompts are left out. Counts cover web-search checks. Pass 'branded' to count only the checks whose prompt names the brand, or only the ones whose prompt does not, 'engine' to count one answer engine, and 'topic' to count one topic.
+ * @summary Get the AEO prompts and pages that moved most
+ */
+export const aeoPromptsMovers = async (
+    projectId: string,
+    params?: AeoPromptsMoversParams,
+    options?: RequestInit
+): Promise<AEOPromptSetMoversApi> => {
+    return apiMutator<AEOPromptSetMoversApi>(getAeoPromptsMoversUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getAeoPromptsOverviewUrl = (projectId: string, params?: AeoPromptsOverviewParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -709,7 +742,7 @@ export const getAeoPromptsOverviewUrl = (projectId: string, params?: AeoPromptsO
 }
 
 /**
- * Gets an overview of the project's whole AEO prompt set for the last 'days' days (default 30) in the project's timezone: how many prompts are tracked, how many checks ran, the citation rate and the brand-mention rate, the same counts for the window before it, the current window split per answer engine (Claude, ChatGPT/OpenAI, Exa) and per topic, and the domains the engines cited most. Those counts cover web-search checks; a prompt's own stats split every engine, no-search ones included. Pass 'branded' to count only the checks whose prompt names the brand, or only the ones whose prompt does not, 'engine' to count one answer engine, and 'topic' to count one topic.
+ * Gets an overview of the project's whole AEO prompt set from 'date_from' to 'date_to' (default the last 30 days) in the project's timezone: how many prompts are tracked, how many checks ran, the citation rate and the brand-mention rate, the same counts for the window of the same length before it, the current window split per answer engine (Claude, ChatGPT/OpenAI, Exa) and per topic, and the domains the engines cited most. Those counts cover web-search checks; a prompt's own stats split every engine, no-search ones included. Pass 'branded' to count only the checks whose prompt names the brand, or only the ones whose prompt does not, 'engine' to count one answer engine, and 'topic' to count one topic.
  * @summary Get the AEO prompt set overview
  */
 export const aeoPromptsOverview = async (
@@ -740,7 +773,7 @@ export const getAeoPromptsRankingsUrl = (projectId: string, params?: AeoPromptsR
 }
 
 /**
- * Gets how often AI answers named the project against its competitors over the last 'days' days (default 30) in the project's timezone, with the same share for the window before, a daily series, and the domains and pages the engines cited most. Competitors are derived from the cited domains. Pass 'branded' to count only the checks whose prompt names the brand, or only the ones whose prompt does not, 'engine' to count one answer engine, and 'topic' to count one topic.
+ * Gets how often AI answers named the project against its competitors from 'date_from' to 'date_to' (default the last 30 days) in the project's timezone, with the same share for the window before, a daily series, and the domains and pages the engines cited most. Competitors are derived from the cited domains. Pass 'branded' to count only the checks whose prompt names the brand, or only the ones whose prompt does not, 'engine' to count one answer engine, and 'topic' to count one topic.
  * @summary Get AEO brand rankings
  */
 export const aeoPromptsRankings = async (

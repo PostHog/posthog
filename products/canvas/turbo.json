@@ -14,7 +14,12 @@
                 "backend/apps.py",
                 "backend/checks.py",
                 "backend/logic/visibility.py",
-                "backend/search_sync.py"
+                "backend/search_sync.py",
+                "backend/artifacts.py",
+                "backend/connectors.py",
+                "backend/logic/canvases.py",
+                "backend/notebook_integration.py",
+                "backend/teaching.py"
             ],
             "outputs": [],
             "cache": true

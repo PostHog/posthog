@@ -329,6 +329,11 @@ def insight_ids_modified_since(*, team_ids: Collection[int], since: datetime) ->
     return logic.insight_ids_modified_since(team_ids=team_ids, since=since)
 
 
+def insight_ids_by_short_ids(*, team_id: int, short_ids: Collection[str]) -> set[int]:
+    """Ids of the live insights of this team with these short ids, in one query. Unknown short ids are left out."""
+    return logic.insight_ids_by_short_ids(team_id=team_id, short_ids=short_ids)
+
+
 def insight_ids_named_like(*, team_id: int, search: str) -> set[int]:
     """Live insights of this team whose name contains ``search``, ignoring case, in one query.
 
@@ -401,6 +406,23 @@ def get_or_create_saved_insight(
         query=query,
         revive_deleted=revive_deleted,
         saved=saved,
+    )
+
+
+def create_sample_insight(*, team_id: int, name: str, description: str, query: dict[str, Any]) -> int:
+    """Create an insight that PostHog generates for a dashboard, with no author, and return its id."""
+    return logic.create_sample_insight(team_id=team_id, name=name, description=description, query=query)
+
+
+def update_insight_description_and_query(
+    *, team_id: int, insight_id: int, description: str, query: dict[str, Any]
+) -> None:
+    """Replace the description and query of a live insight as the system, with no access check.
+
+    Does nothing when the team has no live insight with this id.
+    """
+    logic.update_insight_description_and_query(
+        team_id=team_id, insight_id=insight_id, description=description, query=query
     )
 
 

@@ -107,6 +107,7 @@ import type {
     WarehouseSavedQueryDraftsListParams,
     WarehouseStatusResponseApi,
     WarehouseTablesListParams,
+    WarehouseTablesRetrieveParams,
     WarehouseTablesUploadFileCreateBody,
     WarehouseViewLinkListParams,
     WarehouseViewLinksListParams,
@@ -2412,8 +2413,24 @@ export const warehouseTablesCreate = async (
     })
 }
 
-export const getWarehouseTablesRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/warehouse_tables/${id}/`
+export const getWarehouseTablesRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: WarehouseTablesRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/warehouse_tables/${id}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/warehouse_tables/${id}/`
 }
 
 /**
@@ -2422,9 +2439,10 @@ export const getWarehouseTablesRetrieveUrl = (projectId: string, id: string) => 
 export const warehouseTablesRetrieve = async (
     projectId: string,
     id: string,
+    params?: WarehouseTablesRetrieveParams,
     options?: RequestInit
 ): Promise<TableApi> => {
-    return apiMutator<TableApi>(getWarehouseTablesRetrieveUrl(projectId, id), {
+    return apiMutator<TableApi>(getWarehouseTablesRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })

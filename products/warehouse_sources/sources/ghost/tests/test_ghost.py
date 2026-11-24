@@ -8,7 +8,12 @@ import jwt
 from products.warehouse_sources.sources.ghost._config import GhostSourceConfig
 from products.warehouse_sources.sources.ghost.ghost import GhostResumeConfig
 from products.warehouse_sources.sources.ghost.source import GhostSource
-from products.warehouse_sources.sources.sdk.testing import RecordedRequest, ScriptedResponse, SourceDriver
+from products.warehouse_sources.sources.sdk.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    error_message_matches,
+)
 
 KEY_ID = "0123456789abcdef01234567"
 KEY_SECRET = "0123456789abcdef" * 4
@@ -29,6 +34,7 @@ def driver(admin_domain: str = "publication.example.com") -> SourceDriver:
         ("newsletters", None, None),
         ("tags", None, None),
         ("users", None, None),
+        ("labels", "count.members", None),
     ],
 )
 def test_browse_requests_preserve_rows_and_stop_at_last_page(
@@ -63,14 +69,66 @@ def test_browse_requests_preserve_rows_and_stop_at_last_page(
     assert all(request.headers["accept-version"] == "v6.0" for request in result.requests)
 
 
-def test_offers_do_not_repeat_an_unpaginated_response() -> None:
-    rows = [{"id": "offer_example", "tier": {"id": "tier_example"}, "redemption_count": 0}]
-    result = driver().run("offers", [ScriptedResponse(json={"offers": rows})])
+@pytest.mark.parametrize(
+    ("endpoint", "path", "data_selector", "status_filter", "rows"),
+    [
+        (
+            "offers",
+            "/ghost/api/admin/offers/",
+            "offers",
+            None,
+            [{"id": "offer_example", "tier": {"id": "tier_example"}, "redemption_count": 0}],
+        ),
+        (
+            "member_custom_fields",
+            "/ghost/api/admin/members/metafields/custom/",
+            "members_metafields",
+            "status:[active,archived]",
+            [
+                {"namespace": "custom", "key": "team_size", "type": "short_text", "status": "active"},
+                {
+                    "namespace": "custom",
+                    "key": "favorite_topics",
+                    "type": "list",
+                    "settings": {"options": ["Alpha", "Beta"], "multiple": True},
+                    "status": "archived",
+                    "updated_at": None,
+                },
+            ],
+        ),
+        (
+            "roles",
+            "/ghost/api/admin/roles/",
+            "roles",
+            None,
+            [{"id": "role_example", "name": "Example role", "created_at": "2026-01-01T00:00:00.000Z"}],
+        ),
+    ],
+)
+def test_unpaginated_endpoints_read_one_response_without_repeating_it(
+    endpoint: str, path: str, data_selector: str, status_filter: str | None, rows: list[dict]
+) -> None:
+    result = driver().run(endpoint, [ScriptedResponse(json={data_selector: rows})])
     assert result.raised is None
     assert result.rows == rows
+    assert result.paths == [path]
     assert result.params("page") == [None]
     assert result.params("limit") == [None]
+    assert result.params("filter") == [status_filter]
     assert result.committed_states == [GhostResumeConfig(finished=True)]
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "non_retryable"),
+    [("member_custom_fields", True), ("roles", False)],
+)
+def test_missing_route_on_an_older_site_fails_without_retries_only_for_custom_fields(
+    endpoint: str, non_retryable: bool
+) -> None:
+    result = driver().run(endpoint, [ScriptedResponse(status=404, json={"errors": [{"type": "NotFoundError"}]})])
+    assert result.raised is not None
+    assert result.rows == []
+    assert error_message_matches(str(result.raised), GhostSource().get_non_retryable_errors()) is non_retryable
 
 
 def test_resume_keeps_written_pages_and_does_not_replay_a_finished_run() -> None:

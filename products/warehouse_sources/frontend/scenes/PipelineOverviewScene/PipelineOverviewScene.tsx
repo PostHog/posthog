@@ -4,6 +4,7 @@ import { IconPlus, IconPlusSmall, IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
 
+import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -36,7 +37,7 @@ export const scene: SceneExport = {
 
 export function PipelineOverviewScene(): JSX.Element {
     const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
-    const { window, jobStatsLoading, hasIssues, lastUpdatedAt } = useValues(pipelineOverviewSceneLogic)
+    const { window, jobStatsLoading, hasIssues, lastUpdatedAt, accessDenied } = useValues(pipelineOverviewSceneLogic)
     const { setWindow, refresh } = useActions(pipelineOverviewSceneLogic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
@@ -44,6 +45,12 @@ export function PipelineOverviewScene(): JSX.Element {
     // later reads as a broken page to anyone who does have the flag.
     if (receivedFeatureFlags && !featureFlags[FEATURE_FLAGS.WAREHOUSE_MULTI_DESTINATION]) {
         return <NotFound object="page" caption="ELT isn't available for this project yet." />
+    }
+
+    if (accessDenied) {
+        return (
+            <AccessDenied reason="You don't have access to this project's data warehouse, so the ELT overview isn't available." />
+        )
     }
 
     return (

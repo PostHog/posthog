@@ -70,7 +70,7 @@ class TestTrinoSemantics(APIBaseTest):
 
         self.assertNotIn("matchesAction", sql)
         self.assertIn('"ducklake"."analytics"."events"', sql)
-        self.assertIn("checkout completed", context.values.values())
+        self.assertIn("'checkout completed'", sql)
         self.assertIsInstance(node, ast.SelectQuery)
         self.assertIn("GROUP BY 1", sql)
         self.assertIn('ORDER BY "__hogql_trino_source_0"."total" DESC', sql)

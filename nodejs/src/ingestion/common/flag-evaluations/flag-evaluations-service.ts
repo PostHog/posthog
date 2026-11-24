@@ -18,7 +18,8 @@ export interface FlagEvaluationsConfig {
  * Gate for the $feature_flag_called fork that writes flag evaluations to the
  * ClickHouse flag_evaluations table (via the clickhouse_flag_evaluations
  * topic). The event continues to the events table unless the team's
- * organization is on FLAG_EVALUATIONS_ONLY.
+ * organization is on FLAG_EVALUATIONS_ONLY and does not keep writing flag
+ * calls to events.
  *
  * The fork write is never load-bearing for a dual-written event, but the batch
  * does not commit its offsets until the broker answers. See
@@ -46,9 +47,11 @@ export class FlagEvaluationsService {
         return this.isEnabled(teamId)
     }
 
-    stopsEventsWritesFor(team: Pick<Team, 'flag_evaluations_mode'>): boolean {
+    stopsEventsWritesFor(team: Pick<Team, 'flag_evaluations_mode' | 'keep_writing_flag_calls_to_events'>): boolean {
         return (
-            team.flag_evaluations_mode === FlagEvaluationsMode.FlagEvaluationsOnly && !this.flagEvaluationsOnlyDisabled
+            team.flag_evaluations_mode === FlagEvaluationsMode.FlagEvaluationsOnly &&
+            !team.keep_writing_flag_calls_to_events &&
+            !this.flagEvaluationsOnlyDisabled
         )
     }
 }

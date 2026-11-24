@@ -103,8 +103,8 @@ def load_condition_set_traffic(
     """
     if (
         not reader_access.can_query_events
-        or denied_scanned_properties(reader_access)
-        or not needs_condition_set_traffic(ctx)
+        or _denied_scanned_properties(reader_access)
+        or not _needs_condition_set_traffic(ctx)
     ):
         return None
     try:
@@ -114,7 +114,7 @@ def load_condition_set_traffic(
         return None
 
 
-def needs_condition_set_traffic(ctx: HealthContext) -> bool:
+def _needs_condition_set_traffic(ctx: HealthContext) -> bool:
     """Whether a check reads the flag's calls: the forced-variant or release-condition check to grade by the pinned
     share, or the flag-state check for a flag with a 0% rollout."""
     return grades_by_pinned_share(ctx) or needs_outside_assignment_check(ctx)
@@ -138,7 +138,7 @@ def _pins_to_grade(ctx: HealthContext) -> list[PinnedConditions]:
     return [pins for pins in (overrides_to_grade(ctx), removed_overrides_to_grade(ctx)) if pins is not None]
 
 
-def denied_scanned_properties(reader_access: ExperimentHealthReaderAccess) -> frozenset[str]:
+def _denied_scanned_properties(reader_access: ExperimentHealthReaderAccess) -> frozenset[str]:
     """The flag call properties that the reader is denied. The scan does not run when there are any."""
     return reader_access.denied_event_properties & _SCANNED_PROPERTIES
 

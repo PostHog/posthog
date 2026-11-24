@@ -549,6 +549,67 @@ class TestGetRows:
             }
         ]
 
+    @staticmethod
+    def _forecast_answers(rejected: tuple[str, ...], blended_error: Optional[str] = None) -> list[Any]:
+        forecast = {
+            "ForecastResultsByTime": [
+                {"TimePeriod": {"Start": "2024-03-03", "End": "2024-03-04"}, "MeanValue": "10.5"},
+            ],
+        }
+
+        def validation_error(message: str) -> AwsCostExplorerError:
+            return error_for_response(make_response(400, {"__type": "ValidationException", "message": message}))
+
+        answers: list[Any] = []
+        for metric in FORECAST_METRICS:
+            if metric == "BLENDED_COST" and blended_error:
+                answers.append(validation_error(blended_error))
+            elif metric in rejected:
+                answers.append(
+                    validation_error(
+                        f"Linked accounts without permissions to view discounts may not query for this metric: {metric}"
+                    )
+                )
+            else:
+                answers.append(forecast)
+        return answers
+
+    @pytest.mark.parametrize(
+        "rejected,expected_metrics",
+        [
+            (("NET_AMORTIZED_COST", "NET_UNBLENDED_COST"), ["AMORTIZED_COST", "BLENDED_COST", "UNBLENDED_COST"]),
+            (("AMORTIZED_COST", "NET_AMORTIZED_COST", "NET_UNBLENDED_COST"), ["BLENDED_COST", "UNBLENDED_COST"]),
+        ],
+    )
+    def test_cost_forecast_skips_metrics_a_linked_account_cannot_view(
+        self, rejected: tuple[str, ...], expected_metrics: list[str]
+    ) -> None:
+        manager = FakeResumeManager()
+
+        batches, _ = self._run(self._forecast_answers(rejected), manager, endpoint="cost_forecast_daily")
+
+        assert [row["metric"] for batch in batches for row in batch] == expected_metrics
+        assert manager.cleared
+
+    @pytest.mark.parametrize(
+        "rejected,blended_error,expected_text",
+        [
+            # Every metric refused: the run fails with the error that maps to the non-retryable fix.
+            (FORECAST_METRICS, None, "Linked accounts without permissions to view discounts"),
+            # Any other validation error still fails the run, even next to a skippable one.
+            (("NET_AMORTIZED_COST",), "Start date must be before end date", "Start date must be before end date"),
+        ],
+    )
+    def test_cost_forecast_fails_when_no_metric_can_sync_or_aws_rejects_for_another_reason(
+        self, rejected: tuple[str, ...], blended_error: Optional[str], expected_text: str
+    ) -> None:
+        manager = FakeResumeManager()
+
+        with pytest.raises(AwsCostExplorerError, match=expected_text):
+            self._run(self._forecast_answers(rejected, blended_error), manager, endpoint="cost_forecast_daily")
+
+        assert not manager.cleared
+
     def test_rightsizing_recommendations_page_without_a_time_period_and_keep_ids_as_strings(self) -> None:
         manager = FakeResumeManager()
 
