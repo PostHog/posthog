@@ -26,6 +26,7 @@ from products.tasks.backend.pr_urls import (
     read_head_branches,
     read_pr_urls,
 )
+from products.tasks.backend.task_done import record_pull_request_outcome
 from products.tasks.backend.task_run_sync import sync_task_pr_urls_on_commit
 from products.tasks.backend.webhooks import _run_repository_filter, _task_run_scope_team_ids, find_task_run
 
@@ -39,6 +40,8 @@ class PullRequestSnapshot:
     head_repository: str
     state: Literal["open", "draft", "closed", "merged"]
     merged_at: datetime | None
+    merged_by_login: str | None = None
+    merged_by_github_id: int | None = None
 
     @classmethod
     def from_github(cls, response: dict[str, object]) -> "PullRequestSnapshot | None":
@@ -56,12 +59,17 @@ class PullRequestSnapshot:
         elif response.get("draft") is True:
             state = "draft"
         merged_at = response.get("merged_at")
+        merged_by = response.get("merged_by")
+        merger_login = merged_by.get("login") if isinstance(merged_by, dict) else None
+        merger_id = merged_by.get("id") if isinstance(merged_by, dict) else None
         return cls(
             url=url,
             head_branch=branch,
             head_repository=repository,
             state=state,
             merged_at=parse_datetime(merged_at) if isinstance(merged_at, str) else None,
+            merged_by_login=merger_login if isinstance(merger_login, str) and merger_login else None,
+            merged_by_github_id=merger_id if isinstance(merger_id, int) else None,
         )
 
 
@@ -224,11 +232,21 @@ class PullRequestReconciler:
             # Output receivers must retry report linking after verification, even if the URL is unchanged.
             locked.save(update_fields=["state", "output", "updated_at"])
             sync_task_pr_urls_on_commit(locked.task_id)
+            task_id, pr_url = locked.task_id, self.pr_url
+            outcome: Literal["merged", "closed", "open"] = (
+                snapshot.state if snapshot.state in ("merged", "closed") else "open"
+            )
+            transaction.on_commit(
+                lambda: record_pull_request_outcome(task_id, pr_url, state=outcome),
+                robust=True,
+            )
             reconcile_pull_request_state(
                 team_id=self.team_id,
                 repository=parsed.repository,
                 pr_number=parsed.number,
                 pr_state=snapshot.state,
                 merged_at=snapshot.merged_at,
+                merged_by_login=snapshot.merged_by_login,
+                merged_by_github_id=snapshot.merged_by_github_id,
             )
         self._log("verified")

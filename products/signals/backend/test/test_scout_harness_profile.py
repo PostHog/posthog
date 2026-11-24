@@ -27,11 +27,13 @@ from posthog.integrations import SOURCE_MARKER_CONFIG_KEY
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.integration import Integration
 from posthog.models.product_intent.product_intent import ProductIntent
+from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.actions.backend.facade.testing import create_action, update_action
 from products.alerts.backend.models.alert import AlertConfiguration
+from products.alerts_platform.backend.facade import testing as platform_testing
 from products.business_knowledge.backend.models.knowledge_chunk import KnowledgeChunk
 from products.business_knowledge.backend.models.knowledge_document import KnowledgeDocument
 from products.business_knowledge.backend.models.knowledge_source import KnowledgeSource
@@ -689,9 +691,20 @@ class TestRecentAlerts(BaseTest):
     def test_total_and_enabled_counts(self) -> None:
         AlertConfiguration.objects.create(team=self.team, insight=self._insight("a"), name="on", enabled=True)
         AlertConfiguration.objects.create(team=self.team, insight=self._insight("b"), name="off", enabled=False)
+        with team_scope(self.team.id):
+            platform_testing.create_configuration(
+                team_id=self.team.id,
+                name="no insight row",
+                source_kind="insight",
+                source_config={"insight_id": self._insight("c").id},
+                check_interval_minutes=1440,
+                owner="platform",
+                legacy_configuration_id=None,
+            )
         result = _recent_alerts(self.team)
-        assert result["total_count"] == 2
-        assert result["enabled_count"] == 1
+        assert result["total_count"] == 3
+        assert result["enabled_count"] == 2
+        assert {row["name"] for row in result["recent"]} == {"on", "off", "no insight row"}
 
     def test_orders_by_created_at_desc(self) -> None:
         # AlertConfiguration has no `updated_at` (CreatedMetaFields only) — sort uses

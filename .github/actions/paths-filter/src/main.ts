@@ -6,8 +6,9 @@ import {PullRequest, PushEvent} from '@octokit/webhooks-types'
 
 import {Filter, FilterResults, firedKeys} from './filter'
 import {loadPolicy, projectLegacyFilters} from './shared-image-policy'
-import {File, ChangeStatus} from './file'
+import {File, filesFromApiRow} from './file'
 import * as git from './git'
+import * as reuse from './reuse'
 import * as shadow from './shadow'
 import {backslashEscape, shellEscape} from './list-format/shell-escape'
 import {csvEscape} from './list-format/csv-escape'
@@ -40,10 +41,31 @@ async function run(): Promise<void> {
     }
 
     const filter = new Filter(filtersYaml)
+    const reuseConfig = reuse.loadConfig(filter, isPathInput(filtersInput) ? filtersInput : null)
     const {files, api} = await getChangedFiles(token, base, ref, initialFetchDepth)
     core.info(`Detected ${files.length} changed files`)
     const results = filter.match(files)
-    exportResults(results, listFiles)
+    const decision =
+      reuseConfig && api
+        ? await reuse.evaluate(
+            {
+              config: reuseConfig,
+              filter,
+              files,
+              truncated: api.apiTruncated,
+              action: github.context.payload.action,
+              before: github.context.payload.before,
+              runAttempt: parseInt(process.env.GITHUB_RUN_ATTEMPT ?? '1') || 1,
+              now: Date.now(),
+              pr: api.pr
+            },
+            signal => reuse.githubApi(token, signal)
+          )
+        : null
+    exportResults(decision?.reuse ? reuse.withoutReusedKeys(results, decision.keys) : results, listFiles)
+    if (decision) {
+      await reuse.publish(decision)
+    }
     if (api) {
       await shadow.report({filter, apiFiles: files, apiResults: results, ...api})
     }
@@ -221,27 +243,7 @@ async function getChangedFilesFromApi(
       for (const row of response.data as GetResponseDataTypeFromEndpointMethod<typeof client.rest.pulls.listFiles>) {
         apiRows++
         core.info(`[${row.status}] ${JSON.stringify(row.filename)}`)
-        // There's no obvious use-case for detection of renames
-        // Therefore we treat it as if rename detection in git diff was turned off.
-        // Rename is replaced by delete of original filename and add of new filename
-        if (row.status === ChangeStatus.Renamed) {
-          files.push({
-            filename: row.filename,
-            status: ChangeStatus.Added
-          })
-          files.push({
-            // 'previous_filename' for some unknown reason isn't in the type definition or documentation
-            filename: (<any>row).previous_filename as string,
-            status: ChangeStatus.Deleted
-          })
-        } else {
-          // Github status and git status variants are same except for deleted files
-          const status = row.status === 'removed' ? ChangeStatus.Deleted : (row.status as ChangeStatus)
-          files.push({
-            filename: row.filename,
-            status
-          })
-        }
+        files.push(...filesFromApiRow(row))
       }
     }
 

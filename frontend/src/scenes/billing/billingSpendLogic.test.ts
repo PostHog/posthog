@@ -1,3 +1,5 @@
+import { MOCK_ORGANIZATION_ID } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
@@ -32,7 +34,7 @@ describe('billingSpendLogic chart type', () => {
     const mocks = (): Parameters<typeof useMocks>[0] => ({
         get: {
             '/api/billing': () => [200, billingJson],
-            '/api/organizations/@current/billing/spend/timeseries/': () => [
+            [`/api/organizations/${MOCK_ORGANIZATION_ID}/billing/spend/timeseries/`]: () => [
                 200,
                 { count: 0, next: null, previous: null, results: [] },
             ],
@@ -56,13 +58,46 @@ describe('billingSpendLogic chart type', () => {
         logic?.unmount()
     })
 
+    it('places markers on the usage dates assigned to new pricing periods', async () => {
+        const base = mocks()
+        useMocks({
+            ...base,
+            get: {
+                ...base.get,
+                [`/api/organizations/${MOCK_ORGANIZATION_ID}/billing/spend/timeseries/`]: () => [
+                    200,
+                    {
+                        count: 0,
+                        next: null,
+                        previous: null,
+                        results: [],
+                        pricing_reset_dates: ['2026-08-23', '2026-09-19'],
+                    },
+                ],
+            },
+        })
+        await mount()
+
+        expect(logic.values.billingPeriodMarkers.map(({ date }) => date.format('YYYY-MM-DD'))).toEqual([
+            '2026-08-23',
+            '2026-09-19',
+        ])
+    })
+
+    it('does not infer pricing resets from renewal dates when an older backend omits metadata', async () => {
+        useMocks(mocks())
+        await mount()
+
+        expect(logic.values.billingPeriodMarkers).toEqual([])
+    })
+
     it('lists the projects with usage beside the live ones, apart from the chart', async () => {
         const base = mocks()
         useMocks({
             ...base,
             get: {
                 ...base.get,
-                '/api/organizations/@current/billing/projects/': () => [
+                [`/api/organizations/${MOCK_ORGANIZATION_ID}/billing/projects/`]: () => [
                     200,
                     {
                         count: 2,
@@ -180,7 +215,7 @@ describe('billingSpendLogic project breakdown requests', () => {
         useMocks({
             get: {
                 '/api/billing': () => [200, billingJson],
-                '/api/organizations/@current/billing/spend/timeseries/': ({ request }) => {
+                [`/api/organizations/${MOCK_ORGANIZATION_ID}/billing/spend/timeseries/`]: ({ request }) => {
                     record(request)
                     return [200, empty]
                 },
@@ -196,7 +231,7 @@ describe('billingSpendLogic project breakdown requests', () => {
         useMocks({
             get: {
                 '/api/billing': () => [200, billingJson],
-                '/api/organizations/@current/billing/spend/timeseries/': ({ request }) => {
+                [`/api/organizations/${MOCK_ORGANIZATION_ID}/billing/spend/timeseries/`]: ({ request }) => {
                     record(request)
                     return [200, { ...empty, results: seriesFor('1') }]
                 },
@@ -214,7 +249,7 @@ describe('billingSpendLogic project breakdown requests', () => {
         useMocks({
             get: {
                 '/api/billing': () => [200, billingJson],
-                '/api/organizations/@current/billing/spend/timeseries/': ({ request }) => {
+                [`/api/organizations/${MOCK_ORGANIZATION_ID}/billing/spend/timeseries/`]: ({ request }) => {
                     record(request)
                     return [200, empty]
                 },
@@ -276,7 +311,7 @@ describe('billing spend load triggers', () => {
         useMocks({
             get: {
                 '/api/billing': () => [200, billingJson],
-                '/api/organizations/@current/billing/spend/timeseries/': ({ request }) => {
+                [`/api/organizations/${MOCK_ORGANIZATION_ID}/billing/spend/timeseries/`]: ({ request }) => {
                     requests += 1
                     const params = new URL(request.url).searchParams
                     startDates.push(params.get('start_date') ?? '')
@@ -356,7 +391,7 @@ describe('billingSpendLogic export', () => {
     const mocks = (periods: number): Parameters<typeof useMocks>[0] => ({
         get: {
             '/api/billing': () => [200, billingJson],
-            '/api/organizations/@current/billing/spend/timeseries/': () => [200, response(periods)],
+            [`/api/organizations/${MOCK_ORGANIZATION_ID}/billing/spend/timeseries/`]: () => [200, response(periods)],
         },
     })
 

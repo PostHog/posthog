@@ -1,4 +1,4 @@
-use posthog_rs::Event;
+use posthog::Event;
 use uuid::Uuid;
 
 use crate::core::analytics::capture_event;

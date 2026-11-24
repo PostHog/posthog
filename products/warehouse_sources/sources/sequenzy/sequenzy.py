@@ -13,6 +13,7 @@ from products.warehouse_sources.sources.sdk import (
     SinglePagePaginator,
     SourceResponse,
     build_dependent_resource,
+    format_datetime,
     frozen,
     make_tracked_session,
     rest_api_resource,
@@ -53,10 +54,6 @@ def _to_utc(value: datetime | str) -> datetime:
     return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed.astimezone(UTC)
 
 
-def _format_timestamp(value: datetime) -> str:
-    return value.astimezone(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
-
-
 def _time_filter_params(
     config: SequenzyEndpointConfig,
     should_use_incremental_field: bool,
@@ -72,7 +69,7 @@ def _time_filter_params(
     start = now - EVENTS_MAX_WINDOW
     if should_use_incremental_field and db_incremental_field_last_value:
         start = max(_to_utc(db_incremental_field_last_value), start)
-    return {"start": _format_timestamp(start), "end": _format_timestamp(now)}
+    return {"start": format_datetime(start, "iso_z_millis"), "end": format_datetime(now, "iso_z_millis")}
 
 
 def _make_paginator(config: SequenzyEndpointConfig) -> BasePaginator:
@@ -159,7 +156,7 @@ def sequenzy_source(
     resource: Any
     if endpoint_config.fanout is not None:
         parent_config = ENDPOINTS_CONFIG[endpoint_config.fanout.parent_name]
-        window_end = _format_timestamp(now)
+        window_end = format_datetime(now, "iso_z_millis")
 
         def save_fanout_checkpoint(state: Optional[dict[str, Any]]) -> None:
             if state:

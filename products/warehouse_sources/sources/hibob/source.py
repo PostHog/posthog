@@ -50,6 +50,7 @@ class HiBobSource(SimpleSource[HiBobSourceConfig]):
         return {
             "401 Client Error: Unauthorized for url: https://api.hibob.com": "HiBob authentication failed. Please check your Service User ID and token (legacy API tokens were discontinued — only Service Users work).",
             "403 Client Error: Forbidden for url: https://api.hibob.com": "HiBob denied access. Please add your Service User to a permission group with access to this data category.",
+            "404 Client Error: Not Found for url: https://api.hibob.com/v1/job-catalog/": "HiBob's job catalog API is only available for companies that use Job catalog 2.0. Disable the job catalog tables, or move your company to Job catalog 2.0.",
         }
 
     @property

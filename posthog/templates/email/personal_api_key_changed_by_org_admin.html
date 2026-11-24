@@ -1,0 +1,48 @@
+{% extends "email/base.html" %}
+{% block heading %}{{ heading }}{% endblock %}
+{% block section %}
+    <p>
+        An admin of <strong>{{ organization_name }}</strong>
+        {% if changes|length == 1 %}made this change to your personal API key{% else %}made these changes to your personal API keys{% endif %}.
+    </p>
+    {% if rolled_keys %}
+        <h3>Key{{ rolled_keys|pluralize }} rolled</h3>
+        <ul>
+            {% for key in rolled_keys %}
+                <li><strong>{{ key.label|default:"Personal API key" }}</strong>{% if key.mask_value %} ({{ key.mask_value }}){% endif %}</li>
+            {% endfor %}
+        </ul>
+        <p>
+            {% if rolled_keys|length == 1 %}
+                The old secret no longer works in any organization. To reconnect your integrations, roll the key in personal settings and update your integrations with the new secret.
+            {% else %}
+                The old secrets no longer work in any organization. To reconnect your integrations, roll these keys in personal settings and update your integrations with the new secrets.
+            {% endif %}
+        </p>
+    {% endif %}
+    {% if revoked_keys %}
+        <h3>Key{{ revoked_keys|pluralize }} revoked</h3>
+        <ul>
+            {% for key in revoked_keys %}
+                <li><strong>{{ key.label|default:"Personal API key" }}</strong>{% if key.mask_value %} ({{ key.mask_value }}){% endif %}</li>
+            {% endfor %}
+        </ul>
+        <p>
+            {% if revoked_keys|length == 1 %}
+                This key was permanently deleted and no longer works in any organization. To reconnect your integrations, create a new key in personal settings and update your integrations with it.
+            {% else %}
+                These keys were permanently deleted and no longer work in any organization. To reconnect your integrations, create replacement keys in personal settings and update your integrations with them.
+            {% endif %}
+        </p>
+    {% endif %}
+    <div class="mb mt text-center">
+        <a class="button" href="{{ url }}">Manage API keys</a>
+    </div>
+    <div class="mt">
+        <p>
+            If the button above doesn't work, paste this link into your browser:
+            <br />
+            <a href="{{ url }}">{{ url }}</a>
+        </p>
+    </div>
+{% endblock %} {% block preheader %}{{ preheader }}{% endblock %}

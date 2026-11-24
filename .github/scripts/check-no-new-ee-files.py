@@ -21,6 +21,8 @@ import subprocess
 EXEMPT: frozenset[str] = frozenset(
     {
         "ee/migrations/0068_drop_dashboardprivilege_table.py",
+        "ee/migrations/0071_role_organization_access_level.py",
+        "ee/migrations/0072_validate_role_organization_access_level.py",
     }
 )
 

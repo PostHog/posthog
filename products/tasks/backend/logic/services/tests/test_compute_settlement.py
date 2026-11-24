@@ -1,5 +1,5 @@
 import json
-from datetime import timedelta
+from datetime import UTC, timedelta
 from decimal import Decimal
 from io import StringIO
 from typing import Any
@@ -137,6 +137,31 @@ class TestComputeSettlement(BaseTest):
         assert [card["version"] for card in detail["rate_cards"]] == ["v1"]
         assert detail["rate_cards"][0]["usd"] == "0.770400"
         assert len(json.dumps(detail).encode()) <= 2048
+
+    @parameterized.expand(
+        [
+            ("claimed_at_moment", timedelta(hours=-2), False, True),
+            ("claimed_before_past_moment", timedelta(hours=-1), False, False),
+            ("future_moment", timedelta(days=1), False, False),
+            ("naive_moment_is_utc", timedelta(hours=-2), True, True),
+        ]
+    )
+    def test_billable_requires_claim_at_or_after_billable_since(
+        self, _name: str, offset: timedelta, naive: bool, expected: bool
+    ) -> None:
+        session = self._session()
+        moment = self.now + offset
+        value = moment.astimezone(UTC).replace(tzinfo=None).isoformat() if naive else moment.isoformat()
+
+        with (
+            override_settings(GATEWAY_COMPUTE_BILLABLE_SINCE=value),
+            patch(HTTPX_POST, return_value=_ok()) as post,
+            patch("posthog.metrics.push_registry"),
+        ):
+            assert settle_overdue_sandbox_compute(self.now) == [SettlementOutcome.SETTLED]
+
+        assert post.call_args.kwargs["json"]["billable"] is expected
+        assert self._reload(session).compute_settled_at is not None
 
     def test_body_pins_the_acting_user(self) -> None:
         session = self._session()
@@ -412,6 +437,7 @@ class TestComputeSettlement(BaseTest):
         [
             ("malformed_settle_since", "GATEWAY_COMPUTE_SETTLE_SINCE", "not-a-date"),
             ("future_settle_since", "GATEWAY_COMPUTE_SETTLE_SINCE", None),
+            ("malformed_billable_since", "GATEWAY_COMPUTE_BILLABLE_SINCE", "not-a-date"),
             ("unresolved_wallet", "SANDBOX_AI_GATEWAY_MINT_KEY", "phs_unknown_mint_key"),
         ]
     )

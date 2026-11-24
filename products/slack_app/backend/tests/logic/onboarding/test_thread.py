@@ -11,6 +11,7 @@ from slack_sdk.errors import SlackApiError
 from posthog.models import Organization, OrganizationMembership, Team
 from posthog.models.integration import Integration
 
+from products.signals.backend.facade.api import set_sources
 from products.slack_app.backend.logic.feature_tips.state import get_state
 from products.slack_app.backend.logic.onboarding import dispatch
 from products.slack_app.backend.logic.onboarding.card import (
@@ -149,6 +150,7 @@ def test_first_open_starts_a_thread_with_the_first_step_and_later_refreshes_post
         "slack app onboarding started",
         "slack app onboarding step shown",
     ]
+    assert capture.call_args_list[0].kwargs["planned_steps"] == ["link_account", "model", "replies_in_threads"]
 
 
 @pytest.mark.django_db
@@ -496,6 +498,7 @@ def test_an_org_admin_who_links_later_gets_ai_consent_at_the_end(
         ("sources", True, False, None),
         ("sources_no_access", True, False, NO_PROJECT_ACCESS_TEXT),
         ("continue", True, True, None),
+        ("continue_done", True, True, None),
     ],
 )
 def test_workspace_step_clicks(
@@ -514,6 +517,8 @@ def test_workspace_step_clicks(
         OrganizationMembership.objects.filter(user=user, organization=org).update(organization=other_org)
     link_user(user)
     integration = _install(team, scope=ADMIN_SCOPES)
+    if action == "continue_done":
+        set_sources(team.id, user.id, ["error_tracking"])
     if action.startswith("sources"):
         payload = _click(integration, "slack_onboarding:sources")
         payload["actions"] = [
@@ -524,17 +529,18 @@ def test_workspace_step_clicks(
             }
         ]
     else:
-        payload = _click(integration, f"slack_onboarding:{action.removesuffix('_fails')}", step="sources")
+        action_id = action.removesuffix("_fails").removesuffix("_done")
+        payload = _click(integration, f"slack_onboarding:{action_id}", step="sources")
 
     with (
         patch(f"{CLICKS}.request_onboarding") as refresh,
         patch(f"{CLICKS}.post_response_url") as reply,
         patch(f"{CLICKS}.capture_slack_event"),
-        patch(f"{STEP}.capture_slack_event"),
+        patch(f"{STEP}.capture_slack_event") as capture_completed,
         patch(f"{AI_STEP}.start_work_focus") as work_focus,
         patch(f"{INBOX_STEP}.ensure_inbox_channel", return_value=("C_INBOX", "#posthog-inbox")),
         patch(f"{INBOX_STEP}.invite_user_to_inbox", return_value=action != "inbox_join_fails") as invite,
-        patch("products.signals.backend.facade.api.set_sources") as set_sources,
+        patch("products.signals.backend.facade.api.set_sources") as set_sources_mock,
     ):
         handle_onboarding_action(payload)
 
@@ -549,9 +555,14 @@ def test_workspace_step_clicks(
         invite.assert_called_once_with(integration, "C_INBOX", SLACK_USER_ID)
         assert "inbox_channel" in get_state(SLACK_TEAM_ID, SLACK_USER_ID).used
     if action == "sources":
-        set_sources.assert_called_once_with(team.id, user.id, ["session_replay"])
+        set_sources_mock.assert_called_once_with(team.id, user.id, ["session_replay"])
     if action == "sources_no_access":
-        set_sources.assert_not_called()
+        set_sources_mock.assert_not_called()
+    completed = [(c.args[1], c.kwargs["step"], c.kwargs.get("sources")) for c in capture_completed.call_args_list]
     if action == "continue":
         # Continue with no signal ticked closes the step, so the thread moves on.
         assert _skipped() == ("sources",)
+        assert completed == []
+    if action == "continue_done":
+        assert _skipped() == ()
+        assert completed == [("slack app onboarding step completed", "sources", ["error_tracking"])]

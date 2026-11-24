@@ -74,8 +74,9 @@ jobs:
     # actually import — prevents silent drift where a new import slips in
     # without a matching filter entry.
     validate-paths:
-        # Push and schedule runs only belong in this repo. Mirrors run CI on their own PRs only.
-        if: github.repository == 'PostHog/posthog' || (github.event_name != 'push' && github.event_name != 'schedule')
+        # Schedules run the full suite; pushes rely on merge-queue coverage.
+        # PRs, including the merge queue, validate coverage before changes land.
+        if: github.event_name == 'pull_request'
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         name: Validate dagster path filter coverage
@@ -245,6 +246,9 @@ jobs:
                         # Narrow on purpose: tasks is a busy backend that no other DAG imports.
                         - 'products/tasks/backend/facade/user_task_summaries.py'
                         - 'products/tasks/backend/logic/user_task_summaries.py'
+                        # The AI visibility favicon asset reads brand and cited domains through the facade.
+                        - 'products/aeo/backend/facade/api.py'
+                        - 'products/aeo/backend/models.py'
                         - 'products/marketing_analytics/backend/**/*.py'
                         - 'products/ai_observability/backend/**/*.py'
                         - 'products/posthog_ai/backend/**/*.py'
@@ -688,7 +692,7 @@ jobs:
                       echo "::warning::Could not recreate test_posthog; pytest --reuse-db will run the full migrate itself"
                       exit 0
                   fi
-                  if ! python manage.py migrate; then
+                  if ! python manage.py migrate --skip-checks; then
                       echo "::warning::Out-of-process migrate failed; pytest --reuse-db will run the full migrate itself"
                       admin_psql -c "DROP DATABASE IF EXISTS test_posthog;" || true
                   fi
@@ -704,9 +708,11 @@ jobs:
               # Reads posthog_instancesetting through Django, so it needs a migrated
               # Postgres db. test_posthog is the only one this job maintains, which is
               # what ci-mcp.yml and ci-e2e-playwright.yml do with their own single db.
+              # --skip-checks: the Django system checks (~20s) are left to ci-backend's
+              # check-migrations job, as in ci-e2e-playwright.yml.
               env:
                   DATABASE_URL: postgres://posthog:posthog@localhost:5432/test_posthog
-              run: python manage.py migrate_clickhouse
+              run: python manage.py migrate_clickhouse --skip-checks
 
             - name: Restore test durations from cache
               # pytest-split distributes Dagster tests across shards using .test_durations.

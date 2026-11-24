@@ -16,7 +16,7 @@ import {
     FilterSearchSubMenu,
 } from '@posthog/quill'
 
-import { useTagPages } from 'lib/components/useTagPages'
+import { QuillTagsFilterSubMenu } from 'lib/components/QuillTagsFilterSubMenu'
 import { fullName } from 'lib/utils/strings'
 import { userLogic } from 'scenes/userLogic'
 
@@ -75,7 +75,6 @@ function captureFilterMenuOpened(
 export function AnalyticsFilterMenu(): JSX.Element {
     const { filters, scope, insightsHidden, defaultSort, narrowingFiltersActive } = useValues(analyticsListLogic)
     const { setFilters, setInsightsHidden, setDefaultSort, clearNarrowingFilters } = useActions(analyticsListLogic)
-    const tagPages = useTagPages('analytics-list-tags')
     const { meFirstMembers, membersLoading } = useValues(membersLogic)
     const { ensureAllMembersLoaded } = useActions(membersLogic)
     const { user } = useValues(userLogic)
@@ -141,22 +140,10 @@ export function AnalyticsFilterMenu(): JSX.Element {
                         optionDataAttr="analytics-list-created-by-option"
                     />
                 )}
-                <FilterSearchSubMenu
-                    label="Tags"
-                    allLabel="Any tag"
-                    pluralNoun="tags"
-                    options={tagPages.tags.map(({ tag }) => ({ value: tag, label: tag }))}
+                <QuillTagsFilterSubMenu
+                    logicKey="analytics-list-tags"
                     selected={filters.tags}
                     onChange={(tags) => setFilters({ tags })}
-                    loading={tagPages.awaitingFirstPage || tagPages.pageLoading}
-                    searchPlaceholder="Search tags"
-                    emptyText="No matching tags"
-                    onOpen={() => tagPages.setOpen(true)}
-                    onClose={() => tagPages.setOpen(false)}
-                    onSearchChange={tagPages.setSearch}
-                    onScrollEnd={tagPages.loadMore}
-                    error={tagPages.error ? "Couldn't load tags." : undefined}
-                    onRetry={tagPages.retry}
                     onOpened={(timing) => captureFilterMenuOpened('analytics-tags', timing)}
                     dataAttr="analytics-list-tags"
                     optionDataAttr="analytics-list-tags-option"

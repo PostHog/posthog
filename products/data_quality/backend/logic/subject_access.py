@@ -21,6 +21,8 @@ from uuid import UUID
 
 from django.db.models import Exists, OuterRef, Q, QuerySet
 
+from opentelemetry import trace
+
 from posthog.hogql.database.database import Database, system_table_denials
 from posthog.hogql.database.schema.information_schema import DeniedTableMatcher
 from posthog.hogql.database.schema.system import SystemTables
@@ -47,6 +49,8 @@ if TYPE_CHECKING:
     from posthog.models import Team, User
 
     from products.access_control.backend.facade.user_access_control import UserAccessControl
+
+tracer = trace.get_tracer(__name__)
 
 _SUBJECT_TYPE_KEY = "subject_type"
 _SUBJECT_UUID_KEY = "subject_uuid"
@@ -161,9 +165,11 @@ class DenialContext:
     database: DeferredDatabase
     metadata: "SubjectMetadata"
     matcher: DeniedTableMatcher = field(init=False, repr=False, compare=False)
+    readable_names: frozenset[str] = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "matcher", DeniedTableMatcher(self.denied))
+        object.__setattr__(self, "readable_names", _readable_subject_names(self.readable, self.metadata))
 
 
 @frozen
@@ -266,6 +272,7 @@ class SubjectMetadata:
     table_names: dict[UUID, str]
     table_keys: dict[UUID, str]
     view_names: dict[UUID, str]
+    hogql_referenceable_view_ids: frozenset[UUID]
     metrics: tuple[MetricSummary, ...]
 
 
@@ -279,8 +286,24 @@ def subject_metadata(team_id: int) -> SubjectMetadata:
         view_names={
             UUID(view_id): name for view_id, name in data_modeling_facade.all_saved_query_names(team_id).items()
         },
+        hogql_referenceable_view_ids=data_modeling_facade.hogql_referenceable_saved_query_ids(team_id),
         metrics=tuple(data_catalog_facade.live_metric_summaries(team_id)),
     )
+
+
+def _readable_subject_names(readable: ReadableSubjects, metadata: SubjectMetadata) -> frozenset[str]:
+    table_names = {
+        spelling
+        for table_id in readable.table_ids
+        if (name := metadata.table_names.get(table_id)) is not None
+        for spelling in (name, metadata.table_keys.get(table_id, name))
+    }
+    view_names = {
+        name
+        for view_id in readable.view_ids & metadata.hogql_referenceable_view_ids
+        if (name := metadata.view_names.get(view_id)) is not None
+    }
+    return frozenset(table_names | view_names)
 
 
 def readable_subjects(
@@ -357,6 +380,7 @@ def denial_context(team_id: int, database: Database, *, metadata: SubjectMetadat
     )
 
 
+@tracer.start_as_current_span("data_quality.caller_denial_context")
 def caller_denial_context(
     team: "Team",
     user: "User",
@@ -516,6 +540,7 @@ def readable_check_subjects(
     )
 
 
+@tracer.start_as_current_span("data_quality.visible_check_queryset")
 def visible_check_queryset(
     team_id: int, queryset: QuerySet[DataQualityCheck], context: DenialContext
 ) -> QuerySet[DataQualityCheck]:
@@ -564,7 +589,10 @@ def definition_reads_unreadable_subject(
         return False
     if context.matcher.matches(refs.names):
         return True
-    return bool(unconfirmable_subject_names(refs.names, context.database.get()))
+    names_outside_the_warehouse = tuple(name for name in refs.names if name not in context.readable_names)
+    if not names_outside_the_warehouse:
+        return False
+    return bool(unconfirmable_subject_names(names_outside_the_warehouse, context.database.get()))
 
 
 def unconfirmable_subject_names(names: tuple[str, ...], database: Database) -> set[str]:

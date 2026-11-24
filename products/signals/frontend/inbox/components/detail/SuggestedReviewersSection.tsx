@@ -60,13 +60,14 @@ export function SuggestedReviewersSection({ report }: { report: SignalReport }):
                     overlay={<ReviewerSearchList report={report} surface="detail_pane" />}
                 >
                     <LemonButton
-                        size="small"
+                        size="xsmall"
                         type="secondary"
                         icon={<IconPlus />}
                         disabledReason={isUpdatingReviewers ? 'Updating…' : undefined}
+                        aria-label="Add reviewer"
                         onClick={() => setAddOpen((open) => !open)}
                     >
-                        Add Reviewer
+                        Add
                     </LemonButton>
                 </LemonDropdown>
             }

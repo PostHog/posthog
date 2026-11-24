@@ -147,7 +147,6 @@ def capture_relationship_event(
             "status": proposal.status,
             "source_table": proposal.source_table_name,
             "joining_table": proposal.joining_table_name,
-            "confidence": proposal.confidence,
             "has_evidence": bool(proposal.evidence),
             **(extra or {}),
         },

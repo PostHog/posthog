@@ -2,4 +2,22 @@ name: synthetic
 traffic:
     event_email:
         ratePerSecond: 2
+    event_webhook:
+        ratePerSecond: 2
+    transactional_email:
+        ratePerSecond: 1
+    bounce_followup:
+        ratePerSecond: 0.5
 settings: {}
+backlog:
+    teams: 4
+    jobs:
+        hogflow: 2000
+        email: 1000
+    stateBytes:
+        p50: 2000
+        p90: 8000
+        p99: 30000
+    compressibility: 0.5
+    parkFor: 10080m
+    tolerance: 0.01

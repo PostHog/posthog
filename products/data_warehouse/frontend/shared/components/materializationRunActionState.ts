@@ -60,10 +60,10 @@ export const FULL_REFRESH_CONFIRMATION = {
 }
 
 export const REVERT_MATERIALIZATION_CONFIRMATION = {
-    title: 'Revert materialization',
+    title: 'Stop materializing this view?',
     description:
         'This stops future materializations and removes the materialized table. The saved query remains available as a view.',
-    confirmLabel: 'Revert materialization',
+    confirmLabel: 'Stop materializing',
 }
 
 export function deleteViewConfirmation(savedQuery: DataWarehouseSavedQuery): {

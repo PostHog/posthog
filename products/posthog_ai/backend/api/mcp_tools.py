@@ -173,6 +173,12 @@ class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        filtered_sql = tool_name == "execute_sql" and bool(args_data.get("filters"))
+        query_context = (
+            {"query": {"kind": "HogQLQuery", "query": args_data["query"], "filters": args_data["filters"]}}
+            if filtered_sql
+            else {}
+        )
         error_id = str(uuid4())
         try:
 
@@ -187,6 +193,7 @@ class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                         warehouse_suggestion_access=credential_access(
                             get_authenticator_scopes(request.successful_authenticator)
                         ),
+                        **query_context,
                     ),
                 ):
                     return await tool.execute(validated_args)
@@ -196,16 +203,28 @@ class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             return Response(
                 {
                     "success": False,
-                    "content": f"Tool failed: {e.to_summary()}.{e.retry_hint}",
+                    "content": f"Tool failed: {e.to_summary().removesuffix('.')}.{e.retry_hint}",
                     "error_type": e.error_type,
                     **({"error_code": e.error_code} if e.error_code else {}),
                 }
             )
         except Exception as e:
-            logger.exception(
-                "Error calling tool", extra={"tool_name": tool_name, "error": str(e), "error_id": error_id}
-            )
-            capture_exception(e, properties={"tag": "mcp", "args": args_data, "error_id": error_id})
+            if filtered_sql:
+                logger.exception(
+                    "Error calling filtered SQL tool", exc_info=False, error_id=error_id, error_type=type(e).__name__
+                )
+            else:
+                logger.exception(
+                    "Error calling tool", extra={"tool_name": tool_name, "error": str(e), "error_id": error_id}
+                )
+                capture_exception(
+                    e,
+                    properties={
+                        "tag": "mcp",
+                        "args": {key: value for key, value in args_data.items() if key != "filters"},
+                        "error_id": error_id,
+                    },
+                )
             return Response(
                 {
                     "success": False,

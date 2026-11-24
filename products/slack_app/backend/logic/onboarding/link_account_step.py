@@ -1,7 +1,9 @@
+from products.mcp_store.backend.facade.api import slack_mcp_user_scopes
 from products.slack_app.backend.feature_flags import (
     is_slack_app_daily_work_focus_enabled,
     is_slack_app_link_search_scopes_enabled,
     is_slack_app_oauth_enabled,
+    is_slack_app_slack_mcp_enabled,
 )
 from products.slack_app.backend.logic.onboarding.step import OnboardingContext, OnboardingStep, OnboardingStepKey
 from products.slack_app.backend.services.slack_messages import section_block
@@ -28,16 +30,26 @@ class LinkAccountStep(OnboardingStep):
             channel=None,
             thread_ts=None,
         )
+        user = ctx.posthog_user
+        distinct_id = user.distinct_id if user else None
         text = "*Link your PostHog account*\nPostHog answers you in Slack from your projects, with the access you have in PostHog."
-        if is_slack_app_link_search_scopes_enabled(ctx.integration):
-            if is_slack_app_daily_work_focus_enabled(ctx.integration):
+        if is_slack_app_link_search_scopes_enabled(ctx.integration, distinct_id):
+            # The work focus that reads the messages rolls out with this flag, so only its audience is told about it.
+            if is_slack_app_daily_work_focus_enabled(ctx.integration, distinct_id):
                 text += (
                     "\nAfter you link, I read your recent Slack messages and suggest what I can help with, then do it "
                     "again each workday morning. You can turn that off in the Home tab. "
                 )
             else:
-                text += "\nAfter you link, I read your recent Slack messages once to suggest what I can help with. "
-            text += "Slack lets you choose which kinds of conversations I can search."
+                text += "\n"
+            connects_slack_mcp = is_slack_app_slack_mcp_enabled(ctx.integration, distinct_id) and bool(
+                slack_mcp_user_scopes(ctx.integration.team_id, user.id if user else None)
+            )
+            if connects_slack_mcp:
+                # The link then asks for exactly the Slack MCP's scopes, so the same token connects the server.
+                text += "Your PostHog tasks can then search Slack as you, in the conversations you can access."
+            else:
+                text += "Slack lets you choose which kinds of conversations I can search."
         return [
             section_block(text),
             {

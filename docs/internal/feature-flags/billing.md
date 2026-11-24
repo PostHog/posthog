@@ -122,6 +122,7 @@ The service extracts the SDK type from the request's user-agent header and incre
 | `posthog-ios`          | iOS SDK                 |
 | `posthog-react-native` | React Native SDK        |
 | `posthog-flutter`      | Flutter SDK             |
+| `posthog-electron`     | Electron SDK            |
 | `other`                | Unknown or unrecognized |
 
 ### Django flag list endpoint

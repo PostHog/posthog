@@ -110,7 +110,7 @@ def _save_generation_summary_event(
     )
 
 
-def _embedding_metadata(batch_run_id: str, job_id: str) -> dict[str, str]:
+def _embedding_metadata(batch_run_id: str, job_id: str, job_scope: str = "") -> dict[str, str]:
     """Ids carried in the embedding's `metadata` JSON so `rendering` can stay a fixed enum.
 
     `batch_run_id` pairs the embedding to its summary event ($ai_batch_run_id); `job_id`
@@ -119,14 +119,16 @@ def _embedding_metadata(batch_run_id: str, job_id: str) -> dict[str, str]:
     return {
         constants.EMBEDDING_METADATA_BATCH_RUN_ID_KEY: batch_run_id,
         constants.EMBEDDING_METADATA_JOB_ID_KEY: job_id,
+        **({"job_scope": job_scope} if job_scope else {}),
     }
 
 
-def _embedding_document_id(item_id: str, job_id: str) -> str:
+def _embedding_document_id(item_id: str, job_id: str, job_scope: str = "") -> str:
     """Scope the embedding's `document_id` per (item, job) so overlapping jobs don't collapse on
     the document_embeddings ReplacingMergeTree key — see EMBEDDING_DOCUMENT_ID_JOB_DELIMITER.
     """
-    return f"{item_id}{constants.EMBEDDING_DOCUMENT_ID_JOB_DELIMITER}{job_id}"
+    suffix = f"::{job_scope}" if job_scope else ""
+    return f"{item_id}{constants.EMBEDDING_DOCUMENT_ID_JOB_DELIMITER}{job_id}{suffix}"
 
 
 def _embed_trace_summary(
@@ -136,6 +138,7 @@ def _embed_trace_summary(
     batch_run_id: str,
     job_id: str,
     team: Team,
+    job_scope: str = "",
 ) -> None:
     summary_text = _format_summary_for_embedding(summary_result)
     document_type_with_mode = f"{LLM_TRACES_SUMMARIES_DOCUMENT_TYPE}-{mode}"
@@ -143,11 +146,11 @@ def _embed_trace_summary(
     embedder = LLMTracesSummarizerEmbedder(team=team)
     embedder.embed_document(
         content=summary_text,
-        document_id=_embedding_document_id(trace_id, job_id),
+        document_id=_embedding_document_id(trace_id, job_id, job_scope),
         document_type=document_type_with_mode,
         rendering=mode,
         product=LLM_TRACES_SUMMARIES_PRODUCT,
-        metadata=_embedding_metadata(batch_run_id, job_id),
+        metadata=_embedding_metadata(batch_run_id, job_id, job_scope),
     )
 
 
@@ -158,17 +161,18 @@ def _embed_generation_summary(
     batch_run_id: str,
     job_id: str,
     team: Team,
+    job_scope: str = "",
 ) -> None:
     summary_text = _format_summary_for_embedding(summary_result)
 
     embedder = LLMTracesSummarizerEmbedder(team=team)
     embedder.embed_document(
         content=summary_text,
-        document_id=_embedding_document_id(generation_id, job_id),
+        document_id=_embedding_document_id(generation_id, job_id, job_scope),
         document_type=constants.GENERATION_DOCUMENT_TYPE,
         rendering=mode,
         product="llm-analytics",
-        metadata=_embedding_metadata(batch_run_id, job_id),
+        metadata=_embedding_metadata(batch_run_id, job_id, job_scope),
     )
 
 
@@ -190,6 +194,8 @@ def _format_summary_for_embedding(summary_result: SummarizationResponse) -> str:
 @temporalio.activity.defn
 async def summarize_and_save_activity(input: SummarizeAndSaveInput) -> SummarizationActivityResult:
     """Read text_repr from Redis, call LLM, save event, embed, and clean up."""
+    from products.ai_observability.backend.facade.clustering_runtime import require_current_job
+
     is_generation = input.generation_id is not None
     log = logger.bind(
         trace_id=input.trace_id, generation_id=input.generation_id, team_id=input.team_id, redis_key=input.redis_key
@@ -209,6 +215,7 @@ async def summarize_and_save_activity(input: SummarizeAndSaveInput) -> Summariza
         model_enum = OpenAIModel(input.model) if input.model else None
 
         t0 = time.monotonic()
+        job_scope = await on_asyncify_pool(require_current_job)(input.team_id, input.job_id, input.job_scope)
         summary_result = await on_asyncify_pool(summarize)(
             text_repr=text_repr,
             team_id=input.team_id,
@@ -230,6 +237,7 @@ async def summarize_and_save_activity(input: SummarizeAndSaveInput) -> Summariza
         )
 
         # Step 3: Save event to ClickHouse
+        await on_asyncify_pool(require_current_job)(input.team_id, input.job_id, input.job_scope)
         team = await on_asyncify_pool(Team.objects.get)(id=input.team_id)
         t0 = time.monotonic()
         save_ctx = SaveSummaryEventContext(
@@ -259,11 +267,11 @@ async def summarize_and_save_activity(input: SummarizeAndSaveInput) -> Summariza
             if is_generation:
                 assert input.generation_id is not None
                 await on_asyncify_pool(_embed_generation_summary)(
-                    summary_result, input.generation_id, input.mode, input.batch_run_id, input.job_id, team
+                    summary_result, input.generation_id, input.mode, input.batch_run_id, input.job_id, team, job_scope
                 )
             else:
                 await on_asyncify_pool(_embed_trace_summary)(
-                    summary_result, input.trace_id, input.mode, input.batch_run_id, input.job_id, team
+                    summary_result, input.trace_id, input.mode, input.batch_run_id, input.job_id, team, job_scope
                 )
             embedding_requested = True
         except Exception as e:

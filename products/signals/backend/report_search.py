@@ -23,12 +23,14 @@ from django.utils import timezone
 
 import structlog
 from opentelemetry import trace
+from tenacity import Retrying, retry_if_exception_type, stop_after_attempt, wait_random
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.models import Team
 from posthog.ph_client import feature_enabled_or_false
 
@@ -64,11 +66,19 @@ SNIPPET_RADIUS = 120
 EMBEDDING_TIMEOUT_S = 10.0
 # A stalled read must end inside the MCP request deadline, so that a hybrid search can still return its keyword ranking.
 VECTOR_READ_MAX_EXECUTION_S = 10
+# All signals queries share one ClickHouse user, so its concurrent-query limit refuses reads in short bursts.
+# ClickHouse refuses such a read immediately, so the added attempts stay well inside the MCP request deadline.
+# A read that reaches its time limit gets no second attempt, because the caller already waited for the full limit.
+VECTOR_READ_ATTEMPTS = 3
+VECTOR_READ_RETRY_WAIT_S = (0.5, 2.0)
 # Quotes and sentence punctuation around a word, which would otherwise have to match literally.
 _TERM_EDGES = "\"'`.,;:!?()[]{}<>"
 
 # The same newest-row rule as `report_embedding_reader.LATEST_REPORT_VECTORS_SQL`: a report whose newest
 # row is a tombstone is dropped, and an older live row never stands in for it.
+# Every row of a report has the report's creation time as its `timestamp`, and the table sorts by
+# `(team_id, toDate(timestamp), ...)` and partitions by week. So the creation dates of the eligible reports
+# limit the read to their own parts and granules. Without them, the read opens every part the team has.
 NEAREST_REPORTS_SQL = f"""
 SELECT document_id, cosineDistance(embedding, %(embedding)s) AS distance
 FROM (
@@ -81,6 +91,8 @@ FROM (
       AND product = %(product)s
       AND document_type = %(document_type)s
       AND rendering = %(rendering)s
+      AND toDate(timestamp) >= %(first_date)s
+      AND toDate(timestamp) IN %(dates)s
       AND document_id IN %(report_ids)s
     GROUP BY document_id
 )
@@ -223,21 +235,29 @@ def _semantic_ranking(team: Team, query: str, reports: QuerySet[SignalReport]) -
 
     # The caller's filters apply before the vector read limits to the nearest reports. Filtering the nearest
     # reports afterwards could drop every one of them while eligible reports with vectors exist further out.
-    eligible = [
-        str(report_id)
-        for report_id in reports.filter(created_at__gte=timezone.now() - VECTOR_LIFETIME)
+    eligible = list(
+        reports.filter(created_at__gte=timezone.now() - VECTOR_LIFETIME)
         .order_by("-created_at")
-        .values_list("id", flat=True)[:MAX_SEMANTIC_REPORTS]
-    ]
+        .values_list("id", "created_at")[:MAX_SEMANTIC_REPORTS]
+    )
     if not eligible:
         return []
+    # The table stores `timestamp` in UTC, so `toDate(timestamp)` is the UTC date.
+    dates = sorted({created_at.astimezone(datetime.UTC).date() for _, created_at in eligible})
     embedding = generate_embedding(team, query, model=EMBEDDING_MODEL.value, timeout=EMBEDDING_TIMEOUT_S).embedding
     tag_queries(product=Product.SIGNALS, feature=Feature.ENRICHMENT, team_id=team.id, query_type="inbox_report_search")
     with tracer.start_as_current_span("signals.reports.search.vector_read") as span:
         started = time.monotonic()
+        read = Retrying(
+            retry=retry_if_exception_type(ClickHouseAtCapacity),
+            stop=stop_after_attempt(VECTOR_READ_ATTEMPTS),
+            wait=wait_random(*VECTOR_READ_RETRY_WAIT_S),
+            reraise=True,
+        )
         rows = cast(
             list[tuple[Any, ...]],
-            sync_execute(
+            read(
+                sync_execute,
                 NEAREST_REPORTS_SQL,
                 {
                     "embedding": embedding,
@@ -245,7 +265,9 @@ def _semantic_ranking(team: Team, query: str, reports: QuerySet[SignalReport]) -
                     "product": EMBEDDING_PRODUCT,
                     "document_type": EMBEDDING_DOCUMENT_TYPE,
                     "rendering": EMBEDDING_RENDERING_TITLE_SUMMARY,
-                    "report_ids": eligible,
+                    "first_date": dates[0],
+                    "dates": dates,
+                    "report_ids": [str(report_id) for report_id, _ in eligible],
                     "dimensions": EMBEDDING_DIMENSIONS,
                     "limit": CANDIDATES,
                 },
@@ -260,6 +282,7 @@ def _semantic_ranking(team: Team, query: str, reports: QuerySet[SignalReport]) -
         span.set_attribute("signals.reports.search.vector_read.duration_ms", round((time.monotonic() - started) * 1000))
         span.set_attribute("signals.reports.search.vector_read.rows", len(rows))
         span.set_attribute("signals.reports.search.vector_read.eligible", len(eligible))
+        span.set_attribute("signals.reports.search.vector_read.attempts", read.statistics["attempt_number"])
     return [report_id for report_id in (_as_uuid(document_id) for document_id, _ in rows) if report_id is not None]
 
 

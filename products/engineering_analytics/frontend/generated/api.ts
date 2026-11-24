@@ -56,6 +56,7 @@ import type {
     EngineeringAnalyticsRepoOverviewParams,
     EngineeringAnalyticsRepoRunActivityParams,
     EngineeringAnalyticsResolveBranchParams,
+    EngineeringAnalyticsRevertOutcomesParams,
     EngineeringAnalyticsRunFailureLogsParams,
     EngineeringAnalyticsTeamCiActivityParams,
     EngineeringAnalyticsTeamCiHealthParams,
@@ -81,6 +82,7 @@ import type {
     QuarantineRequestApi,
     QuarantineRequestResultApi,
     RepoOverviewApi,
+    RevertOutcomesApi,
     RunFailureLogsApi,
     TeamCIActivityApi,
     TeamCIHealthListApi,
@@ -1150,6 +1152,39 @@ export const engineeringAnalyticsResolveBranch = async (
     options?: RequestInit
 ): Promise<BranchPRMatchApi[]> => {
     return apiMutator<BranchPRMatchApi[]>(getEngineeringAnalyticsResolveBranchUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEngineeringAnalyticsRevertOutcomesUrl = (
+    projectId: string,
+    params?: EngineeringAnalyticsRevertOutcomesParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/revert_outcomes/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/revert_outcomes/`
+}
+
+/**
+ * How many pull requests merged in the window were later reverted, split by how each was authored and by who approved it, with the list of reverted pull requests. A revert is linked to the pull request it undid through the 'Reverts #N' line in the revert's description, so a revert without that line is not counted. Pull requests that are themselves reverts are left out of every count.
+ */
+export const engineeringAnalyticsRevertOutcomes = async (
+    projectId: string,
+    params?: EngineeringAnalyticsRevertOutcomesParams,
+    options?: RequestInit
+): Promise<RevertOutcomesApi> => {
+    return apiMutator<RevertOutcomesApi>(getEngineeringAnalyticsRevertOutcomesUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

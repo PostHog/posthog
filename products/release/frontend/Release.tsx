@@ -19,18 +19,23 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { SidebarPinButton } from '~/layout/today/sidebar/SidebarPinButton'
+import { todayShellLogic } from '~/layout/today/todayShellLogic'
 
 import { ReleaseDetailsCard } from './ReleaseDetailsCard'
 import { ReleaseHistory } from './ReleaseHistory'
-import { ReleaseLinkedCard } from './ReleaseLinkedCard'
+import { ReleaseLaunchDialog } from './ReleaseLaunchDialog'
 import { ReleaseLoadError } from './ReleaseLoadError'
 import { releaseLogic } from './releaseLogic'
+import { ReleaseMergeButton } from './ReleaseMergeButton'
+import { ReleaseMergeIntoDialog } from './ReleaseMergeIntoDialog'
+import { ReleaseMetricsCard } from './ReleaseMetricsCard'
 import { ReleasePartialLoadWarning } from './ReleasePartialLoadWarning'
 import { ReleaseScheduleButton } from './ReleaseScheduleButton'
 import { ReleaseScheduleDialog } from './ReleaseScheduleDialog'
 import { ReleasesGate } from './ReleasesGate'
 import { ReleaseStatusCard } from './ReleaseStatusCard'
-import { ReleaseSuggestions } from './ReleaseSuggestions'
+import { ReleaseSuggestedCard } from './ReleaseSuggestedCard'
 import { ReleaseTrackCard } from './ReleaseTrackCard'
 import { STAGE_COLOR_VARS } from './releaseUtils'
 
@@ -44,18 +49,28 @@ export const scene: SceneExport<ReleaseSceneProps> = {
     paramsToProps: ({ params: { id } }) => ({ id }),
 }
 
-function ReleaseSkeleton(): JSX.Element {
+function ReleaseSkeleton({ suggestions }: { suggestions: boolean }): JSX.Element {
+    const { phoneHeaderShown } = useValues(todayShellLogic)
     return (
-        <div data-quill className="@container">
-            <div className="grid gap-4 @3xl:grid-cols-3">
-                <div className="flex flex-col gap-4 @3xl:col-span-2">
-                    <Skeleton className="h-48 w-full" />
-                    <Skeleton className="h-36 w-full" />
-                    <Skeleton className="h-56 w-full" />
+        <div data-quill className="@container flex flex-col gap-4" data-attr="release-skeleton">
+            {phoneHeaderShown ? (
+                <Skeleton className="-mt-1 mb-2 ml-auto h-7 w-40" />
+            ) : (
+                <div className="flex flex-col gap-5 pt-1">
+                    <Skeleton className="h-6 w-48" />
+                    <Skeleton className="h-5 w-72" />
                 </div>
-                <div className="flex flex-col gap-4">
-                    <Skeleton className="h-28 w-full" />
-                    <Skeleton className="h-40 w-full" />
+            )}
+            <div className="flex flex-col gap-4 @4xl:grid @4xl:grid-cols-3 @4xl:items-start">
+                <div className="contents @4xl:col-span-2 @4xl:flex @4xl:min-w-0 @4xl:flex-col @4xl:gap-4">
+                    <Skeleton className="order-2 h-100 w-full @4xl:h-88" />
+                    <Skeleton className="order-3 h-32 w-full" />
+                    <Skeleton className="order-4 h-100 w-full" />
+                </div>
+                <div className="contents @4xl:flex @4xl:min-w-0 @4xl:flex-col @4xl:gap-4">
+                    <Skeleton className="order-1 h-20 w-full" />
+                    {suggestions && <Skeleton className="order-5 h-40 w-full" />}
+                    <Skeleton className="order-6 h-96 w-full" />
                 </div>
             </div>
         </div>
@@ -80,7 +95,7 @@ function ReleaseContent({ id }: ReleaseSceneProps): JSX.Element {
                 {loadFailed ? (
                     <ReleaseLoadError title="This release could not load" />
                 ) : dataLoading ? (
-                    <ReleaseSkeleton />
+                    <ReleaseSkeleton suggestions={canEditReleases} />
                 ) : (
                     <div data-quill>
                         <Empty>
@@ -111,33 +126,55 @@ function ReleaseContent({ id }: ReleaseSceneProps): JSX.Element {
         <SceneContent>
             <SceneTitleSection
                 name={row.name}
+                nameAction={
+                    <SidebarPinButton
+                        target={{ type: 'release', ref: row.id, name: 'Release', href: urls.release(row.id) }}
+                        dataAttr="release-title-pin"
+                    />
+                }
                 description={row.description}
+                descriptionAlwaysVisible
                 resourceType={{ type: 'release', forceIcon: <IconFlag /> }}
                 canEdit={canEditReleases}
                 renameDebounceMs={800}
                 onNameChange={(name) => updateRelease(row.id, { name })}
                 onDescriptionChange={(description) => updateRelease(row.id, { description })}
                 actions={
-                    <div data-quill>
+                    <div data-quill className="flex items-center gap-2">
+                        <ReleaseMergeButton row={row} />
                         <ReleaseScheduleButton row={row} />
                     </div>
                 }
             />
             <div data-quill className={`@container flex flex-col gap-4 pb-8 ${STAGE_COLOR_VARS}`}>
                 <ReleasePartialLoadWarning />
-                <div className="grid items-start gap-4 @3xl:grid-cols-3">
-                    <div className="flex min-w-0 flex-col gap-4 @3xl:col-span-2">
-                        <ReleaseStatusCard row={row} />
-                        <ReleaseTrackCard row={row} />
-                        <ReleaseHistory row={row} />
+                <div className="flex flex-col gap-4 @4xl:grid @4xl:grid-cols-3 @4xl:items-start">
+                    <div className="contents @4xl:col-span-2 @4xl:flex @4xl:min-w-0 @4xl:flex-col @4xl:gap-4">
+                        <div className="order-2 min-w-0 empty:hidden">
+                            <ReleaseStatusCard row={row} />
+                        </div>
+                        <div className="order-3 min-w-0 empty:hidden">
+                            <ReleaseMetricsCard row={row} />
+                        </div>
+                        <div className="order-4 min-w-0 empty:hidden">
+                            <ReleaseTrackCard row={row} />
+                        </div>
                     </div>
-                    <div className="flex min-w-0 flex-col gap-4">
-                        <ReleaseDetailsCard row={row} />
-                        <ReleaseLinkedCard row={row} />
-                        <ReleaseSuggestions row={row} />
+                    <div className="contents @4xl:flex @4xl:min-w-0 @4xl:flex-col @4xl:gap-4">
+                        <div className="order-1 min-w-0 empty:hidden">
+                            <ReleaseDetailsCard row={row} />
+                        </div>
+                        <div className="order-5 min-w-0 empty:hidden">
+                            <ReleaseSuggestedCard row={row} />
+                        </div>
+                        <div className="order-6 min-w-0 empty:hidden">
+                            <ReleaseHistory row={row} />
+                        </div>
                     </div>
                 </div>
                 <ReleaseScheduleDialog />
+                <ReleaseLaunchDialog />
+                <ReleaseMergeIntoDialog />
             </div>
         </SceneContent>
     )

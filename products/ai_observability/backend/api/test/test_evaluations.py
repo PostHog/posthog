@@ -38,7 +38,6 @@ from products.ai_observability.backend.models.evaluation_reports import Evaluati
 from products.ai_observability.backend.models.evaluations import Evaluation
 from products.ai_observability.backend.models.model_configuration import LLMModelConfiguration
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
-from products.ai_observability.backend.models.taggers import Tagger
 
 _DEFAULT_MODEL_CONFIGURATION = {
     "provider": "openai",
@@ -492,6 +491,31 @@ class TestTargetConfigFieldSchema(SimpleTestCase):
 
 
 class TestEvaluationConfigsApi(APIBaseTest):
+    @parameterized.expand([("on_create", True), ("on_first_passing_rule", False)])
+    def test_default_report_stays_off_without_ai_approval(self, _name: str, create_with_rule: bool) -> None:
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+        url = f"/api/environments/{self.team.id}/evaluations/"
+        rule = {"operator": "gte", "threshold": 7}
+        response = self.client.post(
+            url,
+            {
+                "name": "Response score",
+                "evaluation_type": "hog",
+                "evaluation_config": {"source": "return 7;"},
+                "output_type": "numeric",
+                "output_config": {"min": 0, "max": 10, **({"passing_rule": rule} if create_with_rule else {})},
+                "enabled": True,
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.json())
+        evaluation_id = response.json()["id"]
+        if not create_with_rule:
+            self.assertFalse(EvaluationReport.objects.filter(evaluation_id=evaluation_id).exists())
+            response = self.client.patch(f"{url}{evaluation_id}/", {"output_config": {"passing_rule": rule}})
+            self.assertEqual(response.status_code, 200, response.json())
+        self.assertFalse(EvaluationReport.objects.get(evaluation_id=evaluation_id).enabled)
+
     @parameterized.expand(
         [
             (output_type, enabled, frequency)
@@ -1886,33 +1910,16 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertNotIn("sampling_rate", get_response.data["conditions"][0])
         self.assertEqual(get_response.data["conditions"][0]["rollout_percentage"], 100)
 
-    @parameterized.expand(
-        [
-            (
-                "evaluations",
-                lambda team: Evaluation.objects.create(
-                    team=team,
-                    name="Patched conditions",
-                    evaluation_type="hog",
-                    evaluation_config={"source": "return true"},
-                    output_type="boolean",
-                    conditions=[{"id": "cond-1", "rollout_percentage": 50, "properties": []}],
-                ),
-            ),
-            (
-                "taggers",
-                lambda team: Tagger.objects.create(
-                    team=team,
-                    name="Patched conditions",
-                    tagger_config={"prompt": "Tag it", "tags": [{"name": "billing", "description": "Billing"}]},
-                    conditions=[{"id": "cond-1", "rollout_percentage": 50, "properties": []}],
-                ),
-            ),
-        ]
-    )
-    def test_patch_condition_without_id_generates_one(self, resource, create):
-        instance = create(self.team)
-        list_url = f"/api/environments/{self.team.id}/{resource}/"
+    def test_patch_condition_without_id_generates_one(self):
+        instance = Evaluation.objects.create(
+            team=self.team,
+            name="Patched conditions",
+            evaluation_type="hog",
+            evaluation_config={"source": "return true"},
+            output_type="boolean",
+            conditions=[{"id": "cond-1", "rollout_percentage": 50, "properties": []}],
+        )
+        list_url = f"/api/environments/{self.team.id}/evaluations/"
 
         with patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True):
             patch_response = self.client.patch(
@@ -3093,7 +3100,7 @@ class TestEvaluationsAccessControl(_EvaluationAccessControlCase):
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_model_picker_stays_on_llm_analytics_resource(self):
-        # LLMModelsViewSet is shared with the taggers and playground pickers, so it must not
+        # LLMModelsViewSet is shared with the playground picker, so it must not
         # require evaluation access.
         self._grant(self.no_access_user, "viewer", resource="llm_analytics")
         self.client.force_login(self.no_access_user)

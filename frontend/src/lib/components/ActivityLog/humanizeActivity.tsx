@@ -321,7 +321,9 @@ function describeComment(
         ),
         extendedDescription: commentContent ? (
             <div className="border rounded bg-surface-primary p-4">
-                <LazyLemonMarkdown lowKeyHeadings>{commentContent}</LazyLemonMarkdown>
+                <LazyLemonMarkdown lowKeyHeadings disableImages>
+                    {commentContent}
+                </LazyLemonMarkdown>
             </div>
         ) : undefined,
     }

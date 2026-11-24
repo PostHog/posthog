@@ -1,8 +1,13 @@
 import { PersonsStoreForBatch } from '~/ingestion/common/persons/persons-store-for-batch'
 import { PipelineResult, ok } from '~/ingestion/framework/results'
-import { PipelineEvent, Team } from '~/types'
+import { EventHeaders, PipelineEvent, Team } from '~/types'
 
-type PrefetchPersonsStepInput = { event: PipelineEvent; team: Team; personsStoreForBatch: PersonsStoreForBatch }
+type PrefetchPersonsStepInput = {
+    event: PipelineEvent
+    team: Team
+    headers: EventHeaders
+    personsStoreForBatch: PersonsStoreForBatch
+}
 
 export function prefetchPersonsStep<T extends PrefetchPersonsStepInput>(enabled: boolean) {
     return function prefetchPersonsStep(events: T[]): Promise<PipelineResult<T>[]> {
@@ -17,6 +22,10 @@ export function prefetchPersonsStep<T extends PrefetchPersonsStepInput>(enabled:
             >()
 
             for (const event of events) {
+                // A restricted event gets a placeholder person and never reads one.
+                if (event.headers.force_disable_person_processing) {
+                    continue
+                }
                 let entries = entriesByStore.get(event.personsStoreForBatch)
                 if (!entries) {
                     entries = []

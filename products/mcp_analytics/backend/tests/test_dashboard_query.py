@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import time_machine
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import MagicMock, call, patch
 
 from django.db import connections
@@ -33,9 +33,13 @@ from posthog.schema import (
     MCPProtocolVersionBreakdownQuery,
     MCPToolCallBreakdownQuery,
     MCPToolCallsAndErrorsQuery,
+    PersonPropertyFilter,
     PropertyOperator,
     QueryStatus,
     QueryStatusResponse,
+    RevenueAnalyticsEventItem,
+    RevenueCurrencyPropertyConfig,
+    SessionPropertyFilter,
 )
 
 from posthog.hogql.constants import LimitContext
@@ -54,7 +58,7 @@ from posthog.query_cache.single_flight import QUERY_SINGLE_FLIGHT_FLAG, FlightWa
 from posthog.query_scan.flag import QueryScanFlag, QueryScanMode
 
 from products.mcp_analytics.backend.facade.api import invalidate_custom_harness_rules
-from products.mcp_analytics.backend.hogql_queries.dashboard_query import MCPDashboardQueryRunner
+from products.mcp_analytics.backend.hogql_queries.dashboard_query import LEAN_DATABASE_FLAG, MCPDashboardQueryRunner
 from products.mcp_analytics.backend.models import MCPCustomHarness
 from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
 
@@ -109,7 +113,8 @@ BROWSER_HOGQL: list[tuple[MCPDashboardSection, str, bool]] = [
     (
         MCPDashboardSection.KPIS,
         f"""SELECT {BUCKET} AS bucket, countDistinctIf($session_id, $session_id != '') AS sessions, count() AS tool_calls,
-    countIf(toBool(properties.$mcp_is_error)) AS errors, round(quantile(0.95)(toFloat(properties.$mcp_duration_ms))) AS p95
+    countIf(toBool(properties.$mcp_is_error)) AS errors, round(quantile(0.95)(toFloat(properties.$mcp_duration_ms))) AS p95,
+    uniq(distinct_id) AS users
 FROM events WHERE {WHERE} GROUP BY bucket ORDER BY bucket""",
         True,
     ),
@@ -121,14 +126,6 @@ FROM events WHERE {WHERE} GROUP BY bucket ORDER BY bucket""",
     round(quantileIf(0.95)(toFloat(properties.$mcp_duration_ms), timestamp < {CURRENT_START})) AS prior_p95
 FROM events WHERE {WHERE}""",
         True,
-    ),
-    (
-        MCPDashboardSection.TOOL_ROWS,
-        f"""SELECT toString(properties.$mcp_tool_name) AS tool, count() AS total_calls, countIf(toBool(properties.$mcp_is_error)) AS errors,
-    round(countIf(toBool(properties.$mcp_is_error)) * 100.0 / count(), 1) AS error_rate_pct,
-    round(quantile(0.95)(toFloat(properties.$mcp_duration_ms))) AS p95_duration_ms
-FROM events WHERE {WHERE} GROUP BY tool ORDER BY total_calls DESC LIMIT 50""",
-        False,
     ),
     (
         MCPDashboardSection.SESSION_ROWS,
@@ -306,6 +303,39 @@ class TestMCPDashboardQueryRunner(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTe
         assert expected, "the seed should give the section rows to compare"
         assert self._rows(self._run([section]), section) == expected
 
+    def test_tool_rows_rank_every_tool_by_calls_error_rate_and_p95(self) -> None:
+        # (tool, calls, errors, duration_ms) for directly registered tools
+        direct = [
+            ("busy_tool", 30, 0, 50),
+            ("slow_tool", 20, 0, 5000),
+            ("flaky_tool", 20, 10, 100),
+            ("rare_tool", 2, 2, 90000),
+        ]
+        for tool, calls, errors, duration_ms in direct:
+            for i in range(calls):
+                self._emit(1, "d1", "s1", tool, **{"$mcp_is_error": i < errors, "$mcp_duration_ms": duration_ms})
+        for _ in range(25):
+            self._emit(
+                1,
+                "d2",
+                "s2",
+                "exec",
+                **{"$mcp_exec_verb": "call", "$mcp_exec_target_tool": "wrapped_tool", "$mcp_duration_ms": 3000},
+            )
+        flush_persons_and_events()
+
+        rows = self._rows(self._run([MCPDashboardSection.TOOL_ROWS]), MCPDashboardSection.TOOL_ROWS)
+
+        ranked: dict[str, list[str]] = {}
+        for tool, *_, ranking in rows:
+            ranked.setdefault(ranking, []).append(tool)
+        assert ranked == {
+            "calls": ["busy_tool", "wrapped_tool", "flaky_tool", "slow_tool", "rare_tool"],
+            "error_rate": ["flaky_tool", "busy_tool", "slow_tool", "wrapped_tool"],
+            "p95": ["slow_tool", "wrapped_tool", "flaky_tool", "busy_tool"],
+        }
+        assert ["flaky_tool", 20, 10, 50.0, 100.0] in [row[:5] for row in rows]
+
     @parameterized.expand([(section.value, section, node, bucketed) for section, node, bucketed in BROWSER_TYPED])
     def test_typed_section_matches_the_browser_query(
         self, _name: str, section: MCPDashboardSection, node: type, bucketed: bool
@@ -359,6 +389,95 @@ class TestMCPDashboardQueryRunner(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTe
             self._run(sections, runner) if entry_point == "run" else runner.calculate()
 
         assert build.call_count == 1
+
+    def _seed_revenue(self) -> None:
+        self.team.revenue_analytics_config.events = [
+            RevenueAnalyticsEventItem(
+                eventName="purchase",
+                revenueProperty="revenue",
+                revenueCurrencyProperty=RevenueCurrencyPropertyConfig(static="USD"),
+            )
+        ]
+        self.team.revenue_analytics_config.save()
+        _create_person(team_id=self.team.pk, distinct_ids=["d1"])
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="d1",
+            timestamp=NOW - timedelta(days=2),
+            properties={"revenue": 100},
+        )
+
+    @parameterized.expand(
+        [
+            ("one_section_per_request", PROPERTIES, False, False, "Acme Agent"),
+            (
+                "revenue_filter",
+                [*PROPERTIES, PersonPropertyFilter(key="$virt_revenue", value=0, operator=PropertyOperator.GT)],
+                False,
+                True,
+                "Claude Code",
+            ),
+            (
+                "session_filter",
+                [*PROPERTIES, SessionPropertyFilter(key="$session_duration", value=0, operator=PropertyOperator.GTE)],
+                False,
+                True,
+                "Acme Agent",
+            ),
+            ("batch", PROPERTIES, True, True, "Acme Agent"),
+        ]
+    )
+    def test_the_lean_database_flag_gives_every_section_the_same_rows(
+        self, _name: str, properties: list, batch: bool, builds_full_catalog: bool, harness: str
+    ) -> None:
+        self._seed_revenue()
+        self._seed()
+        with self.captureOnCommitCallbacks(execute=True):
+            MCPCustomHarness.objects.create(team=self.team, name="Acme Agent", match_pattern="codex")
+            invalidate_custom_harness_rules(self.team)
+        sections = list(MCPDashboardSection)
+
+        def rows_by_section() -> dict[MCPDashboardSection, Any]:
+            rows: dict[MCPDashboardSection, Any] = {}
+            for request in [sections] if batch else [[section] for section in sections]:
+                runner = self._runner(request, properties=properties)
+                response = self._run(request, runner, execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+                rows |= {section: self._rows(response, section) for section in request}
+            return rows
+
+        full = rows_by_section()
+        create_for = Database.create_for
+        with (
+            patch("posthoganalytics.feature_enabled", side_effect=lambda key, *_, **__: key == LEAN_DATABASE_FLAG),
+            patch.object(Database, "create_for", side_effect=create_for) as full_catalog_build,
+        ):
+            lean = rows_by_section()
+
+        assert (full_catalog_build.call_count > 0) == builds_full_catalog
+        assert full[MCPDashboardSection.TOOL_ROWS], "the seed should leave rows to compare"
+        assert harness in json.dumps(lean[MCPDashboardSection.HARNESS_ROWS])
+        assert lean == full
+
+    def test_a_batch_reports_its_database_build_on_the_section_that_built_it(self) -> None:
+        self._seed()
+        sections = [MCPDashboardSection.TOOL_ROWS, MCPDashboardSection.KPIS, MCPDashboardSection.HARNESS_ROWS]
+
+        with patch("posthog.hogql_queries.query_runner.report_user_or_team_action") as report:
+            self._run(sections, execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+        builds = [args[1]["build_database_ms"] for args, _ in report.call_args_list if args[0] == "query executed"]
+        assert len(builds) == len(sections)
+        assert sum(build is not None for build in builds) == 1
+
+    def test_the_lean_database_keeps_its_own_cache_entries(self) -> None:
+        sections = [MCPDashboardSection.TOOL_ROWS]
+        full_key = self._runner(sections).get_cache_key()
+
+        with patch("posthoganalytics.feature_enabled", side_effect=lambda key, *_, **__: key == LEAN_DATABASE_FLAG):
+            lean_key = self._runner(sections).get_cache_key()
+
+        assert lean_key != full_key
 
     def test_a_failed_section_leaves_the_others_and_stays_uncached(self) -> None:
         self._seed()

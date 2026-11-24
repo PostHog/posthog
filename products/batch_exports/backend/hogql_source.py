@@ -21,6 +21,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 
+from products.batch_exports.backend.events_table import batch_exports_read_new_events_table
 from products.batch_exports.backend.facade.contracts import UnsupportedHogQLQueryError
 
 if typing.TYPE_CHECKING:
@@ -138,11 +139,17 @@ def apply_hogql_batch_export_modifier_defaults(
     `convertToProjectTimezone` falls back to `False`, so timestamps come out in UTC unless the export
     or the project sets the modifier. Other models keep the project default, so their output does
     not change.
+
+    `useNewEventsSchema` falls back to `batch_exports_read_new_events_table`. An explicit modifier
+    outranks every other events table switch, so only that function or the export's own modifier
+    moves the export.
     """
     resolved = modifiers.model_copy() if modifiers is not None else HogQLQueryModifiers()
     team_value = team.modifiers.get("convertToProjectTimezone") if isinstance(team.modifiers, dict) else None
     if resolved.convertToProjectTimezone is None and team_value is None:
         resolved.convertToProjectTimezone = False
+    if resolved.useNewEventsSchema is None:
+        resolved.useNewEventsSchema = batch_exports_read_new_events_table()
     return resolved
 
 

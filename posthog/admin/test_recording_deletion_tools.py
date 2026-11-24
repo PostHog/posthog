@@ -320,7 +320,7 @@ class TestRecordingDeletionTools(BaseTest):
 
     @patch.object(RecordingDeletions, "recent")
     @patch.object(RecordingDeletions, "certificate")
-    def test_a_completed_recording_deletion_links_to_its_printable_certificate_and_json(
+    def test_a_completed_recording_deletion_links_to_its_certificate_downloads(
         self, certificate: MagicMock, recent: MagicMock
     ) -> None:
         workflow_id = f"delete-recordings-{self.team.pk}-0b6c3c5e-6f5a-4a4e-9a51-3c3b2f1c9d10"
@@ -350,21 +350,28 @@ class TestRecordingDeletionTools(BaseTest):
             },
             None,
         )
-        certificate_url = f"/admin/posthog/team/{self.team.pk}/delete-recordings/certificate/{workflow_id}/"
-        download_url = f"/admin/console/tools/recording-deletions/download/certificate/?team={self.team.pk}&certificate={workflow_id}"
+        query = f"?team={self.team.pk}&certificate={workflow_id}"
+        html_url = f"/admin/console/tools/recording-deletions/download/certificate-html/{query}"
+        json_url = f"/admin/console/tools/recording-deletions/download/certificate/{query}"
 
         runs = self.client.get("/admin/console/tools/recording-deletions/", {"team": self.team.pk}).content.decode()
-        printable = self.client.get(certificate_url)
-        download = self.client.get(download_url)
+        printable = self.client.get(html_url)
+        download = self.client.get(json_url)
+        old_printable = self.client.get(
+            f"/admin/posthog/team/{self.team.pk}/delete-recordings/certificate/{workflow_id}/"
+        )
 
-        assert certificate_url in runs
-        assert download_url.replace("&", "&amp;") in runs
+        assert html_url.replace("&", "&amp;") in runs
+        assert json_url.replace("&", "&amp;") in runs
         assert printable.status_code == 200
+        assert printable["Content-Disposition"] == f'attachment; filename="deletion-certificate-{workflow_id}.html"'
         content = printable.content.decode()
         assert "Certificate of Data Deletion" in content
         assert "Reference: 0b6c3c5e-6f5a-4a4e-9a51-3c3b2f1c9d10" in content
         assert "date from: -30d, duration &lt; 5s" in content
-        assert f"/admin/console/tools/recording-deletions/?team={self.team.pk}" in content
+        assert "<script" not in content
         assert download.status_code == 200
         assert download["Content-Disposition"] == f'attachment; filename="deletion-certificate-{workflow_id}.json"'
         assert download.json()["total_recordings_found"] == 3
+        assert old_printable.status_code == 302
+        assert old_printable["Location"] == html_url

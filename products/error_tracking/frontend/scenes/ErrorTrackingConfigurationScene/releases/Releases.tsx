@@ -6,16 +6,23 @@ import { LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
 
 import { ErrorTrackingRelease } from 'lib/components/Errors/types'
 import { GitMetadataParser } from 'lib/components/Git/gitMetadataParser'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
+import { QuillReleases } from './QuillReleases'
 import { releasesLogic } from './releasesLogic'
 
 export function Releases(): JSX.Element {
     const { loadReleases } = useActions(releasesLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     useEffect(() => {
         loadReleases()
     }, [loadReleases])
+
+    if (todayRailNav) {
+        return <QuillReleases />
+    }
 
     return (
         <div className="deprecated-space-y-4">

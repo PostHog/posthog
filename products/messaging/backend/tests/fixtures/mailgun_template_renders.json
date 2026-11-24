@@ -1,0 +1,222 @@
+[
+  {
+    "name": "missing values print nothing",
+    "engine": "handlebars",
+    "template": "[{{x}}][{{{x}}}][{{a.b.c}}]",
+    "variables": {},
+    "liquid": "[{{ variables.x | join: \",\" }}][{{ variables.x | join: \",\" | raw }}][{{ variables.a.b.c | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}]",
+    "expected": "[][][]"
+  },
+  {
+    "name": "values print like Handlebars",
+    "engine": "handlebars",
+    "template": "{{n}} {{f}} {{t}} {{z}} {{no}}",
+    "variables": {
+      "n": 5,
+      "f": 1.5,
+      "t": true,
+      "z": 0,
+      "no": false
+    },
+    "liquid": "{{ variables.n | join: \",\" }} {{ variables.f | join: \",\" }} {{ variables.t | join: \",\" }} {{ variables.z | join: \",\" }} {{ variables.no | join: \",\" }}",
+    "expected": "5 1.5 true 0 false"
+  },
+  {
+    "name": "unicode and emoji",
+    "engine": "handlebars",
+    "template": "Grüße {{naïve}} 你好 {{name}} 🎉",
+    "variables": {
+      "naïve": "é",
+      "name": "世界🌍"
+    },
+    "liquid": "Grüße {{ variables.naïve | join: \",\" }} 你好 {{ variables.name | join: \",\" }} 🎉",
+    "expected": "Grüße é 你好 世界🌍 🎉"
+  },
+  {
+    "name": "liquid syntax in source stays literal",
+    "engine": "handlebars",
+    "template": "{% if x %}y{% endif %} 100% off {{ x }} {%",
+    "variables": {
+      "x": "X"
+    },
+    "liquid": "{{ \"{%\" }} if x %}y{{ \"{%\" }} endif %} 100% off {{ variables.x | join: \",\" }} {{ \"{%\" }}",
+    "expected": "{% if x %}y{% endif %} 100% off X {%"
+  },
+  {
+    "name": "hyphen and underscore names",
+    "engine": "handlebars",
+    "template": "{{user-name}} {{user_name}}",
+    "variables": {
+      "user-name": "a",
+      "user_name": "b"
+    },
+    "liquid": "{{ variables.user-name | join: \",\" }} {{ variables.user_name | join: \",\" }}",
+    "expected": "a b"
+  },
+  {
+    "name": "go variables and paths",
+    "engine": "go",
+    "template": "<p>{{.Name}} {{.User.Email}} {{.Missing}}</p>",
+    "variables": {
+      "Name": "N & <b>",
+      "User": {
+        "Email": "e@example.com"
+      }
+    },
+    "liquid": "{% assign go_value1 = variables.Name | json | slice: 0 %}{% assign go_value2 = variables.User.Email | json | slice: 0 %}{% assign go_value3 = variables.Missing | json | slice: 0 %}<p>{% if go_value1 == \"[\" %}[{{ variables.Name | join: ' ' | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}]{% elsif go_value1 == \"{\" %}map[{% for pair in variables.Name %}{% unless forloop.first %} {% endunless %}{{ pair[0] | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}:{{ pair[1] | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}{% endfor %}]{% else %}{{ variables.Name | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}{% endif %} {% if go_value2 == \"[\" %}[{{ variables.User.Email | join: ' ' | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}]{% elsif go_value2 == \"{\" %}map[{% for pair in variables.User.Email %}{% unless forloop.first %} {% endunless %}{{ pair[0] | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}:{{ pair[1] | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}{% endfor %}]{% else %}{{ variables.User.Email | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}{% endif %} {% if go_value3 == \"[\" %}[{{ variables.Missing | join: ' ' | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}]{% elsif go_value3 == \"{\" %}map[{% for pair in variables.Missing %}{% unless forloop.first %} {% endunless %}{{ pair[0] | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}:{{ pair[1] | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}{% endfor %}]{% else %}{{ variables.Missing | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}{% endif %}</p>",
+    "expected": "<p>N &amp; &lt;b&gt; e@example.com </p>"
+  },
+  {
+    "name": "go unicode",
+    "engine": "go",
+    "template": "{{.Grüße}} 🎉",
+    "variables": {
+      "Grüße": "你好"
+    },
+    "liquid": "{% assign go_value1 = variables.Grüße | json | slice: 0 %}{% if go_value1 == \"[\" %}[{{ variables.Grüße | join: ' ' | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}]{% elsif go_value1 == \"{\" %}map[{% for pair in variables.Grüße %}{% unless forloop.first %} {% endunless %}{{ pair[0] | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}:{{ pair[1] | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}{% endfor %}]{% else %}{{ variables.Grüße | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}{% endif %} 🎉",
+    "expected": "你好 🎉"
+  },
+  {
+    "name": "a value after a raw tag opening is escaped",
+    "engine": "handlebars",
+    "template": "{{{prefix}}}{{x}}>",
+    "variables": {
+      "prefix": "<a ",
+      "x": "href=https://example.com"
+    },
+    "liquid": "{{ variables.prefix | join: \",\" | raw }}{{ variables.x | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}>",
+    "expected": "<a href&#x3D;https://example.com>"
+  },
+  {
+    "name": "a go list prints in brackets",
+    "engine": "go",
+    "template": "<p>{{.x}}</p>",
+    "variables": {
+      "x": [
+        "red",
+        "blue"
+      ]
+    },
+    "liquid": "{% assign go_value1 = variables.x | json | slice: 0 %}<p>{% if go_value1 == \"[\" %}[{{ variables.x | join: ' ' | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}]{% elsif go_value1 == \"{\" %}map[{% for pair in variables.x %}{% unless forloop.first %} {% endunless %}{{ pair[0] | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}:{{ pair[1] | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}{% endfor %}]{% else %}{{ variables.x | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}{% endif %}</p>",
+    "expected": "<p>[red blue]</p>"
+  },
+  {
+    "name": "a go map prints with its keys",
+    "engine": "go",
+    "template": "<p>{{.x}}</p>",
+    "variables": {
+      "x": {
+        "a": 1,
+        "b": 2
+      }
+    },
+    "liquid": "{% assign go_value1 = variables.x | json | slice: 0 %}<p>{% if go_value1 == \"[\" %}[{{ variables.x | join: ' ' | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}]{% elsif go_value1 == \"{\" %}map[{% for pair in variables.x %}{% unless forloop.first %} {% endunless %}{{ pair[0] | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}:{{ pair[1] | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}{% endfor %}]{% else %}{{ variables.x | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}{% endif %}</p>",
+    "expected": "<p>map[a:1 b:2]</p>"
+  },
+  {
+    "name": "conditions read empty values like Handlebars",
+    "template": "[{{#if a}}A{{/if}}{{#if b}}B{{/if}}{{#if c}}C{{/if}}{{#if d}}D{{else}}d{{/if}}{{#unless e}}e{{/unless}}{{#if f}}F{{/if}}]",
+    "variables": {
+      "a": "",
+      "b": 0,
+      "c": [],
+      "d": "0",
+      "e": null,
+      "f": {
+        "k": "v"
+      }
+    },
+    "engine": "handlebars",
+    "liquid": "[{% if variables.a != nil and variables.a != false and variables.a != 0 and variables.a.length != 0 or variables.a != empty %}A{% endif %}{% if variables.b != nil and variables.b != false and variables.b != 0 and variables.b.length != 0 or variables.b != empty %}B{% endif %}{% if variables.c != nil and variables.c != false and variables.c != 0 and variables.c.length != 0 or variables.c != empty %}C{% endif %}{% if variables.d != nil and variables.d != false and variables.d != 0 and variables.d.length != 0 or variables.d != empty %}D{% else %}d{% endif %}{% if variables.e == nil or variables.e == false or variables.e == 0 or variables.e.length == 0 and variables.e == empty %}e{% endif %}{% if variables.f != nil and variables.f != false and variables.f != 0 and variables.f.length != 0 or variables.f != empty %}F{% endif %}]",
+    "expected": "[DeF]"
+  },
+  {
+    "name": "a loop with its index and parent values",
+    "template": "<ul>{{#each items}}<li>{{@index}}. {{this.title}} ({{../shop}}){{#if @last}}!{{/if}}</li>{{else}}<li>none</li>{{/each}}</ul>",
+    "variables": {
+      "shop": "Ünïcode 🦔",
+      "items": [
+        {
+          "title": "<i>Mug</i>"
+        },
+        {
+          "title": "Tee & cap"
+        }
+      ]
+    },
+    "engine": "handlebars",
+    "liquid": "<ul>{% assign values1 = variables.items | slice: 0, 0 %}{% assign string1 = variables.items | slice: 0, 16 %}{% assign shape1 = \"\" %}{% if values1 != \"\" %}{% assign shape1 = \"list\" %}{% elsif string1 == \"[object Object]\" and variables.items != string1 %}{% elsif string1 != \"\" %}{% assign shape1 = \"text\" %}{% endif %}{% if shape1 == \"text\" %}<li>none</li>{% else %}{% for raw1 in variables.items %}{% if shape1 == \"list\" %}{% assign item = raw1 %}{% else %}{% assign item = raw1[1] %}{% endif %}<li>{{ forloop.index0 | join: \",\" }}. {{ item.title | join: \",\" }} ({{ variables.shop | join: \",\" }}){% if forloop.last %}!{% endif %}</li>{% else %}<li>none</li>{% endfor %}{% endif %}</ul>",
+    "expected": "<ul><li>0. &lt;i&gt;Mug&lt;/i&gt; (Ünïcode 🦔)</li><li>1. Tee &amp; cap (Ünïcode 🦔)!</li></ul>"
+  },
+  {
+    "name": "equal and with blocks",
+    "template": "{{#equal plan \"pro\"}}Pro{{else}}Free{{/equal}} {{#with user}}{{name}}{{else}}nobody{{/with}}",
+    "variables": {
+      "plan": "pro",
+      "user": {
+        "name": "Ana"
+      }
+    },
+    "engine": "handlebars",
+    "liquid": "{% assign text1 = variables.plan | join: \",\" | append: \"\" %}{% if text1 == \"pro\" %}Pro{% else %}Free{% endif %} {% if variables.user != nil and variables.user != false and variables.user.length != 0 or variables.user != empty %}{{ variables.user.name | join: \",\" }}{% else %}nobody{% endif %}",
+    "expected": "Pro Ana"
+  },
+  {
+    "name": "equal compares numbers and text as text",
+    "template": "{{#equal count 5}}A{{/equal}}{{#equal code \"5\"}}B{{/equal}}",
+    "variables": {
+      "count": "5",
+      "code": 5
+    },
+    "engine": "handlebars",
+    "liquid": "{% assign text1 = variables.count | join: \",\" | append: \"\" %}{% if text1 == \"5\" %}A{% endif %}{% assign text2 = variables.code | join: \",\" | append: \"\" %}{% if text2 == \"5\" %}B{% endif %}",
+    "expected": "AB"
+  },
+  {
+    "name": "values that look like markup stay escaped in links",
+    "template": "<a href=\"https://example.com/?q={{q}}\">{{q}}</a>",
+    "variables": {
+      "q": "\"><img src onerror>&'"
+    },
+    "engine": "handlebars",
+    "liquid": "<a href=\"https://example.com/?q={{ variables.q | join: \",\" }}\">{{ variables.q | join: \",\" }}</a>",
+    "expected": "<a href=\"https://example.com/?q=&quot;&gt;&lt;img src onerror&gt;&amp;&#x27;\">&quot;&gt;&lt;img src onerror&gt;&amp;&#x27;</a>"
+  },
+  {
+    "name": "a list prints with commas",
+    "engine": "handlebars",
+    "template": "<p>{{tags}}</p>",
+    "variables": {
+      "tags": [
+        "red",
+        "blue"
+      ]
+    },
+    "liquid": "<p>{{ variables.tags | join: \",\" }}</p>",
+    "expected": "<p>red,blue</p>"
+  },
+  {
+    "name": "conditions read a string of spaces and an empty object as true",
+    "engine": "handlebars",
+    "template": "{{#unless s}}A{{/unless}}{{#if o}}B{{else}}C{{/if}}",
+    "variables": {
+      "s": " ",
+      "o": {}
+    },
+    "liquid": "{% if variables.s == nil or variables.s == false or variables.s == 0 or variables.s.length == 0 and variables.s == empty %}A{% endif %}{% if variables.o != nil and variables.o != false and variables.o != 0 and variables.o.length != 0 or variables.o != empty %}B{% else %}C{% endif %}",
+    "expected": "B"
+  },
+  {
+    "name": "a loop over an object prints its values",
+    "engine": "handlebars",
+    "template": "{{#each order}}{{this}} {{/each}}",
+    "variables": {
+      "order": {
+        "internal_margin": 12,
+        "price": 30
+      }
+    },
+    "liquid": "{% assign values1 = variables.order | slice: 0, 0 %}{% assign string1 = variables.order | slice: 0, 16 %}{% assign shape1 = \"\" %}{% if values1 != \"\" %}{% assign shape1 = \"list\" %}{% elsif string1 == \"[object Object]\" and variables.order != string1 %}{% elsif string1 != \"\" %}{% assign shape1 = \"text\" %}{% endif %}{% if shape1 == \"text\" %}{% else %}{% for raw1 in variables.order %}{% if shape1 == \"list\" %}{% assign item = raw1 %}{% else %}{% assign item = raw1[1] %}{% endif %}{{ item | join: \",\" }} {% endfor %}{% endif %}",
+    "expected": "12 30 "
+  }
+]

@@ -3,12 +3,14 @@ import asyncio
 from unittest.mock import ANY, AsyncMock, patch
 
 from django.conf import settings
-from django.test.testcases import TestCase
+from django.test.testcases import SimpleTestCase, TestCase
 
 import redis
 import fakeredis
+from parameterized import parameterized
 
 from posthog.redis import TEST_clear_clients, _client_map, _loop_clients, get_async_client, get_client
+from posthog.utils import get_redis_queue_depth
 
 
 class TestRedis(TestCase):
@@ -153,3 +155,30 @@ class TestRedis(TestCase):
 
         # In test mode with simple caching, same URL returns same instance
         self.assertIs(c1, c2)
+
+
+class TestCeleryBrokerClient(SimpleTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        TEST_clear_clients()
+
+    @parameterized.expand(
+        [
+            ("broker_url", None, "redis://broker-only:6379"),
+            ("read_url_takes_precedence", "redis://drain-read:6379", "redis://drain-read:6379"),
+        ]
+    )
+    def test_queue_depth_reads_the_broker_not_redis_url(
+        self, _name: str, broker_read_url: str | None, consumed_url: str
+    ) -> None:
+        with self.settings(
+            REDIS_URL="redis://app:6379",
+            CELERY_BROKER_URL="redis://broker-only:6379",
+            CELERY_BROKER_READ_URL=broker_read_url,
+        ):
+            for client in (get_client(), get_client(consumed_url)):
+                client.flushall()
+            get_client().lpush("celery", "on-app-redis")
+            get_client(consumed_url).lpush("celery", "task-1", "task-2")
+
+            assert get_redis_queue_depth() == 2

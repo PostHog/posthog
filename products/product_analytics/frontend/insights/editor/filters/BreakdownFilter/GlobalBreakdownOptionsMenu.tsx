@@ -8,8 +8,8 @@ import { LemonInput, LemonLabel, LemonSwitch } from '@posthog/lemon-ui'
 
 import { QuillChartOptionNumberInput } from 'lib/components/ChartOptions/QuillChartOptionNumberInput'
 import { QuillChartOptionSwitch } from 'lib/components/ChartOptions/QuillChartOptionSwitch'
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 

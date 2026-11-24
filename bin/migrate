@@ -77,13 +77,23 @@ fi
 if run_scope "clickhouse"; then RUN_CLICKHOUSE=1; else RUN_CLICKHOUSE=0; fi
 if run_scope "postgres"; then RUN_POSTGRES=1; else RUN_POSTGRES=0; fi
 
+# Local dev sets CLICKHOUSE_MIGRATIONS_WITH_PROD_GRANTS=1 (bin/mprocs.yaml, hogli.yaml) so that recent migrations
+# run with the privileges of the prod migrations user.
+migrate_clickhouse() {
+    if [ "${CLICKHOUSE_MIGRATIONS_WITH_PROD_GRANTS:-0}" = "1" ]; then
+        "$SCRIPT_DIR/migrate-clickhouse-with-prod-grants"
+    else
+        python manage.py migrate_clickhouse
+    fi
+}
+
 # Run ClickHouse in background only when both CH and Postgres run (original parallel behavior)
 if [ "$RUN_CLICKHOUSE" = "1" ] && [ "$RUN_POSTGRES" = "1" ]; then
     CLICKHOUSE_STATUS=$(mktemp)
     echo "0" > "$CLICKHOUSE_STATUS"
     
     (
-        if ! python manage.py migrate_clickhouse; then
+        if ! migrate_clickhouse; then
             echo "Error in migrate_clickhouse, setting error status."
             echo "1" > "$CLICKHOUSE_STATUS"
             exit 1
@@ -98,7 +108,7 @@ if [ "$RUN_CLICKHOUSE" = "1" ] && [ "$RUN_POSTGRES" = "1" ]; then
     CLICKHOUSE_PID=$!
     elif [ "$RUN_CLICKHOUSE" = "1" ]; then
     # ClickHouse only - run directly
-    python manage.py migrate_clickhouse || { FAILED_PHASE=clickhouse; echo "Error in migrate_clickhouse, exiting."; exit 1; }
+    migrate_clickhouse || { FAILED_PHASE=clickhouse; echo "Error in migrate_clickhouse, exiting."; exit 1; }
     python manage.py sync_replicated_schema || { FAILED_PHASE=clickhouse; echo "Error in sync_replicated_schema, exiting."; exit 1; }
 fi
 

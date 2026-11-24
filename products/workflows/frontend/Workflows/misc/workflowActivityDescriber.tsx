@@ -7,6 +7,7 @@ import {
     defaultDescriber,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
+import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { dayjs } from 'lib/dayjs'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
@@ -226,6 +227,41 @@ function describeWorkflowUpdate(logItem: ActivityLogItem): HumanizedChange {
     }
 }
 
+const BATCH_RUN_VERBS: Partial<Record<string, { summary: string; description: string }>> = {
+    batch_run_started: { summary: 'Started', description: 'started' },
+    batch_run_stopped: { summary: 'Stopped', description: 'stopped' },
+}
+
+function describeBatchRun(
+    logItem: ActivityLogItem,
+    verbs: { summary: string; description: string },
+    objectNoun: string
+): HumanizedChange {
+    const workflowName = nameOrLinkToWorkflow(logItem.item_id, logItem.detail.name)
+    const context = logItem.detail.context
+    const audienceFilters = Array.isArray(context?.filters?.properties) ? context.filters.properties : []
+    return {
+        summary: activityLogSummary(logItem, `${verbs.summary} a batch run`, workflowName),
+        description: (
+            <>
+                <ActivityLogUserName logItem={logItem} /> {verbs.description} a batch run of the {objectNoun}:{' '}
+                {workflowName}
+            </>
+        ),
+        extendedDescription: context?.batch_job_id ? (
+            <div className="flex flex-col gap-2 items-start">
+                <span>Batch run {context.batch_job_id}</span>
+                {audienceFilters.length ? (
+                    <>
+                        <span className="text-muted">Job filters</span>
+                        <PropertyFiltersDisplay filters={audienceFilters} />
+                    </>
+                ) : null}
+            </div>
+        ) : undefined,
+    }
+}
+
 export function workflowActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
     if (logItem.scope != 'HogFlow') {
         console.error('Workflow describer received a non-HogFlow activity')
@@ -386,6 +422,11 @@ export function workflowActivityDescriber(logItem: ActivityLogItem, asNotificati
                 </>
             ),
         }
+    }
+
+    const batchRunVerbs = BATCH_RUN_VERBS[logItem.activity]
+    if (batchRunVerbs) {
+        return describeBatchRun(logItem, batchRunVerbs, objectNoun)
     }
 
     if (logItem.activity == 'updated' || logItem.activity == 'published') {

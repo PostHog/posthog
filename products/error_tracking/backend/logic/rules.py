@@ -9,6 +9,7 @@ from products.error_tracking.backend.models import (
     ErrorTrackingBypassRule,
     ErrorTrackingGroupingRule,
     ErrorTrackingIssueFingerprintV2,
+    ErrorTrackingIssueTagRule,
     ErrorTrackingSeverityRule,
     ErrorTrackingSuppressionRule,
 )
@@ -75,6 +76,7 @@ _ReorderableRule = TypeVar(
     ErrorTrackingAssignmentRule,
     ErrorTrackingBypassRule,
     ErrorTrackingGroupingRule,
+    ErrorTrackingIssueTagRule,
     ErrorTrackingSeverityRule,
     ErrorTrackingSuppressionRule,
 )

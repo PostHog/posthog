@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 
-import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { insightLogic } from 'scenes/insights/insightLogic'

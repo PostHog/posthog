@@ -52,7 +52,7 @@ def create_experiment(
     exposure_criteria: dict[str, Any] | None = None,
     excluded_variants: list[str] | None = None,
     archived: bool = False,
-    deleted: bool = False,
+    deleted: bool | None = False,
     updated_at: datetime | None = None,
 ) -> int:
     """Create an experiment on an existing feature flag, and return its id.

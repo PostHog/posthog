@@ -6,11 +6,14 @@ import {
 } from './generated/api.schemas'
 import {
     PlatformAlertConfigurationStatus,
+    PlatformAlertStateCount,
+    configurationStateCounts,
     configurationStatus,
     describeCondition,
     describeOverflow,
     describeSchedule,
     groupLabels,
+    ruleMetadataEntriesError,
 } from './platformAlertFormat'
 
 function makeConfiguration(overrides: Partial<PlatformAlertConfigurationApi> = {}): PlatformAlertConfigurationApi {
@@ -90,6 +93,33 @@ describe('platformAlertFormat', () => {
         expect(configurationStatus(makeConfiguration(overrides))).toEqual(expected)
     })
 
+    test.each<[string, Partial<PlatformAlertConfigurationApi>, PlatformAlertStateCount[]]>([
+        ['no groups yet', {}, [{ status: 'not_checked', count: 0 }]],
+        [
+            'disabled hides group states',
+            { enabled: false, alerts: [makeAlert(PlatformAlertStateApi.Firing)] },
+            [{ status: 'disabled', count: 1 }],
+        ],
+        [
+            'groups in the same state add up, most urgent state first',
+            {
+                alerts: [
+                    makeAlert(PlatformAlertStateApi.NotFiring),
+                    makeAlert(PlatformAlertStateApi.Firing),
+                    makeAlert(PlatformAlertStateApi.NotFiring),
+                    makeAlert(PlatformAlertStateApi.Errored),
+                ],
+            },
+            [
+                { status: 'errored', count: 1 },
+                { status: 'firing', count: 1 },
+                { status: 'not_firing', count: 2 },
+            ],
+        ],
+    ])('configurationStateCounts: %s', (_, overrides, expected) => {
+        expect(configurationStateCounts(makeConfiguration(overrides))).toEqual(expected)
+    })
+
     test.each<[string, Partial<PlatformAlertConfigurationApi>, string]>([
         ['interval', { check_interval_minutes: 15 }, 'Every 15 min'],
         [
@@ -147,5 +177,27 @@ describe('platformAlertFormat', () => {
     ])('groupLabels: %s', (_, labels, keys, expected) => {
         const alert = { ...makeAlert(PlatformAlertStateApi.Firing), labels }
         expect(groupLabels(alert, keys).map(({ name, value }) => `${name}: ${value}`)).toEqual(expected)
+    })
+
+    test.each<[string, { name: string; value: string }[], string | undefined]>([
+        [
+            'accepts distinct names and a blank row',
+            [
+                { name: 'team', value: 'apm' },
+                { name: '', value: '' },
+            ],
+            undefined,
+        ],
+        ['refuses a value without a name', [{ name: ' ', value: 'apm' }], 'Give each entry a name'],
+        [
+            'refuses a repeated name, which would drop one value',
+            [
+                { name: 'team', value: 'apm' },
+                { name: 'team ', value: 'logs' },
+            ],
+            '"team" is used more than once. Use each name once.',
+        ],
+    ])('ruleMetadataEntriesError: %s', (_, entries, expected) => {
+        expect(ruleMetadataEntriesError(entries)).toEqual(expected)
     })
 })

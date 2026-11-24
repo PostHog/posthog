@@ -1,6 +1,10 @@
-import { combineUrl } from 'kea-router'
+import { useValues } from 'kea'
+import { combineUrl, router } from 'kea-router'
 
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
+
+import { INBOX_TAB_LABEL } from '../types'
 
 /**
  * A report's detail URL, with an optional `back` path for surfaces outside the inbox that embed
@@ -11,6 +15,42 @@ export function inboxReportDetailUrl(reportId: string, backUrl?: string): string
     return backUrl
         ? combineUrl(urls.inboxReport('reports', reportId), { back: backUrl }).url
         : urls.inboxReport('reports', reportId)
+}
+
+/** The current inbox page as a `back` path: no project prefix, with its search params. */
+export function inboxBackPath(location: { pathname: string; search: string }): string {
+    return removeProjectIdIfPresent(location.pathname) + location.search
+}
+
+/**
+ * Report detail URLs that return to the page the reader is on, for report links on inbox surfaces
+ * other than the Reports list (a scout page with its pane and finding, findings, runs, scratchpad).
+ */
+export function useInboxReportDetailUrl(): (reportId: string) => string {
+    const { location } = useValues(router)
+    const backUrl = inboxBackPath(location)
+    return (reportId) => inboxReportDetailUrl(reportId, backUrl)
+}
+
+/** The report header's back button label for a `?back=` path, named for where it goes. */
+export function inboxReportBackLabel(backUrl: string): string {
+    if (backUrl.startsWith(urls.inboxTriage())) {
+        return 'Triage'
+    }
+    const path = backUrl.split(/[?#]/)[0]
+    switch (path) {
+        case urls.inbox('monitoring'):
+            return INBOX_TAB_LABEL.monitoring
+        case urls.inbox('scouts'):
+            return INBOX_TAB_LABEL.scouts
+        case urls.inboxFindings():
+            return 'Findings'
+        case urls.inboxRuns():
+            return 'Runs'
+        case urls.inboxScratchpad():
+            return 'Scratchpad'
+    }
+    return path.startsWith(`${urls.inbox('scouts')}/`) ? 'Scout' : 'Back'
 }
 
 /**

@@ -2,20 +2,30 @@ import { dayjs } from 'lib/dayjs'
 
 import { Scale } from './releaseTracks'
 
-export function ReleaseTimelineAxis({ scale }: { scale: Scale }): JSX.Element {
+const MONTH_LABEL_ROOM = 96
+
+export function ReleaseTimelineAxis({ scale, stickyOffset = 0 }: { scale: Scale; stickyOffset?: number }): JSX.Element {
     const { start, day: width } = scale
     const today = dayjs().startOf('day')
     const days = Array.from({ length: scale.days }, (_, index) => start.add(index, 'day'))
-    const months = days.filter((day, index) => day.date() === 1 || (index === 0 && day.daysInMonth() - day.date() >= 4))
+    const starts = days.flatMap((day, index) => (index === 0 || day.date() === 1 ? [index] : []))
+    const months = starts.map((from, position) => ({ from, to: starts[position + 1] ?? days.length }))
     return (
         <div className="relative h-12" style={{ width: scale.days * width }}>
-            {months.map((month) => (
+            {months.map(({ from, to }) => (
                 <div
-                    key={month.format('YYYY-MM-DD')}
-                    className="absolute top-1.5 pl-2 text-[11px] font-semibold normal-case tracking-normal text-foreground"
-                    style={{ left: month.diff(start, 'day') * width }}
+                    key={from}
+                    className="absolute inset-y-0"
+                    style={{ left: from * width, width: (to - from) * width, clipPath: 'inset(0)' }}
                 >
-                    {month.format('MMMM YYYY')}
+                    {(to - from) * width >= MONTH_LABEL_ROOM && (
+                        <div
+                            className="sticky top-1.5 inline-block pl-2 pt-1.5 text-[11px] font-semibold normal-case tracking-normal whitespace-nowrap text-foreground"
+                            style={{ left: stickyOffset }}
+                        >
+                            {days[from].format('MMMM YYYY')}
+                        </div>
+                    )}
                 </div>
             ))}
             {days.map((day, index) =>

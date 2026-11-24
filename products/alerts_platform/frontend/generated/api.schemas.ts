@@ -12,6 +12,8 @@
  * * `webhook` - Webhook
  * * `teams` - Microsoft Teams
  * * `discord` - Discord
+ * * `pagerduty` - PagerDuty
+ * * `incident_io` - incident.io
  */
 export type AlertReceiverTypeEnumApi = (typeof AlertReceiverTypeEnumApi)[keyof typeof AlertReceiverTypeEnumApi]
 
@@ -20,6 +22,34 @@ export const AlertReceiverTypeEnumApi = {
     Webhook: 'webhook',
     Teams: 'teams',
     Discord: 'discord',
+    Pagerduty: 'pagerduty',
+    IncidentIo: 'incident_io',
+} as const
+
+/**
+ * * `critical` - critical
+ * * `error` - error
+ * * `warning` - warning
+ * * `info` - info
+ */
+export type PagerDutySeverityEnumApi = (typeof PagerDutySeverityEnumApi)[keyof typeof PagerDutySeverityEnumApi]
+
+export const PagerDutySeverityEnumApi = {
+    Critical: 'critical',
+    Error: 'error',
+    Warning: 'warning',
+    Info: 'info',
+} as const
+
+/**
+ * * `us` - us
+ * * `eu` - eu
+ */
+export type PagerDutyRegionEnumApi = (typeof PagerDutyRegionEnumApi)[keyof typeof PagerDutyRegionEnumApi]
+
+export const PagerDutyRegionEnumApi = {
+    Us: 'us',
+    Eu: 'eu',
 } as const
 
 export interface AlertReceiverApi {
@@ -32,7 +62,9 @@ export interface AlertReceiverApi {
      * * `slack` - Slack
      * * `webhook` - Webhook
      * * `teams` - Microsoft Teams
-     * * `discord` - Discord */
+     * * `discord` - Discord
+     * * `pagerduty` - PagerDuty
+     * * `incident_io` - incident.io */
     type: AlertReceiverTypeEnumApi
     /** Whether routes send to this receiver. A disabled receiver gets nothing. */
     enabled: boolean
@@ -46,6 +78,24 @@ export interface AlertReceiverApi {
     slack_channel_name?: string
     /** Webhook endpoint reduced to scheme and host. The path, query and userinfo carry the secret. */
     webhook_url?: string
+    /** PagerDuty integration key reduced to its last four characters. */
+    pagerduty_routing_key?: string
+    /** Severity of the PagerDuty incident. Unset means critical.
+     *
+     * * `critical` - critical
+     * * `error` - error
+     * * `warning` - warning
+     * * `info` - info */
+    pagerduty_severity?: PagerDutySeverityEnumApi
+    /** PagerDuty service region the events go to. Unset means us.
+     *
+     * * `us` - us
+     * * `eu` - eu */
+    pagerduty_region?: PagerDutyRegionEnumApi
+    /** ID of the incident.io HTTP alert source the events go to. */
+    incident_io_alert_source_config_id?: string
+    /** incident.io alert source secret reduced to its last four characters. */
+    incident_io_secret?: string
 }
 
 export interface AlertReceiverWriteApi {
@@ -61,7 +111,9 @@ export interface AlertReceiverWriteApi {
      * * `slack` - Slack
      * * `webhook` - Webhook
      * * `teams` - Microsoft Teams
-     * * `discord` - Discord */
+     * * `discord` - Discord
+     * * `pagerduty` - PagerDuty
+     * * `incident_io` - incident.io */
     type: AlertReceiverTypeEnumApi
     /** Integration ID for the Slack workspace. Required when type=slack. */
     slack_workspace_id?: number
@@ -71,6 +123,27 @@ export interface AlertReceiverWriteApi {
     slack_channel_name?: string
     /** HTTPS endpoint to post to. Required for webhook, teams and discord. Send it again on every update that changes the destination, because reads return it redacted. */
     webhook_url?: string
+    /** Integration key of a PagerDuty Events API v2 integration. Required when type=pagerduty. Send it again on every update that changes the destination, because reads return it redacted. */
+    pagerduty_routing_key?: string
+    /** Severity PagerDuty records on the incident. Used when type=pagerduty. Defaults to critical.
+     *
+     * * `critical` - critical
+     * * `error` - error
+     * * `warning` - warning
+     * * `info` - info */
+    pagerduty_severity?: PagerDutySeverityEnumApi
+    /** PagerDuty service region of the account. Used when type=pagerduty. Defaults to us.
+     *
+     * * `us` - us
+     * * `eu` - eu */
+    pagerduty_region?: PagerDutyRegionEnumApi
+    /**
+     * ID of an incident.io HTTP alert source, the last part of its URL. Required when type=incident_io.
+     * @pattern ^[0-9A-Za-z]{26}$
+     */
+    incident_io_alert_source_config_id?: string
+    /** Secret of the incident.io HTTP alert source, sent as a bearer token. Required when type=incident_io. Send it again on every update that changes the destination, because reads return it redacted. */
+    incident_io_secret?: string
 }
 
 export interface PatchedAlertReceiverWriteApi {
@@ -86,7 +159,9 @@ export interface PatchedAlertReceiverWriteApi {
      * * `slack` - Slack
      * * `webhook` - Webhook
      * * `teams` - Microsoft Teams
-     * * `discord` - Discord */
+     * * `discord` - Discord
+     * * `pagerduty` - PagerDuty
+     * * `incident_io` - incident.io */
     type?: AlertReceiverTypeEnumApi
     /** Integration ID for the Slack workspace. Required when type=slack. */
     slack_workspace_id?: number
@@ -96,6 +171,27 @@ export interface PatchedAlertReceiverWriteApi {
     slack_channel_name?: string
     /** HTTPS endpoint to post to. Required for webhook, teams and discord. Send it again on every update that changes the destination, because reads return it redacted. */
     webhook_url?: string
+    /** Integration key of a PagerDuty Events API v2 integration. Required when type=pagerduty. Send it again on every update that changes the destination, because reads return it redacted. */
+    pagerduty_routing_key?: string
+    /** Severity PagerDuty records on the incident. Used when type=pagerduty. Defaults to critical.
+     *
+     * * `critical` - critical
+     * * `error` - error
+     * * `warning` - warning
+     * * `info` - info */
+    pagerduty_severity?: PagerDutySeverityEnumApi
+    /** PagerDuty service region of the account. Used when type=pagerduty. Defaults to us.
+     *
+     * * `us` - us
+     * * `eu` - eu */
+    pagerduty_region?: PagerDutyRegionEnumApi
+    /**
+     * ID of an incident.io HTTP alert source, the last part of its URL. Required when type=incident_io.
+     * @pattern ^[0-9A-Za-z]{26}$
+     */
+    incident_io_alert_source_config_id?: string
+    /** Secret of the incident.io HTTP alert source, sent as a bearer token. Required when type=incident_io. Send it again on every update that changes the destination, because reads return it redacted. */
+    incident_io_secret?: string
 }
 
 export interface AlertRouteMatcherApi {
@@ -128,7 +224,7 @@ export interface AlertRouteApi {
     receiver_id: string
     /** Label conditions, all of which must hold for an alert to match. An empty list matches every alert in the project. */
     matchers: AlertRouteMatcherApi[]
-    /** The alert transitions the receiver hears about through this route. */
+    /** The alert transitions the receiver hears about through this route. An incident receiver, PagerDuty or incident.io, hears the trigger and resolve of every firing, whatever this lists. */
     event_kinds: PlatformAlertDestinationEventKindEnumApi[]
     /** Whether this route sends. */
     enabled: boolean
@@ -140,7 +236,7 @@ export interface AlertRouteWriteApi {
     /** Label conditions, all of which must hold for an alert to match. An empty list matches every alert in the project. */
     matchers?: AlertRouteMatcherApi[]
     /**
-     * The alert transitions the receiver hears about through this route. Defaults to every kind.
+     * The alert transitions the receiver hears about through this route. An incident receiver, PagerDuty or incident.io, hears the trigger and resolve of every firing, whatever this lists. Defaults to every kind.
      * @minItems 1
      */
     event_kinds?: PlatformAlertDestinationEventKindEnumApi[]
@@ -154,12 +250,29 @@ export interface PatchedAlertRouteWriteApi {
     /** Label conditions, all of which must hold for an alert to match. An empty list matches every alert in the project. */
     matchers?: AlertRouteMatcherApi[]
     /**
-     * The alert transitions the receiver hears about through this route. Defaults to every kind.
+     * The alert transitions the receiver hears about through this route. An incident receiver, PagerDuty or incident.io, hears the trigger and resolve of every firing, whatever this lists. Defaults to every kind.
      * @minItems 1
      */
     event_kinds?: PlatformAlertDestinationEventKindEnumApi[]
     /** Whether this route sends. Defaults to true. */
     enabled?: boolean
+}
+
+/**
+ * The alert's labels, by name, such as {"team": "checkout"}. Unsaved labels work too.
+ */
+export type AlertRouteMatchingRequestApiLabels = { [key: string]: string }
+
+export interface AlertRouteMatchingRequestApi {
+    /** The alert's labels, by name, such as {"team": "checkout"}. Unsaved labels work too. */
+    labels: AlertRouteMatchingRequestApiLabels
+}
+
+export interface AlertRouteMatchApi {
+    /** A route these labels match. */
+    route: AlertRouteApi
+    /** The receiver the route sends to. */
+    receiver: AlertReceiverApi
 }
 
 /**
@@ -169,6 +282,7 @@ export interface PatchedAlertRouteWriteApi {
  * * `warehouse_destination` - Warehouse destination
  * * `metrics` - Metrics
  * * `traces` - Traces
+ * * `error_tracking` - Error tracking
  */
 export type PlatformAlertConfigurationSourceKindEnumApi =
     (typeof PlatformAlertConfigurationSourceKindEnumApi)[keyof typeof PlatformAlertConfigurationSourceKindEnumApi]
@@ -180,6 +294,7 @@ export const PlatformAlertConfigurationSourceKindEnumApi = {
     WarehouseDestination: 'warehouse_destination',
     Metrics: 'metrics',
     Traces: 'traces',
+    ErrorTracking: 'error_tracking',
 } as const
 
 /**
@@ -407,6 +522,7 @@ export interface PlatformAlertStateIntervalApi {
  * * `webhook` - Webhook
  * * `teams` - Microsoft Teams
  * * `pagerduty` - PagerDuty
+ * * `incident_io` - incident.io
  * * `email` - Email
  * * `in_app` - In-app notification
  */
@@ -418,6 +534,7 @@ export const DestinationTypeEnumApi = {
     Webhook: 'webhook',
     Teams: 'teams',
     Pagerduty: 'pagerduty',
+    IncidentIo: 'incident_io',
     Email: 'email',
     InApp: 'in_app',
 } as const
@@ -451,7 +568,8 @@ export interface PlatformAlertConfigurationApi {
      * * `warehouse_source` - Warehouse source
      * * `warehouse_destination` - Warehouse destination
      * * `metrics` - Metrics
-     * * `traces` - Traces */
+     * * `traces` - Traces
+     * * `error_tracking` - Error tracking */
     readonly source_kind: PlatformAlertConfigurationSourceKindEnumApi
     /** Source-specific settings. The shape depends on source_kind. The bound the alert is evaluated against is under the condition key. */
     readonly source_config: PlatformAlertConfigurationApiSourceConfig
@@ -545,6 +663,103 @@ export interface PaginatedPlatformAlertConfigurationListApi {
     /** @nullable */
     previous?: string | null
     results: PlatformAlertConfigurationApi[]
+}
+
+/**
+ * Product whose data the alert evaluates. It cannot change after the create.
+ */
+export type ErrorTrackingPlatformAlertConfigurationCreateApiSourceKind =
+    (typeof ErrorTrackingPlatformAlertConfigurationCreateApiSourceKind)[keyof typeof ErrorTrackingPlatformAlertConfigurationCreateApiSourceKind]
+
+export const ErrorTrackingPlatformAlertConfigurationCreateApiSourceKind = {
+    ErrorTracking: 'error_tracking',
+} as const
+
+export type ErrorTrackingPlatformAlertFiltersApiPropertiesItem = { [key: string]: unknown }
+
+/**
+ * Which issues and exceptions the alert announces, in the shape error tracking's destinations use.
+ */
+export interface ErrorTrackingPlatformAlertFiltersApi {
+    /** Property filters on the exception event. Every filter must match. */
+    properties?: ErrorTrackingPlatformAlertFiltersApiPropertiesItem[]
+}
+
+export type ErrorTrackingPlatformAlertTriggerApi =
+    (typeof ErrorTrackingPlatformAlertTriggerApi)[keyof typeof ErrorTrackingPlatformAlertTriggerApi]
+
+export const ErrorTrackingPlatformAlertTriggerApi = {
+    IssueCreated: 'issue_created',
+    IssueReopened: 'issue_reopened',
+    IssueAssigned: 'issue_assigned',
+} as const
+
+export interface ErrorTrackingPlatformAlertConditionApi {
+    /**
+     * The issue changes the alert announces. Each matching change is announced once.
+     * @minItems 1
+     */
+    triggers: ErrorTrackingPlatformAlertTriggerApi[]
+}
+
+export interface ErrorTrackingPlatformAlertConfigApi {
+    /** The issues and exceptions the alert announces. */
+    filters?: ErrorTrackingPlatformAlertFiltersApi
+    /** The issue changes the alert announces. */
+    condition: ErrorTrackingPlatformAlertConditionApi
+}
+
+/**
+ * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+ */
+export type ErrorTrackingPlatformAlertConfigurationCreateApiLabels = { [key: string]: string }
+
+/**
+ * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+ */
+export type ErrorTrackingPlatformAlertConfigurationCreateApiAnnotations = { [key: string]: string }
+
+/**
+ * The settings of a new alert. Every one but source_config has a default, which is stored.
+ */
+export interface ErrorTrackingPlatformAlertConfigurationCreateApi {
+    /** Product whose data the alert evaluates. It cannot change after the create. */
+    source_kind: ErrorTrackingPlatformAlertConfigurationCreateApiSourceKind
+    /**
+     * Human-readable name of the alert. Defaults to 'Untitled alert'.
+     * @maxLength 255
+     */
+    name?: string
+    /** Whether the alert is evaluated on schedule. Defaults to true. */
+    enabled?: boolean
+    /** Settings for a error_tracking alert. The bound the alert is evaluated against is under condition. */
+    source_config: ErrorTrackingPlatformAlertConfigApi
+    /** How the alert splits its results into instances. Defaults to mode single. */
+    grouping?: GroupingApi
+    /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. Defaults to null. */
+    schedule_restriction?: AlertScheduleRestrictionApi | null
+    /**
+     * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441. Defaults to 1.
+     * @minimum 1
+     * @maximum 1441
+     */
+    evaluation_periods?: number
+    /**
+     * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods. Defaults to 1.
+     * @minimum 1
+     * @maximum 1441
+     */
+    datapoints_to_alarm?: number
+    /**
+     * Minimum minutes between notifications for the same alert. Defaults to 0.
+     * @minimum 0
+     * @maximum 2147483647
+     */
+    cooldown_minutes?: number
+    /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+    labels?: ErrorTrackingPlatformAlertConfigurationCreateApiLabels
+    /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+    annotations?: ErrorTrackingPlatformAlertConfigurationCreateApiAnnotations
 }
 
 /**
@@ -1014,15 +1229,15 @@ export interface LogsPlatformAlertConfigurationCreateApi {
     /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. Defaults to null. */
     schedule_restriction?: AlertScheduleRestrictionApi | null
     /**
-     * Number of recent checks considered when deciding to fire. Defaults to 1.
+     * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441. Defaults to 1.
      * @minimum 1
-     * @maximum 10
+     * @maximum 1441
      */
     evaluation_periods?: number
     /**
      * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods. Defaults to 1.
      * @minimum 1
-     * @maximum 10
+     * @maximum 1441
      */
     datapoints_to_alarm?: number
     /**
@@ -1121,15 +1336,15 @@ export interface MetricsPlatformAlertConfigurationCreateApi {
     /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. Defaults to null. */
     schedule_restriction?: AlertScheduleRestrictionApi | null
     /**
-     * Number of recent checks considered when deciding to fire. Defaults to 1.
+     * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441. Defaults to 1.
      * @minimum 1
-     * @maximum 10
+     * @maximum 1441
      */
     evaluation_periods?: number
     /**
      * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods. Defaults to 1.
      * @minimum 1
-     * @maximum 10
+     * @maximum 1441
      */
     datapoints_to_alarm?: number
     /**
@@ -1142,6 +1357,11 @@ export interface MetricsPlatformAlertConfigurationCreateApi {
     labels?: MetricsPlatformAlertConfigurationCreateApiLabels
     /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
     annotations?: MetricsPlatformAlertConfigurationCreateApiAnnotations
+    /**
+     * Minutes between scheduled checks. One of: 1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, 60. Defaults to 1 on a create. An edit that leaves it out keeps the stored value.
+     * @minimum 1
+     */
+    check_interval_minutes?: number
 }
 
 /**
@@ -1248,15 +1468,15 @@ export interface TracesPlatformAlertConfigurationCreateApi {
     /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. Defaults to null. */
     schedule_restriction?: AlertScheduleRestrictionApi | null
     /**
-     * Number of recent checks considered when deciding to fire. Defaults to 1.
+     * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441. Defaults to 1.
      * @minimum 1
-     * @maximum 10
+     * @maximum 1441
      */
     evaluation_periods?: number
     /**
      * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods. Defaults to 1.
      * @minimum 1
-     * @maximum 10
+     * @maximum 1441
      */
     datapoints_to_alarm?: number
     /**
@@ -1321,15 +1541,15 @@ export interface WarehouseDestinationPlatformAlertConfigurationCreateApi {
     /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. Defaults to null. */
     schedule_restriction?: AlertScheduleRestrictionApi | null
     /**
-     * Number of recent checks considered when deciding to fire. Defaults to 1.
+     * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441. Defaults to 1.
      * @minimum 1
-     * @maximum 10
+     * @maximum 1441
      */
     evaluation_periods?: number
     /**
      * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods. Defaults to 1.
      * @minimum 1
-     * @maximum 10
+     * @maximum 1441
      */
     datapoints_to_alarm?: number
     /**
@@ -1406,15 +1626,15 @@ export interface WarehouseSourcePlatformAlertConfigurationCreateApi {
     /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. Defaults to null. */
     schedule_restriction?: AlertScheduleRestrictionApi | null
     /**
-     * Number of recent checks considered when deciding to fire. Defaults to 1.
+     * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441. Defaults to 1.
      * @minimum 1
-     * @maximum 10
+     * @maximum 1441
      */
     evaluation_periods?: number
     /**
      * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods. Defaults to 1.
      * @minimum 1
-     * @maximum 10
+     * @maximum 1441
      */
     datapoints_to_alarm?: number
     /**
@@ -1430,11 +1650,75 @@ export interface WarehouseSourcePlatformAlertConfigurationCreateApi {
 }
 
 export type PlatformAlertConfigurationCreateApi =
+    | ErrorTrackingPlatformAlertConfigurationCreateApi
     | LogsPlatformAlertConfigurationCreateApi
     | MetricsPlatformAlertConfigurationCreateApi
     | TracesPlatformAlertConfigurationCreateApi
     | WarehouseDestinationPlatformAlertConfigurationCreateApi
     | WarehouseSourcePlatformAlertConfigurationCreateApi
+
+/**
+ * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
+ */
+export type ErrorTrackingPlatformAlertConfigurationEditApiSourceKind =
+    (typeof ErrorTrackingPlatformAlertConfigurationEditApiSourceKind)[keyof typeof ErrorTrackingPlatformAlertConfigurationEditApiSourceKind]
+
+export const ErrorTrackingPlatformAlertConfigurationEditApiSourceKind = {
+    ErrorTracking: 'error_tracking',
+} as const
+
+/**
+ * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+ */
+export type ErrorTrackingPlatformAlertConfigurationEditApiLabels = { [key: string]: string }
+
+/**
+ * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+ */
+export type ErrorTrackingPlatformAlertConfigurationEditApiAnnotations = { [key: string]: string }
+
+/**
+ * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
+ */
+export interface ErrorTrackingPlatformAlertConfigurationEditApi {
+    /** Product whose data the alert evaluates. It cannot change, so it must match the stored value. */
+    source_kind: ErrorTrackingPlatformAlertConfigurationEditApiSourceKind
+    /**
+     * Human-readable name of the alert.
+     * @maxLength 255
+     */
+    name: string
+    /** Whether the alert is evaluated on schedule. */
+    enabled: boolean
+    /** Settings for a error_tracking alert. The bound the alert is evaluated against is under condition. */
+    source_config: ErrorTrackingPlatformAlertConfigApi
+    /** How the alert splits its results into instances. */
+    grouping: GroupingApi
+    /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
+    schedule_restriction: AlertScheduleRestrictionApi | null
+    /**
+     * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441.
+     * @minimum 1
+     * @maximum 1441
+     */
+    evaluation_periods: number
+    /**
+     * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
+     * @minimum 1
+     * @maximum 1441
+     */
+    datapoints_to_alarm: number
+    /**
+     * Minimum minutes between notifications for the same alert.
+     * @minimum 0
+     * @maximum 2147483647
+     */
+    cooldown_minutes: number
+    /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+    labels?: ErrorTrackingPlatformAlertConfigurationEditApiLabels
+    /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+    annotations?: ErrorTrackingPlatformAlertConfigurationEditApiAnnotations
+}
 
 /**
  * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
@@ -1488,6 +1772,11 @@ export interface InsightPlatformAlertConditionApi {
     threshold: InsightThresholdApi | null
     /** How the value is compared: as it is, or as an increase or decrease from the previous interval. */
     comparison: AlertConditionApi
+    /**
+     * The threshold's name, shown with its bounds on the insight.
+     * @maxLength 255
+     */
+    threshold_name?: string
     /** The anomaly detector the alert uses in place of its threshold, or null for a threshold alert. It can't change through this API. */
     detector?: InsightPlatformAlertConditionApiDetector
 }
@@ -1557,15 +1846,15 @@ export interface InsightPlatformAlertConfigurationEditApi {
     /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
     schedule_restriction: AlertScheduleRestrictionApi | null
     /**
-     * Number of recent checks considered when deciding to fire.
+     * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441.
      * @minimum 1
-     * @maximum 10
+     * @maximum 1441
      */
     evaluation_periods: number
     /**
      * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
      * @minimum 1
-     * @maximum 10
+     * @maximum 1441
      */
     datapoints_to_alarm: number
     /**
@@ -1620,15 +1909,15 @@ export interface LogsPlatformAlertConfigurationEditApi {
     /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
     schedule_restriction: AlertScheduleRestrictionApi | null
     /**
-     * Number of recent checks considered when deciding to fire.
+     * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441.
      * @minimum 1
-     * @maximum 10
+     * @maximum 1441
      */
     evaluation_periods: number
     /**
      * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
      * @minimum 1
-     * @maximum 10
+     * @maximum 1441
      */
     datapoints_to_alarm: number
     /**
@@ -1683,15 +1972,15 @@ export interface MetricsPlatformAlertConfigurationEditApi {
     /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
     schedule_restriction: AlertScheduleRestrictionApi | null
     /**
-     * Number of recent checks considered when deciding to fire.
+     * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441.
      * @minimum 1
-     * @maximum 10
+     * @maximum 1441
      */
     evaluation_periods: number
     /**
      * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
      * @minimum 1
-     * @maximum 10
+     * @maximum 1441
      */
     datapoints_to_alarm: number
     /**
@@ -1704,6 +1993,11 @@ export interface MetricsPlatformAlertConfigurationEditApi {
     labels?: MetricsPlatformAlertConfigurationEditApiLabels
     /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
     annotations?: MetricsPlatformAlertConfigurationEditApiAnnotations
+    /**
+     * Minutes between scheduled checks. One of: 1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, 60. Defaults to 1 on a create. An edit that leaves it out keeps the stored value.
+     * @minimum 1
+     */
+    check_interval_minutes?: number
 }
 
 /**
@@ -1746,15 +2040,15 @@ export interface TracesPlatformAlertConfigurationEditApi {
     /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
     schedule_restriction: AlertScheduleRestrictionApi | null
     /**
-     * Number of recent checks considered when deciding to fire.
+     * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441.
      * @minimum 1
-     * @maximum 10
+     * @maximum 1441
      */
     evaluation_periods: number
     /**
      * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
      * @minimum 1
-     * @maximum 10
+     * @maximum 1441
      */
     datapoints_to_alarm: number
     /**
@@ -1809,15 +2103,15 @@ export interface WarehouseDestinationPlatformAlertConfigurationEditApi {
     /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
     schedule_restriction: AlertScheduleRestrictionApi | null
     /**
-     * Number of recent checks considered when deciding to fire.
+     * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441.
      * @minimum 1
-     * @maximum 10
+     * @maximum 1441
      */
     evaluation_periods: number
     /**
      * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
      * @minimum 1
-     * @maximum 10
+     * @maximum 1441
      */
     datapoints_to_alarm: number
     /**
@@ -1872,15 +2166,15 @@ export interface WarehouseSourcePlatformAlertConfigurationEditApi {
     /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
     schedule_restriction: AlertScheduleRestrictionApi | null
     /**
-     * Number of recent checks considered when deciding to fire.
+     * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441.
      * @minimum 1
-     * @maximum 10
+     * @maximum 1441
      */
     evaluation_periods: number
     /**
      * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
      * @minimum 1
-     * @maximum 10
+     * @maximum 1441
      */
     datapoints_to_alarm: number
     /**
@@ -1896,12 +2190,76 @@ export interface WarehouseSourcePlatformAlertConfigurationEditApi {
 }
 
 export type PlatformAlertConfigurationEditApi =
+    | ErrorTrackingPlatformAlertConfigurationEditApi
     | InsightPlatformAlertConfigurationEditApi
     | LogsPlatformAlertConfigurationEditApi
     | MetricsPlatformAlertConfigurationEditApi
     | TracesPlatformAlertConfigurationEditApi
     | WarehouseDestinationPlatformAlertConfigurationEditApi
     | WarehouseSourcePlatformAlertConfigurationEditApi
+
+/**
+ * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
+ */
+export type PatchedErrorTrackingPlatformAlertConfigurationEditApiSourceKind =
+    (typeof PatchedErrorTrackingPlatformAlertConfigurationEditApiSourceKind)[keyof typeof PatchedErrorTrackingPlatformAlertConfigurationEditApiSourceKind]
+
+export const PatchedErrorTrackingPlatformAlertConfigurationEditApiSourceKind = {
+    ErrorTracking: 'error_tracking',
+} as const
+
+/**
+ * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+ */
+export type PatchedErrorTrackingPlatformAlertConfigurationEditApiLabels = { [key: string]: string }
+
+/**
+ * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+ */
+export type PatchedErrorTrackingPlatformAlertConfigurationEditApiAnnotations = { [key: string]: string }
+
+/**
+ * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
+ */
+export interface PatchedErrorTrackingPlatformAlertConfigurationEditApi {
+    /** Product whose data the alert evaluates. It cannot change, so it must match the stored value. */
+    source_kind: PatchedErrorTrackingPlatformAlertConfigurationEditApiSourceKind
+    /**
+     * Human-readable name of the alert.
+     * @maxLength 255
+     */
+    name?: string
+    /** Whether the alert is evaluated on schedule. */
+    enabled?: boolean
+    /** Settings for a error_tracking alert. The bound the alert is evaluated against is under condition. */
+    source_config?: ErrorTrackingPlatformAlertConfigApi
+    /** How the alert splits its results into instances. */
+    grouping?: GroupingApi
+    /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
+    schedule_restriction?: AlertScheduleRestrictionApi | null
+    /**
+     * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441.
+     * @minimum 1
+     * @maximum 1441
+     */
+    evaluation_periods?: number
+    /**
+     * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
+     * @minimum 1
+     * @maximum 1441
+     */
+    datapoints_to_alarm?: number
+    /**
+     * Minimum minutes between notifications for the same alert.
+     * @minimum 0
+     * @maximum 2147483647
+     */
+    cooldown_minutes?: number
+    /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+    labels?: PatchedErrorTrackingPlatformAlertConfigurationEditApiLabels
+    /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+    annotations?: PatchedErrorTrackingPlatformAlertConfigurationEditApiAnnotations
+}
 
 /**
  * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
@@ -1943,15 +2301,15 @@ export interface PatchedInsightPlatformAlertConfigurationEditApi {
     /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
     schedule_restriction?: AlertScheduleRestrictionApi | null
     /**
-     * Number of recent checks considered when deciding to fire.
+     * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441.
      * @minimum 1
-     * @maximum 10
+     * @maximum 1441
      */
     evaluation_periods?: number
     /**
      * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
      * @minimum 1
-     * @maximum 10
+     * @maximum 1441
      */
     datapoints_to_alarm?: number
     /**
@@ -2006,15 +2364,15 @@ export interface PatchedLogsPlatformAlertConfigurationEditApi {
     /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
     schedule_restriction?: AlertScheduleRestrictionApi | null
     /**
-     * Number of recent checks considered when deciding to fire.
+     * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441.
      * @minimum 1
-     * @maximum 10
+     * @maximum 1441
      */
     evaluation_periods?: number
     /**
      * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
      * @minimum 1
-     * @maximum 10
+     * @maximum 1441
      */
     datapoints_to_alarm?: number
     /**
@@ -2069,15 +2427,15 @@ export interface PatchedMetricsPlatformAlertConfigurationEditApi {
     /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
     schedule_restriction?: AlertScheduleRestrictionApi | null
     /**
-     * Number of recent checks considered when deciding to fire.
+     * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441.
      * @minimum 1
-     * @maximum 10
+     * @maximum 1441
      */
     evaluation_periods?: number
     /**
      * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
      * @minimum 1
-     * @maximum 10
+     * @maximum 1441
      */
     datapoints_to_alarm?: number
     /**
@@ -2090,6 +2448,11 @@ export interface PatchedMetricsPlatformAlertConfigurationEditApi {
     labels?: PatchedMetricsPlatformAlertConfigurationEditApiLabels
     /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
     annotations?: PatchedMetricsPlatformAlertConfigurationEditApiAnnotations
+    /**
+     * Minutes between scheduled checks. One of: 1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, 60. Defaults to 1 on a create. An edit that leaves it out keeps the stored value.
+     * @minimum 1
+     */
+    check_interval_minutes?: number
 }
 
 /**
@@ -2132,15 +2495,15 @@ export interface PatchedTracesPlatformAlertConfigurationEditApi {
     /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
     schedule_restriction?: AlertScheduleRestrictionApi | null
     /**
-     * Number of recent checks considered when deciding to fire.
+     * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441.
      * @minimum 1
-     * @maximum 10
+     * @maximum 1441
      */
     evaluation_periods?: number
     /**
      * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
      * @minimum 1
-     * @maximum 10
+     * @maximum 1441
      */
     datapoints_to_alarm?: number
     /**
@@ -2195,15 +2558,15 @@ export interface PatchedWarehouseDestinationPlatformAlertConfigurationEditApi {
     /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
     schedule_restriction?: AlertScheduleRestrictionApi | null
     /**
-     * Number of recent checks considered when deciding to fire.
+     * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441.
      * @minimum 1
-     * @maximum 10
+     * @maximum 1441
      */
     evaluation_periods?: number
     /**
      * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
      * @minimum 1
-     * @maximum 10
+     * @maximum 1441
      */
     datapoints_to_alarm?: number
     /**
@@ -2258,15 +2621,15 @@ export interface PatchedWarehouseSourcePlatformAlertConfigurationEditApi {
     /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
     schedule_restriction?: AlertScheduleRestrictionApi | null
     /**
-     * Number of recent checks considered when deciding to fire.
+     * Number of recent checks considered when deciding to fire. Most source kinds allow up to 10; metrics alerts allow up to 1441.
      * @minimum 1
-     * @maximum 10
+     * @maximum 1441
      */
     evaluation_periods?: number
     /**
      * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
      * @minimum 1
-     * @maximum 10
+     * @maximum 1441
      */
     datapoints_to_alarm?: number
     /**
@@ -2282,6 +2645,7 @@ export interface PatchedWarehouseSourcePlatformAlertConfigurationEditApi {
 }
 
 export type PatchedPlatformAlertConfigurationEditApi =
+    | PatchedErrorTrackingPlatformAlertConfigurationEditApi
     | PatchedInsightPlatformAlertConfigurationEditApi
     | PatchedLogsPlatformAlertConfigurationEditApi
     | PatchedMetricsPlatformAlertConfigurationEditApi
@@ -2305,32 +2669,6 @@ export const PlatformAlertDestinationTypeEnumApi = {
     Teams: 'teams',
     Discord: 'discord',
     Pagerduty: 'pagerduty',
-} as const
-
-/**
- * * `critical` - critical
- * * `error` - error
- * * `warning` - warning
- * * `info` - info
- */
-export type PagerDutySeverityEnumApi = (typeof PagerDutySeverityEnumApi)[keyof typeof PagerDutySeverityEnumApi]
-
-export const PagerDutySeverityEnumApi = {
-    Critical: 'critical',
-    Error: 'error',
-    Warning: 'warning',
-    Info: 'info',
-} as const
-
-/**
- * * `us` - us
- * * `eu` - eu
- */
-export type PagerDutyRegionEnumApi = (typeof PagerDutyRegionEnumApi)[keyof typeof PagerDutyRegionEnumApi]
-
-export const PagerDutyRegionEnumApi = {
-    Us: 'us',
-    Eu: 'eu',
 } as const
 
 export interface PlatformAlertDestinationApi {
@@ -2432,6 +2770,7 @@ export type PlatformAlertEventApiCondition = { [key: string]: unknown }
  * * `unsnooze` - Unsnooze
  * * `reset` - Reset
  * * `config_change` - Config change
+ * * `handback` - Handback
  */
 export type PlatformAlertEventKindEnumApi =
     (typeof PlatformAlertEventKindEnumApi)[keyof typeof PlatformAlertEventKindEnumApi]
@@ -2444,12 +2783,13 @@ export const PlatformAlertEventKindEnumApi = {
     Unsnooze: 'unsnooze',
     Reset: 'reset',
     ConfigChange: 'config_change',
+    Handback: 'handback',
 } as const
 
 export interface PlatformAlertEventApi {
     /** When it happened. */
     occurred_at: string
-    /** check for a check that moved the alert's state or failed, else the change a person made.
+    /** check for a check that moved the alert's state or failed, handback for a logs alert an operator handed back to the logs stack, else the change a person made.
      *
      * * `check` - Check
      * * `enable` - Enable
@@ -2457,7 +2797,8 @@ export interface PlatformAlertEventApi {
      * * `snooze` - Snooze
      * * `unsnooze` - Unsnooze
      * * `reset` - Reset
-     * * `config_change` - Config change */
+     * * `config_change` - Config change
+     * * `handback` - Handback */
     kind: PlatformAlertEventKindEnumApi
     /** The alert's state before it.
      *
@@ -2539,6 +2880,7 @@ export type PlatformAlertsListParams = {
      * * `warehouse_destination` - Warehouse destination
      * * `metrics` - Metrics
      * * `traces` - Traces
+     * * `error_tracking` - Error tracking
      * @minLength 1
      */
     source_kind?: PlatformAlertsListSourceKind
@@ -2554,6 +2896,7 @@ export const PlatformAlertsListSourceKind = {
     WarehouseDestination: 'warehouse_destination',
     Metrics: 'metrics',
     Traces: 'traces',
+    ErrorTracking: 'error_tracking',
 } as const
 
 export type PlatformAlertsEventsListParams = {

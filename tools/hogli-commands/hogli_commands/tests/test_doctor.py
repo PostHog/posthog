@@ -135,6 +135,9 @@ def test_select_flox_logs_to_remove(
         pytest.param("grep -r pattern .", id="grep"),
         pytest.param("/usr/bin/lsof -p 123", id="lsof"),
         pytest.param("watchman watch-project /some/path", id="watchman"),
+        pytest.param(
+            "/Users/x/code/github/posthog/.flox/cache/venv/bin/python -P -m hogli watch", id="hogli-watch-background"
+        ),
     ],
 )
 def test_is_excluded_matches_excluded_executables(args: str) -> None:

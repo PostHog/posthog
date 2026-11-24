@@ -48,7 +48,7 @@ _MAX_NOTE_CHARS = 200
 # POST API with no format constraint, and these values land in a prompt where a newline could
 # fake extra list entries. Anything else renders as "unrecorded".
 _REPO_SHAPE_RE = re.compile(r"^[^/\s]+/[^/\s]+$")
-_MAX_REPO_CHARS = 140
+MAX_REPOSITORY_NAME_LENGTH = 140
 
 # `content` is compact JSON written by pydantic's model_dump_json, so a wrong_repo dismissal
 # always contains this exact substring (values with quotes are escaped, so a note can only
@@ -175,7 +175,7 @@ def sanitized_repository(value: str | None) -> str | None:
     entries or a fabricated section.
     """
     cleaned = (value or "").strip().lower()
-    if not cleaned or len(cleaned) > _MAX_REPO_CHARS or not _REPO_SHAPE_RE.match(cleaned):
+    if not cleaned or len(cleaned) > MAX_REPOSITORY_NAME_LENGTH or not _REPO_SHAPE_RE.match(cleaned):
         return None
     return cleaned
 

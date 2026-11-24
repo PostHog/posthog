@@ -618,14 +618,50 @@ export const LogsAlertsDestinationsCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Make a destination's message editable. A destination that sends the standard message from the alerts platform gets HogFunctions with that message, one per event kind, and stops sending from the platform. A destination that already has HogFunctions keeps them. Returns the HogFunction IDs to edit.
+ */
+export const logsAlertsDestinationsCustomizeCreateBodyHogFunctionIdsMax = 100
+
+export const LogsAlertsDestinationsCustomizeCreateBody = /* @__PURE__ */ zod.object({
+    destination_id: zod
+        .uuid()
+        .nullish()
+        .describe("The destination's `destinations[].id`. Use it for a destination with no HogFunctions."),
+    hog_function_ids: zod
+        .array(zod.uuid())
+        .max(logsAlertsDestinationsCustomizeCreateBodyHogFunctionIdsMax)
+        .optional()
+        .describe("The destination's `destinations[].hog_function_ids`, for a destination that has HogFunctions."),
+})
+
+/**
  * Delete a notification destination by deleting its HogFunction group atomically.
  */
+export const logsAlertsDestinationsDeleteCreateBodyDestinationIdsMax = 100
 
 export const LogsAlertsDestinationsDeleteCreateBody = /* @__PURE__ */ zod.object({
     hog_function_ids: zod
         .array(zod.uuid())
-        .min(1)
+        .optional()
         .describe('HogFunction IDs to delete as one atomic destination group.'),
+    destination_ids: zod
+        .array(zod.uuid())
+        .max(logsAlertsDestinationsDeleteCreateBodyDestinationIdsMax)
+        .optional()
+        .describe('Destination IDs, from `destinations[].id`, to delete with their HogFunctions.'),
+})
+
+/**
+ * Send a customized destination's standard message again. Its HogFunctions are deleted, with their edits, and the alerts platform sends it from then on. Only an alert the alerts platform checks can be reset.
+ */
+export const logsAlertsDestinationsResetCreateBodyHogFunctionIdsMax = 100
+
+export const LogsAlertsDestinationsResetCreateBody = /* @__PURE__ */ zod.object({
+    hog_function_ids: zod
+        .array(zod.uuid())
+        .min(1)
+        .max(logsAlertsDestinationsResetCreateBodyHogFunctionIdsMax)
+        .describe('Every HogFunction of the customized destination, from `destinations[].hog_function_ids`.'),
 })
 
 /**
@@ -766,6 +802,72 @@ export const LogsAnomaliesSeriesBandsCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             "Display grain in minutes for buckets and bands. One of 5, 15, 30, 60. The window may hold at most 500 buckets per series at the chosen grain, so a finer grain needs a shorter window. Omit it to let the window pick its grain, the coarsest that still cuts it into about 168 buckets. A series too sparse to read at this grain is returned at a coarser one; see each series' interval_minutes.\n\n\* `5` - 5\n\* `15` - 15\n\* `30` - 30\n\* `60` - 60"
         ),
+})
+
+export const logsContextCreateBodyQueryOneLimitDefault = 100
+export const logsContextCreateBodyQueryOneLimitMax = 500
+
+export const LogsContextCreateBody = /* @__PURE__ */ zod.object({
+    query: zod
+        .object({
+            anchor: zod
+                .object({
+                    logUuid: zod.string().optional().describe('uuid of one log line. Needs `timestamp`.'),
+                    timestamp: zod.iso
+                        .datetime({ offset: true })
+                        .optional()
+                        .describe('ISO 8601 timestamp of the `logUuid` log line.'),
+                    traceId: zod.string().optional().describe('Trace id, 32 hex characters or base64.'),
+                    attribute: zod
+                        .object({
+                            key: zod.string().describe('Log attribute key, e.g. \"workflow_run_id\".'),
+                            value: zod.string().describe('Exact attribute value to follow.'),
+                        })
+                        .optional()
+                        .describe('Follow every log with this attribute value.'),
+                    around: zod.iso
+                        .datetime({ offset: true })
+                        .optional()
+                        .describe(
+                            'ISO 8601 time hint. Required with `attribute`, used with `traceId` only when the trace has no spans.'
+                        ),
+                })
+                .describe('Exactly one anchor: a log line, a trace, or an attribute value.'),
+            padding: zod
+                .string()
+                .optional()
+                .describe(
+                    'Time on each side of the anchor: \"30s\", \"5m\", \"1h\" (max 6h). Default 30s for a trace, 5m otherwise.'
+                ),
+            severityLevels: zod
+                .array(
+                    zod
+                        .enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal'])
+                        .describe(
+                            '\* `trace` - trace\n\* `debug` - debug\n\* `info` - info\n\* `warn` - warn\n\* `error` - error\n\* `fatal` - fatal'
+                        )
+                )
+                .optional()
+                .describe('Keep only these severities in the timeline.'),
+            serviceNames: zod
+                .array(zod.string())
+                .optional()
+                .describe(
+                    "Restrict the timeline to these services. Default: the trace's services, the log's service, or all."
+                ),
+            include: zod
+                .array(zod.enum(['spans']).describe('\* `spans` - Spans'))
+                .optional()
+                .describe('\"spans\" adds spans_summary for a trace anchor.'),
+            limit: zod
+                .number()
+                .min(1)
+                .max(logsContextCreateBodyQueryOneLimitMax)
+                .default(logsContextCreateBodyQueryOneLimitDefault)
+                .describe('Maximum timeline rows.'),
+            after: zod.string().optional().describe('`next_cursor` of a previous call with the same anchor.'),
+        })
+        .describe('The context query.'),
 })
 
 export const LogsCountCreateBody = /* @__PURE__ */ zod.object({
@@ -1964,6 +2066,23 @@ export const LogsQueryCreateBody = /* @__PURE__ */ zod.object({
                 ),
         })
         .describe('The logs query to execute.'),
+    trigger: zod
+        .enum([
+            'initial_load',
+            'filter_change',
+            'filters_restored',
+            'sort_change',
+            'column_change',
+            'scope_change',
+            'refresh',
+        ])
+        .describe(
+            '\* `initial_load` - initial_load\n\* `filter_change` - filter_change\n\* `filters_restored` - filters_restored\n\* `sort_change` - sort_change\n\* `column_change` - column_change\n\* `scope_change` - scope_change\n\* `refresh` - refresh'
+        )
+        .optional()
+        .describe(
+            'What caused the PostHog app to run this query. Used for usage analytics only, with no effect on results. API clients omit it.\n\n\* `initial_load` - initial_load\n\* `filter_change` - filter_change\n\* `filters_restored` - filters_restored\n\* `sort_change` - sort_change\n\* `column_change` - column_change\n\* `scope_change` - scope_change\n\* `refresh` - refresh'
+        ),
 })
 
 /**

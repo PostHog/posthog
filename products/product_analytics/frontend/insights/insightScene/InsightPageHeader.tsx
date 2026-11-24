@@ -1,12 +1,13 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { IconPlusSmall } from '@posthog/icons'
+import { IconHeart, IconHeartFilled, IconPlusSmall } from '@posthog/icons'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { InsightSubscribeProminentButton } from 'lib/components/Scenes/InsightSubscribeProminentButton'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { AnalyticsScenePinButton } from 'scenes/analytics/AnalyticsScenePinButton'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
@@ -119,6 +120,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
 
             <SceneTitleSection
                 name={defaultInsightName || ''}
+                nameAction={<AnalyticsScenePinButton dataAttrKey="insight" />}
                 description={insight?.description || ''}
                 resourceType={{
                     type: getInsightIconTypeFromQuery(query),
@@ -169,6 +171,23 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 >
                                     Cancel
                                 </LemonButton>
+                            )}
+
+                            {insightMode !== ItemMode.Edit && isPersistedInsight && (
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    icon={
+                                        insight.favorited ? <IconHeartFilled className="text-danger" /> : <IconHeart />
+                                    }
+                                    tooltip={insight.favorited ? 'Remove from favorites' : 'Add to favorites'}
+                                    aria-label={insight.favorited ? 'Remove from favorites' : 'Add to favorites'}
+                                    loading={insightLoading}
+                                    onClick={() => setInsightMetadata({ favorited: !insight.favorited })}
+                                    data-attr={
+                                        insight.favorited ? 'insight-header-unfavorite' : 'insight-header-favorite'
+                                    }
+                                />
                             )}
 
                             {insightMode !== ItemMode.Edit && isPersistedInsight && (

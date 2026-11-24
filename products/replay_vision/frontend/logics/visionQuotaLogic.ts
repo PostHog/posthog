@@ -2,6 +2,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, path, reducers, selec
 import { loaders } from 'kea-loaders'
 
 import { billingLogic } from 'lib/logic/billing/billingLogic'
+import { REPLAY_VISION_PRODUCT_KEY } from 'scenes/billing/billingLimitConfig'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { BillingType } from '~/types'
@@ -74,7 +75,7 @@ export interface visionQuotaLogicMeta {
         showUsd: (quota: VisionQuotaApi | null) => boolean
         freeCreditsAllowance: (quota: VisionQuotaApi | null) => number | null
         freeCreditsLeft: (quota: VisionQuotaApi | null) => number | null
-        onFreePlan: (quota: VisionQuotaApi | null) => boolean
+        onFreePlan: (quota: VisionQuotaApi | null, billing: BillingType | null) => boolean
         billedCredits: (displayQuota: VisionQuotaApi | null) => number
         billedLimitCredits: (displayQuota: VisionQuotaApi | null) => number
     }
@@ -86,6 +87,9 @@ export type visionQuotaLogicType = MakeLogicType<
     Record<string, any>,
     visionQuotaLogicMeta
 >
+
+// The server asks billing to sync an unsynced org on its first read, which usually lands within seconds.
+const BILLING_SYNC_POLL_MS = 3000
 
 export const visionQuotaLogic = kea<visionQuotaLogicType>([
     path(['products', 'replay_vision', 'frontend', 'logics', 'visionQuotaLogic']),
@@ -113,11 +117,22 @@ export const visionQuotaLogic = kea<visionQuotaLogicType>([
                     if (!teamId) {
                         return values.quota
                     }
-                    try {
-                        return await environmentVisionQuotaRetrieve(String(teamId))
-                    } catch {
-                        // Keep the last-known snapshot — nulling it would silently drop the exhausted-quota guards.
-                        return values.quota
+                    let awaitingBillingSync = false
+                    for (;;) {
+                        try {
+                            const quota = await environmentVisionQuotaRetrieve(String(teamId))
+                            if (!quota.awaiting_billing_sync) {
+                                return quota
+                            }
+                            awaitingBillingSync = true
+                        } catch {
+                            if (!awaitingBillingSync) {
+                                // Keep the last-known snapshot — nulling it would silently drop the exhausted-quota guards.
+                                return values.quota
+                            }
+                        }
+                        // Its zero credits are a placeholder, so stay loading and poll until billing has synced.
+                        await breakpoint(BILLING_SYNC_POLL_MS)
                     }
                 },
             },
@@ -165,17 +180,24 @@ export const visionQuotaLogic = kea<visionQuotaLogicType>([
         ],
         freeCreditsLeft: [(s) => [s.quota], (quota: VisionQuotaApi | null): number | null => freeCreditsLeft(quota)],
         /** On the free plan: shapes copy, since running out of free credits isn't hitting a spend limit. */
-        onFreePlan: [(s) => [s.quota], (quota: VisionQuotaApi | null) => isFreeAllocationOnly(quota)],
+        onFreePlan: [
+            (s) => [s.quota, s.billing],
+            (quota: VisionQuotaApi | null, billing: BillingType | null): boolean => {
+                // A subscribed org with a $0 limit also caps at its free credits, so only billing can tell them apart.
+                const subscribed = billing?.products?.find((p) => p.type === REPLAY_VISION_PRODUCT_KEY)?.subscribed
+                return typeof subscribed === 'boolean' ? !subscribed : isFreeAllocationOnly(quota)
+            },
+        ],
         // Billed figures come off `displayQuota` so a startup-capped org's dollars respect the cap.
         billedCredits: [
             (s) => [s.displayQuota],
             (quota: VisionQuotaApi | null) =>
-                quota ? billableCredits(quota.credits_used, quota.free_monthly_credits) : 0,
+                quota ? billableCredits(quota.credits_used, quota.free_monthly_credits ?? Infinity) : 0,
         ],
         billedLimitCredits: [
             (s) => [s.displayQuota],
             (quota: VisionQuotaApi | null) =>
-                quota ? billableCredits(quota.credit_limit ?? 0, quota.free_monthly_credits) : 0,
+                quota ? billableCredits(quota.credit_limit ?? 0, quota.free_monthly_credits ?? Infinity) : 0,
         ],
     }),
 

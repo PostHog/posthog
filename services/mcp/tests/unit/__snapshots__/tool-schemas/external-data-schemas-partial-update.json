@@ -110,6 +110,10 @@
             ],
             "description": "Data type of the incremental field.\n\n* `integer` - integer\n* `numeric` - numeric\n* `datetime` - datetime\n* `date` - date\n* `timestamp` - timestamp\n* `objectid` - objectid\n* `xid` - xid"
         },
+        "live_query_enabled": {
+            "description": "Whether this table is queryable live on a synced source with live queries on, without syncing it. Synced tables are always queryable live.",
+            "type": "boolean"
+        },
         "masked_columns": {
             "anyOf": [
                 {

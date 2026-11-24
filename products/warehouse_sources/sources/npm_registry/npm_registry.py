@@ -4,7 +4,7 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -16,6 +16,7 @@ from products.warehouse_sources.sources.npm_registry.settings import (
     MAX_RESPONSE_BYTES,
     MAX_ROWS_PER_BATCH,
     NPM_REGISTRY_ENDPOINTS,
+    SEARCH_RESULT_SIZE,
     NpmRegistryEndpointConfig,
 )
 from products.warehouse_sources.sources.sdk import ResumableSourceManager, SourceResponse, make_tracked_session
@@ -84,6 +85,10 @@ def _version_downloads_url(package: str) -> str:
 
 def _registry_url(package: str) -> str:
     return f"{NPM_REGISTRY_BASE_URL}/{_encode_package(package)}"
+
+
+def _search_url(package: str) -> str:
+    return f"{NPM_REGISTRY_BASE_URL}/-/v1/search?{urlencode({'text': package, 'size': SEARCH_RESULT_SIZE})}"
 
 
 def _read_capped(response: requests.Response, url: str) -> bytes:
@@ -227,6 +232,71 @@ def _iter_version_downloads(
         yield rows
 
 
+def _to_int(value: Any) -> int | None:
+    # The search index returns `dependents` as a numeric string, or as the number 0.
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _iter_packages(
+    session: requests.Session, package: str, logger: FilteringBoundLogger
+) -> Iterator[list[dict[str, Any]]]:
+    """One row per configured package, from its entry in the registry search index.
+
+    Search is a ranked full-text query, so we keep only the result whose name equals the configured
+    package. The index leaves out some packages (for example deprecated ones); those get no row.
+    """
+    document = _fetch_json(session, _search_url(package), logger, DOWNLOADS_REQUEST_TIMEOUT_SECONDS)
+    if document is None:
+        return
+
+    match = next(
+        (
+            obj
+            for obj in document.get("objects") or []
+            if isinstance(obj, dict) and isinstance(obj.get("package"), dict) and obj["package"].get("name") == package
+        ),
+        None,
+    )
+    if match is None:
+        logger.warning(f"npm registry: package not found in the search index, skipping: package={package}")
+        return
+
+    info = match["package"]
+    links = info.get("links") or {}
+    downloads = match.get("downloads") or {}
+    score = match.get("score") or {}
+    detail = score.get("detail") or {}
+    yield [
+        {
+            "package": package,
+            "version": info.get("version"),
+            "description": info.get("description"),
+            "keywords": info.get("keywords"),
+            "license": info.get("license"),
+            "published_at": info.get("date"),
+            "publisher": (info.get("publisher") or {}).get("username"),
+            "maintainers": [m.get("username") for m in info.get("maintainers") or [] if isinstance(m, dict)],
+            "homepage": links.get("homepage"),
+            "repository": links.get("repository"),
+            "bugs": links.get("bugs"),
+            "npm_url": links.get("npm"),
+            "weekly_downloads": downloads.get("weekly"),
+            "monthly_downloads": downloads.get("monthly"),
+            "dependents": _to_int(match.get("dependents")),
+            "search_score": match.get("searchScore"),
+            "score_final": score.get("final"),
+            "score_quality": detail.get("quality"),
+            "score_popularity": detail.get("popularity"),
+            "score_maintenance": detail.get("maintenance"),
+            "insecure": (match.get("flags") or {}).get("insecure"),
+            "updated_at": match.get("updated"),
+        }
+    ]
+
+
 def _first_license(licenses: Any) -> str | None:
     """Old package manifests (pre ~2015) used a `licenses: [{"type": ...}]` array instead of the
     modern single `license` string field."""
@@ -304,6 +374,8 @@ def get_rows(
             yield from _iter_downloads(session, package, index, logger, resumable_source_manager, window_start)
         elif endpoint == "VersionDownloads":
             yield from _iter_version_downloads(session, package, logger)
+        elif endpoint == "Packages":
+            yield from _iter_packages(session, package, logger)
         else:
             yield from _iter_versions(session, package, logger)
 

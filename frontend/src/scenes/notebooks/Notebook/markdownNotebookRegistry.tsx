@@ -74,6 +74,7 @@ import { preflightLogic } from 'lib/logic/preflightLogic'
 import { uuid } from 'lib/utils/dom'
 
 import 'products/notebooks/frontend/NotebookNodeGeneratedWidget/NotebookNodeGeneratedWidget'
+import { notebookExportLogic } from 'products/notebooks/frontend/notebookExportLogic'
 import { NotebookGeneratedWidgetRunButton } from 'products/notebooks/frontend/NotebookNodeGeneratedWidget/NotebookGeneratedWidgetRunButton'
 
 import { NODE_ICONS } from '../nodeIcons'
@@ -786,6 +787,7 @@ export function MountedRealNotebookNodeComponent({
     options: CreatePostHogWidgetNodeOptions<any>
 }): JSX.Element {
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
+    const { preparingPrint } = useValues(notebookExportLogic({ shortId: mountedNotebookLogic.props.shortId }))
     const contentRef = useRef<HTMLDivElement | null>(null)
     const [scrollContainer, setScrollContainer] = useState<Element | null | undefined>(undefined)
     const { ref: inViewRef, inView } = useInView({
@@ -972,7 +974,7 @@ export function MountedRealNotebookNodeComponent({
                             style={contentStyle}
                             onMouseDown={handleResizeStart}
                         >
-                            {!(options.unmountWhenOutOfView || options.deferUntilInView) || inView ? (
+                            {preparingPrint || !(options.unmountWhenOutOfView || options.deferUntilInView) || inView ? (
                                 <Component attributes={attributes} updateAttributes={updateAttributes} />
                             ) : (
                                 <LemonSkeleton className="h-full w-full" />

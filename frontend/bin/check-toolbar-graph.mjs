@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import fs from 'node:fs'
+import { createRequire } from 'node:module'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -39,6 +40,11 @@ const FORBIDDEN_PACKAGES = [
     'node_modules/mermaid/',
     'node_modules/hls.js/',
 ]
+
+function resolveGlob(baseDir, glob) {
+    const negated = glob.startsWith('!')
+    return { negated, pattern: path.resolve(baseDir, negated ? glob.slice(1) : glob) }
+}
 
 function fail(message) {
     console.error(`\n❌ ${message}`)
@@ -110,6 +116,40 @@ for (const pkg of forbiddenHits) {
     fail(
         `'${pkg}' is present in the toolbar graph. It is on the toolbar denylist ` +
             `(frontend/toolbar-config.mjs) and must never be bundled — did the deny plugin regress?`
+    )
+}
+
+// 3. Tailwind generates classes from the files it scans, not from the bundle, so a bundled file
+//    outside the scan renders with its classes missing.
+const tailwindConfigPath = path.join(frontendDir, 'src/toolbar/shared/tailwind.config.js')
+const require = createRequire(import.meta.url)
+const themeCssPath = require.resolve('@posthog/tailwind/theme.css')
+const tailwindGlobs = [
+    ...require(tailwindConfigPath).content.map((glob) => resolveGlob(path.dirname(tailwindConfigPath), glob)),
+    ...[...fs.readFileSync(themeCssPath, 'utf-8').matchAll(/^@source\s+"([^"]+)";/gm)].map(([, glob]) =>
+        resolveGlob(path.dirname(themeCssPath), glob)
+    ),
+]
+const includeGlobs = tailwindGlobs.filter((glob) => !glob.negated).map((glob) => glob.pattern)
+const excludeGlobs = tailwindGlobs.filter((glob) => glob.negated).map((glob) => glob.pattern)
+const isScanned = (file) =>
+    includeGlobs.some((glob) => path.matchesGlob(file, glob)) &&
+    !excludeGlobs.some((glob) => path.matchesGlob(file, glob))
+// The bundle takes quill from its built dist/, but the theme scans quill's src/, which has the same classes.
+const quillDist = /^(.*\/packages\/quill\/packages\/[^/]+)\/dist\//
+const unscannedSources = Object.keys(inputs)
+    .filter((input) => !input.includes('node_modules/') && /\.(tsx?|jsx?)$/.test(input))
+    .map((input) => path.resolve(frontendDir, input))
+    .filter((file) => {
+        const quillPackage = file.match(quillDist)?.[1]
+        return !isScanned(quillPackage ? `${quillPackage}/src/index.tsx` : file)
+    })
+if (unscannedSources.length) {
+    fail(
+        `${unscannedSources.length} bundled source file(s) are outside the toolbar's Tailwind scan:\n` +
+            unscannedSources.map((file) => `   ${path.relative(frontendDir, file)}`).join('\n') +
+            `\nTheir Tailwind classes would be missing from the toolbar. Add a glob for them to ` +
+            `the content list in ${path.relative(frontendDir, tailwindConfigPath)}.`
     )
 }
 

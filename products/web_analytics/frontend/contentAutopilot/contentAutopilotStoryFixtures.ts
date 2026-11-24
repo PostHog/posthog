@@ -1,11 +1,14 @@
 import type {
     AEOBrandApi,
+    AEOEngineSettingApi,
     AEOKeywordApi,
     AEOKeywordModifierReportApi,
     AEOKeywordReportApi,
     AEOPromptApi,
     AEOPromptCheckApi,
+    AEOPromptCitationApi,
     AEOPromptSetCountsApi,
+    AEOPromptSetMoversApi,
     AEOPromptSetOverviewApi,
     AEOPromptSetRankingsApi,
     AEOPromptStatsApi,
@@ -426,6 +429,22 @@ export const EXAMPLE_PROMPT_TOPICS: AEOPromptTopicApi[] = [
     { topic: 'Session replay', prompts: 1 },
 ]
 
+const EXAMPLE_SCORED_SENTENCES = [
+    {
+        sentence: '1. Example Analytics: event tracking, funnels and retention, with a generous free tier.',
+        label: 'positive',
+        score: 0.91,
+    },
+    { sentence: 'Example Analytics gets expensive at high event volumes.', label: 'negative', score: 0.78 },
+]
+
+const EXAMPLE_ANSWER_TEXT =
+    'For a small startup, a few open source product analytics tools stand out.\n\n' +
+    `${EXAMPLE_SCORED_SENTENCES[0].sentence}\n` +
+    '2. Rival Analytics, if you mostly need dashboards and can live with a smaller free tier.\n' +
+    '3. A self-hosted option if you need to keep data on your own servers.\n\n' +
+    `${EXAMPLE_SCORED_SENTENCES[1].sentence} Pick the one that matches how much infrastructure you want to run.`
+
 const EXAMPLE_CHECK: AEOPromptCheckApi = {
     id: '00000000-0000-4000-8000-000000000401',
     run_id: '00000000-0000-4000-8000-000000000501',
@@ -448,12 +467,13 @@ const EXAMPLE_CHECK: AEOPromptCheckApi = {
     prompt_version: 2,
     brand_sentiment: 'positive',
     brand_sentiment_score: 0.86,
-    answer_text:
-        'For a small startup, a few open source product analytics tools stand out.\n\n' +
-        '1. Example Analytics: event tracking, funnels and retention, with a generous free tier.\n' +
-        '2. Rival Analytics, if you mostly need dashboards and can live with a smaller free tier.\n' +
-        '3. A self-hosted option if you need to keep data on your own servers.\n\n' +
-        'Pick the one that matches how much infrastructure you want to run.',
+    brand_sentiment_sentences: EXAMPLE_SCORED_SENTENCES.map(({ sentence, label, score }) => ({
+        start: EXAMPLE_ANSWER_TEXT.indexOf(sentence),
+        end: EXAMPLE_ANSWER_TEXT.indexOf(sentence) + sentence.length,
+        label,
+        score,
+    })),
+    answer_text: EXAMPLE_ANSWER_TEXT,
 }
 
 export const EXAMPLE_COMPETITOR_BRANDS: AEOBrandApi[] = [
@@ -484,6 +504,7 @@ export const EXAMPLE_PROMPT_CHECKS: AEOPromptCheckApi[] = [
         search_queries: ['open source product analytics startup'],
         brand_sentiment: null,
         brand_sentiment_score: null,
+        brand_sentiment_sentences: [],
         answer_text: 'Most startups begin with a hosted tool.\nCompare pricing tiers before you commit.',
     },
     {
@@ -502,7 +523,36 @@ export const EXAMPLE_PROMPT_CHECKS: AEOPromptCheckApi[] = [
         search_queries: [],
         brand_sentiment: null,
         brand_sentiment_score: null,
+        brand_sentiment_sentences: [],
         answer_text: null,
+    },
+]
+
+export const EXAMPLE_PROMPT_CITATIONS: AEOPromptCitationApi[] = [
+    {
+        ...EXAMPLE_CHECK,
+        prompt_id: EXAMPLE_PROMPTS[0].id,
+        prompt_text: EXAMPLE_PROMPTS[0].prompt,
+        prompt_topic: EXAMPLE_PROMPTS[0].topic,
+        mentioned: true,
+    },
+    {
+        ...EXAMPLE_PROMPT_CHECKS[1],
+        prompt_id: EXAMPLE_PROMPTS[1].id,
+        prompt_text: EXAMPLE_PROMPTS[1].prompt,
+        prompt_topic: EXAMPLE_PROMPTS[1].topic,
+        mentioned: false,
+    },
+    {
+        ...EXAMPLE_PROMPT_CHECKS[1],
+        id: '00000000-0000-4000-8000-000000000404',
+        engine: 'exa-answer',
+        created_at: '2026-09-27T09:00:00Z',
+        answer_text: 'Example Analytics and Rival Analytics both have free tiers.',
+        prompt_id: EXAMPLE_PROMPTS[1].id,
+        prompt_text: EXAMPLE_PROMPTS[1].prompt,
+        prompt_topic: EXAMPLE_PROMPTS[1].topic,
+        mentioned: true,
     },
 ]
 
@@ -633,6 +683,25 @@ const EXAMPLE_PROMPT_SET_DAILY: AEOPromptSetOverviewApi['daily'] = Array.from({ 
     })
 ).flat()
 
+// Answered checks per engine and topic. One engine has no answer about experiments, and no engine has one about
+// surveys, so the grid shows empty cells next to a rate of zero.
+const OVERVIEW_ENGINE_TOPICS: [engine: string, topic: string, answers: number, mentioned: number][] = [
+    ['claude-web-search', '', 20, 6],
+    ['claude-web-search', 'Experiments', 180, 104],
+    ['claude-web-search', 'Feature flags', 170, 140],
+    ['claude-web-search', 'Product analytics', 320, 283],
+    ['claude-web-search', 'Session replay', 200, 90],
+    ['exa-answer', '', 20, 0],
+    ['exa-answer', 'Feature flags', 130, 49],
+    ['exa-answer', 'Product analytics', 250, 151],
+    ['exa-answer', 'Session replay', 300, 80],
+    ['openai-web-search', '', 20, 6],
+    ['openai-web-search', 'Experiments', 170, 36],
+    ['openai-web-search', 'Feature flags', 170, 140],
+    ['openai-web-search', 'Product analytics', 310, 270],
+    ['openai-web-search', 'Session replay', 200, 121],
+]
+
 export const EXAMPLE_PROMPT_SET_OVERVIEW: AEOPromptSetOverviewApi = {
     days: 30,
     window_from: '2026-09-01',
@@ -641,6 +710,8 @@ export const EXAMPLE_PROMPT_SET_OVERVIEW: AEOPromptSetOverviewApi = {
     target_domains: ['example.com'],
     brand_names: ['example'],
     branded: 'non_branded',
+    engine: null,
+    topic: null,
     branded_answers: 520,
     non_branded_answers: 2460,
     current: setCounts({ checks: 2520, failed: 60, cited: 984, mentioned: 1476, prompts: 44, prompts_cited: 31 }, 2.3),
@@ -692,6 +763,13 @@ export const EXAMPLE_PROMPT_SET_OVERVIEW: AEOPromptSetOverviewApi = {
             ...setCounts({ checks: 0, failed: 0, cited: 0, mentioned: 0, prompts: 0, prompts_cited: 0 }),
         },
     ],
+    engine_topics: OVERVIEW_ENGINE_TOPICS.map(([engine, topic, answers, mentioned]) => ({
+        engine,
+        topic,
+        answers,
+        mentioned,
+        mention_rate: mentioned / answers,
+    })),
     top_domains: [
         { domain: 'analytics-review.example.com', answers: 1180, share_of_answers: 0.48, is_target: false },
         { domain: 'example.com', answers: 984, share_of_answers: 0.4, is_target: true },
@@ -794,6 +872,8 @@ export const EXAMPLE_PROMPT_SET_RANKINGS: AEOPromptSetRankingsApi = {
     window_from: RANKED_DAYS[0],
     window_to: RANKED_DAYS[RANKED_DAYS.length - 1],
     branded: 'non_branded',
+    engine: null,
+    topic: null,
     answers: 2468,
     competitors_confirmed: false,
     brands: RANKED_BRANDS,
@@ -840,6 +920,94 @@ export const EXAMPLE_PROMPT_SET_RANKINGS: AEOPromptSetRankingsApi = {
             is_target: false,
         },
         { url: 'https://example.com/pricing', answers: 47, share_of_answers: 0.019, is_target: true },
+    ],
+}
+
+export const EXAMPLE_PROMPT_SET_MOVERS: AEOPromptSetMoversApi = {
+    days: 30,
+    window_from: RANKED_DAYS[0],
+    window_to: RANKED_DAYS[RANKED_DAYS.length - 1],
+    branded: 'non_branded',
+    engine: null,
+    topic: null,
+    answers: 2468,
+    previous_answers: 2390,
+    min_answers: 3,
+    prompt_gainers: [
+        {
+            prompt_id: EXAMPLE_PROMPTS[0].id,
+            prompt: EXAMPLE_PROMPTS[0].prompt,
+            topic: EXAMPLE_PROMPTS[0].topic,
+            answers: 28,
+            mentioned: 21,
+            mention_rate: 0.75,
+            previous_answers: 30,
+            previous_mentioned: 9,
+            previous_mention_rate: 0.3,
+            change: 0.45,
+        },
+        {
+            prompt_id: '00000000-0000-4000-8000-000000000311',
+            prompt: 'Which product analytics tools have a free plan?',
+            topic: 'Product analytics',
+            answers: 30,
+            mentioned: 12,
+            mention_rate: 0.4,
+            previous_answers: 30,
+            previous_mentioned: 9,
+            previous_mention_rate: 0.3,
+            change: 0.1,
+        },
+    ],
+    prompt_losers: [
+        {
+            prompt_id: EXAMPLE_PROMPTS[1].id,
+            prompt: EXAMPLE_PROMPTS[1].prompt,
+            topic: 'Product analytics',
+            answers: 30,
+            mentioned: 6,
+            mention_rate: 0.2,
+            previous_answers: 29,
+            previous_mentioned: 16,
+            previous_mention_rate: 0.552,
+            change: -0.352,
+        },
+    ],
+    page_gainers: [
+        {
+            url: 'https://example.com/docs/session-replay/installation',
+            answers_citing: 74,
+            citation_rate: 0.03,
+            previous_answers_citing: 31,
+            previous_citation_rate: 0.013,
+            change: 0.017,
+        },
+        {
+            url: 'https://example.com/pricing',
+            answers_citing: 47,
+            citation_rate: 0.019,
+            previous_answers_citing: 45,
+            previous_citation_rate: 0.0188,
+            change: 0.0002,
+        },
+    ],
+    page_losers: [
+        {
+            url: 'https://example.com/blog/best-open-source-analytics-tools',
+            answers_citing: 0,
+            citation_rate: 0,
+            previous_answers_citing: 52,
+            previous_citation_rate: 0.022,
+            change: -0.022,
+        },
+        {
+            url: 'https://example.com/',
+            answers_citing: 106,
+            citation_rate: 0.043,
+            previous_answers_citing: 122,
+            previous_citation_rate: 0.051,
+            change: -0.008,
+        },
     ],
 }
 
@@ -1034,5 +1202,51 @@ export const EXAMPLE_KEYWORD_MODIFIERS: AEOKeywordModifierReportApi = {
             engines: [{ engine: 'openai-web-search', answers: 35 }],
             example_searches: ['self hosted product analytics docker'],
         },
+    ],
+}
+
+export const EXAMPLE_ENGINE_SETTINGS: AEOEngineSettingApi[] = [
+    { engine: 'claude-web-search', mode: 'web_search', available: true, enabled: true, frequency: 'daily' },
+    { engine: 'openai-web-search', mode: 'web_search', available: true, enabled: true, frequency: 'daily' },
+    { engine: 'perplexity-web-search', mode: 'web_search', available: false, enabled: true, frequency: 'daily' },
+    { engine: 'exa-answer', mode: 'web_search', available: true, enabled: false, frequency: 'daily' },
+    { engine: 'claude-no-search', mode: 'no_search', available: true, enabled: true, frequency: 'weekly' },
+    { engine: 'openai-no-search', mode: 'no_search', available: true, enabled: false, frequency: 'daily' },
+]
+
+// Rows the overview's two HogQL tiles read. Rates follow a fixed pattern, so every render draws the same chart.
+const CITATION_ENGINES = ['ChatGPT', 'Claude', 'Exa']
+const CITATION_DAYS = Array.from({ length: 30 }, (_, index) => `2026-09-${String(index + 1).padStart(2, '0')}`)
+
+export const EXAMPLE_PROMPT_SET_CITATION_RESPONSE = {
+    columns: ['day', 'engine_name', 'rate'],
+    types: [
+        ['day', 'Date'],
+        ['engine_name', 'String'],
+        ['rate', 'Float64'],
+    ],
+    results: CITATION_DAYS.flatMap((day, dayIndex) =>
+        CITATION_ENGINES.map((engine, engineIndex) => [
+            day,
+            engine,
+            Math.round((0.3 + engineIndex * 0.08 + ((dayIndex * (engineIndex + 2)) % 7) * 0.015) * 1000) / 1000,
+        ])
+    ),
+}
+
+export const EXAMPLE_PROMPT_SET_SOURCES_RESPONSE = {
+    columns: ['domain', 'answers', 'share_of_answers', 'is_target'],
+    types: [
+        ['domain', 'String'],
+        ['answers', 'UInt64'],
+        ['share_of_answers', 'Float64'],
+        ['is_target', 'UInt8'],
+    ],
+    results: [
+        ['analytics-review.example.com', 1180, 0.48, 0],
+        ['example.com', 984, 0.4, 1],
+        ['community.example.org', 590, 0.24, 0],
+        ['docs.example.net', 402, 0.163, 0],
+        ['news.example.io', 233, 0.095, 0],
     ],
 }

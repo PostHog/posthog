@@ -1,5 +1,7 @@
 import { Meta, StoryFn } from '@storybook/react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+
 import { useStorybookMocks } from '~/mocks/browser'
 
 import type { CodeEmailApi } from 'products/messaging/frontend/generated/api.schemas'
@@ -67,6 +69,23 @@ const codeEmails: CodeEmailApi[] = [
     codeEmail('3', 'order-shipped', {}),
 ]
 
+const emailSender = (verified: boolean): Record<string, unknown> => ({
+    id: 7,
+    kind: 'email',
+    display_name: 'mail.acme.com',
+    config: { domain: 'mail.acme.com', email: 'hello@mail.acme.com', name: 'Acme', provider: 'ses', verified },
+    created_at: '2026-11-01T10:00:00Z',
+    created_by: null,
+    errors: '',
+})
+
+const page = <T,>(results: T[]): { count: number; next: null; previous: null; results: T[] } => ({
+    count: results.length,
+    next: null,
+    previous: null,
+    results,
+})
+
 const meta: Meta = {
     title: 'Products/Workflows/TransactionalEmailsTable',
     component: TransactionalEmailsTable,
@@ -88,3 +107,40 @@ export const TemplatesAndEmailsSentFromCode: StoryFn = () => {
     })
     return <TransactionalEmailsTable />
 }
+
+const EmptyTab = ({ senders }: { senders: Record<string, unknown>[] }): JSX.Element => {
+    useStorybookMocks({
+        get: {
+            '/api/projects/:team_id/messaging_templates/': page([]),
+            '/api/projects/:team_id/transactional_code_emails/': [],
+            '/api/projects/:team_id/integrations/': page(senders),
+        },
+    })
+    return <TransactionalEmailsTable />
+}
+
+const emptyStateParameters = {
+    featureFlags: [FEATURE_FLAGS.WORKFLOWS_EMAIL_FROM_CODE],
+    testOptions: { waitForSelector: '[data-attr="send-from-code-copy-agent-prompt"]', snapshotBrowsers: [] },
+}
+
+export const EmptyWithoutDomain: StoryFn = () => <EmptyTab senders={[]} />
+EmptyWithoutDomain.parameters = emptyStateParameters
+
+export const EmptyWithPendingDomain: StoryFn = () => <EmptyTab senders={[emailSender(false)]} />
+EmptyWithPendingDomain.parameters = emptyStateParameters
+
+export const EmptyWithVerifiedDomain: StoryFn = () => <EmptyTab senders={[emailSender(true)]} />
+EmptyWithVerifiedDomain.parameters = emptyStateParameters
+
+export const TemplatesWithoutEmailsSentFromCode: StoryFn = () => {
+    useStorybookMocks({
+        get: {
+            '/api/projects/:team_id/messaging_templates/': templates,
+            '/api/projects/:team_id/transactional_code_emails/': [],
+            '/api/projects/:team_id/tags': ['auth', 'onboarding'],
+        },
+    })
+    return <TransactionalEmailsTable />
+}
+TemplatesWithoutEmailsSentFromCode.parameters = { featureFlags: [FEATURE_FLAGS.WORKFLOWS_EMAIL_FROM_CODE] }

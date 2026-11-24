@@ -34,12 +34,13 @@ describe('onboardingWizardSteps', () => {
         expect(firstOpenStepIndex(MESSAGING_WIZARD_STEPS, done)).toBe(expected)
     })
 
-    test.each<[string, 'messaging' | 'automation' | 'broadcast', boolean, ReachChannel[] | null, string[]]>([
+    test.each<[string, 'messaging' | 'automation' | 'broadcast', boolean, ReachChannel[] | null, boolean, string[]]>([
         [
             'messaging asks which channels before any channel setup',
             'messaging',
             true,
             null,
+            false,
             ['reach', 'opt-outs', 'sending-rules', 'journey'],
         ],
         [
@@ -47,6 +48,7 @@ describe('onboardingWizardSteps', () => {
             'messaging',
             true,
             ['push'],
+            false,
             ['reach', 'push', 'opt-outs', 'sending-rules', 'journey'],
         ],
         [
@@ -54,6 +56,7 @@ describe('onboardingWizardSteps', () => {
             'messaging',
             true,
             ['email', 'push'],
+            false,
             ['reach', 'channel', 'domain', 'push', 'opt-outs', 'sending-rules', 'journey'],
         ],
         [
@@ -61,18 +64,44 @@ describe('onboardingWizardSteps', () => {
             'messaging',
             false,
             ['push'],
+            false,
             ['channel', 'domain', 'opt-outs', 'sending-rules', 'journey'],
         ],
-        ['automation never asks about push', 'automation', true, ['push'], ['template', 'connect', 'create']],
+        ['automation never asks about push', 'automation', true, ['push'], false, ['template', 'connect', 'create']],
         [
             'broadcasts send email only, so they never ask about push',
             'broadcast',
             true,
             ['push'],
+            false,
             ['channel', 'domain', 'opt-outs', 'sending-rules', 'broadcast'],
         ],
-    ])('%s', (_, path, pushEnabled, reachChannels, expected) => {
-        expect(wizardSteps(path, pushEnabled, reachChannels)).toEqual(expected)
+        [
+            'journey first picks the journey before the email setup',
+            'messaging',
+            false,
+            null,
+            true,
+            ['journey', 'channel', 'domain', 'opt-outs', 'sending-rules'],
+        ],
+        [
+            'journey first still asks which channels after the pick',
+            'messaging',
+            true,
+            ['email', 'push'],
+            true,
+            ['journey', 'reach', 'channel', 'domain', 'push', 'opt-outs', 'sending-rules'],
+        ],
+        [
+            'journey first shows the broadcast before the email setup',
+            'broadcast',
+            true,
+            null,
+            true,
+            ['broadcast', 'channel', 'domain', 'opt-outs', 'sending-rules'],
+        ],
+    ])('%s', (_, path, pushEnabled, reachChannels, journeyFirst, expected) => {
+        expect(wizardSteps(path, pushEnabled, reachChannels, journeyFirst)).toEqual(expected)
     })
 
     const unset = { maxMessages: null, windowDays: null }

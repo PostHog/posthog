@@ -10,7 +10,6 @@ from products.warehouse_sources.sources.deno_deploy.deno_deploy import (
     DENO_DEPLOY_ENDPOINTS,
     DenoDeployResumeConfig,
     _as_utc_datetime,
-    _format_rfc3339,
     _time_window_params,
     validate_credentials,
 )
@@ -23,17 +22,6 @@ def _driver() -> SourceDriver:
 
 
 class TestPureHelpers:
-    @parameterized.expand(
-        [
-            ("utc", datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC), "2026-03-04T02:58:14Z"),
-            ("naive_treated_as_utc", datetime(2026, 3, 4, 2, 58, 14), "2026-03-04T02:58:14Z"),
-        ]
-    )
-    def test_format_rfc3339(self, _name: str, value: datetime, expected: str) -> None:
-        result = _format_rfc3339(value)
-        assert result == expected
-        assert "+00:00" not in result
-
     @time_machine.travel("2026-06-01T12:00:00Z", tick=False)
     def test_time_window_future_watermark_clamped(self) -> None:
         start, end = _time_window_params(DENO_DEPLOY_ENDPOINTS["analytics"], True, datetime(2027, 1, 1, tzinfo=UTC))

@@ -11,6 +11,7 @@ from .materialize_context_layer import (
     MaterializeContextLayerOutput,
     materialize_context_layer_in_sandbox,
 )
+from .persist_agent_memory import PersistAgentMemoryInput, PersistAgentMemoryOutput, persist_agent_memory
 from .post_slack_update import PostSlackUpdateInput, post_slack_update
 from .provision_sandbox import (
     CheckoutBranchInSandboxInput,
@@ -45,14 +46,6 @@ from .relay_sandbox_events import (
 )
 from .run_wizard import RunWizardInput, run_wizard
 from .send_followup_to_sandbox import STEER_DECLINED_OUTCOME, SendFollowupToSandboxInput, send_followup_to_sandbox
-from .send_permission_response_to_sandbox import (
-    PostPermissionDeliveryFailureInput,
-    SendPermissionDenialGuidanceInput,
-    SendPermissionResponseToSandboxInput,
-    post_permission_delivery_failure_notice,
-    send_permission_denial_guidance,
-    send_permission_response_to_sandbox,
-)
 from .slack_agent_design_signals import RelayAgentDesignSignalsInput, relay_agent_design_signals
 from .start_agent_server import (
     CollectAgentShadowResultInput,
@@ -73,6 +66,7 @@ from .start_dev_stack_preview import (
     start_dev_stack_preview,
     wait_dev_stack_preview,
 )
+from .switch_model_from_message import SwitchModelFromMessageInput, switch_model_from_message
 from .track_workflow_event import TrackWorkflowEventInput, track_workflow_event
 from .update_task_run_status import UpdateTaskRunStatusInput, complete_signal_spend, update_task_run_status
 
@@ -113,14 +107,14 @@ __all__ = [
     "UpdateTaskRunStatusInput",
     "RelayAgentDesignSignalsInput",
     "RelaySandboxEventsInput",
-    "PostPermissionDeliveryFailureInput",
-    "SendPermissionDenialGuidanceInput",
-    "SendPermissionResponseToSandboxInput",
     "SendFollowupToSandboxInput",
     "STEER_DECLINED_OUTCOME",
     "cleanup_sandbox",
     "complete_run_stream",
     "create_resume_snapshot",
+    "PersistAgentMemoryInput",
+    "PersistAgentMemoryOutput",
+    "persist_agent_memory",
     "create_sandbox_for_repository",
     "emit_progress_activity",
     "EnforceSelfDrivingRunQuotaInput",
@@ -132,10 +126,9 @@ __all__ = [
     "GetSandboxExitReasonInput",
     "get_sandbox_exit_reason",
     "relay_sandbox_events_deferred_completion",
-    "post_permission_delivery_failure_notice",
-    "send_permission_denial_guidance",
-    "send_permission_response_to_sandbox",
     "send_followup_to_sandbox",
+    "SwitchModelFromMessageInput",
+    "switch_model_from_message",
     "get_task_processing_context",
     "inject_fresh_tokens_on_resume",
     "restore_sandbox_connection_state",

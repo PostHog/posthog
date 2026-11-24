@@ -10,12 +10,12 @@ import {
     validateDistinctIdPersonIdExclusive,
 } from '@/schema/tool-inputs'
 import { castStringToInt, normalizeParamAliases } from '@/tools/cast-helpers'
-import hooks_createFeatureFlag from '@/tools/featureFlags/conditionIdHooks'
 import hooks_deleteFeatureFlag from '@/tools/featureFlags/conditionIdHooks'
 import hooks_featureFlagGetDefinition from '@/tools/featureFlags/conditionIdHooks'
 import hooks_featureFlagRollOutToEveryone from '@/tools/featureFlags/conditionIdHooks'
 import hooks_featureFlagSetReleaseConditionRollout from '@/tools/featureFlags/conditionIdHooks'
 import hooks_featureFlagsMyFlagsRetrieve from '@/tools/featureFlags/conditionIdHooks'
+import hooks_createFeatureFlag from '@/tools/featureFlags/createFeatureFlagHooks'
 import hooks_updateFeatureFlag from '@/tools/featureFlags/updateFeatureFlagHooks'
 import { transformRequestBody, withToolHooks } from '@/tools/tool-hooks'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
@@ -258,7 +258,7 @@ const FeatureFlagGetAllSchema = () => {
     const FeatureFlagsListQueryParams = orvalSchemas.FeatureFlagsListQueryParams()
     return FeatureFlagsListQueryParams.extend({
         search: FeatureFlagsListQueryParams.shape['search'].describe(
-            'Search by feature flag key or name (case-insensitive). Use this to find the flag ID for get/update/delete tools.'
+            'Search by feature flag key or name (case-insensitive). Spaces, underscores, and hyphens count as the same separator. The words of the term must appear together and in order, so a shorter term matches more flags. Use this to find the flag ID for get/update/delete tools.'
         ),
         active: FeatureFlagsListQueryParams.shape['active'].describe(
             'Filter by flag state. `"true"` returns enabled flags, `"false"` returns disabled flags, and `"STALE"` returns enabled flags that PostHog classifies as stale.'

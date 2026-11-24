@@ -37,6 +37,8 @@ class EvaluationReportQuerySet(models.QuerySet):
             deleted=False,
             evaluation__enabled=True,
             evaluation__deleted=False,
+            # The report agent sends evaluation results to a third-party LLM.
+            team__organization__is_ai_data_processing_approved=True,
         )
 
 
@@ -205,6 +207,10 @@ def validate_report_rrule(rrule_string: str) -> None:
 
 
 class EvaluationReportRun(UUIDTModel):
+    class DestinationType(models.TextChoices):
+        SLACK = "slack"
+        EMAIL = "email"
+
     class DeliveryStatus(models.TextChoices):
         PENDING = "pending"
         GENERATED = "generated"
@@ -235,4 +241,5 @@ class EvaluationReportRun(UUIDTModel):
         default=DeliveryStatus.PENDING,
     )
     delivery_errors = models.JSONField(default=list)
+    delivery_destinations = models.JSONField(default=list, db_default=[])
     created_at = models.DateTimeField(auto_now_add=True)

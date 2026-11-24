@@ -16,7 +16,8 @@ class ReplayScannerAdmin(admin.ModelAdmin):
     list_filter = ("scanner_type", "enabled", "emits_signals")
     search_fields = ("name", "description")
     raw_id_fields = ("team", "created_by")
-    readonly_fields = ("id", "created_at", "updated_at", "last_swept_at", "scanner_version")
+    # `scope` stays read-only until the API validates it; an admin edit would bypass that.
+    readonly_fields = ("id", "created_at", "updated_at", "last_swept_at", "scanner_version", "scope")
 
 
 @admin.register(ReplayObservation)
@@ -37,6 +38,7 @@ class ReplayObservationAdmin(admin.ModelAdmin):
         "backfill",
         "scanner_snapshot",
         "scanner_result",
+        "group_key",
         "workflow_id",
         "started_at",
         "completed_at",

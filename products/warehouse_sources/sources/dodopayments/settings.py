@@ -142,6 +142,22 @@ DODOPAYMENTS_ENDPOINTS: dict[str, DodoPaymentsEndpointConfig] = {
     "license_key_instances": DodoPaymentsEndpointConfig(path="/license_key_instances", primary_keys=["id"]),
     "entitlements": DodoPaymentsEndpointConfig(path="/entitlements", primary_keys=["id"]),
     "credit_entitlements": DodoPaymentsEndpointConfig(path="/credit-entitlements", primary_keys=["id"]),
+    # An invoice's `status`, amounts and dunning fields change after it is created.
+    "invoices": DodoPaymentsEndpointConfig(
+        path="/billing/invoices",
+        primary_keys=["invoice_id"],
+        start_param="created_at_gte",
+        incremental_fields=[incremental_field("created_at")],
+        restated=True,
+    ),
+    # `unblocked_at` is set on the entry when a customer is unblocked.
+    "blocklisted_customers": DodoPaymentsEndpointConfig(
+        path="/blocklist/customers",
+        primary_keys=["id"],
+        start_param="created_at_gte",
+        incremental_fields=[incremental_field("created_at")],
+        restated=True,
+    ),
     # Line items take no date filter of their own, so incremental runs filter the parent payment
     # listing on `created_at_gte` instead. `refundable_amount` drops when a payment is refunded,
     # hence the re-read window.
@@ -305,6 +321,39 @@ DODOPAYMENTS_ENDPOINTS: dict[str, DodoPaymentsEndpointConfig] = {
             resolve_field="discount_id",
             include_from_parent=["discount_id"],
             parent_field_renames={"discount_id": "discount_id"},
+        ),
+    ),
+    # An invoice gets events (sent, paid, voided) long after it is created, so the invoice listing
+    # cannot window them, and the events list takes no params at all. Full refresh only. Event rows
+    # carry no invoice id, so it comes from the parent.
+    "invoice_events": DodoPaymentsEndpointConfig(
+        path="/billing/invoices/{invoice_id}/events",
+        primary_keys=["invoice_id", "event_id"],
+        paginated=False,
+        fanout=DependentEndpointConfig(
+            child_response_actions=SKIP_MISSING_PARENT,
+            parent_name="invoices",
+            resolve_param="invoice_id",
+            resolve_field="invoice_id",
+            include_from_parent=["invoice_id"],
+            parent_field_renames={"invoice_id": "invoice_id"},
+        ),
+    ),
+    # One row per credit entitlement on the subscription. Balances and overage are live values with
+    # no timestamp, so this is full refresh only. The subscription id sits beside `items`, not on
+    # each row, so it comes from the parent.
+    "subscription_credit_usage": DodoPaymentsEndpointConfig(
+        path="/subscriptions/{subscription_id}/credit-usage",
+        primary_keys=["subscription_id", "credit_entitlement_id"],
+        partition_key=None,
+        paginated=False,
+        fanout=DependentEndpointConfig(
+            child_response_actions=SKIP_MISSING_PARENT,
+            parent_name="subscriptions",
+            resolve_param="subscription_id",
+            resolve_field="subscription_id",
+            include_from_parent=["subscription_id"],
+            parent_field_renames={"subscription_id": "subscription_id"},
         ),
     ),
     # Billable screens per UTC day over the trailing 30 days, as the `daily` array of one object.

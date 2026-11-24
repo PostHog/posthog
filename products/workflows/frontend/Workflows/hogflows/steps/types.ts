@@ -11,6 +11,21 @@ const ActionFiltersSchema = z.object({
     actions: z.array(z.any()).optional(),
 })
 
+const PropertyGroupTypeSchema = z.enum(['AND', 'OR'])
+
+// Keep in sync with PropertyFiltersOrGroupField in products/cdp/backend/validation.py.
+const ConditionFiltersSchema = ActionFiltersSchema.extend({
+    properties: z
+        .union([
+            z.array(z.any()),
+            z.object({
+                type: PropertyGroupTypeSchema,
+                values: z.array(z.object({ type: PropertyGroupTypeSchema, values: z.array(z.any()) })),
+            }),
+        ])
+        .optional(),
+})
+
 const DURATION_STRING = z.string().superRefine((v, ctx) => {
     if (!/\d/.test(v)) {
         ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Please enter a duration' })
@@ -232,7 +247,7 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
         config: z.object({
             conditions: z.array(
                 z.object({
-                    filters: ActionFiltersSchema,
+                    filters: ConditionFiltersSchema,
                     name: z.string().optional(), // Custom name for the condition
                 })
             ),
@@ -375,6 +390,8 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
             tracking_enabled: z.boolean().optional(),
             // When true, links get the UTM tags they don't already carry. Keep in sync with nodejs/src/cdp/schema/hogflow.ts.
             utm_tags_enabled: z.boolean().optional(),
+            // When true, PostHog stores a placeholder for the body and keeps no subject or variables. Keep in sync with nodejs/src/cdp/schema/hogflow.ts.
+            sensitive: z.boolean().optional(),
             // When true, a marketing send ignores the team's frequency cap. Keep in sync with nodejs/src/cdp/schema/hogflow.ts.
             skip_frequency_cap: z.boolean().optional(),
             // Templates that replace the default tag values. An empty value keeps the default.

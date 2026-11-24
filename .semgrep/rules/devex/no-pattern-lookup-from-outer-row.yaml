@@ -1,0 +1,70 @@
+rules:
+    - id: no-pattern-lookup-from-outer-row
+      message: |
+          This pattern lookup builds its pattern from the outer row (`OuterRef`), so the subquery
+          becomes a `LIKE` or regex whose pattern changes on every outer row.
+
+          Postgres can use a btree index for `LIKE` only when the pattern is a constant. With a
+          pattern built from the outer row, the subquery reads every row in its scope once per
+          outer row. It stays fast on small test data and times out on large projects.
+
+          A JSON or array `__contains` compares values (`@>`) instead of matching a pattern, so a
+          `JSONArray`, `JSONObject`, list or tuple written in the lookup does not count. The rule
+          can't see the column type, so it also flags a bare `OuterRef` compared to a JSON or array
+          column, one of those values held in a variable, and a pattern served by a trigram index.
+          Suppress those with the reason.
+
+          Match against constant values instead: loop over the known prefixes and build one
+          uncorrelated `Exists` per prefix, as `_visible_files` in
+          `posthog/api/file_system/file_system.py` does. Or join on an exact column such as a
+          parent id. If the outer query is bounded to a few rows by construction, suppress this
+          finding with `# nosemgrep: no-pattern-lookup-from-outer-row -- <why the outer query stays small>`.
+      languages: [python]
+      severity: ERROR
+      mode: taint
+      pattern-sources:
+          - pattern: OuterRef(...)
+          - pattern: django.db.models.OuterRef(...)
+      pattern-sinks:
+          - patterns:
+                - pattern: $CALL(..., $LOOKUP=$VALUE, ...)
+                - pattern-not: $CALL(..., $LOOKUP=[...], ...)
+                - pattern-not: $CALL(..., $LOOKUP=($ITEM, ...), ...)
+                - pattern-not: $CALL(..., $LOOKUP=django.db.models.functions.JSONArray(...), ...)
+                - pattern-not: $CALL(..., $LOOKUP=django.db.models.functions.JSONObject(...), ...)
+                - metavariable-regex:
+                      metavariable: $LOOKUP
+                      regex: ^\w+__i?(contains|startswith|endswith|regex)$
+                - focus-metavariable: $VALUE
+          - patterns:
+                - pattern: '{..., $KEY: $VALUE, ...}'
+                - pattern-not: '{..., $KEY: [...], ...}'
+                - pattern-not: '{..., $KEY: ($ITEM, ...), ...}'
+                - pattern-not: '{..., $KEY: django.db.models.functions.JSONArray(...), ...}'
+                - pattern-not: '{..., $KEY: django.db.models.functions.JSONObject(...), ...}'
+                - metavariable-regex:
+                      metavariable: $KEY
+                      regex: ^f?["'][\w{}.]+__i?(contains|startswith|endswith|regex)["']$
+                - focus-metavariable: $VALUE
+          - patterns:
+                - pattern-either:
+                      - pattern: $LOOKUPCLASS($LHS, $VALUE)
+                      - pattern: $LOOKUPCLASS(..., rhs=$VALUE, ...)
+                - pattern-not: $LOOKUPCLASS($LHS, [...])
+                - pattern-not: $LOOKUPCLASS($LHS, ($ITEM, ...))
+                - pattern-not: $LOOKUPCLASS(..., rhs=[...], ...)
+                - pattern-not: $LOOKUPCLASS(..., rhs=($ITEM, ...), ...)
+                - pattern-not: $LOOKUPCLASS($LHS, django.db.models.functions.JSONArray(...))
+                - pattern-not: $LOOKUPCLASS($LHS, django.db.models.functions.JSONObject(...))
+                - metavariable-regex:
+                      metavariable: $LOOKUPCLASS
+                      regex: ^(lookups\.)?I?(Contains|StartsWith|EndsWith|Regex)$
+                - focus-metavariable: $VALUE
+      paths:
+          include:
+              - ee/**/*.py
+              - posthog/**/*.py
+              - products/**/*.py
+      metadata:
+          category: performance
+          confidence: HIGH

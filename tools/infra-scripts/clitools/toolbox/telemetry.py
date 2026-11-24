@@ -69,6 +69,10 @@ def _capture_survey_response(client, distinct_id: str, answer: str) -> None:
     print(f"📊 Telemetry: submitted survey response to survey {survey_id}")  # noqa: T201
 
 
+def _report_send_failure(error: Exception, _batch: object) -> None:
+    print(f"📊 Telemetry failed (ignored): {error}")  # noqa: T201
+
+
 def capture_invocation(distinct_id: str, properties: dict) -> None:
     """Fire a single best-effort capture event via the PostHog SDK. Never raises."""
     api_key = os.environ.get("TOOLBOX_POSTHOG_API_KEY", DEFAULT_API_KEY)
@@ -91,7 +95,7 @@ def capture_invocation(distinct_id: str, properties: dict) -> None:
 
         resolved_distinct_id = distinct_id or "unknown"
         # shutdown() below blocks before the pod claim, and the SDK defaults (15s timeout, 3 retries) can hold it for over a minute.
-        client = Posthog(project_api_key=api_key, host=host, timeout=2, max_retries=0)
+        client = Posthog(project_api_key=api_key, host=host, timeout=2, max_retries=0, on_error=_report_send_failure)
         client.capture(
             event=EVENT_NAME,
             distinct_id=resolved_distinct_id,

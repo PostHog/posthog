@@ -441,7 +441,7 @@ export const buildGoogleSearchConsoleSummaryQuery = (
     isPathCleaningEnabled: boolean,
     pathCleaningFilters: { regex?: string; alias?: string }[] | undefined
 ): string =>
-    `SELECT sum(clicks) AS clicks, sum(impressions) AS impressions, if(sum(impressions) > 0, sum(position * impressions) / sum(impressions), NULL) AS position
+    `SELECT sum(clicks) AS total_clicks, sum(impressions) AS total_impressions, if(total_impressions > 0, sum(position * impressions) / total_impressions, NULL) AS avg_position
 FROM ${escapeDottedHogQLIdentifier(tableName)}
 WHERE ${gscPageAndDatePredicate(page, window, isPathCleaningEnabled, pathCleaningFilters)}`
 

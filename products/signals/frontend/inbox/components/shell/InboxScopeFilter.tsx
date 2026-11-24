@@ -9,7 +9,13 @@ import type { UserType } from '~/types'
 
 import { parseTeammateInboxScope, teammateInboxScope } from '../../inboxMembership'
 import { type InboxReviewerOption, inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
-import { INBOX_SCOPE_CLAIMED_BY_YOU, INBOX_SCOPE_ENTIRE_PROJECT, INBOX_SCOPE_FOR_YOU, InboxScope } from '../../types'
+import {
+    INBOX_SCOPE_CLAIMED_BY_YOU,
+    INBOX_SCOPE_ENTIRE_PROJECT,
+    INBOX_SCOPE_FOR_YOU,
+    INBOX_SCOPE_NEEDS_YOU,
+    InboxScope,
+} from '../../types'
 
 function getReviewerOptions(
     reviewers: InboxReviewerOption[],
@@ -37,14 +43,15 @@ function getReviewerOptions(
 
 /**
  * Single-dropdown reviewer scope for the flat Reports list: one trigger that names the current
- * scope and opens the shared people picker with "Entire project", "Claimed by you" and each teammate.
+ * scope and opens the shared people picker with "Entire project", "Needs you", "Claimed by you" and each teammate.
  * Selecting yourself uses the "For you" scope. A user with no reports suggested to them is
  * auto-switched to "Entire project" (see `shouldDefaultToEntireProject`). Scope is persisted via
  * `inboxFiltersLogic`; teammates come from its shared `availableReviewers` loader.
  */
 export function InboxScopeFilter(): JSX.Element {
     const {
-        scope,
+        activeScope: scope,
+        needsYouScopeAvailable,
         availableReviewers: reviewers,
         availableReviewersLoading,
         knownTeammate,
@@ -63,11 +70,13 @@ export function InboxScopeFilter(): JSX.Element {
 
     const triggerLabel = isForYou
         ? 'For you'
-        : scope === INBOX_SCOPE_CLAIMED_BY_YOU
-          ? 'Claimed by you'
-          : selectedTeammateUuid
-            ? (selectedTeammateLabel ?? cachedTeammateLabel ?? 'Teammate')
-            : 'Entire project'
+        : scope === INBOX_SCOPE_NEEDS_YOU
+          ? 'Needs you'
+          : scope === INBOX_SCOPE_CLAIMED_BY_YOU
+            ? 'Claimed by you'
+            : selectedTeammateUuid
+              ? (selectedTeammateLabel ?? cachedTeammateLabel ?? 'Teammate')
+              : 'Entire project'
 
     const options = getReviewerOptions(reviewers, user)
 
@@ -87,7 +96,10 @@ export function InboxScopeFilter(): JSX.Element {
             options={options}
             optionsLoading={availableReviewersLoading}
             onSearch={searchAvailableReviewers}
-            extraOptions={[{ label: 'Claimed by you', onClick: () => pick(INBOX_SCOPE_CLAIMED_BY_YOU) }]}
+            extraOptions={[
+                ...(needsYouScopeAvailable ? [{ label: 'Needs you', onClick: () => pick(INBOX_SCOPE_NEEDS_YOU) }] : []),
+                { label: 'Claimed by you', onClick: () => pick(INBOX_SCOPE_CLAIMED_BY_YOU) },
+            ]}
             onChange={() => pick(INBOX_SCOPE_ENTIRE_PROJECT)}
             onSelectOption={(uuid, label) =>
                 pick(uuid === user?.uuid ? INBOX_SCOPE_FOR_YOU : teammateInboxScope(uuid), label)
@@ -97,7 +109,11 @@ export function InboxScopeFilter(): JSX.Element {
                 <LemonButton
                     size="small"
                     type="secondary"
-                    tooltip="See the reports suggested to you, the reports you claimed, every report in the project, or a teammate's"
+                    tooltip={
+                        needsYouScopeAvailable
+                            ? "See the reports suggested to you, the reports waiting on your input or claimed by you, every report in the project, or a teammate's"
+                            : "See the reports suggested to you, the reports you claimed, every report in the project, or a teammate's"
+                    }
                     // Name the active scope for assistive tech. Without this, LemonButton copies the
                     // string tooltip into aria-label, so a screen reader hears the help text and never
                     // the current scope.

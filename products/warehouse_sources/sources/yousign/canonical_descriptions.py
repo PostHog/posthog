@@ -145,4 +145,69 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "created_at": "When the label was created.",
         },
     },
+    "followers": {
+        "description": (
+            "A follower of a signature request: a person kept informed of the signing progress "
+            "without being a signer or an approver."
+        ),
+        "docs_url": "https://developers.yousign.com/reference/get-signature_requests-signaturerequestid-followers-1",
+        "columns": {
+            "signature_request_id": "Signature request this follower belongs to.",
+            "email": "Follower's email address.",
+            "locale": "Language used for the emails sent to the follower.",
+            # follower_link is intentionally not imported (see yousign.FOLLOWER_CAPABILITY_FIELDS).
+        },
+    },
+    "templates": {
+        "description": (
+            "A template that pre-configures the documents, signers, approvers, fields, and settings "
+            "of a signature request."
+        ),
+        "docs_url": "https://developers.yousign.com/reference/get-templates-1",
+        "columns": {
+            "id": "Unique identifier of the template.",
+            "name": "Name of the template.",
+            "description": "Description of the template.",
+            "status": "Template status: draft or active.",
+            "created_at": "When the template was created.",
+            "workspace_id": "Workspace the template belongs to, if workspace-scoped.",
+        },
+    },
+    "workflow_sessions": {
+        "description": (
+            "A workflow session: one run of a workflow template for a customer, made of action groups "
+            "such as signature requests and identity, company, or bank account verifications."
+        ),
+        "docs_url": "https://developers.yousign.com/reference/get-workflow_sessions",
+        "columns": {
+            "id": "Unique identifier of the workflow session.",
+            "name": "Name given to the workflow session.",
+            "workflow_template_id": "Workflow template the session was created from.",
+            "workspace_id": "Workspace the workflow session belongs to.",
+            "status": "Session status: awaiting, ongoing, blocked, or done.",
+            "action_groups": "Action groups of the session, each with its type, status, and actions.",
+            "created_at": "When the workflow session was created.",
+            "updated_at": "When the workflow session was last updated.",
+        },
+    },
+    "workflow_session_applicants": {
+        "description": "An applicant: an end user or company verified inside a workflow session.",
+        "docs_url": "https://developers.yousign.com/reference/get-workflow_sessions-id-applicants",
+        "columns": {
+            "id": "Unique identifier of the applicant.",
+            "workflow_session_id": "Workflow session this applicant belongs to.",
+            "status": "Applicant status: initiated, notified, or processed.",
+            "label": "Label of the applicant.",
+            "reference_id": "Caller-supplied identifier for correlating with external systems.",
+            "delivery_mode": "How the applicant is notified: email, or none.",
+            "email": "Applicant's email address.",
+            "type": "Applicant type: natural_person or legal_person.",
+            "parent_applicant_id": "Parent applicant, for an applicant linked to a legal person.",
+            "role": "Role relative to the parent applicant: legal_representative or beneficial_owner.",
+            "child_applicant_ids": "Ids of the applicants linked to this applicant.",
+            "redirect_urls": "URLs the applicant is sent to after the verification ends.",
+            "created_at": "When the applicant was created.",
+            "updated_at": "When the applicant was last updated.",
+        },
+    },
 }

@@ -1,12 +1,13 @@
 import { humanizeReportTitle } from "@posthog/core/inbox/reportPresentation";
-import { prettifyScoutSkillName } from "@posthog/core/scouts/scoutPresentation";
 import { cn } from "@posthog/quill";
+import { scoutNameForSkill } from "@posthog/shared/scout-names";
 import type { SignalReport } from "@posthog/shared/types";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import {
   type InboxTriageOrigin,
   useInboxTriageOrigin,
 } from "@posthog/ui/features/inbox/hooks/useInboxBackTarget";
+import { useScoutNamesBySkill } from "@posthog/ui/features/scouts/hooks/useScoutNamesBySkill";
 import {
   BreadcrumbSegment,
   BreadcrumbSeparator,
@@ -35,11 +36,13 @@ export function ReportBreadcrumbs({
   const sourceHref = useReportSourceHref();
   const { channels } = useChannels();
   const spaceName = (id: string) => channels.find((c) => c.id === id)?.name;
+  const scoutNames = useScoutNamesBySkill();
   const crumbs = reportCrumbs(
     resolveNavigationSource(sourceHref),
     report,
     triageOrigin,
     spaceName,
+    scoutNames,
   );
 
   return (
@@ -77,6 +80,7 @@ function reportCrumbs(
   report: SignalReport,
   triageOrigin: InboxTriageOrigin | null,
   spaceName: (id: string) => string | undefined,
+  scoutNames: Record<string, string>,
 ): Crumb[] {
   const crumbs: Crumb[] = [];
   // TanStack blanks history state on a plain Link, so the Reports-list crumb
@@ -107,7 +111,7 @@ function reportCrumbs(
     });
     if (source.agentSkillName) {
       crumbs.push({
-        label: prettifyScoutSkillName(source.agentSkillName),
+        label: scoutNameForSkill(scoutNames, source.agentSkillName),
         render: exact,
       });
     }
