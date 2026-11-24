@@ -10,7 +10,6 @@
     'endpoint',
     'evaluation',
     'experiment',
-    'experiment_saved_metric',
     'external_data_source',
     'feature_flag',
     'heatmap',
