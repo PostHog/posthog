@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { act, cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, isInaccessible, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import { EmailOutcome, HogInvocationRow } from './hogInvocationsLogic'
@@ -51,10 +51,10 @@ describe('RunStatusCell', () => {
         ({ status, level, outcome, tag, warning }) => {
             const { container } = render(<RunStatusCell row={runRow(status, level, outcome)} />)
 
+            const icons = Array.from(container.querySelectorAll('svg'))
             expect(container.textContent).toBe(tag)
-            expect(Array.from(container.querySelectorAll('svg'), (icon) => icon.getAttribute('aria-label'))).toEqual(
-                warning ? [warning] : []
-            )
+            expect(icons).toEqual(warning ? screen.queryAllByLabelText(warning) : [])
+            expect(icons.filter((icon) => isInaccessible(icon))).toEqual([])
         }
     )
 
