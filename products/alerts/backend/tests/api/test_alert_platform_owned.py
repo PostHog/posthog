@@ -1448,7 +1448,14 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
             (f"{cap}_{kind}_{name}", cap, kind, editing_it, counted)
             for cap in ("alerts", "inventory", "ai_detector", "real_time")
             # A copy's row still says daily with no detector, which the caps must not follow.
-            for kind in ("native", "copy", "copy_whose_row_is_gone", "copy_whose_row_says_insight_owns_it")
+            for kind in (
+                "native",
+                "copy",
+                "copy_whose_row_is_gone",
+                "copy_whose_row_says_insight_owns_it",
+                # The insight stack edits and checks such a row, so the caps follow the row when the copy is stale.
+                "stale_copy_whose_row_says_insight_owns_it",
+            )
             for name, editing_it, counted in [("counted", False, True), ("left_out_of_its_own_edit", True, False)]
             # An edit is not checked against the alerts limit, and the inventory has no edit.
             if not (cap in ("alerts", "inventory") and editing_it)
@@ -1463,21 +1470,26 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         ]
         self.organization.save()
         native = kind == "native"
+        stale_copy = kind.startswith("stale")
         if native:
             self._forget_the_insight_row()
         elif kind == "copy_whose_row_is_gone":
             AlertConfiguration.objects.filter(id=self.alert.id).delete()
-        elif kind == "copy_whose_row_says_insight_owns_it":
-            row_detector = {"detector_config": {"type": "llm"}} if cap == "ai_detector" else {}
-            AlertConfiguration.objects.filter(id=self.alert.id).update(owner=PlatformAlertOwner.SOURCE, **row_detector)
-        with team_scope(self.team.id):
+        elif kind.endswith("copy_whose_row_says_insight_owns_it"):
+            row_settings: dict[str, Any] = {}
             if cap == "ai_detector":
+                row_settings["detector_config"] = {"type": "llm"}
+            elif cap == "real_time" and stale_copy:
+                row_settings["calculation_interval"] = AlertCalculationInterval.REAL_TIME
+            AlertConfiguration.objects.filter(id=self.alert.id).update(owner=PlatformAlertOwner.SOURCE, **row_settings)
+        with team_scope(self.team.id):
+            if cap == "ai_detector" and not stale_copy:
                 stored_config = self._copy().source_config
                 platform_testing.set_source_config(
                     self.copy_id,
                     {**stored_config, "condition": {**stored_config["condition"], "detector": {"type": "llm"}}},
                 )
-            elif cap == "real_time":
+            elif cap == "real_time" and not stale_copy:
                 platform_testing.set_check_interval_minutes(self.copy_id, REAL_TIME_CADENCE_MINUTES)
         excluded = str(self.copy_id if native else self.alert.id) if editing_it else None
 
@@ -1493,7 +1505,7 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
             count = AlertConfiguration.team_alert_count(self.team.id)
         elif cap == "inventory":
             inventory = alert_inventory(team_id=self.team.id, recent_limit=10)
-            assert len(inventory.recent) == inventory.total_count
+            assert len(inventory.recent) == inventory.enabled_count == inventory.total_count
             count = inventory.total_count
         else:
             count = count_enabled_llm_alerts(team_id=self.team.id, exclude_alert_id=excluded)

@@ -6,7 +6,7 @@ from typing import Any
 
 from posthog.models.team.team import Team
 
-from products.alerts_platform.backend.facade.api import count_configurations, hold_cap_lock, rows_with_owned_copies
+from products.alerts_platform.backend.facade.api import count_configurations, hold_cap_lock, rows_with_counted_copies
 from products.alerts_platform.backend.facade.contracts import SourceKind
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.logs.backend.alert_utils import next_allowed_check_at
@@ -47,7 +47,7 @@ def check_alert_slot(team_id: int) -> None:
         .exclude(owner=PlatformAlertOwner.PLATFORM)
         .values_list("id", flat=True)
     )
-    row_ids -= rows_with_owned_copies(team_id=team_id, source_kind=SourceKind.LOGS, legacy_configuration_ids=row_ids)
+    row_ids -= rows_with_counted_copies(team_id=team_id, source_kind=SourceKind.LOGS, legacy_configuration_ids=row_ids)
     alerts = len(row_ids) + count_configurations(team_id=team_id, source_kind=SourceKind.LOGS, held_only=True)
     if alerts >= MAX_ALERTS_PER_TEAM:
         raise AlertLimitReached()

@@ -480,7 +480,7 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
         # Deferred: the platform's read logic stays off django.setup(), where this model loads in every process.
         from products.alerts_platform.backend.facade.api import (  # noqa: PLC0415
             count_configurations,
-            rows_with_owned_copies,
+            rows_with_counted_copies,
         )
         from products.alerts_platform.backend.facade.contracts import SourceKind  # noqa: PLC0415
         from products.alerts_platform.backend.facade.scheduling import REAL_TIME_CADENCE_MINUTES  # noqa: PLC0415
@@ -490,19 +490,24 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
             rows = rows.filter(calculation_interval=AlertCalculationInterval.REAL_TIME, enabled=True)
         if exclude_id:
             rows = rows.exclude(pk=exclude_id)
+        check_interval_minutes = REAL_TIME_CADENCE_MINUTES if active_real_time else None
         on_platform = count_configurations(
             team_id=team_id,
             source_kind=SourceKind.INSIGHT,
             held_only=True,
             enabled_only=active_real_time,
-            check_interval_minutes=REAL_TIME_CADENCE_MINUTES if active_real_time else None,
+            check_interval_minutes=check_interval_minutes,
             exclude_id=UUID(exclude_id) if exclude_id else None,
         )
         # A row that says insight owns it while its copy says the platform does is already counted from
         # the copy.
         row_ids = set(rows.values_list("id", flat=True))
-        row_ids -= rows_with_owned_copies(
-            team_id=team_id, source_kind=SourceKind.INSIGHT, legacy_configuration_ids=row_ids
+        row_ids -= rows_with_counted_copies(
+            team_id=team_id,
+            source_kind=SourceKind.INSIGHT,
+            legacy_configuration_ids=row_ids,
+            enabled_only=active_real_time,
+            check_interval_minutes=check_interval_minutes,
         )
         return len(row_ids) + on_platform
 
