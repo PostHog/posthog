@@ -334,8 +334,6 @@ async def create_cloudflare_custom_hostname(inputs: CreateCloudflareProxyInputs)
 @activity.defn
 async def wait_for_cloudflare_certificate(inputs: CreateCloudflareProxyInputs):
     """Activity that waits for Cloudflare to provision the SSL certificate."""
-    from posthog.managed_proxy import mark_proxy_activation_recovered  # noqa: PLC0415
-
     logger = LOGGER.bind(organization_id=inputs.organization_id)
     logger.info(
         "Waiting for Cloudflare certificate for domain %s",
@@ -351,13 +349,18 @@ async def wait_for_cloudflare_certificate(inputs: CreateCloudflareProxyInputs):
         if hostname_info is None:
             raise NonRetriableException(f"Custom Hostname not found for domain {inputs.domain}")
 
-        if hostname_info.ssl.status != CustomHostnameSSLStatus.ACTIVE:
-            logger.info(
-                "Cloudflare certificate status for domain %s: %s",
-                inputs.domain,
-                hostname_info.ssl.status.value,
-            )
-            raise ApplicationError(f"Certificate not yet ready, status: {hostname_info.ssl.status.value}")
+        if hostname_info.ssl.status == CustomHostnameSSLStatus.ACTIVE:
+            logger.info("Cloudflare certificate is active for domain %s", inputs.domain)
+            return
+
+        logger.info(
+            "Cloudflare certificate status for domain %s: %s",
+            inputs.domain,
+            hostname_info.ssl.status.value,
+        )
+
+        # Certificate not ready yet, raise to retry
+        raise ApplicationError(f"Certificate not yet ready, status: {hostname_info.ssl.status.value}")
 
     except CloudflareAPIError as e:
         if e.is_rate_limited():
@@ -372,9 +375,6 @@ async def wait_for_cloudflare_certificate(inputs: CreateCloudflareProxyInputs):
         raise
     except Exception as e:
         raise NonRetriableException(f"Unknown exception in wait_for_cloudflare_certificate: {e}") from e
-
-    await on_asyncify_pool(mark_proxy_activation_recovered)(inputs.organization_id, inputs.proxy_record_id)
-    logger.info("Cloudflare certificate is active for domain %s", inputs.domain)
 
 
 @dataclass
