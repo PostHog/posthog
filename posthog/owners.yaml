@@ -57,6 +57,7 @@ rules:
     - match:
           - '/request_log_signal_handlers.py'
           - '/test/test_request_log_signal_handlers.py'
+          - '/request_url_redaction.py'
       owners: team-apm
     - match: '/slack/'
       owners: team-devex

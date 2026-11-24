@@ -10,6 +10,7 @@ from corsheaders.defaults import default_headers
 from whitenoise.compress import Compressor
 
 from posthog.openapi.enum_names import ChoicesEnumNameOverrides
+from posthog.request_url_redaction import redact_credential_query_params_in_properties
 from posthog.run_mode import derive_run_mode
 from posthog.scopes.exposure import get_scope_descriptions
 from posthog.settings.base_variables import BASE_DIR, CLOUD_DEPLOYMENT, DEBUG, TEST
@@ -250,6 +251,8 @@ MIDDLEWARE = [
     "posthog.middleware.PostHogTokenCookieMiddleware",
     "posthoganalytics.integrations.django.PosthogContextMiddleware",
 ]
+
+POSTHOG_MW_PROPERTIES_MAP = redact_credential_query_params_in_properties
 
 DJANGO_STRUCTLOG_CELERY_ENABLED = True
 
