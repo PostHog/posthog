@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { useValues } from 'kea'
 
 import { humanFriendlyLargeNumber, percentage } from 'lib/utils/numbers'
@@ -5,50 +6,48 @@ import { humanFriendlyLargeNumber, percentage } from 'lib/utils/numbers'
 import { MetricLabel } from './MetricLabel'
 import { workflowsReputationLogic } from './workflowsReputationLogic'
 
-export function EmailInfrastructureCard(): JSX.Element | null {
+export function EmailInfrastructureCard({ className }: { className?: string }): JSX.Element | null {
     const { infrastructureHealth: health } = useValues(workflowsReputationLogic)
     if (!health) {
         return null
     }
+    const metrics = [
+        {
+            label: 'Bounce rate',
+            tooltip:
+                'Hard (permanent) bounces divided by emails sent. Transient bounces like a full mailbox are not counted.',
+            value: percentage(health.bounce_rate, 2, true),
+        },
+        {
+            label: 'Spam complaint rate',
+            tooltip: 'Spam complaints divided by emails delivered to mailbox providers that report complaints.',
+            value: percentage(health.complaint_rate, 2, true),
+        },
+        {
+            label: 'Emails sent',
+            tooltip: 'Rounded down to a lower bound, so the real number can be higher.',
+            value: `${humanFriendlyLargeNumber(health.emails_sent_at_least)}+`,
+        },
+    ]
     return (
-        <div className="border rounded p-4 bg-surface-primary" data-attr="workflows-reputation-infrastructure">
-            <h3 className="mb-0">PostHog email infrastructure</h3>
-            <p className="text-secondary mt-2 mb-0">
-                Every project in this PostHog region sends email through the same infrastructure. These numbers cover
-                all of that email from the last 30 days.
+        <div
+            className={clsx('border border-dashed rounded p-4 bg-surface-secondary text-sm', className)}
+            data-attr="workflows-reputation-infrastructure"
+        >
+            <h3 className="text-sm font-semibold mb-0">PostHog email infrastructure</h3>
+            <p className="text-secondary text-xs mt-1 mb-0">
+                All email sent by every project in this region in the last 30 days, not only this project's.
             </p>
-            <div className="flex flex-wrap gap-8 mt-3">
-                <div>
-                    <MetricLabel
-                        label="Delivery rate"
-                        tooltip="Emails the recipients' mailbox providers accepted, divided by emails sent. A provider can accept an email and still file it as spam."
-                    />
-                    <div className="text-lg font-semibold">{percentage(health.delivery_rate, 1, true)}</div>
-                </div>
-                <div>
-                    <MetricLabel
-                        label="Bounce rate"
-                        tooltip="Hard (permanent) bounces divided by emails sent. Transient bounces like a full mailbox are not counted."
-                    />
-                    <div className="text-lg font-semibold">{percentage(health.bounce_rate, 2, true)}</div>
-                </div>
-                <div>
-                    <MetricLabel
-                        label="Spam complaint rate"
-                        tooltip="Spam complaints divided by emails delivered to mailbox providers that report complaints."
-                    />
-                    <div className="text-lg font-semibold">{percentage(health.complaint_rate, 2, true)}</div>
-                </div>
-                <div>
-                    <MetricLabel
-                        label="Emails sent (last 30 days)"
-                        tooltip="Rounded down, so the real number is higher."
-                    />
-                    <div className="text-lg font-semibold">
-                        {humanFriendlyLargeNumber(health.emails_sent_at_least)}+
+            <dl className="mt-3 mb-0 space-y-1">
+                {metrics.map((metric) => (
+                    <div key={metric.label} className="flex items-baseline justify-between gap-4">
+                        <dt>
+                            <MetricLabel label={metric.label} tooltip={metric.tooltip} />
+                        </dt>
+                        <dd className="m-0 font-semibold">{metric.value}</dd>
                     </div>
-                </div>
-            </div>
+                ))}
+            </dl>
         </div>
     )
 }

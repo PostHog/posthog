@@ -265,6 +265,7 @@ from products.workflows.backend.facade.proposals import (
     absolute_window,
     approve_proposal,
     as_the_serializer_stores_it,
+    conversion_evidence_error,
     create_proposal,
     get_proposal,
     get_proposal_by_source_id,
@@ -290,6 +291,7 @@ from products.workflows.backend.facade.sandbox_email import (
     deliverable_own_sender_ids,
     has_sandbox_sender,
     has_verified_own_sender,
+    is_sensitive,
     own_only_settings,
     own_sender_verification,
     provision_sandbox_sender,
@@ -4961,6 +4963,13 @@ def _switched_to_sandbox(action: dict, drop_own_sender_settings: bool) -> dict:
                 "then remove this one."
             }
         )
+    if is_sensitive(action):
+        raise exceptions.ValidationError(
+            {
+                "sender": "This step is sensitive, and the PostHog test sender would store its email. "
+                "Keep it on one of the project's own senders."
+            }
+        )
     dropped = own_only_settings(action)
     if dropped and not drop_own_sender_settings:
         raise exceptions.ValidationError(
@@ -7211,6 +7220,16 @@ class HogFlowViewSet(
         # `measured` is the server's word, so a producer's own copy of that key never survives a failed read.
         evidence = dict(params.get("evidence") or {})
         evidence.pop("measured", None)
+        conversion_error = conversion_evidence_error(
+            hog_flow_id=instance.id,
+            evidence=evidence,
+            changes=content,
+            live=snapshot_flow_content(instance).get("conversion"),
+            base_version=params["base_version"],
+            now=django_timezone.now(),
+        )
+        if conversion_error:
+            raise exceptions.ValidationError({"evidence": conversion_error})
         measured = self._measure_evidence(instance, params["base_version"], step_id, evidence)
         if measured is not None:
             evidence["measured"] = measured
@@ -7398,6 +7417,7 @@ class HogFlowViewSet(
                 before=before_date,
                 step_id=step_id,
                 target=target_metric_in(evidence),
+                live_conversion=snapshot_flow_content(hog_flow).get("conversion"),
             )
         except Exception:
             logger.exception("workflow_proposal: could not measure evidence", extra={"hog_flow_id": str(hog_flow.id)})

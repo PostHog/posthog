@@ -10,7 +10,7 @@ from django.db import transaction
 from django.db.models import F, Q, QuerySet
 from django.utils.timezone import now
 
-from posthog.helpers.dashboard_templates import (
+from posthog.helpers.feature_flag_usage_insights import (
     FEATURE_FLAG_CALLS_DESCRIPTION_FRAGMENT,
     FEATURE_FLAG_CALLS_DESCRIPTION_PREFIX,
     FEATURE_FLAG_ENRICHED_INTERACTION_INSIGHT_NAME,
@@ -47,7 +47,7 @@ def _classifier_q() -> Q:
     Keys on name and description, not on `is_sample`: every dashboard template sets that, so on its
     own it would also match billing/usage and onboarding insights. Callers wanting a second signal
     add it on top of this (see `_delete_orphaned`).
-    Names come from constants in posthog/helpers/dashboard_templates.py.
+    Names come from constants in posthog/helpers/feature_flag_usage_insights.py.
     Descriptions interpolate the flag key, so those are matched by fragment instead.
     """
     return (

@@ -33,10 +33,12 @@ import { teamLogic } from 'scenes/teamLogic'
 import { PreflightStatus, PropertyDefinition, PropertyDefinitionType, Realm } from '~/types'
 
 import {
+    EMAIL_DOCUMENT_DESIGN_KEY,
     EmailDocument,
     emailDocumentFromValue,
     emptyEmailDoc,
     isBlankEmail,
+    keepsOwnPlainText,
     starterEmailDoc,
     withoutEmailDocument,
 } from 'products/workflows/frontend/EmailDocumentEditor/emailDocument'
@@ -299,6 +301,31 @@ export function editorDesignForEmail(value: Pick<EmailTemplate, 'html' | 'design
         return buildHtmlWrapDesign(html)
     }
     return design
+}
+
+/**
+ * The plain text no editor wrote: the html came in as it is, from an import or the API, and this came with it. An editor
+ * that saved the email left its own design behind.
+ */
+function plainTextFromOutside(value: Pick<EmailTemplate, 'html' | 'text' | 'design'>): string | undefined {
+    const { html, text, design } = value
+    if (!html?.trim() || !text?.trim()) {
+        return undefined
+    }
+    // Saved by the new editor, and the html changed elsewhere since.
+    if (design && EMAIL_DOCUMENT_DESIGN_KEY in design) {
+        return keepsOwnPlainText(design) ? text : undefined
+    }
+    return objectsEqual(editorDesignForEmail(value), buildHtmlWrapDesign(html)) ? text : undefined
+}
+
+/** The plain text to save with an edited design. */
+function plainTextForEdit(
+    exported: { text: string },
+    design: JSONTemplate,
+    current: EmailTemplate | null | undefined
+): string {
+    return keepsOwnPlainText(design) && current?.text?.trim() ? current.text : exported.text
 }
 
 // URL reflection for the fullscreen editor (?editor=email), so back, Escape, and deep links work.
@@ -953,7 +980,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 const finalValues: EmailTemplate = {
                     ...formValues,
                     html: props.type !== 'email' ? htmlData.html : escapeHTMLStringCurlies(htmlData.html),
-                    text: textData.text,
+                    text: plainTextForEdit(textData, htmlData.design, formValues),
                     design: htmlData.design,
                 }
 
@@ -991,7 +1018,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             try {
                 const { unlayerToEmailDocument } =
                     await import('products/workflows/frontend/EmailDocumentEditor/unlayerToEmailDocument')
-                conversion = unlayerToEmailDocument(editorDesignForEmail(value), html)
+                conversion = unlayerToEmailDocument(editorDesignForEmail(value), html, plainTextFromOutside(value))
             } catch (error) {
                 posthog.captureException(error)
                 conversion = { document: null, unsupported: ['a design this editor can’t read'], notKept: [] }
@@ -1126,7 +1153,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             props.onChange({
                 ...values.emailTemplate,
                 html: props.type !== 'email' ? htmlData.html : escapeHTMLStringCurlies(htmlData.html),
-                text: textData.text,
+                text: plainTextForEdit(textData, htmlData.design, values.emailTemplate),
                 design: htmlData.design,
             })
         },
@@ -1199,7 +1226,11 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             if (values.isEmailEditorReady && design) {
                 cache.lastEditorDesign = design
                 cache.baselineConfirmedBy = null
-                values.emailEditorRef?.editor?.loadDesign(design, emailTemplateContent.html)
+                values.emailEditorRef?.editor?.loadDesign(
+                    design,
+                    emailTemplateContent.html,
+                    plainTextFromOutside(emailTemplateContent)
+                )
             }
         },
 
@@ -1302,10 +1333,11 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 if (!objectsEqual(htmlData.design, cache.lastEditorDesign)) {
                     cache.lastEditorDesign = htmlData.design
                     cache.lastLoadedExternalDesign = null
+                    const template = closed ? templateBeforeExport : values.emailTemplate
                     const flushed: EmailTemplate = {
-                        ...(closed ? templateBeforeExport : values.emailTemplate),
+                        ...template,
                         html: props.type !== 'email' ? htmlData.html : escapeHTMLStringCurlies(htmlData.html),
-                        text: textData.text,
+                        text: plainTextForEdit(textData, htmlData.design, template),
                         design: htmlData.design,
                     }
                     // The form hands it back only on the next render, which is too late for a copy made right now.
@@ -1359,7 +1391,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                         : {
                               ...currentValues,
                               html: props.type !== 'email' ? htmlData.html : escapeHTMLStringCurlies(htmlData.html),
-                              text: textData.text,
+                              text: plainTextForEdit(textData, htmlData.design, currentValues),
                               design: htmlData.design,
                           }
                 }

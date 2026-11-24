@@ -107,10 +107,12 @@ _RECOVERY_PROMPTS = {
 _NOT_STARTED_STAGES = ("Waking up the hedgehog", "Stretching the little legs", "Brewing the hedgehog's coffee")
 _QUEUED_STAGES = ("Waiting in line for a sandbox", "Queued behind other hedgehogs", "Saving a spot in the sandbox line")
 _IN_PROGRESS_STAGES = (
-    "Paws on the keyboard",
-    "Nose in the code",
-    "Digging through the code",
-    "Building, one quill at a time",
+    "Working on it",
+    "Making progress",
+    "Continuing",
+    "Still working",
+    "Getting it done",
+    "Taking care of it",
 )
 
 SLACK_DENIAL_STOP_MESSAGE = "Stopped, because you said no. Reply here to try a different way."

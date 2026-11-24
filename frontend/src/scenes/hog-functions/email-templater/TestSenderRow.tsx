@@ -1,7 +1,5 @@
-import { IconExternal } from '@posthog/icons'
+import { IconPlus } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
-
-import { urls } from 'scenes/urls'
 
 import { EmailHeaderRow } from './EmailHeaderRow'
 import { EmailSender, isSendingStopped, sendingStoppedWarning } from './emailSenderFields'
@@ -11,9 +9,11 @@ import { sandboxSenderHint } from './sandboxSenderOptions'
 export function TestSenderRow({
     sandbox,
     senders,
+    onAddSender,
 }: {
     sandbox: SandboxSenderChoice
     senders: EmailSender[]
+    onAddSender: () => void
 }): JSX.Element {
     const unverified = senders
         .filter((sender) => sender.config?.verified !== true && !isSendingStopped(sender))
@@ -40,9 +40,8 @@ export function TestSenderRow({
                 size="xsmall"
                 type="secondary"
                 className="shrink-0"
-                to={urls.workflows('channels')}
-                targetBlank
-                icon={<IconExternal />}
+                onClick={onAddSender}
+                icon={<IconPlus />}
                 data-attr="workflow-email-test-sender-add"
             >
                 Add new email sender

@@ -118,13 +118,13 @@ describe("buildPiProviderRoute", () => {
     expect(route.baseUrl).toBe("https://gateway.us.posthog.com/posthog_code");
   });
 
-  it("routes by the server's product over the origin", () => {
+  it("routes by the server's product", () => {
     process.env.AI_GATEWAY_URL = "https://ai-gateway.us.posthog.com/v1";
     process.env.AI_GATEWAY_PRODUCTS = "signals";
     process.env.AI_GATEWAY_TOKEN = "phe_run";
     const route = buildPiProviderRoute(
       config,
-      { gatewayProduct: "signals", originProduct: "workflow", properties },
+      { gatewayProduct: "signals", properties },
       logger(),
     );
 

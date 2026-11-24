@@ -1,3 +1,4 @@
+import { Editor as TiptapEditor } from '@tiptap/core'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
@@ -11,6 +12,8 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { Realm } from '~/types'
 
+import { createEmailEditorAdapter } from 'products/workflows/frontend/EmailDocumentEditor/emailEditorAdapter'
+import { buildEmailExtensions } from 'products/workflows/frontend/EmailDocumentEditor/emailExtensions'
 import { NEW_TEMPLATE } from 'products/workflows/frontend/TemplateLibrary/constants'
 import { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
 
@@ -328,6 +331,57 @@ describe('emailTemplaterLogic', () => {
             await expectLogic(logic).toFinishAllListeners().toMatchValues({ usesDocumentEditor: true })
         })
 
+        it.each([
+            { name: 'keeps text that came with the html', text: 'Written by hand', expected: 'Written by hand' },
+            {
+                name: 'writes text over text that only repeats the html',
+                text: ' Old ',
+                expected: 'New (https://example.com)',
+            },
+            { name: 'writes text when the email has none', text: '', expected: 'New (https://example.com)' },
+            {
+                name: 'writes text over what the old editor wrote',
+                text: 'From the old editor',
+                design: { counters: { u_row: 1 }, body: buildHtmlWrapDesign('<p>Old</p>').body },
+                expected: 'New (https://example.com)',
+            },
+            {
+                name: 'writes text once the person asks for it',
+                text: 'Written by hand',
+                update: true,
+                expected: 'New (https://example.com)',
+            },
+        ])('an edit $name', async ({ text, design, update, expected }) => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_EMAIL_DOCUMENT_EDITOR], {
+                [FEATURE_FLAGS.WORKFLOWS_EMAIL_DOCUMENT_EDITOR]: true,
+            })
+            const onChange = jest.fn()
+            logic = emailTemplaterLogic({
+                ...makeProps({ value: { ...blankEmail, html: '<p>Old</p>', text, design: (design ?? null) as any } }),
+                layout: 'inline',
+                onChange,
+            })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            const editor = new TiptapEditor({
+                extensions: buildEmailExtensions(''),
+                content: logic.values.documentEditorInitialDoc,
+            })
+            logic.actions.setEmailEditorRef({ editor: createEmailEditorAdapter(editor) } as any)
+            logic.actions.onEmailEditorReady()
+            await expectLogic(logic).toFinishAllListeners()
+
+            const html = '<a href="https://example.com">New</a>'
+            editor.view.dispatch(editor.state.tr.setNodeAttribute(0, 'html', html))
+            if (update) {
+                editor.view.dispatch(editor.state.tr.setDocAttribute('ownPlainText', false))
+            }
+            await logic.asyncActions.flushPendingDesignEdit()
+
+            expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ html, text: expected }))
+            editor.destroy()
+        })
+
         it('does not load the new template sample over the new editor starter', async () => {
             featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_EMAIL_DOCUMENT_EDITOR], {
                 [FEATURE_FLAGS.WORKFLOWS_EMAIL_DOCUMENT_EDITOR]: true,
@@ -483,7 +537,7 @@ describe('emailTemplaterLogic', () => {
                 },
             } as MessageTemplate)
 
-            expect(loadDesign).toHaveBeenCalledWith(buildHtmlWrapDesign('<p>new</p>'), '<p>new</p>')
+            expect(loadDesign).toHaveBeenCalledWith(buildHtmlWrapDesign('<p>new</p>'), '<p>new</p>', undefined)
         })
     })
 
