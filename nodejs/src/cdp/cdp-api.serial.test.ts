@@ -3529,10 +3529,14 @@ describe('CDP API', () => {
 
         describe('through the cyclotron queue', () => {
             const queuedSends = async (flowId: string): Promise<unknown[]> => {
-                const { rows } = await cyclotron.query('SELECT state FROM cyclotron_jobs WHERE function_id = $1', [
-                    flowId,
-                ])
-                return rows.map((row) => parseJSON(row.state.toString('utf-8')).state.send)
+                const { rows } = await cyclotron.query(
+                    'SELECT id, team_id, state FROM cyclotron_jobs WHERE function_id = $1',
+                    [flowId]
+                )
+                const opener = new EncryptedFields(hub.CDP_SEALED_STATE_KEYS)
+                return rows.map(
+                    (row) => decodeJobState({ id: row.id, teamId: row.team_id, state: row.state }, opener).state?.send
+                )
             }
 
             beforeEach(async () => {
@@ -3722,13 +3726,14 @@ describe('CDP API', () => {
             type QueuedJob = { id: string; status: string; send: Record<string, unknown>; stored: string }
             const queuedJobs = async (): Promise<QueuedJob[]> => {
                 const { rows } = await cyclotron.query(
-                    'SELECT id, status, state FROM cyclotron_jobs WHERE queue_name = $1 ORDER BY created',
+                    'SELECT id, team_id, status, state FROM cyclotron_jobs WHERE queue_name = $1 ORDER BY created',
                     [queueName]
                 )
+                const opener = new EncryptedFields(hub.CDP_SEALED_STATE_KEYS)
                 return rows.map((row) => ({
                     id: row.id,
                     status: row.status,
-                    send: parseJSON(row.state.toString()).state.send,
+                    send: decodeJobState({ id: row.id, teamId: row.team_id, state: row.state }, opener).state?.send,
                     stored: row.state.toString('latin1'),
                 }))
             }
