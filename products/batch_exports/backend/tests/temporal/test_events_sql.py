@@ -11,6 +11,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.tests.utils.events import generate_test_events, insert_event_values_in_clickhouse
 
+from products.batch_exports.backend.service import BatchExportField
 from products.batch_exports.backend.temporal.destinations.http_batch_export import http_default_fields
 from products.batch_exports.backend.temporal.filters import compose_filters_clause
 from products.batch_exports.backend.temporal.sql.events import (
@@ -181,7 +182,7 @@ def test_native_recent_events_export_rebuilds_whole_documents_without_repeating_
     assert [key for key, _ in members].count("$set") == 1
 
 
-_SENT_EVENTS = {
+_SENT_EVENTS: dict[str, tuple[dict, dict]] = {
     "nested": (
         {"cart": {"plan": "pro"}, "tags": ["a"], "$feature/checkout": True, "$set": {"email": "a@example.com"}},
         {"org": {"tier": "gold"}},
@@ -226,7 +227,7 @@ async def test_native_recent_events_export_filters_like_the_native_events_export
     filters_str, filter_values = await database_sync_to_async(compose_filters_clause)(
         filters, team_id=ateam.pk, use_new_events_schema=True
     )
-    fields = [{"expression": "event", "alias": "event"}]
+    fields = [BatchExportField(expression="event", alias="event")]
     parameters = {
         **filter_values,
         "team_id": ateam.pk,
