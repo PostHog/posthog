@@ -207,6 +207,7 @@ def decide_tier(
     recent_history: Optional[TeamSendingHistory] = None,
     tenant_state: Optional[SesTenantState] = None,
     last_rate_demotion_at: Optional[datetime] = None,
+    demotion_window_start: Optional[datetime] = None,
     account_trust: Optional[AccountTrust] = None,
     now: Optional[datetime] = None,
     require_time_at_tier: bool = True,
@@ -223,6 +224,11 @@ def decide_tier(
     `tenant_state` carries AWS's per-tenant verdict, which sees the FBL-correct complaint rate
     our internal metrics dilute (see SesTenantState). A paused tenant drops to the bottom, a
     HIGH reputation impact demotes, and any non-clean impact blocks promotion.
+
+    `demotion_window_start` is the first moment `recent_history` covers. The window is cut on whole
+    days, so it can still hold the day of the last rate demotion after the cooldown ends. Until that
+    day leaves it, its rates and auto-pause metrics may be the incident already demoted for, so they
+    do not demote again. An SES HIGH impact is read live, so it still demotes.
 
     `account_trust` lifts an established paying account straight to its trusted floor (see
     trusted_floor_tier), skipping the dwell and the use bar. The backfill omits it.
@@ -260,17 +266,26 @@ def decide_tier(
         # without a cooldown the same incident would demote the team again on every run and
         # cascade it to the bottom. The anchor is the last rate demotion, not the last tier write:
         # a promotion or staff change must not shield a team from its first real demotion. With the
-        # cooldown at least as long as the demotion window, the evidence behind the last demotion
-        # has aged out by the time demotions resume, so a second step needs new evidence.
+        # cooldown at least as long as the demotion window, and the hold below until the window's
+        # first day is after the demotion's day, the evidence behind the last demotion has aged out
+        # by the time demotions resume, so a second step needs new evidence.
         cooldown = timedelta(days=settings.WORKFLOWS_EMAIL_TIER_DEMOTION_COOLDOWN_DAYS)
-        if last_rate_demotion_at is not None and now - last_rate_demotion_at < cooldown:
+        in_cooldown = last_rate_demotion_at is not None and now - last_rate_demotion_at < cooldown
+        window_holds_last_demotion = (
+            last_rate_demotion_at is not None
+            and demotion_window_start is not None
+            and demotion_window_start <= last_rate_demotion_at
+        )
+        if in_cooldown or (window_holds_last_demotion and tenant.impact != "HIGH"):
             return TierDecision(
                 team_id=history.team_id,
                 previous_tier=current_tier,
                 new_tier=current_tier,
                 reason="demotion_cooldown",
             )
-        if recent.auto_paused:
+        if window_holds_last_demotion:
+            demotion_reason = "ses_reputation_high"
+        elif recent.auto_paused:
             demotion_reason = "workflow_auto_paused"
         elif not recent.rates_are_clean:
             demotion_reason = "rates_above_threshold"
@@ -542,6 +557,7 @@ def recompute_email_sending_tiers(
     recent_after = now - timedelta(days=settings.WORKFLOWS_EMAIL_TIER_DEMOTION_WINDOW_DAYS)
     windows = build_sending_history_windows(after=after, recent_after=recent_after, team_ids=team_ids)
     histories = windows.window
+    demotion_window_start = recent_after.replace(hour=0, minute=0, second=0, microsecond=0)
 
     stateful_teams = TeamWorkflowsConfig.objects.filter(email_sending_tier_pinned=False).exclude(
         email_sending_tier=MIN_EMAIL_SENDING_TIER, email_sending_suspended_at__isnull=True
@@ -611,6 +627,7 @@ def recompute_email_sending_tiers(
                 reputation_impact=config.ses_tenant_reputation_impact,
             ),
             last_rate_demotion_at=config.email_sending_tier_demoted_at,
+            demotion_window_start=demotion_window_start,
             account_trust=AccountTrust.from_organization(config.team.organization),
         )
         if only_reasons is not None and decision.reason not in only_reasons:

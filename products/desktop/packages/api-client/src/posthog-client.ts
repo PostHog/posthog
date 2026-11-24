@@ -5213,6 +5213,13 @@ export class PostHogAPIClient {
     }
   }
 
+  async heartbeatTaskRun(taskId: string, runId: string): Promise<void> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/heartbeat/`;
+    const url = new URL(`${this.api.baseUrl}${path}`);
+    await this.api.fetcher.fetch({ method: "post", url, path });
+  }
+
   // AbortController + setTimeout because Hermes, which runs this client on
   // mobile, has no AbortSignal.timeout.
   private async fetchSessionLogsPage(

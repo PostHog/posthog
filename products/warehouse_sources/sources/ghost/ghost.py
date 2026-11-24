@@ -14,6 +14,7 @@ from products.warehouse_sources.sources.sdk import (
     EndpointResource,
     PageNumberPaginator,
     Resource,
+    ResponseAction,
     RESTAPIConfig,
     RESTClient,
     SinglePagePaginator,
@@ -111,14 +112,20 @@ def get_resource(name: str) -> EndpointResource:
     params: dict[str, Any] = dict(endpoint.params)
     if endpoint.paginated:
         params.update({"limit": 100, "order": "created_at asc,id asc"})
+    response_actions: list[ResponseAction] = (
+        [{"status_code": 404, "action": "raise", "message": endpoint.not_found_error}]
+        if endpoint.not_found_error
+        else []
+    )
     return {
         "name": name,
         "write_disposition": "replace",
         "endpoint": {
-            "path": f"{name}/",
+            "path": endpoint.path or f"{name}/",
             "params": params,
-            "data_selector": name,
+            "data_selector": endpoint.data_selector or name,
             "data_selector_required": True,
+            "response_actions": response_actions,
             "paginator": PageNumberPaginator(base_page=1, total_path="meta.pagination.pages")
             if endpoint.paginated
             else "single_page",
@@ -140,15 +147,15 @@ def probe_credentials(
         request_timeout=REQUEST_TIMEOUT,
     )
     params: dict[str, Any] = dict(endpoint.params)
-    if ENDPOINTS[name].paginated:
+    if endpoint.paginated:
         params.update({"limit": 1, "page": 1})
     try:
         next(
             client.paginate(
-                path=f"{name}/",
+                path=endpoint.path or f"{name}/",
                 params=params,
                 paginator=SinglePagePaginator(),
-                data_selector=name,
+                data_selector=endpoint.data_selector or name,
                 data_selector_required=True,
             )
         )
@@ -158,6 +165,8 @@ def probe_credentials(
             return False, AUTH_ERROR
         if status == 403:
             return (True, None) if schema_name is None else (False, PERMISSION_ERROR)
+        if status == 404 and endpoint.not_found_error:
+            return False, endpoint.not_found_error
         raise
     finally:
         client.session.close()

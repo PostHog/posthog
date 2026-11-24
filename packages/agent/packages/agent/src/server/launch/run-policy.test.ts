@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseServerRunPolicy, runPolicyFromOrigin } from "./run-policy";
+import { parseServerRunPolicy } from "./run-policy";
 import policyCases from "./run-policy-cases.json";
 
 const RUN_ID = "run-1";
@@ -10,18 +10,22 @@ const SERVER_POLICY = {
 
 describe("run policy", () => {
   it.each(policyCases.policy_from_origin)(
-    "resolves $name from its origin as the server does",
-    ({ origin_product, end_run_when_done, caller_ends_run, expected }) => {
-      const policy = runPolicyFromOrigin({
-        originProduct: origin_product,
-        endRunWhenDone: end_run_when_done,
-        callerEndsRun: caller_ends_run,
-      });
-
-      expect(policy).toEqual(
-        parseServerRunPolicy(JSON.stringify({ ...expected, run_id: RUN_ID }))
-          ?.policy,
+    "reads the policy the server resolves for $name",
+    ({ expected }) => {
+      const parsed = parseServerRunPolicy(
+        JSON.stringify({ ...expected, run_id: RUN_ID }),
       );
+
+      expect(parsed?.policy).toEqual({
+        finishTool: expected.finish_tool,
+        finishReportRequired: expected.finish_report_required,
+        reportActivityTool: expected.report_activity_tool,
+        expectsSystemPrompt: expected.expects_system_prompt,
+        threadLink: expected.thread_link,
+        defaultClientProvenance:
+          expected.default_client_provenance ?? undefined,
+        billingProduct: undefined,
+      });
     },
   );
 
