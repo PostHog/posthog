@@ -3369,6 +3369,15 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         config_path = self.context.agent_egress_observation_config
         if config_path is None:
             return
+        sandbox_expires_at = None
+        execution_timeout = timedelta(minutes=15)
+        if (
+            self.context.agent_egress_enrollment_enabled
+            and workflow.patched("agent-egress-run-lifetime")
+            and self._sandbox_ttl_expires_at is not None
+        ):
+            sandbox_expires_at = self._sandbox_ttl_expires_at.timestamp()
+            execution_timeout = max(self._sandbox_ttl_expires_at - workflow.now(), timedelta()) + timedelta(minutes=1)
         try:
             statuses = await workflow.execute_child_workflow(
                 AgentEgressProbeWorkflow.run,
@@ -3378,10 +3387,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     run_id=self.context.run_id,
                     sandbox_id=sandbox_id,
                     enrollment=self.context.agent_egress_enrollment_enabled,
+                    sandbox_expires_at=sandbox_expires_at,
                 ),
                 id=f"agent-egress-observation-{self.context.run_id}-{workflow.uuid4()}",
                 task_queue=workflow.info().task_queue,
-                execution_timeout=timedelta(minutes=15),
+                execution_timeout=execution_timeout,
                 parent_close_policy=ParentClosePolicy.REQUEST_CANCEL,
                 cancellation_type=ChildWorkflowCancellationType.WAIT_CANCELLATION_COMPLETED,
             )

@@ -139,7 +139,7 @@ Observation failures stop that probe and are logged. They do not change the agen
 
 ### Enroll selected normal runs
 
-`tasks-agent-egress-enrollment` selects a bounded enrollment canary through the normal Tasks workflow. It is off by default and also requires `AGENT_EGRESS_ENROLLMENT_CONFIG` on the worker. The shared JSON file lives under `AGENT_EGRESS_PROBE_CONFIG_DIR`:
+`tasks-agent-egress-enrollment` selects enrollment through the normal Tasks workflow. It is off by default and also requires `AGENT_EGRESS_ENROLLMENT_CONFIG` on the worker. The shared JSON file lives under `AGENT_EGRESS_PROBE_CONFIG_DIR`:
 
 ```json
 {
@@ -163,12 +163,12 @@ renew lease -> check registered key -> issue certificate
   relay acknowledges reload -> save next renewal deadline
 ```
 
-The relay retains its private key. The CA signing key stays with the worker. Renewal verifies the process identity before signalling, waits for the reload result and restores the previous file on failure. A failed delivery does not advance the saved deadline. The existing lease and run checks still apply before publication; certificate renewal does not extend the observation window or restore revoked authority. A 600-second observation can exercise the first renewal of a 15-minute certificate, but cannot prove continuity past its original expiry. Use an isolated test with short-lived certificates for that check until full-run enrollment is available. Enrollment-CA rotation remains separate.
+The relay retains its private key. The CA signing key stays with the worker. Renewal verifies the process identity before signalling, waits for the reload result and restores the previous file on failure. A failed delivery does not advance the saved deadline. The existing lease and run checks still apply before publication. Renewal cannot restore revoked authority. Enrollment-CA rotation remains separate.
 
 ```text
 Selected TaskRun -> ordinary VM provision and agent launch
   attach relay -> register execution -> publish bounded capability
-  renew lease and capability while synthetic requests run
+  renew lease, capability and certificate until the selected deadline
   parent ends / replaces VM / continues as new -> revoke and close relay
 ```
 
@@ -183,7 +183,18 @@ An unread HTTP/1.1 body still closes the connection promptly; HTTP/2 closes the 
 
 The feature flag selects new enrollments; turning it off does not revoke running ones. Each activity rereads worker configuration and the run binding. Removing or changing configuration stops renewal; cleanup can revoke and remove its relay even if the configuration file is gone. An unavailable worker leaves authority bounded by the 30-second lease. Delayed cleanup cannot close a replacement relay or the agent VM.
 
-This canary lasts at most 600 seconds and does not restart after sandbox replacement or workflow continuation. Its relay lifetime includes a three-minute provisioning allowance, and its client certificate lasts at most 15 minutes. Provision a client CA that remains valid for the whole window. Full-run enrollment needs certificate renewal and longer-lived relay management before removing these limits. A normal run may outlive its canary; enrollment failure is logged and does not fail the agent run.
+By default, enrollment ends after `duration_seconds` (at most 600 seconds). Set `maintain_for_run: true` in the enrollment JSON, together with `renew_relay_certificate: true`, to keep renewing after that diagnostic window. Standalone probes do not support this mode.
+
+| Mode                     | Diagnostics                            | Enrollment and relay                                                   |
+| ------------------------ | -------------------------------------- | ---------------------------------------------------------------------- |
+| Default                  | Up to 600 seconds                      | Ends with diagnostics; relay has a three-minute provisioning allowance |
+| `maintain_for_run: true` | Same bounded window; failure is logged | Continues until the run stops or its current sandbox expires           |
+
+The parent supplies the sandbox's absolute expiry. The relay process uses its remaining lifetime, and the child workflow gets that lifetime plus one minute for cleanup. Retrying preparation cannot extend the deadline. Missing or expired deadlines refuse enrollment. Provision a client CA that remains valid for the whole window.
+
+In run-lifetime mode, a failed certificate delivery leaves the deadline due for another attempt on the next renewal tick. Capability refresh runs first when both are due. Retries require a valid current certificate and live registration; certificate expiry, a changed key or lost authority ends enrollment. Only acknowledged delivery advances the saved certificate expiry and refresh deadline. A renewal activity that exhausts its timeout still ends enrollment.
+
+Both modes stop before sandbox replacement or workflow continuation and do not re-enroll afterward. Restrict this pilot to one sandbox generation until handoff is implemented. Enrollment failure is logged and does not fail the agent run; this still authorizes only synthetic probes.
 
 ## Run the processes
 
