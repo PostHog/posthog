@@ -69,7 +69,7 @@ function listColumns(
                     const name = describeGroup(group, configuration.grouping.keys ?? [])
                     return (
                         <Tooltip title={name}>
-                            <span className="block max-w-[28cqw] truncate pl-7 font-mono text-xs" translate="no">
+                            <span className="block w-0 min-w-full truncate pl-7 font-mono text-xs" translate="no">
                                 {name}
                             </span>
                         </Tooltip>
@@ -103,7 +103,7 @@ function listColumns(
                 group ? (
                     <div className="flex flex-wrap items-center gap-x-2">
                         <PlatformAlertStateLabel status={group.state} />
-                        {group.firing_started_at && (
+                        {group.state === 'firing' && group.firing_started_at && (
                             <span className="inline-flex items-center gap-1 whitespace-nowrap text-muted">
                                 <span>since</span>
                                 <TZLabel time={group.firing_started_at} />
