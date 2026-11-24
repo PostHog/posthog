@@ -385,6 +385,31 @@ describe('CDP API', () => {
         expect(res.status).toEqual(400)
     })
 
+    it.each([
+        ['function', () => `/api/projects/${hogFunction.team_id}/hog_functions/new/invocations`],
+        ['workflow', () => `/api/projects/${hogFunction.team_id}/hog_flows/new/invocations`],
+    ])('refuses a test run of an unsaved %s of a deactivated organization', async (_name, url) => {
+        await hub.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            'UPDATE posthog_organization SET is_active = false WHERE id = (SELECT organization_id FROM posthog_team WHERE id = $1)',
+            [hogFunction.team_id],
+            'deactivateOrganization'
+        )
+        hub.CDP_SKIP_DEACTIVATED_ORGANIZATIONS = true
+
+        try {
+            const res = await supertest(app)
+                .post(url())
+                .send({ globals, configuration: { ...hogFunction }, mock_async_functions: false })
+
+            expect(res.status).toEqual(403)
+            expect(res.body).toEqual({ error: 'The organization is deactivated' })
+            expect(mockFetch).not.toHaveBeenCalled()
+        } finally {
+            hub.CDP_SKIP_DEACTIVATED_ORGANIZATIONS = false
+        }
+    })
+
     it('can invoke a function via the API with mocks', async () => {
         const res = await supertest(app)
             .post(`/api/projects/${hogFunction.team_id}/hog_functions/${hogFunction.id}/invocations`)
