@@ -11,12 +11,23 @@ from typing import NoReturn, Optional
 from pydantic import BaseModel
 from rest_framework.exceptions import ValidationError
 
-from posthog.schema import ActionsNode, DataWarehouseNode, EventsNode, FunnelsQuery, HogQLQuery, TrendsQuery
+from posthog.schema import (
+    ActionsNode,
+    DataWarehouseNode,
+    EventsNode,
+    FunnelsQuery,
+    HogQLFilters,
+    HogQLQuery,
+    TrendsQuery,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
+from posthog.hogql.filters import replace_filters
 from posthog.hogql.parser import parse_select
+from posthog.hogql.placeholders import find_placeholders
 from posthog.hogql.printer import prepare_ast_for_printing
 from posthog.hogql.visitor import TraversingVisitor
 
@@ -50,7 +61,7 @@ DESCRIPTION_TOO_LONG_MESSAGE = (
 
 # HogQLQuery carries fields that would let a caller bypass team query controls (a raw ClickHouse
 # passthrough, an arbitrary DB connection). A metric definition may only set these.
-_HOGQL_ALLOWED_KEYS = {"kind", "query", "values"}
+_HOGQL_ALLOWED_KEYS = {"kind", "query", "values", "filters"}
 
 
 class _TableReferenceCollector(TraversingVisitor):
@@ -112,8 +123,13 @@ def validate_description(description: str) -> None:
         raise ValidationError({"description": DESCRIPTION_TOO_LONG_MESSAGE})
 
 
-def validate_metric_definition(definition: dict, team: Team, user: Optional[User] = None) -> tuple[dict, list[str]]:
+def validate_metric_definition(
+    definition: dict, team: Team, user: Optional[User] = None, *, from_insight: bool = False
+) -> tuple[dict, list[str]]:
     """Validate a metric definition and return ``(canonical_definition, referenced_table_names)``.
+
+    ``from_insight`` marks a snapshot of a saved insight's query. A snapshot keeps the insight's
+    window, so a missing date range becomes all time instead of an error.
 
     Raises :class:`ValidationError` keyed by the ``definition`` field on any problem.
     """
@@ -129,7 +145,7 @@ def validate_metric_definition(definition: dict, team: Team, user: Optional[User
         source = definition.get("source")
         if not isinstance(source, dict):
             _fail("InsightVizNode has no source query.", "Use the insight's inner query as the definition.")
-        return validate_metric_definition(source, team, user)
+        return validate_metric_definition(source, team, user, from_insight=from_insight)
 
     # Reject unsupported kinds before upgrade() — upgrade runs kind-specific migrations that assume a
     # well-formed query of that kind and would crash on anything else.
@@ -144,7 +160,7 @@ def validate_metric_definition(definition: dict, team: Team, user: Optional[User
 
     kind = canonical.get("kind", kind)
     if kind == "HogQLQuery":
-        return _validate_hogql(canonical, team, user)
+        return _validate_hogql(canonical, team, user, from_insight=from_insight)
     if kind in _NODE_MODELS:
         return _validate_schema_model(canonical, _NODE_MODELS[kind])
     return _validate_schema_model(canonical, _INSIGHT_MODELS[kind])
@@ -209,22 +225,68 @@ def table_names_as_written(definition: dict, *, keep_table_functions: bool = Fal
     return sorted(collector.tables)
 
 
-def _validate_hogql(definition: dict, team: Team, user: Optional[User]) -> tuple[dict, list[str]]:
+def uses_date_filters(definition: dict) -> bool:
+    """Whether a HogQL definition's SQL has a ``{filters}`` form that ``filters.dateRange`` bounds.
+
+    Without one, a date range in ``filters`` changes nothing, so the SQL alone fixes the window.
+    """
+    return find_placeholders(_parse_hogql_definition(definition)).has_date_filters
+
+
+def _stored_date_from(definition: dict) -> object:
+    filters = definition.get("filters") or {}
+    return (filters.get("dateRange") or {}).get("date_from")
+
+
+def _validate_hogql(
+    definition: dict, team: Team, user: Optional[User], *, from_insight: bool
+) -> tuple[dict, list[str]]:
     extra_keys = set(definition.keys()) - _HOGQL_ALLOWED_KEYS
     if extra_keys:
         _fail(
             f"HogQLQuery fields not allowed in a metric definition: {sorted(extra_keys)}.",
-            "A metric definition may only set 'query' (and 'values'). Fields like connectionId or "
+            "A metric definition may only set 'query', 'values' and 'filters'. Fields like connectionId or "
             "sendRawQuery are rejected.",
         )
 
     _ensure_valid_schema(definition, HogQLQuery)
 
     ast_node = _parse_hogql_definition(definition)
+    placeholders = find_placeholders(ast_node)
+
+    # Without a date range, {filters} adds no date bound and every run reads all time. A direct
+    # definition must state its window, so that a dropped date range fails here and not silently
+    # at run time. A saved insight without a date range already shows its all-time number, so the
+    # snapshot writes that window down.
+    if placeholders.has_date_filters and not _stored_date_from(definition):
+        if not from_insight:
+            _fail(
+                "The query uses {filters} but the definition sets no date range.",
+                "Set filters.dateRange.date_from to the window the metric reports, such as '-30d', "
+                "or to 'all' for all time.",
+            )
+        filters = definition.get("filters") or {}
+        definition = {
+            **definition,
+            "filters": {**filters, "dateRange": {**(filters.get("dateRange") or {}), "date_from": "all"}},
+        }
 
     context = HogQLContext(team_id=team.pk, user=user, enable_select_queries=True)
     try:
-        prepare_ast_for_printing(node=ast_node, context=context, dialect="clickhouse")
+        printable = ast_node
+        if placeholders.has_filters:
+            # The printer cannot resolve {filters}. The query runner resolves it before it prints,
+            # so validation does the same. prepare_ast_for_printing reuses context.database, so the
+            # schema builds once.
+            context.database = Database.create_for(team=team, user=user)
+            stored_filters = definition.get("filters")
+            printable = replace_filters(
+                ast_node,
+                HogQLFilters.model_validate(stored_filters) if stored_filters else None,
+                team,
+                context.database,
+            )
+        prepare_ast_for_printing(node=printable, context=context, dialect="clickhouse")
     except ExposedHogQLError as e:
         _fail(f"Invalid HogQL query: {e}", "Check that every referenced table and column exists and is accessible.")
     except Exception as e:

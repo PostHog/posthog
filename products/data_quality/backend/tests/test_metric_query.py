@@ -67,6 +67,13 @@ def test_rejects_ambiguous_or_unsafe_metric_check_placeholders(check_query: str,
         bind_metric_query(check_query, metric)
 
 
+def test_rejects_a_metric_whose_query_uses_filters() -> None:
+    metric = HogQLMetricDefinition(query="SELECT count() AS signups FROM events WHERE {filters}", values={})
+
+    with pytest.raises(CheckConfigError, match=r"^Metric checks cannot use a metric whose query uses \{filters\}\.$"):
+        bind_metric_query("SELECT * FROM {metric}", metric)
+
+
 @pytest.mark.parametrize(
     ("metric_query", "check_query", "message"),
     [

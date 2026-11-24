@@ -3,8 +3,9 @@
 The definition is executed through the same engine as insights and the SQL editor, so results are
 identical. Bare series nodes (EventsNode, ActionsNode, DataWarehouseNode) aren't runnable on their
 own, so they execute as a single-series trends query; the envelope keeps the stored kind. Date
-params map into the prepared query's dateRange for insight/node kinds and are rejected on HogQLQuery
-kinds, whose window is fixed in the SQL. The deep link encodes the prepared query — overrides
+params map into the prepared query's dateRange for insight/node kinds, and into filters.dateRange for
+a HogQLQuery whose SQL uses {filters}. A HogQLQuery without {filters} fixes its window in the SQL, so
+it rejects them. The deep link encodes the prepared query — overrides
 included — so opening it reproduces exactly what ran.
 """
 
@@ -46,6 +47,7 @@ from ..models import Metric
 from .analytics import METRIC_RUN_EVENT, METRIC_RUN_FAILED_EVENT, capture_metric_event
 from .drift import compute_drift
 from .exceptions import MetricHasNoDefinition
+from .validation import uses_date_filters
 
 if TYPE_CHECKING:
     from rest_framework.request import Request
@@ -219,13 +221,8 @@ def _apply_date_params(query: dict, date_from: Optional[str], date_to: Optional[
     if date_from is None and date_to is None and interval is None:
         return
     if query.get("kind") == HOGQL_DEFINITION_KIND:
-        field = "date_from" if date_from is not None else ("date_to" if date_to is not None else "interval")
-        raise ValidationError(
-            {
-                field: "This metric's dates are fixed in its SQL and cannot be overridden at run time. "
-                "Report the definition's own window, or ask for a parameterized metric."
-            }
-        )
+        _apply_hogql_date_params(query, date_from, date_to, interval)
+        return
     date_range = dict(query.get("dateRange") or {})
     if date_from is not None:
         date_range["date_from"] = date_from
@@ -235,6 +232,31 @@ def _apply_date_params(query: dict, date_from: Optional[str], date_to: Optional[
         query["dateRange"] = date_range
     if interval is not None:
         query["interval"] = interval
+
+
+def _apply_hogql_date_params(
+    query: dict, date_from: Optional[str], date_to: Optional[str], interval: Optional[str]
+) -> None:
+    if interval is not None:
+        raise ValidationError(
+            {
+                "interval": "This metric's SQL sets its own grouping, so the interval cannot be overridden at run "
+                "time. Run it without 'interval'."
+            }
+        )
+    if not uses_date_filters(query):
+        raise ValidationError(
+            {
+                "date_from" if date_from is not None else "date_to": "This metric's dates are fixed in its SQL and "
+                "cannot be overridden at run time. Report the definition's own window, or ask for a metric whose "
+                "SQL uses {filters}."
+            }
+        )
+    # A new range replaces both stored bounds, as a dashboard date filter does on a SQL insight. A stored
+    # end date kept beside a new start date could make an empty window. The stored properties and the
+    # test-account setting stay, so the override changes only the window.
+    date_range = {key: value for key, value in (("date_from", date_from), ("date_to", date_to)) if value is not None}
+    query["filters"] = {**(query.get("filters") or {}), "dateRange": date_range}
 
 
 def _envelope(metric: Metric, payload: dict, team: Team, prepared_query: dict, is_drifted: bool) -> dict:

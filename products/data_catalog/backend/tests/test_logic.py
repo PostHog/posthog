@@ -32,6 +32,7 @@ from products.product_analytics.backend.facade.models import Insight
 
 _HOGQL_A = {"kind": "HogQLQuery", "query": "select count() from events"}
 _HOGQL_B = {"kind": "HogQLQuery", "query": "select count() from persons"}
+_FILTERS_SQL = "select count() from events where {filters}"
 
 
 class TestMetricUpsert(BaseTest):
@@ -205,6 +206,16 @@ class TestValidateMetricDefinition(BaseTest):
         _, tables = validate_metric_definition({"kind": "HogQLQuery", "query": query}, self.team, self.user)
         assert tables == expected
 
+    def test_filters_definition_keeps_its_window_and_reads_its_tables(self) -> None:
+        definition = {
+            "kind": "HogQLQuery",
+            "query": _FILTERS_SQL,
+            "filters": {"dateRange": {"date_from": "-30d"}, "filterTestAccounts": True},
+        }
+        canonical, tables = validate_metric_definition(definition, self.team, self.user)
+        assert canonical["filters"] == definition["filters"]
+        assert tables == ["events"]
+
     def test_insight_viz_node_is_unwrapped(self) -> None:
         canonical, _ = validate_metric_definition(
             {"kind": "InsightVizNode", "source": {"kind": "HogQLQuery", "query": "select 1"}},
@@ -227,6 +238,15 @@ class TestValidateMetricDefinition(BaseTest):
             ("unsupported_kind", {"kind": "RetentionQuery"}),
             ("raw_connection", {"kind": "HogQLQuery", "query": "select 1", "connectionId": "abc"}),
             ("raw_query", {"kind": "HogQLQuery", "query": "select 1", "sendRawQuery": True}),
+            ("filters_without_date_range", {"kind": "HogQLQuery", "query": _FILTERS_SQL}),
+            (
+                "filters_over_a_table_with_no_timestamp",
+                {
+                    "kind": "HogQLQuery",
+                    "query": "select count() from numbers(10) where {filters}",
+                    "filters": {"dateRange": {"date_from": "-7d"}},
+                },
+            ),
             ("bad_sql", {"kind": "HogQLQuery", "query": "not valid sql !!!"}),
             ("no_kind", {"query": "select 1"}),
             ("markdown_empty", {"kind": "MarkdownDefinition", "markdown": "   "}),
@@ -256,6 +276,20 @@ class TestCreateFromInsight(BaseTest):
         assert metric.source_insight_short_id == insight.short_id
         assert metric.source_insight_query_hash
         assert compute_drift([metric])[metric.id] is False
+
+    def test_insight_without_a_date_range_snapshots_all_time(self) -> None:
+        insight = self._insight({"kind": "HogQLQuery", "query": _FILTERS_SQL, "filters": {"filterTestAccounts": True}})
+        expected_filters = {"filterTestAccounts": True, "dateRange": {"date_from": "all"}}
+
+        metric = upsert_metric(
+            team=self.team, user=self.user, name="mrr", description="d", source_insight_short_id=insight.short_id
+        )
+        assert metric.definition is not None
+        assert metric.definition["filters"] == expected_filters
+
+        refreshed = refresh_metric_from_insight(metric, self.user)
+        assert refreshed.definition is not None
+        assert refreshed.definition["filters"] == expected_filters
 
     def test_definition_and_source_are_mutually_exclusive(self) -> None:
         insight = self._insight()

@@ -345,7 +345,7 @@ export const DataCatalogMetricsRunCreateBody = () => zod
             .string()
             .optional()
             .describe(
-                "Override the start of the query window (e.g. '-7d'). Rejected for HogQLQuery metrics, whose window is fixed in SQL."
+                "Override the start of the query window (e.g. '-7d'). A HogQLQuery metric accepts date overrides only when its SQL uses {filters}. There, the overrides replace the stored window, so an omitted date_to means up to today."
             ),
         date_to: zod.string().optional().describe('Override the end of the query window.'),
         interval: zod

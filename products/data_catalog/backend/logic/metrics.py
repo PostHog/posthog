@@ -96,11 +96,11 @@ class MetricBulkSkip:
 
 
 def _canonical_definition(
-    definition: Optional[dict], team: Team, user: Optional[User]
+    definition: Optional[dict], team: Team, user: Optional[User], *, from_insight: bool = False
 ) -> tuple[Optional[dict], list[str]]:
     if definition is None:
         return None, []
-    return validate_metric_definition(definition, team, user)
+    return validate_metric_definition(definition, team, user, from_insight=from_insight)
 
 
 def _require_insight_viewer_access(insight: Insight, team: Team, user: Optional[User]) -> None:
@@ -147,7 +147,7 @@ def _resolve_definition_fields(
         if not isinstance(definition, _Unset) and definition is not None:
             raise ValidationError({"definition": "Provide a definition or a source insight, not both."})
         snapshot_def, snapshot_hash = _snapshot_from_insight(team, source_insight_short_id, user)
-        canonical_def, referenced = _canonical_definition(snapshot_def, team, user)
+        canonical_def, referenced = _canonical_definition(snapshot_def, team, user, from_insight=True)
         return {
             "definition": canonical_def,
             "referenced_table_names": referenced,
@@ -534,7 +534,7 @@ def refresh_metric_from_insight(metric: Metric, user: Optional[User], request: "
         if not query:
             raise SourceInsightUnavailable("The source insight has no query. Edit the definition or unlink.")
 
-        canonical_def, referenced = _canonical_definition(query, metric.team, user)
+        canonical_def, referenced = _canonical_definition(query, metric.team, user, from_insight=True)
         new_hash = canonical_query_hash(query)
         changed = new_hash != metric.source_insight_query_hash
 

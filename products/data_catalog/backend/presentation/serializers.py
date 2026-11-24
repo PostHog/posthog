@@ -111,7 +111,9 @@ class MetricRunRequestSerializer(serializers.Serializer):
 
     date_from = serializers.CharField(
         required=False,
-        help_text="Override the start of the query window (e.g. '-7d'). Rejected for HogQLQuery metrics, whose window is fixed in SQL.",
+        help_text="Override the start of the query window (e.g. '-7d'). A HogQLQuery metric accepts date overrides only "
+        "when its SQL uses {filters}. There, the overrides replace the stored window, so an omitted date_to means up to "
+        "today.",
     )
     date_to = serializers.CharField(required=False, help_text="Override the end of the query window.")
     interval = serializers.ChoiceField(

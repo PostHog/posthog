@@ -518,7 +518,7 @@ export const IntervalTypeEnumApi = {
  * Optional run-time overrides. The whole body may be omitted; a metric runs by its URL name.
  */
 export interface DataCatalogMetricRunRequestApi {
-    /** Override the start of the query window (e.g. '-7d'). Rejected for HogQLQuery metrics, whose window is fixed in SQL. */
+    /** Override the start of the query window (e.g. '-7d'). A HogQLQuery metric accepts date overrides only when its SQL uses {filters}. There, the overrides replace the stored window, so an omitted date_to means up to today. */
     date_from?: string
     /** Override the end of the query window. */
     date_to?: string
