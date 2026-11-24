@@ -40,7 +40,7 @@ import {
     ruleMetadataEntriesError,
     ruleMetadataRecord,
 } from './platformAlertFormat'
-import { MAX_TIMER_DELAY_MS, PLATFORM_ALERTS_BREADCRUMB } from './platformAlertsLogic'
+import { PLATFORM_ALERTS_BREADCRUMB, reloadWhenSnoozeEnds } from './platformAlertsLogic'
 
 const EMPTY_RULE_METADATA_FORM: RuleMetadataForm = { labels: [], annotations: [] }
 const RULE_METADATA_FIELD_BY_ATTR: Record<string, keyof RuleMetadataForm> = {
@@ -357,12 +357,10 @@ export const platformAlertLogic: LogicWrapper<platformAlertLogicType> = kea<plat
                 return
             }
             // `alertSnoozeUntil` reads the clock only when the configuration changes, so reload at expiry.
-            // A wait past the timer limit fires early, and the reload arms the next one.
-            cache.disposables.add(() => {
-                const delay = Math.min(Math.max(dayjs(snoozeUntil).diff(dayjs()), 0) + 1000, MAX_TIMER_DELAY_MS)
-                const timer = setTimeout(() => actions.loadConfiguration(), delay)
-                return () => clearTimeout(timer)
-            }, 'alertSnoozeExpiry')
+            cache.disposables.add(
+                reloadWhenSnoozeEnds(snoozeUntil, () => actions.loadConfiguration()),
+                'alertSnoozeExpiry'
+            )
         },
         openRuleMetadataModal: () => {
             actions.resetRuleMetadataForm({

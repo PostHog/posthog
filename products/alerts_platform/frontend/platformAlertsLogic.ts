@@ -17,7 +17,7 @@ import { PlatformAlertListRow, configurationListRows } from './platformAlertForm
 export const PLATFORM_ALERTS_PAGE_SIZE = 50
 
 // The longest delay setTimeout accepts. A longer one fires at once.
-export const MAX_TIMER_DELAY_MS = 2 ** 31 - 1
+const MAX_TIMER_DELAY_MS = 2 ** 31 - 1
 
 export type PlatformAlertsTab = 'alerts' | 'routing'
 
@@ -91,6 +91,15 @@ export type platformAlertsLogicType = MakeLogicType<
     Record<string, any>,
     platformAlertsLogicMeta
 >
+
+// A wait past the timer limit fires early, and the reload arms the next one.
+export function reloadWhenSnoozeEnds(snoozeUntil: string, reload: () => void): () => () => void {
+    return () => {
+        const delay = Math.min(Math.max(dayjs(snoozeUntil).diff(dayjs()), 0) + 1000, MAX_TIMER_DELAY_MS)
+        const timer = setTimeout(reload, delay)
+        return () => clearTimeout(timer)
+    }
+}
 
 function earliestSnoozeEnd(configurations: PlatformAlertConfigurationApi[]): string | null {
     const now = dayjs()
@@ -181,14 +190,13 @@ export const platformAlertsLogic = kea<platformAlertsLogicType>([
         loadConfigurationsSuccess: ({ configurationsPage }) => {
             const snoozeUntil = earliestSnoozeEnd(configurationsPage?.results ?? [])
             if (!snoozeUntil) {
-                cache.disposables.dispose('snoozeExpiry')
+                cache.disposables.dispose('reloadAtSnoozeEnd')
                 return
             }
-            cache.disposables.add(() => {
-                const delay = Math.min(Math.max(dayjs(snoozeUntil).diff(dayjs()), 0) + 1000, MAX_TIMER_DELAY_MS)
-                const timer = setTimeout(() => actions.loadConfigurations(), delay)
-                return () => clearTimeout(timer)
-            }, 'snoozeExpiry')
+            cache.disposables.add(
+                reloadWhenSnoozeEnds(snoozeUntil, () => actions.loadConfigurations()),
+                'reloadAtSnoozeEnd'
+            )
         },
     })),
     actionToUrl(() => ({

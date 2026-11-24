@@ -129,16 +129,28 @@ describe('platformAlertFormat', () => {
     })
 
     test.each<[string, string | null, (string | null)[], number | null, ReturnType<typeof listRowMute>]>([
-        ['alert snooze in the future', '2026-10-06T00:00:00Z', [null], null, { until: '2026-10-06T00:00:00Z' }],
+        [
+            'alert snooze in the future',
+            '2026-10-06T00:00:00Z',
+            [null],
+            null,
+            { kind: 'snoozed', until: '2026-10-06T00:00:00Z' },
+        ],
         ['alert snooze in the past', '2026-10-04T00:00:00Z', [null], null, null],
         [
             'two of three groups snoozed',
             null,
             ['2026-10-06T00:00:00Z', null, '2026-10-07T00:00:00Z'],
             null,
-            { until: null, count: 2 },
+            { kind: 'groupsSnoozed', count: 2 },
         ],
-        ['group row with its own snooze', null, ['2026-10-06T00:00:00Z'], 0, { until: '2026-10-06T00:00:00Z' }],
+        [
+            'group row with its own snooze',
+            null,
+            ['2026-10-06T00:00:00Z'],
+            0,
+            { kind: 'snoozed', until: '2026-10-06T00:00:00Z' },
+        ],
         ['group row with an expired snooze', null, ['2026-10-04T00:00:00Z'], 0, null],
     ])('listRowMute: %s', (_, alertSnooze, groupSnoozes, groupIndex, expected) => {
         const alerts = groupSnoozes.map((snooze_until) => ({
