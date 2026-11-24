@@ -2,6 +2,7 @@ import uuid
 
 from unittest.mock import patch
 
+from posthog.managed_proxy import cloudflare_proxy_lock
 from posthog.temporal.proxy_service.delete import DeleteManagedProxyInputs, delete_cloudflare_proxy
 
 
@@ -16,6 +17,14 @@ class TestDeleteCloudflareProxy:
             root_redirect_url=None,
         )
 
+        def clear_redirect(domain, url):
+            competing_lock = cloudflare_proxy_lock(inputs.proxy_record_id)
+            acquired = competing_lock.acquire(blocking=False)
+            if acquired:
+                competing_lock.release()
+            assert not acquired
+
+        update_redirect.side_effect = clear_redirect
         await delete_cloudflare_proxy(inputs)
 
         update_redirect.assert_called_once_with("test.example.com", None)
