@@ -1130,7 +1130,9 @@ async fn apply_global_rate_limit(
     let mut already_disabled_over_budget_count: u64 = 0;
 
     for event in events.iter_mut() {
-        if event.result != EventResult::Ok {
+        // Not `!= Ok`: an event the limiter that ran first marked `Warning`
+        // still counts toward this limiter's key, as it does on the v0 path.
+        if event.result == EventResult::Drop {
             continue;
         }
         let cache_key = kind
@@ -4698,6 +4700,33 @@ mod tests {
             collector.emitted().is_empty(),
             "a per-token limit must not send the per-distinct_id warning"
         );
+    }
+
+    #[tokio::test]
+    async fn per_token_limit_charges_events_the_distinct_id_limit_took() {
+        // The two hot events fill 2 of the per-token budget of 3, so both
+        // synthetic events after them are over it.
+        let ts = TestStateBuilder::new()
+            .with_global_rate_limiter(Arc::new(mock_limiter(vec!["phc_test_token:hot"])))
+            .with_global_rate_limiter_token(Arc::new(GlobalRateLimiter::mock_budget(3)))
+            .build();
+        let mut ctx = test_utils::test_analytics_context();
+        let batch = valid_batch(
+            ["hot", "hot", "synthetic-1", "synthetic-2"]
+                .into_iter()
+                .map(|distinct_id| Event {
+                    distinct_id: distinct_id.to_string(),
+                    ..valid_event()
+                })
+                .collect(),
+        );
+
+        let resp = process_batch(&ts.state, &mut ctx, batch).await.unwrap();
+
+        for (_, entry) in resp.entries() {
+            assert_eq!(entry.result, EventResult::Warning);
+            assert_eq!(entry.details, Some(DETAIL_PERSON_PROCESSING_DISABLED));
+        }
     }
 
     // =========================================================================
