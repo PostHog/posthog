@@ -779,9 +779,9 @@ class TestReplayConsoleTool(ClickhouseTestMixin, APIBaseTest):
         with patch("products.cdp.backend.services.invocation_replay.OUTCOME_WAIT", timedelta(0)):
             stopped = self.staff_client.get(status_url).content.decode()
         partly_sent = []
-        for status in ("running", "done"):
+        for status, wait in (("running", timedelta(0)), ("done", timedelta(0)), ("done", timedelta(hours=1))):
             with (
-                patch("products.cdp.backend.services.invocation_replay.OUTCOME_WAIT", timedelta(0)),
+                patch("products.cdp.backend.services.invocation_replay.OUTCOME_WAIT", wait),
                 patch(
                     "products.cdp.backend.console.get_replay_state",
                     return_value={**state, "status": status, "invocation_count": 8},
@@ -795,10 +795,10 @@ class TestReplayConsoleTool(ClickhouseTestMixin, APIBaseTest):
             assert re.findall(bars, page) == [("success", "50.000"), ("destructive", "25.000")]
         assert "animate-pulse" in waiting
         assert "animate-pulse" not in stopped
-        for page, pulses in zip(partly_sent, (True, False)):
+        for page, pulse in zip(partly_sent, (["62.500"], [], ["12.500"])):
             assert "2 of 8 runs delivered, 1 failed again" in page
             assert re.findall(bars, page) == [("success", "25.000"), ("destructive", "12.500")]
-            assert ("animate-pulse" in page) == pulses
+            assert re.findall(r'animate-pulse"\s+style="width: ([\d.]+)%"', page) == pulse
 
     @patch("products.cdp.backend.services.invocation_replay.rerun_hog_invocations")
     def test_status_page_of_a_replay_sent_by_an_older_version_does_not_claim_an_outcome(self, rerun: MagicMock) -> None:
