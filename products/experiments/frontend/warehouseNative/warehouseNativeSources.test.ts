@@ -9,7 +9,6 @@ import {
 import {
     type WarehouseNativeBinding,
     alignMetricsWithExposure,
-    experimentUsesWarehouseNativeSources,
     getExperimentMetricDataSources,
     getExposureSourceBlockedReasons,
     getWarehouseNativeMetricError,
@@ -123,20 +122,17 @@ describe('warehouseNativeSources', () => {
                     },
                 },
             },
-            true,
             { warehouseNative: false, posthog: false },
         ],
         [
             'a warehouse-native shared metric',
             { saved_metrics: [{ query: meanMetric(warehouseSource()) }] },
-            true,
             { warehouseNative: true, posthog: false },
         ],
-        ['event metrics only', { metrics: [EVENTS_METRIC] }, false, { warehouseNative: false, posthog: true }],
-    ])('knows which data sources an experiment with %s reads', (_, experiment, usesWarehouse, metricDataSources) => {
+        ['event metrics only', { metrics: [EVENTS_METRIC] }, { warehouseNative: false, posthog: true }],
+    ])('knows which data sources an experiment with %s reads', (_, experiment, metricDataSources) => {
         const full = { metrics: [], metrics_secondary: [], saved_metrics: [], ...experiment }
 
-        expect(experimentUsesWarehouseNativeSources(full)).toBe(usesWarehouse)
         expect(getExperimentMetricDataSources(full)).toEqual(metricDataSources)
     })
 

@@ -26,6 +26,7 @@ class PosthogJwtAudience(Enum):
     LIVESTREAM_AUTHORIZATION = "posthog:livestream:authorization"
     SHARING_PASSWORD_PROTECTED = "posthog:sharing_password_protected"
     RECORDING_API = "posthog:recording_api"
+    RECORDING_API_STAFF = "posthog:recording_api:staff"
     REPLAY_PROXY = "posthog:replay_proxy"
     REPLAY_BLOCKS = "posthog:replay:blocks"
     WORKFLOWS_RESCHEDULE_PARKED = "posthog:workflows:reschedule_parked"

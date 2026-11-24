@@ -252,3 +252,4 @@ class ImportState(_Model):
     checks: dict[str, PanelCheck] = Field(default_factory=dict)
     layout_check: LayoutCheck | None = None
     result: ImportResult | None = None
+    dismissed: bool = False

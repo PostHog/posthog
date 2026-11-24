@@ -16,7 +16,8 @@ import type { PromptOutcomeMetric } from './promptReport'
 import type { AnswerOutcomeChart } from './visibilityChart'
 
 const CONFIG: TimeSeriesBarChartConfig = {
-    xAxis: { interval: 'day' },
+    // The labels are calendar days, so UTC keeps each tick and tooltip date on its own day.
+    xAxis: { interval: 'day', timezone: 'UTC' },
     yAxis: { format: 'numeric', showGrid: true },
     legend: { show: true },
     barLayout: 'stacked',
