@@ -1,5 +1,5 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { Fragment, useRef } from 'react'
+import { useRef } from 'react'
 
 import { IconChevronDown, IconDatabase } from '@posthog/icons'
 import { LemonButton, LemonDropdown, LemonInput, Spinner } from '@posthog/lemon-ui'
@@ -14,12 +14,12 @@ import { TableCertificationIcon } from 'products/data_warehouse/frontend/shared/
 
 function WrappedTableName({ name }: { name: string }): JSX.Element {
     return (
-        <span className="block min-w-0 max-w-[80vw] break-words">
+        <span className="block min-w-0 max-w-[80vw] break-words" translate="no">
             {name.split(/(?<=[_.])/).map((part, index) => (
-                <Fragment key={index}>
+                <span key={index}>
                     {part}
                     <wbr />
-                </Fragment>
+                </span>
             ))}
         </span>
     )
@@ -88,7 +88,7 @@ export function BIDataSourcePicker(): JSX.Element {
                                         label
                                     ) : (
                                         <span className="block truncate text-left" dir="rtl">
-                                            <bdi>{label}</bdi>
+                                            <bdi translate="no">{label}</bdi>
                                         </span>
                                     )
                                 }
