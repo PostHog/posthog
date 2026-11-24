@@ -126,15 +126,15 @@ async def _stage_files(
         f"existing_queryable_folder={queryable_folder}"
     )
     sizes = dict(inputs.file_sizes)
-    live_uris = inputs.file_uris
+    file_list_refreshed = False
 
     async def refresh_file_uris() -> list[str]:
-        nonlocal live_uris
+        nonlocal file_list_refreshed
+        file_list_refreshed = True
         refreshed = await _read_live_files(inputs.table_uri)
         sizes.clear()
         sizes.update(refreshed.sizes_by_relative_path)
-        live_uris = refreshed.uris
-        return live_uris
+        return refreshed.uris
 
     staged_folder_path = await prepare_s3_files_for_querying(
         folder_path=saved_query.folder_path,
@@ -146,9 +146,13 @@ async def _stage_files(
         refresh_file_uris=refresh_file_uris,
         file_sizes=sizes,
     )
+    if file_list_refreshed:
+        return StageQueryableFilesResult(staged_folder_path=staged_folder_path)
     return StageQueryableFilesResult(
         staged_folder_path=staged_folder_path,
-        staged_size_mib=staged_size_mib(inputs.table_uri, LiveFiles(uris=live_uris, sizes_by_relative_path=sizes)),
+        staged_size_mib=staged_size_mib(
+            inputs.table_uri, LiveFiles(uris=inputs.file_uris, sizes_by_relative_path=sizes)
+        ),
     )
 
 
