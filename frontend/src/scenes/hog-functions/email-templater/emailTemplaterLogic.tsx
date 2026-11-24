@@ -410,9 +410,17 @@ function isUntouchedNewTemplate(value: EmailTemplate | null | undefined): boolea
     return !!value?.html && value.html === NEW_TEMPLATE.content.email.html
 }
 
-/** One open email, kept by its reads in flight. `editWaiting` is whether it was left with an edit nobody had read. */
+/** One open email, kept by its reads in flight. */
 interface EditSession {
+    /** Whether it was left with an edit nobody had read. */
     editWaiting: boolean
+    readsStarted: number
+    /** The newest read handed to the host. An older read that ends later holds older fields, so it is dropped. */
+    lastReadHandedOver: number
+}
+
+function newEditSession(): EditSession {
+    return { editWaiting: false, readsStarted: 0, lastReadHandedOver: 0 }
 }
 
 const EMAIL_SAVE_FAILED_MESSAGE = "Couldn't save this email. Your changes are still in the editor, so try again."
@@ -1160,6 +1168,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
 
             const openEmail = { ...props }
             const session: EditSession = cache.editSession
+            const read = ++session.readsStarted
             const template = values.emailTemplate
             const designBeforeExport = cache.lastEditorDesign
             let htmlData: { html: string; design: JSONTemplate }
@@ -1193,8 +1202,8 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             }
             breakpoint()
             if (props.emailKey !== openEmail.emailKey) {
-                // A flush may have handed this edit over before the switch, and the old host must not be called again.
-                if (session.editWaiting && !objectsEqual(htmlData.design, designBeforeExport)) {
+                if (read > session.lastReadHandedOver && !objectsEqual(htmlData.design, designBeforeExport)) {
+                    session.lastReadHandedOver = read
                     openEmail.onChange(emailWithEdit(openEmail, template, htmlData, textData))
                 }
                 return
@@ -1349,6 +1358,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 const designBeforeExport = cache.lastEditorDesign
                 const openEmail = { ...props }
                 const session: EditSession = cache.editSession
+                const read = ++session.readsStarted
                 const isClosed = (): boolean => !!cache.unmounted || props.emailKey !== openEmail.emailKey
                 let htmlData: { html: string; design: JSONTemplate }
                 let textData: { text: string }
@@ -1390,7 +1400,8 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 }
                 // An editor that closed while it was read can't be read again, but its last edit still goes to the form.
                 if (isClosed()) {
-                    if (!objectsEqual(htmlData.design, designBeforeExport)) {
+                    if (read > session.lastReadHandedOver && !objectsEqual(htmlData.design, designBeforeExport)) {
+                        session.lastReadHandedOver = read
                         openEmail.onChange(emailWithEdit(openEmail, templateBeforeExport, htmlData, textData))
                     }
                     return
@@ -1399,6 +1410,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                     continue
                 }
                 cache.pendingDesignEdit = false
+                session.lastReadHandedOver = read
                 actions.setLatestEditUnsaved(false)
                 cache.baselineConfirmedBy = editor
                 if (!objectsEqual(htmlData.design, cache.lastEditorDesign)) {
@@ -1515,7 +1527,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         const switched = props.emailKey !== oldProps.emailKey
         if (switched) {
             cache.editSession.editWaiting = cache.pendingDesignEdit || values.latestEditUnsaved
-            cache.editSession = { editWaiting: false } satisfies EditSession
+            cache.editSession = newEditSession()
             cache.pendingDesignEdit = false
             cache.flushFailed = false
             cache.lastEditorDesign = undefined
@@ -1574,7 +1586,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
 
     afterMount(({ actions, props, cache }) => {
         cache.unmounted = false
-        cache.editSession = { editWaiting: false } satisfies EditSession
+        cache.editSession = newEditSession()
         if (props.value) {
             actions.resetEmailTemplate(props.value)
             autoRevealAdvancedFields(actions, props)

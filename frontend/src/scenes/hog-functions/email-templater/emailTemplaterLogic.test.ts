@@ -854,32 +854,40 @@ describe('emailTemplaterLogic', () => {
             }
         )
 
-        it('does not hand an edit over again when a slower read of it ends after another email opened', async () => {
-            jest.useFakeTimers()
-            const heldExports: (() => void)[] = []
-            logic.actions.setEmailEditorRef({
-                editor: {
-                    ...fakeEditorRef().editor,
-                    exportHtml: (callback: (data: any) => void) => {
-                        heldExports.push(() => callback({ html: '<p>edited</p>', design: DESIGN_EDITED }))
+        it.each([
+            { when: 'before another email opens', flushReadsFirst: true },
+            { when: 'after another email opens', flushReadsFirst: false },
+        ])(
+            'hands an edit over once when two reads of it end and the newer one ends $when',
+            async ({ flushReadsFirst }) => {
+                jest.useFakeTimers()
+                const heldExports: (() => void)[] = []
+                logic.actions.setEmailEditorRef({
+                    editor: {
+                        ...fakeEditorRef().editor,
+                        exportHtml: (callback: (data: any) => void) => {
+                            heldExports.push(() => callback({ html: '<p>edited</p>', design: DESIGN_EDITED }))
+                        },
                     },
-                },
-            } as unknown as EditorRef)
-            editorListeners['design:updated']()
-            await jest.advanceTimersByTimeAsync(500)
-            logic.actions.flushPendingDesignEdit()
-            const [slowRead, flushRead] = heldExports
-            flushRead()
-            await jest.advanceTimersByTimeAsync(0)
-            expect(onChange).toHaveBeenCalledTimes(1)
+                } as unknown as EditorRef)
+                editorListeners['design:updated']()
+                await jest.advanceTimersByTimeAsync(500)
+                logic.actions.flushPendingDesignEdit()
+                const [slowRead, flushRead] = heldExports
+                const openNext = (): void => {
+                    emailTemplaterLogic({ ...logic.props, emailKey: 'next', onChange: jest.fn() })
+                }
+                const order = flushReadsFirst ? [flushRead, openNext, slowRead] : [openNext, flushRead, slowRead]
+                for (const step of order) {
+                    step()
+                    await jest.advanceTimersByTimeAsync(0)
+                }
+                jest.useRealTimers()
 
-            emailTemplaterLogic({ ...logic.props, emailKey: 'next', onChange: jest.fn() })
-            slowRead()
-            await jest.advanceTimersByTimeAsync(0)
-            jest.useRealTimers()
-
-            expect(onChange).toHaveBeenCalledTimes(1)
-        })
+                expect(onChange).toHaveBeenCalledTimes(1)
+                expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ design: DESIGN_EDITED }))
+            }
+        )
 
         it('propagates an edit made immediately after a design load', async () => {
             // The load rebaselines via design:loaded...
