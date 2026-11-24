@@ -29,6 +29,7 @@ A dashboard keeps at least one tab with tiles, and a link tab never becomes the 
 
 - A tab's grid has 24 columns. A row is 10px tall and the gap between tiles is 12px, so heights move in 22px steps.
 - A tile's place is in whole columns and rows.
+- A tile added to a grid scrolls into view.
 - Tiles never overlap, and no tile has an empty row above it that it could move into.
 
 ## Sections
@@ -114,6 +115,7 @@ A type has two parts, so code outside the browser can use the first without Reac
 - A `WidgetDefinition` (`frontend/widgets/widgetDefinition.ts`) is the spec plus the `Component` that renders it. The controller takes these.
 
 A widget's own fields sit in `config`. The fields every tile has (`type`, `title`, `description`, `refreshedAt`, `parts`) sit beside it.
+A tile's `description` shows in a tooltip on an info icon beside its title, and `parts.description: false` hides the icon.
 
 How the dashboard uses them:
 

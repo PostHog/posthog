@@ -213,7 +213,8 @@ export function TileGrid({
     }, [])
     const scrollToAdded = useCallback((marker: HTMLSpanElement | null): void => {
         if (marker && gridMounted.current) {
-            marker.parentElement?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+            const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+            marker.parentElement?.scrollIntoView({ block: 'nearest', behavior: reduceMotion ? 'auto' : 'smooth' })
         }
     }, [])
 

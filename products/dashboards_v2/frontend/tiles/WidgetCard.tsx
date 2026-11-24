@@ -2,7 +2,18 @@ import '../dashboard/DashboardV2.scss'
 
 import clsx from 'clsx'
 
-import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@posthog/quill'
+import { IconInfo } from '@posthog/icons'
+import {
+    Card,
+    CardAction,
+    CardContent,
+    CardFooter,
+    CardHeader,
+    CardTitle,
+    Tooltip,
+    TooltipContent,
+    TooltipTrigger,
+} from '@posthog/quill'
 
 import { TZLabel } from 'lib/components/TZLabel'
 
@@ -62,10 +73,25 @@ export function WidgetCard({
             >
                 {showHeader && (
                     <CardHeader className={clsx(editable && 'DashboardV2__handle')}>
-                        <CardTitle className="truncate">{widget.title}</CardTitle>
-                        {showDescription && (
-                            <CardDescription className="truncate">{widget.description}</CardDescription>
-                        )}
+                        <CardTitle className="flex items-center gap-1 min-w-0">
+                            <span className="truncate">{widget.title}</span>
+                            {showDescription && (
+                                <Tooltip>
+                                    <TooltipTrigger
+                                        render={
+                                            <span
+                                                tabIndex={0}
+                                                className="inline-flex shrink-0 text-muted-foreground"
+                                                aria-label={widget.description}
+                                            />
+                                        }
+                                    >
+                                        <IconInfo />
+                                    </TooltipTrigger>
+                                    <TooltipContent className="max-w-80">{widget.description}</TooltipContent>
+                                </Tooltip>
+                            )}
+                        </CardTitle>
                         {(HeaderActions || hasMenu) && (
                             <CardAction className="flex items-center gap-1">
                                 {HeaderActions && <HeaderActions widget={widget} />}
