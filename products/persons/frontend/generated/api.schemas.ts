@@ -2123,9 +2123,9 @@ export const DataColorTokenApi = {
     Preset15: 'preset-15',
 } as const
 
-export type YAxisPosition2Api = (typeof YAxisPosition2Api)[keyof typeof YAxisPosition2Api]
+export type YAxisPosition3Api = (typeof YAxisPosition3Api)[keyof typeof YAxisPosition3Api]
 
-export const YAxisPosition2Api = {
+export const YAxisPosition3Api = {
     Auto: 'auto',
     Left: 'left',
     Right: 'right',
@@ -2137,14 +2137,14 @@ export interface ResultCustomizationByValueApi {
     customColor?: string | null
     hidden?: boolean | null
     label?: string | null
-    yAxisPosition?: YAxisPosition2Api | null
+    yAxisPosition?: YAxisPosition3Api | null
 }
 
 export interface ResultCustomizationByPositionApi {
     assignmentBy?: 'position'
     color?: DataColorTokenApi | null
     hidden?: boolean | null
-    yAxisPosition?: YAxisPosition2Api | null
+    yAxisPosition?: YAxisPosition3Api | null
 }
 
 export type YAxisScaleTypeApi = (typeof YAxisScaleTypeApi)[keyof typeof YAxisScaleTypeApi]

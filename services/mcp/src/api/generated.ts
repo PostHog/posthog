@@ -7763,10 +7763,10 @@ export namespace Schemas {
       Preset15: 'preset-15',
     } as const;
 
-    export type YAxisPosition2 = typeof YAxisPosition2[keyof typeof YAxisPosition2];
+    export type YAxisPosition3 = typeof YAxisPosition3[keyof typeof YAxisPosition3];
 
 
-    export const YAxisPosition2 = {
+    export const YAxisPosition3 = {
       Auto: 'auto',
       Left: 'left',
       Right: 'right',
@@ -7778,14 +7778,14 @@ export namespace Schemas {
       customColor?: string | null;
       hidden?: boolean | null;
       label?: string | null;
-      yAxisPosition?: YAxisPosition2 | null;
+      yAxisPosition?: YAxisPosition3 | null;
     }
 
     export interface ResultCustomizationByPosition {
       assignmentBy?: 'position';
       color?: DataColorToken | null;
       hidden?: boolean | null;
-      yAxisPosition?: YAxisPosition2 | null;
+      yAxisPosition?: YAxisPosition3 | null;
     }
 
     export type YAxisScaleType = typeof YAxisScaleType[keyof typeof YAxisScaleType];
