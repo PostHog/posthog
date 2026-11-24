@@ -2,6 +2,8 @@ from typing import Any
 
 from posthog.test.base import APIBaseTest
 
+from parameterized import parameterized
+
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
 
 
@@ -613,3 +615,68 @@ class TestCohortBytecodeScenarios(APIBaseTest):
         # Should NOT have the wrapping pattern (no JUMP_IF_FALSE for null checks)
         # Should NOT have the wrapping pattern (no isNull function for null checks)
         self.assertNotIn("isNull", result_eq.bytecode)
+
+    @staticmethod
+    def _hogql_event_filter_cohort(expression: str) -> dict[str, Any]:
+        return {
+            "properties": {
+                "type": "OR",
+                "values": [
+                    {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "key": "$pageview",
+                                "type": "behavioral",
+                                "value": "performed_event",
+                                "negation": False,
+                                "event_type": "events",
+                                "event_filters": [{"key": expression, "type": "hogql"}],
+                                "explicit_datetime": "-30d",
+                            }
+                        ],
+                    }
+                ],
+            }
+        }
+
+    @parameterized.expand(
+        [
+            ("uppercase NOT is a library function", "NOT (properties.x ILIKE '%a%')", "realtime"),
+            ("function the VM lacks", "lengthUTF8(properties.a) > 3", None),
+        ]
+    )
+    def test_hogql_event_filter_function_call(self, _name: str, expression: str, expected_cohort_type: str | None):
+        cohort = self._create_and_fetch("HogQL function call", self._hogql_event_filter_cohort(expression))
+
+        self.assertEqual(cohort.cohort_type, expected_cohort_type)
+        leaf = cohort.filters["properties"]["values"][0]["values"][0]
+        if expected_cohort_type:
+            self.assertIsNone(leaf.get("bytecode_error"))
+            self.assertNotIn("NOT", leaf["bytecode"])
+        else:
+            self.assertEqual(leaf["bytecode_error"], "Hog function `lengthUTF8` is not implemented")
+            self.assertIsNone(leaf.get("bytecode"))
+            self.assertIsNone(leaf.get("conditionHash"))
+
+    def test_resaved_leaf_replaces_stored_bytecode_and_error(self):
+        cohort = self._create_and_fetch("Resaved leaf", self._hogql_event_filter_cohort("length(properties.a) > 3"))
+        self.assertEqual(cohort.cohort_type, "realtime")
+
+        refused = cohort.filters
+        refused["properties"]["values"][0]["values"][0]["event_filters"][0]["key"] = "lengthUTF8(properties.a) > 3"
+        cohort = self._patch_and_fetch(cohort.id, refused)
+        leaf = cohort.filters["properties"]["values"][0]["values"][0]
+        self.assertIsNone(cohort.cohort_type)
+        self.assertIsNone(leaf.get("bytecode"))
+        self.assertIsNone(leaf.get("conditionHash"))
+        self.assertEqual(leaf["bytecode_error"], "Hog function `lengthUTF8` is not implemented")
+
+        fixed = cohort.filters
+        fixed["properties"]["values"][0]["values"][0]["event_filters"][0]["key"] = "length(properties.a) > 3"
+        cohort = self._patch_and_fetch(cohort.id, fixed)
+        leaf = cohort.filters["properties"]["values"][0]["values"][0]
+        self.assertEqual(cohort.cohort_type, "realtime")
+        self.assertIsNone(leaf.get("bytecode_error"))
+        self.assertIsNotNone(leaf["bytecode"])
+        self.assertIsNotNone(leaf["conditionHash"])

@@ -91,6 +91,8 @@ A hash that is not exactly 16 bytes makes its leaf unusable.
 The API serializer sets `cohort_type = 'realtime'` when all of the following hold:
 
 - every leaf compiled to bytecode without an error,
+  and a call to a function outside the Hog standard library counts as an error,
+  because the realtime evaluator would count that call as `false` without raising one,
 - no leaf is `person_metadata`,
 - every cohort reference points to a cohort that is itself realtime at the moment of this save,
 - the cohort does not use `filterTestAccounts`, because the test-account filters are added at query time and the realtime evaluator cannot see them,
@@ -360,6 +362,8 @@ Leaves are evaluated with the Rust HogVM, configured the same way in every proce
   Event properties keep both texts, because cloud reads an event property without a `mat_` column through its property group, which keeps them too.
 - A program that fails at runtime, calls an unknown function, or returns a non-boolean counts as `false`.
   Failures are counted by reason.
+  The save path refuses a leaf that calls a function outside the Hog standard library, so an unknown function reaches the evaluator only in bytecode stored before that check.
+  A function name typed in another case, such as `NOT (x)` or `COALESCE(a, b)`, compiles to its lowercase library function when HogQL accepts that spelling.
 - An event with malformed `properties` JSON skips only the behavioral side.
   Malformed `person_properties` skips the whole event when the person side has to evaluate.
   An event with an unparseable timestamp is skipped.
