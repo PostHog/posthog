@@ -2,6 +2,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, redu
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
+import { dayjs } from 'lib/dayjs'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -10,10 +11,13 @@ import { Breadcrumb } from '~/types'
 import type { TeamPublicType } from '~/types'
 
 import { platformAlertsList } from './generated/api'
-import { PaginatedPlatformAlertConfigurationListApi } from './generated/api.schemas'
+import { PaginatedPlatformAlertConfigurationListApi, PlatformAlertConfigurationApi } from './generated/api.schemas'
 import { PlatformAlertListRow, configurationListRows } from './platformAlertFormat'
 
 export const PLATFORM_ALERTS_PAGE_SIZE = 50
+
+// The longest delay setTimeout accepts. A longer one fires at once.
+export const MAX_TIMER_DELAY_MS = 2 ** 31 - 1
 
 export type PlatformAlertsTab = 'alerts' | 'routing'
 
@@ -88,6 +92,19 @@ export type platformAlertsLogicType = MakeLogicType<
     platformAlertsLogicMeta
 >
 
+function earliestSnoozeEnd(configurations: PlatformAlertConfigurationApi[]): string | null {
+    const now = dayjs()
+    return (
+        configurations
+            .flatMap((configuration) => [
+                configuration.snooze_until,
+                ...configuration.alerts.map((alert) => alert.snooze_until),
+            ])
+            .filter((snoozeUntil): snoozeUntil is string => !!snoozeUntil && dayjs(snoozeUntil).isAfter(now))
+            .sort((a, b) => dayjs(a).diff(dayjs(b)))[0] ?? null
+    )
+}
+
 export const platformAlertsLogic = kea<platformAlertsLogicType>([
     path(['products', 'alerts_platform', 'frontend', 'platformAlertsLogic']),
     connect(() => ({
@@ -154,12 +171,26 @@ export const platformAlertsLogic = kea<platformAlertsLogicType>([
             ): PlatformAlertListRow[] => configurationListRows(configurationsPage?.results ?? [], expandedIds),
         ],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, cache }) => ({
         setPage: () => {
             actions.loadConfigurations()
         },
         loadCurrentTeamSuccess: () => {
             actions.loadConfigurations()
+        },
+        loadConfigurationsSuccess: ({ configurationsPage }) => {
+            const snoozeUntil = earliestSnoozeEnd(configurationsPage?.results ?? [])
+            if (!snoozeUntil) {
+                cache.disposables.dispose('snoozeExpiry')
+                return
+            }
+            // The mute markers read the clock only when the list loads, so reload when the next snooze ends.
+            // A wait past the timer limit fires early, and the reload arms the next one.
+            cache.disposables.add(() => {
+                const delay = Math.min(Math.max(dayjs(snoozeUntil).diff(dayjs()), 0) + 1000, MAX_TIMER_DELAY_MS)
+                const timer = setTimeout(() => actions.loadConfigurations(), delay)
+                return () => clearTimeout(timer)
+            }, 'snoozeExpiry')
         },
     })),
     actionToUrl(() => ({

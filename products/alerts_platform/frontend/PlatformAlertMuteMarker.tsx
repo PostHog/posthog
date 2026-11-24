@@ -10,7 +10,9 @@ export function PlatformAlertMuteMarker({ mute }: { mute: PlatformAlertMute }): 
     const groups = mute.until === null ? pluralize(mute.count, 'group') : null
     return (
         <Tooltip
-            title={groups ? `${groups} snoozed. Notifications are on hold.` : 'Snoozed. Notifications are on hold.'}
+            title={
+                groups ? `${groups} snoozed. Their notifications are on hold.` : 'Snoozed. Notifications are on hold.'
+            }
         >
             <span
                 className="flex items-center gap-1 whitespace-nowrap text-xs text-warning"
