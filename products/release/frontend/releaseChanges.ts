@@ -1,20 +1,34 @@
+import type { ActivityLogEntryApi, ChangeApi, DetailApi } from 'products/feature_flags/frontend/generated/api.schemas'
+
+import type { Lane } from './releaseTracks'
+
 export type ChangeKind = 'flag' | 'experiment' | 'survey'
 
-export interface ActivityChange {
-    readonly field: string
-    readonly action?: string
-    readonly before: unknown
-    readonly after: unknown
+export type ActivityObjectKind = 'experiment' | 'survey'
+
+export function activityKey(kind: ActivityObjectKind, id: string | number): string {
+    return `${kind}:${id}`
 }
 
-export interface ActivityEntry {
-    readonly id: string
-    readonly activity: string
-    readonly created_at: string
-    readonly is_system?: boolean
-    readonly user: { readonly [key: string]: unknown } | null
-    readonly detail?: { readonly changes?: readonly ActivityChange[] }
+export function laneActivity(lane: Lane): { kind: ChangeKind; key: string | null } | null {
+    if (lane.kind === 'flag') {
+        return { kind: 'flag', key: null }
+    }
+    if (lane.kind === 'experiment') {
+        return { kind: 'experiment', key: activityKey('experiment', lane.key.replace(/^experiment-/, '')) }
+    }
+    if (lane.kind === 'survey') {
+        return { kind: 'survey', key: activityKey('survey', lane.survey.id) }
+    }
+    return null
 }
+
+export type ActivityChange = Pick<ChangeApi, 'field' | 'before' | 'after'>
+
+export type ActivityEntry = Pick<ActivityLogEntryApi, 'id' | 'activity' | 'created_at' | 'user'> &
+    Partial<Pick<ActivityLogEntryApi, 'is_system' | 'scope'>> & {
+        readonly detail?: Partial<Pick<DetailApi, 'type'>> & { readonly changes?: readonly ActivityChange[] }
+    }
 
 export interface ReleaseChange {
     key: string
@@ -235,16 +249,44 @@ export function changeAuthor(entry: ActivityEntry): string {
     return entry.is_system || !entry.user ? 'PostHog' : 'Someone'
 }
 
+const LIFECYCLE_VERBS = new Map([
+    ['created', 'Created'],
+    ['deleted', 'Deleted'],
+    ['restored', 'Restored'],
+])
+
+const CHILD_NOUNS = new Map([
+    ['holdout', 'holdout'],
+    ['shared_metric', 'shared metric'],
+])
+
+interface ChangeSubject {
+    kind: ChangeKind
+    noun: string
+    child: boolean
+}
+
+function changeSubject(kind: ChangeKind, entry: ActivityEntry): ChangeSubject {
+    if (entry.scope === 'FeatureFlag') {
+        return { kind: 'flag', noun: kind === 'flag' ? 'flag' : 'linked flag', child: false }
+    }
+    const childNoun = CHILD_NOUNS.get(entry.detail?.type ?? '')
+    if (childNoun) {
+        return { kind, noun: childNoun, child: true }
+    }
+    return { kind, noun: NOUN[kind], child: false }
+}
+
 export function describeChange(kind: ChangeKind, entry: ActivityEntry): ReleaseChange | null {
+    const subject = changeSubject(kind, entry)
+    const verb = LIFECYCLE_VERBS.get(entry.activity)
     let lines: string[]
-    if (entry.activity === 'created') {
-        lines = [`Created the ${NOUN[kind]}`]
-    } else if (entry.activity === 'deleted') {
-        lines = [`Deleted the ${NOUN[kind]}`]
-    } else if (entry.activity === 'restored') {
-        lines = [`Restored the ${NOUN[kind]}`]
+    if (verb) {
+        lines = [`${verb} the ${subject.noun}`]
+    } else if (subject.child) {
+        lines = [`Edited the ${subject.noun}`]
     } else {
-        lines = [...new Set((entry.detail?.changes ?? []).flatMap((change) => describeField(kind, change)))]
+        lines = [...new Set((entry.detail?.changes ?? []).flatMap((change) => describeField(subject.kind, change)))]
     }
     if (!lines.length) {
         return null

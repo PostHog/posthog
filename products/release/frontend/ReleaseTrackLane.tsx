@@ -1,36 +1,24 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useSelector } from 'kea'
 import { useEffect, useMemo } from 'react'
 
 import { cn } from '@posthog/quill'
 
 import { dayjs } from 'lib/dayjs'
 
-import { activityKey, releaseCalendarLogic } from './releaseCalendarLogic'
+import { releaseCalendarLogic } from './releaseCalendarLogic'
 import { ReleaseChangeDots } from './ReleaseChangeDots'
-import { ChangeKind, ReleaseChange, describeChanges } from './releaseChanges'
+import { ActivityEntry, ReleaseChange, describeChanges, laneActivity } from './releaseChanges'
 import { ReleaseRolloutBar } from './ReleaseRolloutBar'
 import { ReleaseTrackMarkers } from './ReleaseTrackMarkers'
 import { Lane, Scale, laneHeight, sendLabel } from './releaseTracks'
 import { ReleaseTrackSpan } from './ReleaseTrackSpan'
 
-function laneActivity(lane: Lane): { kind: ChangeKind; key: string | null } | null {
-    if (lane.kind === 'flag') {
-        return { kind: 'flag', key: null }
-    }
-    if (lane.kind === 'experiment') {
-        return { kind: 'experiment', key: activityKey('experiment', lane.key.replace(/^experiment-/, '')) }
-    }
-    if (lane.kind === 'survey') {
-        return { kind: 'survey', key: activityKey('survey', lane.survey.id) }
-    }
-    return null
-}
-
 function useLaneChanges(lane: Lane): ReleaseChange[] {
-    const { flagActivity, objectActivity } = useValues(releaseCalendarLogic)
+    useMountedLogic(releaseCalendarLogic)
     const { loadObjectActivity } = useActions(releaseCalendarLogic)
     const source = laneActivity(lane)
     const objectKey = source?.key ?? null
+    const flagId = lane.kind === 'flag' ? lane.flag.id : null
 
     useEffect(() => {
         if (objectKey) {
@@ -38,13 +26,13 @@ function useLaneChanges(lane: Lane): ReleaseChange[] {
         }
     }, [objectKey, loadObjectActivity])
 
-    const entries = !source
-        ? undefined
-        : lane.kind === 'flag'
-          ? flagActivity[lane.flag.id]
-          : objectKey
-            ? objectActivity[objectKey]
-            : undefined
+    const entries: readonly ActivityEntry[] | undefined = useSelector((state) =>
+        flagId !== null
+            ? releaseCalendarLogic.selectors.flagActivity(state)[flagId]
+            : objectKey
+              ? releaseCalendarLogic.selectors.objectActivity(state)[objectKey]
+              : undefined
+    )
     const kind = source?.kind
     return useMemo(() => (kind && entries ? describeChanges(kind, entries) : []), [kind, entries])
 }

@@ -16,18 +16,13 @@ const ACTIVITY_PAGE_SIZE = 100
 const ACTIVITY_MAX_PAGES = 5
 const HISTORY_DAYS = 90
 
-export type ActivityObjectKind = 'experiment' | 'survey'
-
-export function activityKey(kind: ActivityObjectKind, id: string | number): string {
-    return `${kind}:${id}`
-}
-
 interface ReleaseCalendarLogicValues {
     currentProjectId: number | null
     expanded: Record<string, true>
     flagActivity: Record<number, ActivityLogEntryApi[]>
     failedFlagIds: number[]
     objectActivity: Record<string, ActivityEntry[]>
+    failedObjectKeys: string[]
 }
 
 interface ReleaseCalendarLogicActions {
@@ -44,6 +39,7 @@ interface ReleaseCalendarLogicActions {
     refreshFlagActivity: (flagIds: number[]) => { flagIds: number[] }
     loadObjectActivity: (keys: string[]) => { keys: string[] }
     setObjectActivity: (key: string, entries: ActivityEntry[]) => { key: string; entries: ActivityEntry[] }
+    setObjectActivityFailed: (key: string) => { key: string }
 }
 
 type releaseCalendarLogicType = MakeLogicType<ReleaseCalendarLogicValues, ReleaseCalendarLogicActions>
@@ -59,6 +55,7 @@ export const releaseCalendarLogic = kea<releaseCalendarLogicType>([
         refreshFlagActivity: (flagIds: number[]) => ({ flagIds }),
         loadObjectActivity: (keys: string[]) => ({ keys }),
         setObjectActivity: (key: string, entries: ActivityEntry[]) => ({ key, entries }),
+        setObjectActivityFailed: (key: string) => ({ key }),
     }),
     reducers({
         expanded: [
@@ -77,6 +74,14 @@ export const releaseCalendarLogic = kea<releaseCalendarLogicType>([
         objectActivity: [
             {} as Record<string, ActivityEntry[]>,
             { setObjectActivity: (state, { key, entries }) => ({ ...state, [key]: entries }) },
+        ],
+        failedObjectKeys: [
+            [] as string[],
+            {
+                setObjectActivityFailed: (state, { key }) => (state.includes(key) ? state : [...state, key]),
+                setObjectActivity: (state, { key }) => state.filter((item) => item !== key),
+                loadObjectActivity: (state, { keys }) => state.filter((item) => !keys.includes(item)),
+            },
         ],
         failedFlagIds: [
             [] as number[],
@@ -127,6 +132,8 @@ export const releaseCalendarLogic = kea<releaseCalendarLogicType>([
         const fail = (key: string): void => {
             if (key.startsWith('flag:')) {
                 actions.setFlagActivityFailed(Number(key.slice(5)))
+            } else {
+                actions.setObjectActivityFailed(key)
             }
         }
         const pump = (): void => {

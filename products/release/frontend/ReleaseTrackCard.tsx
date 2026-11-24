@@ -9,6 +9,7 @@ import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 
 import { ReleaseAddLinkCombobox } from './ReleaseAddLinkCombobox'
 import { releaseCalendarLogic } from './releaseCalendarLogic'
+import { laneActivity } from './releaseChanges'
 import { ReleaseFlagActions, ReleaseVariantWarning, emptyVariantWarning } from './ReleaseFlagActions'
 import { ReleaseLaneRemoveButton } from './ReleaseLaneRemoveButton'
 import { ReleaseLinkedInsights } from './ReleaseLinkedInsights'
@@ -169,8 +170,8 @@ function trackColumns(labelWidth: number, stacked: boolean): ColumnDef<Lane>[] {
 
 export function ReleaseTrackCard({ row }: { row: ReleaseRow }): JSX.Element {
     const { canEditReleases } = useValues(releaseLogic)
-    const { failedFlagIds } = useValues(releaseCalendarLogic)
-    const { loadFlagActivity } = useActions(releaseCalendarLogic)
+    const { failedFlagIds, failedObjectKeys } = useValues(releaseCalendarLogic)
+    const { loadFlagActivity, loadObjectActivity } = useActions(releaseCalendarLogic)
     const [container, setContainer] = useState<HTMLDivElement | null>(null)
     const { width = 0 } = useResizeObserver<HTMLDivElement>({ ref: container })
     useRefreshChangedFlagHistory(row.flags)
@@ -197,6 +198,10 @@ export function ReleaseTrackCard({ row }: { row: ReleaseRow }): JSX.Element {
     })
     const openEarlyAccess = row.earlyAccess.find(isEnrollingEarlyAccess)
     const failedFlags = row.flags.filter((flag) => failedFlagIds.includes(flag.id))
+    const failedLanes = track.lanes.flatMap((lane) => {
+        const key = laneActivity(lane)?.key
+        return key && failedObjectKeys.includes(key) ? [{ key, title: lane.title }] : []
+    })
 
     const state = useMemo(
         () => ({ row, labelWidth, stickyOffset, width, stacked, scale, color, lanesByKey, loadFlagActivity }),
@@ -211,7 +216,11 @@ export function ReleaseTrackCard({ row }: { row: ReleaseRow }): JSX.Element {
                     Who gets each part of this release, day by day. Change who gets a flag in its release conditions.
                 </CardDescription>
             </CardHeader>
-            {(warnings.length > 0 || openEarlyAccess || failedFlags.length > 0 || row.missingFlagIds.length > 0) && (
+            {(warnings.length > 0 ||
+                openEarlyAccess ||
+                failedFlags.length > 0 ||
+                failedLanes.length > 0 ||
+                row.missingFlagIds.length > 0) && (
                 <div className="flex flex-col gap-2 px-4 pb-3">
                     <ReleaseMissingFlagsWarning row={row} />
                     {failedFlags.length > 0 && (
@@ -226,6 +235,23 @@ export function ReleaseTrackCard({ row }: { row: ReleaseRow }): JSX.Element {
                                 variant="outline"
                                 onClick={() => loadFlagActivity(failedFlags.map((flag) => flag.id))}
                                 data-attr="release-track-history-retry"
+                            >
+                                Try again
+                            </Button>
+                        </div>
+                    )}
+                    {failedLanes.length > 0 && (
+                        <div className="flex items-center gap-2">
+                            <Text size="xs" variant="muted">
+                                {failedLanes.length === 1
+                                    ? `Couldn't load the change history of ${failedLanes[0].title}.`
+                                    : `Couldn't load the change history of ${failedLanes.length} experiments and surveys.`}
+                            </Text>
+                            <Button
+                                size="xs"
+                                variant="outline"
+                                onClick={() => loadObjectActivity(failedLanes.map((lane) => lane.key))}
+                                data-attr="release-track-change-history-retry"
                             >
                                 Try again
                             </Button>

@@ -1,3 +1,5 @@
+import { memo, useMemo } from 'react'
+
 import { Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
 import { dayjs } from 'lib/dayjs'
@@ -8,15 +10,7 @@ import { Scale, x } from './releaseTracks'
 const DOT = 8
 const GAP = 3
 
-export function ReleaseChangeDots({
-    changes,
-    scale,
-    center,
-}: {
-    changes: ReleaseChange[]
-    scale: Scale
-    center: number
-}): JSX.Element | null {
+function changesByDay(changes: ReleaseChange[], scale: Scale): Map<string, ReleaseChange[]> {
     const end = scale.start.add(scale.days, 'day')
     const byDay = new Map<string, ReleaseChange[]>()
     for (const change of [...changes].sort((a, b) => a.date.localeCompare(b.date))) {
@@ -27,13 +21,26 @@ export function ReleaseChangeDots({
         const day = date.format('YYYY-MM-DD')
         byDay.set(day, [...(byDay.get(day) ?? []), change])
     }
+    return byDay
+}
+
+export const ReleaseChangeDots = memo(function ReleaseChangeDots({
+    changes,
+    scale,
+    center,
+}: {
+    changes: ReleaseChange[]
+    scale: Scale
+    center: number
+}): JSX.Element | null {
+    const byDay = useMemo(() => changesByDay(changes, scale), [changes, scale])
     if (!byDay.size) {
         return null
     }
     return (
         <>
             {[...byDay.entries()].flatMap(([day, group]) => {
-                const step = Math.min(DOT + GAP, Math.max(2, (scale.day - DOT) / Math.max(1, group.length - 1)))
+                const step = Math.min(DOT + GAP, Math.max(0, (scale.day - DOT) / Math.max(1, group.length - 1)))
                 const first = x(day, scale) + scale.day / 2 - ((group.length - 1) * step) / 2 - DOT / 2
                 return group.map((change, index) => (
                     <Tooltip key={change.key}>
@@ -69,4 +76,4 @@ export function ReleaseChangeDots({
             })}
         </>
     )
-}
+})

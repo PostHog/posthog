@@ -86,6 +86,31 @@ describe('releaseChanges', () => {
             lines: ['Launched'],
         },
         {
+            name: 'a shared metric deleted in an experiment history',
+            kind: 'experiment',
+            input: { ...entry({ type: 'shared_metric' }), activity: 'deleted', scope: 'Experiment' },
+            who: 'Ana',
+            lines: ['Deleted the shared metric'],
+        },
+        {
+            name: 'a linked flag rollout in an experiment history',
+            kind: 'experiment',
+            input: {
+                ...entry({
+                    changes: [
+                        {
+                            field: 'filters',
+                            before: everyone,
+                            after: { groups: [{ properties: [], rollout_percentage: 100 }] },
+                        },
+                    ],
+                }),
+                scope: 'FeatureFlag',
+            },
+            who: 'Ana',
+            lines: ['Rollout 30% to 100%'],
+        },
+        {
             name: 'survey questions edited',
             kind: 'survey',
             input: entry({ changes: [{ field: 'questions', before: [], after: [{ question: 'Why?' }] }] }),
