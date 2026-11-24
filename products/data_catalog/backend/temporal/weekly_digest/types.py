@@ -11,6 +11,7 @@ class DigestOutcome(StrEnum):
     DRY_RUN = "dry_run"
     SKIPPED_OPTOUT = "skipped_optout"
     SKIPPED_NO_DATA = "skipped_no_data"
+    SKIPPED_NOTHING_NEW = "skipped_nothing_new"
     FAILED = "failed"
 
 
@@ -24,6 +25,7 @@ class OrgDigestCounts:
     sent: int = 0
     skipped_optout: int = 0
     skipped_no_data: int = 0
+    skipped_nothing_new: int = 0
     failed: int = 0
     team_count: int = 0
     teams_failed: int = 0
@@ -75,6 +77,7 @@ class DigestBatchResult(DigestBatchTotals):
     emails_sent: int = 0
     emails_skipped_optout: int = 0
     emails_skipped_no_data: int = 0
+    emails_skipped_nothing_new: int = 0
     emails_failed: int = 0
 
 

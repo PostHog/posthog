@@ -45,6 +45,7 @@ logger = structlog.get_logger(__name__)
 
 DIGEST_FLAG_KEY = "data-catalog-weekly-digest"
 EMAIL_TEMPLATE_NAME = "data_catalog_weekly_digest"
+NEW_ITEMS_WINDOW = timedelta(days=7)
 
 
 def _get_org_queryset_for_digest(input: DataCatalogWeeklyDigestInput) -> tuple[QuerySet[Organization], datetime | None]:
@@ -160,6 +161,9 @@ def _send_digest_for_user(
     if not accessible:
         return DigestOutcome.SKIPPED_NO_DATA
 
+    if not test and not _has_new_items(accessible):
+        return DigestOutcome.SKIPPED_NOTHING_NEW
+
     if dry_run:
         return DigestOutcome.DRY_RUN
 
@@ -172,7 +176,7 @@ def _send_digest_for_user(
     try:
         message = EmailMessage(
             campaign_key=campaign_key,
-            subject=build_subject(template_context["total"]),
+            subject=build_subject(template_context["new_total"], template_context["total"]),
             template_name=EMAIL_TEMPLATE_NAME,
             template_context=template_context,
         )
@@ -191,6 +195,14 @@ def _send_digest_for_user(
         return DigestOutcome.FAILED
 
     return DigestOutcome.SENT
+
+
+def _has_new_items(reviews: list[TeamPendingReview]) -> bool:
+    return any(group.new_count for review in reviews for group in review.groups)
+
+
+def _new_since() -> datetime:
+    return timezone.now() - NEW_ITEMS_WINDOW
 
 
 def _project_teams(org_id: str) -> dict[int, Team]:
@@ -226,7 +238,7 @@ def _build_and_send_for_org(org_id: str, dry_run: bool = False) -> OrgDigestCoun
         return counts
 
     build_start = time.monotonic()
-    build = build_org_pending_reviews(list(teams_by_id.values()))
+    build = build_org_pending_reviews(list(teams_by_id.values()), new_since=_new_since())
     counts.build_duration = time.monotonic() - build_start
     counts.team_count = len(build.reviews)
     counts.teams_failed = len(build.failed_team_ids)
@@ -267,6 +279,8 @@ def _build_and_send_for_org(org_id: str, dry_run: bool = False) -> OrgDigestCoun
             counts.skipped_optout += 1
         elif outcome == DigestOutcome.SKIPPED_NO_DATA:
             counts.skipped_no_data += 1
+        elif outcome == DigestOutcome.SKIPPED_NOTHING_NEW:
+            counts.skipped_nothing_new += 1
         elif outcome == DigestOutcome.FAILED:
             counts.failed += 1
     counts.send_duration = time.monotonic() - send_start
@@ -277,6 +291,7 @@ def _build_and_send_for_org(org_id: str, dry_run: bool = False) -> OrgDigestCoun
         sent_count=counts.sent,
         skipped_optout=counts.skipped_optout,
         skipped_no_data=counts.skipped_no_data,
+        skipped_nothing_new=counts.skipped_nothing_new,
         failed=counts.failed,
         team_count=counts.team_count,
         teams_failed=counts.teams_failed,
@@ -318,6 +333,7 @@ def _run_digest_batch(input: DigestBatchInput) -> DigestBatchResult:
         totals.emails_sent += org_counts.sent
         totals.emails_skipped_optout += org_counts.skipped_optout
         totals.emails_skipped_no_data += org_counts.skipped_no_data
+        totals.emails_skipped_nothing_new += org_counts.skipped_nothing_new
         totals.emails_failed += org_counts.failed
         totals.teams_failed += org_counts.teams_failed
         totals.build_duration += org_counts.build_duration
@@ -376,6 +392,7 @@ def _push_digest_metrics(totals: DigestBatchResult, success: bool) -> None:
                 ("sent", totals.emails_sent),
                 ("skipped_optout", totals.emails_skipped_optout),
                 ("skipped_no_data", totals.emails_skipped_no_data),
+                ("skipped_nothing_new", totals.emails_skipped_nothing_new),
                 ("failed", totals.emails_failed),
             ]:
                 emails_gauge.labels(outcome=outcome).set(value)
@@ -442,7 +459,7 @@ def _send_test_digest(email: str) -> None:
         teams_by_id = _project_teams(str(org.id))
         if not teams_by_id:
             continue
-        reviews = build_org_pending_reviews(list(teams_by_id.values())).reviews
+        reviews = build_org_pending_reviews(list(teams_by_id.values()), new_since=_new_since()).reviews
         if not reviews:
             continue
         outcome = _send_digest_for_user(

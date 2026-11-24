@@ -15,9 +15,13 @@ MAX_PROJECT_SECTIONS = 10
 
 TEAM_NAME_FALLBACK = "Your project"
 
+ORGANIZATION_NAME_FALLBACK = "your organization"
+
+PROPOSED_FILTER = {"filter": "proposed"}
+
 
 def catalog_url(team_id: int, kind: PendingKind | None = None) -> str:
-    params = {"tab": kind.value, **UTM_PARAMS} if kind else dict(UTM_PARAMS)
+    params = {"tab": kind.value, **PROPOSED_FILTER, **UTM_PARAMS} if kind else dict(UTM_PARAMS)
     return f"{settings.SITE_URL}/project/{team_id}/data-catalog?{urlencode(params)}"
 
 
@@ -33,7 +37,6 @@ def build_project_section(review: TeamPendingReview) -> dict:
         "project_url": catalog_url(review.team_id),
         "total": review.total,
         "review_url": catalog_url(review.team_id, busiest.kind),
-        "create_metric_url": catalog_url(review.team_id, PendingKind.METRICS),
         "rows": [_build_row(review.team_id, group) for group in review.groups],
     }
 
@@ -43,6 +46,7 @@ def _build_row(team_id: int, group: PendingGroup) -> dict:
     return {
         "noun": group.noun,
         "count": group.count,
+        "new_count": group.new_count,
         "sample_names": sample_names,
         "omitted_count": group.count - len(sample_names),
         "review_url": catalog_url(team_id, group.kind),
@@ -55,13 +59,17 @@ def build_template_context(organization: Organization, reviews: list[TeamPending
     shown = busiest_first[:MAX_PROJECT_SECTIONS]
     return {
         "organization": organization,
+        "organization_name": sanitize_display_name(organization.name, fallback=ORGANIZATION_NAME_FALLBACK),
         "total": sum(review.total for review in reviews),
+        "new_total": sum(group.new_count for review in reviews for group in review.groups),
         "project_sections": [build_project_section(review) for review in shown],
         "omitted_project_count": len(busiest_first) - len(shown),
         "settings_url": settings_url(),
     }
 
 
-def build_subject(total: int) -> str:
-    item_word = "item" if total == 1 else "items"
-    return f"{total} {item_word} awaiting review in your data catalog"
+def build_subject(new_total: int, total: int) -> str:
+    count = new_total or total
+    item_word = "item" if count == 1 else "items"
+    new_word = "new " if new_total else ""
+    return f"{count} {new_word}{item_word} to review in your data catalog"

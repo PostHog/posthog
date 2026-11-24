@@ -47,9 +47,11 @@ from products.data_catalog.backend.temporal.weekly_digest.workflows import DataC
 _ACTIVITIES = "products.data_catalog.backend.temporal.weekly_digest.activities"
 
 
-def _review(team: Team, metrics: int = 2, certifications: int = 1) -> TeamPendingReview:
+def _review(team: Team, metrics: int = 2, certifications: int = 1, new_metrics: int = 1) -> TeamPendingReview:
     groups = [
-        PendingGroup(kind=PendingKind.METRICS, noun="metric", count=metrics, sample_names=["revenue"]),
+        PendingGroup(
+            kind=PendingKind.METRICS, noun="metric", count=metrics, sample_names=["revenue"], new_count=new_metrics
+        ),
         PendingGroup(
             kind=PendingKind.CERTIFICATIONS,
             noun="certification",
@@ -76,15 +78,19 @@ def _pending_metrics(team_id: int, count: int, sample_names: list[str], team_nam
 
 class TestEmailContext(SimpleTestCase):
     @parameterized.expand(
-        [(1, "1 item awaiting review in your data catalog"), (4, "4 items awaiting review in your data catalog")]
+        [
+            (1, 4, "1 new item to review in your data catalog"),
+            (3, 4, "3 new items to review in your data catalog"),
+            (0, 4, "4 items to review in your data catalog"),
+        ]
     )
-    def test_subject_counts_items(self, total: int, expected: str) -> None:
-        assert build_subject(total) == expected
+    def test_subject_leads_with_the_new_items(self, new_total: int, total: int, expected: str) -> None:
+        assert build_subject(new_total, total) == expected
 
-    def test_review_links_open_the_tab_that_holds_the_queue(self) -> None:
+    def test_review_links_open_the_queue_filtered_to_proposed_items(self) -> None:
         assert catalog_url(7, PendingKind.RELATIONSHIPS) == (
             f"{settings.SITE_URL}/project/7/data-catalog"
-            "?tab=relationships&utm_source=data_catalog_weekly_digest&utm_medium=email"
+            "?tab=relationships&filter=proposed&utm_source=data_catalog_weekly_digest&utm_medium=email"
         )
 
     def test_primary_button_opens_the_busiest_queue(self) -> None:
@@ -143,12 +149,12 @@ class TestSendDigestForUser(APIBaseTest):
         self.email_class_patcher.stop()
         super().tearDown()
 
-    def _send(self, *, dry_run: bool = False, test: bool = False) -> DigestOutcome:
+    def _send(self, *, dry_run: bool = False, test: bool = False, new_metrics: int = 1) -> DigestOutcome:
         return _send_digest_for_user(
             user=self.user,
             org=self.organization,
             membership=self.organization_membership,
-            reviews={self.team.id: _review(self.team)},
+            reviews={self.team.id: _review(self.team, new_metrics=new_metrics)},
             teams_by_id={self.team.id: self.team},
             date_suffix="2026-15",
             dry_run=dry_run,
@@ -160,7 +166,7 @@ class TestSendDigestForUser(APIBaseTest):
 
         assert outcome == DigestOutcome.SENT
         kwargs = self.mock_email_class.call_args.kwargs
-        assert kwargs["subject"] == "3 items awaiting review in your data catalog"
+        assert kwargs["subject"] == "1 new item to review in your data catalog"
         assert kwargs["template_context"]["total"] == 3
         self.mock_message.add_user_recipient.assert_called_once_with(self.user)
         self.mock_message.send.assert_called_once()
@@ -187,6 +193,10 @@ class TestSendDigestForUser(APIBaseTest):
 
         assert first == second
         assert str(self.user.uuid) in first
+
+    @parameterized.expand([(False, DigestOutcome.SKIPPED_NOTHING_NEW), (True, DigestOutcome.SENT)])
+    def test_a_backlog_with_nothing_new_sends_only_in_test_mode(self, test: bool, expected: DigestOutcome) -> None:
+        assert self._send(test=test, new_metrics=0) == expected
 
     def test_dry_run_sends_nothing(self) -> None:
         assert self._send(dry_run=True) == DigestOutcome.DRY_RUN
@@ -229,6 +239,15 @@ class TestBuildAndSendForOrg(APIBaseTest):
         self.is_email_patcher.stop()
         self.email_class_patcher.stop()
         super().tearDown()
+
+    @parameterized.expand([(1, 1), (8, 0)])
+    def test_sends_only_when_an_item_arrived_in_the_last_week(self, days_old: int, expected_sent: int) -> None:
+        Metric.objects.unscoped().filter(team=self.team).update(created_at=timezone.now() - timedelta(days=days_old))
+
+        counts = _build_and_send_for_org(str(self.organization.id))
+
+        assert counts.sent == expected_sent
+        assert counts.skipped_nothing_new == 1 - expected_sent
 
     @parameterized.expand([(True, 1), (False, 0)])
     def test_only_active_accounts_receive_the_digest(self, is_active: bool, expected_sent: int) -> None:
