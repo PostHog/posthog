@@ -1,6 +1,7 @@
 import json
 from collections.abc import Callable
 from contextlib import nullcontext
+from datetime import timedelta
 from typing import Any, get_args
 from uuid import UUID, uuid4
 
@@ -13,6 +14,7 @@ from django.conf import settings
 from django.db import OperationalError, connection
 from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
 
 import requests
 from parameterized import parameterized
@@ -27,6 +29,7 @@ from posthog.models import OrganizationMembership, ProjectSecretAPIKey, Team, Us
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.integration import Integration
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal, generate_random_token_secret
 from posthog.rate_limit import get_route_from_path, get_team_allow_list, is_rate_limit_enabled
@@ -873,6 +876,7 @@ class TestTransactionalEmail(APIBaseTest):
                 status.HTTP_202_ACCEPTED,
             ),
             ("lowest_tier_signed_in_to_the_app", 0, False, None, "session", status.HTTP_202_ACCEPTED),
+            ("lowest_tier_with_an_oauth_token", 0, False, None, "oauth", status.HTTP_429_TOO_MANY_REQUESTS),
         ]
     )
     def test_a_send_past_the_floor_is_refused_unless_the_tier_allows_more(
@@ -2689,6 +2693,27 @@ class TestTransactionalEmail(APIBaseTest):
         assert self._workflow(self.hog_flow_id)["version"] == 1
 
     def _sender_client(self, sender: str) -> APIClient:
+        if sender == "oauth":
+            application = OAuthApplication.objects.create(
+                name="email sender",
+                client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                algorithm="RS256",
+                redirect_uris="https://example.com/callback",
+                organization=self.organization,
+                user=self.user,
+            )
+            token = OAuthAccessToken.objects.create(
+                user=self.user,
+                application=application,
+                token=f"pha_{uuid4().hex}",
+                scope="transactional_email:write",
+                expires=timezone.now() + timedelta(hours=1),
+                scoped_teams=[self.team.id],
+            )
+            client = APIClient()
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token.token}")
+            return client
         if sender == "personal_api_key":
             token = generate_random_token_personal()
             PersonalAPIKey.objects.create(

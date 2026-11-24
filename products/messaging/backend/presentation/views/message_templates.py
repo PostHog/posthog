@@ -1087,7 +1087,6 @@ def transactional_email_send_budget(team_id: int) -> Budget | None:
             # A floor budget would clip a higher tier's stored balance, so skip the limit for this send.
             return None
         try:
-            # add never overwrites, so a slow refresh cannot replace a newer tier.
             cache.add(key, daily_cap, 60)
         except Exception as e:
             capture_exception(e)
@@ -1116,7 +1115,8 @@ class TransactionalEmailSendThrottle(BaseThrottle):
         budget = transactional_email_send_budget(self.team_id)
         if budget is None:
             return True
-        decision = consume(f"transactional_email_send:{self.team_id}", budget, cost=units)
+        # Keyed by size, so a request holding a stale tier never clips another tier's balance.
+        decision = consume(f"transactional_email_send:{self.team_id}:{budget.burst}", budget, cost=units)
         if isinstance(decision, BucketUnavailable) or decision.allowed:
             return True
         try:
