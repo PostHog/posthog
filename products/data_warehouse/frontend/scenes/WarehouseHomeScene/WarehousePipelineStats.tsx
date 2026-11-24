@@ -3,10 +3,10 @@ import { useActions, useValues } from 'kea'
 import { Skeleton } from '@posthog/quill'
 
 import { WarehouseResourceError } from '../WarehouseConsole/WarehouseResourceError'
+import { WarehouseRunBars } from '../WarehouseConsole/WarehouseRunBars'
 import { WarehouseStatStrip } from '../WarehouseConsole/WarehouseStatStrip'
 import { WarehouseStatTile } from '../WarehouseConsole/WarehouseStatTile'
 import { warehouseHomeLogic } from './warehouseHomeLogic'
-import { WarehouseRunBars } from './WarehouseRunBars'
 
 // pinned: the data-attr values in this file feed autocapture and dashboards, so renaming them breaks both.
 

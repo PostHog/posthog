@@ -15,6 +15,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { WarehouseGettingStarted } from './WarehouseGettingStarted'
 import { WarehouseHealth } from './WarehouseHealth'
 import { WarehouseHomeSummary } from './WarehouseHomeSummary'
+import { WarehousePipelineHealthLine } from './WarehousePipelineHealthLine'
 import { WarehousePipelineStats } from './WarehousePipelineStats'
 import { WarehousePipelinesWindow } from './WarehousePipelinesWindow'
 import { WarehouseRecentRuns } from './WarehouseRecentRuns'
@@ -51,6 +52,7 @@ export function WarehouseHomeScene(): JSX.Element {
                         </Heading>
                         <WarehousePipelinesWindow />
                     </div>
+                    <WarehousePipelineHealthLine />
                     <WarehousePipelineStats />
                     <div className="grid gap-3 @7xl/warehouse-home:grid-cols-2">
                         <WarehouseHealth />

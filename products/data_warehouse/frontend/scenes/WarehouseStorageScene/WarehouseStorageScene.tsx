@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 
 import { Skeleton } from '@posthog/quill'
 
@@ -13,11 +13,9 @@ import { formatBytes, formatCount } from '../WarehouseConsole/warehouseConsoleFo
 import { WarehouseConsoleGate } from '../WarehouseConsole/WarehouseConsoleGate'
 import { warehouseConsoleLogic } from '../WarehouseConsole/warehouseConsoleLogic'
 import { WarehouseConsoleState } from '../WarehouseConsole/WarehouseConsoleState'
-import { type WarehousePageTab, WarehousePageTabs } from '../WarehouseConsole/WarehousePageTabs'
 import { WarehouseResourceError } from '../WarehouseConsole/WarehouseResourceError'
 import { WarehouseStatStrip } from '../WarehouseConsole/WarehouseStatStrip'
 import { WarehouseStatTile } from '../WarehouseConsole/WarehouseStatTile'
-import { WarehouseReadiness } from './WarehouseReadiness'
 import { warehouseStorageLogic } from './warehouseStorageLogic'
 import { WarehouseStorageMaintenance } from './WarehouseStorageMaintenance'
 import { WarehouseStorageTables } from './WarehouseStorageTables'
@@ -27,7 +25,7 @@ export const scene: SceneExport = {
     productKey: ProductKey.DATA_WAREHOUSE,
 }
 
-function WarehouseStorageTablesTab(): JSX.Element {
+function WarehouseStorageBody(): JSX.Element {
     const { storage, storageLoading, storageFailed, tableRows, totalRows } = useValues(warehouseStorageLogic)
     const { retryStorage } = useActions(warehouseStorageLogic)
 
@@ -74,22 +72,12 @@ function WarehouseStorageTablesTab(): JSX.Element {
     )
 }
 
-const TABS: WarehousePageTab[] = [
-    { value: 'tables', label: 'Tables', 'data-attr': 'warehouse-storage-tab-tables' },
-    { value: 'readiness', label: 'Data readiness', 'data-attr': 'warehouse-storage-tab-readiness' },
-]
-
 function WarehouseStorageContent(): JSX.Element {
     const { consoleState } = useValues(warehouseConsoleLogic)
+    // Mounted here so it also redirects the old `?tab=readiness` link when the warehouse is not ready.
+    useMountedLogic(warehouseStorageLogic)
 
-    if (consoleState !== 'ready') {
-        return <WarehouseConsoleState page="storage" />
-    }
-    return (
-        <WarehousePageTabs tabs={TABS} page="storage">
-            {(tab) => (tab === 'readiness' ? <WarehouseReadiness /> : <WarehouseStorageTablesTab />)}
-        </WarehousePageTabs>
-    )
+    return consoleState === 'ready' ? <WarehouseStorageBody /> : <WarehouseConsoleState page="storage" />
 }
 
 export function WarehouseStorageScene(): JSX.Element {

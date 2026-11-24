@@ -1,15 +1,9 @@
 import type { DataHealthIssueApi, JobCountsApi, PipelineJobStatsResponseApi } from '../../generated/api.schemas'
 import { formatCount } from '../WarehouseConsole/warehouseConsoleFormat'
+import type { RunBucket } from '../WarehouseConsole/WarehouseRunBars'
 import { statusBadge } from './warehouseHealthStatus'
 
 export type JobStatsDays = 1 | 7 | 30
-
-export interface RunBucket {
-    /** The bucket start, as the API keys it: an ISO date, or an ISO hour for a one day window. */
-    key: string
-    successful: number
-    failed: number
-}
 
 export interface PipelineTile {
     value: string

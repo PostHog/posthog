@@ -179,6 +179,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/warehouse/usage': ['WarehouseUsage', 'warehouseUsage'],
     '/warehouse/queries': ['WarehouseQueries', 'warehouseQueries'],
     '/warehouse/storage': ['WarehouseStorage', 'warehouseStorage'],
+    '/warehouse/pipelines': ['WarehousePipelineHealth', 'warehousePipelineHealth'],
     '/warehouse/access': ['WarehouseAccess', 'warehouseAccess'],
     '/warehouse/connect': ['WarehouseConnect', 'warehouseConnect'],
     '/warehouse/settings': ['WarehouseSettings', 'warehouseSettings'],
@@ -1012,6 +1013,12 @@ export const productConfiguration: Record<string, any> = {
         description: "See how much data your organization's managed warehouse stores.",
         iconType: 'data_warehouse',
     },
+    WarehousePipelineHealth: {
+        name: 'Pipeline health',
+        projectBased: true,
+        description: 'Check that your events and sources are landing in your managed warehouse.',
+        iconType: 'data_warehouse',
+    },
     WarehouseAccess: {
         name: 'Access',
         projectBased: true,
@@ -1691,6 +1698,7 @@ export const productUrls = {
     warehouseUsage: (): string => '/warehouse/usage',
     warehouseQueries: (): string => '/warehouse/queries',
     warehouseStorage: (): string => '/warehouse/storage',
+    warehousePipelineHealth: (): string => '/warehouse/pipelines',
     warehouseAccess: (): string => '/warehouse/access',
     warehouseConnect: (): string => '/warehouse/connect',
     warehouseSettings: (): string => '/warehouse/settings',

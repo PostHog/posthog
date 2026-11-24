@@ -219,6 +219,7 @@ export enum Scene {
     WarehouseUsage = 'WarehouseUsage',
     WarehouseQueries = 'WarehouseQueries',
     WarehouseStorage = 'WarehouseStorage',
+    WarehousePipelineHealth = 'WarehousePipelineHealth',
     WarehouseAccess = 'WarehouseAccess',
     WarehouseConnect = 'WarehouseConnect',
     WarehouseSettings = 'WarehouseSettings',

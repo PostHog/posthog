@@ -22,6 +22,12 @@ const STATUS_STYLE: Record<string, { variant: BadgeVariant; label: string }> = {
     up_to_date: { variant: 'success', label: 'Up to date' },
     needs_attention: { variant: 'destructive', label: 'Needs attention' },
     sync_paused: { variant: 'default', label: 'Sync paused' },
+    // Landing states: whether an import has reached the warehouse
+    in_sync: { variant: 'success', label: 'In sync' },
+    behind: { variant: 'warning', label: 'Behind' },
+    failing: { variant: 'destructive', label: 'Failing' },
+    not_in_warehouse: { variant: 'default', label: 'Not in warehouse' },
+    paused: { variant: 'default', label: 'Paused' },
 }
 
 /** The one status pill of the console. Unknown states render as a muted pill with their own name. */

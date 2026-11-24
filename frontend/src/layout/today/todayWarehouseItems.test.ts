@@ -18,12 +18,12 @@ describe('todayWarehouseItems', () => {
         expect(visibleWarehouseItems(featureFlags).some((item) => item.key === 'data_ops')).toBe(listed)
     })
 
-    const MANAGE_KEYS = ['data_ops', 'usage', 'queries', 'storage', 'access', 'connect', 'settings']
+    const MANAGE_KEYS = ['data_ops', 'pipeline_health', 'usage', 'queries', 'storage', 'access', 'connect', 'settings']
 
     test.each([
         [
             { [FEATURE_FLAGS.MANAGED_WAREHOUSE_CONSOLE]: true, [FEATURE_FLAGS.DATA_WAREHOUSE_SCENE]: true },
-            ['usage', 'queries', 'storage', 'access', 'connect', 'settings'],
+            ['pipeline_health', 'usage', 'queries', 'storage', 'access', 'connect', 'settings'],
         ],
         [{ [FEATURE_FLAGS.DATA_WAREHOUSE_SCENE]: true }, ['data_ops']],
         [{ [FEATURE_FLAGS.MANAGED_TRINO_QUERY]: true }, ['data_ops']],
@@ -39,6 +39,7 @@ describe('todayWarehouseItems', () => {
         ['/models', 'models'],
         ['/models/abc', 'models'],
         ['/warehouse', 'home'],
+        ['/warehouse/pipelines', 'pipeline_health'],
         ['/warehouse/usage', 'usage'],
         ['/warehouse/queries', 'queries'],
         ['/warehouse/storage', 'storage'],

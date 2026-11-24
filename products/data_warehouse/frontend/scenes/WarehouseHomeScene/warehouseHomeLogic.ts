@@ -18,13 +18,13 @@ import type {
     PipelineActivityRowApi,
     PipelineJobStatsResponseApi,
 } from '../../generated/api.schemas'
+import type { RunBucket } from '../WarehouseConsole/WarehouseRunBars'
 import {
     fillRunBuckets,
     type JobStatsDays,
     jobCountsTile,
     needsAttentionTile,
     type PipelineTile,
-    type RunBucket,
     runSuccessTile,
 } from './warehouseHomeStats'
 

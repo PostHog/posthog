@@ -24,6 +24,7 @@ export type WarehouseItemKey =
     | 'actions'
     | 'sql_variables'
     | 'data_ops'
+    | 'pipeline_health'
     | 'usage'
     | 'queries'
     | 'storage'
@@ -203,6 +204,15 @@ export const WAREHOUSE_ITEMS: WarehouseItem[] = [
         alternativeFlags: [FEATURE_FLAGS.MANAGED_TRINO_QUERY],
         // The console takes over its tabs: Settings, Queries and Storage.
         hiddenWhenFlags: [FEATURE_FLAGS.MANAGED_WAREHOUSE_CONSOLE],
+    },
+    {
+        key: 'pipeline_health',
+        label: 'Pipeline health',
+        href: urls.warehousePipelineHealth(),
+        iconType: 'data_pipeline',
+        sceneKey: 'WarehousePipelineHealth',
+        group: 'manage',
+        flag: FEATURE_FLAGS.MANAGED_WAREHOUSE_CONSOLE,
     },
     {
         key: 'usage',

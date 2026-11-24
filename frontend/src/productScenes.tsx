@@ -118,6 +118,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import('../../products/data_warehouse/frontend/scenes/WarehouseQueriesScene/WarehouseQueriesScene'),
     WarehouseStorage: () =>
         import('../../products/data_warehouse/frontend/scenes/WarehouseStorageScene/WarehouseStorageScene'),
+    WarehousePipelineHealth: () =>
+        import('../../products/data_warehouse/frontend/scenes/WarehousePipelineHealthScene/WarehousePipelineHealthScene'),
     WarehouseAccess: () =>
         import('../../products/data_warehouse/frontend/scenes/WarehouseAccessScene/WarehouseAccessScene'),
     WarehouseConnect: () =>
