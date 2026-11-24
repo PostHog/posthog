@@ -421,21 +421,24 @@ def test_fetch_page_denial_states_the_action_that_fits_the_denial(
     assert ("api.github.com" in str(raised.value)) is carries_url
 
 
-def test_fetch_page_denial_on_a_collaborator_only_table_names_the_access_github_requires():
+@pytest.mark.parametrize("endpoint", ["stargazers", "subscribers"])
+def test_fetch_page_denial_on_a_collaborator_only_table_names_the_access_github_requires(endpoint):
     session = mock.Mock()
     session.request.return_value = _error_response(403, "Resource not accessible by personal access token")
 
     with mock.patch.object(github, "make_tracked_session", return_value=session):
         with pytest.raises(github.GithubAccessDeniedError) as raised:
             github._fetch_page(
-                "https://api.github.com/repos/o/r/stargazers",
+                f"https://api.github.com/repos/o/r/{endpoint}",
                 {},
                 mock.Mock(),
                 repository="o/r",
-                endpoint="stargazers",
+                endpoint=endpoint,
             )
 
     assert "limits this table to admins and collaborators" in str(raised.value)
+    # An admin's fine-grained token with Contents: read still gets this 403, so the role alone is not the fix.
+    assert '"Contents: read and write"' in str(raised.value)
     assert "Add the missing permission" not in str(raised.value)
 
 

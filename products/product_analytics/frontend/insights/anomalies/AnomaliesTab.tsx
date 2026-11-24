@@ -8,9 +8,9 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
 import { AnomaliesEmptyState } from './AnomaliesEmptyState'
 import { AnomaliesFilters } from './AnomaliesFilters'
-import { SCORED_HISTORY_READY_DAYS, anomaliesTabLogic } from './anomaliesTabLogic'
+import { SCORED_HISTORY_READY_DAYS, anomaliesTabLogic, anomalyRatingKey, anomalySeriesKey } from './anomaliesTabLogic'
 import { AnomalyChartLegend } from './AnomalyChartLegend'
-import { AnomalyInsightGroup } from './AnomalyInsightGroup'
+import { AnomalyRow } from './AnomalyRow'
 
 function SeriesCappedBanner(): JSX.Element {
     return (
@@ -34,25 +34,10 @@ function ScopeFallbackBanner({ viewedWithinDays }: { viewedWithinDays: number })
 }
 
 export function AnomaliesTab(): JSX.Element {
-    const {
-        anomalies,
-        anomaliesLoading,
-        loadingMore,
-        loadError,
-        series,
-        insightGroups,
-        expandedInsightIds,
-        hasMore,
-        seriesRatings,
-    } = useValues(anomaliesTabLogic)
-    const {
-        loadAnomalies,
-        loadMoreAnomalies,
-        reportInsightOpened,
-        toggleInsightExpanded,
-        rateSeries,
-        reportCreateAlertOpened,
-    } = useActions(anomaliesTabLogic)
+    const { anomalies, anomaliesLoading, loadingMore, loadError, series, hasMore, seriesRatings } =
+        useValues(anomaliesTabLogic)
+    const { loadAnomalies, loadMoreAnomalies, reportInsightOpened, rateSeries, reportCreateAlertOpened } =
+        useActions(anomaliesTabLogic)
 
     const reloading = anomaliesLoading && !loadingMore
 
@@ -79,7 +64,7 @@ export function AnomaliesTab(): JSX.Element {
             ) : reloading || !anomalies ? (
                 <div className="flex flex-col gap-2">
                     {Array.from({ length: 3 }, (_, index) => (
-                        <LemonSkeleton key={index} className="h-36 w-full" />
+                        <LemonSkeleton key={index} className="h-52 w-full" />
                     ))}
                 </div>
             ) : series.length === 0 ? (
@@ -116,19 +101,20 @@ export function AnomaliesTab(): JSX.Element {
                         <AnomalyChartLegend />
                     </div>
                     <div className="flex flex-col gap-2">
-                        {insightGroups.map((group, index) => (
-                            <AnomalyInsightGroup
-                                key={group.insightId}
-                                group={group}
-                                expanded={!!expandedInsightIds[group.insightId]}
-                                dateFrom={anomalies.date_from}
+                        {series.map((row, index) => (
+                            <AnomalyRow
+                                key={anomalySeriesKey(row)}
+                                series={row}
+                                // A weekly or monthly series can be checked over a longer range than the requested one.
+                                dateFrom={
+                                    anomalies.interval_ranges.find((range) => range.interval === row.interval)
+                                        ?.date_from ?? anomalies.date_from
+                                }
                                 dateTo={anomalies.date_to}
-                                intervalRanges={anomalies.interval_ranges}
-                                seriesRatings={seriesRatings}
-                                onToggleExpanded={() => toggleInsightExpanded(group.insightId, index)}
-                                onOpenInsight={(row) => reportInsightOpened(row, index)}
-                                onRateSeries={(row, rating) => rateSeries(row, rating, index)}
-                                onCreateAlert={(row) => reportCreateAlertOpened(row, index)}
+                                rating={seriesRatings[anomalyRatingKey(row)]}
+                                onOpenInsight={() => reportInsightOpened(row, index)}
+                                onRate={(rating) => rateSeries(row, rating, index)}
+                                onCreateAlert={() => reportCreateAlertOpened(row, index)}
                             />
                         ))}
                     </div>
