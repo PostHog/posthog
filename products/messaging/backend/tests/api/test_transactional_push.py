@@ -634,6 +634,41 @@ class TestTransactionalPushBatchSend(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("at_the_cap", 0, {}, True),
+            ("one_byte_over", 1, {}, False),
+            # Counted once for the batch and once for the recipient, as the email batch does.
+            ("at_the_cap_overriding_a_shared_key", 0, {"note": "own"}, True),
+            ("one_byte_over_overriding_a_shared_key", 1, {"note": "own"}, False),
+        ]
+    )
+    def test_all_copies_of_a_batch_are_capped_like_the_email_batch(
+        self, mock_post, _flag, _capture, _name, extra, own, sent
+    ):
+        mock_post.side_effect = self._answer_by_key({})
+
+        def size(value: dict[str, Any]) -> int:
+            return len(json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode())
+
+        # Four bytes each, so a count of characters would let more through.
+        shared = {"note": "😀" * 40_000}
+        recipients = self._recipients(100)
+        first = {**own, "pad": ""}
+        rest = 16 * 1024 * 1024 - 100 * size(shared) - 99 * size({}) - size(first)
+        assert rest >= 0
+        recipients[0]["message_data"] = {**first, "pad": "x" * (rest + extra)}
+
+        response = self._batch(recipients, message_data=shared)
+
+        if sent:
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            assert mock_post.call_count == 100
+        else:
+            assert response.status_code == status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, response.json()
+            assert response.json()["code"] == "content_too_large"
+            mock_post.assert_not_called()
+
+    @parameterized.expand(
+        [
             (
                 "duplicate_key",
                 [{"distinct_id": "a", "idempotency_key": "k"}, {"distinct_id": "b", "idempotency_key": "k"}],
