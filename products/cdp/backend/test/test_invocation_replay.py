@@ -760,6 +760,29 @@ class TestReplayConsoleTool(ClickhouseTestMixin, APIBaseTest):
         assert b"Requests sent" in response.content
 
     @patch("products.cdp.backend.services.invocation_replay.rerun_hog_invocations")
+    def test_status_page_of_a_replay_sent_by_an_older_version_does_not_claim_an_outcome(self, rerun: MagicMock) -> None:
+        rerun.return_value = MagicMock(status_code=200, text="{}")
+        plan = plan_replay(_criteria())
+        claim = claim_replay(plan, actor="test")
+        assert claim
+        execute_replay(plan, actor="test", claim=claim)
+        state = get_replay_state(plan.fingerprint)
+        assert state
+        for result in state["results"]:
+            for field in ("offset", "sent_at", "may_have_queued"):
+                del result[field]
+        with (
+            patch("products.cdp.backend.console.get_replay_state", return_value=state),
+            patch("products.cdp.backend.services.invocation_replay.get_replay_state", return_value=state),
+        ):
+            response = self.staff_client.get(f"{self.url}?plan={plan.fingerprint}")
+
+        assert response.status_code == 200
+        assert b"Requests sent" in response.content
+        assert b"no delivery results for this replay" in response.content
+        assert b"Delivery of the replayed runs" not in response.content
+
+    @patch("products.cdp.backend.services.invocation_replay.rerun_hog_invocations")
     def test_staff_can_allow_a_resend_after_an_uncertain_send(self, rerun: MagicMock) -> None:
         rerun.side_effect = ReadTimeout("read timed out")
         plan = plan_replay(_criteria())

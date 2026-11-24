@@ -498,11 +498,13 @@ class ReplayStatus:
                     block=Notice(text="The delivery of the replayed runs shows once a request queues runs."),
                     refresh_seconds=OUTCOME_REFRESH_SECONDS,
                 )
-            if self.results and not any(result.get("may_have_queued") for result in self.results):
-                return Live(
-                    key="outcome", block=Notice(text="No request queued runs, so there is no delivery to show.")
-                )
-            return None
+            return Live(
+                key="outcome",
+                block=Notice(
+                    text="This page has no delivery results for this replay. "
+                    "Check the requests below, and the runs in hog_invocation_results."
+                ),
+            )
         rows: list[Row | GroupRow] = [
             Row(cells=(Cell(text=OUTCOME_LABELS[status], tone=OUTCOME_TONES.get(status)), Cell(text=f"{count:,}")))
             for status, count in outcome.counts.items()
