@@ -54383,7 +54383,7 @@ export namespace Schemas {
       /** @nullable */
       readonly last_synced_at: string | null;
       /**
-         * When a sync last checked the source successfully, including runs that found no new rows. Use this, not `last_synced_at`, to judge whether a table is stale: `last_synced_at` can stay put while every run succeeds because the source has nothing new. Null until the first successful sync.
+         * When the last successful sync of the source started, including runs that found no new rows. Use this, not `last_synced_at`, to judge whether a table is stale: `last_synced_at` can stay put while every run succeeds because the source has nothing new. Null until the first successful sync.
          * @nullable
          */
       readonly last_checked_at: string | null;
@@ -93345,7 +93345,7 @@ export namespace Schemas {
       /** @nullable */
       readonly last_synced_at?: string | null;
       /**
-         * When a sync last checked the source successfully, including runs that found no new rows. Use this, not `last_synced_at`, to judge whether a table is stale: `last_synced_at` can stay put while every run succeeds because the source has nothing new. Null until the first successful sync.
+         * When the last successful sync of the source started, including runs that found no new rows. Use this, not `last_synced_at`, to judge whether a table is stale: `last_synced_at` can stay put while every run succeeds because the source has nothing new. Null until the first successful sync.
          * @nullable
          */
       readonly last_checked_at?: string | null;
