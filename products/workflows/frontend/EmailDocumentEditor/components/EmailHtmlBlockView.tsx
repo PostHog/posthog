@@ -9,11 +9,15 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
 
 import { EmailBlockStyle, emailFontUrls, resolvePageStyle } from '../emailDocument'
+import { useEmailEditorContext } from '../emailEditorContext'
 import { isFullHtmlDocument, oldEditorCss } from '../renderEmailHtml'
 
+// Past the usual 600px and 640px phone breakpoints, so the desktop layout shows even in a narrow editor.
+const MIN_DESKTOP_WIDTH = 660
+
 // The email gives a fragment the page's font and no margin. A full document keeps whatever it sets.
-function previewDocument(html: string, editor: NodeViewProps['editor']): string {
-    if (isFullHtmlDocument(html)) {
+function previewDocument(html: string, editor: NodeViewProps['editor'], sentAsWritten: boolean): string {
+    if (sentAsWritten || isFullHtmlDocument(html)) {
         return html
     }
     const page = resolvePageStyle(editor.state.doc.attrs.page)
@@ -27,6 +31,7 @@ function previewDocument(html: string, editor: NodeViewProps['editor']): string 
 }
 
 export function EmailHtmlBlockView({ node, selected, updateAttributes, editor }: NodeViewProps): JSX.Element {
+    const { sentAsWritten } = useEmailEditorContext()
     const [editing, setEditing] = useState(false)
     const [draft, setDraft] = useState<string>(node.attrs.html)
     const [height, setHeight] = useState(60)
@@ -48,31 +53,55 @@ export function EmailHtmlBlockView({ node, selected, updateAttributes, editor }:
         }
     }, [editing, node.attrs.html])
 
-    const srcDoc = previewDocument(node.attrs.html, editor)
+    const srcDoc = previewDocument(node.attrs.html, editor, sentAsWritten)
 
     const measure = (): void => {
-        // The document's own height: its scroll height never drops below the frame's, so a short block kept the default.
-        const root = iframeRef.current?.contentDocument?.documentElement
-        if (root) {
-            setHeight(Math.max(20, Math.ceil(root.getBoundingClientRect().height)))
+        const iframe = iframeRef.current
+        const root = iframe?.contentDocument?.documentElement
+        if (!iframe || !root) {
+            return
         }
+        // Back to the smallest width first, so a wider email that was edited to be narrower shrinks again.
+        iframe.style.minWidth = sentAsWritten ? `${MIN_DESKTOP_WIDTH}px` : ''
+        if (sentAsWritten) {
+            iframe.style.minWidth = `${Math.max(MIN_DESKTOP_WIDTH, root.scrollWidth)}px`
+        }
+        // The document's own height: its scroll height never drops below the frame's, so a short block kept the default.
+        setHeight(Math.max(20, Math.ceil(root.getBoundingClientRect().height)))
     }
+    const measureRef = useRef(measure)
+    measureRef.current = measure
+
+    // The email reflows when the editor gets wider or narrower, or when a block next to it puts it in the page's body.
+    const hasHtml = !!node.attrs.html
+    useEffect(() => {
+        const iframe = iframeRef.current
+        if (!iframe) {
+            return
+        }
+        const observer = new ResizeObserver(() => measureRef.current())
+        observer.observe(iframe)
+        return () => observer.disconnect()
+    }, [hasHtml, sentAsWritten])
 
     return (
         <NodeViewWrapper
             className={clsx(
                 'email-canvas-html',
+                // Grows with a wide email, so its outline and buttons do too.
+                sentAsWritten && 'w-fit min-w-full',
                 selected && editor.state.selection instanceof NodeSelection && 'email-canvas-selected'
             )}
             data-drag-handle
             style={{
-                padding: padding
-                    ? `${padding.top}px ${padding.right}px ${padding.bottom}px ${padding.left}px`
-                    : undefined,
+                padding:
+                    padding && !sentAsWritten
+                        ? `${padding.top}px ${padding.right}px ${padding.bottom}px ${padding.left}px`
+                        : undefined,
             }}
         >
             <div contentEditable={false} className="relative group" onDoubleClick={() => setEditing(true)}>
-                {node.attrs.html ? (
+                {hasHtml ? (
                     // allow-same-origin only lets the height be read. Without allow-scripts nothing in it can run.
                     <iframe
                         ref={iframeRef}

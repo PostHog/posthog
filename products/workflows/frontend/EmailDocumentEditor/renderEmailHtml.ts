@@ -977,24 +977,34 @@ export function oldEditorInlineHtml(nodes: JSONContent[] | undefined, page: Emai
     return renderInline(nodes, { page, contentWidth: page.bodyWidth })
 }
 
+/** An email that is only one HTML block is the author's own document, so no page style applies. Null for other emails. */
+export function htmlSentAsWritten(doc: JSONContent): string | null {
+    const nodes = withoutTrailingEmptyParagraphs(doc.content ?? [])
+    const html = String(nodes[0]?.attrs?.html ?? '')
+    const page = doc.attrs?.page
+    if (
+        nodes.length !== 1 ||
+        nodes[0].type !== 'emailHtml' ||
+        page?.wrapFullHtml ||
+        !(isFullHtmlDocument(html) || page?.htmlAsWritten === true)
+    ) {
+        return null
+    }
+    // The API trims html when it's saved, and the stored copy in the design has to keep matching it.
+    return html.trim()
+}
+
 /** The email as it is sent. An empty document renders to nothing, so "no content" checks keep working. */
 export function renderEmailHtml(doc: JSONContent): string {
     if (isEmailDocEmpty(doc)) {
         return ''
     }
-    const nodes = withoutTrailingEmptyParagraphs(doc.content ?? [])
-
-    // An email that is only one HTML block is the author's own document: it goes out exactly as written.
-    if (
-        nodes.length === 1 &&
-        nodes[0].type === 'emailHtml' &&
-        (FULL_HTML_DOCUMENT.test(nodes[0].attrs?.html ?? '') || doc.attrs?.page?.htmlAsWritten === true) &&
-        !doc.attrs?.page?.wrapFullHtml
-    ) {
-        // The API trims html when it's saved, and the stored copy in the design has to keep matching it.
-        return String(nodes[0].attrs?.html).trim()
+    const asWritten = htmlSentAsWritten(doc)
+    if (asWritten !== null) {
+        return asWritten
     }
 
+    const nodes = withoutTrailingEmptyParagraphs(doc.content ?? [])
     const page = resolvePageStyle(doc.attrs?.page)
     const padding = page.bodyPadding
     const bodyWidth = px(page.bodyWidth, 600) || 600

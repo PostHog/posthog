@@ -47,3 +47,5 @@ The new editor reaches `emailTemplaterLogic` through `emailEditorAdapter`, which
 ## Email output
 
 `renderEmailHtml` writes tables and inline styles. Columns are inline-blocks capped at their width, so they stack on a phone without a media query, with ghost tables for Outlook. Liquid passes through unescaped outside attributes.
+
+An email that is only one HTML block holding a whole document, or html from outside the editor such as an import, goes out exactly as written. `htmlSentAsWritten` decides. The canvas then shows that html on its own at desktop width, without the page's width and padding.

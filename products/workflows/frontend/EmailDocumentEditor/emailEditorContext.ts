@@ -15,6 +15,8 @@ export interface EmailEditorContextValue {
         }) => void
     ) => void
     openLinkEditor: () => void
+    /** The email is one HTML block that goes out as written, so the canvas shows it without the page around it. */
+    sentAsWritten: boolean
 }
 
 export const EmailEditorContext = createContext<EmailEditorContextValue>({
@@ -22,6 +24,7 @@ export const EmailEditorContext = createContext<EmailEditorContextValue>({
     variableOptions: [],
     pickImage: () => {},
     openLinkEditor: () => {},
+    sentAsWritten: false,
 })
 
 export function useEmailEditorContext(): EmailEditorContextValue {
