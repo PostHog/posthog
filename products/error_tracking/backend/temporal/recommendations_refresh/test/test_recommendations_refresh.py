@@ -95,27 +95,39 @@ class TestPackTeamBatches:
 
 
 class TestRefreshRecommendationsBatchActivity(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("flag_definitions_loaded", [], 7, {"alerts", "issue_summaries", "rate_limits", "source_maps"}),
+            ("flag_definitions_missing", None, 6, {"alerts", "rate_limits", "source_maps"}),
+        ]
+    )
     @patch(_RATE_LIMITS_COMPUTE_BATCH, side_effect=_batch_meta(_RATE_LIMITS_META))
     @patch(_SOURCE_MAPS_COMPUTE_BATCH, side_effect=_batch_meta(_SOURCE_MAPS_META))
     @patch(_ALERTS_COMPUTE_BATCH, side_effect=_batch_meta(_ALERTS_META))
-    def test_computes_recommendations_for_all_teams(self, _alerts, _source, _rate_limits):
+    def test_computes_recommendations_for_all_teams(
+        self, _name, flag_definitions, expected_kicked, flagged_team_types, _alerts, _source, _rate_limits
+    ):
         team_b = Team.objects.create(organization=self.organization, name="Team B")
         stored_inside_flag = ErrorTrackingRecommendation.objects.create(team=team_b, type="issue_summaries")
-        issue_summaries_flag = patch.object(
-            team_flags,
-            "feature_enabled_or_false",
-            new=lambda flag, distinct_id, **_options: flag == ISSUE_SUMMARY_FLAG and distinct_id == str(self.team.id),
-        )
 
-        with issue_summaries_flag:
+        with (
+            patch.object(team_flags.posthoganalytics, "feature_flag_definitions", return_value=flag_definitions),
+            patch.object(
+                team_flags,
+                "feature_enabled_or_false",
+                new=lambda flag, distinct_id, **_options: (
+                    flag == ISSUE_SUMMARY_FLAG and distinct_id == str(self.team.id)
+                ),
+            ),
+        ):
             result = _run_batch_activity(RefreshBatchInputs(team_ids=[self.team.id, team_b.id]))
 
         assert result.teams_processed == 2
-        assert result.recommendations_kicked == 7
+        assert result.recommendations_kicked == expected_kicked
         stored_inside_flag.refresh_from_db()
         assert stored_inside_flag.computed_at is None
         for team_id, expected_types in (
-            (self.team.id, {"alerts", "issue_summaries", "rate_limits", "source_maps"}),
+            (self.team.id, flagged_team_types),
             (team_b.id, {"alerts", "rate_limits", "source_maps"}),
         ):
             recs = ErrorTrackingRecommendation.objects.filter(team_id=team_id).exclude(id=stored_inside_flag.id)

@@ -3,7 +3,7 @@ from typing import Any
 from posthog.models import Team
 
 from products.error_tracking.backend.logic.issue_summary_config import ISSUE_SUMMARY_FLAG
-from products.error_tracking.backend.logic.team_flags import team_flag_enabled
+from products.error_tracking.backend.logic.team_flags import local_flag_definitions_loaded, team_flag_enabled
 from products.error_tracking.backend.models import ErrorTrackingSettings
 
 from .base import Recommendation
@@ -14,6 +14,10 @@ class IssueSummariesRecommendation(Recommendation):
     refresh_interval = None
 
     def available_team_ids(self, team_ids: list[int]) -> list[int]:
+        # Check once for the whole batch. Otherwise each team makes its own blocking definitions call, and a sweep batch
+        # can run past its heartbeat timeout, which also stops the other recommendation types from refreshing.
+        if not local_flag_definitions_loaded():
+            return []
         # This is the same local-only flag check as available_ai_features, which decides if the settings page shows the
         # AI features section. Thus this recommendation never points to a section that the project does not show. Also,
         # an issue list load never waits on a remote flag call.

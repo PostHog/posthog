@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 from datetime import timedelta
 from uuid import uuid4
 
@@ -48,11 +49,16 @@ MOCK_ALERTS_META_UPDATED = {
 MOCK_SOURCE_MAPS_META = {"total_frames": 0, "unresolved_frames": 0, "unresolved_pct": 0.0}
 
 
+@contextmanager
 def _issue_summaries_flag(enabled_team_id: int | None):
     def local_flags(flag, distinct_id, *, groups, only_evaluate_locally, **_options):
         return only_evaluate_locally and flag == ISSUE_SUMMARY_FLAG and groups == {"project": str(enabled_team_id)}
 
-    return patch.object(team_flags, "feature_enabled_or_false", new=local_flags)
+    with (
+        patch.object(team_flags.posthoganalytics, "feature_flag_definitions", return_value=[]),
+        patch.object(team_flags, "feature_enabled_or_false", new=local_flags),
+    ):
+        yield
 
 
 class _StackFrameFactory:
