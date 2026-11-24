@@ -1,6 +1,8 @@
 import { Decorator, Meta, StoryObj } from '@storybook/react'
+import { waitFor } from '@testing-library/react'
 import { useEffect, useRef } from 'react'
 
+import { timeSensitiveAuthenticationLogic } from 'lib/components/TimeSensitiveAuthentication/timeSensitiveAuthenticationLogic'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -237,4 +239,45 @@ export const NoOrganization: Story = {
     ],
     render: () => <App />,
     parameters: { ...authorizeParameters(), testOptions: { snapshotBrowsers: [] } },
+}
+
+// The server sets this flag when a first-party or auto-approved app would get a code from a sign-in that is too old.
+const withReauthenticationRequired: Decorator = function ReauthenticationRequiredDecorator(Story): JSX.Element {
+    useAppContextOverride(['oauth_reauthentication_required'], (appContext) => {
+        appContext.oauth_reauthentication_required = true
+    })
+    return <Story />
+}
+
+const reauthenticationDecorators = [
+    withReauthenticationRequired,
+    withOAuthApplication({ name: 'PostHog Code', required_scopes: [] }),
+    mswDecorator({ post: { '/api/login/precheck': { sso_enforcement: null, saml_available: false } } }),
+]
+
+export const ReauthenticationRequired: Story = {
+    decorators: reauthenticationDecorators,
+    render: () => <App />,
+    parameters: {
+        ...authorizeParameters(),
+        testOptions: { waitForSelector: '.LemonModal', snapshotBrowsers: [] },
+    },
+}
+
+// After the person closes the sign-in prompt, the page keeps a way to sign in again or to cancel.
+export const ReauthenticationDismissed: Story = {
+    decorators: reauthenticationDecorators,
+    render: () => <App />,
+    parameters: {
+        ...authorizeParameters(),
+        testOptions: { waitForSelector: '[data-attr="oauth-authorize-reauthenticate"]', snapshotBrowsers: [] },
+    },
+    play: async () => {
+        await waitFor(() => {
+            if (!timeSensitiveAuthenticationLogic.findMounted()?.values.showAuthenticationModal) {
+                throw new Error('Waiting for the sign-in prompt')
+            }
+        })
+        timeSensitiveAuthenticationLogic.findMounted()?.actions.setDismissedReauthentication(true)
+    },
 }

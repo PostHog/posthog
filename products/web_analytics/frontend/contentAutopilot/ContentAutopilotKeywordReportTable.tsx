@@ -144,7 +144,7 @@ const SEARCH_COLUMNS: { metric: SearchMetric; title: string; tooltip: string }[]
     },
 ]
 
-/** One sortable column per Search Console number. Null `impressions` means they have not loaded. */
+/** One sortable column per Search Console number. Null `impressions` means they are loading. */
 const searchColumns = (impressions: Record<string, KeywordSearchImpressions> | null): ReportColumn[] =>
     SEARCH_COLUMNS.map(({ metric, title, tooltip }) => ({
         title,
@@ -175,11 +175,14 @@ const searchColumns = (impressions: Record<string, KeywordSearchImpressions> | n
 export const ContentAutopilotKeywordReportTable = (): JSX.Element => {
     const { report, reportLoading, reportError } = useValues(contentAutopilotKeywordsLogic)
     const { loadReport } = useActions(contentAutopilotKeywordsLogic)
-    const { searchTable, searchConsoleMissing, impressions, impressionsFailed } = useValues(
+    const { searchTable, searchConsoleMissing, impressions, impressionsLoading, impressionsFailed } = useValues(
         contentAutopilotKeywordSearchLogic
     )
     // The columns show only for a project with a Search Console source whose numbers loaded or are loading.
-    const columns = searchTable && !impressionsFailed ? [...COLUMNS, ...searchColumns(impressions)] : COLUMNS
+    const columns =
+        searchTable && !impressionsFailed
+            ? [...COLUMNS, ...searchColumns(impressionsLoading ? null : impressions)]
+            : COLUMNS
 
     return (
         <PagePerformanceCard className="min-w-0">
@@ -210,21 +213,18 @@ export const ContentAutopilotKeywordReportTable = (): JSX.Element => {
                         columns={columns}
                         defaultSorting={{ columnKey: 'answer_mention_rate', order: -1 }}
                         footer={
-                            <span className="px-3 py-2 text-xs text-muted">
-                                Over {pluralize(report.answers, 'answer')} {windowRange(report)}. A keyword matches any
-                                text that contains it, case ignored.
-                                {searchConsoleMissing ? (
-                                    <>
-                                        {' '}
-                                        <Link to={GOOGLE_SEARCH_CONSOLE_DOCS_URL} target="_blank">
-                                            Connect Google Search Console
-                                        </Link>{' '}
-                                        to see how often your site appears on Google for each keyword.
-                                    </>
-                                ) : impressionsFailed ? (
-                                    " Couldn't load the Search Console numbers. Reload the page to try again."
-                                ) : null}
-                            </span>
+                            searchConsoleMissing ? (
+                                <span className="px-3 py-2 text-xs text-muted">
+                                    <Link to={GOOGLE_SEARCH_CONSOLE_DOCS_URL} target="_blank">
+                                        Connect Google Search Console
+                                    </Link>{' '}
+                                    to see how often your site appears on Google for each keyword.
+                                </span>
+                            ) : impressionsFailed ? (
+                                <span className="px-3 py-2 text-xs text-muted">
+                                    Couldn't load the Search Console numbers. Reload the page to try again.
+                                </span>
+                            ) : undefined
                         }
                     />
                 </div>

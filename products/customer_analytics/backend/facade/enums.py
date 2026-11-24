@@ -12,6 +12,17 @@ class AccountPropertyPinKind(LabeledStrEnum):
     ACCOUNT_FIELD = "account_field", "Account field"
 
 
+class PinnedAccountPropertiesSourceKind(LabeledStrEnum):
+    PERSONAL = "personal", "Personal"
+    ROLE = "role", "Role"
+    PROJECT = "project", "Project"
+
+
+class DefaultPinnedAccountPropertiesSourceKind(LabeledStrEnum):
+    PROJECT = "project", "Project"
+    ROLE = "role", "Role"
+
+
 # Mirrors OPTION_COLOR_TOKENS in the frontend's customPropertyTypes.ts (DataColorToken presets).
 # The labels repeat the values because the published OpenAPI enum lists these exact pairs.
 class CustomPropertyOptionColor(LabeledStrEnum):
@@ -74,8 +85,10 @@ __all__ = [
     "AccountPropertyPinKind",
     "AccountViewVisibility",
     "CustomPropertyOptionColor",
+    "DefaultPinnedAccountPropertiesSourceKind",
     "AccountRelationshipSource",
     "OwnershipRoleDiagnostic",
     "OwnershipRoleState",
+    "PinnedAccountPropertiesSourceKind",
     "TaskDigestCadence",
 ]

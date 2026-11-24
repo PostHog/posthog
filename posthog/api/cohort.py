@@ -229,14 +229,16 @@ def _visible_workflows(
 def _visible_flags(
     request: Request,
     user_access_control: Optional[UserAccessControl],
-    project_id: int,
     flags: list[FeatureFlag],
 ) -> list[FeatureFlag]:
-    if user_access_control is None or not _token_can_read(request, "feature_flag"):
+    # The access control loads the access rows of its own team only, so it can't tell whether the caller
+    # may view a flag of another environment in the project. Such a flag is counted and not named.
+    team = user_access_control.team if user_access_control is not None else None
+    if user_access_control is None or team is None or not _token_can_read(request, "feature_flag"):
         return []
     visible_ids = set(
         user_access_control.filter_queryset_by_access_level(
-            FeatureFlag.objects.filter(team__project_id=project_id, id__in=[flag.id for flag in flags]),
+            FeatureFlag.objects.filter(team_id=team.id, id__in=[flag.id for flag in flags]),
             include_all_if_admin=True,
         ).values_list("id", flat=True)
     )
@@ -258,6 +260,15 @@ def _workflow_names_suffix(
 ) -> str:
     visible = _visible_workflows(request, user_access_control, team_id, workflows)
     return _names_suffix([workflow.name for workflow in visible], len(workflows))
+
+
+def _flag_names_suffix(
+    request: Request,
+    user_access_control: Optional[UserAccessControl],
+    flags: list[FeatureFlag],
+) -> str:
+    visible = _visible_flags(request, user_access_control, flags)
+    return _names_suffix([flag.name or flag.key for flag in visible], len(flags))
 
 
 COHORT_USED_BY_WORKFLOWS_ERROR_CODE = "cohort_used_by_workflows"
@@ -578,6 +589,23 @@ def _coerce_stored_filter_values(filters: Any) -> Any:
     if coerced.get("type") in SINGLE_VALUE_FILTER_TYPES and "value" in coerced:
         coerced["value"] = _single_value_operator_value(coerced.get("operator"), coerced.get("value"))
     return coerced
+
+
+def _save_keeps_realtime_criteria(cohort: Cohort, filters: Any, will_be_static: bool) -> bool:
+    """Whether a save resends the stored criteria of a realtime cohort that stays dynamic.
+
+    `update()` keeps the stored definition of such a cohort instead of recompiling it, so its leaf hashes, its
+    readiness stamps and its realtime type stay as they are, and the history limit and the size cap that the
+    recompile applies are not checked again. The flag lock lets these saves through for that reason only. Both
+    read this function, because a save the lock admits and `update()` recompiles could clear the stamps that a
+    flag needs. Pass the cohort as stored, before the save changes it.
+    """
+    return (
+        cohort.cohort_type == CohortType.REALTIME
+        and not cohort.is_static
+        and not will_be_static
+        and _criteria_key(filters) == _criteria_key(_coerce_stored_filter_values(cohort.filters))
+    )
 
 
 class PersonValueValidationMixin(BaseModel):
@@ -1340,9 +1368,9 @@ class CohortRealtimeReadinessSerializer(serializers.Serializer):
         "see membership changes within about a minute. `building` / `rebuilding`: PostHog is "
         "preparing the cohort from past events, and flags cannot target it yet. "
         "`needs_attention`: the cohort qualifies but nothing is preparing it. `off`: the cohort qualifies and "
-        "realtime is off for it, so feature flags cannot target it until it is turned on. `daily`: its "
-        "criteria are not supported in realtime, so its membership only comes from the once-a-day "
-        "calculation. `person_properties`: it matches on person properties, which flags read "
+        "realtime is off for it, so feature flags cannot target it until it is turned on. `daily`: the "
+        "cohort can't be realtime, so its membership only comes from the once-a-day calculation. See "
+        "`reason`. `person_properties`: it matches on person properties, which flags read "
         "directly, so they can always target it. `static`: it is a fixed list of people.",
     )
     ready_at = serializers.DateTimeField(
@@ -1356,11 +1384,16 @@ class CohortRealtimeReadinessSerializer(serializers.Serializer):
     reason = serializers.ChoiceField(
         choices=CohortRealtimeUnavailableReason.choices,
         allow_null=True,
-        help_text="Why feature flags can't target the cohort. `history_over_limit`, on a `daily` cohort: its criteria "
-        "look back further than realtime cohorts can. On an `off` cohort: its criteria look back further than the "
-        "project's plan allows, so it can't be turned on. `too_large_to_build`, on a `needs_attention` cohort: the events "
-        "in its criteria happen too often for PostHog to prepare it automatically. Null in every other case, "
-        "including a `daily` cohort that other criteria keep off realtime.",
+        help_text="Why feature flags can't target the cohort. On a `daily` cohort, the first of these that keeps it off "
+        "realtime: `unsupported_criteria`, one of its criteria can't be matched in realtime, such as a sequence of "
+        "events or a lifecycle criterion. `action_criteria`, one of its criteria matches on an action. "
+        "`includes_non_realtime_cohort`, it includes a cohort that was not realtime when it was last saved. "
+        "`history_over_limit`, its criteria look back further than realtime cohorts can. `members_over_limit`, it "
+        "matches more people than a realtime cohort can hold. `test_account_filter`, it filters out internal and test "
+        "users. On an `off` cohort, `history_over_limit`: its criteria look back further than the project's plan "
+        "allows, so it can't be turned on. On a `needs_attention` cohort, `too_large_to_build`: the events in its "
+        "criteria happen too often for PostHog to prepare it automatically. Null in every other case, including a "
+        "`daily` cohort whose stored criteria don't show why.",
     )
     history_limit_days = serializers.IntegerField(
         allow_null=True,
@@ -2079,7 +2112,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         self._validate_warehouse_access(attrs)
         self._validate_no_new_hidden_event_criteria(attrs)
 
-        if self.context["request"].method != "PATCH" or self.instance is None:
+        if self.context["request"].method not in ("PATCH", "PUT") or self.instance is None:
             return attrs
 
         if self._reactivates_static_cohort(attrs):
@@ -2151,36 +2184,43 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         return str(exc.errors())
 
     def _validate_feature_flag_constraints(self, request_filters: dict, cohort_will_be_static: bool):
-        if self.context["request"].method != "PATCH":
+        if self.context["request"].method not in ("PATCH", "PUT"):
             return
 
         parsed_filter = parse_property_group_data(request_filters.get("properties"))
         instance = cast(Cohort, self.instance)
         if instance.is_static and cohort_will_be_static:
             return
+        if _save_keeps_realtime_criteria(instance, request_filters, cohort_will_be_static):
+            return
 
-        cohort_id = instance.pk
-
-        flags = FeatureFlag.objects.filter(team__project_id=self.context["project_id"], active=True)
-        cohort_used_in_flags = any(
-            cohort_id in flag.get_cohort_ids(stop_traversal_at_static=True)
-            for flag in _flags_with_readable_config(flags)
+        flags = _filter_flags_referencing_cohort(
+            _flags_with_cohort_filters(instance).filter(active=True).order_by("key"),
+            instance,
+            stop_traversal_at_static=True,
         )
-
-        if not cohort_used_in_flags:
+        if not flags:
             return
 
         for prop in parsed_filter.flat:
             if prop.type == "behavioral":
-                raise serializers.ValidationError(
-                    detail="Behavioral filters cannot be added to cohorts used in feature flags.",
-                    code="behavioral_cohort_found",
+                raise self._flag_lock_error(
+                    flags, "Its criteria include events, so they can't change while these flags use it."
                 )
 
             if prop.type == "cohort":
-                self._validate_nested_cohort_behavioral_filters(prop, cohort_used_in_flags)
+                self._validate_nested_cohort_behavioral_filters(prop, flags)
 
-    def _validate_nested_cohort_behavioral_filters(self, prop: Any, cohort_used_in_flags: bool):
+    def _flag_lock_error(self, flags: list[FeatureFlag], reason: str) -> serializers.ValidationError:
+        names = _flag_names_suffix(self.context["request"], self._user_access_control(), flags)
+        return serializers.ValidationError(
+            detail=f"This cohort is used in {len(flags)} active feature flag(s){names}. {reason} "
+            "Remove this cohort, or the cohort that includes it, from these flags, then save again. "
+            "You can add it back once feature flags can target it.",
+            code="behavioral_cohort_found",
+        )
+
+    def _validate_nested_cohort_behavioral_filters(self, prop: Any, flags: list[FeatureFlag]):
         try:
             nested_cohort = Cohort.objects.get(
                 pk=prop.value, team__project_id=self.context["project_id"], deleted=False
@@ -2195,10 +2235,11 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             # filters are display-only and never evaluated, so skip them.
             if dependency_cohort.is_static:
                 continue
-            if cohort_used_in_flags and any(p.type == "behavioral" for p in dependency_cohort.properties.flat):
-                raise serializers.ValidationError(
-                    detail=f"A cohort dependency ({dependency_cohort.name}) has filters based on events. These cohorts can't be used in feature flags.",
-                    code="behavioral_cohort_found",
+            if any(p.type == "behavioral" for p in dependency_cohort.properties.flat):
+                raise self._flag_lock_error(
+                    flags,
+                    f"It includes cohort '{dependency_cohort.name}', which has event criteria, "
+                    "so this cohort's criteria can't change while these flags use it.",
                 )
 
     def _reject_delete(self, cohort: Cohort, blocked_by: str, message: str, code: str | None = None) -> NoReturn:
@@ -2269,6 +2310,9 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             cohort._create_in_folder = create_in_folder or None
 
         was_realtime = cohort.cohort_type == CohortType.REALTIME and not cohort.is_static
+        keeps_realtime_criteria = "filters" in validated_data and _save_keeps_realtime_criteria(
+            cohort, validated_data["filters"], will_be_static=validated_data.get("is_static", cohort.is_static)
+        )
         held_a_realtime_slot = cohort.realtime_enabled and was_realtime and not cohort.deleted
 
         cohort.name = validated_data.get("name", cohort.name)
@@ -2281,7 +2325,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         # Process bytecode for filters if they're being updated. Static cohorts
         # define membership by an explicit list of person IDs, so their
         # cohort_type must never be overridden by the filter-based calculation.
-        if "filters" in validated_data:
+        if "filters" in validated_data and not keeps_realtime_criteria:
             filters = validated_data["filters"]
             if filters and not cohort.is_static:
                 clean_filters, computed_cohort_type, _ = validate_filters_and_compute_realtime_support(
@@ -2289,15 +2333,15 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                     cohort.team,
                     current_cohort_type=cohort.cohort_type,
                     cohort_count=cohort.count,
-                    # The editor sends filters on every save. An absolute start date that aged past the limit
-                    # must not take a realtime cohort off realtime on a rename, because flags that target it
-                    # would then match nobody.
-                    apply_history_limit=filters_changed or not was_realtime,
                 )
                 cohort.filters = clean_filters
                 cohort.cohort_type = computed_cohort_type
             else:
                 cohort.filters = filters
+        elif keeps_realtime_criteria:
+            # `cohort_type` is writable, so without this a request that keeps the criteria could take the
+            # cohort off realtime.
+            cohort.cohort_type = CohortType.REALTIME
 
         # A criteria edit that moves a behavioral leaf of a cohort with realtime on queues a behavioral backfill.
         # The backfill refuses a cohort whose flag calls it can't read. The cohort would then never be ready.
@@ -2379,9 +2423,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             if deleted_state:
                 flags_with_cohort = get_flags_blocking_cohort_deletion(cohort)
                 if flags_with_cohort:
-                    visible_flags = _visible_flags(
-                        request, self._user_access_control(), cohort.team.project_id, flags_with_cohort
-                    )
+                    visible_flags = _visible_flags(request, self._user_access_control(), flags_with_cohort)
                     names = _names_suffix([flag.name or flag.key for flag in visible_flags], len(flags_with_cohort))
                     message = (
                         f"This cohort is used in {len(flags_with_cohort)} feature flag(s){names}. "
@@ -2618,6 +2660,7 @@ def _flags_with_cohort_filters(cohort: Cohort) -> QuerySet[FeatureFlag]:
         FeatureFlag.objects.filter(team__project_id=cohort.team.project_id, deleted=False)
         .extra(where=["""jsonb_path_exists(filters, '$.** ? (@.type == "cohort")')"""])
         .select_related("team")
+        .defer(*(f"team__{attr}" for attr in DEPRECATED_ATTRS))
     )
 
 
@@ -3325,8 +3368,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         if has_event_criteria(cohort):
             flags = get_flags_blocking_cohort_deletion(cohort)
             if flags:
-                visible_flags = _visible_flags(request, self.user_access_control, cohort.team.project_id, flags)
-                names = _names_suffix([flag.name or flag.key for flag in visible_flags], len(flags))
+                names = _flag_names_suffix(request, self.user_access_control, flags)
                 self._refuse_turning_off(
                     request,
                     cohort,

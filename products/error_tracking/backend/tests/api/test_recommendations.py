@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 from datetime import timedelta
 from uuid import uuid4
 
@@ -16,6 +17,8 @@ from posthog.models import Team
 from products.access_control.backend.facade.api import upsert_property_access_control
 from products.access_control.backend.facade.contracts import PropertyAccessLevel, UpsertPropertyAccessControlInput
 from products.cdp.backend.facade.models import HogFunction
+from products.error_tracking.backend.logic import team_flags
+from products.error_tracking.backend.logic.issue_summary_config import ISSUE_SUMMARY_FLAG
 from products.error_tracking.backend.logic.recommendations.alerts import AlertsRecommendation
 from products.error_tracking.backend.logic.recommendations.rate_limits import RateLimitsRecommendation
 from products.error_tracking.backend.logic.recommendations.source_maps import SourceMapsRecommendation
@@ -44,6 +47,18 @@ MOCK_ALERTS_META_UPDATED = {
     ]
 }
 MOCK_SOURCE_MAPS_META = {"total_frames": 0, "unresolved_frames": 0, "unresolved_pct": 0.0}
+
+
+@contextmanager
+def _issue_summaries_flag(enabled_team_id: int | None):
+    def local_flags(flag, distinct_id, *, groups, only_evaluate_locally, **_options):
+        return only_evaluate_locally and flag == ISSUE_SUMMARY_FLAG and groups == {"project": str(enabled_team_id)}
+
+    with (
+        patch.object(team_flags.posthoganalytics, "feature_flag_definitions", return_value=[]),
+        patch.object(team_flags, "feature_enabled_or_false", new=local_flags),
+    ):
+        yield
 
 
 class _StackFrameFactory:
@@ -235,6 +250,48 @@ class TestRecommendationsAPI(_StackFrameFactory, APIBaseTest):
 
     def test_rate_limits_is_completed_false_when_empty(self):
         self.assertFalse(RateLimitsRecommendation().is_completed({"rate_limits": []}))
+
+    @parameterized.expand(
+        [
+            ("flag_off", False, True, False, []),
+            ("ai_not_approved", True, False, False, []),
+            ("setting_off", True, True, False, [False]),
+            ("setting_on", True, True, True, [True]),
+        ]
+    )
+    def test_issue_summaries_recommendation_needs_the_flag_and_ai_approval(
+        self, _name, flag_on, ai_approved, setting_on, expected_completed
+    ):
+        self.organization.is_ai_data_processing_approved = ai_approved
+        self.organization.save()
+        ErrorTrackingSettings.objects.update_or_create(
+            team=self.team, defaults={"ai_issue_summaries_enabled": setting_on}
+        )
+
+        with _issue_summaries_flag(self.team.id if flag_on else None):
+            response = self._list()
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        summaries = [r for r in response.json()["results"] if r["type"] == "issue_summaries"]
+        self.assertEqual([r["completed"] for r in summaries], expected_completed)
+        self.assertEqual(
+            ErrorTrackingRecommendation.objects.filter(team=self.team, type="issue_summaries").exists(),
+            bool(expected_completed),
+        )
+
+    def test_issue_summaries_row_stored_inside_the_flag_is_hidden_after_the_team_leaves_it(self):
+        with _issue_summaries_flag(self.team.id):
+            response = self._list()
+        rec_id = next(r["id"] for r in response.json()["results"] if r["type"] == "issue_summaries")
+        base_url = f"/api/environments/{self.team.id}/error_tracking/recommendations"
+
+        with _issue_summaries_flag(None):
+            listed = self._list().json()["results"] + self._poll().json()["results"]
+            actions = [self._refresh(rec_id), self._dismiss(rec_id), self.client.post(f"{base_url}/{rec_id}/restore/")]
+
+        self.assertNotIn("issue_summaries", {r["type"] for r in listed})
+        self.assertEqual([r.status_code for r in actions], [status.HTTP_404_NOT_FOUND] * 3)
+        self.assertIsNone(ErrorTrackingRecommendation.objects.get(id=rec_id).dismissed_at)
 
     @patch(
         "products.error_tracking.backend.logic.recommendations.source_maps.SourceMapsRecommendation.compute",

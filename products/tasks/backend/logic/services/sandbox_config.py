@@ -3,6 +3,10 @@ from django.conf import settings
 AGENT_EGRESS_DOMAIN_PATTERN = r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}"
 
 
+def sandbox_ai_gateway_worker_url() -> str:
+    return settings.SANDBOX_AI_GATEWAY_WORKER_URL or settings.SANDBOX_AI_GATEWAY_URL or ""
+
+
 def agent_egress_staging_environment() -> bool:
     return (
         not settings.DEBUG and settings.CLOUD_DEPLOYMENT == "DEV" and str(settings.SANDBOX_PROVIDER).upper() == "MODAL"
