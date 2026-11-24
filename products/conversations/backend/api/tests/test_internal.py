@@ -13,7 +13,7 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog.jwt import PosthogJwtAudience
-from posthog.models import Comment
+from posthog.models import ActivityLog, Comment, Team
 from posthog.models.utils import generate_random_token_secret
 from posthog.scoped_service_jwt import ScopedServiceJwtPurpose
 from posthog.test.authentication_checks import covers_authentication
@@ -24,7 +24,7 @@ from products.conversations.backend.api.internal import (
 )
 from products.conversations.backend.api.ticket_actions import TICKET_RESPONSE_MAX_BYTES
 from products.conversations.backend.models import Ticket
-from products.conversations.backend.models.constants import WORKFLOW_AUTHOR_NAME, WORKFLOW_AUTHOR_TYPE, Status
+from products.conversations.backend.models.constants import WORKFLOW_AUTHOR_NAME, WORKFLOW_AUTHOR_TYPE, Priority, Status
 
 _IMAGE_ATTACHMENT = "![image001.png](https://us.posthog.com/uploaded_media/0199a0b1-2c3d-4e5f-8a9b-0c1d2e3f4a5b)"
 
@@ -36,7 +36,7 @@ OTHER_AUDIENCE_PURPOSE = ScopedServiceJwtPurpose(
 )
 
 
-class TestInternalTicketAPI(BaseTest):
+class InternalTicketAPITestCase(BaseTest):
     def setUp(self):
         super().setUp()
         self.team.conversations_enabled = True
@@ -62,6 +62,8 @@ class TestInternalTicketAPI(BaseTest):
     def _bearer(token: str) -> dict:
         return {"HTTP_AUTHORIZATION": f"Bearer {token}"}
 
+
+class TestInternalTicketAPI(InternalTicketAPITestCase):
     @covers_authentication(ConversationsTicketJWTAuthentication)
     def test_get_returns_ticket_for_minted_token(self):
         response = self.client.get(self.url, **self._headers())
@@ -231,14 +233,6 @@ class TestInternalTicketAPI(BaseTest):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertFalse(Comment.objects.filter(team_id=self.team.id, item_id=str(missing)).exists())
 
-    def test_patch_updates_ticket(self):
-        response = self.client.patch(
-            self.url, {"status": "resolved"}, content_type="application/json", **self._headers()
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.ticket.refresh_from_db()
-        self.assertEqual(self.ticket.status, "resolved")
-
     @parameterized.expand(
         [
             (
@@ -313,3 +307,501 @@ class TestInternalTicketAPI(BaseTest):
         self.client.get(self.url, **self._headers())
         after = REGISTRY.get_sample_value("posthog_conversations_ticket_action_auth_total", labels)
         self.assertEqual(after, before + 1)
+
+
+class TestInternalTicketUpdates(InternalTicketAPITestCase):
+    # -- PATCH ticket -----------------------------------------------------
+
+    @parameterized.expand([(s.value,) for s in Status])
+    def test_patch_status_valid(self, new_status):
+        response = self.client.patch(
+            self.url, {"status": new_status}, content_type="application/json", **self._headers()
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.ticket.refresh_from_db()
+        self.assertEqual(self.ticket.status, new_status)
+
+    @parameterized.expand([(p.value,) for p in Priority])
+    def test_patch_priority_valid(self, new_priority):
+        response = self.client.patch(
+            self.url, {"priority": new_priority}, content_type="application/json", **self._headers()
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.ticket.refresh_from_db()
+        self.assertEqual(self.ticket.priority, new_priority)
+
+    def test_patch_status_and_priority_together(self):
+        response = self.client.patch(
+            self.url,
+            {"status": "pending", "priority": "high"},
+            content_type="application/json",
+            **self._headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.ticket.refresh_from_db()
+        self.assertEqual(self.ticket.status, "pending")
+        self.assertEqual(self.ticket.priority, "high")
+
+    def test_patch_invalid_status(self):
+        response = self.client.patch(
+            self.url, {"status": "nonexistent"}, content_type="application/json", **self._headers()
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_patch_invalid_priority(self):
+        response = self.client.patch(
+            self.url, {"priority": "nonexistent"}, content_type="application/json", **self._headers()
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_patch_empty_body_is_noop(self):
+        response = self.client.patch(self.url, {}, content_type="application/json", **self._headers())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.ticket.refresh_from_db()
+        self.assertEqual(self.ticket.status, "new")
+
+    def test_patch_ticket_not_found(self):
+        missing = str(uuid.uuid4())
+        url = f"/api/projects/{self.team.id}/internal/conversations/tickets/{missing}"
+        response = self.client.patch(
+            url,
+            {"status": "resolved"},
+            content_type="application/json",
+            **self._headers({"team_id": self.team.id, "ticket_id": missing}),
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_patch_cross_team_isolation(self):
+        # A token scoped to this team must not update another team's ticket of the same id.
+        other_team = Team.objects.create(organization=self.organization, name="Other team", conversations_enabled=True)
+        other_ticket = Ticket.objects.create_with_number(
+            team=other_team,
+            widget_session_id=str(uuid.uuid4()),
+            distinct_id="user-other-1",
+            channel_source="widget",
+            status=Status.NEW,
+        )
+        url = f"/api/projects/{self.team.id}/internal/conversations/tickets/{other_ticket.id}"
+        response = self.client.patch(
+            url,
+            {"status": "resolved"},
+            content_type="application/json",
+            **self._headers({"team_id": self.team.id, "ticket_id": str(other_ticket.id)}),
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        other_ticket.refresh_from_db()
+        self.assertEqual(other_ticket.status, "new")
+
+    def test_patch_ignores_unknown_fields(self):
+        response = self.client.patch(
+            self.url,
+            {"status": "resolved", "hacked": True},
+            content_type="application/json",
+            **self._headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.ticket.refresh_from_db()
+        self.assertEqual(self.ticket.status, "resolved")
+
+    # -- SLA updates --------------------------------------------------------
+
+    def test_patch_sla_due_at_valid(self):
+        response = self.client.patch(
+            self.url,
+            {"sla_due_at": "2026-03-15T14:30:00Z"},
+            content_type="application/json",
+            **self._headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.ticket.refresh_from_db()
+        self.assertIsNotNone(self.ticket.sla_due_at)
+        self.assertEqual(self.ticket.sla_due_at.isoformat(), "2026-03-15T14:30:00+00:00")
+
+    def test_patch_sla_due_at_null_clears_sla(self):
+        from django.utils import timezone
+
+        self.ticket.sla_due_at = timezone.now()
+        self.ticket.save()
+
+        response = self.client.patch(
+            self.url,
+            {"sla_due_at": None},
+            content_type="application/json",
+            **self._headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.ticket.refresh_from_db()
+        self.assertIsNone(self.ticket.sla_due_at)
+
+    def test_patch_sla_due_at_invalid_format(self):
+        response = self.client.patch(
+            self.url,
+            {"sla_due_at": "not-a-date"},
+            content_type="application/json",
+            **self._headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_patch_sla_amount_calendar_hours(self):
+        from datetime import UTC, datetime
+
+        from unittest.mock import patch
+
+        # 2026-01-05 10:00 UTC is a Monday.
+        frozen_now = datetime(2026, 1, 5, 10, 0, tzinfo=UTC)
+        with patch("products.conversations.backend.api.ticket_actions.timezone.now", return_value=frozen_now):
+            response = self.client.patch(
+                self.url,
+                {"sla_amount": 4, "sla_unit": "hour"},
+                content_type="application/json",
+                **self._headers(),
+            )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.ticket.refresh_from_db()
+        self.assertIsNotNone(self.ticket.sla_due_at)
+        self.assertEqual(self.ticket.sla_due_at.isoformat(), "2026-01-05T14:00:00+00:00")
+
+    def test_patch_sla_amount_business_hours(self):
+        from datetime import UTC, datetime
+
+        from unittest.mock import patch
+
+        frozen_now = datetime(2026, 1, 8, 16, 0, tzinfo=UTC)  # Thursday 16:00 UTC
+        with patch("products.conversations.backend.api.ticket_actions.timezone.now", return_value=frozen_now):
+            response = self.client.patch(
+                self.url,
+                {
+                    "sla_amount": 10,
+                    "sla_unit": "hour",
+                    "sla_business_hours": {
+                        "days": ["monday", "tuesday", "wednesday", "thursday", "friday"],
+                        "time": ["09:00", "17:00"],
+                        "timezone": "UTC",
+                    },
+                },
+                content_type="application/json",
+                **self._headers(),
+            )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.ticket.refresh_from_db()
+        # 1h Thursday + 8h Friday + 1h Monday -> Monday 10:00 UTC
+        self.assertEqual(self.ticket.sla_due_at.isoformat(), "2026-01-12T10:00:00+00:00")
+
+    def test_patch_sla_amount_rejects_zero(self):
+        response = self.client.patch(
+            self.url,
+            {"sla_amount": 0, "sla_unit": "hour"},
+            content_type="application/json",
+            **self._headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_patch_rejects_both_sla_due_at_and_sla_amount(self):
+        response = self.client.patch(
+            self.url,
+            {"sla_due_at": "2026-03-15T14:30:00Z", "sla_amount": 5},
+            content_type="application/json",
+            **self._headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @parameterized.expand(
+        [
+            ("empty_days", {"days": [], "time": ["09:00", "17:00"], "timezone": "UTC"}),
+            ("inverted_range", {"days": ["monday"], "time": ["17:00", "09:00"], "timezone": "UTC"}),
+            ("unknown_timezone", {"days": ["monday"], "time": "any", "timezone": "Mars/Olympus"}),
+            ("unknown_weekday", {"days": ["funday"], "time": "any", "timezone": "UTC"}),
+        ]
+    )
+    def test_patch_rejects_invalid_business_hours(self, _name, business_hours):
+        response = self.client.patch(
+            self.url,
+            {"sla_amount": 1, "sla_unit": "hour", "sla_business_hours": business_hours},
+            content_type="application/json",
+            **self._headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    # -- PATCH tags --------------------------------------------------------
+
+    def test_patch_tags_add_mode_preserves_existing(self):
+        from posthog.models import Tag
+
+        existing_tag = Tag.objects.create(name="bug", team_id=self.team.id)
+        self.ticket.tagged_items.create(tag=existing_tag)
+
+        response = self.client.patch(
+            self.url,
+            {"tags": ["urgent"], "tags_mode": "add"},
+            content_type="application/json",
+            **self._headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        tags = sorted(self.ticket.tagged_items.values_list("tag__name", flat=True))
+        self.assertEqual(tags, ["bug", "urgent"])
+
+    def test_patch_tags_add_is_idempotent(self):
+        from posthog.models import Tag
+
+        existing_tag = Tag.objects.create(name="bug", team_id=self.team.id)
+        self.ticket.tagged_items.create(tag=existing_tag)
+
+        response = self.client.patch(
+            self.url,
+            {"tags": ["bug"], "tags_mode": "add"},
+            content_type="application/json",
+            **self._headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(self.ticket.tagged_items.count(), 1)
+
+    def test_patch_tags_concurrent_add_produces_union(self):
+        self.client.patch(
+            self.url,
+            {"tags": ["urgent"], "tags_mode": "add"},
+            content_type="application/json",
+            **self._headers(),
+        )
+        self.client.patch(
+            self.url,
+            {"tags": ["billing"], "tags_mode": "add"},
+            content_type="application/json",
+            **self._headers(),
+        )
+        tags = sorted(self.ticket.tagged_items.values_list("tag__name", flat=True))
+        self.assertEqual(tags, ["billing", "urgent"])
+
+    def test_patch_tags_default_mode_is_add(self):
+        from posthog.models import Tag
+
+        existing_tag = Tag.objects.create(name="bug", team_id=self.team.id)
+        self.ticket.tagged_items.create(tag=existing_tag)
+
+        response = self.client.patch(
+            self.url,
+            {"tags": ["feature"]},
+            content_type="application/json",
+            **self._headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        tags = sorted(self.ticket.tagged_items.values_list("tag__name", flat=True))
+        self.assertEqual(tags, ["bug", "feature"])
+
+    def test_patch_tags_set_mode_replaces_all(self):
+        from posthog.models import Tag
+
+        existing_tag = Tag.objects.create(name="bug", team_id=self.team.id)
+        self.ticket.tagged_items.create(tag=existing_tag)
+
+        response = self.client.patch(
+            self.url,
+            {"tags": ["urgent"], "tags_mode": "set"},
+            content_type="application/json",
+            **self._headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        tags = list(self.ticket.tagged_items.values_list("tag__name", flat=True))
+        self.assertEqual(tags, ["urgent"])
+
+    def test_patch_tags_remove_mode_strips_named(self):
+        from posthog.models import Tag
+
+        for name in ["bug", "urgent", "billing"]:
+            tag = Tag.objects.create(name=name, team_id=self.team.id)
+            self.ticket.tagged_items.create(tag=tag)
+
+        response = self.client.patch(
+            self.url,
+            {"tags": ["bug", "billing"], "tags_mode": "remove"},
+            content_type="application/json",
+            **self._headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        tags = list(self.ticket.tagged_items.values_list("tag__name", flat=True))
+        self.assertEqual(tags, ["urgent"])
+
+
+class TestInternalTicketWorkflowAttribution(InternalTicketAPITestCase):
+    # -- Workflow (HogFlow) attribution -----------------------------------
+
+    def _workflow_headers(self, flow_id="0191d3e0-0000-7000-8000-000000000001"):
+        return {
+            **self._headers(),
+            "HTTP_X_POSTHOG_HOG_FLOW_ID": flow_id,
+        }
+
+    def _latest_ticket_activity(self, activity="updated"):
+        return (
+            ActivityLog.objects.filter(
+                team_id=self.team.id, scope="Ticket", item_id=str(self.ticket.id), activity=activity
+            )
+            .order_by("-created_at")
+            .first()
+        )
+
+    @parameterized.expand(
+        [
+            ("status", {"status": Status.RESOLVED}),
+            ("priority", {"priority": Priority.HIGH}),
+        ]
+    )
+    def test_patch_records_workflow_trigger(self, _name, payload):
+        flow_id = "0191d3e0-0000-7000-8000-000000000001"
+        response = self.client.patch(
+            self.url,
+            payload,
+            content_type="application/json",
+            **self._workflow_headers(flow_id=flow_id),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        activity = self._latest_ticket_activity()
+        assert activity is not None
+        trigger = activity.detail.get("trigger")
+        assert trigger is not None
+        self.assertEqual(trigger["job_type"], "hog_flow")
+        self.assertEqual(trigger["job_id"], flow_id)
+        # Only the id is stored; the display name is resolved from the workflow on the frontend.
+        self.assertNotIn("name", trigger["payload"])
+
+    def test_patch_without_workflow_header_has_no_trigger(self):
+        response = self.client.patch(
+            self.url,
+            {"status": Status.RESOLVED},
+            content_type="application/json",
+            **self._headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        activity = self._latest_ticket_activity()
+        assert activity is not None
+        self.assertIsNone(activity.detail.get("trigger"))
+
+    def test_patch_ignores_malformed_workflow_id(self):
+        # A non-UUID header id is rejected so we never store a job_id that can't resolve to a link.
+        response = self.client.patch(
+            self.url,
+            {"status": Status.RESOLVED},
+            content_type="application/json",
+            **self._workflow_headers(flow_id="not-a-uuid"),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        activity = self._latest_ticket_activity()
+        assert activity is not None
+        self.assertIsNone(activity.detail.get("trigger"))
+
+    @parameterized.expand(
+        [
+            ("add", {"tags": ["urgent"], "tags_mode": "add"}, "created", "after", "urgent"),
+            ("remove", {"tags": ["bug"], "tags_mode": "remove"}, "deleted", "before", "bug"),
+        ]
+    )
+    def test_patch_tag_changes_record_workflow_trigger(self, _name, payload, action, direction, tag_name):
+        # Both directions flow through the TaggedItem activity signal: adds fire it on save,
+        # removes only because the endpoint deletes per-instance (a bulk delete would skip it).
+        # The signal picks the workflow trigger up from ActivityTriggerContext; without that,
+        # workflow tag changes render as an anonymous "PostHog" on the ticket timeline.
+        from posthog.models import Tag
+
+        existing_tag = Tag.objects.create(name="bug", team_id=self.team.id)
+        self.ticket.tagged_items.create(tag=existing_tag)
+
+        response = self.client.patch(
+            self.url,
+            payload,
+            content_type="application/json",
+            **self._workflow_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        activity = self._latest_ticket_activity()
+        assert activity is not None
+        tag_change = next((c for c in activity.detail.get("changes", []) if c["field"] == "tag"), None)
+        assert tag_change is not None
+        self.assertEqual(tag_change["action"], action)
+        self.assertEqual(tag_change[direction], tag_name)
+        self.assertEqual(activity.detail["trigger"]["job_type"], "hog_flow")
+
+    def test_patch_tag_changes_write_tag_audit_entries(self):
+        # Removals used to go through a bulk queryset delete, which skips the TaggedItem signal
+        # and left them out of the global Tag audit stream entirely. Both directions must now
+        # produce a TaggedItem-scope entry, attributed to the workflow.
+        response = self.client.patch(
+            self.url,
+            {"tags": ["urgent"], "tags_mode": "add"},
+            content_type="application/json",
+            **self._workflow_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response = self.client.patch(
+            self.url,
+            {"tags": ["urgent"], "tags_mode": "remove"},
+            content_type="application/json",
+            **self._workflow_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        audit_activities = {
+            entry.activity: entry for entry in ActivityLog.objects.filter(team_id=self.team.id, scope="TaggedItem")
+        }
+        self.assertIn("created", audit_activities)
+        self.assertIn("deleted", audit_activities)
+        deleted_detail = audit_activities["deleted"].detail
+        assert deleted_detail is not None
+        self.assertEqual(deleted_detail["trigger"]["job_type"], "hog_flow")
+
+    def test_workflow_trigger_does_not_leak_after_request(self):
+        # The trigger thread-local must be cleared by the context manager, or attribution
+        # would bleed into unrelated activity logged later on a reused worker thread.
+        from posthog.models.activity_logging.utils import activity_storage
+
+        response = self.client.patch(
+            self.url,
+            {"tags": ["urgent"], "tags_mode": "add"},
+            content_type="application/json",
+            **self._workflow_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNone(activity_storage.get_trigger())
+
+    def test_patch_assignee_records_workflow_trigger(self):
+        response = self.client.patch(
+            self.url,
+            {"assignee": {"type": "user", "id": self.user.id}},
+            content_type="application/json",
+            **self._workflow_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        activity = self._latest_ticket_activity(activity="assigned")
+        assert activity is not None
+        self.assertEqual(activity.detail["trigger"]["job_type"], "hog_flow")
+
+    def test_patch_unchanged_assignee_logs_no_activity(self):
+        # Callers send the assignee whenever it's in the payload (the ticket UI always sends the
+        # full form), so a no-op assignment must not write "assigned to unassigned" entries or
+        # fire assignment-triggered workflows on every save.
+        response = self.client.patch(
+            self.url,
+            {"assignee": None},
+            content_type="application/json",
+            **self._headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNone(self._latest_ticket_activity(activity="assigned"))
+
+        for _ in range(2):
+            response = self.client.patch(
+                self.url,
+                {"assignee": {"type": "user", "id": self.user.id}},
+                content_type="application/json",
+                **self._headers(),
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            ActivityLog.objects.filter(
+                team_id=self.team.id, scope="Ticket", item_id=str(self.ticket.id), activity="assigned"
+            ).count(),
+            1,
+        )

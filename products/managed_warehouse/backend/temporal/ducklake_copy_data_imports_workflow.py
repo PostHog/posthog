@@ -22,7 +22,6 @@ from temporalio.exceptions import ApplicationError
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
-from posthog.ph_client import feature_enabled_or_false
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
@@ -49,6 +48,7 @@ from products.managed_warehouse.backend.facade.contracts import (
     ManagedWarehouseSourceJobUpdate,
     ManagedWarehouseSourceJobWorkflow,
 )
+from products.managed_warehouse.backend.logic.ducklake_copy import data_imports_ducklake_copy_enabled
 from products.managed_warehouse.backend.logic.verification import (
     DuckLakeCopyVerificationParameter,
     DuckLakeCopyVerificationQuery,
@@ -350,27 +350,12 @@ async def ducklake_copy_data_imports_gate_activity(inputs: DuckLakeCopyWorkflowG
             return False
         return not await _organization_registers_without_duckgres(team.organization_id)
 
+    if not data_imports_ducklake_copy_enabled(
+        team_id=team.id, team_uuid=team.uuid, organization_id=team.organization_id
+    ):
+        return False
+
     try:
-        copy_enabled = feature_enabled_or_false(
-            "ducklake-data-imports-copy-workflow",
-            str(team.uuid),
-            groups={
-                "organization": str(team.organization_id),
-                "project": str(team.id),
-            },
-            group_properties={
-                "organization": {
-                    "id": str(team.organization_id),
-                },
-                "project": {
-                    "id": str(team.id),
-                },
-            },
-            only_evaluate_locally=True,
-            send_feature_flag_events=False,
-        )
-        if not copy_enabled:
-            return False
         return not await _organization_registers_without_duckgres(team.organization_id)
     except ApplicationError:
         raise

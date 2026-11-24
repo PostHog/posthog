@@ -2,13 +2,11 @@ import { appendFileSync, mkdirSync, utimesSync } from 'fs'
 import path from 'path'
 import { setTimeout as sleep } from 'timers/promises'
 
-import { parseJSON } from '~/common/utils/json-parse'
-import { internalFetch } from '~/common/utils/request'
-
 import type { JournalEntry } from '../judge/judge'
 import type { MetricSample, QueueSample } from '../judge/measurements'
+import type { TruthSource } from '../judge/truth'
 import type { WriterSample } from '../probe/writer-probe'
-import type { TruthPage, TruthRecord } from '../provider-edge'
+import type { TruthRecord } from '../provider-edge'
 import type { ValveTimelineEntry } from '../valves/valves'
 
 export const LIVE_FILE = 'live.jsonl'
@@ -42,7 +40,7 @@ export type LiveSources = {
     queue(): readonly QueueSample[]
     writer(): readonly WriterSample[]
     journal(): readonly JournalEntry[]
-    edgeUrl: string
+    truth: TruthSource
 }
 
 export interface LiveLog extends Disposable {
@@ -51,11 +49,8 @@ export interface LiveLog extends Disposable {
     stop(): Promise<void>
 }
 
-async function truthPage(edgeUrl: string, after: number): Promise<LiveTruth[]> {
-    const response = await internalFetch(`${edgeUrl}/_truth?after=${after}&limit=${TRUTH_PAGE}`, {
-        timeoutMs: TRUTH_TIMEOUT_MS,
-    })
-    const page = parseJSON(await response.text()) as TruthPage
+async function truthPage(source: TruthSource, after: number): Promise<LiveTruth[]> {
+    const page = await source.after(after, { limit: TRUTH_PAGE, timeoutMs: TRUTH_TIMEOUT_MS })
     return page.records.map(({ seq, at, kind, unitId, actionId, status, fault }) => ({
         seq,
         at,
@@ -67,21 +62,16 @@ async function truthPage(edgeUrl: string, after: number): Promise<LiveTruth[]> {
     }))
 }
 
-async function truthAfter(edgeUrl: string, after: number): Promise<LiveTruth[]> {
+async function truthAfter(source: TruthSource, after: number): Promise<LiveTruth[]> {
     const all: LiveTruth[] = []
     for (let cursor = after; ; ) {
-        const page = await truthPage(edgeUrl, cursor)
+        const page = await truthPage(source, cursor)
         all.push(...page)
         if (page.length < TRUTH_PAGE) {
             return all
         }
         cursor = page.at(-1)!.seq
     }
-}
-
-async function truthHead(edgeUrl: string): Promise<number> {
-    const response = await internalFetch(`${edgeUrl}/_truth/head`, { timeoutMs: TRUTH_TIMEOUT_MS })
-    return (parseJSON(await response.text()) as { head: number }).head
 }
 
 export function openLiveLog(evidenceDir: string, tickMs = TICK_MS): LiveLog {
@@ -118,7 +108,7 @@ export function openLiveLog(evidenceDir: string, tickMs = TICK_MS): LiveLog {
             following = (async () => {
                 const seen = { samples: 0, queue: 0, writer: 0, journal: 0 }
                 let timeline = ''
-                let truthFrom = await truthHead(sources.edgeUrl).catch(() => undefined)
+                let truthFrom = await sources.truth.head({ timeoutMs: TRUTH_TIMEOUT_MS }).catch(() => undefined)
                 for (let last = false; !last && !broken; ) {
                     await sleep(tickMs, undefined, { signal: stopped.signal }).catch(() => undefined)
                     last = stopped.signal.aborted
@@ -127,9 +117,9 @@ export function openLiveLog(evidenceDir: string, tickMs = TICK_MS): LiveLog {
                         seen[key] = all.length
                         return taken
                     }
-                    truthFrom ??= await truthHead(sources.edgeUrl).catch(() => undefined)
+                    truthFrom ??= await sources.truth.head({ timeoutMs: TRUTH_TIMEOUT_MS }).catch(() => undefined)
                     const truth =
-                        truthFrom === undefined ? [] : await truthAfter(sources.edgeUrl, truthFrom).catch(() => [])
+                        truthFrom === undefined ? [] : await truthAfter(sources.truth, truthFrom).catch(() => [])
                     truthFrom = truth.at(-1)?.seq ?? truthFrom
                     const valves = sources.timeline()
                     const serialized = JSON.stringify(valves)

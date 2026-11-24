@@ -1,6 +1,10 @@
 import { useMemo, useState } from 'react'
 
+import { IconPlus } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
+
+import { useQuillSurface } from 'lib/ui/QuillSurface/quillSurfaceContext'
 
 import {
     CyclotronJobFiltersType,
@@ -47,6 +51,7 @@ export function LinkedHogFunctions({
     const logicKey = useMemo(() => {
         return JSON.stringify({ type, subTemplateIds, forceFilterGroups })
     }, [type, subTemplateIds, forceFilterGroups])
+    const quillSurface = useQuillSurface()
 
     // TRICKY: All templates are destinations - internal destinations are just a different source
     // and set by the subtemplate modifier
@@ -78,11 +83,17 @@ export function LinkedHogFunctions({
             getConfigurationOverrides={getConfigurationOverrides}
             queryParams={queryParams}
             extraControls={
-                <>
-                    <LemonButton type="secondary" size="small" onClick={() => setShowNewDestination(false)}>
+                quillSurface ? (
+                    <Button variant="outline" onClick={() => setShowNewDestination(false)}>
                         Cancel
-                    </LemonButton>
-                </>
+                    </Button>
+                ) : (
+                    <>
+                        <LemonButton type="secondary" size="small" onClick={() => setShowNewDestination(false)}>
+                            Cancel
+                        </LemonButton>
+                    </>
+                )
             }
         />
     ) : (
@@ -94,16 +105,27 @@ export function LinkedHogFunctions({
             hideFeedback={hideFeedback}
             emptyText={emptyText}
             extraControls={
-                <>
-                    <LemonButton
-                        type="primary"
-                        size="small"
+                quillSurface ? (
+                    <Button
+                        variant="primary"
                         disabledReason={newDisabledReason}
                         onClick={() => setShowNewDestination(true)}
                     >
+                        <IconPlus />
                         New notification
-                    </LemonButton>
-                </>
+                    </Button>
+                ) : (
+                    <>
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            disabledReason={newDisabledReason}
+                            onClick={() => setShowNewDestination(true)}
+                        >
+                            New notification
+                        </LemonButton>
+                    </>
+                )
             }
         />
     )

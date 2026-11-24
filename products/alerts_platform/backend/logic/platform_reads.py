@@ -495,13 +495,13 @@ def count_configurations(
 ) -> int:
     """How many alerts of a kind a team has on the platform, whoever owns them. With `native_only`, only
     the ones with no source row, and with `held_only` also the copies the platform owns. With
-    `exclude_id`, the alert an edit is checked for is left out. With `source_config_contains`, only the
-    ones whose `source_config` holds that object."""
+    `exclude_id`, the alert an edit is checked for is left out, by its platform id or a copy's source
+    row id. With `source_config_contains`, only the ones whose `source_config` holds that object."""
     configurations = PlatformAlertConfiguration.objects.for_team(team_id, canonical=True).filter(
         source_kind=source_kind
     )
     if exclude_id is not None:
-        configurations = configurations.exclude(id=exclude_id)
+        configurations = configurations.exclude(Q(id=exclude_id) | Q(legacy_configuration_id=exclude_id))
     if source_config_contains:
         configurations = configurations.filter(source_config__contains=source_config_contains)
     if native_only:
@@ -675,14 +675,16 @@ def last_check_by_public_id(*, team_id: int, public_ids: Collection[UUID]) -> di
 
 
 def notable_checks_by_public_id(
-    *, team_id: int, public_id: UUID, since: datetime, limit: int
+    *, team_id: int, public_id: UUID, since: datetime, limit: int, copies_before: bool = False
 ) -> PlatformCheckEventPage | None:
     """The newest checks since `since` that moved the named alert's state or failed, or None when
     the platform does not own it."""
     platform_id = _platform_id_of(team_id, public_id)
     if platform_id is None:
         return None
-    return platform_alert_events.notable_checks(team_id, platform_id, since=since, limit=limit)
+    return platform_alert_events.notable_checks(
+        team_id, platform_id, since=since, limit=limit, copies_before=copies_before
+    )
 
 
 def control_changes_by_public_id(

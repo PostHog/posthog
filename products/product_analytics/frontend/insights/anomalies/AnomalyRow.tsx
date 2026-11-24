@@ -1,16 +1,17 @@
-import { TZLabel } from 'lib/components/TZLabel'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
-import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { percentage } from 'lib/utils/numbers'
-import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import type { AnomalyIntervalEnumApi, AnomalySeriesApi } from 'products/signals/frontend/generated/api.schemas'
 
+import type { AnomalyRowRating } from './anomaliesTabLogic'
+import { appPath } from './anomalyInsightLinks'
+import { AnomalyRowActions } from './AnomalyRowActions'
 import { AnomalyRowChart } from './AnomalyRowChart'
 import { withAnomalyScoresParam } from './anomalyScoresParam'
+import { anomalySeriesLabel } from './anomalySeriesLabel'
+import { LastAnomalyLabel } from './LastAnomalyLabel'
 
 const INTERVAL_LABELS: Record<AnomalyIntervalEnumApi, string> = {
     hour: 'Hourly',
@@ -21,28 +22,25 @@ const INTERVAL_LABELS: Record<AnomalyIntervalEnumApi, string> = {
 
 const MAX_DASHBOARD_LINKS = 2
 
-// A rate under half a percent would round to 0%, which reads as nothing flagged.
-function anomalyRateLabel(rate: number | null): string {
-    if (rate == null) {
-        return '0%'
-    }
-    return rate > 0 && rate < 0.005 ? '<1%' : percentage(rate, 0)
-}
-
-// The API returns an absolute link. Routing its path keeps the click inside the app.
-function appPath(url: string): string {
-    const parsed = new URL(url, window.location.origin)
-    return `${parsed.pathname}${parsed.search}${parsed.hash}`
-}
-
 export interface AnomalyRowProps {
     series: AnomalySeriesApi
     dateFrom: string
     dateTo: string
+    rating: AnomalyRowRating | undefined
     onOpenInsight: () => void
+    onRate: (rating: AnomalyRowRating) => void
+    onCreateAlert: () => void
 }
 
-export function AnomalyRow({ series, dateFrom, dateTo, onOpenInsight }: AnomalyRowProps): JSX.Element {
+export function AnomalyRow({
+    series,
+    dateFrom,
+    dateTo,
+    rating,
+    onOpenInsight,
+    onRate,
+    onCreateAlert,
+}: AnomalyRowProps): JSX.Element {
     const shownDashboards = series.dashboards.slice(0, MAX_DASHBOARD_LINKS)
     const moreDashboards = series.dashboards.slice(MAX_DASHBOARD_LINKS)
     return (
@@ -59,23 +57,12 @@ export function AnomalyRow({ series, dateFrom, dateTo, onOpenInsight }: AnomalyR
                             {series.insight_name || 'Untitled insight'}
                         </Link>
                         <div className="text-secondary text-sm truncate">
-                            {[series.series_label || series.breakdown_value, INTERVAL_LABELS[series.interval]]
-                                .filter(Boolean)
-                                .join(' · ')}
+                            {[anomalySeriesLabel(series), INTERVAL_LABELS[series.interval]].filter(Boolean).join(' · ')}
                         </div>
                     </div>
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                        <Tooltip
-                            title={`${series.flagged_buckets} of ${pluralize(series.scored_buckets, series.interval)} flagged`}
-                        >
-                            <LemonTag type="danger">{`${anomalyRateLabel(series.anomaly_rate)} anomalous`}</LemonTag>
-                        </Tooltip>
-                        {series.last_flagged_bucket && (
-                            <span className="text-secondary text-xs">
-                                Last flagged <TZLabel time={series.last_flagged_bucket} />
-                            </span>
-                        )}
-                    </div>
+                    {series.last_flagged_bucket && (
+                        <LastAnomalyLabel bucketStart={series.last_flagged_bucket} interval={series.interval} />
+                    )}
                     {series.dashboards.length > 0 && (
                         <div className="text-secondary text-xs truncate" data-attr="anomalies-tab-row-dashboards">
                             <span>On: </span>
@@ -98,6 +85,7 @@ export function AnomalyRow({ series, dateFrom, dateTo, onOpenInsight }: AnomalyR
                             )}
                         </div>
                     )}
+                    <AnomalyRowActions series={series} rating={rating} onRate={onRate} onCreateAlert={onCreateAlert} />
                 </div>
                 <div className="flex-1 min-w-0">
                     <AnomalyRowChart series={series} dateFrom={dateFrom} dateTo={dateTo} />

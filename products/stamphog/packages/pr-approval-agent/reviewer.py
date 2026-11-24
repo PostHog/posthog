@@ -974,6 +974,14 @@ class Reviewer:
         ownership = cl.get("ownership", {})
         teams = ownership.get("teams", [])
         individuals = ownership.get("individuals", [])
+        # An empty result from a failed merge-base read would otherwise read as "nobody owns these
+        # paths", and that hides the case the merge-base read exists for: a rule that takes another
+        # team's paths.
+        if cl.get("ownership_unreadable"):
+            return (
+                "Ownership: unknown, because the ownership files could not be read at the merge base. Treat"
+                " a rule this PR adds or changes as one that takes paths another team owns."
+            )
         if not teams and not individuals:
             return "Ownership: no ownership-source match"
         summary = cl.get("ownership_summary", "")

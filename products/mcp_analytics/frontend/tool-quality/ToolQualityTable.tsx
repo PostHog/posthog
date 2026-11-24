@@ -20,7 +20,6 @@ import {
     PaginationNext,
     PaginationPrevious,
     Skeleton,
-    Spinner,
     Table,
     TableBody,
     TableCell,
@@ -38,6 +37,8 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { formatPercentage } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
 
+import { dimWhileLoading } from '../components/loadingFeedback'
+import { TableLoadingBar } from '../components/TableLoadingBar'
 import { DESTRUCTIVE_ERROR_RATE_PCT, formatMs, formatNumber } from '../dashboard/formatters'
 import { SkeletonLine } from '../dashboard/SkeletonLine'
 import {
@@ -184,8 +185,15 @@ function ToolRowsError(): JSX.Element {
 }
 
 function ToolRows(): JSX.Element {
-    const { toolRows, toolRowsTotalSessions, toolRowsPreviousTotalSessions, selectedTool, dateFilter, pinnedInterval } =
-        useValues(mcpAnalyticsToolQualityLogic)
+    const {
+        toolRows,
+        toolRowsTotalSessions,
+        toolRowsPreviousTotalSessions,
+        toolRowsPageLoading,
+        selectedTool,
+        dateFilter,
+        pinnedInterval,
+    } = useValues(mcpAnalyticsToolQualityLogic)
     const { setSelectedTool } = useActions(mcpAnalyticsToolQualityLogic)
     const toggleRow = (tool: string): void => setSelectedTool(tool === selectedTool ? null : tool)
 
@@ -193,7 +201,7 @@ function ToolRows(): JSX.Element {
         return <TableEmpty className="py-6 text-secondary">No tool calls match the current filters.</TableEmpty>
     }
     return (
-        <TableBody>
+        <TableBody aria-busy={toolRowsPageLoading} className={dimWhileLoading(toolRowsPageLoading)}>
             {toolRows.map((row) => (
                 <TableRow
                     key={row.tool}
@@ -321,11 +329,7 @@ export function ToolQualityTable(): JSX.Element {
                     </TableHeader>
                     {showSkeleton ? <ToolRowsSkeleton /> : toolRowsLoadFailed ? <ToolRowsError /> : <ToolRows />}
                 </Table>
-                {toolRowsPageLoading && !showSkeleton ? (
-                    <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/60">
-                        <Spinner className="size-5" />
-                    </div>
-                ) : null}
+                <TableLoadingBar loading={toolRowsPageLoading && toolRows.length > 0} />
             </div>
             {toolRowsTotalCount > 0 && (
                 <CardFooter className="flex flex-row flex-wrap items-center justify-between gap-2 border-t border-border">

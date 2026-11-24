@@ -10,7 +10,7 @@ import {
     TRACING_TIME_FORMAT,
 } from 'products/tracing/frontend/dateFormats'
 
-import type { StatusCodeErrors, TopError } from './servicePage'
+import { ERROR_GROUP_KIND_LABEL, type StatusCodeErrors, type TopError } from './servicePage'
 
 export interface ServiceTopErrorsProps {
     topErrors: TopError[]
@@ -56,15 +56,24 @@ export function ServiceTopErrors({
             <LemonTable<TopError>
                 dataSource={topErrors}
                 loading={topErrorsLoading}
-                rowKey="message"
+                rowKey="key"
                 size="small"
                 emptyState="No errors in this window"
                 columns={[
                     {
-                        title: 'Error message',
-                        key: 'message',
+                        title: 'Error',
+                        key: 'value',
                         render: (_, row) => (
-                            <span className="ph-replay-block ph-no-capture font-mono break-all">{row.message}</span>
+                            <span className="ph-replay-block ph-no-capture font-mono break-all">{row.value}</span>
+                        ),
+                    },
+                    {
+                        title: 'Grouped by',
+                        key: 'kind',
+                        render: (_, row) => (
+                            <LemonTag type={row.kind === 'message' ? 'default' : 'muted'} size="small">
+                                {ERROR_GROUP_KIND_LABEL[row.kind]}
+                            </LemonTag>
                         ),
                     },
                     {
@@ -105,7 +114,10 @@ export function ServiceTopErrors({
             />
             {sampleSize > 0 && (
                 <span className="text-xs text-muted">
-                    <span>Grouped from the most recent error spans: </span>
+                    <span>
+                        Grouped by error message. Spans without one are grouped by exception type, then HTTP status,
+                        then span name. Based on the most recent error spans:{' '}
+                    </span>
                     <span translate="no">{humanFriendlyNumber(sampleSize)}</span>
                     {sampleSize >= sampleLimit ? <span>. Older errors are not counted.</span> : null}
                 </span>

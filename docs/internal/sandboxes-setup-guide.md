@@ -18,7 +18,7 @@ flag for every team, and builds the agent skills bundle.
 ## Test egress identity
 
 Run `go -C products/tasks/services/egress-proxy test -race ./...` from the repository root.
-See the [egress README](../../products/tasks/services/egress-proxy/README.md) for container builds, recoverable cloud probes and opt-in observation, including sandbox replacement and revocation checks.
+See the [egress README](../../products/tasks/services/egress-proxy/README.md) for container builds, recoverable cloud probes and bounded enrollment of selected normal runs, including certificate renewal, sandbox replacement and revocation checks.
 
 ## GitHub App
 
@@ -273,6 +273,8 @@ the default cap. An invalid entry, or a value that is not a JSON object, is
 reported to error tracking and ignored, so the product keeps its built-in cap.
 
 ### Which gateway a sandbox run uses
+
+The sandbox connects to the Go AI gateway at `SANDBOX_AI_GATEWAY_URL`. If the Tasks worker reaches that gateway at a different address, set `SANDBOX_AI_GATEWAY_WORKER_URL` for token minting, revocation, and usage lookups. Modal evals use localhost for the worker and Tailscale Funnel for the remote agent.
 
 A run reaches the Go gateway only when its `ai_product` is listed in
 `SANDBOX_AI_GATEWAY_PRODUCTS` and the worker minted a scoped token for it. When the

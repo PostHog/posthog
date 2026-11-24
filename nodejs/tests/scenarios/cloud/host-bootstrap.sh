@@ -22,6 +22,7 @@ prefix="s3://${SCENARIO_EVIDENCE_BUCKET}/runs/${SCENARIO_RUN_ID}"
 root=${SCENARIO_HOST_ROOT:-/opt/scenario}
 input=$root/input
 log=${SCENARIO_BOOTSTRAP_LOG:-/var/log/scenario-bootstrap.log}
+hosts_file=${SCENARIO_HOSTS_FILE:-/etc/hosts}
 exec > >(tee -a "$log") 2>&1
 
 mark() {
@@ -35,7 +36,7 @@ report_failure() {
 
 install_packages_and_aws_cli() {
     apt-get update -q
-    apt-get install -y -q brotli build-essential ca-certificates curl docker-compose-v2 docker.io git jq libxml2-dev libxmlsec1-dev libxmlsec1-openssl pkg-config python3 unzip xz-utils
+    apt-get install -y -q brotli build-essential ca-certificates curl docker-compose-v2 docker.io git jq libxml2-dev libxmlsec1-dev libxmlsec1-openssl pkg-config postgresql-client protobuf-compiler python3 unzip xz-utils
     if aws --version 2>/dev/null | grep -q "^aws-cli/${AWS_CLI_VERSION} "; then
         return
     fi
@@ -43,6 +44,13 @@ install_packages_and_aws_cli() {
     echo "${AWS_CLI_SHA256}  /tmp/awscliv2.zip" | sha256sum --check --strict
     unzip -q /tmp/awscliv2.zip -d /tmp
     /tmp/aws/install --update
+}
+
+add_service_hosts() {
+    local line
+    line=$(sed -n 's/^POSTHOG_HOSTS="\(.*\)"$/\1/p' "$repo/.flox/env/on-activate.sh")
+    [ -n "$line" ]
+    grep -qxF "$line" "$hosts_file" || printf '%s\n' "$line" >>"$hosts_file"
 }
 
 verify_inputs() {
@@ -120,6 +128,7 @@ check_ready() {
 trap poweroff ERR
 install_packages_and_aws_cli
 trap report_failure ERR
+add_service_hosts
 verify_inputs
 install_node_and_pnpm
 install_sqlx_cli

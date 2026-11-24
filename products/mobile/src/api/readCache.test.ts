@@ -74,16 +74,19 @@ describe('bounded offline read cache', () => {
         const subscription = persistReadCache(source, store, scope, () => true)
         await subscription.ready
         const dataReadAt = Date.now() - 60000
-        for (const [preference, usersOnline] of [
-            ['all', 12],
-            ['web', 8],
-            ['mobile', 4],
-        ] as const) {
-            source.setQueryData(['views', scope.host, 1, 'live', preference], {
+        const prefix = ['views', scope.host, 1, 'live'] as const
+        const snapshots = [
+            [[...prefix, 'all'], 12],
+            [[...prefix, 'web'], 8],
+            [[...prefix, 'mobile'], 4],
+            [[...prefix, 'all', 'exclude-internal'], 6],
+        ] as const
+        for (const [key, usersOnline] of snapshots) {
+            source.setQueryData(key, {
                 dataReadAt,
                 snapshot: {
                     ...EMPTY_LIVE_SNAPSHOT,
-                    preference,
+                    preference: key[4],
                     usersOnline,
                     events: [{ distinctId: 'private-person' }],
                 },
@@ -95,15 +98,11 @@ describe('bounded offline read cache', () => {
         const restarted = persistReadCache(restored, store, scope, () => true)
         await restarted.ready
         await jest.advanceTimersByTimeAsync(31 * 60_000)
-        for (const [preference, usersOnline] of [
-            ['all', 12],
-            ['web', 8],
-            ['mobile', 4],
-        ] as const) {
-            expect(restored.getQueryData(['views', scope.host, 1, 'live', preference])).toEqual({
+        for (const [key, usersOnline] of snapshots) {
+            expect(restored.getQueryData(key)).toEqual({
                 dataReadAt,
                 restoredFromDevice: true,
-                snapshot: { ...EMPTY_LIVE_SNAPSHOT, preference, usersOnline, events: null },
+                snapshot: { ...EMPTY_LIVE_SNAPSHOT, preference: key[4], usersOnline, events: null },
             })
         }
         await store.evictAccountViews(scope.account, scope.host)

@@ -13,6 +13,7 @@ from products.warehouse_sources.sources.helpscout.settings import (
 from products.warehouse_sources.sources.sdk import (
     BearerTokenAuth,
     ClientConfig,
+    Endpoint,
     JSONResponsePaginator,
     PageNumberPaginator,
     Resource,
@@ -52,6 +53,7 @@ class HelpScoutResumeConfig:
     # sync pages through the same window.
     page: Optional[int] = None
     report_end: str = ""
+    last_report_key: Optional[list[Any]] = None
 
 
 def _uses_v3_route(config: HelpScoutEndpointConfig, api_version: str) -> bool:
@@ -218,6 +220,22 @@ def _top_level_resource(
     )
 
 
+class _RepeatedRowCollapser:
+    # Repeats arrive next to each other because the report is sorted on the conversation
+    # number, so only the previous key needs to be kept. This runs as a map, not a filter,
+    # because filters run before the map that renames the parent id to `user_id`.
+    def __init__(self, key_fields: list[str], last_key: Optional[list[Any]] = None) -> None:
+        self._key_fields = key_fields
+        self.last_key = last_key
+
+    def __call__(self, row: dict[str, Any]) -> list[dict[str, Any]]:
+        key = [row.get(field) for field in self._key_fields]
+        if key == self.last_key:
+            return []
+        self.last_key = key
+        return [row]
+
+
 def _fanout_resource(
     client_config: ClientConfig,
     config: HelpScoutEndpointConfig,
@@ -228,17 +246,43 @@ def _fanout_resource(
     assert config.fanout is not None
     parent_config = HELP_SCOUT_ENDPOINTS[config.fanout.parent_name]
 
+    report_end = _format_since(datetime.now(UTC))
+    last_report_key: Optional[list[Any]] = None
     initial_paginator_state: Optional[dict[str, Any]] = None
     if resumable_source_manager.can_resume():
         resume = resumable_source_manager.load_state()
         if resume is not None and resume.fanout_state:
             initial_paginator_state = resume.fanout_state
+            if resume.report_end:
+                report_end = resume.report_end
+            last_report_key = resume.last_report_key
+    collapser = _RepeatedRowCollapser(config.primary_key, last_report_key) if config.is_report else None
+
+    child_params: dict[str, Any] = dict(config.params)
+    child_endpoint_extra: Endpoint
+    if config.is_report:
+        child_params.update({"start": _REPORT_WINDOW_START, "end": report_end})
+        child_endpoint_extra = {
+            "paginator": PageNumberPaginator(base_page=1, total_path="pages"),
+            "data_selector": config.embedded_key,
+        }
+    else:
+        child_endpoint_extra = {
+            "paginator": JSONResponsePaginator(next_url_path=_NEXT_URL_PATH),
+            "data_selector": f"_embedded.{config.embedded_key}",
+        }
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
         if state is not None:
-            resumable_source_manager.save_state(HelpScoutResumeConfig(fanout_state=state))
+            resumable_source_manager.save_state(
+                HelpScoutResumeConfig(
+                    fanout_state=state,
+                    report_end=report_end if config.is_report else "",
+                    last_report_key=collapser.last_key if collapser else None,
+                )
+            )
 
-    return cast(
+    resource = cast(
         Resource,
         build_dependent_resource(
             endpoint_configs=HELP_SCOUT_ENDPOINTS,
@@ -257,12 +301,13 @@ def _fanout_resource(
                 "paginator": JSONResponsePaginator(next_url_path=_NEXT_URL_PATH),
                 "data_selector": f"_embedded.{parent_config.embedded_key}",
             },
-            child_endpoint_extra={
-                "paginator": JSONResponsePaginator(next_url_path=_NEXT_URL_PATH),
-                "data_selector": f"_embedded.{config.embedded_key}",
-            },
+            child_endpoint_extra=child_endpoint_extra,
+            child_params_extra=child_params or None,
         ),
     )
+    if collapser is not None:
+        resource = resource.add_map(collapser)
+    return resource
 
 
 def helpscout_source(

@@ -132,6 +132,17 @@ describe('traceDrawerLogic', () => {
         expect(logic.values).toMatchObject({ position: null, previousTrace: null, nextTrace: null })
     })
 
+    it.each([
+        ['traces', [A, B], true],
+        ['traces', [A], false],
+    ] as const)('tells the %s host whether it can step traces with %j', (listId, rows, expected) => {
+        setUp({ listId })
+        logic.actions.setRows([...rows])
+        logic.actions.openRow(A)
+
+        expect(host.values.canStepTraces).toBe(expected)
+    })
+
     it('does nothing when stepping past either end', () => {
         setUp()
         logic.actions.setRows([A])

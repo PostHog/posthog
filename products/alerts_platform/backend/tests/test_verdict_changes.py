@@ -64,7 +64,6 @@ class TestRecordVerdictChange(ClickhouseTestMixin, APIBaseTest):
                 check_interval_minutes=5,
                 next_check_at=self.next_check_at,
                 owner=PlatformAlertOwner.PLATFORM,
-                destinations_owner=PlatformAlertOwner.PLATFORM,
             )
             platform_testing.start_firing(self.configuration.id, team_id=self.team.id, at=FIRING_AT)
             PlatformAlert.objects.filter(configuration=self.configuration).update(last_notified_at=FIRING_AT)

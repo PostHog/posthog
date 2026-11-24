@@ -1988,15 +1988,22 @@ class TestProcessTaskWorkflowUnit:
         )
         assert wf._self_driving_quota_recheck_scheduled() is False
 
-    @pytest.mark.parametrize("observe", [False, True])
-    async def test_final_sandbox_cleanup_completes_the_run_stream(self, monkeypatch, observe: bool):
+    @pytest.mark.parametrize("mode", ["disabled", "observation", "enrollment"])
+    @pytest.mark.parametrize("terminal_status", [None, "completed", "cancelled", "failed"])
+    async def test_final_sandbox_cleanup_completes_the_run_stream(
+        self, monkeypatch, mode: str, terminal_status: str | None
+    ):
         cleanup_inputs: list[CleanupSandboxInput] = []
         events: list[str] = []
         observing = asyncio.Event()
 
         async def child_workflow(workflow_fn, input: AgentEgressProbeInput, **kwargs):
             assert input == AgentEgressProbeInput(
-                config_path="/run/egress/observation.json", team_id=1, run_id="run-id", sandbox_id="sandbox-123"
+                config_path="/run/egress/observation.json",
+                team_id=1,
+                run_id="run-id",
+                sandbox_id="sandbox-123",
+                enrollment=mode == "enrollment",
             )
             assert kwargs["cancellation_type"] == ChildWorkflowCancellationType.WAIT_CANCELLATION_COMPLETED
             assert kwargs["parent_close_policy"] == ParentClosePolicy.REQUEST_CANCEL
@@ -2007,6 +2014,10 @@ class TestProcessTaskWorkflowUnit:
                 events.append("revoke")
 
         async def fake_execute_activity(activity_fn, activity_input, **kwargs):
+            if activity_fn is update_task_run_status:
+                assert mode == "disabled" or "revoke" in events
+                events.append("terminal")
+                return
             assert activity_fn is cleanup_sandbox
             cleanup_inputs.append(activity_input)
             events.append("destroy")
@@ -2014,19 +2025,25 @@ class TestProcessTaskWorkflowUnit:
         monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
         monkeypatch.setattr(process_task_workflow_module.workflow, "execute_child_workflow", child_workflow)
         monkeypatch.setattr(process_task_workflow_module.workflow, "uuid4", uuid.uuid4)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", lambda name: True)
         monkeypatch.setattr(
             process_task_workflow_module.workflow, "info", lambda: SimpleNamespace(task_queue="egress-test")
         )
         workflow = ProcessTaskWorkflow()
         workflow._context = _build_context(github_integration_id=123)
-        if observe:
+        if mode != "disabled":
             workflow._context.agent_egress_observation_config = "/run/egress/observation.json"
+            workflow._context.agent_egress_enrollment_enabled = mode == "enrollment"
             workflow._agent_egress_observation_task = asyncio.create_task(workflow._observe_egress("sandbox-123"))
             await asyncio.wait_for(observing.wait(), timeout=5)
 
+        if terminal_status:
+            await workflow._update_task_run_status(terminal_status)
         await workflow._cleanup_sandbox("sandbox-123", complete_stream=True)
 
-        assert events == (["revoke", "destroy"] if observe else ["destroy"])
+        assert events == (["revoke"] if mode != "disabled" else []) + (["terminal"] if terminal_status else []) + [
+            "destroy"
+        ]
         assert cleanup_inputs == [
             CleanupSandboxInput(
                 sandbox_id="sandbox-123",
@@ -3834,14 +3851,19 @@ class TestProcessTaskWorkflowUnit:
         assert mark_repo_ready not in calls
 
     @pytest.mark.parametrize(
-        "custom_image_name, expected_image_source, expected_image_source_label",
+        "custom_image_name, expected_image_source, expected_image_source_label, resume_error_type",
         [
-            (None, "base_image", "published sandbox base image"),
-            ("sandbox-custom-abc", "custom_image", "custom base image sandbox-custom-abc"),
+            (None, "base_image", "published sandbox base image", "SandboxNotRunningError"),
+            (
+                "sandbox-custom-abc",
+                "custom_image",
+                "custom base image sandbox-custom-abc",
+                "ResumeSnapshotCredentialScrubError",
+            ),
         ],
     )
     async def test_get_sandbox_for_repository_falls_back_to_fresh_sandbox_when_resume_injection_fails(
-        self, monkeypatch, custom_image_name, expected_image_source, expected_image_source_label
+        self, monkeypatch, custom_image_name, expected_image_source, expected_image_source_label, resume_error_type
     ):
         workflow = ProcessTaskWorkflow()
         workflow._context = _build_context(
@@ -3888,7 +3910,7 @@ class TestProcessTaskWorkflowUnit:
                 create_inputs.append(args[0])
                 return created_dead if len(create_inputs) == 1 else created_fresh
             if activity_fn is inject_fresh_tokens_on_resume:
-                raise ApplicationError("Sandbox not in running state.", type="SandboxNotRunningError")
+                raise ApplicationError("Resume could not safely reuse the sandbox.", type=resume_error_type)
             if activity_fn is invalidate_resume_snapshot:
                 invalidate_inputs.append(args[0])
                 return None

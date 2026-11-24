@@ -31,9 +31,9 @@ export const RESOURCE_ROLLOUT_FLAG_REQUIREMENTS: Partial<Record<AccessControlRes
     [AccessControlResourceType.CustomerAnalytics]: FEATURE_FLAGS.CUSTOMER_ANALYTICS,
     [AccessControlResourceType.Metrics]: FEATURE_FLAGS.METRICS,
     [AccessControlResourceType.Tracing]: FEATURE_FLAGS.TRACING,
-    [AccessControlResourceType.Tagger]: FEATURE_FLAGS.LLM_ANALYTICS_TAGS,
     [AccessControlResourceType.BusinessKnowledge]: FEATURE_FLAGS.PRODUCT_BUSINESS_KNOWLEDGE,
     [AccessControlResourceType.MarketingAnalytics]: FEATURE_FLAGS.WEB_ANALYTICS_MARKETING,
+    [AccessControlResourceType.Canvas]: FEATURE_FLAGS.TODAY_RAIL_NAV,
 }
 
 export function isResourceRolledOut(
@@ -48,6 +48,7 @@ export function isResourceRolledOut(
 const RESOURCES_HIDDEN_FROM_ACCESS_CONTROLS: ReadonlySet<AccessControlResourceType> = new Set([
     AccessControlResourceType.RevenueAnalytics,
     AccessControlResourceType.CodeReviewApproval,
+    AccessControlResourceType.Tagger,
 ])
 
 export function isResourceShownInAccessControls(
@@ -61,7 +62,7 @@ export function isResourceShownInAccessControls(
 export interface resourcesAccessControlLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     currentProjectId: number | string // teamLogic
-    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
+    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean // userLogic
     resourceAccessControls: AccessControlResponseType | null
     resourceAccessControlsLoading: boolean
     resources: APIScopeObject[]
@@ -108,7 +109,7 @@ export interface resourcesAccessControlLogicActions {
 export interface resourcesAccessControlLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         resources: (
-            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean,
+            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number) => boolean,
             featureFlags: FeatureFlagsSet
         ) => APIScopeObject[]
     }
@@ -185,6 +186,7 @@ export const resourcesAccessControlLogic = kea<resourcesAccessControlLogicType>(
                     AccessControlResourceType.Action,
                     AccessControlResourceType.ActivityLog,
                     AccessControlResourceType.BusinessKnowledge,
+                    AccessControlResourceType.Canvas,
                     AccessControlResourceType.CustomerAnalytics,
                     AccessControlResourceType.Dashboard,
                     AccessControlResourceType.EarlyAccessFeature,
@@ -200,7 +202,6 @@ export const resourcesAccessControlLogic = kea<resourcesAccessControlLogicType>(
                     AccessControlResourceType.MarketingAnalytics,
                     AccessControlResourceType.Evaluation,
                     AccessControlResourceType.McpAnalytics,
-                    AccessControlResourceType.Tagger,
                     AccessControlResourceType.LlmSkill,
                     AccessControlResourceType.AiObservabilityClusters,
                     AccessControlResourceType.Metrics,

@@ -13,6 +13,7 @@ import { useItemErrors } from '@/features/views/viewsCache'
 import { track } from '@/lib/analytics'
 import { RECONNECT_NOTICE_DELAY_MS } from '@/lib/useDelayedReconnecting'
 import { EMPTY_LIVE_SNAPSHOT } from '@/model/live'
+import { DEFAULT_LIVE_TRAFFIC_FILTERS } from '@/model/liveTrafficFilters'
 
 import { useLiveFeed, useLiveUsersOnline, useLiveWorld } from './hooks'
 import { useLivePreference } from './livePreference'
@@ -162,27 +163,119 @@ async function refocus(rerender: (props: unknown) => void): Promise<void> {
 }
 
 describe('useLiveFeed', () => {
-    test.each(['all', 'web', 'mobile'] as const)('Users online uses the %s audience', async (preference) => {
+    test.each([
+        { preference: 'all', exclude: false, expectedCount: 91 },
+        { preference: 'all', exclude: true, expectedCount: 3 },
+        { preference: 'web', exclude: false, expectedCount: 11 },
+        { preference: 'mobile', exclude: false, expectedCount: 7 },
+    ] as const)(
+        'Users online uses the $preference audience (exclude internal: $exclude)',
+        async ({ preference, exclude, expectedCount }) => {
+            liveProject({ ingested_event: true, live_events_token: 'example-live-token' }, 'web', CLOUD)
+            const stats = jest.fn(async () => ({ ok: true, json: async () => ({ users_on_product: 91 }) }))
+            globalThis.fetch = stats as unknown as typeof fetch
+            const chosen = renderHook(() => useLivePreference())
+            act(() => chosen.result.current.setPreference(preference))
+            mockFetchQuery.mockImplementation(async (query) => {
+                if ((query.tags as { name: string }).name === 'live_users_count') {
+                    const text = String(query.query)
+                    return { results: [[text.includes(MOBILE_EVENT) ? 7 : text.includes(WEB_EVENT) ? 11 : 3]] }
+                }
+                return fakeLiveAnswer(query)
+            })
+            const { result } = renderHook(() => useLiveFeed(() => undefined, exclude))
+            await advance(0)
+            const useStats = preference === 'all' && !exclude
+            expect(result.current.usersOnline).toBe(expectedCount)
+            expect(stats.mock.calls.length > 0).toBe(useStats)
+            const countQueries = mockFetchQuery.mock.calls.filter(
+                ([query]) => (query.tags as { name: string }).name === 'live_users_count'
+            )
+            expect(countQueries.length > 0).toBe(!useStats)
+            if (exclude) {
+                expect(countQueries[0]?.[0].filters).toEqual({ filterTestAccounts: true })
+            }
+        }
+    )
+
+    test('changing traffic filters drops old snapshot and hourly metrics and bypasses project-wide stats', async () => {
         liveProject({ ingested_event: true, live_events_token: 'example-live-token' }, 'web', CLOUD)
         const stats = jest.fn(async () => ({ ok: true, json: async () => ({ users_on_product: 91 }) }))
         globalThis.fetch = stats as unknown as typeof fetch
-        const chosen = renderHook(() => useLivePreference())
-        act(() => chosen.result.current.setPreference(preference))
+        const selected = renderHook(() => useLivePreference())
+        act(() => selected.result.current.setPreference('all'))
+        const { result } = await renderFeed()
+        expect(result.current.usersOnline).toBe(91)
+        expect(result.current.snapshot.mobileMetrics?.dailyActiveUsers).toBe(3)
+        stats.mockClear()
+        const trafficFilters = {
+            ...DEFAULT_LIVE_TRAFFIC_FILTERS,
+            channelType: 'Referral',
+            deviceType: 'Desktop',
+            countryCode: 'CA',
+            referringDomain: 'traffic.example.com',
+        }
+        let finish: (() => void) | undefined
+        const pending = new Promise<void>((resolve) => {
+            finish = resolve
+        })
         mockFetchQuery.mockImplementation(async (query) => {
+            await pending
+            switch ((query.tags as { name: string }).name) {
+                case 'live_mobile_metrics':
+                    return { results: [[0, 0, 0, 0, 0]] }
+                case 'live_users_count':
+                    return { results: [[1]] }
+                default:
+                    return fakeLiveAnswer(query)
+            }
+        })
+        act(() => selected.result.current.setLiveFilters('all', trafficFilters))
+        expect(result.current.snapshot.activity).toBeNull()
+        expect(result.current.snapshot.mobileMetrics ?? null).toBeNull()
+        expect(result.current.usersOnline).toBeNull()
+        act(() => finish?.())
+        await advance(0)
+        expect(stats).not.toHaveBeenCalled()
+        expect(result.current.usersOnline).toBe(1)
+        expect(result.current.snapshot.mobileMetrics?.dailyActiveUsers).toBe(0)
+    })
+
+    test('a late response for one hostname never replaces data for the selected hostname', async () => {
+        liveProject({ ingested_event: true }, 'web')
+        const { result } = renderHook(() => ({ feed: useLiveFeed(() => undefined), selection: useLivePreference() }))
+        await advance(0)
+        let finish: (() => void) | undefined
+        const pending = new Promise<void>((resolve) => {
+            finish = resolve
+        })
+        mockFetchQuery.mockImplementation(async (query) => {
+            const filters = query.filters as { properties?: { key: string; value: string }[] } | undefined
+            const hostname = filters?.properties?.find(({ key }) => key === '$host')?.value
+            if (hostname === 'first.example.com') await pending
             if ((query.tags as { name: string }).name === 'live_users_count') {
-                const text = String(query.query)
-                return { results: [[text.includes(MOBILE_EVENT) ? 7 : text.includes(WEB_EVENT) ? 11 : 3]] }
+                return { results: [[hostname === 'first.example.com' ? 27 : 4]] }
             }
             return fakeLiveAnswer(query)
         })
-        const { result } = await renderFeed()
-        await advance(0)
-        expect(result.current.usersOnline).toBe(preference === 'all' ? 91 : preference === 'web' ? 11 : 7)
-        expect(stats.mock.calls.length > 0).toBe(preference === 'all')
-        const countQueries = mockFetchQuery.mock.calls.filter(
-            ([query]) => (query.tags as { name: string }).name === 'live_users_count'
+        act(() =>
+            result.current.selection.setLiveFilters('web', {
+                ...DEFAULT_LIVE_TRAFFIC_FILTERS,
+                hostname: 'first.example.com',
+            })
         )
-        expect(countQueries.length > 0).toBe(preference !== 'all')
+        await advance(0)
+        act(() =>
+            result.current.selection.setLiveFilters('web', {
+                ...DEFAULT_LIVE_TRAFFIC_FILTERS,
+                hostname: 'second.example.com',
+            })
+        )
+        await advance(0)
+        expect(result.current.feed.usersOnline).toBe(4)
+        act(() => finish?.())
+        await advance(0)
+        expect(result.current.feed.usersOnline).toBe(4)
     })
 
     test('switching from All drops an in-flight project-wide count', async () => {
@@ -325,7 +418,7 @@ describe('useLiveFeed', () => {
         mockScope = null
         jest.useFakeTimers()
         const chosen = renderHook(() => useLivePreference())
-        act(() => chosen.result.current.setPreference('web'))
+        act(() => chosen.result.current.setLiveFilters('web', DEFAULT_LIVE_TRAFFIC_FILTERS))
         chosen.unmount()
     })
 
@@ -342,6 +435,8 @@ describe('useLiveFeed', () => {
         const first = await renderFeed()
         await advance(5000)
         const previous = first.result.current.snapshot
+        const previousReadAt = first.result.current.updatedAt
+        expect(previousReadAt).not.toBeNull()
         first.unmount()
         const respond = jest.spyOn(LiveDemo.prototype, 'respond').mockImplementation(() => {
             throw new Error('Offline')
@@ -353,11 +448,13 @@ describe('useLiveFeed', () => {
         await advance(5000)
         expect(reopened.result.current.loadFailed).toBe(false)
         expect(reopened.result.current.snapshot.activity).toEqual(previous.activity)
+        expect(reopened.result.current.updatedAt).toBe(previousReadAt)
         respond.mockRestore()
         act(() => reopened.result.current.retry())
         await advance(5000)
         expect(reopened.result.current.reading).toBe(false)
-        expect(reopened.result.current.snapshot.activity).not.toEqual(previous.activity)
+        expect(reopened.result.current.status).toBe('live')
+        expect(reopened.result.current.updatedAt).toBeGreaterThan(previousReadAt ?? 0)
     })
 
     test('a read keeps a map restored while its queries were already in flight', async () => {
@@ -546,7 +643,7 @@ describe('useLiveFeed', () => {
             }
             const { world } = live.result.current.snapshot
             // The map card shares Live's countries and Pause as it pushes the screen, which takes Live's focus.
-            act(() => useLiveWorldShare.setState({ world, paused }))
+            act(() => useLiveWorldShare.setState({ world, paused, webOnly: true }))
             liveFocused = false
             live.rerender({})
             const respond = jest.spyOn(LiveDemo.prototype, 'respond')
@@ -568,11 +665,20 @@ describe('useLiveFeed', () => {
             if (!mockScope) throw new Error('The test requires a project.')
             jest.spyOn(useAuthStore, 'getState').mockReturnValue({ ...useAuthStore.getState(), ...mockScope })
             const selected = renderHook(() => useLivePreference())
-            act(() => selected.result.current.setPreference(audience))
+            const trafficFilters = {
+                ...DEFAULT_LIVE_TRAFFIC_FILTERS,
+                excludeBots: true,
+                countryCode: 'US',
+                deviceType: 'Mobile',
+                channelType: 'Organic Search',
+                referringDomain: 'google.com',
+            }
+            act(() => selected.result.current.setLiveFilters(audience, trafficFilters))
             act(() =>
                 useLiveWorldShare.setState({
                     world: null,
                     paused: false,
+                    trafficFilters,
                     users: audience === 'mobile',
                     webOnly: audience === 'web',
                     mobileOnly: audience === 'mobile',
@@ -595,6 +701,21 @@ describe('useLiveFeed', () => {
             expect(mockFetchQuery.mock.calls.map(([query]) => query.query)).toEqual([
                 expect.stringContaining(audience === 'web' ? WEB_EVENT : MOBILE_EVENT),
             ])
+            expect(mockFetchQuery.mock.calls[0]?.[0].filters).toEqual(
+                expect.objectContaining({
+                    properties: expect.arrayContaining([
+                        expect.objectContaining({ key: '$virt_is_bot' }),
+                        expect.objectContaining({ key: '$geoip_country_code', value: 'US' }),
+                        expect.objectContaining({ key: '$device_type', value: 'Mobile' }),
+                        expect.objectContaining({ key: '$channel_type', type: 'session', value: 'Organic Search' }),
+                        expect.objectContaining({
+                            key: '$entry_referring_domain',
+                            type: 'session',
+                            value: 'google.com',
+                        }),
+                    ]),
+                })
+            )
             expect(useLiveWorldShare.getState().users).toBe(audience === 'mobile')
         }
     )

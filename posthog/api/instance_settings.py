@@ -12,6 +12,7 @@ from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.instance_setting import (
+    InstanceSetting,
     get_instance_setting as get_instance_setting_raw,
     set_instance_setting as set_instance_setting_raw,
 )
@@ -28,6 +29,7 @@ from posthog.utils import str_to_bool
 logger = structlog.get_logger(__name__)
 
 REDACTED = "<redacted>"
+RAW_VALUE_MAX_LENGTH = cast(int, InstanceSetting._meta.get_field("raw_value").max_length)
 UNSET = "<unset>"
 
 
@@ -50,6 +52,13 @@ def cast_str_to_desired_type(value: Any, target_type: type) -> Any:
         return _parse_list_value(value, target_type)
 
     return value
+
+
+def _parse_for_storage(key: str, value: Any) -> Any:
+    target_type: type = CONSTANCE_CONFIG[key][2]
+    if target_type is bool and isinstance(value, bool):
+        return value
+    return cast_str_to_desired_type(value, target_type)
 
 
 def _parse_list_value(value: Any, target_type: type) -> list:
@@ -131,6 +140,21 @@ class InstanceSettingsSerializer(serializers.Serializer):
                 raise serializers.ValidationError(
                     "Enter project IDs separated by commas, or leave it empty to switch no project."
                 )
+        if self.instance is not None and self.instance.key == "TRENDS_RANKED_BREAKDOWN_QUERY_SIGNATURES":
+            if not isinstance(value, str) or not re.fullmatch(r"\s*([0-9a-f]{16}\s*(,\s*[0-9a-f]{16}\s*)*)?", value):
+                raise serializers.ValidationError(
+                    "Enter 16-character query signatures separated by commas, or leave it empty to approve none."
+                )
+        stored_value = value
+        if self.instance is not None and self.instance.key in SETTINGS_ALLOWING_API_OVERRIDE and value is not None:
+            try:
+                stored_value = _parse_for_storage(self.instance.key, value)
+            except (ValueError, TypeError) as e:
+                raise serializers.ValidationError(str(e))
+        if len(json.dumps(stored_value)) > RAW_VALUE_MAX_LENGTH:
+            raise serializers.ValidationError(
+                f"This value is too long. Stored values can be at most {RAW_VALUE_MAX_LENGTH} characters."
+            )
         return value
 
     def update(self, instance: InstanceSettingHelper, validated_data: dict[str, Any]) -> InstanceSettingHelper:
@@ -144,14 +168,10 @@ class InstanceSettingsSerializer(serializers.Serializer):
 
         before_value = get_instance_setting_raw(instance.key)
 
-        target_type: type = CONSTANCE_CONFIG[instance.key][2]
-        if target_type is bool and isinstance(validated_data["value"], bool):
-            new_value_parsed = validated_data["value"]
-        else:
-            try:
-                new_value_parsed = cast_str_to_desired_type(validated_data["value"], target_type)
-            except (ValueError, TypeError) as e:
-                raise serializers.ValidationError({"value": str(e)})
+        try:
+            new_value_parsed = _parse_for_storage(instance.key, validated_data["value"])
+        except (ValueError, TypeError) as e:
+            raise serializers.ValidationError({"value": str(e)})
 
         if instance.key == "RECORDINGS_PERFORMANCE_EVENTS_TTL_WEEKS":
             if is_cloud():

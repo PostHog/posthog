@@ -1,15 +1,20 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { combineUrl, router } from 'kea-router'
 import { MouseEventHandler, useCallback, useEffect } from 'react'
 
+import { withRawParams } from './rawSearchParam'
 import { TRACE_DRAWER_LISTS, TraceDrawerListId } from './traceDrawerLists'
-import { traceDrawerLogic } from './traceDrawerLogic'
-import { TRACE_DRAWER_OPEN_ROW_CLASS, opensTraceDrawer } from './traceDrawerRows'
+import { toFullPageUrl, traceDrawerLogic } from './traceDrawerLogic'
+import { TRACE_DRAWER_OPEN_ROW_CLASS, opensTraceDrawer, withoutTraceDrawerParams } from './traceDrawerRows'
 import { TraceListRow } from './traceListRows'
+import { tracePreloadLogic } from './tracePreloadLogic'
 
 export interface TraceDrawerRowProps {
     className?: string
     onClickCapture?: MouseEventHandler<HTMLElement>
+    onMouseEnter?: MouseEventHandler<HTMLElement>
+    onMouseLeave?: MouseEventHandler<HTMLElement>
 }
 
 export interface TraceDrawerRows {
@@ -25,6 +30,7 @@ export function useTraceDrawerRows(
     const logic = traceDrawerLogic({ listId })
     const { openTraceId, openRef } = useValues(logic)
     const { openRow, setRows } = useActions(logic)
+    const { rowEntered, rowLeft } = useActions(tracePreloadLogic)
     const { rowClick } = TRACE_DRAWER_LISTS[listId]
 
     const rowProps = useCallback(
@@ -32,6 +38,7 @@ export function useTraceDrawerRows(
             if (!row) {
                 return {}
             }
+            const prefetches = !!row.defaultStepId && row.traceId !== openTraceId
             return {
                 className: clsx(
                     rowClick && 'cursor-pointer',
@@ -48,12 +55,17 @@ export function useTraceDrawerRows(
                         if (navigationRows) {
                             setRows(navigationRows)
                         }
+                        rowLeft()
                         openRow(row)
                     }
                 },
+                ...(prefetches && {
+                    onMouseEnter: () => rowEntered(row.traceId),
+                    onMouseLeave: () => rowLeft(),
+                }),
             }
         },
-        [linkSelector, openRow, openTraceId, openRef?.stepId, rowClick, navigationRows, setRows]
+        [linkSelector, openRow, openTraceId, openRef?.stepId, rowClick, navigationRows, setRows, rowEntered, rowLeft]
     )
 
     return { openTraceId, rowProps }
@@ -80,6 +92,26 @@ export function useTraceDrawerTable<T>(
     )
 
     return { onRow, onSortedRowsChange }
+}
+
+/**
+ * The full page of a row's trace, for the link a modified click opens. It reads only the list's own params, so its
+ * identity holds while the drawer opens and steps.
+ */
+export function useTraceFullPageHref(listId: TraceDrawerListId): (row: TraceListRow) => string {
+    const { location, searchParams } = useValues(router)
+    const listUrl = combineUrl(
+        location.pathname,
+        withoutTraceDrawerParams(withRawParams(searchParams, location.search))
+    ).url
+
+    return useCallback(
+        (row: TraceListRow): string => {
+            const { pathname, search, searchParams } = combineUrl(listUrl)
+            return toFullPageUrl(row, null, TRACE_DRAWER_LISTS[listId], { pathname, search }, searchParams)
+        },
+        [listId, listUrl]
+    )
 }
 
 export interface TraceDrawerRowsSyncProps {

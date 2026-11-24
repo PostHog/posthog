@@ -24,16 +24,18 @@ const (
 )
 
 var (
-	regionPattern = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,32}$`)
-	uuidPattern   = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+	clusterServicePattern = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?\.[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?\.svc\.cluster\.local$`)
+	regionPattern         = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,32}$`)
+	uuidPattern           = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 )
 
 type Config struct {
-	BaseURL    string
-	Region     string
-	SigningKey string
-	Timeout    time.Duration
-	HTTPClient *http.Client
+	AllowClusterHTTP bool
+	BaseURL          string
+	Region           string
+	SigningKey       string
+	Timeout          time.Duration
+	HTTPClient       *http.Client
 }
 
 type Client struct {
@@ -46,7 +48,11 @@ type Client struct {
 
 func New(config Config) (*Client, error) {
 	endpoint, err := url.Parse(config.BaseURL)
-	if err != nil || endpoint.Scheme != "https" || endpoint.Hostname() == "" || endpoint.User != nil ||
+	if err != nil {
+		return nil, errors.New("invalid registry client configuration")
+	}
+	clusterHTTP := config.AllowClusterHTTP && endpoint.Scheme == "http" && clusterServicePattern.MatchString(endpoint.Hostname())
+	if (endpoint.Scheme != "https" && !clusterHTTP) || endpoint.Hostname() == "" || endpoint.User != nil ||
 		endpoint.Opaque != "" || endpoint.RawQuery != "" || endpoint.ForceQuery || endpoint.Fragment != "" ||
 		(endpoint.Path != "" && endpoint.Path != "/") || !regionPattern.MatchString(config.Region) ||
 		len(config.SigningKey) < 32 || config.Timeout <= 0 {

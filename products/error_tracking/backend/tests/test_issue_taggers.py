@@ -24,7 +24,10 @@ from products.error_tracking.backend.logic.issue_tags.taggers.jev import JevTagg
 from products.error_tracking.backend.logic.severity_inference import SEVERITY_INFERENCE_MODEL
 from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueTag
 from products.error_tracking.backend.temporal.lifecycle.event_properties import IssueCreatedEventNotFoundError
-from products.error_tracking.backend.temporal.lifecycle.issue_created.activities import tag_issue_created_activity
+from products.error_tracking.backend.temporal.lifecycle.issue_created.activities import (
+    tag_issue_created_activity,
+    tag_issue_created_merge_target_activity,
+)
 from products.error_tracking.backend.temporal.lifecycle.issue_created.types import (
     ISSUE_TAGS_UNAVAILABLE_ERROR_TYPE,
     IssueCreatedSnapshot,
@@ -279,18 +282,35 @@ class TestTagIssueCreatedActivity(BaseTest):
         assert not ErrorTrackingIssueTag.objects.for_team(self.team.id).filter(issue=issue).exists()
         assert slots.acquire(blocking=False)
 
-    def test_skips_without_reading_the_event_when_every_tag_slot_is_in_use(self) -> None:
+    @parameterized.expand(
+        [
+            ("new_issue", tag_issue_created_activity, "ISSUE_TAG_WORKER_SLOTS", "ERROR_TRACKING_ISSUE_TAGGER_OUTCOMES"),
+            (
+                "merge_target",
+                tag_issue_created_merge_target_activity,
+                "MERGE_TARGET_TAG_WORKER_SLOTS",
+                "ERROR_TRACKING_MERGE_TARGET_TAGGER_OUTCOMES",
+            ),
+        ]
+    )
+    def test_skips_without_reading_the_event_when_every_tag_slot_is_in_use(
+        self,
+        _name: str,
+        tag_activity: Callable[[IssueCreatedWorkflowInputs], None],
+        slots_name: str,
+        outcomes_name: str,
+    ) -> None:
         issue = ErrorTrackingIssue.objects.create(team=self.team)
         slots = threading.BoundedSemaphore(1)
         slots.acquire()
 
         with (
-            patch(f"{ACTIVITIES}.ISSUE_TAG_WORKER_SLOTS", slots),
+            patch(f"{ACTIVITIES}.{slots_name}", slots),
             patch(f"{ACTIVITIES}.fetch_event_properties") as fetch_event_properties,
             patch(DECIDE) as decide,
-            patch(f"{ACTIVITIES}.ERROR_TRACKING_ISSUE_TAGGER_OUTCOMES") as outcomes,
+            patch(f"{ACTIVITIES}.{outcomes_name}") as outcomes,
         ):
-            tag_issue_created_activity(self._inputs(issue))
+            tag_activity(self._inputs(issue))
 
         outcomes.labels.assert_called_once_with(tagger="none", outcome="worker_busy")
         fetch_event_properties.assert_not_called()

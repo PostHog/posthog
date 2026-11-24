@@ -516,5 +516,53 @@
       "name": "Pro customers",
       "created_at": "2026-10-06 23:47:56.678+00"
     }
-  ]
+  ],
+  "segment_contacts": {
+    "seg-1": [
+      "c0000000-0000-4000-8000-000000000003",
+      "c0000000-0000-4000-8000-000000000004"
+    ]
+  },
+  "contact-properties": [
+    {
+      "id": "p0000000-0000-4000-8000-000000000001",
+      "key": "plan",
+      "type": "string",
+      "fallback_value": "free",
+      "created_at": "2026-10-01 12:00:00.000000+00"
+    },
+    {
+      "id": "p0000000-0000-4000-8000-000000000002",
+      "key": "seats",
+      "type": "number",
+      "fallback_value": 1,
+      "created_at": "2026-10-01 12:00:00.000000+00"
+    }
+  ],
+  "contact_properties": {
+    "c0000000-0000-4000-8000-000000000003": {
+      "plan": {
+        "value": "pro",
+        "type": "string"
+      },
+      "seats": {
+        "value": 3,
+        "type": "number"
+      },
+      "email": {
+        "value": "someone-else@example.com",
+        "type": "string"
+      },
+      "$initial_referrer": {
+        "value": "x",
+        "type": "string"
+      }
+    },
+    "c0000000-0000-4000-8000-000000000002": {
+      "plan": {
+        "value": null,
+        "type": "string"
+      }
+    }
+  }
 }

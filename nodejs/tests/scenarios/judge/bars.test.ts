@@ -10,7 +10,7 @@ const STEPS: Step[] = [
     { scale: 10, fromMs: MINUTE, toMs: 2 * MINUTE },
 ]
 const BARS: Named[] = [
-    { name: 'writer_cpu_under', params: { percent: 70 } },
+    { name: 'writer_cpu_under', params: { percent: 75 } },
     { name: 'pickup_p99_under', params: { seconds: 5, queues: ['hogflow', 'email'] } },
 ]
 const LE = ['1', '5', '10', '+Inf']
@@ -92,22 +92,72 @@ const evidence = (changes: Partial<BarEvidence>): BarEvidence => ({
     ...changes,
 })
 
+const haltedRampStep = (answer: JournalEntry['answer']): Partial<BarEvidence> => ({
+    drive: { startedAt: T, endedAt: T + MINUTE + 5000 },
+    steps: [
+        { ...STEPS[0], offeredUnits: 60 },
+        { ...STEPS[1], toMs: MINUTE + 5000, offeredUnits: 1 },
+    ],
+    journal: [
+        ...offeredAtRates(1),
+        {
+            unitId: 'run-1-0',
+            kind: 'transactional',
+            teamId: 7,
+            offeredAt: T + MINUTE,
+            answer,
+            expect: { deliveries: ['email'] },
+        },
+    ],
+    samples: scrapedEvery5s(85, (atS) => prompt(Math.min(atS, 60))),
+    writerCpu: cpu({ 0: 40 }),
+})
+
 const HELD: BarResult[] = [
-    { name: 'writer_cpu_under', unit: '%', passed: true },
-    { name: 'pickup_p99_under', unit: 's', passed: true },
+    { name: 'writer_cpu_under', unit: '%', limit: 75, passed: true },
+    { name: 'pickup_p99_under', unit: 's', limit: 5, passed: true },
 ]
 
 const broke = (bar: 0 | 1, scale: number, atS: number, value: number, key?: string, offered = scale): BarResult => ({
     ...HELD[bar],
     passed: false,
-    breakingPoint: { scale, at: iso(atS), offeredPerSecond: offered, ...(key && { key }), value },
+    breakingPoint: {
+        scale,
+        at: iso(atS),
+        offeredPerSecond: offered,
+        ...(key && { key }),
+        value,
+        part: bar === 0 ? 'db:cyclotron' : `role:cdp-cyclotron-worker-${key}`,
+    },
 })
 
-const unjudged = (bar: 0 | 1, why: string): BarResult => ({ ...HELD[bar], passed: false, unjudged: why })
+const unjudged = (bar: 0 | 1, why: string): BarResult => ({
+    ...HELD[bar],
+    passed: false,
+    unjudged: why,
+    ...(!why.startsWith('the drive ended') && { harnessLimit: expect.objectContaining({ by: 'run_host' }) }),
+})
 
 describe('judgeBars', () => {
     it.each<[string, Partial<BarEvidence>, BarResult[]]>([
         ['every step stayed under both bars', {}, HELD],
+        [
+            'a ramp step halted before the intake accepted a unit picked up nothing, which holds',
+            haltedRampStep({ accepted: false, status: 503 }),
+            [unjudged(0, 'no whole writer CPU minute in the 10x step'), HELD[1]],
+        ],
+        [
+            'a ramp step that accepted a unit and picked up nothing is late by its whole window',
+            haltedRampStep({ accepted: true }),
+            [
+                unjudged(0, 'no whole writer CPU minute in the 10x step'),
+                expect.objectContaining({
+                    name: 'pickup_p99_under',
+                    passed: false,
+                    breakingPoint: expect.objectContaining({ scale: 10, value: 25 }),
+                }),
+            ],
+        ],
         [
             'the writer CPU crossed its bar at the 10x step, counting refused units as offered',
             { writerCpu: cpu({ 0: 40, 1: 85 }) },
@@ -142,7 +192,7 @@ describe('judgeBars', () => {
                 {
                     ...HELD[0],
                     passed: false,
-                    breakingPoint: { scale: 10, at: iso(150), offeredPerSecond: 0, value: 90 },
+                    breakingPoint: { scale: 10, at: iso(150), offeredPerSecond: 0, value: 90, part: 'db:cyclotron' },
                 },
                 HELD[1],
             ],
@@ -156,6 +206,11 @@ describe('judgeBars', () => {
             'the writer CPU could not be read off a run host',
             { writerCpu: { unread: 'no writer CPU reading off a run host' } },
             [unjudged(0, 'no writer CPU reading off a run host in the 1x step'), HELD[1]],
+        ],
+        [
+            'the stack declares no writer to read CPU from',
+            { writerCpu: { unsourced: 'the local stack has no Aurora writer to read CPU from' } },
+            [{ ...HELD[0], passed: false, unjudged: 'the local stack has no Aurora writer to read CPU from' }, HELD[1]],
         ],
         [
             'one queue picked up late at the 10x step while the other stayed prompt',
@@ -201,6 +256,18 @@ describe('judgeBars', () => {
                 ),
             },
             [HELD[0], broke(1, 1, 0, 10, 'email')],
+        ],
+        [
+            'a short step whose only scrape interval ends after it counts that interval, so its prompt pickups hold',
+            {
+                drive: { startedAt: T, endedAt: T + 20_000 },
+                steps: [
+                    { scale: 1, fromMs: 0, toMs: 10_000 },
+                    { scale: 10, fromMs: 10_000, toMs: 20_000 },
+                ],
+                samples: scrapedEvery5s(25, prompt, { offsetS: -4 }).filter(({ at }) => at < T || at > T + 10_000),
+            },
+            [unjudged(0, 'no whole writer CPU minute in the 1x step'), HELD[1]],
         ],
         [
             'jobs due in the 10x step were picked up late after the drive ended',
@@ -262,6 +329,36 @@ describe('judgeBars', () => {
             ],
         ],
         [
+            'the live judge saw the writer CPU break at the 10x step, and the final CPU read failed',
+            {
+                writerCpu: { unread: 'CloudWatch returned no datapoints' },
+                settled: new Map([
+                    [0, HELD],
+                    [1, [broke(0, 10, 60, 85), HELD[1]]],
+                ]),
+            },
+            [broke(0, 10, 60, 85), HELD[1]],
+        ],
+        [
+            'the live judge passed every step, and the final CPU read failed',
+            {
+                writerCpu: { unread: 'CloudWatch returned no datapoints' },
+                settled: new Map([
+                    [0, HELD],
+                    [1, HELD],
+                ]),
+            },
+            HELD,
+        ],
+        [
+            'the drive was interrupted before its first step',
+            { steps: [] },
+            [
+                unjudged(0, 'the drive ended before its first step'),
+                unjudged(1, 'the drive ended before its first step'),
+            ],
+        ],
+        [
             'the drive was interrupted before its 10x step',
             { drive: { startedAt: T, endedAt: T + MINUTE } },
             [unjudged(0, 'the drive ended before the 10x step'), unjudged(1, 'the drive ended before the 10x step')],
@@ -287,6 +384,6 @@ describe('judgeBars', () => {
 
         const [, pickup] = judgeBars([BARS[0], { ...BARS[1], params: { ...BARS[1].params, seconds } }], overflowing)
 
-        expect(pickup).toEqual(expected)
+        expect(pickup).toEqual({ ...expected, limit: seconds })
     })
 })

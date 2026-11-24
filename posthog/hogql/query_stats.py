@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import threading
 import contextlib
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextvars import ContextVar
 from dataclasses import field
 from typing import TYPE_CHECKING
@@ -66,6 +66,11 @@ class QueryStats:
     saved_query_ids: set[str] = field(default_factory=set, repr=False, compare=False)
     # Queries on a direct connection never reach ClickHouse or bind warehouse tables, so the source is the only trace.
     direct_source_ids: set[str] = field(default_factory=set, repr=False, compare=False)
+    query_start_listeners: list[Callable[[], None]] = field(default_factory=list, repr=False, compare=False)
+
+    def notify_query_started(self) -> None:
+        for listener in list(self.query_start_listeners):
+            listener()
 
     def add(self, *, rows_read: int, duration_ms: float, lookup: bool = False, workload: str | None = None) -> None:
         with self.lock:
@@ -145,6 +150,13 @@ def query_stats_scope(*, retain_ast: bool = False) -> Iterator[QueryStats]:
 def get_active() -> QueryStats | None:
     """The totals of the open scope, or None when none is open."""
     return _accumulator.get()
+
+
+def notify_query_started() -> None:
+    """Tell the open scope's listeners that a query is about to start. Does nothing without one."""
+    stats = _accumulator.get()
+    if stats is not None:
+        stats.notify_query_started()
 
 
 def record(*, rows_read: int, duration_ms: float, lookup: bool = False, workload: str | None = None) -> None:

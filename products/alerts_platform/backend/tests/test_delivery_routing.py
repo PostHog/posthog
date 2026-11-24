@@ -20,7 +20,6 @@ from products.alerts_platform.backend.facade.contracts import (
     IncidentAction,
     SourceKind,
 )
-from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.alerts_platform.backend.logic.platform_alert_events import AnnouncementRead, AnnouncementStatus
 from products.alerts_platform.backend.models import AlertReceiver, AlertRoute, PlatformAlert, PlatformAlertConfiguration
 from products.alerts_platform.backend.temporal.web_start import deliver_inline
@@ -49,7 +48,6 @@ class TestDeliverRoutes(APIBaseTest):
             name="API errors",
             source_kind=SourceKind.LOGS,
             check_interval_minutes=5,
-            destinations_owner=PlatformAlertOwner.PLATFORM,
             labels={"team": "infra"},
             annotations={"runbook": "https://example.com/runbook"},
         )

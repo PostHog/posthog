@@ -20,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
     HostNotAllowedError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.tls import CERTIFICATE_ERRORS
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import SSLRequiredError
 
 # Server requires (or rejects) an encrypted connection. Kept specific so a transient
 # "SSL connection has been closed unexpectedly" stays a retryable connection failure.
@@ -109,6 +110,13 @@ def classify_postgres_cdc_error(exc: BaseException) -> CDCErrorCategory | None:
         if str(exc).startswith(SSH_TUNNEL_HOST_NOT_ALLOWED_ERROR):
             return CDCErrorCategory.SSH_TUNNEL_FAILED
         return CDCErrorCategory.HOST_UNREACHABLE
+
+    # `_connect_to_postgres` already converts the raw psycopg SSL rejection into this type before
+    # the CDC path ever sees it, so the `_SSL_REQUIRED_MARKERS` check below never fires for it —
+    # must be checked here, before the `psycopg.Error` guard, since `SSLRequiredError` is a plain
+    # `Exception`, not a psycopg one.
+    if isinstance(exc, SSLRequiredError):
+        return CDCErrorCategory.SSL_REQUIRED
 
     # Guard all string-based checks: only psycopg exceptions carry these message patterns.
     # A non-psycopg exception whose message happens to contain e.g. "does not exist" would

@@ -16,7 +16,11 @@ export const getReactNativeSteps = (ctx: OnboardingComponentsContext): StepDefin
                 <>
                     {MobileFinalSteps && <MobileFinalSteps />}
                     <Markdown>
-                        To automatically capture screen views with React Navigation, use the `usePostHogCapture` hook:
+                        {dedent`
+                            To capture screen views with React Navigation, set \`autocapture={{ captureScreens: false }}\` on
+                            \`PostHogProvider\` and call \`posthog.screen()\` when the route changes. Get the client with the
+                            \`usePostHog\` hook, and render this component inside \`PostHogProvider\`:
+                        `}
                     </Markdown>
                     <CodeBlock
                         blocks={[
@@ -24,26 +28,33 @@ export const getReactNativeSteps = (ctx: OnboardingComponentsContext): StepDefin
                                 language: 'tsx',
                                 file: 'App.tsx',
                                 code: dedent`
-                                    import { usePostHogCapture } from 'posthog-react-native'
-                                    import { NavigationContainer } from '@react-navigation/native'
+                                    import { useRef } from 'react'
+                                    import { usePostHog } from 'posthog-react-native'
+                                    import { NavigationContainer, type NavigationContainerRef } from '@react-navigation/native'
 
                                     function App() {
-                                        const routeNameRef = useRef<string>()
-                                        const navigationRef = useRef<NavigationContainerRef<any>>()
-                                        const captureEvent = usePostHogCapture()
+                                        const routeNameRef = useRef<string | undefined>(undefined)
+                                        const navigationRef = useRef<NavigationContainerRef<any>>(null)
+                                        const posthog = usePostHog()
 
                                         return (
                                             <NavigationContainer
                                                 ref={navigationRef}
                                                 onReady={() => {
-                                                    routeNameRef.current = navigationRef.current?.getCurrentRoute()?.name
+                                                    const initialRouteName = navigationRef.current?.getCurrentRoute()?.name
+                                                    if (initialRouteName) {
+                                                        posthog.screen(initialRouteName)
+                                                    }
+                                                    routeNameRef.current = initialRouteName
                                                 }}
                                                 onStateChange={async () => {
                                                     const previousRouteName = routeNameRef.current
                                                     const currentRouteName = navigationRef.current?.getCurrentRoute()?.name
 
                                                     if (previousRouteName !== currentRouteName) {
-                                                        captureEvent('$screen', { $screen_name: currentRouteName })
+                                                        if (currentRouteName) {
+                                                            posthog.screen(currentRouteName)
+                                                        }
                                                     }
                                                     routeNameRef.current = currentRouteName
                                                 }}

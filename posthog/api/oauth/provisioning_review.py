@@ -283,10 +283,14 @@ def send_partner_review_email(review_id: str, status: str) -> None:
     if template_name is None or organization is None:
         return
 
-    memberships = OrganizationMembership.objects.select_related("user").filter(
-        organization=organization,
-        level__gte=OrganizationMembership.Level.ADMIN,
-        user__is_active=True,
+    memberships = (
+        OrganizationMembership.objects.select_related("user")
+        .with_effective_level()
+        .filter(
+            organization=organization,
+            resolved_level__gte=OrganizationMembership.Level.ADMIN,
+            user__is_active=True,
+        )
     )
     recipients = [membership.user for membership in memberships if membership.user.email]
     if not recipients:

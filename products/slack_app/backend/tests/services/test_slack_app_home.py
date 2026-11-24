@@ -84,6 +84,8 @@ from products.slack_app.backend.services.slack_app_home import (
     StatsState,
     TaskItem,
     TasksState,
+    _resolve_account_state,
+    _resolve_daily_focus_state,
     _unlink_user_account,
     handle_ai_preferences_block_action,
     handle_app_home_opened,
@@ -717,6 +719,47 @@ class TestFeatureTipsToggle:
         assert mock_slack_client.views_publish.called
 
 
+class TestDailyFocusRelinkPrompt:
+    def test_the_prompt_replaces_the_controls(self):
+        view = render_home_view(
+            is_admin=False,
+            daily_focus=DailyFocusHomeState(enabled=False, at=time(9, 0), zone="", relink_url="https://app/link"),
+        )
+
+        assert "Link again to turn on the daily work focus" in _all_text(view)
+        assert ACTION_SET_DAILY_FOCUS not in _action_ids(view)
+        button = next(
+            element
+            for block in view["blocks"]
+            if block.get("type") == "actions"
+            for element in block["elements"]
+            if element.get("url") == "https://app/link"
+        )
+        assert button["text"]["text"] == "Link again"
+
+    @pytest.mark.parametrize(
+        "scopes, prompts",
+        [("users:read", True), ("search:read.public", False)],
+        ids=["link cannot search", "link can search"],
+    )
+    def test_both_cards_prompt_only_when_the_link_cannot_search(
+        self, slack_integration, flag_on, link_user, scopes, prompts
+    ):
+        slack_integration.config = {"scope": "users:read,users:read.email"}
+        slack_integration.save()
+        user = User.objects.create_and_join(slack_integration.team.organization, "relink@example.com", None)
+        link_user(user, slack_user_id="U001", slack_team_id=SLACK_WORKSPACE_ID, user_scopes=scopes)
+
+        account = _resolve_account_state(slack_integration, "U001")
+        daily = _resolve_daily_focus_state(slack_integration, "U001")
+
+        assert account.linked_email == "relink@example.com"
+        assert (account.relink_url is not None) is prompts
+        assert daily is not None
+        assert (daily.relink_url is not None) is prompts
+        assert daily.relink_url == account.relink_url
+
+
 class TestDailyFocusControls:
     @pytest.mark.parametrize(
         "scopes, action, stored, expected_next_run",
@@ -929,6 +972,15 @@ class TestLinkedAccountsCard:
         assert "`octocat`" in text
         # Installation on an org the login differs from names both sides.
         assert "`octocat` on *PostHog*" in text
+
+    def test_a_link_that_cannot_read_messages_gets_a_link_again_button_next_to_disconnect(self):
+        view = self._view(
+            account_state=AccountState(enabled=True, linked_email="user@posthog.com", relink_url="https://app/link")
+        )
+        text, button = self._row(view, "*PostHog*")
+        assert "This link is missing permissions added since you connected" in text
+        assert button is not None and button["url"] == "https://app/link"
+        assert ACTION_UNLINK_ACCOUNT in _action_ids(view)
 
     def test_each_account_carries_its_own_button(self):
         view = self._view(

@@ -31,6 +31,7 @@ import {
 } from './roles'
 import {
     Hogli,
+    ProbeFailure,
     STACK,
     cyclotronUrlOf,
     deleteUnfinishedJobs,
@@ -61,13 +62,13 @@ import { writerCpuOf } from './writer-cpu'
 export type { RoleExit } from './supervisor'
 
 export interface Environment {
-    up(): Promise<void>
+    up(signal: AbortSignal): Promise<void>
     reset(settings: Profile['settings'], replicas?: Replicas): Promise<void>
     edgeUrl(): string
     role(name: Role): RoleHandle
     roles(): RoleHandle[]
     actuate(action: Action): Promise<Actuation>
-    dependencyHealth(): Promise<{ healthy: boolean; down: string[] }>
+    dependencyHealth(): Promise<{ healthy: boolean; down: ProbeFailure[] }>
     exits(): RoleExit[]
     groupLag(group: string): Promise<number>
     wiring(signal: AbortSignal): Promise<Wiring>
@@ -90,7 +91,7 @@ export type Action =
           signal: AbortSignal
       }
 
-export type Actuation = FaultHold & { journal?(): FailoverJournal }
+export type Actuation = FaultHold & { journal?(): FailoverJournal; refused?(): boolean }
 
 const NODEJS_DIR = realpathSync(path.resolve(__dirname, '..', '..', '..'))
 const REPO_ROOT = path.dirname(NODEJS_DIR)
@@ -208,7 +209,7 @@ export function createEnvironment({
     const logOf = (id: RoleId): string => path.join(stateDir, `${nameOf(id)}.log`)
 
     return {
-        async up() {
+        async up(signal) {
             if (!existsSync(TSX)) {
                 throw new Error(`No tsx at ${TSX}; install the nodejs package first.`)
             }
@@ -216,7 +217,7 @@ export function createEnvironment({
             stateDir = realpathSync(stateDir)
             releaseLock = await holdRunLock(stateDir)
             try {
-                await bringUp()
+                await bringUp(signal)
             } catch (error) {
                 await stop()
                 throw error
@@ -377,14 +378,14 @@ export function createEnvironment({
         }
     }
 
-    async function bringUp(): Promise<void> {
+    async function bringUp(signal: AbortSignal): Promise<void> {
         const exitsBefore = supervisor.exits().length
         const plan = planCleanup(readProcs(), process.pid, NODEJS_DIR, stateDir)
         if (plan.strangers.length > 0) {
             throw await strangerConflict(plan.strangers)
         }
         await terminate(plan, STOP_GRACE_MS)
-        await startStack(hogli, stateDir, env)
+        await startStack(hogli, stateDir, env, signal)
         const planned = roleSpecs(
             env,
             { url: `http://127.0.0.1:${EDGE_PORT}` },
@@ -422,7 +423,7 @@ export function createEnvironment({
         await supervisor.start(api)
         await untilHealthy(api, exitsBefore)
         if ((await missingTemplates(postgresUrl)).length > 0) {
-            await syncTemplates(hogli, stateDir, env)
+            await syncTemplates(hogli, stateDir, env, signal)
         }
         await waitForExpect(
             async () => {

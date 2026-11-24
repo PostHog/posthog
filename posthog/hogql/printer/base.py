@@ -19,7 +19,7 @@ from posthog.hogql.constants import (
 )
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField, FunctionCallTable, Table
-from posthog.hogql.errors import ImpossibleASTError, QueryError, ResolutionError
+from posthog.hogql.errors import AmbiguousFieldError, ImpossibleASTError, QueryError, ResolutionError
 from posthog.hogql.escape_sql import escape_hogql_identifier, escape_hogql_string
 from posthog.hogql.functions import find_hogql_aggregation, find_hogql_function, find_hogql_posthog_function
 from posthog.hogql.functions.core import validate_function_args
@@ -1262,7 +1262,7 @@ class BasePrinter(Visitor[str]):
                 if last_select and last_select.type
                 else None
             )
-        except ResolutionError:
+        except (AmbiguousFieldError, ResolutionError):
             # The name resolves to more than one source: it genuinely needs a table prefix to disambiguate.
             type_with_name_in_scope = None
             name_resolution_ambiguous = True

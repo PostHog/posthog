@@ -4,7 +4,9 @@ import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from django.db import IntegrityError
+from django.db import IntegrityError, connection
+from django.test import SimpleTestCase
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -16,7 +18,13 @@ from products.messaging.backend.models.message_preferences import (
 from products.messaging.backend.models.message_suppression import MessageSuppression
 from products.messaging.backend.models.provider_import_run import ProviderImportRun
 from products.messaging.backend.provider_imports import runs
-from products.messaging.backend.provider_imports.base import ImportProviderUnavailable
+from products.messaging.backend.provider_imports.base import (
+    ImportProviderUnavailable,
+    ImportSettingChoice,
+    ImportSettingSpec,
+)
+from products.messaging.backend.provider_imports.resend import ResendImportProvider
+from products.messaging.backend.services import imported_data
 from products.messaging.backend.services.customerio_client import CustomerIOAPIError
 
 SERVICE = "products.messaging.backend.services.customerio_import_service"
@@ -268,9 +276,9 @@ class TestProviderImportRuns(BaseTest):
 
     @parameterized.expand(
         [
-            ("every_step_completed", ["completed", "completed"], "completed", ["completed", "completed"]),
-            ("a_step_still_running", ["completed", "running"], "failed", ["completed", "failed"]),
-            ("a_step_never_started", ["pending", "completed"], "failed", ["failed", "completed"]),
+            ("every_step_completed", ["completed", "completed"], "completed", ["completed", "completed"], None),
+            ("a_step_still_running", ["completed", "running"], "failed", ["completed", "failed"], "StepNotFinished"),
+            ("a_step_never_started", ["pending", "completed"], "failed", ["failed", "completed"], "StepNotFinished"),
         ]
     )
     def test_finish_sets_the_run_status_from_its_steps_once(
@@ -281,13 +289,15 @@ class TestProviderImportRuns(BaseTest):
         step_statuses: list[str],
         expected_run_status: str,
         expected_step_statuses: list[str],
+        error_class: str | None,
     ) -> None:
         run = self._start(["suppressions", "opt_outs"])
         for step, step_status in zip(run.steps, step_statuses):
             run.progress[step]["status"] = step_status
+        run.progress["suppressions"].update(processed=6, imported=3, counts={"failed": 1, "already_present": 2})
         run.save()
 
-        with patch("products.messaging.backend.provider_imports.runs.report_team_action") as report:
+        with patch("products.messaging.backend.provider_imports.runs.report_user_action") as report:
             runs.finish_run(self.team.id, run.id)
             runs.finish_run(self.team.id, run.id)
 
@@ -295,10 +305,12 @@ class TestProviderImportRuns(BaseTest):
         assert run.status == expected_run_status
         assert [run.progress[step]["status"] for step in run.steps] == expected_step_statuses
         assert run.finished_at is not None
-        assert [call.args[1] for call in report.call_args_list] == [
-            "messaging provider import finished",
-            "workflows import run",
-        ]
+        [(user, event, properties)] = [call.args for call in report.call_args_list]
+        assert (user, event) == (self.user, "workflows import run")
+        assert properties["stage"] == expected_run_status
+        assert properties.get("error_class") == error_class
+        assert properties["counts"]["suppressions"] == {"imported": 3, "skipped": 2, "failed": 1}
+        assert report.call_args.kwargs["organization"] == self.organization
 
     @time_machine.travel("2026-03-02T12:00:00Z", tick=False)
     def test_reading_an_expired_run_fails_it_and_its_unfinished_steps(
@@ -314,3 +326,49 @@ class TestProviderImportRuns(BaseTest):
         assert expired is not None
         assert expired.status == "failed"
         assert expired.progress["suppressions"]["status"] == "failed"
+
+
+class TestOptOutCarrying(BaseTest):
+    def test_a_long_address_list_is_looked_up_and_written_in_parts(self) -> None:
+        addresses = [f"Person{i}@example.com" for i in range(5)]
+        MessageRecipientPreference.objects.bulk_create(
+            MessageRecipientPreference(
+                team_id=self.team.id, identifier=address.lower(), preferences={"$all": "OPTED_OUT"}
+            )
+            for address in addresses
+        )
+
+        with patch.object(imported_data, "LOOKUP_CHUNK_SIZE", 2), CaptureQueriesContext(connection) as queries:
+            carried = imported_data.carry_opt_outs(self.team.id, addresses, created_by_id=None)
+
+        assert carried == 5
+        # Postgres refuses a query with more than 65,535 values, so no single query may name the whole list.
+        assert max(query["sql"].lower().count("@example.com") for query in queries.captured_queries) <= 4
+        stored = MessageRecipientPreference.objects.filter(team_id=self.team.id, identifier__in=addresses)
+        assert stored.count() == 5
+
+
+REGION = ImportSettingSpec(
+    key="region",
+    label="Region",
+    help="",
+    choices=(ImportSettingChoice(value="us", label="US"), ImportSettingChoice(value="eu", label="EU")),
+)
+
+
+class TestImportSettings(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("missing_without_default", {}, "Choose a value for Region"),
+            ("not_a_choice", {"region": "mars"}, "mars isn't a valid value for Region"),
+            ("unknown", {"region": "us", "color": "red"}, "no setting named color"),
+        ]
+    )
+    def test_settings_are_checked_before_the_key_goes_anywhere(self, _name: str, settings: dict, message: str) -> None:
+        with (
+            patch.object(ResendImportProvider, "settings", (REGION,)),
+            patch.object(ResendImportProvider, "check_credentials") as check_credentials,
+            self.assertRaisesRegex(runs.InvalidImportSettings, message),
+        ):
+            runs.start_run(1, "resend", ["suppressions"], "key", None, settings)
+        check_credentials.assert_not_called()

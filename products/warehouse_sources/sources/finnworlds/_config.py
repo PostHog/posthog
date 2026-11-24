@@ -9,3 +9,4 @@ class FinnworldsSourceConfig(config.Config):
     api_key: str
     tickers: str | None = None
     countries: str | None = None
+    currencies: str | None = None

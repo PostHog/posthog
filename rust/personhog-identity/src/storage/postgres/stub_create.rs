@@ -1,11 +1,11 @@
 //! The stub-creation transaction: one transaction, five steps, each a
 //! function below, called in order by [`create_person_stubs`]:
 //!
-//! 1. [`insert_or_revive_persons`] — multi-row person insert; a conflict
-//!    with a tombstoned row revives it, a conflict with a live row is left
-//!    for step 2.
-//! 2. [`fetch_conflict_winners`] — fresh-snapshot fetch of the committed
-//!    rows behind live conflicts (concurrent winners).
+//! 1. [`insert_persons`] — multi-row person insert; a conflict with an
+//!    existing row is left for step 2.
+//! 2. [`lock_conflicting_persons`] — fresh-snapshot lock of the committed
+//!    rows behind conflicts; live rows are concurrent winners, tombstoned
+//!    rows revive.
 //! 3. [`insert_distinct_id_mappings`] — multi-row distinct id insert;
 //!    tombstoned mappings revive, live conflicts keep the existing row.
 //! 4. [`resolve_stub_outcomes`] — decide Committed/LostRace per stub and
@@ -21,6 +21,8 @@
 //!   that key, because ON CONFLICT DO UPDATE raises "cannot affect row a
 //!   second time" on same-command duplicates (the cardinality check fires
 //!   before the WHERE qual).
+//! - Existing person rows are locked in (team_id, id) order, as the writer
+//!   and the lifecycle sagas do; another order can deadlock with them.
 //! - Rows created in this transaction are invisible outside it until commit,
 //!   so step 4 can delete them without anything referencing them.
 //! - Revived tombstones predate the transaction and must survive an undo:
@@ -98,16 +100,8 @@ pub(super) async fn create_person_stubs(
 
     let mut tx = pools.begin(Lane::Heavy).await?;
 
-    let mut persons = insert_or_revive_persons(&mut tx, tables, stubs, &team_ids, &uuids).await?;
-    fetch_conflict_winners(
-        &mut tx,
-        &tables.person,
-        stubs,
-        &team_ids,
-        &uuids,
-        &mut persons,
-    )
-    .await?;
+    let mut persons = insert_persons(&mut tx, tables, stubs, &team_ids, &uuids).await?;
+    lock_conflicting_persons(&mut tx, tables, stubs, &team_ids, &uuids, &mut persons).await?;
     let mapping =
         insert_distinct_id_mappings(&mut tx, &tables.person_distinct_id, stubs, &uuids, &persons)
             .await?;
@@ -124,17 +118,7 @@ pub(super) async fn create_person_stubs(
 /// Step 1: multi-row stub insert. Concurrent creates for one distinct id
 /// derive the same uuid, so exactly one insert wins per key; losers fetch
 /// the committed winner in a fresh statement snapshot (step 2).
-///
-/// A conflict with a tombstoned row (same uuidv5 key, previously deleted) is
-/// a revival: flip is_deleted, bump the version above the tombstone so
-/// ClickHouse collapses toward the new incarnation, and reset properties.
-/// A tombstone under a live lifecycle mark stays dead — its saga may still
-/// re-drive a release over the revival; the caller sees LostRace and
-/// retries. Conflicts with live rows fail the qual and return nothing.
-///
-/// A returned version of 0 means fresh insert, anything else means revival
-/// (xmax can't be read back from a partitioned table).
-async fn insert_or_revive_persons(
+async fn insert_persons(
     tx: &mut Tx<'_>,
     tables: &IdentityTables,
     stubs: &[PersonStub],
@@ -156,32 +140,15 @@ async fn insert_or_revive_persons(
     let sql = format!(
         r#"
         INSERT INTO {person_table}
-            (created_at, properties, properties_last_updated_at, properties_last_operation,
-             team_id, is_identified, uuid, version, last_seen_at)
-        SELECT u.created_at, '{{}}'::jsonb, '{{}}'::jsonb, '{{}}'::jsonb,
-               u.team_id, u.is_identified, u.uuid, 0, date_trunc('hour', u.created_at)
+            (created_at, properties, team_id, is_identified, uuid, version, last_seen_at)
+        SELECT u.created_at, '{{}}'::jsonb, u.team_id, u.is_identified, u.uuid, 0,
+               date_trunc('hour', u.created_at)
         FROM unnest($1::timestamptz[], $2::int[], $3::bool[], $4::uuid[])
             AS u(created_at, team_id, is_identified, uuid)
-        ON CONFLICT (team_id, uuid) DO UPDATE SET
-            is_deleted = false,
-            version = COALESCE({person_table}.version, 0) + 1,
-            properties = '{{}}'::jsonb,
-            properties_last_updated_at = '{{}}'::jsonb,
-            properties_last_operation = '{{}}'::jsonb,
-            created_at = EXCLUDED.created_at,
-            is_identified = EXCLUDED.is_identified,
-            last_seen_at = EXCLUDED.last_seen_at
-            WHERE {person_table}.is_deleted = true
-              AND NOT EXISTS (
-                  SELECT 1 FROM {lop_table} lop
-                  WHERE lop.team_id = {person_table}.team_id
-                    AND lop.person_id = {person_table}.id
-                    AND lop.mark_active
-              )
+        ON CONFLICT (team_id, uuid) DO NOTHING
         RETURNING {person_cols}
         "#,
         person_cols = person_columns(person_table),
-        lop_table = tables.lifecycle_op_person,
     );
     let inserted = sqlx::query(&query_tag!("stub_create_persons", sql))
         .bind(&sorted_created_ats)
@@ -194,30 +161,37 @@ async fn insert_or_revive_persons(
     let mut persons = PersonsByKey::with_capacity(inserted.len());
     for row in inserted {
         let person = person_from_row(&row)?;
-        let revived_tombstone = person.version != Some(0);
         persons.insert(
             (person.team_id, person.uuid),
             ResolvedPerson {
                 person,
                 created_by_us: true,
-                revived_tombstone,
+                revived_tombstone: false,
             },
         );
     }
     Ok(persons)
 }
 
-/// Step 2: batch-fetch the committed winners for conflicted keys. This must
-/// be a separate statement: the insert's snapshot predates a concurrent
-/// winner's commit, a fresh statement snapshot sees it.
-async fn fetch_conflict_winners(
+/// Step 2: lock the committed rows behind conflicted keys. This must be a
+/// separate statement: the insert's snapshot predates a concurrent winner's
+/// commit, a fresh statement snapshot sees it.
+///
+/// A tombstoned row (same uuidv5 key, previously deleted) is a revival: flip
+/// is_deleted, bump the version above the tombstone so ClickHouse collapses
+/// toward the new incarnation, and reset properties. A tombstone under a
+/// live lifecycle mark stays dead — its saga may still re-drive a release
+/// over the revival; the caller sees LostRace and retries.
+async fn lock_conflicting_persons(
     tx: &mut Tx<'_>,
-    person_table: &str,
+    tables: &IdentityTables,
     stubs: &[PersonStub],
     team_ids: &[i32],
     uuids: &[Uuid],
     persons: &mut PersonsByKey,
 ) -> StorageResult<()> {
+    let person_table = &tables.person;
+    let lop_table = &tables.lifecycle_op_person;
     let conflicted: Vec<usize> = (0..stubs.len())
         .filter(|&i| !persons.contains_key(&(stubs[i].team_id, uuids[i])))
         .collect();
@@ -229,27 +203,92 @@ async fn fetch_conflict_winners(
     let conflicted_uuids: Vec<Uuid> = conflicted.iter().map(|&i| uuids[i]).collect();
     let sql = format!(
         r#"
-        SELECT {person_cols}
+        SELECT {person_cols}, p.is_deleted AS row_is_deleted
         FROM {person_table} p
         JOIN unnest($1::int[], $2::uuid[]) AS k(team_id, uuid)
           ON p.team_id = k.team_id AND p.uuid = k.uuid
-        WHERE p.is_deleted = false
+        ORDER BY p.team_id, p.id
+        FOR NO KEY UPDATE OF p
         "#,
         person_cols = person_columns("p"),
     );
-    let winners = sqlx::query(&query_tag!("stub_create_conflict_winners", sql))
+    let locked = sqlx::query(&query_tag!("stub_create_lock_conflicts", sql))
         .bind(&conflicted_teams)
         .bind(&conflicted_uuids)
         .fetch_all(&mut **tx)
         .await?;
-    for row in winners {
+    let mut tombstoned: HashSet<(i64, Uuid)> = HashSet::new();
+    for row in locked {
+        let is_deleted: bool = row.try_get("row_is_deleted")?;
         let winner = person_from_row(&row)?;
+        if is_deleted {
+            tombstoned.insert((winner.team_id, winner.uuid));
+            continue;
+        }
         persons.insert(
             (winner.team_id, winner.uuid),
             ResolvedPerson {
                 person: winner,
                 created_by_us: false,
                 revived_tombstone: false,
+            },
+        );
+    }
+    if tombstoned.is_empty() {
+        return Ok(());
+    }
+
+    let mut seen: HashSet<(i64, Uuid)> = HashSet::new();
+    let revive: Vec<usize> = conflicted
+        .into_iter()
+        .filter(|&i| {
+            let key = (stubs[i].team_id, uuids[i]);
+            tombstoned.contains(&key) && seen.insert(key)
+        })
+        .collect();
+    let revive_created_ats: Vec<DateTime<Utc>> =
+        revive.iter().map(|&i| stubs[i].created_at).collect();
+    let revive_teams: Vec<i32> = revive.iter().map(|&i| team_ids[i]).collect();
+    let revive_is_identified: Vec<bool> = revive.iter().map(|&i| stubs[i].is_identified).collect();
+    let revive_uuids: Vec<Uuid> = revive.iter().map(|&i| uuids[i]).collect();
+    let sql = format!(
+        r#"
+        UPDATE {person_table} p SET
+            is_deleted = false,
+            version = COALESCE(p.version, 0) + 1,
+            properties = '{{}}'::jsonb,
+            created_at = u.created_at,
+            is_identified = u.is_identified,
+            last_seen_at = date_trunc('hour', u.created_at)
+        FROM unnest($1::timestamptz[], $2::int[], $3::bool[], $4::uuid[])
+            AS u(created_at, team_id, is_identified, uuid)
+        WHERE p.team_id = u.team_id AND p.uuid = u.uuid
+          AND p.is_deleted = true
+          AND NOT EXISTS (
+              SELECT 1 FROM {lop_table} lop
+              WHERE lop.team_id = p.team_id
+                AND lop.person_id = p.id
+                AND lop.mark_active
+          )
+        RETURNING {person_cols}
+        "#,
+        person_cols = person_columns("p"),
+    );
+    let revived = sqlx::query(&query_tag!("stub_create_revive_persons", sql))
+        .bind(&revive_created_ats)
+        .bind(&revive_teams)
+        .bind(&revive_is_identified)
+        .bind(&revive_uuids)
+        .fetch_all(&mut **tx)
+        .await?;
+    for row in revived {
+        let person = person_from_row(&row)?;
+        persons.insert(
+            (person.team_id, person.uuid),
+            ResolvedPerson {
+                person,
+                created_by_us: true,
+                revived_tombstone: true,
             },
         );
     }

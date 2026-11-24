@@ -138,7 +138,7 @@ Choices the build contract left open, with the reason for each.
 
 - `hogli product:lint --all` (the CI gate) only lints product directories with `__init__.py`, so it
   skips `products/mobile`, the same as `products/desktop`. Running `hogli product:lint mobile`
-  by name reports a missing `__init__.py`, a missing tach entry and Python test files inside
+  by name reports a missing `__init__.py` and Python test files inside
   `node_modules`, exactly as `hogli product:lint desktop` does. The fix belongs in the linter.
 
 ## Chat
@@ -438,6 +438,16 @@ See [DATA.md](DATA.md) for the endpoint map and every adapter rule.
   The error state offers Open in PostHog, and leads with it when the export cap or the length rules out a render.
   With the flag off, the pill button opens the web player as before.
   Events: `mobile_replay_video_requested`, `mobile_replay_video_ready` (wait and reuse), `mobile_replay_video_failed` (the error kind, `playback` for a player error) and `mobile_replay_video_closed` (the status at close).
+- **The replay feed plays recordings in a WebView by default (spike).** With `mobile-replay-feed` on, each card replays the
+  recording's snapshot data with rrweb in `react-native-webview`, so watching spends no video export. The app fetches the
+  sources listing and `blob_v2` block ranges with its own token (`session_recording:read`) and hands the page their text;
+  the page loads only the blocks from the last full snapshot before the moment. The page script is built from
+  `common/replay-headless` and `common/replay-shared` by `node common/replay-headless/build-phone.mjs` into
+  the checked-in `src/features/replay/web/phonePlayer.generated.replay` asset. Metro reads it as a string, so mobile-only
+  checkouts can build without the root workspace. The asset is a pinned snapshot: a player change does not regenerate it,
+  so the app picks up player changes only when someone runs `build:phone` in its own PR. A PR that changes the asset or
+  `build-phone.mjs` must pass `build:phone --check`, and a player-only PR builds it without the comparison. Master and
+  release runs check the asset against the commit that last changed it. Bundling with `EXPO_PUBLIC_REPLAY_FEED_PLAYER=video` selects the MP4 export player instead.
 - **The Chat button matches the report's.** A round ink button with the compose glyph, bottom right, the one agent
   verb on the screen. It opens the chat with `RECORDING_OBJECT_TYPE` and the person label plus the date.
 - **No "Play from" in the frame sheet.** A play button would be a second way to the replay, next to the one in the

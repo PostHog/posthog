@@ -1,6 +1,8 @@
 """Temporal wiring re-exports — the only path core may use to register this
 product's workflows, activities, and schedules."""
 
+from posthog.temporal.common.registration import QueueBinding, TemporalRegistration
+
 from products.customer_analytics.backend.facade.temporal_contracts import AccountPropertySyncInput
 from products.customer_analytics.backend.temporal import ACTIVITIES, WORKFLOWS
 from products.customer_analytics.backend.temporal.account_property_sync import (
@@ -31,3 +33,22 @@ __all__ = [
     "create_membership_deletion_schedule",
     "stage_warehouse_account_property_files_activity",
 ]
+
+TEMPORAL = TemporalRegistration(
+    queues=(
+        QueueBinding(
+            queue_setting="DATA_WAREHOUSE_METADATA_TASK_QUEUE",
+            workflows=tuple(ACCOUNT_PROPERTY_SYNC_WORKFLOWS),
+            activities=tuple(ACCOUNT_PROPERTY_SYNC_ACTIVITIES),
+        ),
+        QueueBinding(queue_setting="VIDEO_EXPORT_TASK_QUEUE", workflows=tuple(WORKFLOWS), activities=tuple(ACTIVITIES)),
+    ),
+    schedules=(
+        create_account_track_rule_coordinator_schedule,
+        create_calendar_sync_coordinator_schedule,
+        create_membership_discovery_schedule,
+        create_membership_deletion_schedule,
+        create_ownership_claims_coordinator_schedule,
+        create_membership_coordinator_schedule,
+    ),
+)

@@ -66,6 +66,7 @@ ACCESS_CONTROL_MAX_OBJECTS_PER_RESOURCE = 1000
 
 ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "action",
+    "canvas",
     "customer_analytics",
     "data_catalog",
     "data_deletion",
@@ -219,6 +220,9 @@ def resource_to_display_name(resource: APIScopeObject) -> str:
         return "LLM playground"
     if resource == "business_knowledge":
         return "business knowledge"
+    if resource == "canvas":
+        # Ends in "s" but is singular, so the rule below would leave it as "canvas"
+        return "canvases"
     if resource == "code_review_approval":
         # A feature name, not a collection of objects, so it takes no plural
         return "code review auto-approval"
@@ -251,6 +255,9 @@ def default_access_level(resource: APIScopeObject) -> AccessControlLevel:
 def minimum_access_level(resource: APIScopeObject) -> AccessControlLevel:
     """Returns the minimum allowed access level for a resource. 'none' is not included if a minimum is specified."""
     if resource == "action":
+        return "viewer"
+    if resource == "canvas":
+        # Who can see a canvas at all is its space's choice, so these rules only narrow editing.
         return "viewer"
     return "none"
 
@@ -304,7 +311,7 @@ class ResolvedAccess:
     # resource-wide or no rule decided.
     source_resource_id: Optional[str] = None
     # Display name of the member or role whose row decided. Enforcement never sets or reads
-    # it; the resolution preview fills it so explanations can name the deciding subject.
+    # it; the members table fills it so explanations can name the deciding subject.
     subject_name: Optional[str] = None
 
 
@@ -694,7 +701,7 @@ class UserAccessControl:
     def is_organization_admin(self) -> bool:
         """Org owners/admins bypass object- and resource-level access control."""
         org_membership = self._organization_membership
-        return bool(org_membership and org_membership.level >= OrganizationMembership.Level.ADMIN)
+        return bool(org_membership and org_membership.effective_level >= OrganizationMembership.Level.ADMIN)
 
     def _is_creator(self, obj: Model) -> bool:
         # Compare ids so callers do not need created_by hydrated on the object.
@@ -946,7 +953,7 @@ class UserAccessControl:
 
         if resource == "organization":
             # Organization access is controlled via membership level only
-            if org_membership.level >= OrganizationMembership.Level.ADMIN:
+            if org_membership.effective_level >= OrganizationMembership.Level.ADMIN:
                 return "admin"
             return "member"
 
@@ -1796,7 +1803,7 @@ class UserAccessControl:
         if resource == "organization":
             # Organization access is controlled via membership level only
             membership_level: AccessControlLevel = (
-                "admin" if org_membership.level >= OrganizationMembership.Level.ADMIN else "member"
+                "admin" if org_membership.effective_level >= OrganizationMembership.Level.ADMIN else "member"
             )
             return True, ResolvedAccess(
                 access_level=membership_level,

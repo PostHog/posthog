@@ -1,8 +1,12 @@
-import type { ReportDecisionSetByApi, ReportDecisionsApi } from 'products/signals/frontend/generated/api.schemas'
+import type {
+    ReportDecisionSetByApi,
+    ReportDecisionsApi,
+    SignalReportActionabilityUpdateApi,
+} from 'products/signals/frontend/generated/api.schemas'
 
-import type { SignalReportArtefact } from '../types'
+import type { SignalReport, SignalReportActionability, SignalReportArtefact } from '../types'
 
-export type ReportDecision = 'repository' | 'priority'
+export type ReportDecision = 'repository' | 'priority' | 'actionability' | 'already_addressed'
 
 export interface ReportDecisionAttribution {
     /** The person who set the current value, or null when a PostHog task or the pipeline set it. */
@@ -16,16 +20,34 @@ export interface ReportDecisionAttribution {
     previousValue: string | null
 }
 
+/** One step of a change to the actionability judgment. Both values share it, so each row changes one of them. */
+export type ReportActionabilityChange = { actionability: SignalReportActionability } | { alreadyAddressed: boolean }
+
+export interface ReportActionabilityRequest {
+    decision: Extract<ReportDecision, 'actionability' | 'already_addressed'>
+    previousValue: string | null
+    newValue: string
+    body: SignalReportActionabilityUpdateApi
+}
+
 export type ReportDecisionAttributions = Record<ReportDecision, ReportDecisionAttribution | null>
 
 /** The artefact history behind each decision. The serializer reads the newest row, this reads the ones before it. */
 const DECISION_HISTORY: Record<ReportDecision, { type: string; valueKey: string }> = {
     repository: { type: 'repo_selection', valueKey: 'repository' },
     priority: { type: 'priority_judgment', valueKey: 'priority' },
+    // Both live in one judgment, so they share its reason and setter.
+    actionability: { type: 'actionability_judgment', valueKey: 'actionability' },
+    already_addressed: { type: 'actionability_judgment', valueKey: 'already_addressed' },
 }
 
 function nonEmptyString(value: unknown): string | null {
     return typeof value === 'string' && value.trim() ? value : null
+}
+
+/** A boolean decision reads as `'true'` or `'false'`, so every row compares and shows a string. */
+function decisionValue(value: unknown): string | null {
+    return typeof value === 'boolean' ? String(value) : nonEmptyString(value)
 }
 
 function previousDecisionValue(
@@ -38,7 +60,7 @@ function previousDecisionValue(
         artefacts
             .filter((artefact) => artefact.type === type)
             .sort((a, b) => b.created_at.localeCompare(a.created_at))
-            .map((artefact) => nonEmptyString(artefact.content?.[valueKey]))
+            .map((artefact) => decisionValue(artefact.content?.[valueKey]))
             .find((value) => value !== null && value !== current) ?? null
     )
 }
@@ -61,7 +83,8 @@ function decisionAttribution(
         agent: person && kind === 'agent' ? nonEmptyString(agent) : null,
         setAt: current.set_at,
         reason: kind === 'user' ? null : nonEmptyString(current.reason),
-        previousValue: person && artefacts ? previousDecisionValue(artefacts, decision, current.value) : null,
+        previousValue:
+            person && artefacts ? previousDecisionValue(artefacts, decision, decisionValue(current.value)) : null,
     }
 }
 
@@ -75,5 +98,29 @@ export function reportDecisionAttributions(
     return {
         repository: decisionAttribution(decisions, artefacts, 'repository'),
         priority: decisionAttribution(decisions, artefacts, 'priority'),
+        actionability: decisionAttribution(decisions, artefacts, 'actionability'),
+        already_addressed: decisionAttribution(decisions, artefacts, 'already_addressed'),
     }
+}
+
+/** What a change sends and records, or null when it would set the value the report already has. */
+export function reportActionabilityRequest(
+    report: Pick<SignalReport, 'actionability' | 'already_addressed'>,
+    change: ReportActionabilityChange
+): ReportActionabilityRequest | null {
+    const request: ReportActionabilityRequest =
+        'actionability' in change
+            ? {
+                  decision: 'actionability',
+                  previousValue: report.actionability ?? null,
+                  newValue: change.actionability,
+                  body: { actionability: change.actionability },
+              }
+            : {
+                  decision: 'already_addressed',
+                  previousValue: decisionValue(report.already_addressed),
+                  newValue: String(change.alreadyAddressed),
+                  body: { already_addressed: change.alreadyAddressed },
+              }
+    return request.previousValue === request.newValue ? null : request
 }

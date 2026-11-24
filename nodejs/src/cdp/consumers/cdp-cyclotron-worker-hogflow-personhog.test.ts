@@ -30,8 +30,6 @@ function makePerson(teamId: number, uuid: string, distinctId: string, properties
         uuid,
         team_id: teamId,
         properties,
-        properties_last_updated_at: {},
-        properties_last_operation: {},
         created_at: TIMESTAMP,
         version: 1,
         is_identified: true,

@@ -20,7 +20,7 @@ from products.warehouse_sources.sources.sdk import (
 )
 from products.warehouse_sources.sources.zendesk_sell._config import ZendeskSellSourceConfig
 from products.warehouse_sources.sources.zendesk_sell.canonical_descriptions import CANONICAL_DESCRIPTIONS
-from products.warehouse_sources.sources.zendesk_sell.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.sources.zendesk_sell.settings import ENDPOINTS, INCREMENTAL_FIELDS, SHOULD_SYNC_DEFAULT
 from products.warehouse_sources.sources.zendesk_sell.zendesk_sell import (
     ZendeskSellResumeConfig,
     validate_credentials as validate_zendesk_sell_credentials,
@@ -102,7 +102,7 @@ Create a personal access token under **Settings > Integrations > OAuth > Access 
     ) -> list[SourceSchema]:
         # All endpoints are full refresh: the Core API has no server-side timestamp filter, so there's
         # no cheap incremental sync (INCREMENTAL_FIELDS is empty). See zendesk_sell.py for details.
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, should_sync_default=SHOULD_SYNC_DEFAULT)
 
     def validate_credentials(
         self,

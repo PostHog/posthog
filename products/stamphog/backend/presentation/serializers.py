@@ -382,8 +382,8 @@ class PullRequestRoutingSerializer(DataclassSerializer):
         choices=RoutingStatus.choices,
         read_only=True,
         help_text=(
-            "The phase of the latest routing record: 'waiting' (fallback mode, the head waits for auto-approval's "
-            "verdict or the safety net), 'routing' (a task holds the claim and requested nobody yet), "
+            "The phase of the latest routing record: 'waiting' (the head waits for the safety net and for "
+            "auto-approval's verdict in fallback mode, or for a policy attestation check in always mode), 'routing' (a task holds the claim and requested nobody yet), "
             "'requested' (the review requests went out, the routing comment is not finished) or 'done'."
         ),
     )
@@ -397,8 +397,9 @@ class PullRequestRoutingSerializer(DataclassSerializer):
         read_only=True,
         allow_null=True,
         help_text=(
-            "'full', or 'pinned' when an auto-approval asks only the owners of sensitive and new paths. "
-            "Null while the record waits."
+            "'full', 'pinned' when an auto-approval asks only the owners of sensitive and new paths, or "
+            "'attested' when a verified policy attestation covers every changed file and the pull request already "
+            "has a reviewer, so only the owners of sensitive and new paths are requested. Null while the record waits."
         ),
     )
 
@@ -420,7 +421,8 @@ class PullRequestRoutingSerializer(DataclassSerializer):
             "trigger": {
                 "help_text": (
                     "What started the record: 'opened', 'ready_for_review', 'verdict:<outcome>', 'external_review', "
-                    "'approval_retracted' or 'safety_net'."
+                    "'approval_retracted', 'attestation' (the attestation checks the head waited for reported) or "
+                    "'safety_net'."
                 )
             },
             "claim_expired": {
@@ -431,7 +433,9 @@ class PullRequestRoutingSerializer(DataclassSerializer):
             },
             "waiting_since": {
                 "allow_null": True,
-                "help_text": "When the head started to wait for auto-approval's verdict. Null unless waiting.",
+                "help_text": (
+                    "When the head started to wait for auto-approval's verdict or an attestation check. Null unless waiting."
+                ),
             },
             "claimed_at": {"allow_null": True, "help_text": "When a task claimed the pull request for this record."},
             "routed_at": {
@@ -1183,9 +1187,9 @@ class RoutingRunOwnerSerializer(DataclassSerializer):
         help_text=(
             "What the run did with the owner: 'requested', 'labeled' (a fork label instead of a request), "
             "'refused' (GitHub refused the request or the label), 'cut', 'not_requested' (auto-approval approved, and routing "
-            "would have asked this owner without the approval; on an older run whose llm_skipped is 'stamphog_approved' "
-            "it means only that the owner owns changed code) or 'already_requested' (an earlier run asked this pinned "
-            "owner)."
+            "would have asked this owner without the approval; on an older run whose llm_skipped is 'stamphog_approved', "
+            "or on an 'attested' run, it means only that the unpinned owner owns changed code) or 'already_requested' (an "
+            "earlier run asked this pinned owner)."
         ),
     )
     reason = serializers.ChoiceField(
@@ -1194,7 +1198,8 @@ class RoutingRunOwnerSerializer(DataclassSerializer):
         help_text=(
             "Why: 'sensitive' or 'new_path' (pinned, never cut), 'largest_owner' (a pull request keeps "
             "at least one reviewer), 'diff_not_seen' (the model did not see all of the owner's diff), "
-            "'cut_skipped' (no model call, see llm_skipped on the run), 'model_kept', 'model_cut' or "
+            "'cut_skipped' (no model call, see llm_skipped on the run), 'model_kept', 'model_cut', 'attested' "
+            "(a verified policy attestation covers every changed file, so this unpinned owner was not requested) or "
             "'stamphog_approved' (older runs only)."
         ),
     )
@@ -1259,7 +1264,11 @@ class RoutingRunSerializer(DataclassSerializer):
     scope = serializers.ChoiceField(
         choices=RoutingScope.choices,
         read_only=True,
-        help_text="'full', or 'pinned' when an auto-approval asked only the owners of sensitive and new paths.",
+        help_text=(
+            "'full', 'pinned' when an auto-approval asked only the owners of sensitive and new paths, or "
+            "'attested' when a verified policy attestation covered every changed file and only the owners of sensitive and "
+            "new paths were requested."
+        ),
     )
     llm_skipped = serializers.ChoiceField(
         choices=LlmSkipReason.choices,
@@ -1300,7 +1309,8 @@ class RoutingRunSerializer(DataclassSerializer):
             "trigger": {
                 "help_text": (
                     "What started the run: 'opened', 'ready_for_review', 'verdict:<outcome>', 'external_review', "
-                    "'approval_retracted' or 'safety_net'."
+                    "'approval_retracted', 'attestation' (the attestation checks the head waited for reported) or "
+                    "'safety_net'."
                 )
             },
             "fork": {"help_text": "Whether the pull request came from a fork, which skips the model."},

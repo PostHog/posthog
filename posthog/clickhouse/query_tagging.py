@@ -30,7 +30,6 @@ class AccessMethod(StrEnum):
     ID_JAG = "id_jag"
     OIDC_WORKLOAD = "oidc_workload"
     PROJECT_SECRET_API_KEY = "project_secret_api_key"
-    TEAM_SECRET_TOKEN = "team_secret_token"
 
 
 # OAuth and sharing-token deliberately excluded: OAuth is user-consented, sharing-token is public read-only.
@@ -38,7 +37,6 @@ _API_KEY_ACCESS_METHODS: frozenset[AccessMethod] = frozenset(
     {
         AccessMethod.PERSONAL_API_KEY,
         AccessMethod.PROJECT_SECRET_API_KEY,
-        AccessMethod.TEAM_SECRET_TOKEN,
     }
 )
 
@@ -448,6 +446,7 @@ class QueryTags(BaseModel):
 
     rate_limit_bypass: Optional[int] = None
     rate_limit_wait_ms: Optional[int] = None
+    queue_wait_ms: Optional[int] = None
     kill_switch: Optional[str] = None
 
     route_id: Optional[str] = None
@@ -468,6 +467,7 @@ class QueryTags(BaseModel):
     request_name: Optional[str] = None
     name: Optional[str] = None
     endpoint_version: Optional[int] = None  # Endpoints, the product
+    endpoint_execution_id: Optional[str] = None  # one endpoint run; equals instance_id in its log_entries rows
     endpoint_materialization_behind: Optional[bool] = (
         None  # set when a materialized endpoint is past its data_freshness SLA
     )
@@ -543,6 +543,8 @@ class QueryTags(BaseModel):
     replay_combined_event_query_eligible: Optional[bool] = None
     replay_event_query_operand: Optional[Literal["AND", "OR"]] = None
     replay_event_query_range_days: Optional[float] = None
+    # The sessions table version a recordings-list read used, to compare v2 and v3 in the query log.
+    replay_sessions_table_version: Optional[str] = None
     experiment_metric_events_path: Optional[str] = None  # "direct_scan", "precomputed", or "not_applicable"
     # Why the metric-events side is not precomputable (set on the metric read when metric_events_path is
     # "not_applicable"): "breakdown", "cuped", "data_warehouse", "funnel_order_type", "non_event_source",

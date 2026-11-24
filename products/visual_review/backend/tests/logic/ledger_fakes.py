@@ -2,6 +2,7 @@ import io
 
 from unittest.mock import MagicMock
 
+from django.db import transaction
 from django.utils import timezone
 
 from PIL import Image
@@ -9,8 +10,15 @@ from PIL import Image
 from posthog.egress.limiter.policies import Priority
 
 from products.visual_review.backend import diffing
+from products.visual_review.backend.db import WRITER_DB
 from products.visual_review.backend.facade.contracts import CreateRunInput, SnapshotManifestItem
-from products.visual_review.backend.facade.enums import BaselineMode, RunPurpose, RunStatus, RunType
+from products.visual_review.backend.facade.enums import (
+    BaselineEntrySource,
+    BaselineMode,
+    RunPurpose,
+    RunStatus,
+    RunType,
+)
 from products.visual_review.backend.logic import (
     artifact_store,
     baselines,
@@ -76,6 +84,21 @@ def make_record(**fields) -> BaselineRecord:
     )
 
 
+def move_ledger(repo: Repo, identifier: str, content_hash: str, previous_hash: str = "") -> None:
+    with transaction.atomic(using=WRITER_DB):
+        ledger.lock_ledger(repo.id)
+        ledger.append_entry(
+            repo,
+            run_type=RunType.STORYBOOK,
+            identifier=identifier,
+            content_hash=content_hash,
+            previous_hash=previous_hash,
+            position=0,
+            commit_sha=SEED,
+            source=BaselineEntrySource.MERGE,
+        )
+
+
 class FakeGit:
     def __init__(self, mocker, seed_sha: str) -> None:
         self.parents: dict[str, tuple[str, ...]] = {seed_sha: ()}
@@ -135,10 +158,13 @@ class FakeGit:
             state="open", merged=False, merge_commit_sha=None, base_ref=DEFAULT_BRANCH, head_sha=head_sha
         )
 
-    def merge(self, number: int, sha: str) -> str:
+    def merge(self, number: int, sha: str, *, squash: bool = False) -> str:
         head_sha = self.pull_requests[number].head_sha
         assert head_sha is not None
-        self.commit(sha, self.head, head_sha, subject=f"feat: change (#{number})")
+        # A squash commit does not contain the pull request's commits, so a branch stacked on them still
+        # lists them as its own after the merge.
+        parents = (self.head,) if squash else (self.head, head_sha)
+        self.commit(sha, *parents, subject=f"feat: change (#{number})")
         self.head = sha
         self.pull_requests[number] = github_api.PullRequestState(
             state="closed", merged=True, merge_commit_sha=sha, base_ref=DEFAULT_BRANCH, head_sha=head_sha
@@ -200,6 +226,7 @@ class LedgerFlow:
                 self.stored.setdefault(content_hash, content) and f"visual_review/{content_hash}"
             ),
         )
+        self.statuses = mocker.patch.object(ci_status, "_send_commit_status", return_value=ci_status.StatusPost.POSTED)
         mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
         mocker.patch("products.visual_review.backend.tasks.tasks.post_approval_comment.delay")
         self.rerun = mocker.patch.object(ci_status, "_rerun_github_job", return_value=(True, None))

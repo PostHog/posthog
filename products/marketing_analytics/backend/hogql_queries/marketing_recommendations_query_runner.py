@@ -29,11 +29,18 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import User
 
 from products.marketing_analytics.backend.hogql_queries.marketing_recommendations import (
+    DISAPPROVED,
+    LIMITED_APPROVALS,
     RECOMMENDATION_SOURCE_TYPES,
     Ad,
     CampaignStats,
+    ExcludedSearch,
+    FlaggedAd,
+    Keyword,
     KeywordTracking,
     OrganicQueryStats,
+    PolicyAds,
+    PolicyTopic,
     RankingPage,
     RecommendationInputs,
     SearchTermStats,
@@ -58,6 +65,8 @@ class GoogleAdsSessions:
 
 
 ROW_LIMIT = 50000
+# Steps name a few flagged ads per campaign. The rest only add rows, and some carry no finding worth naming.
+FLAGGED_ADS_PER_CAMPAIGN = 20
 PLAIN_AD_TEXT_FIELDS = (
     "ad_group_ad_ad_responsive_search_ad_path1",
     "ad_group_ad_ad_responsive_search_ad_path2",
@@ -189,6 +198,10 @@ class MarketingAnalyticsRecommendationsQueryRunner(
                         ranking_pages=ranking_pages,
                         keyword_tracking=self._keyword_tracking(source),
                         ads=tuple(self._ads(source)),
+                        keywords=tuple(self._keywords(source, organic_queries)),
+                        excluded_searches=self._excluded_searches(source),
+                        policy_ads=tuple(self._policy_ads(source)),
+                        flagged_ads=tuple(self._flagged_ads(source)),
                         customer_id=self._customer_id(source),
                     )
                 )
@@ -332,14 +345,21 @@ class MarketingAnalyticsRecommendationsQueryRunner(
     def _google_ads_sessions(self) -> GoogleAdsSessions:
         # gclid is the one parameter every auto-tagged Google Ads click carries, so it finds paid sessions without
         # relying on the UTMs this rule checks. It cannot tell ad accounts apart, so every account shares the count.
+        #
+        # Counted from events because the sessions table aggregates every session in the range before it can
+        # filter on gclid, so its memory grows with all traffic instead of with paid traffic. Every event type
+        # counts: a session often carries its gclid on events other than the pageview.
         rows = self._select(
             """
-            SELECT count(), countIf(notEmpty(coalesce($entry_utm_term, '')))
+            SELECT
+                uniqExact($session_id),
+                uniqExactIf($session_id, notEmpty(coalesce(toString(properties.utm_term), '')))
             FROM {table}
-            WHERE $start_timestamp >= {date_from} AND $start_timestamp <= {date_to}
-                AND notEmpty(coalesce($entry_gclid, ''))
+            WHERE timestamp >= {date_from} AND timestamp <= {date_to}
+                AND notEmpty(coalesce(toString(properties.gclid), ''))
+                AND notEmpty($session_id)
             """,
-            "sessions",
+            "events",
         )
         if not rows:
             return GoogleAdsSessions(total=0, with_keyword=0)
@@ -524,10 +544,12 @@ class MarketingAnalyticsRecommendationsQueryRunner(
             )
             # Performance Max search terms have no ad groups.
             ad_groups = "groupUniqArray(toString(ad_group_id))" if self._has_field(table, "ad_group_id") else "NULL"
+            # Days synced before a search became a negative or a keyword keep their old status, so the latest day decides.
+            # On that day an ad group that still serves the search outranks one that excludes it.
             rows = self._select(
                 f"""
                 SELECT lower(trim({{term}})) AS term, toString(campaign_id), sum(metrics_clicks), sum(metrics_impressions),
-                    sum(toFloat(metrics_cost_micros)) / 1000000, {conversions}, any(toString({{status}})),
+                    sum(toFloat(metrics_cost_micros)) / 1000000, {conversions}, argMax(toString({{status}}), tuple(segments_date, toString({{status}}) NOT LIKE '%EXCLUDED%')),
                     sumIf(toFloat({{absolute_top}}) * metrics_impressions, {{absolute_top}} IS NOT NULL)
                         / nullIf(sumIf(metrics_impressions, {{absolute_top}} IS NOT NULL), 0),
                     {ad_groups}
@@ -573,45 +595,163 @@ class MarketingAnalyticsRecommendationsQueryRunner(
             return []
         rows = self._select(
             f"""
-            SELECT lower(trim(search_term_view_search_term)) AS term, segments_keyword_info_text,
+            SELECT lower(trim(search_term_view_search_term)) AS term, toString(campaign_id), segments_keyword_info_text,
                 toString(segments_keyword_info_match_type), sum(toFloat(metrics_cost_micros)) / 1000000 AS cost
             FROM {{table}}
             WHERE toDate(segments_date) >= toDate({{date_from}}) AND toDate(segments_date) <= toDate({{date_to}})
                 AND notEmpty(term)
-            GROUP BY term, segments_keyword_info_text, segments_keyword_info_match_type
+            GROUP BY term, campaign_id, segments_keyword_info_text, segments_keyword_info_match_type
             ORDER BY cost DESC
             LIMIT {ROW_LIMIT}
             """,
             source.searchTermKeywordTable,
         )
         return [
-            TermKeywordStats(term=row[0], keyword=row[1] or "", match_type=row[2] or "", cost=float(row[3] or 0))
+            TermKeywordStats(
+                term=row[0], campaign_id=row[1], keyword=row[2] or "", match_type=row[3] or "", cost=float(row[4] or 0)
+            )
             for row in rows
-            if row[1]
+            if row[2]
         ]
+
+    def _keywords(
+        self, source: MarketingAnalyticsRecommendationsSource, organic_queries: tuple[OrganicQueryStats, ...]
+    ) -> list[Keyword]:
+        # Only organic queries can become a keyword gap, so the account's other keywords are not read.
+        if (
+            not organic_queries
+            or not source.keywordTable
+            or not self._readable(source.keywordTable)
+            or not source.campaignTable
+            or not self._readable(source.campaignTable)
+        ):
+            return []
+        rows = self._select(
+            """
+            SELECT DISTINCT lower(trim(keyword.ad_group_criterion_keyword_text)) AS text, toString(keyword.campaign_id),
+                campaign.channel_type, campaign.status
+            FROM {table} AS keyword
+            INNER JOIN (
+                SELECT toString(campaign_id) AS id, any(campaign_advertising_channel_type) AS channel_type,
+                    any(coalesce(nullIf(toString({primary_status}), ''), toString({serving_status}))) AS status
+                FROM {campaigns}
+                GROUP BY campaign_id
+            ) AS campaign ON campaign.id = toString(keyword.campaign_id)
+            WHERE toString(keyword.ad_group_criterion_status) = 'ENABLED' AND text IN {queries}
+            """,
+            source.keywordTable,
+            campaigns=ast.Field(chain=list[str | int](source.campaignTable.split("."))),
+            primary_status=self._field(source.campaignTable, "campaign_primary_status"),
+            serving_status=self._field(source.campaignTable, "campaign_status"),
+            queries=ast.Tuple(
+                exprs=[ast.Constant(value=query) for query in sorted({q.query for q in organic_queries})]
+            ),
+        )
+        return [
+            Keyword(text=row[0], campaign_id=row[1], channel_type=row[2] or None, campaign_status=row[3] or None)
+            for row in rows
+        ]
+
+    def _excluded_searches(self, source: MarketingAnalyticsRecommendationsSource) -> frozenset[ExcludedSearch]:
+        table = source.searchTermTable
+        if not table or not self._readable(table) or not self._has_field(table, "search_term_view_status"):
+            return frozenset()
+        # Read up to today, so a negative added after the selected dates still counts. An excluded search stops getting
+        # rows, so the latest day decides, and on that day an ad group that still serves the search outranks one that
+        # excludes it.
+        rows = self._select(
+            f"""
+            SELECT lower(trim(search_term_view_search_term)) AS term, toString(campaign_id) AS campaign
+            FROM {{table}}
+            WHERE toDate(segments_date) >= toDate({{date_from}}) AND notEmpty(term)
+            GROUP BY term, campaign
+            HAVING argMax(
+                toString(search_term_view_status),
+                tuple(segments_date, toString(search_term_view_status) NOT LIKE '%EXCLUDED%')
+            ) LIKE '%EXCLUDED%'
+            LIMIT {ROW_LIMIT}
+            """,
+            table,
+        )
+        return frozenset(ExcludedSearch(term=row[0], campaign_id=row[1]) for row in rows)
 
     def _ads(self, source: MarketingAnalyticsRecommendationsSource) -> list[Ad]:
         if not source.adTable or not self._readable(source.adTable):
             return []
         rows = self._select(
             """
-            SELECT toString(ad_group_id), {headlines}, {descriptions}, {plain}
+            SELECT toString(ad_group_id), {headlines}, {descriptions}, toString(campaign_id), {final_urls}, {plain}
             FROM {table}
             WHERE ad_group_ad_status = 'ENABLED'
             """,
             source.adTable,
             headlines=self._field(source.adTable, "ad_group_ad_ad_responsive_search_ad_headlines"),
             descriptions=self._field(source.adTable, "ad_group_ad_ad_responsive_search_ad_descriptions"),
+            final_urls=self._field(source.adTable, "ad_group_ad_ad_final_urls"),
             # Expanded text ads still serve next to responsive ones, so their text is part of the ad group's copy too.
             plain=ast.Array(exprs=[self._field(source.adTable, field) for field in PLAIN_AD_TEXT_FIELDS]),
         )
         return [
             Ad(
                 ad_group_id=row[0],
-                texts=(*_asset_texts(row[1]), *_asset_texts(row[2]), *(text for text in row[3] if text)),
+                texts=(*_asset_texts(row[1]), *_asset_texts(row[2]), *(text for text in row[5] if text)),
+                campaign_id=row[3],
+                final_urls=_json_strings(row[4]),
             )
             for row in rows
             if row[0]
+        ]
+
+    def _policy_ads(self, source: MarketingAnalyticsRecommendationsSource) -> list[PolicyAds]:
+        if not source.adTable or not self._readable(source.adTable):
+            return []
+        # Counted in the query, so the row limit on the ad list never cuts a campaign's totals.
+        rows = self._select(
+            """
+            SELECT toString(campaign_id), countIf({status} = {disapproved}), countIf(has({limited}, {status}))
+            FROM {table}
+            WHERE ad_group_ad_status = 'ENABLED'
+            GROUP BY campaign_id
+            HAVING countIf({status} = {disapproved}) + countIf(has({limited}, {status})) > 0
+            """,
+            source.adTable,
+            status=self._field(source.adTable, "ad_group_ad_policy_summary_approval_status"),
+            disapproved=ast.Constant(value=DISAPPROVED),
+            limited=ast.Array(exprs=[ast.Constant(value=status) for status in sorted(LIMITED_APPROVALS)]),
+        )
+        return [PolicyAds(campaign_id=row[0], disapproved=int(row[1]), limited=int(row[2])) for row in rows]
+
+    def _flagged_ads(self, source: MarketingAnalyticsRecommendationsSource) -> list[FlaggedAd]:
+        if not source.adTable or not self._readable(source.adTable):
+            return []
+        status = self._field(source.adTable, "ad_group_ad_policy_summary_approval_status")
+        ad_id = self._field(source.adTable, "ad_group_ad_ad_id")
+        rows = self._select(
+            f"""
+            SELECT toString(campaign_id), toString({{ad_id}}), {{headlines}}, {{plain}}, {{policy_topics}}
+            FROM {{table}}
+            WHERE ad_group_ad_status = 'ENABLED' AND ({{status}} = {{disapproved}} OR has({{limited}}, {{status}}))
+            ORDER BY campaign_id, {{status}} != {{disapproved}}, {{ad_id}}
+            LIMIT {FLAGGED_ADS_PER_CAMPAIGN} BY campaign_id
+            LIMIT {ROW_LIMIT}
+            """,
+            source.adTable,
+            status=status,
+            ad_id=ad_id,
+            headlines=self._field(source.adTable, "ad_group_ad_ad_responsive_search_ad_headlines"),
+            plain=ast.Array(exprs=[self._field(source.adTable, field) for field in PLAIN_AD_TEXT_FIELDS]),
+            policy_topics=self._field(source.adTable, "ad_group_ad_policy_summary_policy_topic_entries"),
+            disapproved=ast.Constant(value=DISAPPROVED),
+            limited=ast.Array(exprs=[ast.Constant(value=status) for status in sorted(LIMITED_APPROVALS)]),
+        )
+        return [
+            FlaggedAd(
+                campaign_id=row[0],
+                ad_id=row[1] or "",
+                headline=next(iter((*_asset_texts(row[2]), *(text for text in row[3] if text))), ""),
+                policy_topics=_policy_topics(row[4]),
+            )
+            for row in rows
         ]
 
     def _organic_queries(self, source: MarketingAnalyticsRecommendationsSource) -> list[OrganicQueryStats]:
@@ -704,6 +844,7 @@ def _recommendation_source(source_type: str, tables: dict[str, str]) -> Marketin
             searchTermTable=tables.get("search_term_stats"),
             searchTermKeywordTable=tables.get("search_term_keyword_stats"),
             adTable=tables.get("ad"),
+            keywordTable=tables.get("keyword"),
             performanceMaxSearchTermTable=tables.get("performance_max_search_term_stats"),
             campaignConversionActionTable=tables.get("campaign_conversion_action_stats"),
             searchTermConversionActionTable=tables.get("search_term_conversion_action_stats"),
@@ -719,14 +860,48 @@ def _recommendation_source(source_type: str, tables: dict[str, str]) -> Marketin
     )
 
 
-def _asset_texts(value: str | None) -> tuple[str, ...]:
-    # The sync stores each ad text asset as a JSON message inside a JSON list.
+def _json_messages(value: str | None) -> list[dict[str, Any]]:
+    # The sync stores a repeated message field as a JSON list of JSON messages.
     try:
-        assets = json.loads(value) if value else []
-        parsed = [json.loads(asset) if isinstance(asset, str) else asset for asset in assets]
+        items = json.loads(value) if value else []
+        parsed = [json.loads(item) if isinstance(item, str) else item for item in items]
     except (ValueError, TypeError):
+        return []
+    return [item for item in parsed if isinstance(item, dict)]
+
+
+def _asset_texts(value: str | None) -> tuple[str, ...]:
+    return tuple(text for asset in _json_messages(value) if isinstance(text := asset.get("text"), str) and text)
+
+
+def _items(value: object) -> list[object]:
+    return value if isinstance(value, list) else []
+
+
+def _policy_topics(value: str | None) -> tuple[PolicyTopic, ...]:
+    return tuple(
+        PolicyTopic(
+            topic=entry["topic"],
+            type=str(entry.get("type") or ""),
+            texts=tuple(
+                text
+                for evidence in _items(entry.get("evidences"))
+                if isinstance(evidence, dict) and isinstance(text_list := evidence.get("textList"), dict)
+                for text in _items(text_list.get("texts"))
+                if isinstance(text, str) and text
+            ),
+        )
+        for entry in _json_messages(value)
+        if isinstance(entry.get("topic"), str) and entry["topic"]
+    )
+
+
+def _json_strings(value: str | None) -> tuple[str, ...]:
+    try:
+        parsed = json.loads(value) if value else []
+    except ValueError:
         return ()
-    return tuple(text for asset in parsed if isinstance(asset, dict) and (text := asset.get("text")))
+    return tuple(item for item in parsed if isinstance(item, str) and item) if isinstance(parsed, list) else ()
 
 
 def _parse_reasons(value: str | None) -> tuple[str, ...]:

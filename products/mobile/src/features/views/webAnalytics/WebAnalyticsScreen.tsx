@@ -2,6 +2,7 @@ import { useRouter } from 'expo-router'
 import { type ReactElement, type Ref, useRef, useState } from 'react'
 import { RefreshControl, ScrollView, type ScrollViewInstance, Text, View } from 'react-native'
 
+import { InternalUsersToggle } from '@/features/settings/InternalUsersToggle'
 import { changeNavPin } from '@/features/tabs/navPinActions'
 import { NAV_PINS_ENABLED } from '@/features/tabs/navPinSlot'
 import { type NavChrome, useIsNavPinned } from '@/features/tabs/navPinStore'
@@ -123,7 +124,9 @@ export function WebAnalyticsScreen({ from, chrome }: { from: ViewEntry; chrome: 
                               }
                             : undefined
                     }
-                />
+                >
+                    <InternalUsersToggle testID="web-exclude-internal-users" />
+                </ViewMoreSheet>
             )}
             <ViewsToast toast={toasts.toast} onHide={toasts.hide} bottom={tab ? undefined : TOAST_BOTTOM} />
         </ViewScreenFrame>
@@ -164,7 +167,7 @@ function WebAnalyticsBody({
     const sheetTile = screen.tiles.find((tile) => tile.def.id === tabsFor) ?? null
     const liveChip = (
         <View style={styles.liveChip}>
-            <LiveChip />
+            <LiveChip key={String(screen.internalUsersFilter)} internalUsersFilter={screen.internalUsersFilter} />
         </View>
     )
     // No compare row: every card compares with the previous period, as the web's tiles do.
@@ -196,34 +199,24 @@ function WebAnalyticsBody({
         />
     )
 
-    const filterChips = (
-        <FilterChips filters={screen.filters} onRemove={actions.removeFilter} onClear={actions.clearFilters} />
-    )
-
-    if (!overview) {
-        return (
-            <ScrollView ref={scrollRef} contentContainerStyle={[contentStyle, styles.grow]}>
-                {filterChips}
-                {screen.overview.isError && screen.error ? (
-                    <ViewErrorState
-                        kind={screen.error}
-                        noun="view"
-                        match={{ kind: 'web_analytics', ref: null }}
-                        onRetry={() => screen.overview.refetch()}
-                        onBack={onBack}
-                    />
-                ) : (
-                    <ViewSkeleton cards={3} />
-                )}
-            </ScrollView>
+    const pendingContent =
+        screen.overview.isError && screen.error ? (
+            <ViewErrorState
+                kind={screen.error}
+                noun="view"
+                match={{ kind: 'web_analytics', ref: null }}
+                onRetry={() => screen.overview.refetch()}
+                onBack={onBack}
+            />
+        ) : (
+            <ViewSkeleton cards={3} />
         )
-    }
 
     return (
         <>
             <ScrollView
                 ref={scrollRef}
-                contentContainerStyle={contentStyle}
+                contentContainerStyle={[contentStyle, !overview && styles.grow]}
                 onScroll={(event) => {
                     motion.onScroll()
                     scrollTitle.onScroll(event)
@@ -239,12 +232,14 @@ function WebAnalyticsBody({
                         progressViewOffset={contentTop}
                     />
                 }
-                testID="web-analytics-scroll"
+                testID={overview ? 'web-analytics-scroll' : undefined}
             >
                 {title}
                 <RefreshFailedBanner status={refresh.status} />
-                {filterChips}
-                {overview.metrics.length === 0 ? (
+                <FilterChips filters={screen.filters} onRemove={actions.removeFilter} onClear={actions.clearFilters} />
+                {!overview ? (
+                    pendingContent
+                ) : overview.metrics.length === 0 ? (
                     <Text style={styles.empty}>No web analytics data for this range.</Text>
                 ) : (
                     <OverviewGrid
@@ -254,36 +249,38 @@ function WebAnalyticsBody({
                         stale={overview.refreshFailed}
                     />
                 )}
-                <View style={styles.cards}>
-                    <TrendCard
-                        data={screen.trend}
-                        metric={screen.metric}
-                        interval={screen.interval}
-                        rangeText={rangeDetail}
-                    />
-                    {screen.tiles.map((tile) => (
-                        <View key={tile.def.id} style={styles.section}>
-                            <Eyebrow>{tile.def.title}</Eyebrow>
-                            <BreakdownCard
-                                tile={tile}
-                                filters={screen.filters}
-                                onOpenTabs={() => setTabsFor(tile.def.id)}
-                                onPressRow={(row) => {
-                                    if (row.filter) {
-                                        actions.tapRow(tile.def.id, tile.breakdown, row.filter, 'card')
-                                    }
-                                }}
-                                onOpenList={() => {
-                                    trackWebListOpened({ tile: tile.def.id, breakdown: tile.breakdown })
-                                    router.push(webAnalyticsListHref(tile.def.id, tile.breakdown))
-                                }}
-                            />
-                        </View>
-                    ))}
-                    <RetentionCard data={screen.retention} />
-                    <ActiveHoursCard data={screen.activeHours} />
-                    <MoreOnWeb webUrl={viewWebUrl(scope, '/web')} />
-                </View>
+                {overview ? (
+                    <View style={styles.cards}>
+                        <TrendCard
+                            data={screen.trend}
+                            metric={screen.metric}
+                            interval={screen.interval}
+                            rangeText={rangeDetail}
+                        />
+                        {screen.tiles.map((tile) => (
+                            <View key={tile.def.id} style={styles.section}>
+                                <Eyebrow>{tile.def.title}</Eyebrow>
+                                <BreakdownCard
+                                    tile={tile}
+                                    filters={screen.filters}
+                                    onOpenTabs={() => setTabsFor(tile.def.id)}
+                                    onPressRow={(row) => {
+                                        if (row.filter) {
+                                            actions.tapRow(tile.def.id, tile.breakdown, row.filter, 'card')
+                                        }
+                                    }}
+                                    onOpenList={() => {
+                                        trackWebListOpened({ tile: tile.def.id, breakdown: tile.breakdown })
+                                        router.push(webAnalyticsListHref(tile.def.id, tile.breakdown))
+                                    }}
+                                />
+                            </View>
+                        ))}
+                        <RetentionCard data={screen.retention} />
+                        <ActiveHoursCard data={screen.activeHours} />
+                        <MoreOnWeb webUrl={viewWebUrl(scope, '/web')} />
+                    </View>
+                ) : null}
             </ScrollView>
             <BreakdownSheet
                 tile={sheetTile?.def ?? null}

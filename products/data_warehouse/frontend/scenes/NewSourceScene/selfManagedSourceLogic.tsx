@@ -280,7 +280,9 @@ export const selfManagedSourceLogic = kea<selfManagedSourceLogicType>([
         },
         loadTableSuccess: async ({ table }) => {
             if (props.id) {
-                sourceSceneLogic.findMounted({ id: `self-managed-${props.id}` })?.actions.setBreadcrumbName(table.name)
+                const sceneLogicInstance = sourceSceneLogic.findMounted({ id: `self-managed-${props.id}` })
+                sceneLogicInstance?.actions.setBreadcrumbName(table.name)
+                sceneLogicInstance?.actions.setRecentName(table.name)
             }
         },
     })),

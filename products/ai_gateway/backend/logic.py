@@ -812,7 +812,9 @@ def add_team_credit(
     # replaying the earlier top-up, while a double submit of the same form reuses it.
     idempotency_key = hashlib.sha256(f"{form_nonce}:{amount_usd}:{reason}".encode()).hexdigest()
     try:
-        result = gateway_internal_client.add_credit(team.id, str(amount_usd), reason, idempotency_key)
+        result = gateway_internal_client.add_credit(
+            team.id, str(team.organization_id), str(amount_usd), reason, idempotency_key
+        )
     except gateway_internal_client.AIGatewayInternalError as exc:
         logger.warning(
             "ai_gateway_team_credit_failed",

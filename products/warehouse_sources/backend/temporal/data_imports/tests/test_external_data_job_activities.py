@@ -75,11 +75,12 @@ class TestCustomerFacingError(SimpleTestCase):
         cause = ApplicationError(message, type="OperationalError")
         assert _customer_facing_error(cause) == message
 
-    def test_retryable_rest_error_becomes_a_friendly_message(self) -> None:
+    @parameterized.expand([("rest_client", "RESTClientRetryableError"), ("vendor_retry", "RetryableHTTPError")])
+    def test_retryable_rest_error_becomes_a_friendly_message(self, _name: str, error_type: str) -> None:
         # A REST source that exhausts its retries on an HTTP 429/5xx surfaces as an ApplicationError
         # typed RESTClientRetryableError, whose message is a raw string like "HTTP 503 for <url>".
         # The customer must read a friendly message, not the raw HTTP status.
-        cause = ApplicationError("HTTP 503 for https://api.example.com/usage", type="RESTClientRetryableError")
+        cause = ApplicationError("HTTP 503 for https://api.example.com/usage", type=error_type)
         assert _customer_facing_error(cause) == TRANSIENT_SOURCE_ERROR_MESSAGE
 
     def test_falls_back_to_str_when_cause_has_no_message(self) -> None:

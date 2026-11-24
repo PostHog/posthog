@@ -13,6 +13,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
+from django.db import transaction
 from django.db.models import F, Q
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -25,12 +26,16 @@ from rest_framework.exceptions import NotAuthenticated, NotFound, PermissionDeni
 
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.dataclasses import frozen
+from posthog.entitlements.contracts import Entitlements
+from posthog.entitlements.dispatch import dispatch_entitlement_reactions, entitlement_reactions_enabled
+from posthog.entitlements.registry import get_entitlement_reactor_registry
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization
 from posthog.models.events_plan_deletion import apply_events_retention_change
 from posthog.models.oauth import OAuthApplication
 from posthog.models.organization import OrganizationMembership, OrganizationUsageInfo
+from posthog.models.organization_entitlement_applied_state import OrganizationEntitlementAppliedState
 from posthog.models.organization_provisioning import get_billing_lock_partner, record_partner_paid
 from posthog.models.team.event_retention import (
     billed_events_retention_months,
@@ -192,12 +197,15 @@ def build_billing_token(
     authorizer_actor: Optional[User] = None,
     billing_provider: BillingProvider | None = None,
     service_action: str | None = None,
+    escalation_action: str = "update_billing",
 ) -> str:
     """
     Build the JWT token to authenticate with the Billing system.
 
     Allows doing privilege escalation with the `authorizer_actor` parameter, in that case the distinct_id
     will be that of the user, but the role will be that of the authorizer_actor.
+    `escalation_action` names the call the escalation was for, so the audit event says what the
+    authorizer's role was borrowed to do.
 
     `service_action` marks a token minted by a backend job for one specific service-to-service
     endpoint (e.g. "signals_pr_dispute"); billing rejects calls to such endpoints from tokens
@@ -243,7 +251,7 @@ def build_billing_token(
                     "target_user_id": user.id,
                     "target_distinct_id": str(user.distinct_id),
                     "target_email": user.email,
-                    "action": "update_billing",
+                    "action": escalation_action,
                 },
             )
             payload["original_role"] = _get_user_organization_role(user, organization)
@@ -581,24 +589,16 @@ class BillingManager:
 
         distinct_ids = list(members_with_distinct_id.values_list("distinct_id", flat=True))
 
+        admin_memberships = organization.memberships.with_effective_level().filter(
+            resolved_level__gte=OrganizationMembership.Level.ADMIN
+        )
         admin_emails = [
-            email
-            for email in organization.members.filter(
-                organization_membership__level__gte=OrganizationMembership.Level.ADMIN
-            ).values_list("email", flat=True)
-            if _is_valid_email(email)
+            email for email in admin_memberships.values_list("user__email", flat=True) if _is_valid_email(email)
         ]
-
         org_users = list(
-            members_with_distinct_id.values("email", "distinct_id", "organization_membership__level")
-            .order_by("email")  # Deterministic order for tests
-            .annotate(role=F("organization_membership__level"))
-            .filter(role__gte=OrganizationMembership.Level.ADMIN)
-            .values(
-                "email",
-                "distinct_id",
-                "role",
-            )
+            admin_memberships.exclude(Q(user__distinct_id__isnull=True) | Q(user__distinct_id=""))
+            .order_by("user__email")  # Deterministic order for tests
+            .values(email=F("user__email"), distinct_id=F("user__distinct_id"), role=F("resolved_level"))
         )
 
         return self.update_billing(
@@ -797,6 +797,10 @@ class BillingManager:
         org_modified = False
 
         data = billing_status["customer"]
+        available_product_features = data.get("available_product_features", None)
+        use_entitlement_reactions = bool(available_product_features) and entitlement_reactions_enabled(
+            str(organization.id), fail_on_error=False
+        )
 
         if data.get("customer_id") and organization.customer_id != data["customer_id"]:
             organization.customer_id = data["customer_id"]
@@ -853,7 +857,7 @@ class BillingManager:
 
             should_update_org_billing_quotas = usage_changed or had_quota_limiting_markers
 
-        available_product_features = data.get("available_product_features", None)
+        previous_entitlements: Entitlements | None = None
         revoked_feature_keys: set[str] = set()
         events_retention_changed = False
         previous_retention_months: int | None = None
@@ -862,6 +866,8 @@ class BillingManager:
         # reports) and a partial or error-path billing response must not downgrade the org.
         # Genuine cancellations still send the (non-empty) free-tier feature list.
         if available_product_features and available_product_features != organization.available_product_features:
+            if use_entitlement_reactions:
+                previous_entitlements = Entitlements.from_features(organization.available_product_features or [])
             previous_feature_keys = {
                 feature.get("key") for feature in (organization.available_product_features or []) if feature
             }
@@ -922,8 +928,29 @@ class BillingManager:
             organization.usage["billing_status_computed_at"] = computed_at.isoformat()
             organization.usage["billing_latest_usage_report_date"] = billing_status.get("latest_usage_report_date")
 
+        checkpoints: list[OrganizationEntitlementAppliedState] = []
+        if previous_entitlements is not None:
+            current_entitlements = Entitlements.from_features(available_product_features or [])
+            applied_at = timezone.now()
+            for reactor in get_entitlement_reactor_registry():
+                previous = previous_entitlements.restricted_to(reactor.feature_keys)
+                if previous != current_entitlements.restricted_to(reactor.feature_keys):
+                    checkpoints.append(
+                        OrganizationEntitlementAppliedState(
+                            organization=organization,
+                            reactor_key=reactor.key,
+                            snapshot=previous.to_snapshot(),
+                            applied_at=applied_at,
+                        )
+                    )
+
         if org_modified:
-            organization.save()
+            with transaction.atomic(using="default"):
+                organization.save(using="default")
+                if checkpoints:
+                    OrganizationEntitlementAppliedState.objects.using("default").bulk_create(
+                        checkpoints, ignore_conflicts=True
+                    )
 
         if events_retention_changed:
             apply_events_retention_change(organization, previous_retention_months, previous_standard_retention)
@@ -934,6 +961,14 @@ class BillingManager:
         if should_update_org_billing_quotas:
             update_org_billing_quotas(organization)
 
+        if available_product_features:
+            dispatch_entitlement_reactions(
+                str(organization.id),
+                Entitlements.from_features(available_product_features),
+                watched_value_changed=bool(checkpoints),
+                enabled=use_entitlement_reactions,
+            )
+
         return organization
 
     def get_auth_headers(
@@ -942,6 +977,7 @@ class BillingManager:
         billing_provider: BillingProvider | None = None,
         authorizer_actor: User | None = None,
         service_action: str | None = None,
+        escalation_action: str = "update_billing",
     ):
         if not self.license:  # mypy
             raise Exception("No license found")
@@ -952,6 +988,7 @@ class BillingManager:
             authorizer_actor=authorizer_actor,
             billing_provider=billing_provider,
             service_action=service_action,
+            escalation_action=escalation_action,
         )
         headers = {"Authorization": f"Bearer {billing_service_token}"}
         if self.ip_address:
@@ -1360,14 +1397,21 @@ class BillingManager:
         handle_billing_service_error(res)
         return res.json()
 
-    def claim_coupon(self, organization: Organization, data: dict[str, Any]) -> dict[str, Any]:
+    def claim_coupon(
+        self,
+        organization: Organization,
+        data: dict[str, Any],
+        authorizer_actor: User | None = None,
+    ) -> dict[str, Any]:
         res = http_session.post(
             f"{BILLING_SERVICE_URL}/api/coupons/claim",
             json=data,
-            headers=self.get_auth_headers(organization),
+            headers=self.get_auth_headers(
+                organization, authorizer_actor=authorizer_actor, escalation_action="claim_coupon"
+            ),
         )
 
-        handle_billing_service_error(res)
+        handle_billing_service_error(res, valid_codes=(200, 201))
         return res.json()
 
     def coupons_overview(self, organization: Organization) -> dict[str, Any]:

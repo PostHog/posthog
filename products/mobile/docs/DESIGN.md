@@ -208,6 +208,9 @@ Optional recovery actions sit below the message and wrap on narrow screens.
 | `PostHogLogomark`, `PostHogLogo`      | `ui/icons/PostHogLogomark.tsx`, `ui/icons/PostHogLogo.tsx` | Brand logomark and landscape lockup as SVG, sized by `height`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | Icons                                 | `ui/icons/*.tsx`                                           | One component per glyph, ported from the prototype's SVG paths                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 
+Sheets with multiple pages can pass a `dragResetKey` to `BottomSheet` so it resets its position when the visible page changes.
+In Live filters, dragging down from an editor returns to the filter list with the current draft and the Apply filters button in view.
+
 ## Screens and states
 
 - **Splash**: the centered gradient logomark hops in a ripple, with the head first and the three colored spikes following.
@@ -343,6 +346,7 @@ Optional recovery actions sit below the message and wrap on narrow screens.
   10 recordings per page with a Load more footer. Up to 5 optional recommendations load afterward under Worth watching,
   below the recordings; recommendations matching loaded recordings enrich those rows without moving them.
   Pull to refresh reloads the first page and the recommendations.
+  With **Exclude internal users** on, recommendations appear only with recordings that pass the filter.
   Loading (row-shaped blocks), "Couldn't load your sessions" with Try again, "No recordings yet", the sign-in state and
   the demo state are separate screens. More (pushed only) holds Pin to navigation or Unpin from navigation, with the
   Views toast and Undo, and Open on web.

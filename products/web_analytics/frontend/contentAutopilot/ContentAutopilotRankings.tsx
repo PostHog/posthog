@@ -19,6 +19,8 @@ import type {
 } from 'products/web_analytics/frontend/generated/api.schemas'
 
 import { pageReportPath } from '../pageReports/pageReportsUtils'
+import { AiVisibilityCompetitorReview } from './AiVisibilityCompetitorReview'
+import { aiVisibilityCompetitorReviewLogic } from './aiVisibilityCompetitorReviewLogic'
 import { ContentAutopilotCitationsLink } from './ContentAutopilotCitationsLink'
 import { ContentAutopilotKpiDelta } from './ContentAutopilotKpiDelta'
 import { contentAutopilotLogic } from './contentAutopilotLogic'
@@ -27,10 +29,11 @@ import { contentAutopilotRankingsLogic } from './contentAutopilotRankingsLogic'
 import { ContentAutopilotRankingsSkeleton } from './ContentAutopilotRankingsSkeleton'
 import { ContentAutopilotSiteLabel } from './ContentAutopilotSiteLabel'
 import { visibilityChange } from './rankingsReport'
-import { brandedAnswersNote, filtersHeading, segmentPrompts } from './utils'
+import { brandedAnswersNote, filtersHeading, segmentPrompts, windowRange } from './utils'
 
 const CHART_CONFIG: TimeSeriesLineChartConfig = {
-    xAxis: { interval: 'day' },
+    // The labels are calendar days, so UTC keeps each tick and tooltip date on its own day.
+    xAxis: { interval: 'day', timezone: 'UTC' },
     yAxis: { format: 'percentage_scaled', showGrid: true },
     legend: { show: true },
     showCrosshair: true,
@@ -42,14 +45,20 @@ const VisibilityChart = (): JSX.Element | null => {
     const { chart } = useValues(contentAutopilotRankingsLogic)
     const theme = useChartTheme()
     const series = useMemo<Series[]>(
-        () => (chart?.series ?? []).map(({ domain, label, data }) => ({ key: domain, label, data })),
-        [chart]
+        () =>
+            (chart?.series ?? []).map(({ domain, label, colorIndex, data }) => ({
+                key: domain,
+                label,
+                color: theme.colors[colorIndex % theme.colors.length],
+                data,
+            })),
+        [chart, theme]
     )
     if (!chart) {
         return null
     }
     return (
-        <div className="h-80 min-w-0 flex flex-col p-2">
+        <div className="h-64 min-w-0 flex flex-col p-2">
             <TimeSeriesLineChart series={series} labels={chart.labels} theme={theme} config={CHART_CONFIG} />
         </div>
     )
@@ -59,6 +68,7 @@ export const ContentAutopilotRankings = (): JSX.Element => {
     const { rankings, rankingsLoading, rankingsError } = useValues(contentAutopilotRankingsLogic)
     const { loadRankings } = useActions(contentAutopilotRankingsLogic)
     const { setWorkspaceTab } = useActions(contentAutopilotLogic)
+    const { reviewShown } = useValues(aiVisibilityCompetitorReviewLogic)
 
     if (rankingsError === 'forbidden') {
         return <ContentAutopilotPromptsDisabled />
@@ -88,6 +98,9 @@ export const ContentAutopilotRankings = (): JSX.Element => {
                             Competitors are the ones you confirmed in{' '}
                             <Link onClick={() => setWorkspaceTab('settings')}>settings</Link>.
                         </>
+                    ) : reviewShown ? (
+                        // The review card below the header offers the same action.
+                        'Competitors are guessed from the sites the engines cite most.'
                     ) : (
                         <>
                             Competitors are guessed from the sites the engines cite most.{' '}
@@ -111,7 +124,7 @@ export const ContentAutopilotRankings = (): JSX.Element => {
                 {header}
                 <LemonCard hoverEffect={false} className="p-4" data-attr="content-autopilot-rankings-segment-empty">
                     <h4 className="m-0">
-                        No answers to {segmentPrompts(rankings.branded)} in the last {rankings.days} days
+                        No answers to {segmentPrompts(rankings.branded)} {windowRange(rankings)}
                         {narrowed ? ' that match these filters' : ''}
                     </h4>
                     <p className="m-0 mt-1 text-muted">Choose other filters above to see the other answers.</p>
@@ -142,7 +155,8 @@ export const ContentAutopilotRankings = (): JSX.Element => {
     return (
         <section className="@container/rankings flex flex-col gap-4" data-attr="content-autopilot-rankings">
             {header}
-            <div className="grid grid-cols-1 @5xl/rankings:grid-cols-2 gap-4">
+            <AiVisibilityCompetitorReview />
+            <div className="grid grid-cols-1 @5xl/rankings:grid-cols-2 items-start gap-4">
                 <PagePerformanceCard className="min-w-0">
                     <PagePerformanceCardHeader title="Visibility" />
                     <VisibilityChart />
@@ -182,7 +196,8 @@ export const ContentAutopilotRankings = (): JSX.Element => {
                                                         lookup={{
                                                             kind: 'domain',
                                                             value: brand.domain,
-                                                            days: rankings.days,
+                                                            dateFrom: rankings.window_from,
+                                                            dateTo: rankings.window_to,
                                                             branded: rankings.branded,
                                                         }}
                                                         source="rankings-brands"
@@ -271,7 +286,8 @@ export const ContentAutopilotRankings = (): JSX.Element => {
                                                 lookup={{
                                                     kind: 'domain',
                                                     value: domain.domain,
-                                                    days: rankings.days,
+                                                    dateFrom: rankings.window_from,
+                                                    dateTo: rankings.window_to,
                                                     branded: rankings.branded,
                                                 }}
                                                 source="rankings-sites"
@@ -323,7 +339,8 @@ export const ContentAutopilotRankings = (): JSX.Element => {
                                                     lookup={{
                                                         kind: 'url',
                                                         value: page.url,
-                                                        days: rankings.days,
+                                                        dateFrom: rankings.window_from,
+                                                        dateTo: rankings.window_to,
                                                         branded: rankings.branded,
                                                     }}
                                                     source="rankings-pages"

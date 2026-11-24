@@ -424,6 +424,13 @@ describe('measurements', () => {
             [{ value: 40 }],
         ],
         [
+            'times the first commit from the valve inside the drive, not from a failover applied after it ended',
+            'seconds_to_first_probe_commit',
+            (second) => between(710, 714)(second) || between(750, 751)(second),
+            [VALVE, { ...FAILOVER, intentAt: isoAt(1600) }],
+            [{ value: 15 }],
+        ],
+        [
             'censors a recovery stage the failover never observed',
             'seconds_to_sql_writer',
             () => false,
@@ -660,6 +667,11 @@ describe('measurements', () => {
         [
             'reads the whole drive as baseline when no valve applied',
             [{ ...VALVE, intentAt: undefined }],
+            { baseline: { from: atS(0), to: atS(1500) } },
+        ],
+        [
+            'reads the whole drive as baseline when a valve applied only after the drive ended',
+            [{ ...VALVE, intentAt: isoAt(1600), releasedAt: isoAt(1700) }],
             { baseline: { from: atS(0), to: atS(1500) } },
         ],
     ])('%s', (_story, timeline, phases) => {

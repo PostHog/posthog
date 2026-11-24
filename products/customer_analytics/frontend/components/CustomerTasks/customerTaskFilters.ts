@@ -68,6 +68,7 @@ export type CustomerTaskFilters = {
     archiveState: CustomerTasksListArchiveState
     account: CustomerTaskAccountFilter | null
     due: CustomerTaskDueFilter
+    tags?: string[]
 }
 
 const CUSTOMER_TASK_SORTING: Record<CustomerTaskOrdering, Sorting> = {
@@ -123,6 +124,10 @@ export function customerTaskEditDisabledReason(task: CustomerTaskApi): string | 
     return undefined
 }
 
+export function areTagListsEqual(a: readonly string[], b: readonly string[]): boolean {
+    return JSON.stringify([...a].sort()) === JSON.stringify([...b].sort())
+}
+
 export function customerTaskOrderingToSorting(ordering: CustomerTaskOrdering): Sorting {
     return CUSTOMER_TASK_SORTING[ordering]
 }
@@ -157,11 +162,12 @@ export function defaultCustomerTaskFilters(context: CustomerTasksContext): Custo
         archiveState: 'active',
         account: null,
         due: 'any',
+        tags: [],
     }
 }
 export function hasCustomerTaskFilters(filters: CustomerTaskFilters, context: CustomerTasksContext): boolean {
     const defaults = defaultCustomerTaskFilters(context)
-    return JSON.stringify(filters) !== JSON.stringify(defaults)
+    return JSON.stringify({ ...defaults, ...filters }) !== JSON.stringify(defaults)
 }
 export function customerTaskDueBounds(
     due: CustomerTaskDueFilter,
@@ -207,6 +213,7 @@ export function customerTasksQuery(
         statuses:
             filters.status === 'all' ? undefined : filters.status === 'open' ? 'open,in_progress' : filters.status,
         archive_state: filters.archiveState,
+        tags: filters.tags?.length ? JSON.stringify(filters.tags) : undefined,
         ordering,
         limit: pageSize,
         offset: (page - 1) * pageSize,
@@ -220,7 +227,15 @@ export function customerTasksQuery(
     return query
 }
 
-export const CUSTOMER_TASK_FILTER_URL_KEYS = ['search', 'status', 'assignee', 'archive', 'due', 'account'] as const
+export const CUSTOMER_TASK_FILTER_URL_KEYS = [
+    'search',
+    'status',
+    'assignee',
+    'archive',
+    'due',
+    'account',
+    'tags',
+] as const
 
 export const CUSTOMER_TASK_URL_KEYS = [...CUSTOMER_TASK_FILTER_URL_KEYS, 'sort', 'page'] as const
 
@@ -261,6 +276,9 @@ export function customerTaskSearchParams(state: CustomerTaskUrlState): Record<st
     if (state.filters.account) {
         params.account = state.filters.account.id
     }
+    if (state.filters.tags?.length) {
+        params.tags = JSON.stringify(state.filters.tags)
+    }
     if (state.ordering !== DEFAULT_CUSTOMER_TASK_ORDERING) {
         params.sort = state.ordering
     }
@@ -280,6 +298,18 @@ function parseAssignee(value: unknown): CustomerTaskAssigneeFilter | null {
     }
     const memberId = Number(value)
     return Number.isInteger(memberId) && memberId > 0 && memberId <= MAX_CUSTOMER_TASK_ASSIGNEE_ID ? memberId : null
+}
+
+function parseTags(value: unknown): string[] {
+    let tags = value
+    if (typeof value === 'string') {
+        try {
+            tags = JSON.parse(value)
+        } catch {
+            return []
+        }
+    }
+    return Array.isArray(tags) ? tags.filter((tag): tag is string => typeof tag === 'string') : []
 }
 
 function parseOneOf<T extends string>(value: unknown, allowed: readonly T[]): T | null {
@@ -310,6 +340,7 @@ export function parseCustomerTaskSearchParams(searchParams: Record<string, any>)
                     ? { id: searchParams.account, name: '' }
                     : null,
             due: parseOption(searchParams.due, CUSTOMER_TASK_DUE_OPTIONS) ?? defaults.due,
+            tags: parseTags(searchParams.tags),
         },
         ordering: parseOneOf(searchParams.sort, CUSTOMER_TASK_ORDERINGS) ?? DEFAULT_CUSTOMER_TASK_ORDERING,
         page: Number.isInteger(page) && page > 0 ? page : 1,

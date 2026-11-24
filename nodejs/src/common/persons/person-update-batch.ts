@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { Properties } from '~/plugin-scaffold'
-import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt } from '~/types'
+import { InternalPerson } from '~/types'
 
 export interface PersonUpdate {
     id: string // bigint ID from database as string
@@ -9,8 +9,6 @@ export interface PersonUpdate {
     uuid: string
     distinct_id: string
     properties: Properties // The properties this pod last read or landed
-    properties_last_updated_at: PropertiesLastUpdatedAt
-    properties_last_operation: PropertiesLastOperation
     created_at: DateTime
     /** The row version the base reflects, from the newest write answer or row read the entry has taken. */
     version: number
@@ -42,8 +40,6 @@ export type PendingPersonChanges = { toSet: Properties; toSetOnce: Properties; t
 export interface PersonPropertyUpdate {
     updated: boolean
     properties: Properties
-    properties_last_updated_at: PropertiesLastUpdatedAt
-    properties_last_operation: PropertiesLastOperation
 }
 
 export function fromInternalPerson(person: InternalPerson, distinctId: string): PersonUpdate {
@@ -53,8 +49,6 @@ export function fromInternalPerson(person: InternalPerson, distinctId: string): 
         uuid: person.uuid,
         distinct_id: distinctId,
         properties: person.properties,
-        properties_last_updated_at: person.properties_last_updated_at,
-        properties_last_operation: person.properties_last_operation || {},
         created_at: person.created_at,
         version: person.version,
         is_identified: person.is_identified,
@@ -96,8 +90,6 @@ export function toInternalPerson(personUpdate: PersonUpdate): InternalPerson {
         uuid: personUpdate.uuid,
         team_id: personUpdate.team_id,
         properties: finalProperties,
-        properties_last_updated_at: personUpdate.properties_last_updated_at,
-        properties_last_operation: personUpdate.properties_last_operation,
         created_at: personUpdate.created_at,
         version: personUpdate.version,
         is_identified: personUpdate.is_identified,

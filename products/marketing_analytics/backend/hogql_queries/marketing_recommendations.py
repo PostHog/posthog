@@ -1,10 +1,10 @@
 import re
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping
 from difflib import SequenceMatcher
 from itertools import groupby
 from typing import Literal
-from urllib.parse import quote
+from urllib.parse import parse_qsl, quote, urlencode, urlsplit
 
 import tldextract
 
@@ -12,6 +12,7 @@ from posthog.schema import (
     MarketingAnalyticsRecommendation,
     MarketingAnalyticsRecommendationCpa,
     MarketingAnalyticsRecommendationCpaBenchmarkSource as BenchmarkSource,
+    MarketingAnalyticsRecommendationDetectedChange as DetectedChange,
     MarketingAnalyticsRecommendationIdentity,
     MarketingAnalyticsRecommendationResolution,
     MarketingAnalyticsRecommendationRule,
@@ -19,6 +20,7 @@ from posthog.schema import (
 )
 
 from posthog.dataclasses import frozen
+from posthog.taxonomy.taxonomy import CAMPAIGN_PROPERTIES
 
 from products.marketing_analytics.backend.hogql_queries.recommendation_identity import (
     ACCOUNT_AGNOSTIC_RULES,
@@ -48,6 +50,12 @@ POLICY_REASONS = frozenset(
         "HAS_ASSET_GROUPS_DISAPPROVED",
     }
 )
+LIMITED_APPROVALS = frozenset({"APPROVED_LIMITED", "AREA_OF_INTEREST_ONLY"})
+DISAPPROVED = "DISAPPROVED"
+# Google also lists findings that do not restrict an ad, such as the language it detected.
+POLICY_ISSUE_TYPES = frozenset({"PROHIBITED", "LIMITED", "FULLY_LIMITED", "AREA_OF_INTEREST_ONLY"})
+POLICY_ADS_SHOWN = 3
+POLICY_EVIDENCE_SHOWN = 3
 # Modifiers that match almost any search, so they say nothing about whether a query fits the account.
 GENERIC_WORDS = frozenset(
     {
@@ -117,6 +125,9 @@ MATCH_TYPES = {"2": "EXACT", "3": "PHRASE", "4": "BROAD"}
 ADS_ACCOUNT_SETTINGS_URL = "https://ads.google.com/aw/settings/account"
 ADS_CAMPAIGNS_URL = "https://ads.google.com/aw/campaigns"
 ADS_KEYWORDS_URL = "https://ads.google.com/aw/keywords"
+ADS_ADS_URL = "https://ads.google.com/aw/ads"
+ADS_ASSET_GROUPS_URL = "https://ads.google.com/aw/assetgroup"
+ADS_POLICY_ISSUES_URL = "https://ads.google.com/aw/policy/ads/issues"
 ADS_NEGATIVE_KEYWORDS_URL = "https://ads.google.com/aw/keywords/negative"
 ADS_SEARCH_TERMS_URL = "https://ads.google.com/aw/keywords/searchterms"
 SEARCH_CONSOLE_PERFORMANCE_URL = "https://search.google.com/search-console/performance/search-analytics"
@@ -125,9 +136,12 @@ REVIEW_TERMS_SHOWN = 3
 # A non-brand campaign is up for review when its cost per conversion reaches this multiple of its CPA benchmark.
 # Without conversions, spend alone must reach that multiple: even one conversion would leave its CPA at or above it.
 REVIEW_CPA_MULTIPLE = 3
+# Below this share of Search spend, a campaign costs too little for its CPA to be worth reviewing.
+REVIEW_MIN_SPEND_SHARE = 0.05
 # A brand search is worth a pause test once it takes this share of the account's search term spend. A share, unlike
 # a CPA, also works for an account that only bids on its brand.
 BRAND_OVERLAP_MIN_SPEND_SHARE = 0.0025
+MINOR_IMPACT_SHARE = 0.01
 # From this many non-brand conversions a campaign's own CPA is stable enough to judge its search terms by.
 MIN_CAMPAIGN_BENCHMARK_CONVERSIONS = 15
 # Below this many Google Ads sessions, a missing utm_term can be a few visits from links shared without it.
@@ -135,6 +149,7 @@ MIN_KEYWORD_TRACKING_SESSIONS = 30
 # Performance Max and Display clicks have no keyword, so even a configured account leaves some sessions without it.
 MAX_KEYWORD_TRACKING_SHARE = 0.05
 KEYWORD_PARAMETER = "utm_term={keyword}"
+CAMPAIGN_PARAMETERS = frozenset(CAMPAIGN_PROPERTIES)
 BENCHMARK_LABELS = {
     BenchmarkSource.TARGET_CPA: "the campaign's target CPA",
     BenchmarkSource.CAMPAIGN: "the campaign's non-brand CPA",
@@ -159,6 +174,12 @@ class CampaignStats:
     budget_id: str | None = None
     target_cpa: float | None = None
     tracking_url_template: str | None = None
+
+
+@frozen
+class ExcludedSearch:
+    term: str
+    campaign_id: str
 
 
 @frozen
@@ -192,9 +213,19 @@ class RankingPage:
 @frozen
 class TermKeywordStats:
     term: str
+    campaign_id: str
     keyword: str
     match_type: str
     cost: float
+
+
+@frozen
+class Keyword:
+    text: str
+    campaign_id: str
+    # Read from the campaign table, so a campaign without spend in the selected dates still counts.
+    channel_type: str | None
+    campaign_status: str | None
 
 
 @frozen
@@ -209,7 +240,31 @@ class KeywordTracking:
 @frozen
 class Ad:
     ad_group_id: str
+    campaign_id: str
     texts: tuple[str, ...]
+    final_urls: tuple[str, ...]
+
+
+@frozen
+class PolicyTopic:
+    topic: str
+    type: str
+    texts: tuple[str, ...] = ()
+
+
+@frozen
+class FlaggedAd:
+    campaign_id: str
+    ad_id: str
+    headline: str
+    policy_topics: tuple[PolicyTopic, ...]
+
+
+@frozen
+class PolicyAds:
+    campaign_id: str
+    disapproved: int
+    limited: int
 
 
 @frozen
@@ -225,6 +280,10 @@ class RecommendationInputs:
     customer_id: str | None = None
     keyword_tracking: KeywordTracking | None = None
     ads: tuple[Ad, ...] = ()
+    keywords: tuple[Keyword, ...] = ()
+    excluded_searches: frozenset[ExcludedSearch] = frozenset()
+    policy_ads: tuple[PolicyAds, ...] = ()
+    flagged_ads: tuple[FlaggedAd, ...] = ()
 
 
 @frozen
@@ -235,6 +294,10 @@ class _Term:
     cost: float
     conversions: float
     status: str
+    excluded_everywhere: bool
+    # Spend in the campaigns that still serve the search, or all of it once every campaign blocks it.
+    serving_clicks: float
+    serving_cost: float
     top_campaign_id: str
     ad_group_ids: frozenset[str]
     organic: OrganicQueryStats | None
@@ -302,6 +365,30 @@ def _singular(word: str) -> str:
     return word
 
 
+def _policy_issues(ad: FlaggedAd) -> tuple[PolicyTopic, ...]:
+    return tuple(topic for topic in ad.policy_topics if topic.type in POLICY_ISSUE_TYPES)
+
+
+def _policy_issue_text(topic: PolicyTopic) -> str:
+    # Google names a policy by its topic id, such as TRADEMARKS_IN_AD_TEXT.
+    name = topic.topic.replace("_", " ").capitalize()
+    # Only a prohibited topic is a violation. The other types restrict where the ad can show.
+    verb = "breaks" if topic.type == "PROHIBITED" else "is limited by"
+    if not topic.texts:
+        return f'{verb} the policy "{name}"'
+    quoted = ", ".join(f'"{text}"' for text in topic.texts[:POLICY_EVIDENCE_SHOWN])
+    return f'{verb} the policy "{name}" (flagged text: {quoted})'
+
+
+def _policy_fix(ad: FlaggedAd, headline_repeats: bool) -> Step:
+    issues = " and ".join(_policy_issue_text(topic) for topic in _policy_issues(ad))
+    if ad.headline and not headline_repeats:
+        return Step(text=f'The ad "{ad.headline}" {issues}.', copyValue=ad.headline)
+    # Ads often share a pinned first headline, and searching Ads for it would list all of them.
+    named = f'The ad "{ad.headline}" with ID {ad.ad_id}' if ad.headline else f"The ad with ID {ad.ad_id}"
+    return Step(text=f"{named} {issues}.", copyValue=ad.ad_id or None)
+
+
 def _word_stems(text: str) -> frozenset[str]:
     # Plurals fold into one stem, so "funnels" in a search still matches "funnel" in an ad.
     return frozenset(
@@ -309,6 +396,24 @@ def _word_stems(text: str) -> frozenset[str]:
         for word in WORD.findall(text.lower())
         if _is_meaningful(word) and word not in STOP_WORDS and _is_meaningful(stem := _singular(word))
     )
+
+
+def _is_keyword(status: str) -> bool:
+    # Google reports ADDED_EXCLUDED for a search that is both a keyword and a negative.
+    return "ADDED" in status
+
+
+def _page_key(url: str) -> str:
+    # Search Console and ad final URLs spell the same page differently, such as with or without www or a final slash.
+    parts = urlsplit(url)
+    page = parts.netloc.lower().removeprefix("www.") + parts.path.rstrip("/")
+    # A query parameter can pick the page, such as product.php?id=100, but click and campaign tags never do.
+    query = sorted(
+        (name, value)
+        for name, value in parse_qsl(parts.query)
+        if not name.lower().startswith("utm_") and name.lower() not in CAMPAIGN_PARAMETERS
+    )
+    return f"{page}?{urlencode(query)}" if query else page
 
 
 def _similarity(brand: str, compact_term: str) -> float:
@@ -369,8 +474,8 @@ def apply_resolutions(
 
     Account-agnostic rules have no ad account, so their candidates from every account share one cap and the
     highest-impact ones fill it. `resolutions` maps a recommendation key to its resolution. Resolved
-    recommendations take no slot, so resolving the top ones lets the next ones surface. With `include_resolved`,
-    they follow the unresolved ones of their run.
+    recommendations, and those with a detected change, take no slot, so resolving the top ones lets the next
+    ones surface. With `include_resolved`, they follow the unresolved ones of their run.
     """
     shown: dict[tuple[str, str], int] = defaultdict(int)
     applied: list[MarketingAnalyticsRecommendation] = []
@@ -382,6 +487,9 @@ def apply_resolutions(
             if resolution is not None:
                 if include_resolved:
                     resolved.append(recommendation.model_copy(update={"resolution": resolution}))
+            elif recommendation.detectedChange is not None:
+                if include_resolved:
+                    resolved.append(recommendation)
             elif rule not in SEARCH_TERM_RULES or shown[(rule, customer_id)] < PER_RULE_LIMIT:
                 shown[(rule, customer_id)] += 1
                 applied.append(recommendation)
@@ -417,21 +525,32 @@ class _Recommender:
         self.brands = brands_from_site_urls(inputs.site_urls)
         # Query rows come back in no fixed order, and the campaign that carries a shared budget's recommendation must not change between runs.
         self.campaigns = {campaign.id: campaign for campaign in sorted(inputs.campaigns, key=lambda c: c.id)}
+        self.search_cost = sum(
+            campaign.cost for campaign in self.campaigns.values() if campaign.channel_type == "SEARCH"
+        )
+        self.monthly_spend = sum(campaign.cost for campaign in self.campaigns.values()) * self.per_month
         self.organic = _merge_organic(inputs.organic_queries)
         self.term_cost_by_campaign: dict[str, float] = defaultdict(float)
         for row in inputs.search_terms:
             self.term_cost_by_campaign[row.campaign_id] += row.cost
         self.terms = self._aggregate_terms()
         self.brand_terms = {term.term for term in self.terms.values() if self._is_brand(term)}
-        self.top_keyword: dict[str, TermKeywordStats] = {}
+        self.top_keyword: dict[str, dict[str, TermKeywordStats]] = defaultdict(dict)
         self.keyword_stems: dict[str, set[str]] = defaultdict(set)
         for keyword_row in inputs.term_keywords:
-            current = self.top_keyword.get(keyword_row.term)
+            by_campaign = self.top_keyword[keyword_row.term]
+            current = by_campaign.get(keyword_row.campaign_id)
             if current is None or keyword_row.cost > current.cost:
-                self.top_keyword[keyword_row.term] = keyword_row
+                by_campaign[keyword_row.campaign_id] = keyword_row
             self.keyword_stems[keyword_row.term] |= _word_stems(keyword_row.keyword)
+        self.keywords = {keyword_row.keyword.lower() for keyword_row in inputs.term_keywords}
         self.copy_stems: dict[str, set[str]] = defaultdict(set)
         self.keyword_insertion_groups: set[str] = set()
+        self.policy_ads = {row.campaign_id: row for row in inputs.policy_ads}
+        self.policy_issue_ads: dict[str, list[FlaggedAd]] = defaultdict(list)
+        for flagged_ad in inputs.flagged_ads:
+            if _policy_issues(flagged_ad):
+                self.policy_issue_ads[flagged_ad.campaign_id].append(flagged_ad)
         for ad in inputs.ads:
             for text in ad.texts:
                 self.copy_stems[ad.ad_group_id] |= _word_stems(text)
@@ -458,6 +577,9 @@ class _Recommender:
         self.best_campaign_cpa = min(search_cpas, default=None)
         self.worst_campaign_cpa = max(search_cpas, default=None)
         self.account_cpa = self._account_nonbrand_cpa()
+        self.search_keywords = {
+            keyword.text for keyword in inputs.keywords if _serves_search(keyword.channel_type, keyword.campaign_status)
+        }
 
     def run(self) -> list[MarketingAnalyticsRecommendation]:
         campaign_rules = sorted(self._campaign_rules(), key=lambda rec: -(rec.impact or 0))
@@ -479,7 +601,7 @@ class _Recommender:
         serving = [
             campaign
             for campaign in self.campaigns.values()
-            if campaign.channel_type == "SEARCH" and campaign.primary_status not in INACTIVE_STATUSES
+            if _serves_search(campaign.channel_type, campaign.primary_status)
         ]
         # The settings are read as they are now, so an account that just added the parameter drops out at once,
         # while the sessions in the selected dates still lack it.
@@ -530,8 +652,6 @@ class _Recommender:
     def _campaign_rules(self) -> list[MarketingAnalyticsRecommendation]:
         recommendations: list[MarketingAnalyticsRecommendation] = []
         brand_spend, search_campaigns = self.brand_spend, self.search_campaigns
-        search_cost = sum(campaign.cost for campaign in self.campaigns.values() if campaign.channel_type == "SEARCH")
-
         constrained_budgets: set[str] = set()
         for campaign in self.campaigns.values():
             if campaign.primary_status in INACTIVE_STATUSES:
@@ -547,17 +667,7 @@ class _Recommender:
                 if campaign.budget_id:
                     constrained_budgets.add(campaign.budget_id)
             if POLICY_REASONS.intersection(campaign.status_reasons):
-                recommendations.append(
-                    self._campaign_recommendation(
-                        MarketingAnalyticsRecommendationRule.POLICY_LIMITED,
-                        campaign,
-                        "Check the affected ads in Policy manager",
-                        "Some ads or asset groups are limited or disapproved by Google policy, which cuts the campaign's reach.",
-                        None,
-                        "gain",
-                        "measured",
-                    )
-                )
+                recommendations.append(self._policy_limited(campaign))
 
         has_brand_campaign = any(self._is_brand_campaign(c, brand_spend) for c in self.campaigns.values())
         for campaign in self.campaigns.values():
@@ -584,11 +694,7 @@ class _Recommender:
             lost = (campaign.lost_to_budget or 0) + (campaign.lost_to_rank or 0)
             if cpa and compared.conversions >= 5 and cpa <= benchmark.cpa and lost >= 0.4:
                 recommendations.append(self._scale(campaign, cpa, benchmark, lost))
-            elif (
-                search_cost
-                and campaign.cost >= 0.05 * search_cost
-                and (cpa if cpa is not None else compared.cost) >= REVIEW_CPA_MULTIPLE * benchmark.cpa
-            ):
+            elif self._needs_review(campaign, benchmark):
                 recommendations.append(self._review(campaign, cpa, compared.cost, benchmark))
         recommendations.extend(self._search_brand_leaks(search_leaks, has_brand_campaign))
         return recommendations
@@ -648,6 +754,7 @@ class _Recommender:
             url=ADS_SEARCH_TERMS_URL,
             linkText="search terms",
         )
+        detected_change: DetectedChange | None = None
         # Performance Max takes no negative keywords; brand exclusions are its equivalent.
         if campaign.channel_type == "PERFORMANCE_MAX":
             action = f'Add a brand exclusion for "{brand}"'
@@ -669,6 +776,8 @@ class _Recommender:
                 self._paste_brand_negatives(brand, {campaign.id}),
                 check,
             )
+            if self._brand_negated(brand, {campaign.id}):
+                detected_change = DetectedChange.BRAND_NEGATIVE
         return self._campaign_recommendation(
             MarketingAnalyticsRecommendationRule.BRAND_LEAK,
             campaign,
@@ -679,6 +788,7 @@ class _Recommender:
             "save",
             "measured",
             steps=steps,
+            detected_change=detected_change,
         )
 
     def _search_brand_leaks(
@@ -734,7 +844,20 @@ class _Recommender:
                 MarketingAnalyticsRecommendationRule.BRAND_LEAK, self.inputs.customer_id, subject=brand
             ),
             steps=steps,
+            detected_change=DetectedChange.BRAND_NEGATIVE
+            if self._brand_negated(brand, {campaign.id for campaign, _ in group})
+            else None,
         )
+
+    def _brand_negated(self, brand: str, campaign_ids: set[str]) -> bool:
+        # Misspellings are a follow-up step, so the brand's own spelling decides whether the action is done.
+        compact_brand = brand.replace(" ", "")
+        searches = {
+            ExcludedSearch(term=row.term, campaign_id=row.campaign_id)
+            for row in self.inputs.search_terms
+            if row.campaign_id in campaign_ids and compact_brand in row.term.replace(" ", "")
+        }
+        return bool(searches) and searches <= self.inputs.excluded_searches
 
     def _paste_brand_negatives(self, brand: str, campaign_ids: set[str]) -> Step:
         negatives = [brand, *self._brand_misspellings(campaign_ids, brand)]
@@ -799,7 +922,11 @@ class _Recommender:
                     text="Open the campaign settings, go to Bidding, and raise the target CPA or lower the target "
                     "ROAS. Then save."
                 ),
-                Step(text="Open its asset groups and add assets to the ones with Poor or Average ad strength."),
+                Step(
+                    text="Open Asset groups and add assets to the ones with Poor or Average ad strength.",
+                    url=ADS_ASSET_GROUPS_URL,
+                    linkText="Asset groups",
+                ),
             ),
         )
 
@@ -826,7 +953,7 @@ class _Recommender:
 
     def _review_steps(self, campaign: CampaignStats, cpa: float | None, benchmark: _Benchmark) -> tuple[Step, ...]:
         spend: dict[str, list[float]] = defaultdict(lambda: [0.0, 0.0])
-        # ADDED means the search is already a keyword and EXCLUDED means it is already a negative.
+        # A keyword or a negative already handles the search, so it is not worth listing again.
         targeted_or_excluded: set[str] = set()
         excluded: set[str] = set()
         for row in self.inputs.search_terms:
@@ -834,9 +961,10 @@ class _Recommender:
                 continue
             spend[row.term][0] += row.cost
             spend[row.term][1] += row.conversions
-            if row.status not in ("NONE", ""):
+            is_excluded = self._is_excluded(row)
+            if _is_keyword(row.status) or is_excluded:
                 targeted_or_excluded.add(row.term)
-            if "EXCLUDED" in row.status:
+            if is_excluded:
                 excluded.add(row.term)
         competitors = self._competitor_names()
         draining = sorted(
@@ -948,20 +1076,21 @@ class _Recommender:
                 term,
                 benchmark,
                 advice.action,
-                f"Spent {self._money(term.cost)} ({term.cost / benchmark.cpa:.1f}x {benchmark.label}) "
-                f"on {term.clicks:,.0f} clicks with no conversions"
+                f"Spent {self._money(term.serving_cost)} ({term.serving_cost / benchmark.cpa:.1f}x {benchmark.label}) "
+                f"on {term.serving_clicks:,.0f} clicks with no conversions"
                 + (self._off_topic_reason(term) if term.term in off_topic else ""),
-                term.cost,
+                term.serving_cost,
                 "save",
                 "measured",
                 steps=advice.steps,
+                detected_change=DetectedChange.NEGATIVE_KEYWORD if term.excluded_everywhere else None,
             )
             for term in terms
             if (benchmark := benchmarks.get(term.term))
             and term.term not in self.brand_terms
             and term.conversions == 0
-            and term.cost >= 2 * benchmark.cpa
-            and term.status in ("NONE", "")
+            and term.serving_cost >= 2 * benchmark.cpa
+            and (term.excluded_everywhere or not _is_keyword(term.status))
             and self._serving(term)
             for advice in (self._no_conversion_advice(term, competitors),)
         ]
@@ -995,7 +1124,10 @@ class _Recommender:
             MarketingAnalyticsRecommendationRule.SPEND_WITHOUT_CONVERSIONS,
             MarketingAnalyticsRecommendationRule.STRIKING_DISTANCE,
         ):
-            top = sorted(rules.get(rule, []), key=lambda rec: -(rec.impact or 0))[:CANDIDATES_PER_RULE]
+            # Applied ones go last, so they never take a slot from one that still needs doing.
+            top = sorted(rules.get(rule, []), key=lambda rec: (rec.detectedChange is not None, -(rec.impact or 0)))[
+                :CANDIDATES_PER_RULE
+            ]
             # Searches unrelated to the ads that showed on them are the safest negatives, so they come first among the
             # costliest ones that show, without pushing a bigger waste out of the list.
             if rule == MarketingAnalyticsRecommendationRule.SPEND_WITHOUT_CONVERSIONS:
@@ -1018,8 +1150,12 @@ class _Recommender:
             and not stems & (copy | self.keyword_stems.get(term.term, set()))
         )
 
+    def _campaign_keyword(self, term: _Term) -> TermKeywordStats | None:
+        # Steps open the top campaign, so a keyword that matched in another campaign is not there to edit.
+        return self.top_keyword.get(term.term, {}).get(term.top_campaign_id)
+
     def _off_topic_reason(self, term: _Term) -> str:
-        keyword = self.top_keyword.get(term.term)
+        keyword = self._campaign_keyword(term)
         if keyword:
             return (
                 ". None of the main words in this search appear in the ads that showed on it "
@@ -1028,7 +1164,7 @@ class _Recommender:
         return ". None of the main words in this search appear in the ads that showed on it."
 
     def _no_conversion_advice(self, term: _Term, competitors: set[str]) -> _Advice:
-        keyword = self.top_keyword.get(term.term)
+        keyword = self._campaign_keyword(term)
         match_type = MATCH_TYPES.get(keyword.match_type, keyword.match_type).lower() if keyword else ""
         open_campaign = self._open_campaign(self._campaign_name(term))
         exact = f"[{term.term}]"
@@ -1154,23 +1290,37 @@ class _Recommender:
         competitors: set[str],
     ) -> list[MarketingAnalyticsRecommendation]:
         has_search = any(
-            campaign.channel_type == "SEARCH" and campaign.primary_status not in INACTIVE_STATUSES
-            for campaign in self.campaigns.values()
+            _serves_search(campaign.channel_type, campaign.primary_status) for campaign in self.campaigns.values()
         )
         channel = "SEARCH" if has_search else "PERFORMANCE_MAX"
+        landing_campaigns = self._landing_campaigns()
         impressions = sorted(query.impressions for query in self.organic.values())
         threshold = impressions[int(len(impressions) * 0.95)] if impressions else 0
         recommendations = []
         for query in self.organic.values():
-            if query.query in self.terms or query.position <= 10 or query.impressions < threshold:
+            if (
+                query.query in self.terms
+                or query.query in self.keywords
+                or query.position <= 10
+                or query.impressions < threshold
+            ):
                 continue
             if self._is_brand_query(query.query, query, 0) or self._mentions(query.query, competitors):
                 continue
+            page = self.ranking_page.get(query.query)
+            landing_campaign = landing_campaigns.get(_page_key(page)) if page else None
             words = [word for word in query.query.split() if _is_meaningful(word)]
             matched = [word for word in words if word in vocabulary]
-            if not words or len(matched) < len(words):
+            # A page the ads link to also ranks for loosely related queries, so one word has to convert already.
+            if not matched or (landing_campaign is None and len(matched) < len(words)):
                 continue
-            campaign = self._campaign_for_words(matched, vocabulary, channel)
+            campaign = landing_campaign or self._campaign_for_words(matched, vocabulary, channel)
+            if landing_campaign:
+                evidence = f"It ranks on {page}, which this campaign's ads link to"
+                ad_group = f"the ad group whose ads link to {page}"
+            else:
+                evidence = "Its words all appear in paid searches that convert at or below their CPA benchmark"
+                ad_group = "an ad group of the campaign"
             if has_search:
                 steps: tuple[Step, ...] = (
                     self._open_campaign(
@@ -1179,7 +1329,7 @@ class _Recommender:
                         "or create one.",
                     ),
                     Step(
-                        text="Open Keywords and add this one to an ad group of the campaign. The quotes make it "
+                        text=f"Open Keywords and add this one to {ad_group}. The quotes make it "
                         "phrase match, so it also matches longer searches that contain it.",
                         copyValue=f'"{query.query}"',
                         url=ADS_KEYWORDS_URL,
@@ -1193,7 +1343,12 @@ class _Recommender:
                         campaign.name if campaign else None,
                         fallback="In Google Ads, open Campaigns and pick your Performance Max campaign.",
                     ),
-                    Step(text="Open the asset group and add this search theme.", copyValue=query.query),
+                    Step(
+                        text="Open Asset groups, pick the one closest to this search, and add the search as a search theme.",
+                        copyValue=query.query,
+                        url=ADS_ASSET_GROUPS_URL,
+                        linkText="Asset groups",
+                    ),
                 )
             recommendations.append(
                 self._recommendation(
@@ -1202,7 +1357,7 @@ class _Recommender:
                     query.query,
                     "Add as a keyword in Google Ads" if has_search else "Add as a search theme in Performance Max",
                     f"{query.impressions:,.0f} organic impressions at position {query.position:.1f}, not bought. "
-                    "Its words all appear in paid searches that convert at or below their CPA benchmark",
+                    + evidence,
                     query.impressions * TOP3_CTR * average_cpc * self.per_month,
                     "invest",
                     "estimated",
@@ -1211,9 +1366,48 @@ class _Recommender:
                     ),
                     campaign.name if campaign else None,
                     steps=steps,
+                    # Performance Max search themes are not synced, so only a Search keyword shows the change.
+                    detected_change=DetectedChange.KEYWORD_ADDED
+                    if has_search and query.query in self.search_keywords
+                    else None,
                 )
             )
         return recommendations
+
+    def _landing_campaigns(self) -> dict[str, CampaignStats]:
+        # Only Search ad groups take keywords, and a brand campaign is the wrong home for a non-brand query.
+        campaigns: dict[str, CampaignStats] = {}
+        for ad in self.inputs.ads:
+            campaign = self.campaigns.get(ad.campaign_id)
+            if (
+                campaign is None
+                or campaign.channel_type != "SEARCH"
+                or campaign.primary_status in INACTIVE_STATUSES
+                or self._is_brand_campaign(campaign, self.brand_spend)
+                or (
+                    (benchmark := self._campaign_benchmark(campaign)) is not None
+                    and self._needs_review(campaign, benchmark)
+                )
+            ):
+                continue
+            for url in ad.final_urls:
+                key = _page_key(url)
+                # Ads that link to the homepage would make almost every query that ranks there look relevant.
+                if "/" not in key:
+                    continue
+                current = campaigns.get(key)
+                if current is None or campaign.cost > current.cost:
+                    campaigns[key] = campaign
+        return campaigns
+
+    def _needs_review(self, campaign: CampaignStats, benchmark: _Benchmark) -> bool:
+        cpa = self._compared_cpa(campaign, benchmark)
+        spend_per_conversion = cpa if cpa is not None else self._compared_spend(campaign, benchmark).cost
+        return (
+            self.search_cost > 0
+            and campaign.cost >= REVIEW_MIN_SPEND_SHARE * self.search_cost
+            and spend_per_conversion >= REVIEW_CPA_MULTIPLE * benchmark.cpa
+        )
 
     def _campaign_for_words(
         self, words: list[str], vocabulary: dict[str, dict[str, float]], channel: str
@@ -1234,24 +1428,37 @@ class _Recommender:
 
     # Helpers
 
+    def _is_excluded(self, row: SearchTermStats) -> bool:
+        return ExcludedSearch(term=row.term, campaign_id=row.campaign_id) in self.inputs.excluded_searches
+
     def _aggregate_terms(self) -> dict[str, _Term]:
         totals: dict[str, list[float]] = defaultdict(lambda: [0.0, 0.0, 0.0, 0.0])
         statuses: dict[str, str] = {}
         cost_by_campaign: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
         ad_groups: dict[str, set[str]] = defaultdict(set)
         top_impressions: dict[str, list[float]] = defaultdict(lambda: [0.0, 0.0])
+        serving_campaigns: dict[str, set[str]] = defaultdict(set)
+        for row in self.inputs.search_terms:
+            if not self._is_excluded(row):
+                serving_campaigns[row.term].add(row.campaign_id)
+        serving_spend: dict[str, list[float]] = defaultdict(lambda: [0.0, 0.0])
         for row in self.inputs.search_terms:
             total = totals[row.term]
             total[0] += row.clicks
             total[1] += row.cost
             total[2] += row.conversions
             total[3] += row.impressions
-            statuses.setdefault(row.term, row.status)
-            cost_by_campaign[row.term][row.campaign_id] += row.cost
             ad_groups[row.term].update(row.ad_group_ids)
             if row.absolute_top_percentage is not None and row.impressions:
                 top_impressions[row.term][0] += row.absolute_top_percentage * row.impressions
                 top_impressions[row.term][1] += row.impressions
+            # A campaign that already blocks the search needs no change, so it decides nothing while another serves it.
+            if row.term in serving_campaigns and row.campaign_id not in serving_campaigns[row.term]:
+                continue
+            serving_spend[row.term][0] += row.clicks
+            serving_spend[row.term][1] += row.cost
+            statuses.setdefault(row.term, row.status)
+            cost_by_campaign[row.term][row.campaign_id] += row.cost
         return {
             term: _Term(
                 term=term,
@@ -1260,6 +1467,9 @@ class _Recommender:
                 cost=cost,
                 conversions=conversions,
                 status=statuses[term],
+                excluded_everywhere=term not in serving_campaigns,
+                serving_clicks=serving_spend[term][0],
+                serving_cost=serving_spend[term][1],
                 top_campaign_id=max(cost_by_campaign[term], key=lambda campaign: cost_by_campaign[term][campaign]),
                 ad_group_ids=frozenset(ad_groups[term]),
                 organic=self.organic.get(term),
@@ -1285,7 +1495,8 @@ class _Recommender:
             # An added term is a keyword the advertiser bids on, maybe on purpose; an excluded one is blocked already.
             if (
                 row.campaign_id not in campaign_ids
-                or row.status in ("ADDED", "EXCLUDED")
+                or row.status == "ADDED"
+                or self._is_excluded(row)
                 or row.term not in self.brand_terms
             ):
                 continue
@@ -1491,6 +1702,7 @@ class _Recommender:
         direction: Direction,
         impact_type: Literal["measured", "estimated"],
         steps: tuple[Step, ...] = (),
+        detected_change: DetectedChange | None = None,
     ) -> MarketingAnalyticsRecommendation:
         return self._recommendation(
             rule,
@@ -1505,6 +1717,81 @@ class _Recommender:
             self._campaign_name(term),
             steps=steps,
             cpa=self._cpa(term.cost / term.conversions if term.conversions else None, benchmark) if benchmark else None,
+            detected_change=detected_change,
+        )
+
+    def _policy_limited(self, campaign: CampaignStats) -> MarketingAnalyticsRecommendation:
+        policy_ads = self.policy_ads.get(campaign.id)
+        disapproved, limited = (policy_ads.disapproved, policy_ads.limited) if policy_ads else (0, 0)
+        counts = [
+            f"{count} {'ad is' if count == 1 else 'ads are'} {label}"
+            for count, label in ((disapproved, "disapproved"), (limited, "limited"))
+            if count
+        ]
+        reason = (
+            f"{' and '.join(counts)} by Google policy, which cuts the campaign's reach."
+            if counts
+            else "Some ads or asset groups are limited or disapproved by Google policy, which cuts the campaign's reach."
+        )
+        fix: tuple[Step, ...]
+        if campaign.channel_type == "PERFORMANCE_MAX":
+            find = Step(
+                text="Open Asset groups and look for assets whose status shows a policy issue. "
+                "Hover the status to see which policy the asset breaks.",
+                url=ADS_ASSET_GROUPS_URL,
+                linkText="Asset groups",
+            )
+            fix = (Step(text="Replace each affected asset with one that follows the policy."),)
+        elif flagged := self.policy_issue_ads[campaign.id]:
+            find = Step(
+                text="Open Ads and search for each ad below. Fix the flagged text or the landing page, then save. "
+                "Saving sends the ad to review again. A limited ad may need a certification from Google instead.",
+                url=ADS_ADS_URL,
+                linkText="Ads",
+            )
+            shown = flagged[:POLICY_ADS_SHOWN]
+            headlines = Counter(ad.headline for ad in flagged)
+            fix = tuple(_policy_fix(ad, headlines[ad.headline] > 1) for ad in shown)
+            # Some affected ads come without findings, so the count comes from the approval totals.
+            if (others := disapproved + limited - len(shown)) > 0:
+                fix += (
+                    Step(
+                        text=f"Filter Ads by the status Disapproved or Eligible (limited) to find {others} more "
+                        f"{'ad' if others == 1 else 'ads'}. Hover the status of each ad to see which policy it breaks."
+                    ),
+                )
+        else:
+            find = Step(
+                text="Open Ads and filter by the status Disapproved or Eligible (limited). "
+                "Hover the status of each ad to see which policy it breaks.",
+                url=ADS_ADS_URL,
+                linkText="Ads",
+            )
+            fix = (
+                Step(
+                    text="Edit the ad text or landing page so it follows the policy, then save. Saving sends the ad to review again."
+                ),
+            )
+        steps = (
+            self._open_campaign(campaign.name),
+            find,
+            *fix,
+            Step(
+                text="If a decision looks wrong, open Policy manager and appeal it from the Policy issues tab.",
+                url=ADS_POLICY_ISSUES_URL,
+                linkText="Policy manager",
+            ),
+            Step(text="Come back here after Google reviews the changes, usually within a business day."),
+        )
+        return self._campaign_recommendation(
+            MarketingAnalyticsRecommendationRule.POLICY_LIMITED,
+            campaign,
+            "Fix or appeal the policy issues in this campaign",
+            reason,
+            None,
+            "gain",
+            "measured",
+            steps=steps,
         )
 
     def _campaign_recommendation(
@@ -1519,6 +1806,7 @@ class _Recommender:
         steps: tuple[Step, ...] = (),
         budget_id: str | None = None,
         cpa: MarketingAnalyticsRecommendationCpa | None = None,
+        detected_change: DetectedChange | None = None,
     ) -> MarketingAnalyticsRecommendation:
         return self._recommendation(
             rule,
@@ -1532,6 +1820,7 @@ class _Recommender:
             recommendation_identity(rule, self.inputs.customer_id, campaign_id=campaign.id, subject=budget_id),
             steps=steps,
             cpa=cpa,
+            detected_change=detected_change,
         )
 
     def _recommendation(
@@ -1548,6 +1837,7 @@ class _Recommender:
         campaign: str | None = None,
         steps: tuple[Step, ...] = (),
         cpa: MarketingAnalyticsRecommendationCpa | None = None,
+        detected_change: DetectedChange | None = None,
     ) -> MarketingAnalyticsRecommendation:
         return MarketingAnalyticsRecommendation(
             rule=rule,
@@ -1561,9 +1851,11 @@ class _Recommender:
             impact=round(impact) if impact is not None else None,
             impactDirection=direction,
             impactType=impact_type,
+            minor=impact is not None and impact < MINOR_IMPACT_SHARE * self.monthly_spend,
             currency=self.inputs.currency,
             steps=list(steps),
             cpa=cpa,
+            detectedChange=detected_change,
         )
 
     def _nonbrand_cpa(self, campaign: CampaignStats) -> float | None:
@@ -1620,6 +1912,10 @@ class _Recommender:
     def _money(self, amount: float) -> str:
         currency = self.inputs.currency or ""
         return f"${amount:,.0f}" if currency in ("USD", "") else f"{amount:,.0f} {currency}"
+
+
+def _serves_search(channel_type: str | None, primary_status: str | None) -> bool:
+    return channel_type == "SEARCH" and primary_status not in INACTIVE_STATUSES
 
 
 def _passes_keyword(url_option: str | None) -> bool:

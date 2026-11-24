@@ -33,9 +33,7 @@ describe('analyticsUtils', () => {
             [FEATURE_FLAGS.PRODUCT_ANALYTICS_HOME_TAB]: homeFlag,
         })
 
-        expect(
-            items.some(({ key, href }) => key === 'product_analytics' && href === '/analytics/product-analytics')
-        ).toBe(railEnabled)
+        expect(items.some(({ key, href }) => key === 'product_analytics' && href === '/insights')).toBe(railEnabled)
     })
 
     it('reads an item from its file system row, resolving the creator and the escaped name', () => {
