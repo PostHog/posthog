@@ -81,7 +81,7 @@ class TrialBilling:
             return TrialBillingStatus(ready=False, continuation=TrialContinuation.UNAVAILABLE)
         customer = cast(
             CustomerInfo,
-            BillingManager(get_cached_instance_license()).get_billing(
+            BillingManager(get_cached_instance_license()).get_billing_read_only(
                 self.organization, query_params={"include_forecasting": "false"}, timeout=(3, 5)
             ),
         )

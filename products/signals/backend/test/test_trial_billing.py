@@ -142,7 +142,7 @@ class TestTrialBilling(SimpleTestCase):
         }
         with (
             patch("products.signals.backend.trial.billing.get_cached_instance_license", return_value=Mock()),
-            patch("products.signals.backend.trial.billing.BillingManager.get_billing", return_value=billing),
+            patch("products.signals.backend.trial.billing.BillingManager.get_billing_read_only", return_value=billing),
         ):
             assert TrialBilling(organization).status() == TrialBillingStatus(ready=ready, continuation=continuation)
 
@@ -178,7 +178,7 @@ class TestTrialBilling(SimpleTestCase):
         with (
             patch("products.signals.backend.trial.billing.get_cached_instance_license", return_value=Mock()),
             patch(
-                "products.signals.backend.trial.billing.BillingManager.get_billing",
+                "products.signals.backend.trial.billing.BillingManager.get_billing_read_only",
                 return_value={
                     "usage_summary": {
                         "signals_spend_credits": {"billing_start_date": timezone.now().date().isoformat()}
@@ -205,7 +205,7 @@ class TestTrialBilling(SimpleTestCase):
     def test_missing_billing_status_does_not_authorize_work(self, billing: dict[str, object]) -> None:
         with (
             patch("products.signals.backend.trial.billing.get_cached_instance_license", return_value=Mock()),
-            patch("products.signals.backend.trial.billing.BillingManager.get_billing", return_value=billing),
+            patch("products.signals.backend.trial.billing.BillingManager.get_billing_read_only", return_value=billing),
         ):
             status = TrialBilling(Organization(name="Trial billing test")).status()
         assert not status.ready
