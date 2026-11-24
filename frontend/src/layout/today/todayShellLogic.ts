@@ -20,8 +20,9 @@ import { getNavProductPages, navProductHrefForPath } from '~/layout/panel-layout
 import { FileSystemImport } from '~/queries/schema/schema-general'
 
 import { isDefinitionDetailPath } from './todayData'
+import { isHomePanePath } from './todayHome'
 import { isErrorTrackingIssuePath } from './todayMonitor'
-import { isTodayPaneEnabled } from './todayPaneFlags'
+import { isTodayHomePaneEnabled, isTodayPaneEnabled } from './todayPaneFlags'
 import { paneConfigProductForPath } from './todayPaneProducts'
 import { isPeopleDetailPath, isPeopleListPath } from './todayPeople'
 import { TODAY_PRODUCT_PANES, isProductPane } from './todayProductPanes'
@@ -136,12 +137,20 @@ export function nextPhonePages(
 
 /**
  * The pane a route belongs to, or null for pages that keep whichever pane was open. Monitor's, Automate's and Data's
- * pages belong to them only while their pane is on, and to Products otherwise.
+ * pages belong to them only while their pane is on, and to Products otherwise. The same goes for the Inbox and Pulse
+ * pages that the Home pane links, and for Inbox sources, which belong to Data while both the Home and Data panes are on.
  */
 export function railPaneForPath(pathname: string, featureFlags: FeatureFlagsSet): TodayRailPane | null {
     const path = removeProjectIdIfPresent(pathname)
     if (path === '/' || isUnderPath(path, urls.projectHomepage())) {
         return 'home'
+    }
+    const homePaneEnabled = isTodayHomePaneEnabled(featureFlags)
+    if (homePaneEnabled && isHomePanePath(path)) {
+        return 'home'
+    }
+    if (homePaneEnabled && isTodayPaneEnabled('data', featureFlags) && isUnderPath(path, urls.inbox('sources'))) {
+        return 'data'
     }
     if (isUnderPath(path, '/ai') || isUnderPath(path, '/spaces')) {
         return 'spaces'
@@ -210,7 +219,9 @@ function productsPaneListsPath(path: string): boolean {
  */
 function productsPaneKeepsPath(path: string, routePane: TodayRailPane | null): boolean {
     return (
-        ((routePane === 'analytics' || isProductPane(routePane)) && productsPaneListsPath(path)) ||
+        // Home's own pages, the Today page among them, still switch to Home. Only the Inbox and Pulse stay.
+        ((routePane === 'analytics' || isProductPane(routePane) || (routePane === 'home' && isHomePanePath(path))) &&
+            productsPaneListsPath(path)) ||
         (routePane === 'people' && isPeopleListPath(path))
     )
 }
@@ -252,6 +263,10 @@ function paneAfterNavigation(
         return shownPane
     }
     if (shownPane === 'analytics' && analyticsPaneKeepsPath(path, routePane)) {
+        return shownPane
+    }
+    // Inbox settings is the last row of the Home pane, so opening it keeps the pane. Anywhere else it opens Products.
+    if (shownPane === 'home' && isTodayHomePaneEnabled(featureFlags) && isUnderPath(path, urls.inbox('settings'))) {
         return shownPane
     }
     return routePane ?? openPane
@@ -382,7 +397,7 @@ export interface todayShellLogicMeta {
             routePane: TodayRailPane | null,
             featureFlags: FeatureFlagsSet
         ) => TodayRailPane
-        paneHasSidebar: (activePane: TodayRailPane) => boolean
+        paneHasSidebar: (activePane: TodayRailPane, featureFlags: FeatureFlagsSet) => boolean
         currentView: (
             location: {
                 hash: string
@@ -548,7 +563,11 @@ export const todayShellLogic = kea<todayShellLogicType>([
                 return isTodayPaneEnabled(pane, featureFlags) ? pane : 'home'
             },
         ],
-        paneHasSidebar: [(s) => [s.activePane], (activePane: TodayRailPane): boolean => activePane !== 'home'],
+        paneHasSidebar: [
+            (s) => [s.activePane, s.featureFlags],
+            (activePane: TodayRailPane, featureFlags: FeatureFlagsSet): boolean =>
+                activePane !== 'home' || isTodayHomePaneEnabled(featureFlags),
+        ],
         currentView: [
             (s) => [router.selectors.location, s.activePane, s.sidebarOpen],
             (

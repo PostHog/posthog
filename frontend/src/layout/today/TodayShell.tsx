@@ -49,6 +49,11 @@ const TodayProductPaneSidebar = lazyWithRetry(() =>
 const TodayMonitorSidebar = (): JSX.Element => <TodayProductPaneSidebar pane="monitor" />
 const TodayAutomateSidebar = (): JSX.Element => <TodayProductPaneSidebar pane="automate" />
 const TodayDataSidebar = (): JSX.Element => <TodayProductPaneSidebar pane="data" />
+const TodayHomeSidebar = lazyWithRetry(() =>
+    import('products/today/frontend/home/TodayHomeSidebar').then((m) => ({
+        default: m.TodayHomeSidebar,
+    }))
+)
 const TodayPeopleSidebar = lazyWithRetry(() =>
     import('./TodayPeopleSidebar').then((m) => ({ default: m.TodayPeopleSidebar }))
 )
@@ -61,7 +66,8 @@ const ReleaseSidebar = lazyWithRetry(() =>
 const TodaySettingsSidebar = lazyWithRetry(() =>
     import('./TodaySettingsSidebar').then((m) => ({ default: m.TodaySettingsSidebar }))
 )
-const PANE_SIDEBARS: Record<Exclude<TodayRailPane, 'home'>, { Sidebar: ComponentType; previews?: boolean }> = {
+const PANE_SIDEBARS: Record<TodayRailPane, { Sidebar: ComponentType; previews?: boolean }> = {
+    home: { Sidebar: TodayHomeSidebar, previews: true },
     spaces: { Sidebar: TodaySpacesPane },
     analytics: { Sidebar: TodayAnalyticsSidebar, previews: true },
     monitor: { Sidebar: TodayMonitorSidebar, previews: true },
@@ -79,7 +85,7 @@ const NewSpaceDialog = lazyWithRetry(() =>
 
 /** The left navigation under the Today layout: the rail, then the sidebar for the pane the rail has open. */
 export function TodayShell({ className }: { className?: string }): JSX.Element {
-    const { activePane, mobileLayout, phoneLayout, sidebarVisible, sidebarWidth, phoneHeaderHidden } =
+    const { activePane, mobileLayout, paneHasSidebar, phoneLayout, sidebarVisible, sidebarWidth, phoneHeaderHidden } =
         useValues(todayShellLogic)
     const { setMobileSidebarOpen, setSidebarOpen, setSidebarWidth, toggleSidebar } = useActions(todayShellLogic)
     // Mounted with the shell rather than the shell logic, so its code loads with the lazy shell, not on every page.
@@ -128,7 +134,7 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
         }
     }, [mobileLayout, sidebarVisible])
 
-    const paneSidebar = activePane === 'home' ? null : PANE_SIDEBARS[activePane]
+    const paneSidebar = paneHasSidebar ? PANE_SIDEBARS[activePane] : null
     const paneContent = (
         <Suspense fallback={<Skeleton className="m-4 h-24" />}>
             {paneSidebar &&
