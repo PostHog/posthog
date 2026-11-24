@@ -25,6 +25,7 @@ from products.data_modeling.backend.facade.api import (
     MaterializationForbiddenError,
     MaterializationRanRecentlyError,
     MaterializationRunDirection,
+    MaterializationRunTrigger,
     SavedQueryFrequencyBounds,
     UnknownNodeError,
     UnsatisfiableFrequencyError,
@@ -1023,7 +1024,7 @@ class NodeViewSet(
             except MaterializationRanRecentlyError as error:
                 raise Throttled(wait=error.retry_after_seconds, detail=str(error))
 
-        start_node_materialization(node, triggered_by_id=req.user.pk)
+        start_node_materialization(node, trigger=MaterializationRunTrigger.MANUAL, triggered_by_id=req.user.pk)
 
         return response.Response(status=status.HTTP_200_OK)
 

@@ -81,6 +81,7 @@ _LAZY = {
     "MaterializationEngine": "facade.contracts",
     "ManagedWarehouseUnavailableError": "facade.contracts",
     "MaterializationRunDirection": "facade.contracts",
+    "MaterializationRunTrigger": "facade.enums",
     "MaterializationRefusedError": "facade.contracts",
     "UnknownNodeError": "facade.contracts",
     "IncrementalConfigRefusedError": "facade.contracts",

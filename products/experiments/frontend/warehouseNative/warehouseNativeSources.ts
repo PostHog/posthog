@@ -104,15 +104,6 @@ export function getExposureSourceBlockedReasons(
     }
 }
 
-export function experimentUsesWarehouseNativeSources(
-    experiment: Pick<Experiment, 'exposure_criteria' | 'metrics' | 'metrics_secondary' | 'saved_metrics'>
-): boolean {
-    return (
-        !!getWarehouseNativeExposure(experiment.exposure_criteria) ||
-        getExperimentMetricDataSources(experiment).warehouseNative
-    )
-}
-
 function toWarehouseNativeSource(
     source: ExperimentMetricSource | undefined,
     binding: WarehouseNativeBinding

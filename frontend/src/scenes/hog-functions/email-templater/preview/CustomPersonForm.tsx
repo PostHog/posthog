@@ -31,6 +31,7 @@ export function CustomPersonForm({ templates, onDone }: { templates: string[]; o
             <LemonButton
                 type="primary"
                 size="small"
+                center
                 onClick={() => {
                     setCustomProperties(draft)
                     onDone()
