@@ -281,11 +281,26 @@ describe('MessageTemplate', () => {
     })
 
     it.each([
-        ['a library template', ORDER_RECEIPT, true],
-        ['a transactional template', PASSWORD_RESET_WITH_DRAFT, false],
-    ])('gives %s a scene menu bar: %s', async (_, template, shown) => {
-        useMocks({ get: { '/api/environments/:team_id/messaging_templates/:id/': template } })
-        await renderAs(AccessControlLevel.Editor, template.name, { [FEATURE_FLAGS.SCENE_MENU_BAR]: true })
-        expect(screen.queryAllByText('Metadata')).toHaveLength(shown ? 1 : 0)
+        ['a library template', true, ORDER_RECEIPT],
+        ['a transactional template', false, PASSWORD_RESET_WITH_DRAFT],
+    ])('gives %s a scene menu bar once it loads: %s', async (_, shown, template) => {
+        let answer: () => void = () => {}
+        const loaded = new Promise<void>((resolve) => (answer = resolve))
+        useMocks({
+            get: {
+                '/api/environments/:team_id/messaging_templates/:id/': async () => {
+                    await loaded
+                    return [200, template]
+                },
+            },
+        })
+        const rendered = renderAs(AccessControlLevel.Editor, template.name, { [FEATURE_FLAGS.SCENE_MENU_BAR]: true })
+        expect(await screen.findByText('Send test')).toBeInTheDocument()
+        // Tags edited before the saved ones arrive would replace them.
+        expect(screen.queryByText('Metadata')).not.toBeInTheDocument()
+
+        answer()
+        await rendered
+        await waitFor(() => expect(screen.queryAllByText('Metadata')).toHaveLength(shown ? 1 : 0))
     })
 })

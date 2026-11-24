@@ -140,8 +140,8 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
 
     const editDisabledReason =
         getAccessControlDisabledReason(AccessControlResourceType.Workflow, AccessControlLevel.Editor) ?? undefined
-    // The type is known once the saved template loads.
-    const isLibraryTemplate = props.id === 'new' || (!!originalTemplate.id && !isTransactional)
+    // Until the saved template loads, its type is unknown and its tags look empty.
+    const isLibraryTemplate = props.id === 'new' || (originalTemplate.id === props.id && !isTransactional)
     // An empty one is added from the side panel. A saved one stays while it's cleared, so its row can't vanish mid-edit.
     const showDescription = isTransactional || !!template.description || !!originalTemplate.description
     const saveDisabledReason =
