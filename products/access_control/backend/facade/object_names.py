@@ -39,6 +39,10 @@ _MODELS_NOT_IN_ENTITY_MAP: dict[str, _ResourceDisplayModel] = {
     "action": _ResourceDisplayModel(app_label="actions", model_name="action", name_field="name"),
     "canvas": _ResourceDisplayModel(app_label="canvas", model_name="canvas", name_field="name"),
     "evaluation": _ResourceDisplayModel(app_label="ai_observability", model_name="evaluation", name_field="name"),
+    # The shared metric viewset serves facade contracts, so it has no queryset to derive a model from.
+    "experiment_saved_metric": _ResourceDisplayModel(
+        app_label="experiments", model_name="experimentsavedmetric", name_field="name"
+    ),
     "warehouse_view": _ResourceDisplayModel(
         app_label="data_modeling", model_name="datawarehousesavedquery", name_field="name"
     ),
