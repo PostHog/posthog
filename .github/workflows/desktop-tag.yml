@@ -311,4 +311,25 @@ jobs:
                   git config user.email "github-actions[bot]@users.noreply.github.com"
                   git config user.name "github-actions[bot]"
                   git tag -a "$TAG" -m "Release $TAG" "$TARGET"
-                  git_with_fresh_token push "$REPO_URL" "$TAG"
+
+                  # The tag rule checks whether the push changes a workflow file, and GitHub sometimes
+                  # times out on that check and rejects the push as GH013. The rule passes on a repeat.
+                  # Any other rejection fails the run at once.
+                  MAX_ATTEMPTS=5
+                  for ATTEMPT in $(seq 1 "$MAX_ATTEMPTS"); do
+                    if PUSH_OUTPUT=$(git_with_fresh_token push "$REPO_URL" "$TAG" 2>&1); then
+                      echo "$PUSH_OUTPUT"
+                      exit 0
+                    fi
+                    echo "$PUSH_OUTPUT"
+                    if ! echo "$PUSH_OUTPUT" | grep -q 'Unable to determine if workflow can be created or updated due to timeout'; then
+                      exit 1
+                    fi
+                    if [ "$ATTEMPT" -eq "$MAX_ATTEMPTS" ]; then
+                      echo "::error::GitHub timed out on the tag rule ${MAX_ATTEMPTS} times, so ${TAG} was not pushed. The next scheduled run tries again."
+                      exit 1
+                    fi
+                    WAIT_SECONDS=$((ATTEMPT * 30))
+                    echo "::warning::GitHub timed out on the tag rule (attempt ${ATTEMPT}/${MAX_ATTEMPTS}). Retrying in ${WAIT_SECONDS}s."
+                    sleep "$WAIT_SECONDS"
+                  done
