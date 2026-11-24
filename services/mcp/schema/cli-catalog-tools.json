@@ -38436,6 +38436,55 @@
             "validators": []
         }
     },
+    "notebooks-declare-warehouse-model": {
+        "name": "notebooks-declare-warehouse-model",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/notebooks/{short_id}/warehouse_model/",
+            "pathParams": ["short_id"],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "daily_refresh",
+                    "key": "daily_refresh"
+                },
+                {
+                    "param": "table_name",
+                    "key": "table_name"
+                },
+                {
+                    "param": "output_cell",
+                    "key": "output_cell"
+                },
+                {
+                    "param": "upstream_node_ids",
+                    "key": "upstream_node_ids"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
     "notebooks-destroy": {
         "name": "notebooks-destroy",
         "kind": "http",
@@ -38780,6 +38829,76 @@
             "aliases": {
                 "short_id": ["notebook_id", "notebookId", "shortId", "notebook_short_id"]
             },
+            "casts": {},
+            "validators": []
+        }
+    },
+    "notebooks-run-warehouse-model": {
+        "name": "notebooks-run-warehouse-model",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/notebooks/{short_id}/warehouse_model/{node_id}/run/",
+            "pathParams": ["node_id", "short_id"],
+            "fallbacks": [],
+            "query": null,
+            "body": null,
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "notebooks-warehouse-model-status": {
+        "name": "notebooks-warehouse-model-status",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "GET",
+            "path": "/api/projects/{project_id}/notebooks/{short_id}/warehouse_model/{node_id}/",
+            "pathParams": ["node_id", "short_id"],
+            "fallbacks": [],
+            "query": [
+                {
+                    "param": "dag_run_id",
+                    "key": "dag_run_id",
+                    "csv": false
+                }
+            ],
+            "body": null,
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
             "casts": {},
             "validators": []
         }

@@ -6,6 +6,7 @@ from django.db import models
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
+from products.notebooks.backend.presentation.run_serializers import NotebookRunCellSerializer
 from products.notebooks.backend.sql_v2_variables import RESERVED_VARIABLE_NAMES
 
 
@@ -753,32 +754,12 @@ class NotebookRunStartResponseSerializer(serializers.Serializer):
     )
 
 
-class NotebookRunCellSerializer(serializers.Serializer):
-    node_id = serializers.CharField(help_text="Durable cell identity, the same id the cell run endpoints take.")
-    cell_type = serializers.CharField(help_text="Cell kind: 'sql' or 'python'.")
-    dataframe_name = serializers.CharField(
-        allow_blank=True, help_text="Name other cells reference this cell's result by; blank means display-only."
-    )
-    run_id = serializers.UUIDField(
-        required=False,
-        allow_null=True,
-        help_text="This cell's run in the whole-notebook run; null until the run reaches the cell.",
-    )
-    # CharField, not ChoiceField: a `status` enum collides with other generated enums.
-    status = serializers.CharField(
-        required=False,
-        allow_null=True,
-        help_text="The cell's own state: 'running', 'done', 'failed', or 'interrupted'; null before it starts.",
-    )
-    error = serializers.CharField(required=False, allow_null=True, help_text="Why this cell failed, when it did.")
-
-
 class NotebookRunStatusResponseSerializer(serializers.Serializer):
     run_id = serializers.UUIDField(help_text="Identifier of the whole-notebook run.")
     status = serializers.CharField(
         help_text="Run state: 'running' (keep polling), or terminal — 'done', 'failed', or 'interrupted'."
     )
-    trigger = serializers.CharField(help_text="Which surface started the run: 'ui' or 'mcp'.")
+    trigger = serializers.CharField(help_text="The surface that started the run, such as ui, mcp, or warehouse.")
     variables = NotebookVariableSerializer(
         many=True, help_text="The variable values this run bound, snapshotted when it started."
     )

@@ -1,0 +1,17 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "dag_run_id": {
+            "description": "DAG run ID returned when you started this model.",
+            "type": "string"
+        },
+        "node_id": {
+            "type": "string"
+        },
+        "short_id": {
+            "type": "string"
+        }
+    },
+    "required": ["node_id", "short_id"],
+    "type": "object"
+}

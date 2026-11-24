@@ -7,6 +7,32 @@ feature: notebooks
 url_prefix: /notebooks
 ui_apps: {}
 tools:
+    notebooks-declare-warehouse-model:
+        operation: notebooks_declare_warehouse_model
+        enabled: true
+        title: Declare a notebook warehouse model
+        description: >-
+            Publish the cells through the selected output cell as a warehouse model with an optional daily refresh. Declare the upstream
+            modeling node IDs. The table is available after the first successful run. Redeclare after changing
+            code or variables. The table can expose the returned rows to project members with access to it.
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+    notebooks-run-warehouse-model:
+        operation: notebooks_run_warehouse_model
+        enabled: true
+        title: Run a notebook warehouse model
+        description: Start a warehouse DAG run for the notebook model and its upstream dependencies.
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+    notebooks-warehouse-model-status:
+        operation: notebooks_warehouse_model_status
+        enabled: true
+        title: Get notebook warehouse model status
+        description: Inspect the latest job and the last notebook run successfully published to the warehouse.
     notebooks-app-get:
         operation: notebooks_retrieve
         enabled: true

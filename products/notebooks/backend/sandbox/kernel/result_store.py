@@ -11,14 +11,35 @@ node has to be re-run. This alive-only trade-off is deliberate.
 
 import os
 import uuid
-from typing import Any
+import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
+from typing import Any, BinaryIO
 
 import pyarrow as pa
+import pyarrow.parquet as pq
 
 from . import envelope
 from .data_plane import _table_to_rows_and_types
 
 _RESULTS_DIR = "/data/results"
+
+
+@contextmanager
+def parquet_result(result_id: str, results_dir: str = _RESULTS_DIR) -> Iterator[BinaryIO]:
+    frame_id = uuid.UUID(str(result_id))
+    with pa.memory_map(os.path.join(results_dir, f"{frame_id}.arrow")) as source, tempfile.TemporaryFile() as result:
+        reader = pa.ipc.open_file(source)
+        with pq.ParquetWriter(result, reader.schema) as writer:
+            for index in range(reader.num_record_batches):
+                batch = reader.get_batch(index)
+                if batch.num_rows:
+                    writer.write_batch(batch)
+        yield result
+
+
+def model_directory(session: str) -> str:
+    return os.path.join("/data/model-runs", str(uuid.UUID(str(session))))
 
 
 class ResultStoreError(Exception):

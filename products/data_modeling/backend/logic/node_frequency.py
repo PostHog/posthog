@@ -415,7 +415,10 @@ def build_frequency_graph(dag: DAG) -> FrequencyGraph:
         is_managed_reader = edge[0] in managed_node_ids and edge[1] not in managed_node_ids
         (managed_reader_edges if is_managed_reader else edges).append(edge)
 
-    schedulable = {str(node.id) for node in nodes if node.type in SAVED_QUERY_NODE_TYPES}
+    notebook_ids = {
+        str(pk) for pk in Node.objects.filter(dag=dag, notebookmodel__isnull=False).values_list("pk", flat=True)
+    }
+    schedulable = notebook_ids | {str(node.id) for node in nodes if node.type in SAVED_QUERY_NODE_TYPES}
     declared_targets: dict[str, timedelta] = {}
     declared_anchors: dict[str, int] = {}
     pinned: set[str] = set()
@@ -429,7 +432,7 @@ def build_frequency_graph(dag: DAG) -> FrequencyGraph:
         if anchor is not None:
             declared_anchors[str(node.id)] = anchor
 
-    source_nodes = [node for node in nodes if node.type == NodeType.TABLE]
+    source_nodes = [node for node in nodes if node.type == NodeType.TABLE and str(node.id) not in notebook_ids]
     source_intervals, best_effort = resolve_source_intervals(source_nodes)
     names = {str(node.id): node.name for node in nodes}
     identities = {str(node.id): node_identity(node) for node in nodes}
@@ -448,7 +451,7 @@ def build_frequency_graph(dag: DAG) -> FrequencyGraph:
         )
         # A materialized view's data changes once per run, whatever its inputs do, so it counts as a
         # source at its run cadence. A query-time view passes its inputs' changes straight through.
-        materialized = {str(node.id) for node in nodes if node.type == NodeType.MAT_VIEW}
+        materialized = notebook_ids | {str(node.id) for node in nodes if node.type == NodeType.MAT_VIEW}
         run_intervals = {
             node_id: interval
             for node_id, interval in runs_every.items()
@@ -759,9 +762,10 @@ def saved_query_schedules(team_id: int, saved_queries: Iterable[Any]) -> dict[st
 
 
 def schedulable_nodes(dag: DAG) -> QuerySet[Node]:
-    """The DAG's schedulable nodes: everything that carries a live saved query (not a source
-    table, not a soft-deleted query). The one definition of "what gets a freshness target"."""
-    return Node.objects.filter(dag=dag, type__in=SAVED_QUERY_NODE_TYPES).exclude(saved_query__deleted=True)
+    """Nodes backed by a live saved query or an executable notebook model."""
+    return Node.objects.filter(Q(type__in=SAVED_QUERY_NODE_TYPES) | Q(notebookmodel__isnull=False), dag=dag).exclude(
+        saved_query__deleted=True
+    )
 
 
 def persist_seed_targets(dag: DAG, default: timedelta | None = None) -> int:

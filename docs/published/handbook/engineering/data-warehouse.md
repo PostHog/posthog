@@ -116,6 +116,12 @@ Saved SQL insight tables keep column headers visible while scrolling through row
 
 **Fix errors with AI** keeps its pending state and suggestion in the SQL tab that requested the fix. Other open tabs keep their own queries and can request independent fixes.
 
+A notebook can also produce a table in the warehouse modeling DAG. Use the MCP tool `notebooks-declare-warehouse-model` with a table name, the output cell's ID, and the upstream modeling node IDs. For example, a SQL model can prepare account activity, a notebook Python cell can score those accounts, and a downstream SQL view can aggregate the published scores. Declare the SQL dependency when creating the notebook model. After the first publication, use the table name in the downstream view's SQL.
+
+The model requests a daily refresh by default. Set `daily_refresh` to `false` to run it manually or when a downstream model needs fresh data. Each run executes the saved SQL and Python cells in order through the chosen output, with the author's project permissions. Give a SQL output cell a dataframe name, or return a dataframe from the final Python cell. Redeclare after changing those cells or the notebook variables. Publication reads the full stored frame. If a warehouse query hits the notebook input limit, the model fails and keeps the last successful table.
+
+Use `notebooks-run-warehouse-model` to start an upstream DAG run immediately. Pass its `dag_run_id` to `notebooks-warehouse-model-status` to see whether that run reached the model. The status also shows the latest model job, individual cell outcomes, and the run that produced the published table. Downstream SQL in the same DAG run waits for publication and is skipped when the notebook fails.
+
 The data warehouse sidebar lets you rename saved views. The dialog lists references from data model lineage. Renaming does not update SQL references in saved views, materialized views, endpoints, insights, dashboards, notebooks, or external systems.
 
 Saved-query lineage endpoints return only neighboring saved views and warehouse tables the caller can read. PostHog system tables remain visible, denied nodes do not stop the walk, and dependency counts use the same filtered neighbors.

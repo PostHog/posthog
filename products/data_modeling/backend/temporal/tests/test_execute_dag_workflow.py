@@ -3,9 +3,12 @@ import asyncio
 import logging
 import datetime as dt
 from collections.abc import Callable, Iterator
+from typing import Any
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+from django.test import override_settings
 
 import pytest_asyncio
 import temporalio.client
@@ -42,6 +45,7 @@ from products.data_modeling.backend.temporal.activities import (
     preempt_dag_run_activity,
 )
 from products.data_modeling.backend.temporal.activities.get_dag_structure import DAG as DAGPlan
+from products.data_modeling.backend.temporal.activities.notebook_model import ModelFailure, ModelRun
 from products.data_modeling.backend.temporal.tests.recorded_metrics import (
     REQUEST_TO_FINISH_METRIC,
     RecordedMetric,
@@ -63,6 +67,7 @@ from products.data_modeling.backend.temporal.workflows.materialize_view import (
     MaterializeViewWorkflowInputs,
     MaterializeViewWorkflowResult,
 )
+from products.data_modeling.backend.temporal.workflows.notebook_model import MaterializeNotebookWorkflow
 from products.data_quality.backend.facade.contracts import MATERIALIZATION_GATE_ACTIVITY_NAME
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
@@ -587,6 +592,13 @@ class MockMaterializeViewWorkflow:
         )
 
 
+@temporal_workflow.defn(name="notebook-run")
+class MockNotebookRunWorkflow:
+    @temporal_workflow.run
+    async def run(self, inputs: dict[str, Any]) -> None:
+        _mock_workflow_calls.extend(inputs["node_ids"])
+
+
 _child_concurrency = {"running": 0, "peak": 0, "sleep_seconds": 10}
 
 
@@ -617,6 +629,72 @@ class TestExecuteDAGWorkflowWithMocks:
         _mock_workflow_should_fail.clear()
         _recorded_skipped_nodes.clear()
         _notified_dag_failures.clear()
+
+    @pytest.mark.parametrize("publish_fails", [False, True])
+    @override_settings(GENERAL_PURPOSE_TASK_QUEUE="warehouse-test")
+    async def test_sql_waits_for_notebook_publication(self, publish_fails):
+        upstream, model, consumer = [str(uuid.uuid4()) for _ in range(3)]
+
+        @temporal_activity.defn(name="get_dag_structure_activity")
+        async def structure(_: GetDAGStructureInputs) -> DAGPlan:
+            return DAGPlan(
+                nodes=[upstream, model, consumer],
+                executable_nodes=[upstream, model, consumer],
+                edges=[(upstream, model), (model, consumer)],
+                notebook_nodes=[model],
+            )
+
+        @temporal_activity.defn(name="prepare_notebook_model")
+        async def prepare(run: ModelRun) -> list[str]:
+            assert run.node_id == model
+            return ["transform"]
+
+        @temporal_activity.defn(name="publish_notebook_model")
+        async def publish(run: ModelRun) -> int:
+            _mock_workflow_calls.append("publish")
+            if publish_fails:
+                raise temporalio.exceptions.ApplicationError(
+                    "The dataframe could not be published.", non_retryable=True
+                )
+            return 14000
+
+        @temporal_activity.defn(name="fail_notebook_model")
+        async def fail(failure: ModelFailure) -> None:
+            assert failure.run.node_id == model
+            _mock_workflow_calls.append("failed")
+
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with temporalio.worker.Worker(
+                env.client,
+                task_queue="warehouse-test",
+                workflows=[
+                    ExecuteDAGWorkflow,
+                    MockMaterializeViewWorkflow,
+                    MaterializeNotebookWorkflow,
+                    MockNotebookRunWorkflow,
+                ],
+                activities=[
+                    prepare,
+                    publish,
+                    fail,
+                    stub_preempt_dag_run,
+                    stub_check_team_shadow_eligibility,
+                    structure,
+                    stub_record_skipped_data_modeling_jobs,
+                    stub_notify_dag_materialization_failures,
+                ],
+                workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+            ):
+                result = await env.client.execute_workflow(
+                    ExecuteDAGWorkflow.run,
+                    ExecuteDAGInputs(team_id=1, dag_id="models"),
+                    id=str(uuid.uuid4()),
+                    task_queue="warehouse-test",
+                    execution_timeout=dt.timedelta(seconds=30),
+                )
+        assert _mock_workflow_calls == [upstream, "transform", "publish", "failed" if publish_fails else consumer]
+        assert result.skipped_nodes == int(publish_fails)
+        assert result.failed_nodes == int(publish_fails)
 
     async def test_skips_downstream_on_failure(self):
         """Test that downstream nodes are skipped when an upstream node fails."""

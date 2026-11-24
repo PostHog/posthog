@@ -65,6 +65,22 @@ class PostHogConfig(AppConfig):
 
             install_command_exec_audit()
 
+        from products.data_modeling.backend.facade.notebook_model_hooks import (
+            NotebookModelExecutor,
+            register_notebook_model_executor,
+        )
+
+        def notebook_model_executor() -> NotebookModelExecutor:
+            from products.notebooks.backend.facade import warehouse_model
+
+            return NotebookModelExecutor(
+                prepare=warehouse_model.prepare_model_run,
+                open_output=warehouse_model.open_model_output,
+                authorize=warehouse_model.authorize_model_publication,
+                stop=warehouse_model.stop_model_run,
+            )
+
+        register_notebook_model_executor(notebook_model_executor)
         self._setup_lazy_admin()
         self._prewarm_timezone_offsets_cache()
         posthoganalytics.api_key = "sTMFPsFhdP1Ssg"  # ty: ignore[invalid-assignment]

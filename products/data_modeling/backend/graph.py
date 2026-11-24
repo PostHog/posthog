@@ -49,7 +49,14 @@ class Graph:
 
         # Fetch edges with source/target types in a single query
         edge_rows = list(
-            qs.select_related("source", "target").values_list("source_id", "target_id", "source__type", "target__type")
+            qs.values_list(
+                "source_id",
+                "target_id",
+                "source__type",
+                "target__type",
+                "source__notebookmodel__node_id",
+                "target__notebookmodel__node_id",
+            )
         )
 
         # Build separate adjacency maps for upstream (excluding table sources), upstream with
@@ -58,26 +65,26 @@ class Graph:
         self._upstream_with_tables_adj: dict[str, set[str]] = defaultdict(set)  # target -> sources
         self._downstream_adj: dict[str, set[str]] = defaultdict(set)  # source -> targets
 
-        for source_id, target_id, source_type, target_type in edge_rows:
+        for source_id, target_id, source_type, target_type, source_model, target_model in edge_rows:
             if source_type in hidden_types or target_type in hidden_types:
                 continue
             s = str(source_id)
             t = str(target_id)
             self._upstream_with_tables_adj[t].add(s)
-            if not exclude_table_sources or source_type != NodeType.TABLE:
+            if not exclude_table_sources or source_type != NodeType.TABLE or source_model:
                 self._upstream_adj[t].add(s)
-            if not exclude_table_targets or target_type != NodeType.TABLE:
+            if not exclude_table_targets or target_type != NodeType.TABLE or target_model:
                 self._downstream_adj[s].add(t)
 
     def get_upstream(self, node_id: str | UUID) -> set[str]:
-        """Get all upstream (ancestor) node IDs, excluding TABLE nodes."""
+        """Get the executable ancestors, including tables produced by notebooks."""
         return reachable(str(node_id), self._upstream_adj)
 
     def get_upstream_with_tables(self, node_id: str | UUID) -> set[str]:
         return reachable(str(node_id), self._upstream_with_tables_adj)
 
     def get_downstream(self, node_id: str | UUID) -> set[str]:
-        """Get all downstream (descendant) node IDs, excluding TABLE nodes."""
+        """Get the executable descendants, including tables produced by notebooks."""
         return reachable(str(node_id), self._downstream_adj)
 
     def get_upstream_count(self, node_id: str | UUID) -> int:

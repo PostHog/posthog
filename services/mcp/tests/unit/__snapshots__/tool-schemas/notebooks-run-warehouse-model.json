@@ -1,0 +1,13 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "node_id": {
+            "type": "string"
+        },
+        "short_id": {
+            "type": "string"
+        }
+    },
+    "required": ["node_id", "short_id"],
+    "type": "object"
+}

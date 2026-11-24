@@ -231,6 +231,12 @@ def _assert_user_can_run_nodes(node: Node, node_ids: set[str], user: User) -> di
     nodes = Node.objects.filter(team_id=node.team_id, id__in=node_ids, saved_query__isnull=False).select_related(
         "saved_query"
     )
+    if (
+        Node.objects.filter(team_id=node.team_id, id__in=node_ids, notebookmodel__isnull=False)
+        .exclude(notebookmodel__owner_id=user.pk)
+        .exists()
+    ):
+        raise MaterializationForbiddenError(RELATED_RUN_EDIT_ACCESS_REFUSAL)
     unresolved: dict[str, str] = {}
     for run_node in nodes:
         saved_query = run_node.saved_query
@@ -327,6 +333,7 @@ def run_related_node_materializations(
     user: User,
     from_browser_session: bool,
     hidden_types: frozenset[str] = frozenset(),
+    workflow_id: str | None = None,
 ) -> StartedNodeRun:
     requested_at = timezone.now()
     node = _get_node(team_id, node_id)
@@ -358,7 +365,7 @@ def run_related_node_materializations(
         temporal.start_workflow(
             "data-modeling-execute-dag",
             asdict(inputs),
-            id=f"execute-dag-{uuid4()}",
+            id=workflow_id or f"execute-dag-{uuid4()}",
             task_queue=str(settings.DATA_MODELING_TASK_QUEUE),
             retry_policy=RetryPolicy(
                 initial_interval=timedelta(seconds=10),

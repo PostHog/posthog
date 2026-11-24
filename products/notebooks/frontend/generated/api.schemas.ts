@@ -1259,7 +1259,7 @@ export interface NotebookRunStatusResponseApi {
     run_id: string
     /** Run state: 'running' (keep polling), or terminal — 'done', 'failed', or 'interrupted'. */
     status: string
-    /** Which surface started the run: 'ui' or 'mcp'. */
+    /** The surface that started the run, such as ui, mcp, or warehouse. */
     trigger: string
     /** The variable values this run bound, snapshotted when it started. */
     variables: NotebookVariableApi[]
@@ -1575,6 +1575,113 @@ export interface NotebookSQLV2StateResponseApi {
     variables: NotebookVariableApi[]
     /** Every cell in document order, with its dependency edges and derived run state. */
     cells: NotebookCellStateApi[]
+}
+
+export interface DeclareNotebookModelApi {
+    /** Request a daily refresh. Set false to run manually or when a downstream model needs fresh data. */
+    daily_refresh?: boolean
+    /**
+     * Name for the published warehouse table.
+     * @maxLength 128
+     * @pattern ^[A-Za-z_][A-Za-z0-9_]*$
+     */
+    table_name: string
+    /**
+     * Stable node ID of the SQL or Python cell that produces the table.
+     * @maxLength 128
+     */
+    output_cell: string
+    /**
+     * Modeling DAG node IDs which must succeed before the notebook runs.
+     * @maxItems 100
+     */
+    upstream_node_ids: string[]
+}
+
+export interface NotebookModelApi {
+    /** Modeling DAG node ID for running or inspecting the model. */
+    node_id: string
+    /**
+     * Warehouse table ID after the first successful publication.
+     * @nullable
+     */
+    table_id: string | null
+    /**
+     * Most recent notebook run. Use notebook run status to inspect cell failures.
+     * @nullable
+     */
+    latest_run_id: string | null
+    /**
+     * Notebook run that produced the currently published rows.
+     * @nullable
+     */
+    published_run_id: string | null
+}
+
+export interface NotebookDagStatusApi {
+    /** DAG execution state, including whether upstream failures skipped this model. */
+    status: string
+    /**
+     * Reason the model failed or was skipped.
+     * @nullable
+     */
+    reason: string | null
+}
+
+export interface NotebookModelStatusApi {
+    /** Modeling DAG node ID for running or inspecting the model. */
+    node_id: string
+    /**
+     * Warehouse table ID after the first successful publication.
+     * @nullable
+     */
+    table_id: string | null
+    /**
+     * Most recent notebook run. Use notebook run status to inspect cell failures.
+     * @nullable
+     */
+    latest_run_id: string | null
+    /**
+     * Notebook run that produced the currently published rows.
+     * @nullable
+     */
+    published_run_id: string | null
+    /** State of the requested DAG run. */
+    dag: NotebookDagStatusApi | null
+    /**
+     * Latest modeling job status, including publication.
+     * @nullable
+     */
+    status: string | null
+    /**
+     * Latest modeling job failure, if any.
+     * @nullable
+     */
+    error: string | null
+    /** Cells in execution order, including any failure. */
+    cells: NotebookRunCellApi[]
+}
+
+export interface NotebookModelRunApi {
+    /** Modeling DAG node ID for running or inspecting the model. */
+    node_id: string
+    /**
+     * Warehouse table ID after the first successful publication.
+     * @nullable
+     */
+    table_id: string | null
+    /**
+     * Most recent notebook run. Use notebook run status to inspect cell failures.
+     * @nullable
+     */
+    latest_run_id: string | null
+    /**
+     * Notebook run that produced the currently published rows.
+     * @nullable
+     */
+    published_run_id: string | null
+    /** Pass this ID to the status tool to follow this specific DAG run. */
+    dag_run_id: string
 }
 
 export interface WidgetSnapshotRequestApi {
@@ -1941,6 +2048,13 @@ export type NotebooksSqlV2RunsPageRetrieveParams = {
      * @minimum 0
      */
     offset?: number
+}
+
+export type NotebooksWarehouseModelStatusParams = {
+    /**
+     * DAG run ID returned when you started this model.
+     */
+    dag_run_id?: string
 }
 
 export type NotebooksWidgetSnapshotFrameParams = {

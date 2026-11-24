@@ -9,6 +9,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    DeclareNotebookModelApi,
     NotebookApi,
     NotebookCollabPresenceApi,
     NotebookCollabSaveApi,
@@ -21,6 +22,9 @@ import type {
     NotebookKernelInspectResponseApi,
     NotebookKernelStatusResponseApi,
     NotebookMarkdownSaveApi,
+    NotebookModelApi,
+    NotebookModelRunApi,
+    NotebookModelStatusApi,
     NotebookRunInterruptResponseApi,
     NotebookRunStartRequestApi,
     NotebookRunStartResponseApi,
@@ -34,6 +38,7 @@ import type {
     NotebooksListParams,
     NotebooksSqlV2RunsPageRetrieveParams,
     NotebooksSqlV2RunsRetrieveParams,
+    NotebooksWarehouseModelStatusParams,
     NotebooksWidgetFrameParams,
     NotebooksWidgetSnapshotFrameParams,
     NotebooksWidgetSourceParams,
@@ -910,6 +915,74 @@ export const notebooksSqlV2StateRetrieve = async (
     return apiMutator<NotebookSQLV2StateResponseApi>(getNotebooksSqlV2StateRetrieveUrl(projectId, shortId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getNotebooksDeclareWarehouseModelUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/warehouse_model/`
+}
+
+export const notebooksDeclareWarehouseModel = async (
+    projectId: string,
+    shortId: string,
+    declareNotebookModelApi: DeclareNotebookModelApi,
+    options?: RequestInit
+): Promise<NotebookModelApi> => {
+    return apiMutator<NotebookModelApi>(getNotebooksDeclareWarehouseModelUrl(projectId, shortId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(declareNotebookModelApi),
+    })
+}
+
+export const getNotebooksWarehouseModelStatusUrl = (
+    projectId: string,
+    shortId: string,
+    nodeId: string,
+    params?: NotebooksWarehouseModelStatusParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/notebooks/${shortId}/warehouse_model/${nodeId}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/notebooks/${shortId}/warehouse_model/${nodeId}/`
+}
+
+export const notebooksWarehouseModelStatus = async (
+    projectId: string,
+    shortId: string,
+    nodeId: string,
+    params?: NotebooksWarehouseModelStatusParams,
+    options?: RequestInit
+): Promise<NotebookModelStatusApi> => {
+    return apiMutator<NotebookModelStatusApi>(getNotebooksWarehouseModelStatusUrl(projectId, shortId, nodeId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getNotebooksRunWarehouseModelUrl = (projectId: string, shortId: string, nodeId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/warehouse_model/${nodeId}/run/`
+}
+
+export const notebooksRunWarehouseModel = async (
+    projectId: string,
+    shortId: string,
+    nodeId: string,
+    options?: RequestInit
+): Promise<NotebookModelRunApi> => {
+    return apiMutator<NotebookModelRunApi>(getNotebooksRunWarehouseModelUrl(projectId, shortId, nodeId), {
+        ...options,
+        method: 'POST',
     })
 }
 

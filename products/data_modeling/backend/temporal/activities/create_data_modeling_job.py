@@ -1,5 +1,6 @@
 import datetime as dt
 import dataclasses
+from uuid import NAMESPACE_URL, uuid5
 
 from django.db import transaction
 
@@ -10,6 +11,7 @@ from temporalio import activity
 from posthog.sync import database_sync_to_async_pool
 
 from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, Node
+from products.data_modeling.backend.models import NotebookModel
 from products.data_modeling.backend.temporal.activities.utils import bind_data_modeling_log_context
 
 LOGGER = get_logger(__name__)
@@ -135,6 +137,25 @@ def _skip_reason(
     return "Skipped because an upstream view failed."
 
 
+def _record_skipped_notebook(node: Node, job: DataModelingJob, started_at: str | None) -> None:
+    with transaction.atomic():
+        model = NotebookModel.objects.for_team(node.team_id).select_for_update().filter(node_id=node.id).first()
+        if model is None:
+            return
+        job.id = uuid5(NAMESPACE_URL, f"notebook-skip/{job.workflow_run_id}/{node.id}")
+        if DataModelingJob.objects.filter(id=job.id, team_id=node.team_id).exists():
+            return
+        job.save(force_insert=True)
+        latest = DataModelingJob.objects.filter(id=model.latest_run_id, team_id=node.team_id).first()
+        if latest and (
+            latest.status == DataModelingJob.Status.RUNNING
+            or (started_at and latest.created_at > dt.datetime.fromisoformat(started_at))
+        ):
+            return
+        model.latest_run_id = job.id
+        model.save(update_fields=["latest_run_id"])
+
+
 @database_sync_to_async_pool
 def _record_skipped_data_modeling_jobs(
     inputs: RecordSkippedDataModelingJobsInputs, workflow_id: str, workflow_run_id: str
@@ -165,29 +186,31 @@ def _record_skipped_data_modeling_jobs(
     jobs = []
     for skipped in inputs.skipped_nodes:
         node = nodes.get(skipped.node_id)
-        if node is None or node.saved_query_id is None or node.saved_query_id in existing_saved_query_ids:
+        if node is None or node.saved_query_id in existing_saved_query_ids:
             continue
-        jobs.append(
-            DataModelingJob(
-                team_id=inputs.team_id,
-                saved_query_id=node.saved_query_id,
-                status=DataModelingJob.Status.SKIPPED,
-                engine=inputs.engine,
-                rows_materialized=0,
-                error=_skip_reason(
-                    failed=[nodes[i].name for i in skipped.failed_upstream_node_ids if i in nodes],
-                    failed_total=skipped.failed_upstream_total,
-                    suspended=[nodes[i].name for i in skipped.suspended_upstream_node_ids if i in nodes],
-                    suspended_total=skipped.suspended_upstream_total,
-                    built_by_another_run=skipped.built_by_another_run,
-                ),
-                workflow_id=workflow_id,
-                workflow_run_id=workflow_run_id,
-                parent_workflow_id=workflow_id,
-                created_by_id=node.saved_query.created_by_id if node.saved_query else None,
-            )
+        job = DataModelingJob(
+            team_id=inputs.team_id,
+            saved_query_id=node.saved_query_id,
+            status=DataModelingJob.Status.SKIPPED,
+            engine=inputs.engine,
+            rows_materialized=0,
+            error=_skip_reason(
+                failed=[nodes[i].name for i in skipped.failed_upstream_node_ids if i in nodes],
+                failed_total=skipped.failed_upstream_total,
+                suspended=[nodes[i].name for i in skipped.suspended_upstream_node_ids if i in nodes],
+                suspended_total=skipped.suspended_upstream_total,
+                built_by_another_run=skipped.built_by_another_run,
+            ),
+            workflow_id=workflow_id,
+            workflow_run_id=workflow_run_id,
+            parent_workflow_id=workflow_id,
+            created_by_id=node.saved_query.created_by_id if node.saved_query else None,
         )
-        existing_saved_query_ids.add(node.saved_query_id)
+        if node.saved_query_id is not None:
+            jobs.append(job)
+            existing_saved_query_ids.add(node.saved_query_id)
+        elif inputs.engine == DataModelingJobEngine.CLICKHOUSE:
+            _record_skipped_notebook(node, job, inputs.run_started_at)
     DataModelingJob.objects.bulk_create(jobs)
 
 

@@ -468,6 +468,12 @@ class NodeSerializer(serializers.ModelSerializer):
             and not can_describe_node(self.instance.team_id, _description_target(self.instance))
         ):
             raise serializers.ValidationError("Only views, endpoints, and warehouse tables have a description to set.")
+        if (
+            self.instance is not None
+            and ("name" in attrs or "type" in attrs)
+            and hasattr(self.instance, "notebookmodel")
+        ):
+            raise serializers.ValidationError("A notebook model owns this node's name and type.")
         node_type = attrs.get("type")
         if node_type is not None and self.instance is not None:
             # A full PUT round-trips the node's own type, so a type equal to the current one is
@@ -876,7 +882,7 @@ class NodeViewSet(
 
         node = self.get_object()
 
-        if node.type not in SAVED_QUERY_NODE_TYPES:
+        if node.type not in SAVED_QUERY_NODE_TYPES and not hasattr(node, "notebookmodel"):
             return response.Response(
                 {"error": f"Cannot run a {node.type} node"},
                 status=status.HTTP_400_BAD_REQUEST,

@@ -14,6 +14,89 @@ import {
 } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
+const NotebooksDeclareWarehouseModelSchema = () => {
+    const NotebooksDeclareWarehouseModelBody = orvalSchemas.NotebooksDeclareWarehouseModelBody()
+    const NotebooksDeclareWarehouseModelParams = orvalSchemas.NotebooksDeclareWarehouseModelParams()
+    return NotebooksDeclareWarehouseModelParams.omit({ project_id: true }).extend(
+        NotebooksDeclareWarehouseModelBody.shape
+    )
+}
+
+const notebooksDeclareWarehouseModel = (): ToolBase<
+    ReturnType<typeof NotebooksDeclareWarehouseModelSchema>,
+    Schemas.NotebookModel
+> => ({
+    name: 'notebooks-declare-warehouse-model',
+    schema: NotebooksDeclareWarehouseModelSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof NotebooksDeclareWarehouseModelSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.daily_refresh !== undefined) {
+            body['daily_refresh'] = params.daily_refresh
+        }
+        if (params.table_name !== undefined) {
+            body['table_name'] = params.table_name
+        }
+        if (params.output_cell !== undefined) {
+            body['output_cell'] = params.output_cell
+        }
+        if (params.upstream_node_ids !== undefined) {
+            body['upstream_node_ids'] = params.upstream_node_ids
+        }
+        const result = await context.api.request<Schemas.NotebookModel>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/notebooks/${encodeURIComponent(String(params.short_id))}/warehouse_model/`,
+            body,
+        })
+        return result
+    },
+})
+
+const NotebooksRunWarehouseModelSchema = () => {
+    const NotebooksRunWarehouseModelParams = orvalSchemas.NotebooksRunWarehouseModelParams()
+    return NotebooksRunWarehouseModelParams.omit({ project_id: true })
+}
+
+const notebooksRunWarehouseModel = (): ToolBase<ReturnType<typeof NotebooksRunWarehouseModelSchema>, unknown> => ({
+    name: 'notebooks-run-warehouse-model',
+    schema: NotebooksRunWarehouseModelSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof NotebooksRunWarehouseModelSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/notebooks/${encodeURIComponent(String(params.short_id))}/warehouse_model/${encodeURIComponent(String(params.node_id))}/run/`,
+        })
+        return result
+    },
+})
+
+const NotebooksWarehouseModelStatusSchema = () => {
+    const NotebooksWarehouseModelStatusParams = orvalSchemas.NotebooksWarehouseModelStatusParams()
+    const NotebooksWarehouseModelStatusQueryParams = orvalSchemas.NotebooksWarehouseModelStatusQueryParams()
+    return NotebooksWarehouseModelStatusParams.omit({ project_id: true }).extend(
+        NotebooksWarehouseModelStatusQueryParams.shape
+    )
+}
+
+const notebooksWarehouseModelStatus = (): ToolBase<
+    ReturnType<typeof NotebooksWarehouseModelStatusSchema>,
+    Schemas.NotebookModelStatus
+> => ({
+    name: 'notebooks-warehouse-model-status',
+    schema: NotebooksWarehouseModelStatusSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof NotebooksWarehouseModelStatusSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.NotebookModelStatus>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/notebooks/${encodeURIComponent(String(params.short_id))}/warehouse_model/${encodeURIComponent(String(params.node_id))}/`,
+            query: {
+                dag_run_id: params.dag_run_id,
+            },
+        })
+        return result
+    },
+})
+
 const NotebooksAppGetSchema = () => {
     const NotebooksRetrieveParams = orvalSchemas.NotebooksRetrieveParams()
     return NotebooksRetrieveParams.omit({ project_id: true })
@@ -635,6 +718,9 @@ const reusableWidgetsRetrieve = (): ToolBase<
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'notebooks-declare-warehouse-model': notebooksDeclareWarehouseModel,
+    'notebooks-run-warehouse-model': notebooksRunWarehouseModel,
+    'notebooks-warehouse-model-status': notebooksWarehouseModelStatus,
     'notebooks-app-get': notebooksAppGet,
     'notebooks-app-update': notebooksAppUpdate,
     'notebooks-compute-options': notebooksComputeOptions,

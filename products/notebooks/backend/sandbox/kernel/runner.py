@@ -53,7 +53,10 @@ def request_interrupt(run_id: str) -> bool:
         # for a kernel-node run the module is already loaded, since the run itself imported it.
         from . import executor  # noqa: PLC0415 — keeps jupyter_client off the server import path
 
-        executor.get_executor().interrupt_for_run(run_id)
+        if session := state.get("model_session"):
+            executor.interrupt_model_run(session, run_id)
+        else:
+            executor.get_executor().interrupt_for_run(run_id)
     return True
 
 
@@ -93,7 +96,11 @@ def execute_run(payload: dict[str, Any]) -> None:
         if run_id in _cancel_states:
             logger.warning("nb_kernel ignoring duplicate /run for in-flight run %s", run_id)
             return
-        _cancel_states[run_id] = {"event": cancel_event, "kernel": is_kernel_node}
+        _cancel_states[run_id] = {
+            "event": cancel_event,
+            "kernel": is_kernel_node,
+            "model_session": payload.get("model_session"),
+        }
     started = time.monotonic()
     try:
         # Interrupt-caused failures are labeled at the source (DataPlaneInterrupted, a
@@ -119,7 +126,12 @@ def _run_kernel_node(payload: dict[str, Any], cancel_event: threading.Event) -> 
     from . import executor  # noqa: PLC0415 — keeps jupyter_client off the server import path
 
     try:
-        return executor.get_executor().run_kernel_node(payload, cancel_event)
+        target = (
+            executor.model_executor(payload["model_session"])
+            if payload.get("model_session")
+            else executor.get_executor()
+        )
+        return target.run_kernel_node(payload, cancel_event)
     except Exception as exc:  # noqa: BLE001 — a run must always produce a callback envelope
         logger.exception("nb_kernel kernel node run failed")
         return envelope.from_error(f"Node failed in the sandbox: {exc}")
@@ -226,6 +238,10 @@ def fetch_page(payload: dict[str, Any]) -> dict[str, Any]:
         # Deferred so a broken pyarrow install degrades per-request, not at server startup.
         from . import result_store  # noqa: PLC0415
 
+        if payload.get("model_session"):
+            return result_store.read_page(
+                str(result_id), offset, limit, result_store.model_directory(payload["model_session"]) + "/results"
+            )
         return result_store.read_page(str(result_id), offset, limit)
 
     cached = _cached_page(str(payload.get("run_id") or ""), offset, limit)

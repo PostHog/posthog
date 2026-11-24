@@ -53,6 +53,8 @@ from products.data_modeling.backend.temporal.workflows.materialize_view import (
 from products.data_quality.backend.facade.contracts import CHECK_SUITE_WORKFLOW_NAME, MATERIALIZATION_GATE_ACTIVITY_NAME
 from products.data_quality.backend.facade.enums import SuiteRunTrigger
 
+from .notebook_model import MaterializeNotebookWorkflow
+
 MAX_CONCURRENT_CHILDREN = 10
 # A Trino model runs for hours, so at the ClickHouse limit a shadow run cannot get through its DAG before its timeout.
 TRINO_SHADOW_MAX_CONCURRENT_CHILDREN = 25
@@ -581,6 +583,15 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                     blocked_trino_upstreams = sorted(
                         upstream for upstream in unavailable_trino_nodes if node_id in downstreams[upstream]
                     )
+                    is_notebook = node_id in dag_structure.notebook_nodes
+                    if is_notebook and managed_warehouse_only:
+                        return NodeResult(
+                            node_id=node_id,
+                            success=False,
+                            skipped=True,
+                            trino_materialized=False,
+                            skip_reason="Notebook output is published to the PostHog warehouse.",
+                        )
                     child_inputs = MaterializeViewWorkflowInputs(
                         team_id=inputs.team_id,
                         dag_id=inputs.dag_id,
@@ -617,7 +628,7 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                     )
                     try:
                         handle = await temporalio.workflow.start_child_workflow(
-                            MaterializeViewWorkflow.run,
+                            MaterializeNotebookWorkflow.run if is_notebook else MaterializeViewWorkflow.run,
                             child_inputs,
                             id=child_id,
                             parent_close_policy=ParentClosePolicy.REQUEST_CANCEL,

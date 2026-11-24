@@ -12624,6 +12624,21 @@
             "readOnlyHint": false
         }
     },
+    "notebooks-declare-warehouse-model": {
+        "description": "Publish the cells through the selected output cell as a warehouse model with an optional daily refresh. Declare the upstream modeling node IDs. The table is available after the first successful run. Redeclare after changing code or variables. The table can expose the returned rows to project members with access to it.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Declare a notebook warehouse model",
+        "title": "Declare a notebook warehouse model",
+        "required_scopes": ["notebook:write", "query:read", "warehouse_table:write", "warehouse_view:write"],
+        "api_operations": ["POST /api/projects/{project_id}/notebooks/{short_id}/warehouse_model/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "notebooks-destroy": {
         "description": "Delete a notebook by short_id. The notebook will be soft-deleted and no longer appear in lists.",
         "category": "Notebooks",
@@ -12725,6 +12740,36 @@
         "title": "Get notebook cell run result",
         "required_scopes": ["notebook:read", "query:read"],
         "api_operations": ["GET /api/projects/{project_id}/notebooks/{short_id}/sql_v2/runs/{run_id}/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "notebooks-run-warehouse-model": {
+        "description": "Start a warehouse DAG run for the notebook model and its upstream dependencies.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Run a notebook warehouse model",
+        "title": "Run a notebook warehouse model",
+        "required_scopes": ["notebook:write", "query:read", "warehouse_table:write", "warehouse_view:write"],
+        "api_operations": ["POST /api/projects/{project_id}/notebooks/{short_id}/warehouse_model/{node_id}/run/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "notebooks-warehouse-model-status": {
+        "description": "Inspect the latest job and the last notebook run successfully published to the warehouse.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Get notebook warehouse model status",
+        "title": "Get notebook warehouse model status",
+        "required_scopes": ["notebook:read", "query:read", "warehouse_table:read"],
+        "api_operations": ["GET /api/projects/{project_id}/notebooks/{short_id}/warehouse_model/{node_id}/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
