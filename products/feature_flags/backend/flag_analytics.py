@@ -22,7 +22,7 @@ from posthog.redis import get_client, redis
 from posthog.usage_ingestion.client import UsageRecord, report_usage
 
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
-from products.feature_flags.backend.facade.flags import get_flag_evaluations_read_mode
+from products.feature_flags.backend.facade.flags import get_flag_evaluations_read_config
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.usage_dashboard import add_enriched_insights_to_feature_flag_dashboard
 
@@ -464,7 +464,7 @@ def get_cached_evaluations_7d_by_team(
         return {}
 
     from_flag_evaluations = (
-        get_flag_evaluations_read_mode(organization_id, team_id=team_ids[0]) != FlagEvaluationsMode.EVENTS
+        get_flag_evaluations_read_config(organization_id, team_id=team_ids[0]).mode != FlagEvaluationsMode.EVENTS
     )
     # The key names the source table, so a mode change cannot serve a count read from the other table.
     source = FLAG_EVALUATIONS_TABLE if from_flag_evaluations else "events"

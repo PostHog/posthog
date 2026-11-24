@@ -120,16 +120,16 @@ def get_flag_evaluations_read_config(organization_id: UUID, *, team_id: int | No
     return _with_reads_forced_to_events(config)
 
 
-def get_flag_evaluations_read_mode(organization_id: UUID, *, team_id: int | None = None) -> int:
-    """The mode of get_flag_evaluations_read_config."""
-    return get_flag_evaluations_read_config(organization_id, team_id=team_id).mode
-
-
 def get_stored_flag_evaluations_read_config(organization_id: UUID) -> FlagEvaluationsConfig:
     """The organization's stored config with FLAG_EVALUATIONS_READS_FORCE_EVENTS applied. HogQL's catalog and the
     per-team readers below read it, because they check first whether the query or the team reads the native JSON events
     table."""
     return _with_reads_forced_to_events(get_organization_flag_evaluations_config(organization_id))
+
+
+def get_flag_evaluations_read_mode(organization_id: UUID) -> int:
+    """The mode of get_stored_flag_evaluations_read_config."""
+    return get_stored_flag_evaluations_read_config(organization_id).mode
 
 
 def _with_reads_forced_to_events(config: FlagEvaluationsConfig) -> FlagEvaluationsConfig:
@@ -176,7 +176,7 @@ def reads_flag_calls_from_flag_evaluations(team: Team, modifiers: "HogQLQueryMod
     swap follows the same rule in HogQLContext.reads_flag_calls_from_flag_evaluations."""
     if _reads_native_events_with_flag_evaluations(team, modifiers):
         return True
-    return get_stored_flag_evaluations_read_config(team.organization_id).mode != FlagEvaluationsMode.EVENTS
+    return get_flag_evaluations_read_mode(team.organization_id) != FlagEvaluationsMode.EVENTS
 
 
 def reads_flag_calls_without_events_fallback(team: Team) -> bool:
@@ -185,9 +185,7 @@ def reads_flag_calls_without_events_fallback(team: Team) -> bool:
     events writes are kept, or the team reads the native JSON events table."""
     if _reads_native_events_with_flag_evaluations(team, None):
         return True
-    return (
-        get_stored_flag_evaluations_read_config(team.organization_id).mode == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY
-    )
+    return get_flag_evaluations_read_mode(team.organization_id) == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY
 
 
 def events_lack_new_flag_calls(team: Team, read_config: FlagEvaluationsConfig | None = None) -> bool:
@@ -211,7 +209,7 @@ def hides_flag_calls_from_query_builders(organization_id: UUID, *, team_id: int 
     cohorts APIs reject a new use of them. It reads the same mode as the team API's flag_evaluations_mode, which the
     frontend's hiddenEventNames reads, so the pickers and the APIs agree. `team_id` is the hint that
     get_flag_evaluations_read_config takes."""
-    return get_flag_evaluations_read_mode(organization_id, team_id=team_id) != FlagEvaluationsMode.EVENTS
+    return get_flag_evaluations_read_config(organization_id, team_id=team_id).mode != FlagEvaluationsMode.EVENTS
 
 
 def is_flag_evaluations_table_enabled(team: Team) -> bool:

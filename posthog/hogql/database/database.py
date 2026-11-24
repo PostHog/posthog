@@ -2222,7 +2222,7 @@ class Database(BaseModel):
             # Function-local + facade-only: keeps the products off the django.setup() path.
             from products.feature_flags.backend.facade.enums import FlagEvaluationsMode  # noqa: PLC0415
             from products.feature_flags.backend.facade.flags import (  # noqa: PLC0415
-                get_stored_flag_evaluations_read_config,
+                get_flag_evaluations_read_mode,
                 is_flag_calls_union_disabled,
                 is_flag_evaluations_table_enabled,
             )
@@ -2233,7 +2233,7 @@ class Database(BaseModel):
             # DEBUG for an organization still on EVENTS.
             read_mode: int = FlagEvaluationsMode.EVENTS
             if include_flag_evaluations_table:
-                read_mode = get_stored_flag_evaluations_read_config(team.organization_id).mode
+                read_mode = get_flag_evaluations_read_mode(team.organization_id)
             read_flag_calls_from_flag_evaluations = read_mode != FlagEvaluationsMode.EVENTS
             flag_calls_only_in_flag_evaluations = read_mode == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY
             flag_calls_union_enabled = include_flag_evaluations_table and not is_flag_calls_union_disabled()
