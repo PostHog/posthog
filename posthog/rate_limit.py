@@ -929,6 +929,16 @@ class AEOSetupSustainedRateThrottle(_TeamBucketRateThrottle):
     rate = "10/hour"
 
 
+class AEOPromptImportBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "aeo_prompt_import_burst"
+    rate = "10/minute"
+
+
+class AEOPromptImportSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "aeo_prompt_import_sustained"
+    rate = "100/hour"
+
+
 # The AEO keyword report and modifiers recompute their numbers from every answered check in the window
 # on each request, matching each keyword against each answer text in Postgres or scanning every search in
 # Python. The project-global Burst/Sustained pair never throttles the session-authenticated UI, so this

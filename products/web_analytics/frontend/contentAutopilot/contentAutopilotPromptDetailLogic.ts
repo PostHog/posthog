@@ -32,6 +32,7 @@ import { contentAutopilotFilterBarLogic } from './contentAutopilotFilterBarLogic
 import { contentAutopilotLogic } from './contentAutopilotLogic'
 import type { ContentAutopilotWorkspaceTab } from './contentAutopilotLogic'
 import { contentAutopilotPromptsLogic } from './contentAutopilotPromptsLogic'
+import { contentAutopilotSetupLogic } from './contentAutopilotSetupLogic'
 import {
     PromptConsensusMatrix,
     PromptReportKpis,
@@ -759,6 +760,7 @@ export const contentAutopilotPromptDetailLogic = kea<contentAutopilotPromptDetai
                         : 'web analytics content autopilot prompt restored'
                 )
                 actions.loadAeoPrompts()
+                contentAutopilotSetupLogic.findMounted()?.actions.loadSetupContext()
                 contentAutopilotFilterBarLogic.findMounted()?.actions.loadPromptTopics()
             } catch (error) {
                 actions.setPromptArchivedFailure()

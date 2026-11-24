@@ -20,6 +20,7 @@ const CONTEXT: AEOSetupContextApi = {
     websites: [{ domain: 'example.com', source: 'app_urls', pageviews: null }],
     own_domains: [],
     active_prompts: 0,
+    max_active_prompts: 100,
     paused_prompts: 0,
     keywords: 0,
     has_checks: false,
