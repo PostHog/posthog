@@ -1348,7 +1348,8 @@ class TestReadFlagCallsWithUnion(BaseTest):
                     UNKEYED_READ_MEMORY_CAP,
                     "max_bytes_before_external_sort=4294967296",
                     "max_bytes_ratio_before_external_sort=0",
-                    "max_bytes_before_external_group_by=0",
+                    "max_bytes_before_external_group_by=4294967296",
+                    "max_bytes_ratio_before_external_group_by=0",
                 ],
             ),
         ]

@@ -211,22 +211,21 @@ def cap_flag_call_max_memory_usage(max_memory_usage: int | None) -> int:
 
 
 def cap_flag_call_memory_settings(settings: dict[str, Any]) -> None:
-    """Cap `max_memory_usage` in printed top-level settings, and lower each spill threshold to half the cap."""
+    """Cap `max_memory_usage` in printed top-level settings, and spill sorts and aggregations at half the cap."""
     max_memory_usage = cap_flag_call_max_memory_usage(settings.get("max_memory_usage"))
     settings["max_memory_usage"] = max_memory_usage
     spill_after_bytes = max_memory_usage // 2
-    # A spill threshold above the memory limit never fires, so the query fails before it spills to disk.
-    # A missing threshold takes the user profile's value, which can sit above the cap. A threshold of 0 stays disabled.
+    # A missing or 0 threshold leaves ClickHouse to derive one from server memory, which can sit above the cap.
+    # A threshold above the cap never fires. In both cases the query fails at the cap instead of spilling to disk.
     for threshold_key, ratio_key in (
         ("max_bytes_before_external_sort", "max_bytes_ratio_before_external_sort"),
         ("max_bytes_before_external_group_by", "max_bytes_ratio_before_external_group_by"),
     ):
         threshold = settings.get(threshold_key)
-        if threshold is None or threshold > spill_after_bytes:
+        if not threshold or threshold > spill_after_bytes:
             settings[threshold_key] = spill_after_bytes
         # A non-zero ratio in the user profile stops the byte threshold from firing.
-        if settings[threshold_key] > 0:
-            settings[ratio_key] = 0
+        settings[ratio_key] = 0
 
 
 # Settings applied on top of all HogQL queries.
