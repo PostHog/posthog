@@ -233,7 +233,8 @@ def update_template(
     )
 
     fields = _written_fields(write)
-    if fields.get("deleted") is False and template.deleted and template.team_id is not None:
+    # A null `deleted` also makes the row live again, so it is a restore too.
+    if "deleted" in fields and not fields["deleted"] and template.deleted and template.team_id is not None:
         restored_organization_id = (
             Team.objects.filter(pk=template.team_id).values_list("organization_id", flat=True).first()
         )

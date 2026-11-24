@@ -155,7 +155,10 @@ class TestDashboardTemplates(APIBaseTest):
         assert overflow.status_code == status.HTTP_400_BAD_REQUEST, overflow.content
         assert overflow.json()["detail"] == organization_dashboard_template_limit_detail()
 
-    def test_restore_rejects_when_organization_already_has_max_dashboard_templates(self) -> None:
+    @parameterized.expand([("false", False), ("null", None)])
+    def test_restore_rejects_when_organization_already_has_max_dashboard_templates(
+        self, _name: str, restored_deleted: bool | None
+    ) -> None:
         seed_tiles = variable_template["tiles"]
         DashboardTemplate.objects.bulk_create(
             [
@@ -196,7 +199,8 @@ class TestDashboardTemplates(APIBaseTest):
 
         blocked_restore = self.client.patch(
             f"/api/projects/{self.team.pk}/dashboard_templates/{victim_id}",
-            {"deleted": False},
+            {"deleted": restored_deleted},
+            format="json",
         )
         assert blocked_restore.status_code == status.HTTP_400_BAD_REQUEST, blocked_restore.content
         assert blocked_restore.json()["detail"] == organization_dashboard_template_limit_detail()
