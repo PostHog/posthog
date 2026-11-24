@@ -75,6 +75,7 @@ from products.signals.backend.personal_ranking_tasks import build_personal_inbox
 from products.signals.backend.pr_origin import write_origin_section
 from products.signals.backend.pull_request_body import BodyEditOutcome
 from products.signals.backend.pull_request_label import apply_pull_request_label
+from products.signals.backend.pull_request_merger import PullRequestMerger
 from products.signals.backend.pull_requests import update_pull_request_review_decision, update_pull_request_state
 from products.signals.backend.rated_usage_tasks import (
     enqueue_signals_rated_usage as enqueue_signals_rated_usage,
@@ -213,6 +214,7 @@ def refresh_linked_pull_request_state(self: Task, team_id: int, pr_url: str) -> 
         number=details.number,
         state=details.state,
         merged_at=details.merged_at,
+        merged_by=details.merged_by,
     )
 
 
@@ -303,7 +305,12 @@ def refresh_pull_request_review_decision(team_id: int, repository: str, pr_numbe
         if not details.get("success") or details.get("merged") is not True or merged_at is None:
             raise GitHubIntegrationError("Could not verify the pull request merge time")
         update_pull_request_state(
-            team_id=team_id, repository=pr.repository, number=pr.number, state="merged", merged_at=merged_at
+            team_id=team_id,
+            repository=pr.repository,
+            number=pr.number,
+            state="merged",
+            merged_at=merged_at,
+            merged_by=PullRequestMerger.from_github(details.get("merged_by")),
         )
     snapshot = github.get_pull_request_snapshot(pr.url)
     if not snapshot.get("success"):

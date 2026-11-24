@@ -1,5 +1,6 @@
 from .alerts import AlertsRecommendation
 from .base import Recommendation
+from .issue_summaries import IssueSummariesRecommendation
 from .rate_limits import RateLimitsRecommendation
 from .source_maps import SourceMapsRecommendation
 
@@ -7,6 +8,8 @@ from .source_maps import SourceMapsRecommendation
 # products/error_tracking/mcp/prompts/error-tracking-recommendations-list.md — keep it in sync when adding/changing a type.
 RECOMMENDATIONS: list[Recommendation] = [
     AlertsRecommendation(),
+    # Not in the MCP doc. Every MCP user reads that doc, and summaries must stay unknown outside their feature flag.
+    IssueSummariesRecommendation(),
     RateLimitsRecommendation(),
     SourceMapsRecommendation(),
 ]
