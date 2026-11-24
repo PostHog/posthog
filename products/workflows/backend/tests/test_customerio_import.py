@@ -538,6 +538,7 @@ class TestCustomerioCampaignTranslation(BaseTest):
             ("event once", "transactional", "rematch", -1, None),
             ("event once a day", "transactional", "rematch", 86400, 86400),
             ("form under a minute", "form", "rematch", 5, 60),
+            ("event over three years", "transactional", "rematch", 157680000, 94608000),
             ("segment once", "seg_attr", "none", 0, None),
             ("segment once through the interval", "seg_attr", "rematch", -1, None),
             ("segment at most weekly", "behavioral", "rematch", 604800, 604800),
@@ -554,6 +555,7 @@ class TestCustomerioCampaignTranslation(BaseTest):
 
         assert translated.workflow["trigger_masking"] == {"hash": "{person.id}", "ttl": ttl, "threshold": None}
         assert any("can enter again" in note.message for note in translated.notes)
+        assert any("so it became" in note.message for note in translated.notes) == (interval > 0 and interval != ttl)
         assert validated_draft(self.team, translated.workflow, EventSource.API) is not None
 
     def test_event_automation_without_a_limit_has_no_masking(self) -> None:

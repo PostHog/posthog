@@ -311,7 +311,14 @@ class _Builder:
         if mode == "none" or (mode == "rematch" and interval < 0):
             return once
         if mode in ("rematch", "interval") and interval > 0:
-            return {**once, "ttl": min(max(interval, _MIN_REENTRY_SECONDS), _MAX_REENTRY_SECONDS)}
+            ttl = min(max(interval, _MIN_REENTRY_SECONDS), _MAX_REENTRY_SECONDS)
+            if ttl != interval:
+                self.note(
+                    NoteLevel.APPROXIMATED,
+                    f"A person can enter once per {_duration(interval)} in Customer.io. PostHog's limit goes from a "
+                    f"minute to 3 years, so it became {_duration(ttl)}.",
+                )
+            return {**once, "ttl": ttl}
         return None
 
     def _conversion(self) -> dict[str, Any] | None:
