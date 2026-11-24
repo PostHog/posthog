@@ -24,6 +24,7 @@ The `autoresearch-*` MCP tools that expose this API to the sandbox agent are dec
 
 Every viewset sets `scope_object = "autoresearch"` and splits `scope_object_read_actions` / `scope_object_write_actions`, so custom actions are classified explicitly rather than inheriting a default.
 `AutoresearchAccessPermission` gates on the `autoresearch` feature flag via `../access.py`.
+`train` also calls `access_refusal()` from `../access.py`, the gate the sweep's kickoff uses. It refuses a deactivated organization with a 403 whose `code` is `organization_deactivated`, because session auth passes `ActiveOrganizationPermission`.
 
 **A new `@action` must be added to one of those two lists.** Omitting it is not a compile error and not a test failure — it is a permissions bug.
 

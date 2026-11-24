@@ -667,7 +667,8 @@ class _Recommender:
                 continue
             budget = (
                 None
-                if self._is_brand_campaign(campaign, brand_spend) or self._leak_to_fix(campaign, brand_spend)
+                if self._is_brand_campaign(campaign, brand_spend)
+                or self._holds_spend_advice(campaign, self._leak_to_fix(campaign, brand_spend))
                 else self._budget_constrained(campaign, self._campaign_benchmark(campaign))
             )
             # Campaigns that share a budget each report it as constrained, so one row covers the shared budget.
@@ -702,7 +703,7 @@ class _Recommender:
             cpa = self._compared_cpa(campaign, benchmark)
             lost = (campaign.lost_to_budget or 0) + (campaign.lost_to_rank or 0)
             if cpa and compared.conversions >= 5 and cpa <= benchmark.cpa and lost >= 0.4:
-                if not leak:
+                if not self._holds_spend_advice(campaign, leak):
                     recommendations.append(self._scale(campaign, cpa, benchmark, lost))
             elif self._needs_review(campaign, benchmark):
                 recommendations.append(self._review(campaign, cpa, compared.cost, benchmark))
@@ -1561,13 +1562,19 @@ class _Recommender:
         spend = brand_spend.get(campaign.id)
         return spend is not None and spend.cost >= 0.5 * max(self._term_cost(campaign.id), 1)
 
-    # Advice to spend more waits for the brand negatives: blocking brand searches frees budget and changes the
-    # impression share that advice relies on.
     def _leak_to_fix(self, campaign: CampaignStats, brand_spend: dict[str, _BrandSpend]) -> _BrandSpend | None:
         leak = brand_spend.get(campaign.id)
         if leak and leak.cost >= BRAND_LEAK_MIN_SPEND_SHARE * max(self._term_cost(campaign.id), 1):
             return leak
         return None
+
+    # Advice to spend more waits for the brand negatives: blocking brand searches frees budget and changes the
+    # impression share that advice relies on. Once the negative is in place, the leak card counts as applied and
+    # leaves the list, so holding the advice longer would leave nothing on screen.
+    def _holds_spend_advice(self, campaign: CampaignStats, leak: _BrandSpend | None) -> bool:
+        if leak is None:
+            return False
+        return not self._brand_negated(self._brand_spelled_by(leak.top_term) or leak.top_term, {campaign.id})
 
     def _term_cost(self, campaign_id: str) -> float:
         return self.term_cost_by_campaign.get(campaign_id, 0.0)

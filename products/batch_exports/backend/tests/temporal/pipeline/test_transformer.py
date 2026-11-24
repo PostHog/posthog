@@ -12,6 +12,7 @@ import pytest
 
 import pyarrow as pa
 import pyarrow.parquet as pq
+from structlog.testing import capture_logs
 
 from products.batch_exports.backend.temporal.pipeline.table import (
     Field,
@@ -448,6 +449,27 @@ async def test_schema_transformer(
     assert len(transformed_record_batches) == 1
     assert transformed_record_batches[0][record_batch[0]._name].type == target_type  # type: ignore[attr-defined]
     assert transformed_record_batches[0].to_pylist() == expected_pylist
+
+
+async def test_schema_transformer_warns_once_per_distinct_issue() -> None:
+    field = FakeField("quantity", pa.binary())
+    field.alias = "units"
+    table = Table("inventory", [field])
+
+    async def batches() -> collections.abc.AsyncIterator[pa.RecordBatch]:
+        for value, extra in [(3, "label"), (5, "label"), ("seven", "note")]:
+            yield pa.RecordBatch.from_pylist([{"units": value, extra: ""}])
+
+    with capture_logs() as logs:
+        result = [batch.to_pylist() async for batch in SchemaTransformer(table).iter(batches())]
+
+    assert result == [[{"quantity": 3}], [{"quantity": 5}], [{"quantity": "seven"}]]
+    assert [log["alias"] for log in logs if log["event"] == "Field aliased"] == ["units"]
+    assert [log["name"] for log in logs if log["event"] == "Field missing in target"] == ["label", "note"]
+    assert [log["source_type"] for log in logs if log["event"] == "Detected incompatible types"] == [
+        pa.int64(),
+        pa.string(),
+    ]
 
 
 @pytest.mark.parametrize(

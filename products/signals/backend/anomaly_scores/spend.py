@@ -19,12 +19,12 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 
-from products.signals.backend.anomaly_scores.config import AnomalyScoringConfig, ScoringRun
+from products.signals.backend.anomaly_scores.config import JUDGE_HISTORY_QUERY_NAME, AnomalyScoringConfig, ScoringRun
 
 logger = structlog.get_logger(__name__)
 
-# The `name` tag of each scoring query, set in `scoring.fetch_series`.
-SCORING_QUERY_NAMES = tuple(f"anomaly_scoring_{run.value}" for run in ScoringRun)
+# The `name` tag of each scoring query, set in `scoring._fetch`.
+SCORING_QUERY_NAMES = (*(f"anomaly_scoring_{run.value}" for run in ScoringRun), JUDGE_HISTORY_QUERY_NAME)
 # The query log reaches the archive through a buffer, so a few minutes of spend can be missing from a read.
 _REFRESH_EVERY = datetime.timedelta(minutes=10)
 # Older than this, a sum does not limit the tick.

@@ -9279,6 +9279,80 @@ class TestCohortRealtimeSwitch(APIBaseTest):
         assert response.status_code == 200
         assert (cohort.name, getattr(cohort, field)) == ("Renamed", written_at)
 
+    @parameterized.expand(
+        [
+            ("rename", "event_criterion", {"name": "Renamed"}, {}, None, 200),
+            ("new_description", "event_criterion", {"description": "New description"}, {}, None, 200),
+            (
+                "rename_that_nulls_cohort_type",
+                "event_criterion",
+                {"name": "Renamed"},
+                {"cohort_type": None},
+                None,
+                200,
+            ),
+            ("criterion_edit", "event_criterion", {}, {}, "$pageleave", 400),
+            ("rename_of_daily_cohort", "daily_event_criterion", {"name": "Renamed"}, {}, None, 400),
+            (
+                "rename_of_cohort_including_an_event_cohort",
+                "reference_to_event_cohort",
+                {"name": "Renamed"},
+                {},
+                None,
+                200,
+            ),
+        ]
+    )
+    def test_saving_a_cohort_that_an_active_flag_uses(
+        self,
+        _name: str,
+        criteria: str,
+        fields: dict,
+        sent_cohort_type: dict,
+        new_event: str | None,
+        expected_status: int,
+    ) -> None:
+        stamped_at = timezone.now() - timedelta(hours=1)
+        editor_leaf = {**_REALTIME_PAGEVIEW_LEAF, "explicit_datetime": "-7d"}
+        if criteria == "reference_to_event_cohort":
+            editor_leaf = {"type": "cohort", "key": "id", "value": self._cohort(_REALTIME_PAGEVIEW_LEAF).id}
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Realtime",
+            cohort_type=None if criteria == "daily_event_criterion" else CohortType.REALTIME,
+            filters={"properties": {"type": "OR", "values": [{"type": "AND", "values": [editor_leaf]}]}},
+        )
+        Cohort.objects.filter(id=cohort.id).update(
+            last_backfill_events_at=stamped_at, last_realtime_cohort_calculation_at=stamped_at
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [{"key": "id", "type": "cohort", "value": cohort.id}]}]},
+        )
+        filters = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.id}/").json()["filters"]
+        if new_event is not None:
+            filters["properties"]["values"][0]["values"][0]["key"] = new_event
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort.id}/",
+            {**fields, **sent_cohort_type, "filters": filters},
+            format="json",
+        )
+
+        assert response.status_code == expected_status, response.json()
+        cohort.refresh_from_db()
+        if expected_status == 400:
+            assert response.json()["code"] == "behavioral_cohort_found"
+            return
+        assert {field: getattr(cohort, field) for field in fields} == fields
+        assert (cohort.cohort_type, cohort.last_backfill_events_at, cohort.last_realtime_cohort_calculation_at) == (
+            CohortType.REALTIME,
+            stamped_at,
+            stamped_at,
+        )
+
     @parameterized.expand([("turns_on_what_it_includes", False), ("keeps_a_turn_off_made_during_the_edit", True)])
     def test_editing_the_criteria_of_a_cohort_that_is_on(self, _name: str, turned_off_during_the_edit: bool) -> None:
         included = self._cohort(_REALTIME_PAGEVIEW_LEAF)

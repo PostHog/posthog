@@ -471,11 +471,13 @@ class TestMarketingRecommendations(SimpleTestCase):
         [
             ("brand_conversions_under_the_leak_share", 80, 18, {"review_campaign"}),
             ("leaking_brand_spend", 800, 2, {"brand_leak"}),
+            # The negated leak card counts as applied and leaves the list, so the spend advice comes back.
+            ("leak_already_negated", 800, 2, {"brand_leak", "scale_campaign", "budget_constrained"}, True),
             ("no_brand_spend", 0, 0, {"scale_campaign", "budget_constrained"}),
         ]
     )
     def test_campaign_gets_spend_more_advice_only_on_non_brand_cpa_without_a_brand_leak(
-        self, _name: str, brand_cost: float, brand_conversions: int, expected: set[str]
+        self, _name: str, brand_cost: float, brand_conversions: int, expected: set[str], negated: bool = False
     ) -> None:
         brand_campaign = _campaign(id="brand", name="Brand", cost=500, conversions=100)
         generic = _campaign(
@@ -496,7 +498,9 @@ class TestMarketingRecommendations(SimpleTestCase):
             _term("session replay", "other", cost=3000, conversions=30),
         )
 
-        recs = recommend(_inputs((brand_campaign, generic, other), terms))
+        excluded = frozenset({ExcludedSearch(term="example pricing", campaign_id="generic")} if negated else ())
+
+        recs = recommend(replace(_inputs((brand_campaign, generic, other), terms), excluded_searches=excluded))
 
         assert {rec.rule.value for rec in recs if rec.subject == "Generic" and rec.level == "campaign"} == expected
 

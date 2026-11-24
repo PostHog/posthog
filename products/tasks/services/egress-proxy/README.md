@@ -239,7 +239,8 @@ The relay configuration names the exact run authority and its own client certifi
   "endpoint": "https://run-a.egress.example.com",
   "admin_address": "127.0.0.1:9091",
   "certificate_file": "/run/egress/relay.pem",
-  "private_key_file": "/run/egress/relay-key.pem"
+  "private_key_file": "/run/egress/relay-key.pem",
+  "client_ca_file": "/run/egress/enrollment-ca.pem"
 }
 ```
 
@@ -274,7 +275,11 @@ Send SIGHUP to the proxy after replacing its referenced TLS, CA, verification-ke
 It loads them together and retains the active configuration if any file is invalid.
 Failed reloads log the reason to stderr without exposing file contents.
 Every request checks the current client CA, including requests on reused TLS connections.
-Listener addresses and limits require a restart. Relay credentials also require a restart.
+The relay also reloads its certificate, key and server CA files on SIGHUP. Renewed certificates must use the same public key; a new key needs a new execution registration.
+Set `client_ca_file` to the enrollment CA bundle trusted by the regional proxy. Reload verifies the candidate's client-authentication chain against this bundle. Existing configurations can start without it, but cannot reload certificates until it is configured and the relay restarted.
+Successful relay reloads replace the upstream connection pool and close its idle connections. In-flight requests can finish, and new requests use the renewed certificate even on an existing guest connection.
+Invalid material leaves the previous material active. Readiness and new requests fail once that certificate expires. The worker must still issue, publish and trigger renewal; SIGHUP does not extend enrollment or relay process lifetime.
+Listener addresses, endpoints and limits require a restart.
 SIGINT and SIGTERM drain requests, then audit output, each within the shutdown timeout.
 
 ### Audit output
@@ -284,13 +289,17 @@ Events include a generated request ID, trusted run identity when authorization s
 They exclude tokens, raw URLs, headers and bodies.
 Prometheus counters distinguish unavailable authorization, rejected identity, relay transport failures and reload failures.
 
-Each request reserves room for both events before authorization.
-A full queue returns 503 without running the operation.
-An output error stops new admissions and makes readiness and liveness fail until restart.
-The `egress_audit_export_failed` gauge is 1 after an output error and 0 otherwise.
+Each request passing the rate limiter reserves room for both events before authorization.
+
+| Failure                                 | Behavior                                                                                                                                  |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| Output stalls and the queue fills       | New admissions receive 503 and increment `egress_audit_rejected_total`. Health checks stay healthy; admission resumes when output drains. |
+| Output returns an error                 | New admissions receive 503, readiness and liveness fail, and `egress_audit_export_failed` becomes 1 until restart.                        |
+| Collector or log storage is unavailable | Successful stdout writes do not acknowledge central delivery. Recovery and loss depend on collector buffering and node-log retention.     |
+
 Configure the supervisor to restart on liveness failure and send SIGTERM for normal shutdown.
 Queue pressure and planned draining do not fail liveness.
-Shutdown attempts to drain accepted events; a crash or drain timeout can lose buffered events.
+Shutdown attempts to drain accepted events; an output error, crash or drain timeout can lose buffered events.
 This is bounded asynchronous output, not a durable audit guarantee. Deployment must connect stdout to the regional log collector.
 
 ## Adapter contract
