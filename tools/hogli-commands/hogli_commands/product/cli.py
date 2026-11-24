@@ -29,7 +29,7 @@ from .scaffold import bootstrap_product
 @click.option(
     "--owner",
     default=None,
-    help="Owning GitHub team slug (e.g. team-product-analytics). "
+    help="Owning GitHub team slug (e.g. team-analytics). "
     "Overrides the interactive prompt; pair with --non-interactive in CI.",
 )
 @click.option(

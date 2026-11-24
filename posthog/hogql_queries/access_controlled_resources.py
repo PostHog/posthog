@@ -31,7 +31,7 @@ if TYPE_CHECKING:
 
 # `system.information_schema` tables whose rows/columns are gated behind `data_catalog` read access
 # (see `_can_read_catalog` in information_schema.py): `tables` carries the certification mark,
-# `relationships` carries proposal confidence/reasoning, `metrics` is entirely catalog-governed, and
+# `relationships` carries proposal reasoning, `metrics` is entirely catalog-governed, and
 # `certifications` / `relationship_proposals` are the fully catalog-governed review queues. A query
 # touching any of these must partition the cache by `data_catalog` access, or an allowed user's cached
 # rows would be served to a denied user on a cache hit.
