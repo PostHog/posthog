@@ -47,12 +47,13 @@ pub fn parse_entry(entry: &str) -> Option<IpAddr> {
 
 pub fn edge_client_ip(headers: &HeaderMap) -> Option<IpAddr> {
     let mut values = headers.get_all(EDGE_CLIENT_IP).iter();
-    let value = values.next()?;
-    // Our edge sends one value. A second one means that the caller's value is also there.
-    if values.next().is_some() {
+    let value = values.next()?.to_str().ok()?;
+    // Our edge sends one value. A second one means that the caller's value is also there. A
+    // proxy can join the two into one line.
+    if values.next().is_some() || value.contains(',') {
         return None;
     }
-    parse_entry(value.to_str().ok()?)
+    parse_entry(value)
 }
 
 /// Right to left, so that padding on the left cannot push the entries our edge appended
@@ -100,6 +101,7 @@ mod tests {
     #[rstest]
     #[case::one_value(&["203.0.113.7"], Some("203.0.113.7"))]
     #[case::caller_value_before_the_edge_value(&["203.0.113.7", "198.51.100.1"], None)]
+    #[case::values_joined_into_one_line(&["[2001:db8::1], 198.51.100.1"], None)]
     fn edge_client_ip_needs_exactly_one_value(
         #[case] values: &[&'static str],
         #[case] expected: Option<&str>,

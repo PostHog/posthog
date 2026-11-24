@@ -1615,6 +1615,7 @@ mod tests {
         assert_eq!(config.debug, FlexBool(false));
         assert!(!config.flags_session_replay_quota_check);
         assert!(!config.flags_v4_response_enabled);
+        assert_eq!(config.trust_edge_client_ip_header, FlexBool(false));
         assert_eq!(config.skip_writes, FlexBool(false));
         // Cloud billing reads these counters, so they must stay on unless a deploy turns them off.
         assert_eq!(config.billing_counters_enabled, FlexBool(true));

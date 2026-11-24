@@ -319,11 +319,11 @@ mod tests {
             ),
             (CallerHost::Named("app.example.org"), allowed_ip, None),
         ];
-        for (host, edge_ip, expected) in cases {
+        for (host, caller_ip, expected) in cases {
             assert_eq!(
-                reserialized.request_block_reason(host, edge_ip, edge_ip),
+                reserialized.request_block_reason(host, caller_ip, caller_ip),
                 expected,
-                "{host:?} from {edge_ip:?}"
+                "{host:?} from {caller_ip:?}"
             );
         }
     }

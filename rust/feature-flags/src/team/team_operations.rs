@@ -425,11 +425,11 @@ mod tests {
             (CallerHost::Named("app.example.org"), allowed_ip, None),
         ];
         for team_from_pg in [by_token, by_id] {
-            for (host, edge_ip, expected) in cases {
+            for (host, caller_ip, expected) in cases {
                 assert_eq!(
-                    team_from_pg.request_block_reason(host, edge_ip, edge_ip),
+                    team_from_pg.request_block_reason(host, caller_ip, caller_ip),
                     expected,
-                    "{host:?} from {edge_ip:?}"
+                    "{host:?} from {caller_ip:?}"
                 );
             }
         }
