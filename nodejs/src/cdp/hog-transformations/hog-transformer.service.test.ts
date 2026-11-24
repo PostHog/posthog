@@ -206,7 +206,6 @@ describe('HogTransformer', () => {
                 execution_order: 1,
             })
             await insertHogFunction(hub.postgres, teamId, geoIpFunction)
-            hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [geoIpFunction.id])
             const aiInput = 'x'.repeat(40 * 1024 * 1024)
 
             const result = await hogTransformer.transformEventAndProduceMessages(

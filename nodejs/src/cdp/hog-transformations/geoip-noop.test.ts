@@ -7,7 +7,7 @@ import { HogInputsService } from '../services/hog-inputs.service'
 import { template as geoipTemplate } from '../templates/_transformations/geoip/geoip.template'
 import { compileHog } from '../templates/compiler'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, HogFunctionType } from '../types'
-import { createInvocation } from '../utils/invocation-utils'
+import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
 import { executeGeoipOnSlimEvent, geoipNoopResult, hogTransformationGeoipNoopSkips } from './geoip-noop'
 import { RustVmExecutor } from './rust-vm-executor'
 import { getTransformationFunctions } from './transformation-functions'
@@ -80,10 +80,13 @@ describe('geoipNoopResult', () => {
             eligible: false,
         },
         { name: 'no template id', fn: { hog: currentSource, template_id: undefined }, eligible: false },
-    ])('eligible is $eligible for $name', ({ fn, eligible }) => {
+    ])('eligible is $eligible for $name', async ({ fn, eligible }) => {
         const invocation = createGeoipInvocation(fn, { $geoip_disable: true, $ip: VALID_IP })
+        const execute = (toExecute: CyclotronJobInvocationHogFunction) =>
+            Promise.resolve(createInvocationResult<CyclotronJobInvocationHogFunction>(toExecute))
 
         expect(geoipNoopResult(invocation) !== null).toBe(eligible)
+        expect((await executeGeoipOnSlimEvent(invocation, execute)) !== null).toBe(eligible)
     })
 
     it('rejects a source with a long inner whitespace run in linear time', () => {
@@ -197,7 +200,7 @@ describe('geoipNoopResult', () => {
     ]
 
     it.each(
-        [...shippedSources, { shipped: 'now', eligible: true, source: currentSource }].flatMap(({ shipped, source }) =>
+        eligibleSources.flatMap(({ shipped, source }) =>
             enrichmentCases.flatMap((enrichment) =>
                 (['node', 'rust'] as const).map((vm) => ({ ...enrichment, shipped, source, vm }))
             )
@@ -205,15 +208,14 @@ describe('geoipNoopResult', () => {
     )(
         'enriches an event with $name as a run on the full event does, on the $vm vm (template shipped $shipped)',
         async ({ source, properties, vm }) => {
-            const fn = { hog: source, bytecode: await compileHog(source) }
+            const fn = { hog: source, bytecode: bytecodeBySource.get(source) }
             const run = (invocation: CyclotronJobInvocationHogFunction) =>
                 vm === 'node'
                     ? nodeVm.execute(invocation, { functions: transformationFunctions })
                     : Promise.resolve(rustVm.execute(invocation, [])!)
 
             const onFullEvent = await run(createGeoipInvocation(fn, properties))
-            const invocation = createGeoipInvocation(fn, properties)
-            const result = (await executeGeoipOnSlimEvent(invocation, run)) ?? (await run(invocation))
+            const onSlimEvent = await executeGeoipOnSlimEvent(createGeoipInvocation(fn, properties), run)
 
             const comparable = (r: CyclotronJobInvocationResult) => ({
                 error: r.error,
@@ -221,7 +223,8 @@ describe('geoipNoopResult', () => {
                 logs: r.logs.filter(({ level }) => level !== 'debug').map(({ level, message }) => ({ level, message })),
                 globals: r.invocation.state?.globals,
             })
-            expect(comparable(result)).toEqual(comparable(onFullEvent))
+            expect(onSlimEvent).not.toBeNull()
+            expect(comparable(onSlimEvent!)).toEqual(comparable(onFullEvent))
         }
     )
 
