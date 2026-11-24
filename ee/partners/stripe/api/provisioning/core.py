@@ -29,7 +29,7 @@ from posthog.event_usage import report_user_signed_up
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.models.activity_logging.personal_api_key_utils import OrganizationAdminKeyActionContext
-from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken, lock_oauth_connection
 from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
@@ -139,6 +139,27 @@ def lock_application(application_id: Any) -> OAuthApplication | None:
     `sessions_revoked_at` and rejects. Must be called inside `transaction.atomic()`.
     """
     return OAuthApplication.objects.select_for_update().filter(pk=application_id).first()
+
+
+def lock_partner_connections_for_team(application_id: Any, team_id: int) -> None:
+    """Take the connection lock of every user whose tokens from ``application_id`` cover ``team_id``.
+
+    Token refresh holds the connection lock while it copies a refresh token's teams into new tokens.
+    A removal that takes these locks first, before the application row lock as
+    ``lock_oauth_connection`` requires, waits for a refresh in flight and makes a later refresh read
+    the narrowed teams. Must be called inside ``transaction.atomic()``.
+    """
+    user_ids = set(
+        OAuthAccessToken.objects.filter(application_id=application_id, scoped_teams__contains=[team_id]).values_list(
+            "user_id", flat=True
+        )
+    ) | set(
+        OAuthRefreshToken.objects.filter(application_id=application_id, scoped_teams__contains=[team_id]).values_list(
+            "user_id", flat=True
+        )
+    )
+    for user_id in sorted(user_id for user_id in user_ids if user_id is not None):
+        lock_oauth_connection(user_id=user_id, application_id=application_id)
 
 
 # ---------------------------------------------------------------------------

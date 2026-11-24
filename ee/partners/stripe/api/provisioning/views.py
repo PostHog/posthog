@@ -69,6 +69,7 @@ from ee.partners.stripe.api.provisioning.core import (
     is_safe_deep_link_path,
     is_stripe_oauth_app,
     lock_application,
+    lock_partner_connections_for_team,
     maybe_create_provisioned_pat,
     region_to_host,
     remove_team_from_token_scopes,
@@ -946,9 +947,11 @@ class ResourceRemoveView(StripeResourceAPIView):
         # One transaction, so a failure keeps the mapping, the token scopes and the keys, and the partner
         # can retry the removal. A deleted mapping alone drops the team from the next refreshed token.
         with transaction.atomic():
-            # Before the mapping and the tokens, like token refresh, so a refresh that runs during the
-            # removal waits for it and computes its scope without the removed team.
+            # Connection locks, then the application lock, before the mapping and the tokens: the
+            # order both token refresh paths take them, so a refresh that runs during the removal
+            # waits for it and then reads its scope without the removed team.
             if access_token.application_id is not None:
+                lock_partner_connections_for_team(access_token.application_id, team_id)
                 lock_application(access_token.application_id)
             try:
                 # Clear the mapping only if it is unclaimed or owned by the caller's
