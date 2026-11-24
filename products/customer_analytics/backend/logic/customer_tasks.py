@@ -156,6 +156,15 @@ def _visible_task_queryset(team_id: int, user_access_control: UserAccessControl)
     ).filter(account_filter)
 
 
+def filter_customer_tasks_on_visible_accounts(
+    team_id: int, user_access_control: UserAccessControl
+) -> QuerySet[CustomerTask]:
+    visible_account_ids = _visible_account_queryset(team_id, user_access_control).values("id")
+    return CustomerTask.objects.for_team(team_id).filter(
+        Q(account__isnull=True) | Q(account_id__in=visible_account_ids)
+    )
+
+
 def _account_for_write(team_id: int, account_id: UUID | None, user_access_control: UserAccessControl) -> Account | None:
     if account_id is None:
         return None

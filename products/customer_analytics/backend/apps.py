@@ -13,6 +13,29 @@ class CustomerAnalyticsConfig(AppConfig):
         self._register_person_property_hooks()
         self._register_account_property_hooks()
         self._register_workflows_account_audience()
+        self._register_tag_visibility()
+
+    def _register_tag_visibility(self) -> None:
+        """Make tag usage counts follow the rules this product's lists apply: a customer task is hidden
+        when its account is, and an account note is visible through its account."""
+        from posthog.models.tag_visibility import register_tag_visibility_filter, register_tag_visibility_grant
+
+        def _customer_tasks(team_id: int, user_id: int, user_access_control):
+            from products.customer_analytics.backend.logic.customer_tasks import (  # noqa: PLC0415
+                filter_customer_tasks_on_visible_accounts,
+            )
+
+            return filter_customer_tasks_on_visible_accounts(team_id, user_access_control)
+
+        def _account_notes(team_id: int, user_id: int, user_access_control):
+            from products.customer_analytics.backend.facade.api import (  # noqa: PLC0415
+                _filter_account_note_links_on_visible_accounts,
+            )
+
+            return _filter_account_note_links_on_visible_accounts(team_id, user_access_control)
+
+        register_tag_visibility_filter("customer_analytics.CustomerTask", _customer_tasks)
+        register_tag_visibility_grant("notebooks.Notebook", _account_notes, object_id_field="notebook_id")
 
     def _register_workflows_account_audience(self) -> None:
         """Give the workflows batch trigger its account-audience implementation without

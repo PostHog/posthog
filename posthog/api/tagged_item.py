@@ -1,12 +1,15 @@
+import operator
 import dataclasses
 from collections import defaultdict
 from collections.abc import Collection, Iterable, Sequence
+from functools import reduce
 from typing import TYPE_CHECKING, Any, Optional, cast
 from uuid import UUID
 
 from django.apps import apps
 from django.db import models
-from django.db.models import Count, Prefetch, Q, QuerySet, prefetch_related_objects
+from django.db.models import Count, Exists, OuterRef, Prefetch, Q, QuerySet, Subquery, prefetch_related_objects
+from django.db.models.functions import Coalesce
 
 from drf_spectacular.utils import OpenApiParameter, OpenApiTypes, extend_schema
 from rest_framework import response, serializers, status, viewsets
@@ -19,6 +22,7 @@ from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Tag, TaggedItem
 from posthog.models.activity_logging.activity_log import Change, Detail, LogActivityEntry, bulk_log_activity
 from posthog.models.tag import tagify
+from posthog.models.tag_visibility import TagVisibilityRule, get_tag_visibility_filters, get_tag_visibility_grants
 from posthog.models.tagged_item_registry import (
     TAGGABLE_MODELS,
     TaggableModel,
@@ -29,6 +33,7 @@ from posthog.permissions import is_service_auth
 from posthog.scopes.catalog import APIScopeObject
 
 from products.access_control.backend.facade.user_access_control import (
+    UserAccessControl,
     access_level_satisfied_for_resource,
     model_to_resource,
 )
@@ -528,6 +533,11 @@ def get_taggable_resource(entry: TaggableModel) -> APIScopeObject | None:
     return _TAGGABLE_RESOURCE_OVERRIDES.get(entry.model_label) or model_to_resource(apps.get_model(entry.model_label))
 
 
+def _matches_rule(rule: TagVisibilityRule, context: tuple[int, int, UserAccessControl], entry: TaggableModel) -> Exists:
+    # nosemgrep: orm-field-injection -- both field names come from code: a registered rule and the TAGGABLE_MODELS registry
+    return Exists(rule.resolver(*context).filter(**{rule.object_id_field: OuterRef(entry.object_field)}))
+
+
 class _TagCountPagination(BoundedLimitOffsetPagination):
     default_limit = 100
     max_limit = 100
@@ -594,14 +604,11 @@ class TaggedItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         if object_type is not None:
             entry = taggable_for_legacy_field(object_type)
             assert entry is not None
-            usage_count = Count(
-                "tagged_items",
-                filter=Q(tagged_items__content_type=content_type_for_entry(entry)) & visible_tagged_items,
-            )
+            usage_count = self._count_tagged_items(visible_tagged_items & Q(content_type=content_type_for_entry(entry)))
         else:
-            usage_count = Count("tagged_items", filter=visible_tagged_items)
+            usage_count = self._count_tagged_items(visible_tagged_items)
         annotated_tags = base_tags.annotate(
-            usage_count=usage_count, total_count=Count("tagged_items", filter=visible_tagged_items)
+            usage_count=usage_count, total_count=self._count_tagged_items(visible_tagged_items)
         )
 
         ordered_tags = annotated_tags.values("name", "usage_count", "total_count").order_by("-usage_count", "name")
@@ -617,31 +624,49 @@ class TaggedItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             results = [row["name"] for row in counted_page]
         return count_paginator.get_paginated_response(results)
 
+    def _count_tagged_items(self, tagged_items_filter: Q) -> Coalesce:
+        counted = (
+            TaggedItem.objects.filter(team_id=self.team_id, tag_id=OuterRef("pk"))
+            .filter(tagged_items_filter)
+            .order_by()
+            .values("tag_id")
+            .annotate(count=Count("*"))
+            .values("count")
+        )
+        return Coalesce(Subquery(counted), 0)
+
     def _get_visible_tagged_items_filter(self) -> Q:
         visible = Q()
         if is_service_auth(self.request):
             return visible
+        user_id = cast("User", self.request.user).id
         for entry in TAGGABLE_MODELS:
-            model = apps.get_model(entry.model_label)
+            content_type = content_type_for_entry(entry)
             resource = get_taggable_resource(entry)
             if resource is None:
-                visible &= ~Q(tagged_items__content_type=content_type_for_entry(entry))
+                visible &= ~Q(content_type=content_type)
                 continue
-            include_all_if_admin = resource in RESOURCES_WITH_IMPLICIT_ADMIN_ACCESS
-            access = self.user_access_control.list_access_filter(resource, include_all_if_admin=include_all_if_admin)
-            if access is None or (not access.only_allowed and not access.blocked_ids):
+            context = (self.team_id, user_id, self.user_access_control)
+            # Correlated per tagged item, so a request only checks the tagged items of the tags it counts.
+            conditions = [_matches_rule(rule, context, entry) for rule in get_tag_visibility_filters(entry.model_label)]
+            access_controlled = self._get_access_controlled_objects(entry, resource)
+            if access_controlled is not None:
+                conditions.append(Exists(access_controlled.filter(pk=OuterRef(entry.object_field))))
+            if not conditions:
                 continue
-            content_type = content_type_for_entry(entry)
-            tagged_objects = model._base_manager.filter(
-                pk__in=TaggedItem.objects.filter(team_id=self.team_id, content_type=content_type).values(
-                    entry.object_field
-                )
-            )
-            visible_objects = self.user_access_control.filter_queryset_by_access_level(
-                tagged_objects, include_all_if_admin=include_all_if_admin, resource=resource
-            )
-            # nosemgrep: orm-field-injection -- object_field comes from the fixed TAGGABLE_MODELS registry
-            visible &= ~Q(tagged_items__content_type=content_type) | Q(
-                **{f"tagged_items__{entry.object_field}__in": visible_objects.values("pk")}
-            )
+            is_allowed = Q(reduce(operator.and_, conditions))
+            for rule in get_tag_visibility_grants(entry.model_label):
+                is_allowed |= Q(_matches_rule(rule, context, entry))
+            visible &= ~Q(content_type=content_type) | is_allowed
         return visible
+
+    def _get_access_controlled_objects(self, entry: TaggableModel, resource: APIScopeObject) -> QuerySet | None:
+        include_all_if_admin = resource in RESOURCES_WITH_IMPLICIT_ADMIN_ACCESS
+        access = self.user_access_control.list_access_filter(resource, include_all_if_admin=include_all_if_admin)
+        if access is None or (not access.only_allowed and not access.blocked_ids):
+            return None
+        return self.user_access_control.filter_queryset_by_access_level(
+            apps.get_model(entry.model_label)._base_manager.all(),
+            include_all_if_admin=include_all_if_admin,
+            resource=resource,
+        )

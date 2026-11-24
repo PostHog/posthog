@@ -62,6 +62,7 @@ from products.customer_analytics.backend.models import (
 from products.customer_analytics.backend.test.factories import (
     create_account,
     create_custom_property_definition,
+    create_customer_task,
     enroll_account,
 )
 from products.event_definitions.backend.models import PropertyDefinition
@@ -1974,6 +1975,45 @@ class TestCustomerAnalyticsAccessControl(APIBaseTest):
 
         create_response = self.client.post(url, {"title": "x"}, format="json")
         self.assertEqual(create_response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def _block_account_for_viewer(self) -> None:
+        AccessControl.objects.create(
+            team=self.team,
+            resource="account",
+            resource_id=str(self.account.id),
+            access_level="none",
+            organization_member=OrganizationMembership.objects.get(
+                user=self.viewer_user, organization=self.organization
+            ),
+        )
+
+    def _get_tag_counts(self, object_type: str) -> list[dict]:
+        self.client.force_login(self.viewer_user)
+        response = self.client.get(f"/api/projects/{self.team.id}/tags?object_type={object_type}&include_counts=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        return response.json()["results"]
+
+    def test_tag_counts_skip_customer_tasks_on_hidden_accounts(self) -> None:
+        self._block_account_for_viewer()
+        visible_account = Account.objects.for_team(self.team.id).create(team=self.team, name="Visible account")
+        tag = Tag.objects.create(name="renewal", team=self.team)
+        for account in (self.account, visible_account):
+            create_customer_task(team_id=self.team.id, account=account).tagged_items.create(tag=tag)
+
+        self.assertEqual(self._get_tag_counts("customer_task"), [{"tag": "renewal", "count": 1, "total_count": 1}])
+
+    def test_tag_counts_include_account_notes_without_notebook_access(self) -> None:
+        self._set_access_level(self.viewer_user, resource="notebook", access_level="none")
+        self._block_account_for_viewer()
+        visible_account = Account.objects.for_team(self.team.id).create(team=self.team, name="Visible account")
+        tag = Tag.objects.create(name="renewal", team=self.team)
+        for account in (self.account, visible_account, None):
+            notebook = Notebook.objects.create(team=self.team, visibility=Notebook.Visibility.INTERNAL)
+            notebook.tagged_items.create(tag=tag)
+            if account is not None:
+                ResourceNotebook.objects.create(notebook=notebook, account=account)
+
+        self.assertEqual(self._get_tag_counts("notebook"), [{"tag": "renewal", "count": 1, "total_count": 1}])
 
     @parameterized.expand(
         [
