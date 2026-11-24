@@ -157,6 +157,39 @@ describe('paymentEntryLogic', () => {
             expect(toastInfoSpy).not.toHaveBeenCalled()
         })
 
+        it.each([
+            ['startPaymentEntryFlow', 'the activate answer', 0],
+            ['upgradeProducts', 'the activate answer', 0],
+            ['startPaymentEntryFlow', 'the billing read that follows the answer', 1],
+        ] as const)('refuses %s again before %s and still completes the first', async (action, _, billingReads) => {
+            const activateAnswer = deferred<[number, unknown]>()
+            const billingRead = deferred<[number, unknown]>()
+            const activate = jest.fn(() => activateAnswer.promise)
+            const readBilling = jest.fn(() => billingRead.promise)
+            useMocks({ post: { '/api/billing/activate': activate }, get: { '/api/billing': readBilling } })
+            logic = paymentEntryLogic()
+            logic.mount()
+            const pushSpy = jest.spyOn(router.actions, 'push')
+            const start = (): void =>
+                action === 'upgradeProducts'
+                    ? logic.actions.upgradeProducts('scale:scale', '/replay/home')
+                    : logic.actions.startPaymentEntryFlow(null, '/replay/home')
+
+            start()
+            await waitFor(() => expect(activate).toHaveBeenCalledTimes(1))
+            if (billingReads) {
+                activateAnswer.resolve([200, { success: true }])
+            }
+            await waitFor(() => expect(readBilling).toHaveBeenCalledTimes(billingReads))
+            start()
+            activateAnswer.resolve([200, { success: true }])
+            billingRead.resolve([200, { customer_id: 'cus_test', subscription_level: 'paid' }])
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(activate).toHaveBeenCalledTimes(1)
+            expect(pushSpy).toHaveBeenCalledWith('/replay/home', expect.objectContaining({ upgraded: 'true' }))
+        })
+
         it('surfaces a toast when activate throws', async () => {
             // 500 body is unused — api.create rejects on non-2xx before reading JSON.
             setupActivate([500])

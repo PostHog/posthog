@@ -332,32 +332,42 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>([
             searchParams: CompletionParams,
             errorMessage: string
         ): Promise<void> => {
-            await runPaymentStep(
-                () => billingActivateCreate({ organization_id: organizationId, ...body }),
-                async (response) => {
-                    if (response.success) {
-                        await asyncActions.completePaymentFlow(redirectPath, searchParams)
-                        return
+            cache.activationInFlight = true
+            try {
+                await runPaymentStep(
+                    () => billingActivateCreate({ organization_id: organizationId, ...body }),
+                    async (response) => {
+                        if (response.success) {
+                            await asyncActions.completePaymentFlow(redirectPath, searchParams)
+                            return
+                        }
+                        actions.setLoading(false)
+                        if (response.must_setup_payment) {
+                            actions.showPaymentEntryModal()
+                        } else {
+                            lemonToast.error(response.error || 'Failed to activate subscription')
+                        }
+                    },
+                    (error) => {
+                        actions.setLoading(false)
+                        posthog.captureException(new Error(errorMessage, { cause: error }))
+                        lemonToast.error('Failed to activate subscription. Please try again.')
                     }
-                    actions.setLoading(false)
-                    if (response.must_setup_payment) {
-                        actions.showPaymentEntryModal()
-                    } else {
-                        lemonToast.error(response.error || 'Failed to activate subscription')
-                    }
-                },
-                (error) => {
-                    actions.setLoading(false)
-                    posthog.captureException(new Error(errorMessage, { cause: error }))
-                    lemonToast.error('Failed to activate subscription. Please try again.')
-                }
-            )
+                )
+            } finally {
+                cache.activationInFlight = false
+            }
         }
 
         // Replacing a submitted flow would drop its result, so a new flow waits until it settles.
         const startFlow = (redirectPath: string | null): string | null => {
             if (values.paymentSubmitted) {
                 lemonToast.info("We're still confirming your last payment.")
+                return null
+            }
+            // A new flow would drop the response of the activation in flight, and overlapping activations can
+            // make billing create more than one subscription.
+            if (cache.activationInFlight) {
                 return null
             }
             const organizationId = organizationLogic.values.currentOrganization?.id
