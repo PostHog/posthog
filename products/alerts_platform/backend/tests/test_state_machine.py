@@ -455,7 +455,6 @@ class TestFiringEpisode:
                 AlertState.NOT_FIRING,
                 episode(STARTED, ended=True),
             ),
-            # An error moves no firing, so the check that recovers the alert ends or continues it.
             ("errored", LOGS_ALERT_POLICY, AlertState.FIRING, STARTED, AlertState.ERRORED, episode(STARTED)),
             (
                 "recovered_after_an_error",
@@ -557,7 +556,6 @@ class TestIncidentAction:
             ("snoozed_while_clear", SNOOZE_UNTIL_CLEAR, AlertState.NOT_FIRING, None, AlertState.SNOOZED, None),
             ("awaiting_resolve", LOGS_ALERT_POLICY, AlertState.FIRING, None, AlertState.PENDING_RESOLVE, None),
             ("refired_while_awaiting", LOGS_ALERT_POLICY, AlertState.PENDING_RESOLVE, None, AlertState.FIRING, None),
-            # An error keeps the firing and its incident, so the check that recovers the alert closes it.
             ("errored_while_firing", LOGS_ALERT_POLICY, AlertState.FIRING, STARTED, AlertState.ERRORED, None),
             (
                 "recovered_after_an_error",

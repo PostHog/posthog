@@ -735,7 +735,6 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             ("paged_firing", False, "hog_function", ("clear",), ({"": IncidentAction.TRIGGER}, True)),
             ("paged_resolve", True, "hog_function", ("clear",), ({"": IncidentAction.RESOLVE}, False)),
             ("paged_firing_that_breaks", True, "hog_function", ("error",), ({}, True)),
-            # The error kept the incident open, so the recovery that follows must close it.
             (
                 "paged_firing_that_recovers_after_an_error",
                 True,
