@@ -25,7 +25,7 @@ const CopyRecipientsSchema = z
 const MessageIdSchema = z
     .string()
     .max(255)
-    .regex(/^<[!-;=?-~]+@[!-;=?-~]+>$/)
+    .regex(/^<[!-;=?A-~]+@[!-;=?-~]+>$/)
 
 export const SES_UNSUPPORTED_ATTACHMENT_EXTENSIONS: ReadonlySet<string> = new Set([
     '.ade',

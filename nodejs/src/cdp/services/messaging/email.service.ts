@@ -124,8 +124,7 @@ export function threadHeaders(thread: CyclotronInvocationQueueParametersEmailTyp
     if (!thread) {
         return []
     }
-    const ids =
-        thread.references.at(-1) === thread.inReplyTo ? thread.references : [...thread.references, thread.inReplyTo]
+    const ids = [...thread.references.filter((id) => id !== thread.inReplyTo), thread.inReplyTo]
     const [root, ...rest] = ids
     const newest: string[] = []
     let length = root.length

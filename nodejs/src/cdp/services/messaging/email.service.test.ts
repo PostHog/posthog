@@ -4095,6 +4095,10 @@ describe('EmailService', () => {
         it.each([
             [[], '<parent@mail.example.com>'],
             [['<root@mail.example.com>'], '<root@mail.example.com> <parent@mail.example.com>'],
+            [
+                ['<root@mail.example.com>', '<parent@mail.example.com>', '<other@mail.example.com>'],
+                '<root@mail.example.com> <other@mail.example.com> <parent@mail.example.com>',
+            ],
         ])('ends References %j with the parent a reply answers', async (references, expected) => {
             invocation.queueParameters = createEmailParams({
                 from: { integrationId: 1 },
