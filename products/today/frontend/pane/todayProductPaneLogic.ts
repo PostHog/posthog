@@ -115,7 +115,7 @@ export interface todayProductPaneLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         config: (arg: any) => TodayProductPaneConfig
         products: (config: TodayProductPaneConfig, featureFlags: FeatureFlagsSet) => TodayPaneProducts
-        matching: (products: any, searchQuery: string) => TodayPaneProducts
+        matching: (products: TodayPaneProducts, searchQuery: string) => TodayPaneProducts
         pinnedRows: (config: TodayProductPaneConfig, shortcutData: FileSystemEntry[]) => HrefPin<string>[]
         matchingPinnedRows: (pinnedRows: HrefPin<string>[], searchQuery: string) => HrefPin<string>[]
         recentRows: (
@@ -142,7 +142,7 @@ export interface todayProductPaneLogicMeta {
         isSearching: (searchQuery: string) => boolean
         noMatches: (
             isSearching: boolean,
-            matching: any,
+            matching: TodayPaneProducts,
             matchingPinnedRows: HrefPin<string>[],
             matchingRecentRows: TodayRecent[]
         ) => boolean
