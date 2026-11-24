@@ -55,8 +55,14 @@ from posthog.renderers import SafeJSONRenderer
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 from products.dashboards.backend.facade.contracts import QueryBatchBusy, QueryBatchInput
-from products.dashboards.backend.facade.enums import QueryBatchEngine, QueryBatchLanguage
+from products.dashboards.backend.facade.enums import (
+    QueryBatchEngine,
+    QueryBatchLanguage,
+    QueryBatchResultFormat,
+    QueryBatchTargetFormat,
+)
 from products.dashboards.backend.v2.cached_tiles import planned_cache_reads
+from products.dashboards.backend.v2.frames import frames_for
 from products.dashboards.backend.v2.telemetry import (
     TelemetryTargetError,
     assert_can_read_logs,
@@ -395,6 +401,56 @@ def _line_head(item: QueryBatchInput) -> bytes:
     return SafeJSONRenderer().render(head)[1:-1]
 
 
+@frozen
+class _LineShape:
+    """How one input's result is written: as the runner returned it, or as frames, with the query text that ran."""
+
+    language: QueryBatchLanguage
+    query: dict[str, Any]
+    canonical: str
+    legend: Optional[str]
+    target_format: Optional[QueryBatchTargetFormat]
+    frames: bool
+
+
+def canonical_query(item: QueryBatchInput, resolved: Optional[ResolvedQuery]) -> str:
+    """The query text the runner ran: the HogQL, PromQL or LogQL, or the query node as sorted JSON. Relative dates
+    stay relative, so the text is the same on every reload."""
+    language = item.target.language
+    if language in (QueryBatchLanguage.PROMQL, QueryBatchLanguage.LOGQL) or resolved is None:
+        return item.target.query
+    if language == QueryBatchLanguage.HOGQL:
+        return str(resolved.query.get("query", item.target.query))
+    return json.dumps(resolved.query, sort_keys=True, separators=(",", ":"), default=str)
+
+
+def _line_shape(
+    item: QueryBatchInput, resolved: Optional[ResolvedQuery], result_format: QueryBatchResultFormat
+) -> _LineShape:
+    return _LineShape(
+        language=item.target.language,
+        query=resolved.query if resolved is not None else {},
+        canonical=canonical_query(item, resolved),
+        legend=item.target.legend,
+        target_format=item.target.format,
+        frames=result_format == QueryBatchResultFormat.FRAMES,
+    )
+
+
+def _provenance(result: dict[str, Any], *, source: str, ms: float) -> dict[str, Any]:
+    """`mode` is `raw` unless the metrics runner read every bucket from precomputed metrics. The runner's own mode is
+    kept as `precompute`."""
+    provenance: dict[str, Any] = {"mode": "raw", "timeline": [{"source": source, "ms": round(ms, 1)}]}
+    runner = result.get("provenance")
+    if isinstance(runner, dict):
+        provenance.update({key: value for key, value in runner.items() if key != "mode" and value is not None})
+        if runner.get("mode") is not None:
+            provenance["precompute"] = runner["mode"]
+            if runner["mode"] == "precomputed":
+                provenance["mode"] = "derived"
+    return provenance
+
+
 def _limit_context(query: dict[str, Any]) -> Optional[LimitContext]:
     # The limit `/query` gives the same query, so a computed miss gets the same timeout there and here.
     if is_async_query(query) or is_insight_actors_query(query) or is_insight_actors_options_query(query):
@@ -408,34 +464,56 @@ def _is_stale(response: object) -> bool:
     return not isinstance(target_age, datetime) or target_age <= now()
 
 
-def _result_line(index: int, response: Any, *, hit: bool, stale: bool) -> dict[str, Any]:
+def _result_line(
+    index: int, response: Any, *, hit: bool, stale: bool, shape: _LineShape, ms: float = 0.0
+) -> dict[str, Any]:
     result = response.model_dump(by_alias=True) if isinstance(response, BaseModel) else response
     if result.get("error"):
         return {"i": index, "error": str(result["error"])}
+    body: dict[str, Any] = {}
+    frames = None
+    if shape.frames:
+        try:
+            frames = frames_for(
+                shape.language, shape.query, result, legend=shape.legend, target_format=shape.target_format
+            )
+        except Exception as e:
+            # A result the converter cannot read is still an answer, so it goes back as the runner returned it.
+            logger.warning("dashboard_v2_query_batch_frames_failed", exc_info=True)
+            capture_exception(e)
+        body["format"] = (QueryBatchResultFormat.FRAMES if frames is not None else QueryBatchResultFormat.RESULT).value
+    if frames is not None:
+        body["frames"] = frames
+    else:
+        body["result"] = result
+    from_cache = hit or result.get("is_cached") is True
     line: dict[str, Any] = {
         "i": index,
         "result": {
-            "result": result,
+            **body,
+            "canonical": shape.canonical,
             "cache": {
                 "key": result.get("cache_key"),
                 "fetchedAt": result.get("last_refresh"),
                 "stale": stale,
                 "hit": hit,
             },
+            "provenance": _provenance(result, source="cache" if from_cache else "engine", ms=ms),
         },
     }
-    if result.get("provenance") is not None:
-        line["result"]["provenance"] = result["provenance"]
     if result.get("hasMore") is True:
         line["truncated"] = True
     return line
 
 
-def _miss_line(index: int, cache_key: Optional[str]) -> dict[str, Any]:
-    return {
-        "i": index,
-        "result": {"result": None, "cache": {"key": cache_key, "fetchedAt": None, "stale": False, "hit": False}},
+def _miss_line(index: int, cache_key: Optional[str], shape: Optional[_LineShape] = None) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "result": None,
+        "cache": {"key": cache_key, "fetchedAt": None, "stale": False, "hit": False},
     }
+    if shape is not None:
+        result["canonical"] = shape.canonical
+    return {"i": index, "result": result}
 
 
 @frozen
@@ -447,6 +525,9 @@ class _ServedKey:
     swr: bool
     cache_only: bool
     query: str
+    # Frames are named by the legend and pivoted by the format, so panels that differ in either render apart.
+    legend: Optional[str]
+    target_format: Optional[QueryBatchTargetFormat]
 
 
 def _served_key(planned: PlannedQuery, item: QueryBatchInput) -> _ServedKey:
@@ -455,6 +536,8 @@ def _served_key(planned: PlannedQuery, item: QueryBatchInput) -> _ServedKey:
         swr=item.swr,
         cache_only=item.cache_only,
         query=json.dumps(planned.upgraded_query, sort_keys=True, default=str),
+        legend=item.target.legend,
+        target_format=item.target.format,
     )
 
 
@@ -578,8 +661,11 @@ class QueryBatch:
         dashboard_id: Optional[int],
         client_query_id: str,
         traceparent: Optional[str] = None,
+        result_format: QueryBatchResultFormat = QueryBatchResultFormat.RESULT,
     ) -> None:
         self._team = team
+        self._result_format = result_format
+        self._shapes: dict[int, _LineShape] = {}
         self._user = user
         self._dashboard_id = dashboard_id
         self._client_query_id = client_query_id
@@ -642,6 +728,8 @@ class QueryBatch:
                 resolved[index] = resolve_query(item, tz=self._team.timezone_info)
             except InvalidTarget as e:
                 self._add_ready({"i": index, "error": str(e)})
+                continue
+            self._shapes[index] = _line_shape(item, resolved[index], self._result_format)
         user_access_control = UserAccessControl(user=self._user, team=self._team)
         if logql:
             try:
@@ -697,8 +785,9 @@ class QueryBatch:
         for index, item in enumerate(inputs):
             if item.target.language != QueryBatchLanguage.LOGQL:
                 continue
+            self._shapes[index] = _line_shape(item, None, self._result_format)
             if item.cache_only:
-                self._add_ready(_miss_line(index, None))
+                self._add_ready(_miss_line(index, None, self._shapes[index]))
             else:
                 to_run.append(index)
         return to_run
@@ -737,7 +826,7 @@ class QueryBatch:
                 planned = planned_queries.get(index)
                 if planned is None:
                     if item.cache_only:
-                        self._add_ready(_miss_line(index, None))
+                        self._add_ready(_miss_line(index, None, self._shapes[index]))
                     else:
                         # Unplannable queries run unplanned below, so `/query`'s own validation reports why.
                         to_run.append(index)
@@ -745,7 +834,7 @@ class QueryBatch:
                 if planned.query_runner.requires_fresh_calculation():
                     # Never served from the cache, cache-only or not, as `/query` never serves it.
                     if item.cache_only:
-                        self._add_ready(_miss_line(index, planned.cache_key))
+                        self._add_ready(_miss_line(index, planned.cache_key, self._shapes[index]))
                     else:
                         to_run.append(index)
                     continue
@@ -756,6 +845,7 @@ class QueryBatch:
                     else:
                         self._add_shared(index, served[same_entry])
                     continue
+                started = monotonic()
                 try:
                     response = run_planned_query(
                         planned,
@@ -771,7 +861,7 @@ class QueryBatch:
                     continue
                 if isinstance(response, CacheMissResponse):
                     if item.cache_only:
-                        self._add_ready(_miss_line(index, planned.cache_key))
+                        self._add_ready(_miss_line(index, planned.cache_key, self._shapes[index]))
                     else:
                         to_run.append(index)
                     continue
@@ -782,7 +872,16 @@ class QueryBatch:
                     served[same_entry] = _RUN_FRESH
                     to_run.append(index)
                     continue
-                body = _render_body(_result_line(index, response, hit=True, stale=stale))
+                line = _result_line(
+                    index,
+                    response,
+                    hit=True,
+                    stale=stale,
+                    shape=self._shapes[index],
+                    ms=(monotonic() - started) * 1000,
+                )
+                body = _render_body(line)
+                del line
                 del response
                 self._read_bytes += len(body)
                 if self._ready_bytes + len(body) > MAX_READY_BYTES:
@@ -925,6 +1024,7 @@ class QueryBatch:
     def _run(self, index: int, query: ResolvedQuery, query_id: str) -> dict[str, Any]:
         if self._cancelled:
             return {"i": index, "error": _FAILED}
+        started = monotonic()
         try:
             response = process_query_dict(
                 self._team,
@@ -939,11 +1039,14 @@ class QueryBatch:
             )
         except Exception as e:
             return _error_line(index, e, team=self._team)
-        return _result_line(index, response, hit=False, stale=False)
+        return _result_line(
+            index, response, hit=False, stale=False, shape=self._shapes[index], ms=(monotonic() - started) * 1000
+        )
 
     def _run_logql(self, index: int, item: QueryBatchInput, budget: Optional[BudgetSpec]) -> dict[str, Any]:
         if self._cancelled:
             return {"i": index, "error": _FAILED}
+        started = monotonic()
         try:
             response = run_logql(
                 team=self._team,
@@ -957,7 +1060,9 @@ class QueryBatch:
             )
         except Exception as e:
             return _error_line(index, e, team=self._team)
-        return _result_line(index, response, hit=False, stale=False)
+        return _result_line(
+            index, response, hit=False, stale=False, shape=self._shapes[index], ms=(monotonic() - started) * 1000
+        )
 
     def _emit(self, line: tuple[int, bytes]) -> None:
         if self._is_cancelled():

@@ -107393,12 +107393,29 @@ export namespace Schemas {
       tile?: string;
     }
 
+    /**
+     * * `result` - Result
+     * * `frames` - Frames
+     */
+    export type QueryBatchResultFormatEnum = typeof QueryBatchResultFormatEnum[keyof typeof QueryBatchResultFormatEnum];
+
+
+    export const QueryBatchResultFormatEnum = {
+      Result: 'result',
+      Frames: 'frames',
+    } as const;
+
     export interface QueryBatchRequest {
       /**
          * The panels' queries, at most 500.
          * @maxItems 500
          */
       queries: QueryBatchQuery[];
+      /** `result` returns each runner's own result. `frames` returns chart-ready frames for trends, metrics, PromQL, HogQL and LogQL targets, and the runner's result for kinds without frames, such as funnels.
+       *
+       * * `result` - Result
+       * * `frames` - Frames */
+      format?: QueryBatchResultFormatEnum;
       /**
          * The dashboard these panels sit on. Its queries then run as that dashboard's tiles, under the dashboard query limits. Never read for anything else.
          * @nullable

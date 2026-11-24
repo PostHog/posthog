@@ -429,6 +429,34 @@ class TestQueryBatchRuns(_QueryBatchMixin, NonAtomicAPIBaseTest):
             [line["result"]["cache"]["key"] for line in second], [line["result"]["cache"]["key"] for line in first]
         )
 
+    def test_frames_format_draws_hogql_as_frames_and_keeps_a_table_node_as_its_result(self) -> None:
+        sql = "select toStartOfDay(now()) as day, 'web' as app, 2 as n union all select toStartOfDay(now()), 'api', 3"
+        queries = [
+            {"target": {"refId": "sql", "language": "hogql", "query": sql, "legend": "{{app}}"}, "time": _LAST_7_DAYS},
+            # A table node has no frame shape, like funnels or retention, so its line keeps the runner's result.
+            _insight("$pageview"),
+        ]
+
+        first = self._lines(queries, format="frames")
+        second = self._lines(queries, format="frames")
+
+        for sql_line, table_line in (first, second):
+            self.assertEqual(sql_line["result"]["format"], "frames")
+            self.assertEqual(
+                [(frame["name"], frame["labels"]) for frame in sql_line["result"]["frames"]],
+                [("web", {"app": "web"}), ("api", {"app": "api"})],
+            )
+            self.assertEqual(sql_line["result"]["canonical"], sql)
+            self.assertNotIn("error", table_line)
+            self.assertEqual(table_line["result"]["format"], "result")
+            self.assertIsInstance(table_line["result"]["result"]["results"], list)
+            self.assertEqual(json.loads(table_line["result"]["canonical"])["kind"], "DataTableNode")
+        self.assertEqual(
+            [[line["result"]["provenance"]["timeline"][0]["source"] for line in lines] for lines in (first, second)],
+            [["engine", "engine"], ["cache", "cache"]],
+        )
+        self.assertEqual({line["result"]["provenance"]["mode"] for line in first + second}, {"raw"})
+
     def test_each_run_is_tagged_for_the_query_log_with_its_tile_target_and_traceparent(self) -> None:
         traceparent = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
         node = json.dumps({"query": _events_node("$pageview")["source"]})
@@ -642,6 +670,31 @@ class TestQueryBatchTelemetryTargets(_QueryBatchMixin, NonAtomicAPIBaseTest):
         self.assertEqual(len(timestamps), 1000)
         self.assertEqual(timestamps[0], 10**18 + returned - 1000)
         self.assertEqual(line.get("truncated"), truncated)
+
+    @time_machine.travel(_NOW, tick=False)
+    def test_frames_format_draws_promql_series_and_log_lines(self) -> None:
+        start = int(_NOW.timestamp()) - 3600
+        streams = {
+            "status": "success",
+            "data": {
+                "resultType": "streams",
+                "result": [{"stream": {"service_name": "api"}, "values": [[str(start * 10**9), "boom"]]}],
+            },
+        }
+        promql_target = {"refId": "p", "language": "promql", "query": "sum(up)", "legend": "job {{job}}"}
+        with _snuffle_requests(200, _matrix(start)):
+            [promql] = self._lines([{"target": promql_target, "time": _LAST_HOUR}], format="frames")
+        with _snuffle_requests(200, streams):
+            [logs] = self._lines([_telemetry("logql", '{service_name="api"}')], format="frames")
+
+        [series] = promql["result"]["frames"]
+        self.assertEqual((series["name"], series["labels"]), ("job api", {"job": "api"}))
+        self.assertEqual(series["meta"]["end"], start * 1000)
+        self.assertEqual(promql["result"]["canonical"], "sum(up)")
+        [table] = logs["result"]["frames"]
+        self.assertEqual(
+            [field["values"] for field in table["fields"]], [[start * 1000], ["boom"], ["service_name=api"]]
+        )
 
     @parameterized.expand([("promql", "sum(rate(up[5m])"), ("logql", "{service_name=")])
     def test_a_rejected_query_is_an_error_line(self, language: str, query: str) -> None:

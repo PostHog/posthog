@@ -74,6 +74,13 @@ class QueryBatchTargetFormat(LabeledStrEnum):
     TABLE = "table", "Table"
 
 
+class QueryBatchResultFormat(LabeledStrEnum):
+    """What a query batch line carries: each runner's own result, or frames any chart can draw."""
+
+    RESULT = "result", "Result"
+    FRAMES = "frames", "Frames"
+
+
 class QueryBatchEngine(LabeledStrEnum):
     """Which events engine a query batch target runs on."""
 
