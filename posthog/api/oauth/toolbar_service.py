@@ -55,11 +55,14 @@ def _get_scope_ceiling() -> list[str]:
     return [scope for scope in settings.TOOLBAR_OAUTH_SCOPES if scope not in ALWAYS_ALLOWED_SCOPES]
 
 
-def _toolbar_application_fields() -> dict[str, str]:
+def _toolbar_application_fields() -> dict[str, str | bool]:
+    # The name alone does not identify the toolbar app, because another client can take the same name.
+    # Only staff can mark an app first-party, and every toolbar app is created first-party.
     return {
         "name": settings.TOOLBAR_OAUTH_APPLICATION_NAME,
         "client_type": OAuthApplication.CLIENT_PUBLIC,
         "authorization_grant_type": OAuthApplication.GRANT_AUTHORIZATION_CODE,
+        "is_first_party": True,
     }
 
 

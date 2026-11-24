@@ -568,7 +568,9 @@ class TestToolbarOAuthScopeCeiling(ToolbarOAuthAuthorizeMixin, APIBaseTest):
         self.team.app_urls = ["https://example.com"]
         self.team.save()
 
-    def _create_app_without_ceiling(self, scopes: list[str], optional_scopes: list[str]) -> OAuthApplication:
+    def _create_app_without_ceiling(
+        self, scopes: list[str], optional_scopes: list[str], is_first_party: bool = True
+    ) -> OAuthApplication:
         return OAuthApplication.objects.create(
             name=settings.TOOLBAR_OAUTH_APPLICATION_NAME,
             user=self.user,
@@ -577,7 +579,7 @@ class TestToolbarOAuthScopeCeiling(ToolbarOAuthAuthorizeMixin, APIBaseTest):
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris=f"{settings.SITE_URL}{CALLBACK_PATH}",
             algorithm="RS256",
-            is_first_party=True,
+            is_first_party=is_first_party,
             scopes=scopes,
             optional_scopes=optional_scopes,
         )
@@ -693,14 +695,29 @@ class TestToolbarOAuthScopeCeiling(ToolbarOAuthAuthorizeMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("wildcard_token_is_revoked", "*", 400, None),
-            ("over_scoped_token_is_narrowed", "openid user:read user:write", 200, {"openid", "user:read"}),
+            ("wildcard_token_is_revoked", "*", True, TOOLBAR_RESOURCE_SCOPES, 400, None),
+            (
+                "over_scoped_token_is_narrowed",
+                "openid user:read user:write",
+                True,
+                TOOLBAR_RESOURCE_SCOPES,
+                200,
+                {"openid", "user:read"},
+            ),
+            (
+                "look_alike_app_keeps_its_scopes",
+                "openid user:read user:write",
+                False,
+                [],
+                200,
+                {"openid", "user:read", "user:write"},
+            ),
         ]
     )
     def test_toolbar_refresh_applies_the_ceiling_without_a_launch(
-        self, _name, token_scope, expected_status, expected_scopes
+        self, _name, token_scope, is_first_party, expected_app_scopes, expected_status, expected_scopes
     ):
-        app = self._create_app_without_ceiling([], [])
+        app = self._create_app_without_ceiling([], [], is_first_party=is_first_party)
         refresh_token = self._create_token_pair(app, token_scope)
 
         def post_to_test_client(url: str, data: dict[str, str], timeout: int) -> requests.Response:
@@ -718,7 +735,7 @@ class TestToolbarOAuthScopeCeiling(ToolbarOAuthAuthorizeMixin, APIBaseTest):
             )
 
         app.refresh_from_db()
-        assert app.scopes == TOOLBAR_RESOURCE_SCOPES
+        assert app.scopes == expected_app_scopes
         assert response.status_code == expected_status, response.content
         if expected_scopes is None:
             assert response.json()["code"] == "invalid_grant"
