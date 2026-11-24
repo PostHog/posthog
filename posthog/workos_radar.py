@@ -30,8 +30,7 @@ import posthoganalytics
 from rest_framework.exceptions import APIException
 
 from posthog.dataclasses import frozen
-from posthog.egress.limiter.policies import Priority
-from posthog.egress.workos_radar import WorkosRadarEgressBudgetExhausted, workos_radar_request
+from posthog.egress.workos_radar import workos_radar_check, workos_radar_report
 from posthog.models.instance_setting import get_instance_setting
 from posthog.turnstile import consume_challenge_nonce, create_challenge_nonce, verify_turnstile_token
 from posthog.utils import _normalize_ip, get_ip_address, get_short_user_agent, get_trusted_client_ip
@@ -383,14 +382,10 @@ def _decide_outcome(verdict: RadarVerdict, email: str, action: RadarAction = Rad
 
 
 def _post_attempt(payload: dict[str, str], timeout: float, action: RadarAction) -> requests.Response:
-    # A person waits on the check, so it runs ahead of the success reports when the budget runs low
-    return workos_radar_request(
-        "POST",
+    return workos_radar_check(
         WORKOS_RADAR_API_URL,
         api_key=settings.WORKOS_RADAR_API_KEY,
         source=action.value,
-        endpoint="attempts",
-        priority=Priority.NORMAL,
         timeout=timeout,
         json=payload,
     )
@@ -466,10 +461,6 @@ def _call_radar_api(
             email_hash=_hash_email(email),
         )
         return RadarAttempt(verdict=RadarVerdict.ERROR)
-    except WorkosRadarEgressBudgetExhausted:
-        # The same outcome as a 429 from WorkOS, reached before the call spends any of its limit
-        logger.warning("workos_radar_budget_exhausted", action=action.value, email_hash=_hash_email(email))
-        return RadarAttempt(verdict=RadarVerdict.ERROR)
     except Exception as e:
         logger.exception(
             "workos_radar_exception",
@@ -486,14 +477,9 @@ def send_attempt_success(attempt_id: str, challenge_completed: bool = False) -> 
     body = {"attempt_status": "success"}
     if challenge_completed:
         body["challenge_status"] = "success"
-    # Raises WorkosRadarEgressBudgetExhausted when the budget runs low, so the report waits for the checks
-    response = workos_radar_request(
-        "PUT",
+    response = workos_radar_report(
         f"{WORKOS_RADAR_API_URL}/{attempt_id}",
         api_key=settings.WORKOS_RADAR_API_KEY,
-        source="success_report",
-        endpoint="attempts/:id",
-        priority=Priority.BATCH,
         timeout=WORKOS_RADAR_TIMEOUT,
         json=body,
     )

@@ -1,25 +1,34 @@
 """WorkOS Radar incarnation of the egress transport.
 
-``workos_radar_request`` is the one way to call the WorkOS Radar API: it gates on the instance's
-shared Radar budget and records telemetry by construction. It stays token-agnostic like the other
+``workos_radar_check`` sends a login or signup check and records it. ``workos_radar_report`` sends a
+success report against the report budget and records it. Both stay token-agnostic like the other
 incarnations, so the caller owns where the API key comes from.
 """
 
 import requests
 
 from posthog.egress.limiter.policies import Priority
-from posthog.egress.transport.transport import EgressBudgetExhausted, EgressClient
-from posthog.egress.workos_radar.limiter import API_KEY_SCOPE_ID, consume_workos_radar_sync
+from posthog.egress.transport.transport import EgressBudgetExhausted, EgressClient, RecordedEgressClient
+from posthog.egress.workos_radar.limiter import API_KEY_SCOPE_ID, consume_workos_radar_report_sync
 from posthog.egress.workos_radar.observability import workos_radar_egress
 
 
 class WorkosRadarEgressBudgetExhausted(EgressBudgetExhausted):
-    """Our egress limiter shed a Radar call before it was sent."""
+    """Our egress limiter shed a success report before it was sent."""
 
 
-class WorkosRadarClient(EgressClient):
-    """The WorkOS Radar incarnation of :class:`EgressClient`. Stateless, so one shared instance
-    serves every caller; wire it through :func:`workos_radar_request`."""
+class WorkosRadarCheckClient(RecordedEgressClient):
+    """Records the checks without a gate, so the login path never waits on the limiter's Redis."""
+
+    observability = workos_radar_egress
+    egress_domain = "workos_radar"
+
+    def _standard_headers(self) -> dict[str, str]:
+        return {"Content-Type": "application/json"}
+
+
+class WorkosRadarReportClient(EgressClient):
+    """Gates the success reports on the report budget."""
 
     observability = workos_radar_egress
     egress_domain = "workos_radar"
@@ -28,40 +37,42 @@ class WorkosRadarClient(EgressClient):
         return {"Content-Type": "application/json"}
 
     def _consume(self, scope: str, priority: Priority, source: str, url: str) -> bool:
-        return consume_workos_radar_sync(priority=priority, source=source)
+        return consume_workos_radar_report_sync(source=source)
 
     def _budget_exhausted_error(self, scope: str) -> WorkosRadarEgressBudgetExhausted:
-        return WorkosRadarEgressBudgetExhausted("WorkOS Radar egress budget exhausted", scope=scope)
+        return WorkosRadarEgressBudgetExhausted("WorkOS Radar report budget exhausted", scope=scope)
 
 
-_workos_radar_client = WorkosRadarClient()
+_check_client = WorkosRadarCheckClient()
+_report_client = WorkosRadarReportClient()
 
 
-def workos_radar_request(
-    method: str,
-    url: str,
-    *,
-    api_key: str,
-    source: str,
-    endpoint: str,
-    priority: Priority,
-    timeout: float,
-    json: dict[str, str],
+def workos_radar_check(
+    url: str, *, api_key: str, source: str, timeout: float, json: dict[str, str]
 ) -> requests.Response:
-    """Make a gated, recorded Radar request. ``source`` attributes the call to a flow.
-
-    There is no default lane. A check that a person waits on passes ``NORMAL``, and a report that
-    can go later passes ``BATCH``. Nothing runs ``CRITICAL``, because every call carries an address
-    that someone typed, and a lane that is never shed would let a flood of them spend the budget.
-    """
-    return _workos_radar_client.request(
-        method,
+    """Send a check and record it. A check is never shed, because a shed check lets the attempt through."""
+    return _check_client.request(
+        "POST",
         url,
         source=source,
         headers={"Authorization": f"Bearer {api_key}"},
         scope=API_KEY_SCOPE_ID,
-        priority=priority,
-        endpoint=endpoint,
+        endpoint="attempts",
+        timeout=timeout,
+        json=json,
+    )
+
+
+def workos_radar_report(url: str, *, api_key: str, timeout: float, json: dict[str, str]) -> requests.Response:
+    """Send a success report against the report budget. Raises WorkosRadarEgressBudgetExhausted when it is spent."""
+    return _report_client.request(
+        "PUT",
+        url,
+        source="success_report",
+        headers={"Authorization": f"Bearer {api_key}"},
+        scope=API_KEY_SCOPE_ID,
+        priority=Priority.BATCH,
+        endpoint="attempts/:id",
         timeout=timeout,
         json=json,
     )

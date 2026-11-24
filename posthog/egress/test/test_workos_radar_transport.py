@@ -5,8 +5,7 @@ from django.test import SimpleTestCase
 import requests
 from prometheus_client import REGISTRY
 
-from posthog.egress.limiter.policies import Priority
-from posthog.egress.workos_radar import workos_radar_request
+from posthog.egress.workos_radar import workos_radar_report
 
 _API_KEY = "sk_test_radar_key"
 _ATTEMPT_ID = "radar_att_01TRANSPORT"
@@ -18,7 +17,7 @@ def _request_count(status_code: str) -> float:
         "method": "PUT",
         "endpoint": "attempts/:id",
         "status_code": status_code,
-        "source": "test",
+        "source": "success_report",
     }
     return REGISTRY.get_sample_value("workos_radar_api_requests_total", labels) or 0
 
@@ -40,13 +39,9 @@ class TestWorkosRadarTransport(SimpleTestCase):
         before = _request_count("200")
 
         with patch("requests.request", return_value=response) as request:
-            workos_radar_request(
-                "PUT",
+            workos_radar_report(
                 f"https://api.workos.com/radar/attempts/{_ATTEMPT_ID}",
                 api_key=_API_KEY,
-                source="test",
-                endpoint="attempts/:id",
-                priority=Priority.BATCH,
                 timeout=1.0,
                 json={"attempt_status": "success"},
             )

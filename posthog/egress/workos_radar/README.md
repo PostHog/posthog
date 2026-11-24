@@ -3,33 +3,35 @@
 ## Identity
 
 WorkOS meters the Radar API per API key, and an instance holds a single Radar key (`WORKOS_RADAR_API_KEY`).
-The whole instance draws from one budget under the key `workos_radar:api_key:default`.
+The report budget uses the key `workos_radar:api_key:default`.
 
 ## Budget
 
 WorkOS allows 1,000 requests per 60 seconds per API key on `/radar/*`, shared by attempts and list operations.
 That limit applies on top of the general limit of 6,000 requests per 60 seconds per API key.
-WorkOS documents no hourly limit, so the policy has one 60-second window.
 
-- `WORKOS_RADAR_EGRESS_PER_MINUTE_BUDGET` (default 800) stays under the WorkOS limit.
-  The gap leaves room for list calls from the WorkOS dashboard and for clock drift between our window and theirs.
+Only the success reports draw from a budget:
 
-When Redis is down, each process gets a quarter of the budget (`in_memory_divider=4`).
+- `WORKOS_RADAR_REPORT_EGRESS_PER_MINUTE_BUDGET` (default 300) caps the success reports.
+  The checks can use the remaining 700 requests per minute.
+- A value under 1 counts as 1, so a bad setting slows the reports but never stops them.
+- When Redis is down, each process gets a quarter of the budget (`in_memory_divider=4`).
+
+The checks have no budget on purpose.
+A shed check lets the attempt through, so a gated check would let a flood of logins turn Radar off for every signup.
+An ungated check also keeps the login path free of limiter calls to Redis.
+A flood that passes the ingress throttles reaches the WorkOS limit and gets a 429, which lets the attempt through, as before this domain existed.
 
 ## Lanes and callers
 
-The default reserve applies, so `BATCH` is shed at 70% of the window and `NORMAL` at 90%.
-`workos_radar_request` has no default lane, so every caller states one.
+The reports are the only gated caller, so the policy is flat (`reserve={}`).
 All callers are in `posthog/workos_radar.py`:
 
-| Call                                    | Source           | Lane     | When the limiter sheds it                                         |
-| --------------------------------------- | ---------------- | -------- | ----------------------------------------------------------------- |
-| `POST /radar/attempts` for a signup     | `signup`         | `NORMAL` | The check records an `error` verdict and the signup goes through. |
-| `POST /radar/attempts` for a login      | `login`          | `NORMAL` | The check records an `error` verdict and the login goes through.  |
-| `PUT /radar/attempts/:id` after success | `success_report` | `BATCH`  | The Celery task retries the report later.                         |
-
-A shed check lets the attempt through, which is what a WorkOS 429 or a timeout already did.
-Nothing runs `CRITICAL`, because every call carries an address that someone typed.
+| Call                                    | Helper                | Source           | Gate                                                           |
+| --------------------------------------- | --------------------- | ---------------- | -------------------------------------------------------------- |
+| `POST /radar/attempts` for a signup     | `workos_radar_check`  | `signup`         | None. Recorded only.                                           |
+| `POST /radar/attempts` for a login      | `workos_radar_check`  | `login`          | None. Recorded only.                                           |
+| `PUT /radar/attempts/:id` after success | `workos_radar_report` | `success_report` | `BATCH`. A shed report raises, and the Celery task retries it. |
 
 ## Rate-limit headers
 

@@ -2011,7 +2011,7 @@ class TestSignupChallengeAPI(APIBaseTest):
         self.assertEqual(data["extra"]["turnstile_site_key"], "site_key_123")
 
     @pytest.mark.skip_on_multitenancy
-    @patch("posthog.workos_radar.workos_radar_request")
+    @patch("posthog.workos_radar.workos_radar_report")
     @patch("posthog.workos_radar.verify_turnstile_token", return_value=True)
     @patch("posthog.workos_radar.consume_challenge_nonce", return_value="radar_att_01ABC")
     @patch("posthog.workos_radar._log_radar_event")
@@ -2041,7 +2041,7 @@ class TestSignupChallengeAPI(APIBaseTest):
         self.assertEqual(user.first_name, "John")
         mock_call_api.assert_not_called()
         mock_put.assert_called_once()
-        assert mock_put.call_args[0][1] == "https://api.workos.com/radar/attempts/radar_att_01ABC"
+        assert mock_put.call_args[0][0] == "https://api.workos.com/radar/attempts/radar_att_01ABC"
         assert mock_put.call_args[1]["json"] == {"attempt_status": "success", "challenge_status": "success"}
 
     @pytest.mark.skip_on_multitenancy
@@ -3453,7 +3453,7 @@ class TestInviteSignupAPI(APIBaseTest):
         # AND then
         self.assertEqual(response.json()["detail"], f"/login?next=/signup/{invite.id}")
 
-    @patch("posthog.workos_radar.workos_radar_request")
+    @patch("posthog.workos_radar.workos_radar_report")
     @patch("posthog.workos_radar.verify_turnstile_token", return_value=True)
     @patch("posthog.workos_radar.consume_challenge_nonce", return_value="radar_att_02DEF")
     @patch("posthog.workos_radar._log_radar_event")
@@ -3480,7 +3480,7 @@ class TestInviteSignupAPI(APIBaseTest):
             )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        assert [c[0][1] for c in mock_put.call_args_list] == ["https://api.workos.com/radar/attempts/radar_att_02DEF"]
+        assert [c[0][0] for c in mock_put.call_args_list] == ["https://api.workos.com/radar/attempts/radar_att_02DEF"]
         user = User.objects.get(email="challenge+test@posthog.com")
         self.assertEqual(user.first_name, "Challenged")
         mock_consume_nonce.assert_called_once()
