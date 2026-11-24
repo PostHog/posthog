@@ -491,7 +491,7 @@ def format_usage_message(
         lines.append(f"**Remaining**: {remaining:,} credits\n")
     else:
         overage = abs(remaining)
-        lines.append(f"**Overage**: {overage:,} credits over limit\n")
+        lines.append(f"**Overage**: {overage:,} credits over the free tier\n")
 
     # Conversation start (optional context)
     if conversation_start:
