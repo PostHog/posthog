@@ -510,6 +510,8 @@ test('an answer hoglint could not complete, or one this script cannot read, isol
         ['not json', 'unavailable'],
         [watchedAnswer({ format: 2 }), 'unavailable'],
         [JSON.stringify({ format: 1 }), 'unavailable'],
+        [watchedAnswer({ groups: { canvas: { passes: true, watched: ['products/canvas/backend/facade/api.py'] } } }), 'unavailable'],
+        [watchedAnswer({ groups: { canvas: { passes: true, watched: 'products/canvas/backend/facade/api.py' } } }), 'unavailable'],
         [watchedAnswer({ complete: false, problems: ['wiring-watched: cannot read every item of ...'] }), 'incomplete'],
     ]
     for (const [text, status] of cases) {

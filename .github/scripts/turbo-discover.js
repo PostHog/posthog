@@ -517,6 +517,8 @@ function unreadWatchedSets(status, digest = null) {
     return { status, digest, isolated: new Set(), watched: new Map() }
 }
 
+const isPlainObject = (value) => typeof value === 'object' && value !== null && !Array.isArray(value)
+
 // Reads the JSON of `hoglint watched` into { status, digest, isolated, watched }:
 //   status    'ok'; 'incomplete' when hoglint says an unknown can make a set too small;
 //             'unavailable' when the text is no answer in the format this script reads
@@ -547,8 +549,10 @@ function parseWatchedAnswer(text) {
     const isolated = new Set()
     const watched = new Map()
     for (const [product, group] of Object.entries(answer.groups)) {
-        if (typeof group?.watched !== 'object' || group.watched === null) {
-            continue
+        // An empty set would read as "no watched file changed" and skip Django.
+        if (!isPlainObject(group?.watched)) {
+            console.error(`::warning::hoglint's watched answer has no readable watched files for ${product} — no product counts as isolated`)
+            return unreadWatchedSets('unavailable', digest)
         }
         watched.set(product, new Set(Object.keys(group.watched)))
         if (group.passes === true) {
