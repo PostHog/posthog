@@ -133,6 +133,7 @@ from products.aeo.backend.scope import SCOPE_SQL, CheckScope, scope_filter, scop
 from products.aeo.backend.seeding import PromptCandidate, normalize_prompt, prompt_hash, upsert_prompts
 from products.aeo.backend.stored_results import stored_result
 from products.aeo.backend.tasks.tasks import (
+    enrich_aeo_check_brands_task,
     recompute_aeo_own_citations_task,
     set_up_aeo_task,
     suggest_aeo_keywords_task,
@@ -1049,6 +1050,7 @@ def create_brand(team_id: int, new: BrandCreate) -> Brand:
         raise duplicate from error
     if catalog.counts_as_own(brand.kind, brand.status):
         _recompute_own_citations_on_commit(brand.team_id)
+    _enrich_check_brands_on_commit(brand.team_id)
     return _to_brand(brand)
 
 
@@ -1074,6 +1076,10 @@ def update_brand(team_id: int, brand_id: str, change: BrandUpdate) -> Brand:
     # like no change and still make the brand own together. A recompute with nothing stale writes nothing.
     if "kind" in changed or "status" in changed:
         _recompute_own_citations_on_commit(brand.team_id)
+    # Kind and status only label the brand rows, which reads join to the catalog. A new name or alias
+    # changes which answers name the brand.
+    if "name" in changed or "aliases" in changed:
+        _enrich_check_brands_on_commit(brand.team_id)
     return _to_brand(brand)
 
 
@@ -1090,6 +1096,21 @@ def _recompute_own_citations_on_commit(team_id: int) -> None:
                 f"aeo_own_citations_recompute_queued:{team_id}", 1, nx=True, ex=RECOMPUTE_DEBOUNCE_SECONDS
             ):
                 recompute_aeo_own_citations_task.apply_async((team_id,), countdown=RECOMPUTE_DEBOUNCE_SECONDS)
+        except Exception as error:
+            capture_exception(error, {"team_id": team_id})
+
+    transaction.on_commit(enqueue)
+
+
+def _enrich_check_brands_on_commit(team_id: int) -> None:
+    """A brand that is new or now goes by other names has its matches resolved again across the stored
+    answers, in the background, once the change is visible to the task. Edits within the debounce window
+    share one task. When the enqueue fails, the refresh beat finds the stale brand and starts the pass."""
+
+    def enqueue() -> None:
+        try:
+            if get_client().set(f"aeo_check_brands_enrich_queued:{team_id}", 1, nx=True, ex=RECOMPUTE_DEBOUNCE_SECONDS):
+                enrich_aeo_check_brands_task.apply_async((team_id,), countdown=RECOMPUTE_DEBOUNCE_SECONDS)
         except Exception as error:
             capture_exception(error, {"team_id": team_id})
 
