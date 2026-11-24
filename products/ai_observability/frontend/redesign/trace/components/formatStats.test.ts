@@ -69,7 +69,7 @@ describe('formatStats', () => {
         ],
         ['cache writes without reads', { cacheWriteTokens: 1585 }, ['1,585 cache write']],
     ])('statParts omits unknown stats for %s', (_label, stats, expected) => {
-        expect(statParts({ ...unknownStats, ...stats })).toEqual(expected)
+        expect(statParts({ ...unknownStats, ...stats }).map((part) => part.text)).toEqual(expected)
     })
 
     it.each<[string, Partial<TraceNodeStatsApi>, string[]]>([
@@ -78,6 +78,6 @@ describe('formatStats', () => {
         ['only output tokens', { outputTokens: 5, latencyMs: 420 }, ['420ms', '5 tok']],
         ['nothing known', {}, []],
     ])('compactStatParts with %s', (_label, stats, expected) => {
-        expect(compactStatParts({ ...unknownStats, ...stats })).toEqual(expected)
+        expect(compactStatParts({ ...unknownStats, ...stats }).map((part) => part.text)).toEqual(expected)
     })
 })

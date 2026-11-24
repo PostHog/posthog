@@ -95,7 +95,7 @@ from ..logic.traces.summary_store import fail_abandoned_summary, request_summary
 from ..logic.traces.survey_feedback import THUMBS_UP, answer_kind, count_thumbs, survey_window
 from ..logic.traces.team_recipes import save_team_recipe, team_normalizer, team_normalizer_with
 from ..logic.traces.timeline import TimelineRow
-from ..logic.traces.trace import Trace
+from ..logic.traces.trace import Trace, read_completeness
 from ..logic.traces.trace_export import (
     MAX_TRACE_EXPORT_BYTES,
     TRACE_EXPORT_FORMAT,
@@ -195,7 +195,10 @@ def get_trace(team: Team, user: User | None, trace_id: str, timestamp_hint: date
     loaded = load_trace(team, user, trace_id, timestamp_hint)
     if not loaded.rows:
         raise TraceNotFoundError(trace_id)
-    return _to_trace(Trace(trace_id, loaded.rows, loaded.person, partial=loaded.truncated))
+    completeness = read_completeness(
+        truncated=loaded.truncated, first_timestamp=loaded.rows[0].timestamp, read_start=loaded.read_start
+    )
+    return _to_trace(Trace(trace_id, loaded.rows, loaded.person, completeness=completeness))
 
 
 def resolve_trace_window(team: Team, date_from: str | None, date_to: str | None) -> TraceWindow:
@@ -244,23 +247,18 @@ def _list_items(
     found = [position for position in positions if position.trace_id in loaded]
     reviews = load_trace_review_states(team, user, [position.trace_id for position in found])
     return [
-        _to_list_item(
-            Trace(
-                position.trace_id,
-                loaded[position.trace_id].rows,
-                None,
-                partial=_is_partial(window, position, loaded[position.trace_id]),
-            ),
-            reviews[position.trace_id],
-        )
+        _to_list_item(_page_trace(window, position, loaded[position.trace_id]), reviews[position.trace_id])
         for position in found
     ]
 
 
-def _is_partial(window: TraceWindow, position: TracePosition, rows: PageTraceRows) -> bool:
-    # A trace read from `posthog.ai_events` is read by id without a time bound, so only a shared table read, which is
-    # bounded by the trace's first timestamp, can miss the events before it.
-    return rows.truncated or (rows.from_shared_table and window.may_read_a_suffix_of(position.first_timestamp))
+def _page_trace(window: TraceWindow, position: TracePosition, rows: PageTraceRows) -> Trace:
+    completeness = read_completeness(
+        truncated=rows.truncated,
+        first_timestamp=position.first_timestamp,
+        read_start=window.read_bounds().start if rows.from_shared_table else None,
+    )
+    return Trace(position.trace_id, rows.rows, None, completeness=completeness)
 
 
 def load_trace_previews(
@@ -466,6 +464,7 @@ def _to_overview(trace: Trace) -> contracts.TraceOverview:
         has_error=trace.has_error,
         error_count=trace.error_count,
         totals_partial=trace.partial,
+        cost_and_latency_partial=trace.cost_and_latency_partial,
     )
 
 
