@@ -1,0 +1,47 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "message_data": {
+            "additionalProperties": {},
+            "description": "Values for the template's {{ variables.* }} placeholders that every recipient shares, keyed by variable name.",
+            "propertyNames": {
+                "type": "string"
+            },
+            "type": "object"
+        },
+        "recipients": {
+            "description": "Who gets the notification: 1 to 100 people, each sent their own notification with its own `message_id`.",
+            "items": {
+                "properties": {
+                    "distinct_id": {
+                        "description": "Distinct ID of the person to notify. The notification goes to every device this person registered for the template's push channels. A person with no registered device gets nothing, and the send shows as skipped in the template's sends.",
+                        "maxLength": 400,
+                        "type": "string"
+                    },
+                    "idempotency_key": {
+                        "description": "A unique key for this recipient's notification, 1 to 255 visible ASCII characters, different for each recipient of the batch. Retrying with the same key and the same notification within 24 hours sends nothing new and returns the first send's `message_id`, also when the first send was a single send.",
+                        "type": "string"
+                    },
+                    "message_data": {
+                        "additionalProperties": {},
+                        "description": "Values for this recipient's {{ variables.* }} placeholders, merged over the batch's `message_data`: a top-level key set here replaces the same key there.",
+                        "propertyNames": {
+                            "type": "string"
+                        },
+                        "type": "object"
+                    }
+                },
+                "required": ["distinct_id", "idempotency_key"],
+                "type": "object"
+            },
+            "maxItems": 100,
+            "type": "array"
+        },
+        "template_id": {
+            "description": "ID of a push template made transactional, which holds the notification's title, body and push channels.",
+            "type": "string"
+        }
+    },
+    "required": ["template_id", "recipients"],
+    "type": "object"
+}
