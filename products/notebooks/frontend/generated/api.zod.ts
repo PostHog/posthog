@@ -447,9 +447,7 @@ export const NotebooksCreateBody = /* @__PURE__ */ zod.object({
             zod.null(),
         ])
         .optional()
-        .describe(
-            'Published app layout. Cell content and results remain linked to the notebook. Null unpublishes the app.'
-        ),
+        .describe('Publish this layout with the saved notebook sources and input defaults. Null unpublishes the app.'),
     app_revision: zod
         .number()
         .min(notebooksCreateBodyAppRevisionMin)
@@ -830,9 +828,7 @@ export const NotebooksUpdateBody = /* @__PURE__ */ zod.object({
             zod.null(),
         ])
         .optional()
-        .describe(
-            'Published app layout. Cell content and results remain linked to the notebook. Null unpublishes the app.'
-        ),
+        .describe('Publish this layout with the saved notebook sources and input defaults. Null unpublishes the app.'),
     app_revision: zod
         .number()
         .min(notebooksUpdateBodyAppRevisionMin)
@@ -1215,9 +1211,7 @@ export const NotebooksPartialUpdateBody = /* @__PURE__ */ zod.object({
             zod.null(),
         ])
         .optional()
-        .describe(
-            'Published app layout. Cell content and results remain linked to the notebook. Null unpublishes the app.'
-        ),
+        .describe('Publish this layout with the saved notebook sources and input defaults. Null unpublishes the app.'),
     app_revision: zod
         .number()
         .min(notebooksPartialUpdateBodyAppRevisionMin)
@@ -1768,9 +1762,7 @@ export const NotebooksKernelExecuteCreateBody = /* @__PURE__ */ zod.object({
             zod.null(),
         ])
         .optional()
-        .describe(
-            'Published app layout. Cell content and results remain linked to the notebook. Null unpublishes the app.'
-        ),
+        .describe('Publish this layout with the saved notebook sources and input defaults. Null unpublishes the app.'),
     app_revision: zod
         .number()
         .min(notebooksKernelExecuteCreateBodyAppRevisionMin)
@@ -2187,9 +2179,7 @@ export const NotebooksKernelRestartCreateBody = /* @__PURE__ */ zod.object({
             zod.null(),
         ])
         .optional()
-        .describe(
-            'Published app layout. Cell content and results remain linked to the notebook. Null unpublishes the app.'
-        ),
+        .describe('Publish this layout with the saved notebook sources and input defaults. Null unpublishes the app.'),
     app_revision: zod
         .number()
         .min(notebooksKernelRestartCreateBodyAppRevisionMin)
@@ -2576,9 +2566,7 @@ export const NotebooksKernelStartCreateBody = /* @__PURE__ */ zod.object({
             zod.null(),
         ])
         .optional()
-        .describe(
-            'Published app layout. Cell content and results remain linked to the notebook. Null unpublishes the app.'
-        ),
+        .describe('Publish this layout with the saved notebook sources and input defaults. Null unpublishes the app.'),
     app_revision: zod
         .number()
         .min(notebooksKernelStartCreateBodyAppRevisionMin)
@@ -2965,9 +2953,7 @@ export const NotebooksKernelStopCreateBody = /* @__PURE__ */ zod.object({
             zod.null(),
         ])
         .optional()
-        .describe(
-            'Published app layout. Cell content and results remain linked to the notebook. Null unpublishes the app.'
-        ),
+        .describe('Publish this layout with the saved notebook sources and input defaults. Null unpublishes the app.'),
     app_revision: zod
         .number()
         .min(notebooksKernelStopCreateBodyAppRevisionMin)

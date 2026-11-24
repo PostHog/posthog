@@ -892,7 +892,7 @@ export interface NotebookApi {
     restore_previous_app_release?: boolean
     /** Editable app layout. Does not change the published layout. */
     app_draft?: NotebookAppLayoutApi | null
-    /** Published app layout. Cell content and results remain linked to the notebook. Null unpublishes the app. */
+    /** Publish this layout with the saved notebook sources and input defaults. Null unpublishes the app. */
     app_published?: NotebookAppLayoutApi | null
     /**
      * Current app revision. Required when saving or publishing a layout; stale revisions return 409.
@@ -956,7 +956,7 @@ export interface PatchedNotebookApi {
     restore_previous_app_release?: boolean
     /** Editable app layout. Does not change the published layout. */
     app_draft?: NotebookAppLayoutApi | null
-    /** Published app layout. Cell content and results remain linked to the notebook. Null unpublishes the app. */
+    /** Publish this layout with the saved notebook sources and input defaults. Null unpublishes the app. */
     app_published?: NotebookAppLayoutApi | null
     /**
      * Current app revision. Required when saving or publishing a layout; stale revisions return 409.
