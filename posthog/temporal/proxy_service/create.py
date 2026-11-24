@@ -17,12 +17,14 @@ import temporalio.common
 from structlog import get_logger
 from temporalio import activity, workflow
 from temporalio.client import (
+    Client,
     Schedule,
     ScheduleActionStartWorkflow,
     ScheduleAlreadyRunningError,
     ScheduleIntervalSpec,
     ScheduleSpec,
 )
+from temporalio.common import WorkflowIDConflictPolicy
 from temporalio.exceptions import ActivityError, ApplicationError, RetryState
 
 from posthog.cloud_utils import is_cloud
@@ -75,6 +77,30 @@ class CreateManagedProxyInputs:
             "domain": self.domain,
             "target_cname": self.target_cname,
         }
+
+
+async def start_proxy_provisioning(
+    temporal: Client,
+    inputs: CreateManagedProxyInputs,
+    *,
+    resume: bool = False,
+    id_conflict_policy: WorkflowIDConflictPolicy = WorkflowIDConflictPolicy.USE_EXISTING,
+) -> bool:
+    workflow_id = f"proxy-create-{inputs.proxy_record_id}"
+    if resume:
+        # Runs started before retries switched to the stable ID can still be waiting for DNS.
+        query = f'WorkflowId STARTS_WITH "{workflow_id}-retry-" AND ExecutionStatus = "Running"'
+        async for _ in temporal.list_workflows(query=query, limit=1, page_size=1):
+            return False
+
+    await temporal.start_workflow(
+        "create-proxy",
+        inputs,
+        id=workflow_id,
+        task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+        id_conflict_policy=id_conflict_policy,
+    )
+    return True
 
 
 @dataclass
