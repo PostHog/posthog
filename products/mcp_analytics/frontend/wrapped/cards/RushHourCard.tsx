@@ -1,7 +1,7 @@
 import { cn } from 'lib/utils/css-classes'
 
 import type { MCPWrappedRushHourCardApi } from '../../generated/api.schemas'
-import { formatHour } from '../storyCards'
+import { formatHour, formatTimezone, peakMultiple, rushHourLine } from '../storyCards'
 import { WrappedCard } from '../WrappedCard'
 import { NIGHT_SHIFT_HOGGIE } from '../wrappedTheme'
 
@@ -9,20 +9,22 @@ const DAY_LABELS = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su']
 const HOUR_LABELS = ['12am', '6am', '12pm', '6pm']
 
 export function RushHourCard({ card }: { card: MCPWrappedRushHourCardApi }): JSX.Element {
-    const detail = card.night_shift
-        ? 'Agents did most of their calling at night.'
-        : card.quiet_weekends
-          ? 'Agents called most at this hour, and weekends were quiet.'
-          : "That's when agents called your server the most."
+    const multiple = peakMultiple(card.heat)
     return (
         <WrappedCard cardKey="rush_hour" kicker="Rush hour" hoggie={card.night_shift ? NIGHT_SHIFT_HOGGIE : undefined}>
             <h2 className="MCPWrapped__rise m-0 text-4xl font-bold leading-tight">
-                {formatHour(card.weekday, card.hour)}
+                {formatHour(card.weekday, card.hour)}{' '}
+                <span className="whitespace-nowrap text-xl opacity-75">({formatTimezone(card.timezone)})</span>
             </h2>
-            <p className="MCPWrapped__rise m-0 text-base">
-                <strong className="block">{detail}</strong>
-                Times are in {card.timezone}.
+            <p className="MCPWrapped__rise m-0 text-base font-bold">
+                {rushHourLine(card.weekday, card.hour, card.night_shift)}
             </p>
+            {multiple && (
+                <div className="MCPWrapped__pop flex flex-wrap items-baseline gap-x-2">
+                    <span className="text-4xl font-bold leading-none tabular-nums">{multiple}</span>
+                    <span className="text-base">more calls than your average hour</span>
+                </div>
+            )}
             <div
                 className="MCPWrapped__rise grid mt-2 grid-cols-[1.5rem_repeat(24,minmax(0,1fr))] gap-0.5 text-xs"
                 aria-label="Calls by weekday and hour"

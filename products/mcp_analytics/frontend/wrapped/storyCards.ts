@@ -101,7 +101,52 @@ export function formatDuration(ms: number): string {
 export function formatHour(weekday: number, hour: number): string {
     const suffix = hour < 12 ? 'am' : 'pm'
     const twelveHour = hour % 12 === 0 ? 12 : hour % 12
-    return `${WEEKDAYS[weekday - 1]}s, ${twelveHour} ${suffix}`
+    return `${WEEKDAYS[weekday - 1]}, ${twelveHour} ${suffix}`
+}
+
+/** A short name for the project's timezone, such as "GMT+1" or "PST", or the IANA name when there is none. */
+export function formatTimezone(timezone: string): string {
+    try {
+        const parts = new Intl.DateTimeFormat('en-US', { timeZone: timezone, timeZoneName: 'short' }).formatToParts(
+            new Date()
+        )
+        return parts.find((part) => part.type === 'timeZoneName')?.value ?? timezone
+    } catch {
+        return timezone
+    }
+}
+
+/** One line on what the busiest hour says about the agents. Weekday runs 1 (Monday) to 7 (Sunday). */
+export function rushHourLine(weekday: number, hour: number, nightShift: boolean): string {
+    if (nightShift || hour >= 22 || hour < 5) {
+        return 'Your agents worked the night shift.'
+    }
+    if (weekday >= 6) {
+        return 'Your agents worked through the weekend.'
+    }
+    if (hour < 9) {
+        return 'Your agents were already hard at work.'
+    }
+    if (hour < 17) {
+        return 'Right in the middle of the workday.'
+    }
+    return 'Your agents kept going after hours.'
+}
+
+/**
+ * How many times busier the peak hour was than the average hour. Heat is linear with the peak at 100, so
+ * the ratio is exact apart from rounding, which only matters when the average cell is small.
+ */
+export function peakMultiple(heat: readonly number[]): string | null {
+    const mean = heat.reduce((sum, level) => sum + level, 0) / (heat.length || 1)
+    if (mean <= 0) {
+        return null
+    }
+    const multiple = 100 / mean
+    if (multiple < 1.5) {
+        return null
+    }
+    return multiple >= 10 ? 'Over 10×' : `${multiple.toFixed(1)}×`
 }
 
 /** The tiles on the share card: only values from cards the project actually has, six at most. */
@@ -119,7 +164,7 @@ export function shareTiles(cards: MCPWrappedCardsApi): ShareTile[] {
     if (cards.rush_hour) {
         tiles.push({
             label: 'Rush hour',
-            value: formatHour(cards.rush_hour.weekday, cards.rush_hour.hour).replace('s,', ''),
+            value: formatHour(cards.rush_hour.weekday, cards.rush_hour.hour).replace(',', ''),
         })
     }
     const topModel = cards.models?.shares.find((share) => share.name !== OTHER)

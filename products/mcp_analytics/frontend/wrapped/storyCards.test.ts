@@ -1,5 +1,13 @@
 import type { MCPWrappedCardsApi } from '../generated/api.schemas'
-import { formatHour, shareTiles, storyCardKeys, chartMonths, formatCallCount } from './storyCards'
+import {
+    formatHour,
+    shareTiles,
+    storyCardKeys,
+    chartMonths,
+    formatCallCount,
+    peakMultiple,
+    rushHourLine,
+} from './storyCards'
 
 const BASE: MCPWrappedCardsApi = {
     intro: { tracked_since: '2026-07', server_count: 1 },
@@ -49,9 +57,9 @@ describe('storyCards', () => {
     })
 
     it.each([
-        [2, 15, 'Tuesdays, 3 pm'],
-        [7, 0, 'Sundays, 12 am'],
-        [1, 12, 'Mondays, 12 pm'],
+        [2, 15, 'Tuesday, 3 pm'],
+        [7, 0, 'Sunday, 12 am'],
+        [1, 12, 'Monday, 12 pm'],
     ])('formats weekday %i at hour %i', (weekday, hour, expected) => {
         expect(formatHour(weekday, hour)).toBe(expected)
     })
@@ -75,5 +83,25 @@ describe('storyCards', () => {
         [219_000_000, '219M'],
     ])('shows %i calls as %s', (calls, count) => {
         expect(formatCallCount(calls)).toBe(count)
+    })
+
+    it.each([
+        ['an even week', Array(168).fill(100), null],
+        ['a peak three times the average', [100, 0, 0], '3.0×'],
+        ['a peak far above the average', [100, ...Array(167).fill(1)], 'Over 10×'],
+        ['no calls', Array(168).fill(0), null],
+    ])('gives the peak multiple for %s', (_, heat, expected) => {
+        expect(peakMultiple(heat)).toBe(expected)
+    })
+
+    it.each([
+        [2, 6, false, 'Your agents were already hard at work.'],
+        [3, 14, false, 'Right in the middle of the workday.'],
+        [4, 19, false, 'Your agents kept going after hours.'],
+        [6, 14, false, 'Your agents worked through the weekend.'],
+        [2, 14, true, 'Your agents worked the night shift.'],
+        [5, 23, false, 'Your agents worked the night shift.'],
+    ])('describes weekday %i at hour %i (night shift %s)', (weekday, hour, nightShift, expected) => {
+        expect(rushHourLine(weekday, hour, nightShift)).toBe(expected)
     })
 })
