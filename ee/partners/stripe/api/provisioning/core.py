@@ -28,13 +28,19 @@ from posthog.event_usage import report_user_signed_up
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
-from posthog.models.organization import Organization
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.team.team import Team
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.user import User
 from posthog.personal_api_key_minting import mint_personal_api_key
-from posthog.project_creation_limits import PROJECT_LIMIT_MESSAGES, ProjectLimit, organization_project_limit_reached
+from posthog.project_creation_limits import (
+    PROJECT_CREATION_REQUIRES_ADMIN_MESSAGE,
+    PROJECT_LIMIT_MESSAGES,
+    ProjectLimit,
+    membership_can_create_projects,
+    organization_project_limit_reached,
+)
 from posthog.tasks.email import send_provisioning_welcome
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -184,24 +190,37 @@ def mint_auth_code(
     return code
 
 
+PROJECT_CREATION_FORBIDDEN_CODE = "forbidden"
 PROJECT_LIMIT_REACHED_CODE = "project_limit_reached"
 
 # Connect and read timeouts, in seconds, for the billing read that resource creation waits on.
 BILLING_FEATURES_REFRESH_TIMEOUT = (5, 10)
 
 
-class ProjectLimitReachedError(Exception):
-    """Raised instead of creating a project in an organization that holds its limit of projects."""
+class ProjectCreationRefusedError(Exception):
+    """Raised instead of creating a project that the user may not create, or that the organization has no room for."""
 
-    def __init__(self, limit: ProjectLimit) -> None:
-        super().__init__(PROJECT_LIMIT_MESSAGES[limit])
-        self.message = PROJECT_LIMIT_MESSAGES[limit]
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
+
+
+def _assert_user_can_create_project(user: User, organization: Organization) -> None:
+    # A partner created this organization to hold the projects it provisions, so its admin-only
+    # setting does not stop the partner flow from adding one.
+    if OrganizationProvisioning.objects.filter(organization=organization).exists():
+        return
+
+    membership = OrganizationMembership.objects.filter(organization=organization, user=user).first()
+    if membership is None or not membership_can_create_projects(organization, membership.effective_level):
+        raise ProjectCreationRefusedError(PROJECT_CREATION_FORBIDDEN_CODE, PROJECT_CREATION_REQUIRES_ADMIN_MESSAGE)
 
 
 def _assert_organization_can_add_project(organization: Organization) -> None:
     reached_limit = organization_project_limit_reached(organization)
     if reached_limit is not None:
-        raise ProjectLimitReachedError(reached_limit)
+        raise ProjectCreationRefusedError(PROJECT_LIMIT_REACHED_CODE, PROJECT_LIMIT_MESSAGES[reached_limit])
 
 
 def resolve_team_for_existing_user(user: User, requested_team_id: int | None = None) -> Team | None:
@@ -234,6 +253,7 @@ def resolve_team_for_existing_user(user: User, requested_team_id: int | None = N
     # TODO: latent bug - memberships is unordered, so which organization hosts
     # the new project is arbitrary for multi-org users.
     organization = memberships[0].organization
+    _assert_user_can_create_project(user, organization)
     _assert_organization_can_add_project(organization)
     return Team.objects.create_with_data(initiating_user=user, organization=organization)
 
@@ -264,9 +284,9 @@ def handle_existing_user(
 
     try:
         team = resolve_team_for_existing_user(user, requested_team_id)
-    except ProjectLimitReachedError as refused:
-        capture_provisioning_event("account_request", "error", error_code=PROJECT_LIMIT_REACHED_CODE)
-        raise SpecError(PROJECT_LIMIT_REACHED_CODE, refused.message, request_id=request_id, status=403)
+    except ProjectCreationRefusedError as refused:
+        capture_provisioning_event("account_request", "error", error_code=refused.code)
+        raise SpecError(refused.code, refused.message, request_id=request_id, status=403)
     if team is None:
         capture_provisioning_event("account_request", "error", error_code="team_resolution_failed")
         raise SpecError("team_resolution_failed", "Could not resolve a project for this user", request_id=request_id)
@@ -639,18 +659,20 @@ def resolve_or_create_project_team(
     if not user_can_access_team(user, base_team):
         return None, scoped_teams
 
-    _activate_billing_for_new_project(base_team, user, payment_credentials)
     try:
+        # The role check runs first so that a refused user does not start a paid plan.
+        _assert_user_can_create_project(user, base_team.organization)
+        _activate_billing_for_new_project(base_team, user, payment_credentials)
         _assert_organization_can_add_project(base_team.organization)
-    except ProjectLimitReachedError as refused:
+    except ProjectCreationRefusedError as refused:
         capture_provisioning_event(
             "resource_created",
             "error",
             partner=access_token.application,
-            error_code=PROJECT_LIMIT_REACHED_CODE,
+            error_code=refused.code,
             project_id=project_id,
         )
-        raise SpecError(PROJECT_LIMIT_REACHED_CODE, refused.message, status=403)
+        raise SpecError(refused.code, refused.message, status=403)
 
     # TODO: latent bug - project_name is unvalidated; a non-string or over-long
     # value fails at the DB layer (500) where the spec calls for a 400

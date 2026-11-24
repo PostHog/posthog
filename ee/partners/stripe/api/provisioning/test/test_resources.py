@@ -16,7 +16,11 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.utils import generate_random_oauth_access_token
-from posthog.project_creation_limits import ORGANIZATION_PROJECT_LIMIT_MESSAGE, PLAN_PROJECT_LIMIT_MESSAGE
+from posthog.project_creation_limits import (
+    ORGANIZATION_PROJECT_LIMIT_MESSAGE,
+    PLAN_PROJECT_LIMIT_MESSAGE,
+    PROJECT_CREATION_REQUIRES_ADMIN_MESSAGE,
+)
 from posthog.test.authentication_checks import covers_authentication
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -29,9 +33,18 @@ RESOURCES_URL = f"{BASE_PATH}/provisioning/resources"
 UNLIMITED_PROJECTS_FEATURE = {"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": "Projects", "limit": None}
 ONE_PROJECT_FEATURE = {"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": "Projects", "limit": 1}
 SIX_PROJECTS_FEATURE = {"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": "Projects", "limit": 6}
+MEMBERS_CAN_CREATE_PROJECTS_FEATURE = {
+    "key": AvailableFeature.ORGANIZATION_INVITE_SETTINGS,
+    "name": AvailableFeature.ORGANIZATION_INVITE_SETTINGS,
+}
 
 
 class TestResources(StripeProvisioningTestBase):
+    def setUp(self):
+        super().setUp()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
     def test_create_returns_access_configuration_and_pat(self):
         token = self._get_bearer_token()
         res = self._post_signed_with_bearer(
@@ -93,6 +106,71 @@ class TestResources(StripeProvisioningTestBase):
             "error": {"code": "project_limit_reached", "message": message},
         }
         assert Team.objects.filter(organization=self.organization).count() == team_count
+
+    @parameterized.expand(
+        [
+            ("member", OrganizationMembership.Level.MEMBER, False, False, 403),
+            ("member_when_organization_allows_it", OrganizationMembership.Level.MEMBER, True, False, 200),
+            ("member_of_a_partner_created_organization", OrganizationMembership.Level.MEMBER, False, True, 200),
+            ("admin", OrganizationMembership.Level.ADMIN, False, False, 200),
+        ]
+    )
+    def test_create_with_new_project_id_follows_project_creation_policy(
+        self,
+        _name: str,
+        level: OrganizationMembership.Level,
+        members_can_create_projects: bool,
+        partner_created: bool,
+        expected_status: int,
+    ) -> None:
+        self.organization.available_product_features = [UNLIMITED_PROJECTS_FEATURE, MEMBERS_CAN_CREATE_PROJECTS_FEATURE]
+        self.organization.members_can_create_projects = members_can_create_projects
+        self.organization.save()
+        if partner_created:
+            OrganizationProvisioning.objects.create(
+                organization=self.organization,
+                partner=OrganizationProvisioning.Partner.STRIPE_PROJECTS,
+                application=self.stripe_app,
+            )
+        self.organization_membership.level = level
+        self.organization_membership.save()
+        token = self._get_bearer_token()
+        team_count = Team.objects.filter(organization=self.organization).count()
+
+        res = self._post_signed_with_bearer(RESOURCES_URL, data={"project_id": "proj_policy"}, token=token)
+
+        assert res.status_code == expected_status, res.content
+        if expected_status == 403:
+            assert res.json()["error"] == {"code": "forbidden", "message": PROJECT_CREATION_REQUIRES_ADMIN_MESSAGE}
+            assert Team.objects.filter(organization=self.organization).count() == team_count
+        else:
+            assert Team.objects.filter(organization=self.organization).count() == team_count + 1
+
+    def test_create_with_new_project_id_refused_by_policy_does_not_activate_billing(self) -> None:
+        self.organization.available_product_features = []
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        token = self._get_bearer_token()
+        license = License(key="12345::67890")
+
+        with (
+            patch("ee.partners.stripe.api.provisioning.billing.get_cached_instance_license", return_value=license),
+            patch("ee.partners.stripe.api.provisioning.billing._team_has_active_billing", return_value=False),
+            patch("ee.billing.billing_manager.http_session.post") as billing_post,
+        ):
+            res = self._post_signed_with_bearer(
+                RESOURCES_URL,
+                data={
+                    "project_id": "proj_refused",
+                    "payment_credentials": {"type": "stripe_payment_token", "stripe_payment_token": "spt_1"},
+                },
+                token=token,
+            )
+
+        assert res.status_code == 403
+        assert res.json()["error"]["code"] == "forbidden"
+        billing_post.assert_not_called()
 
     @parameterized.expand(
         [

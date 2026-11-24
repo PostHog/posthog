@@ -9,11 +9,12 @@ from django.test import override_settings
 
 from parameterized import parameterized
 
-from posthog.models.organization import Organization
+from posthog.constants import AvailableFeature
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.project_creation_limits import PLAN_PROJECT_LIMIT_MESSAGE
+from posthog.project_creation_limits import PLAN_PROJECT_LIMIT_MESSAGE, PROJECT_CREATION_REQUIRES_ADMIN_MESSAGE
 
 from ee.partners.stripe.api.provisioning import AUTH_CODE_CACHE_PREFIX
 from ee.partners.stripe.api.provisioning.core import ACCOUNT_NOT_LINKABLE_MESSAGE, EMAIL_NOT_VERIFIED_MESSAGE
@@ -21,6 +22,11 @@ from ee.partners.stripe.api.provisioning.test.base import BASE_PATH, StripeProvi
 
 URL = f"{BASE_PATH}/provisioning/account_requests"
 CAPTURE = "ee.partners.stripe.api.provisioning.analytics.posthoganalytics.capture"
+UNLIMITED_PROJECTS_FEATURE = {"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": "Projects", "limit": None}
+MEMBERS_CAN_CREATE_PROJECTS_FEATURE = {
+    "key": AvailableFeature.ORGANIZATION_INVITE_SETTINGS,
+    "name": AvailableFeature.ORGANIZATION_INVITE_SETTINGS,
+}
 
 
 def _account_request_events(capture: MagicMock) -> list[dict[str, Any]]:
@@ -205,6 +211,8 @@ class TestAccountRequests(StripeProvisioningTestBase):
     ) -> None:
         self.user.is_active = user_is_active
         self.user.save()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
         for _ in range(project_count - 1):
             Team.objects.create(organization=self.organization)
         team_count = Team.objects.filter(organization=self.organization).count()
@@ -229,6 +237,47 @@ class TestAccountRequests(StripeProvisioningTestBase):
         auth_code_cache.set.assert_not_called()
         assert [event["outcome"] for event in _account_request_events(capture)] == outcomes
         assert Team.objects.filter(organization=self.organization).count() == team_count
+
+    @parameterized.expand(
+        [
+            ("member", OrganizationMembership.Level.MEMBER, False, False, "forbidden"),
+            ("member_when_organization_allows_it", OrganizationMembership.Level.MEMBER, True, False, None),
+            ("member_of_a_partner_created_organization", OrganizationMembership.Level.MEMBER, False, True, None),
+            ("admin", OrganizationMembership.Level.ADMIN, False, False, None),
+        ]
+    )
+    def test_existing_user_new_project_follows_project_creation_policy(
+        self,
+        _name: str,
+        level: OrganizationMembership.Level,
+        members_can_create_projects: bool,
+        partner_created: bool,
+        error_code: str | None,
+    ) -> None:
+        self.organization.available_product_features = [UNLIMITED_PROJECTS_FEATURE, MEMBERS_CAN_CREATE_PROJECTS_FEATURE]
+        self.organization.members_can_create_projects = members_can_create_projects
+        self.organization.save()
+        if partner_created:
+            OrganizationProvisioning.objects.create(
+                organization=self.organization,
+                partner=OrganizationProvisioning.Partner.STRIPE_PROJECTS,
+                application=self.stripe_app,
+            )
+        self.organization_membership.level = level
+        self.organization_membership.save()
+        # With two projects the request picks neither, so it creates one.
+        Team.objects.create(organization=self.organization)
+        team_count = Team.objects.filter(organization=self.organization).count()
+
+        res = self._post_signed(URL, data=_account_request(self.user.email, kyc={"verified_fields": ["email"]}))
+
+        if error_code is not None:
+            assert res.status_code == 403
+            assert res.json()["error"] == {"code": error_code, "message": PROJECT_CREATION_REQUIRES_ADMIN_MESSAGE}
+            assert Team.objects.filter(organization=self.organization).count() == team_count
+        else:
+            assert res.status_code == 200, res.content
+            assert Team.objects.filter(organization=self.organization).count() == team_count + 1
 
     def test_optional_fields_accept_explicit_null(self):
         # Spec JSON tolerance: an explicit null on an optional field is treated
