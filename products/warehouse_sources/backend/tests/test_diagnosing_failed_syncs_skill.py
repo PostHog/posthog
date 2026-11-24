@@ -46,6 +46,6 @@ def test_skill_lists_the_jobs_tool() -> None:
 
 def test_job_fields_named_in_running_guidance_exist_on_the_jobs_api() -> None:
     guidance = "".join(skill_section(*bounds) for bounds in RUNNING_GUIDANCE.values())
-    named = set(re.findall(r"`([a-z]+(?:_[a-z]+)+)`", guidance)) - {"last_synced_at", "job_id"}
+    named = set(re.findall(r"`([a-z]+(?:_[a-z]+)+)`", guidance)) - {"last_synced_at", "schema_id", "job_id"}
     assert {"created_at", "finished_at", "rows_synced"} <= named
     assert named <= set(ExternalDataJobSerializers.Meta.fields)

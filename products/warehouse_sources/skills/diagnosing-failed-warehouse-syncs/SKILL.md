@@ -36,7 +36,7 @@ which item to diagnose and can skip Step 1's discovery search.
 | `external-data-schemas-list`                           | All table schemas across all sources, with per-table status + latest_error |
 | `external-data-schemas-retrieve`                       | Full details for one schema including sync_type_config                     |
 | `external-data-sources-jobs`                           | Sync job history for a source: each job's `created_at`, status and rows    |
-| `external-data-sync-logs`                              | Log lines of one sync job (pass the job's `workflow_run_id` as `job_id`)   |
+| `external-data-sync-logs`                              | Log lines of a table (`schema_id`); add `job_id` to read one job only      |
 | `external-data-schemas-cancel`                         | Cancel a sync currently in `Running` state                                 |
 | `external-data-schemas-reload`                         | Trigger a sync using the configured sync method (respects incremental)     |
 | `external-data-schemas-resync`                         | Full resync — wipes synced data and restarts. Destructive                  |
@@ -91,9 +91,9 @@ From `external-data-schemas-list`, each schema has a `status`:
 | `Billing limits` (serializer) / `BillingLimitReached` (enum)        | Team hit its warehouse row quota           | Billing issue, not a technical failure |
 | `Billing limits too low` (serializer) / `BillingLimitTooLow` (enum) | Team has insufficient credit               | Billing issue                          |
 
-`last_synced_at` is when the last sync finished, not when the current job started. Use it to tell how fresh the
-data is. Do not use it to tell how long a `Running` job has run: a daily sync that takes six hours shows a
-`last_synced_at` about a day old while its current job is only a few hours old.
+`last_synced_at` is when the last successful sync started, not when the current job started. Use it to tell how
+fresh the data is. Do not use it to tell how long a `Running` job has run: a daily sync that takes six hours shows a
+`last_synced_at` more than a day old while its current job is only a few hours old.
 
 To judge a `Running` schema, call `external-data-sources-jobs` with the source id and the schema name in `schemas`.
 The newest job is the current one. Compare its age (from `created_at`) with the schema's sync frequency and with how
@@ -180,14 +180,14 @@ The recovery action depends on root cause, not just status. Match the user's sit
 
 **F. Sync is stuck in `Running` for hours**
 
-- Do not decide from `last_synced_at`. An old `last_synced_at` only says the previous sync finished long ago.
+- Do not decide from `last_synced_at`. An old `last_synced_at` only says the last successful sync started long ago.
 - Call `external-data-sources-jobs` for the schema and find the current job. Its `created_at` is when this run
   started.
 - The job is healthy when its age is in line with the earlier completed jobs, or when `rows_synced` grows between two
   checks a few minutes apart. Tell the user it is still running and how long earlier runs took.
 - The job is likely orphaned when it has run much longer than earlier jobs and longer than the sync interval, and
-  `rows_synced` does not grow. Read `external-data-sync-logs` with the job's `workflow_run_id` as `job_id` to confirm
-  that no recent log lines exist.
+  `rows_synced` does not grow. Read `external-data-sync-logs` with the schema id as `schema_id` and the job's
+  `workflow_run_id` as `job_id` to confirm that no recent log lines exist.
 - Action, only for an orphaned job: `external-data-schemas-cancel` to stop it, then `external-data-schemas-reload`.
 
 **G. Table data is corrupt but you want to keep the schema config**
