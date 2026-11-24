@@ -160,8 +160,7 @@ class TestAIObservabilityProjectKeys(APIBaseTest):
         other_queue = ReviewQueue.objects.create(team=self.team, name="Another queue")
         same = self.client.patch(url, {"queue_id": str(other_queue.pk)}, format="json")
         assert same.status_code == 200, same.data
-        pending.refresh_from_db()
-        assert not pending.deleted
+        assert ReviewQueueItem.objects.filter(team=self.team, pk=pending.pk, deleted=False).exists()
         for payload in ({}, {"comment": "Human review", "scores": [score]}):
             same = self.client.patch(url, payload, format="json")
             assert same.status_code == 200, same.data
