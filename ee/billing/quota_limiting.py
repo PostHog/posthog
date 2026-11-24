@@ -1815,7 +1815,7 @@ def update_all_orgs_billing_quotas(
             str(org.id): org
             for org in retry_quota_database_operation(
                 Organization.objects.filter(id__in=refresh_candidates)
-                .only("id", "usage", "customer_trust_scores", "never_drop_data")
+                .only("id", "usage", "customer_trust_scores", "never_drop_data", "is_active")
                 .annotate(usage_md5=MD5(Cast("usage", output_field=TextField())))
                 .in_bulk
             ).values()
@@ -1854,6 +1854,7 @@ def update_all_orgs_billing_quotas(
                         org.usage = fresh.usage
                         org.customer_trust_scores = fresh.customer_trust_scores
                         org.never_drop_data = fresh.never_drop_data
+                        org.is_active = fresh.is_active
                         usage_batch.require_unchanged_usage(org, fresh.usage_md5)
                         if (org.usage or {}).get(QuotaResource.SIGNALS_CREDITS.value):
                             # Push refreshes can raise signals usage after the source snapshot. Recount before writing it.

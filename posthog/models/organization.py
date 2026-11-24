@@ -755,13 +755,27 @@ def invalidate_llm_gateway_quota_cache_on_active_state_change(sender, instance: 
     organization_id = instance.pk
 
     def _update_billing_quotas():
-        from ee.billing.quota_limiting import update_org_billing_quotas
+        from ee.billing.quota_limiting import (
+            QuotaLimitingCaches,
+            QuotaResource,
+            remove_limited_team_tokens,
+            update_org_billing_quotas,
+        )
 
+        organization = Organization.objects.get(pk=organization_id)
+        if organization.is_active is not False:
+            # A leftover deactivation entry would read as an earlier billing limit and end a flag grace period.
+            remove_limited_team_tokens(
+                QuotaResource.FEATURE_FLAG_REQUESTS,
+                list(organization.teams.values_list("api_token", flat=True)),
+                QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+            )
         # Also invalidates the gateway quota cache and enqueues its projection. The quota run reaches
         # the same limits later, but flag requests should stop or resume at once.
-        update_org_billing_quotas(Organization.objects.get(pk=organization_id))
+        update_org_billing_quotas(organization)
 
-    transaction.on_commit(_update_billing_quotas)
+    # Robust so a Redis failure here cannot skip the callbacks queued after it.
+    transaction.on_commit(_update_billing_quotas, robust=True)
 
 
 @receiver(post_save, sender=Organization)

@@ -1463,6 +1463,26 @@ class TestQuotaLimiting(BaseTest):
             self.organization.save()
         assert limited(QuotaResource.FEATURE_FLAG_REQUESTS) is False
 
+    @time_machine.travel("2021-01-25T00:00:00Z", tick=False)
+    def test_reactivating_an_organization_keeps_its_feature_flags_grace_period(self) -> None:
+        self.redis_client.delete("@posthog/quota-limits/feature_flag_requests")
+        self.organization.usage = {
+            "feature_flag_requests": {"usage": 110, "limit": 100},
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+        }
+        self.organization.customer_trust_scores = zero_trust_scores()
+        self.organization.save()
+        update_org_billing_quotas(self.organization)
+
+        for is_active in (False, True):
+            self.organization.is_active = is_active
+            with self.captureOnCommitCallbacks(execute=True):
+                self.organization.save()
+
+        assert not is_team_limited(
+            self.team.api_token, QuotaResource.FEATURE_FLAG_REQUESTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+        )
+
     def test_feature_flags_quota_limiting(self):
         with self.settings(USE_TZ=False), time_machine.travel("2021-01-25T00:00:00Z", tick=False):
             self.organization.usage = {
