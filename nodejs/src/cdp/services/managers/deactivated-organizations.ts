@@ -1,5 +1,6 @@
 import { Counter } from 'prom-client'
 
+import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { logger } from '~/common/utils/logger'
 
 const counterDeactivatedOrganizationNotLoaded = new Counter({
@@ -44,4 +45,18 @@ export function withoutDeactivatedOrganizations<T extends { id: string; team_id:
         })
     }
     return kept
+}
+
+/** For a run built from a request rather than from a loaded row, such as a test invocation of an unsaved function. */
+export async function isTeamOrganizationInactive(postgres: PostgresRouter, teamId: number): Promise<boolean> {
+    const { rows } = await postgres.query<{ inactive: boolean }>(
+        PostgresUse.COMMON_READ,
+        `SELECT EXISTS (
+            SELECT 1 FROM posthog_team t JOIN posthog_organization o ON o.id = t.organization_id
+            WHERE t.id = $1 AND o.is_active IS FALSE
+        ) AS inactive`,
+        [teamId],
+        'isTeamOrganizationInactive'
+    )
+    return rows[0]?.inactive === true
 }
