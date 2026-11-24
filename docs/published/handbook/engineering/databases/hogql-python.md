@@ -316,7 +316,8 @@ The resolver raises a `QueryError` if there is no parent or if the chain ends at
 
 Direct reads of custom properties on `posthog.ai_events` use their event property definitions for Boolean, numeric, and DateTime conversions, as `events` does.
 Properties mapped to native String AI columns and unconverted Duration values stay strings.
-Direct property aliases in subqueries and CTEs expose their converted types. CTE comparisons retain the source field's null behavior.
+Direct property aliases in subqueries and CTEs expose their converted types.
+CTE comparisons on untyped person and group aliases use the original field even when another column changes type.
 Type inference also sees those converted types in `UNION ALL` projections and in direct arguments to `coalesce` and `ifNull`.
 
 On `posthog.ai_events`, passing converted properties through expressions such as `if`, `CASE`, `any`, or `max` before calling `toFloatOrZero`, `toIntOrZero`, or `toDateTime` can raise ClickHouse error 43 (`ILLEGAL_TYPE_OF_ARGUMENT`).

@@ -21,7 +21,7 @@ from posthog.hogql.escape_sql import escape_hogql_identifier
 from posthog.hogql.functions.clickhouse.json import JSON_FUNCTIONS, JSON_KEY_PATH_FUNCTIONS, JSON_TYPED_PATH_FUNCTIONS
 from posthog.hogql.helpers.timestamp_visitor import parse_zoned_datetime_string
 from posthog.hogql.property_metadata import load_property_metadata
-from posthog.hogql.property_planner import PropertySourceKind, plan_property_access
+from posthog.hogql.property_planner import PropertySourceKind, metadata_constant_type, plan_property_access
 from posthog.hogql.resolver import unify_select_set_columns
 from posthog.hogql.resolver_utils import projecting_select_type
 from posthog.hogql.restricted_properties import restricted_property_keys_for_table_type
@@ -321,14 +321,15 @@ class PropertySwapper(CloningVisitor):
         ):
             value_type = result.expr.type
             if isinstance(value_type, ast.PropertyType) and value_type.joined_subquery is None:
-                if not isinstance(value_type.field_type.resolve_database_field(self.context), StringJSONDatabaseField):
+                inferred_type = metadata_constant_type(value_type, self.context)
+                if inferred_type is None or isinstance(inferred_type, ast.StringType):
                     return result
-                # An unconverted property exports its stored type, which can differ from its detected type.
-                constant_type = dataclasses.replace(
-                    value_type.field_type.resolve_constant_type(self.context), nullable=True
-                )
+                # A property definition can infer a type the raw projection never converts to.
+                constant_type = ast.StringJSONType(nullable=True)
             else:
                 constant_type = value_type.resolve_constant_type(self.context)
+                if isinstance(value_type, ast.PropertyType) and isinstance(constant_type, ast.StringType):
+                    return result
             if result.type.constant_type != constant_type:
                 result.type.constant_type = constant_type
                 # CTE fields cache alias types before property conversion; the updated expression may have another type.

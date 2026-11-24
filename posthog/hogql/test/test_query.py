@@ -63,9 +63,11 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.errors import CHQueryErrorS3Error, CHQueryErrorUnknownType, InternalCHQueryError, unknown_type_error
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.models.exchange_rate.currencies import SUPPORTED_CURRENCY_CODES
+from posthog.models.group.util import create_group
 from posthog.models.team import Team
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.uuidt import UUIDT, uuid7
 
 from products.cohorts.backend.models.cohort import Cohort
@@ -1384,30 +1386,53 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("joined", PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED),
-            ("disabled", PersonsOnEventsMode.DISABLED),
+            (f"{scope}_{mode_name}", scope, mode)
+            for scope in ("person", "group_0")
+            for mode_name, mode in (
+                ("joined", PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED),
+                ("poe", PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS),
+                ("disabled", PersonsOnEventsMode.DISABLED),
+            )
         ]
     )
-    def test_cte_person_property_inequality_excludes_missing_values(
-        self, _name: str, mode: PersonsOnEventsMode
+    def test_cte_property_inequality_excludes_missing_values(
+        self, _name: str, scope: str, mode: PersonsOnEventsMode
     ) -> None:
+        PropertyDefinition.objects.create(
+            team=self.team, type=PropertyDefinition.Type.EVENT, name="score", property_type="Numeric"
+        )
+        if scope == "group_0":
+            create_group_type_mapping_without_created_at(
+                team=self.team, project_id=self.team.project_id, group_type="company", group_type_index=0
+            )
+            _create_event(team=self.team, distinct_id="no-group", event="example")
+
         for distinct_id, properties in (
-            ("matching", {"email": "match@example.com"}),
-            ("other", {"email": "other@example.com"}),
+            ("matching", {"name": "match"}),
+            ("other", {"name": "other"}),
             ("missing", {}),
         ):
-            _create_person(team=self.team, distinct_ids=[distinct_id], properties=properties, is_identified=True)
-            _create_event(team=self.team, distinct_id=distinct_id, event="example")
+            event_properties = {"score": "3.5"}
+            if scope == "person":
+                _create_person(team=self.team, distinct_ids=[distinct_id], properties=properties, is_identified=True)
+            else:
+                create_group(team_id=self.team.pk, group_type_index=0, group_key=distinct_id, properties=properties)
+                event_properties["$group_0"] = distinct_id
+            _create_event(team=self.team, distinct_id=distinct_id, event="example", properties=event_properties)
 
-        result = execute_hogql_query(
-            "WITH emails AS (SELECT person.properties.email AS value FROM events) "
-            "SELECT count() FROM emails WHERE value != 'match@example.com'",
-            team=self.team,
-            modifiers=HogQLQueryModifiers(personsOnEventsMode=mode),
-            workload=Workload.ONLINE,
-        )
+        for projection, output, expected in (
+            ("", "", [("other",)]),
+            (", properties.score AS score", ", score", [("other", 3.5)]),
+        ):
+            result = execute_hogql_query(
+                f"WITH names AS (SELECT distinct_id, {scope}.properties.name AS value{projection} FROM events) "
+                f"SELECT distinct_id{output} FROM names WHERE value != 'match'",
+                team=self.team,
+                modifiers=HogQLQueryModifiers(personsOnEventsMode=mode),
+                workload=Workload.ONLINE,
+            )
 
-        assert result.results == [(1,)]
+            assert result.results == expected
 
     def test_cte_exposes_converted_joined_person_properties(self) -> None:
         for name, property_type in (("score", "Numeric"), ("started_at", "DateTime")):

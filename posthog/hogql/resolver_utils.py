@@ -475,14 +475,22 @@ def _recursively_resolve_column(
 ) -> None:
     if isinstance(column, ast.FieldAliasType):
         constant_type = column.constant_type
-        if constant_type is None:
-            return _recursively_resolve_column(name, column.type, fields, context)
         if isinstance(column.type, ast.PropertyType):
-            _recursively_resolve_column(name, column.type, fields, context)
-            source = fields[name]
-            if isinstance(source, DatabaseField):
-                # Keep the source field's comparison nullability when an alias changes its value type.
+            source = column.cte_source_field
+            if source is None:
+                _recursively_resolve_column(name, column.type, fields, context)
+                resolved = fields[name]
+                if isinstance(resolved, DatabaseField):
+                    # A sibling conversion can rebuild this CTE after lazy joins replace the original field.
+                    source = column.cte_source_field = resolved
+            else:
+                fields[name] = source
+            if constant_type is None:
+                return
+            if source is not None:
                 constant_type = dataclasses.replace(constant_type, nullable=source.is_nullable())
+        elif constant_type is None:
+            return _recursively_resolve_column(name, column.type, fields, context)
         fields[name] = _constant_type_to_database_field(name, constant_type)
     elif isinstance(column, ast.FieldType):
         db_field = column.resolve_database_field(context)

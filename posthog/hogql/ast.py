@@ -190,6 +190,7 @@ class FieldAliasType(Type):
     # The type the alias projects when a property conversion changes it.
     # `type` keeps the original PropertyType because property lowering still reads it.
     constant_type: Optional[ConstantType] = None
+    cte_source_field: DatabaseField | None = field(default=None, init=False, compare=False, repr=False)
 
     def get_child(self, name: str, context: HogQLContext) -> Type:
         return self.type.get_child(name, context)
