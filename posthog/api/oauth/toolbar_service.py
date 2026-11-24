@@ -8,6 +8,8 @@ Non-obvious behavior documented here:
 """
 
 import re
+import hmac
+import hashlib
 import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -63,9 +65,9 @@ class ToolbarOAuthStateCache:
     def mark_pending(self, nonce: str) -> None:
         cache.set(self._key(self._pending_prefix, nonce), True, timeout=self._timeout)
 
-    def claim_or_raise(self, nonce: str) -> None:
+    def claim_or_raise(self, nonce: str, code: str = "") -> None:
         """
-        Claim the nonce for one-time use.
+        Claim the nonce for one-time use, recording a digest of the authorization code that claimed it.
         Raises ToolbarOAuthError if already used (replay) or not found/expired.
         Uses the same external error for all failure modes to avoid leaking
         whether a nonce exists or was already consumed.
@@ -77,9 +79,17 @@ class ToolbarOAuthStateCache:
         if not cache.get(pending_key):
             raise ToolbarOAuthError("state_not_found", "OAuth state nonce not found or expired", 400)
         # cache.add is atomic: only one concurrent request can claim this nonce
-        if not cache.add(used_key, True, timeout=self._timeout):
+        if not cache.add(used_key, _code_digest(code), timeout=self._timeout):
             raise ToolbarOAuthError("state_replay", "OAuth state nonce already used", 400)
         cache.delete(pending_key)
+
+    def was_claimed_with(self, nonce: str, code: str) -> bool:
+        claimed_digest = cache.get(self._key(self._used_prefix, nonce))
+        return isinstance(claimed_digest, str) and hmac.compare_digest(claimed_digest, _code_digest(code))
+
+
+def _code_digest(code: str) -> str:
+    return hashlib.sha256(code.encode()).hexdigest()
 
 
 toolbar_oauth_state_cache = ToolbarOAuthStateCache()
@@ -94,7 +104,7 @@ class ToolbarOAuthError(Exception):
 
 
 class ToolbarOAuthStateReplayError(ToolbarOAuthError):
-    """An earlier callback already claimed this state, so it may have handed the code to the toolbar."""
+    """An earlier callback already claimed this state with the same code, so it may have handed the code over."""
 
 
 @dataclass
@@ -245,6 +255,7 @@ def validate_and_consume_toolbar_oauth_state(
     signed_state: str,
     request_user: User,
     request_team: Team,
+    code: str,
 ) -> dict[str, Any]:
     """
     Verify state integrity and consume nonce to prevent replay.
@@ -283,10 +294,11 @@ def validate_and_consume_toolbar_oauth_state(
         raise ToolbarOAuthError("state_team_mismatch", "OAuth state team mismatch", 400)
 
     try:
-        toolbar_oauth_state_cache.claim_or_raise(nonce)
+        toolbar_oauth_state_cache.claim_or_raise(nonce, code)
     except ToolbarOAuthError as exc:
         logger.warning("toolbar_oauth_state_validation_failed", code="invalid_state", reason=exc.code)
-        error_class = ToolbarOAuthStateReplayError if exc.code == "state_replay" else ToolbarOAuthError
+        replays_claimed_code = exc.code == "state_replay" and toolbar_oauth_state_cache.was_claimed_with(nonce, code)
+        error_class = ToolbarOAuthStateReplayError if replays_claimed_code else ToolbarOAuthError
         raise error_class("invalid_state", "OAuth state is invalid", 400) from exc
 
     app_url = payload.get("app_url")

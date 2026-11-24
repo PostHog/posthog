@@ -1992,11 +1992,12 @@ def toolbar_oauth_callback(request):
             signed_state=state,
             request_user=request.user,
             request_team=team,
+            code=code,
         )
         oauth_app = get_or_create_toolbar_oauth_application(user=request.user)
     except ToolbarOAuthError as exc:
         # A refused state never sends the code to the toolbar, so remove the grant before anyone can redeem it. A
-        # replayed state is the exception: the callback that claimed it first may have sent the code already.
+        # replay with the code that claimed the state is the exception: the first callback may have sent it already.
         if not isinstance(exc, ToolbarOAuthStateReplayError):
             OAuthGrant.objects.filter(
                 code=code, user=request.user, application__name=settings.TOOLBAR_OAUTH_APPLICATION_NAME

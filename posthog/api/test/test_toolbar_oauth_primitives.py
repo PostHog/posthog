@@ -524,15 +524,20 @@ class TestToolbarOAuthCallbackExchange(ToolbarOAuthAuthorizeMixin, APIBaseTest):
             code_challenge_method=OAuthGrant.CODE_CHALLENGE_S256,
         )
 
-    def test_callback_state_replay_returns_error_and_keeps_the_handed_off_code(self):
+    def test_callback_state_replay_returns_error_and_keeps_only_the_handed_off_code(self):
         state = self._authorize_and_get_state()
         self._create_toolbar_grant("handed_off_code")
+        self._create_toolbar_grant("never_handed_off_code")
         first = self.client.get(f"/toolbar_oauth/callback?code=handed_off_code&state={state}")
         assert first.status_code == 302
-        second = self.client.get(f"/toolbar_oauth/callback?code=handed_off_code&state={state}")
-        assert second.status_code == 302
-        assert second["Location"] == "/toolbar_oauth/error"
+
+        for code in ["handed_off_code", "never_handed_off_code"]:
+            replay = self.client.get(f"/toolbar_oauth/callback?code={code}&state={state}")
+            assert replay.status_code == 302
+            assert replay["Location"] == "/toolbar_oauth/error"
+
         assert OAuthGrant.objects.filter(code="handed_off_code").exists()
+        assert not OAuthGrant.objects.filter(code="never_handed_off_code").exists()
 
     @override_settings(TOOLBAR_OAUTH_STATE_TTL_SECONDS=0)
     def test_callback_expired_state_shows_the_error_away_from_the_code_and_revokes_it(self):
