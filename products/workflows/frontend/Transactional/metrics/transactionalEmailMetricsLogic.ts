@@ -326,8 +326,9 @@ export const transactionalEmailMetricsLogic = kea<transactionalEmailMetricsLogic
                 ].filter((section) => section.options.length > 0),
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         setHours: () => {
+            cache.restoringResults = false
             actions.loadTemplateStats()
             actions.loadDomainStats()
             actions.loadStatsOverTime()
@@ -336,12 +337,13 @@ export const transactionalEmailMetricsLogic = kea<transactionalEmailMetricsLogic
             }
         },
         setResultsQuery: () => {
+            cache.restoringResults = false
             if (values.canLoadResults) {
                 actions.loadResults()
             }
         },
         loadResultsSuccess: ({ results }) => {
-            if (results) {
+            if (results && !cache.restoringResults) {
                 // pinned: analytics event name - renaming breaks dashboards
                 posthog.capture('transactional email results calculated', {
                     window_days: values.resultsQuery.windowDays,
@@ -352,7 +354,9 @@ export const transactionalEmailMetricsLogic = kea<transactionalEmailMetricsLogic
             }
         },
     })),
-    afterMount(({ actions, values }) => {
+    afterMount(({ actions, values, cache }) => {
+        // Coming back from push reloads what was already calculated, which isn't a new use of the form.
+        cache.restoringResults = values.canLoadResults
         if (values.canLoadResults) {
             actions.loadResults()
         }

@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -49,6 +50,9 @@ describe('transactionalPushMetricsLogic', () => {
             },
         })
         initKeaTests()
+        const capture = jest.spyOn(posthog, 'capture')
+        const calculated = (): number =>
+            capture.mock.calls.filter(([event]) => event === 'transactional email results calculated').length
         const unmountFilters = transactionalMetricsFiltersLogic.mount()
         const email = transactionalEmailMetricsLogic()
         email.mount()
@@ -62,6 +66,11 @@ describe('transactionalPushMetricsLogic', () => {
 
         expect(email.values.resultsQuery).toMatchObject({ workflowId: 'flow-1', event: 'purchase' })
         expect(resultsFor).toEqual(['flow-1'])
+        expect(calculated()).toBe(0)
+
+        email.actions.setResultsQuery({ windowDays: 14 })
+        await expectLogic(email).toFinishAllListeners()
+        expect(calculated()).toBe(1)
         email.unmount()
         unmountFilters()
     })
