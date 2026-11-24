@@ -818,16 +818,22 @@ class TestUpsertAlertTool(BaseTest):
         assert alert.next_check_at is not None
         assert (alert.next_check_at != datetime(2027, 1, 1, tzinfo=UTC)) is reschedules
 
+    @parameterized.expand([("as_the_user", False), ("impersonated", True)])
     @pytest.mark.django_db
     @pytest.mark.asyncio
-    async def test_an_edit_to_a_moved_alert_starts_from_its_copy_and_writes_only_the_copy(self):
+    async def test_an_edit_to_a_moved_alert_starts_from_its_copy_and_writes_only_the_copy(
+        self, _name: str, impersonated: bool
+    ):
         insight = await self._create_insight()
         alert = await self._create_alert(insight, lower_threshold=100.0)
         await sync_to_async(move_to_platform)(alert)
         # A write that bypasses every API leaves the row apart from the copy.
         await sync_to_async(AlertConfiguration.objects.filter(id=alert.id).update)(skip_weekend=True)
 
-        content, _ = await self._setup_tool()._arun_impl(
+        config: RunnableConfig = {
+            "configurable": {**self._config.get("configurable", {}), "is_impersonated": impersonated}
+        }
+        content, _ = await UpsertAlertTool(team=self.team, user=self.user, config=config)._arun_impl(
             action=UpdateAlertAction(alert_id=str(alert.id), name="Signups out of range", upper_threshold=200.0)
         )
 
@@ -848,12 +854,15 @@ class TestUpsertAlertTool(BaseTest):
         assert row.threshold is not None
         assert (row.skip_weekend, row.threshold.configuration["bounds"]) == (True, {"lower": 100.0})
         logged = {
-            entry.detail["type"]: (entry.user_id, [change["field"] for change in entry.detail["changes"]])
-            async for entry in ActivityLog.objects.filter(
+            detail_type: (user_id, was_impersonated, [change["field"] for change in changes])
+            async for detail_type, user_id, was_impersonated, changes in ActivityLog.objects.filter(
                 team_id=self.team.id, scope="AlertConfiguration", item_id=str(alert.id), activity="updated"
-            )
+            ).values_list("detail__type", "user_id", "was_impersonated", "detail__changes")
         }
-        assert logged == {None: (self.user.id, ["name"]), "threshold_change": (self.user.id, ["configuration"])}
+        assert logged == {
+            None: (self.user.id, impersonated, ["name"]),
+            "threshold_change": (self.user.id, impersonated, ["configuration"]),
+        }
 
     @pytest.mark.django_db
     @pytest.mark.asyncio

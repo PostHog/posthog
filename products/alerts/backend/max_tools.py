@@ -503,7 +503,12 @@ class UpsertAlertTool(MaxTool):
                     transaction.set_rollback(True)
                     return _SaveRefusal(message=str(error), error_code="validation_failed")
                 # Only the platform's copy changes, so the row's activity receivers never run.
-                log_platform_alert_edit(before, alert, user=self._user, was_impersonated=False)
+                log_platform_alert_edit(
+                    before,
+                    alert,
+                    user=self._user,
+                    was_impersonated=bool(self._config.get("configurable", {}).get("is_impersonated")),
+                )
             else:
                 alert.save(update_fields=update_fields)
             # Again under the lock, because the check above counted without it and another update can race.
