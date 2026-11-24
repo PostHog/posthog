@@ -642,6 +642,7 @@ Notes:
 - The worker checks the current issue state immediately before posting. Closed issues, locked issues, and pull requests receive no comment.
 - A report's `source_issue` artefacts count as source issues too. Scout and user-authored reports skip research, so their writeback runs from a Celery task queued after the write commits (`source_issues.py`). A source issue gets a comment only after the team's GitHub source ingests that issue; grouping queues the writeback again when the issue's signal joins the report.
 - Grouping attaches a GitHub issue signal to the oldest open report whose `source_issue` names the same issue, before similarity matching and without the specificity check. Resolved, suppressed, failed, closed, and deleted reports do not take it.
+- Grouping records the issue of each GitHub issue signal as a `source_issue` on the report the signal opens or joins, in the assignment transaction. A scout that later files about the same issue can then find that report through `open_report_for_source_issue`.
 - See [GitHub issue comments](../../docs/internal/signals-github-writeback.md) for recovery limits and diagnostic logs.
 
 ### `SignalUserAutonomyConfig`

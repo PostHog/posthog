@@ -239,7 +239,8 @@ The relay configuration names the exact run authority and its own client certifi
   "endpoint": "https://run-a.egress.example.com",
   "admin_address": "127.0.0.1:9091",
   "certificate_file": "/run/egress/relay.pem",
-  "private_key_file": "/run/egress/relay-key.pem"
+  "private_key_file": "/run/egress/relay-key.pem",
+  "client_ca_file": "/run/egress/enrollment-ca.pem"
 }
 ```
 
@@ -274,7 +275,11 @@ Send SIGHUP to the proxy after replacing its referenced TLS, CA, verification-ke
 It loads them together and retains the active configuration if any file is invalid.
 Failed reloads log the reason to stderr without exposing file contents.
 Every request checks the current client CA, including requests on reused TLS connections.
-Listener addresses and limits require a restart. Relay credentials also require a restart.
+The relay also reloads its certificate, key and server CA files on SIGHUP. Renewed certificates must use the same public key; a new key needs a new execution registration.
+Set `client_ca_file` to the enrollment CA bundle trusted by the regional proxy. Reload verifies the candidate's client-authentication chain against this bundle. Existing configurations can start without it, but cannot reload certificates until it is configured and the relay restarted.
+Successful relay reloads replace the upstream connection pool and close its idle connections. In-flight requests can finish, and new requests use the renewed certificate even on an existing guest connection.
+Invalid material leaves the previous material active. Readiness and new requests fail once that certificate expires. The worker must still issue, publish and trigger renewal; SIGHUP does not extend enrollment or relay process lifetime.
+Listener addresses, endpoints and limits require a restart.
 SIGINT and SIGTERM drain requests, then audit output, each within the shutdown timeout.
 
 ### Audit output

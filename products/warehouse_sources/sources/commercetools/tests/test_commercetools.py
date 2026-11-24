@@ -202,6 +202,30 @@ class TestCommercetoolsSourceResponse:
         assert result.response.partition_mode == "datetime"
         assert result.response.partition_keys == ["createdAt"]
 
+    @pytest.mark.parametrize(
+        "endpoint, expected_path",
+        [
+            ("products", "/proj/products"),
+            ("cart_discounts", "/proj/cart-discounts"),
+            ("product_discounts", "/proj/product-discounts"),
+            ("shipping_methods", "/proj/shipping-methods"),
+        ],
+    )
+    def test_incremental_sync_requests_vendor_resource_path(self, endpoint, expected_path):
+        row = {"id": "row-1", "createdAt": "2024-01-01T00:00:00.000Z", "lastModifiedAt": "2024-01-03T00:00:00.000Z"}
+        result = _driver().run(
+            endpoint,
+            [_token_response(), _page_response([row])],
+            incremental_field="lastModifiedAt",
+            db_incremental_field_last_value=datetime(2024, 1, 2, tzinfo=UTC),
+        )
+
+        assert result.raised is None
+        assert result.items == [[row]]
+        assert result.paths == ["/oauth/token", expected_path]
+        assert result.requests[1].param("where") == 'lastModifiedAt >= "2024-01-02T00:00:00.000Z"'
+        assert result.requests[1].param("sort") == "lastModifiedAt asc"
+
     @pytest.mark.parametrize("config", list(COMMERCETOOLS_ENDPOINTS.values()))
     def test_paths_are_kebab_case_resource_paths(self, config):
         # Schema names are snake_case but commercetools resource paths are kebab-case,
