@@ -2008,7 +2008,7 @@ Note: Extracted all GET and search routes from the OpenAPI embedded in docs.bexi
 
 ## BigCommerce — **thin**
 
-Today (13): `brands`, `categories`, `channels`, `customer_groups`, `customers`, `order_products`, `order_shipments`, `order_statuses`, `order_transactions`, `orders`, `products`, `refunds`, `variants`
+Today (15): `brands`, `categories`, `channels`, `customer_groups`, `customers`, `order_coupons`, `order_products`, `order_shipments`, `order_statuses`, `order_transactions`, `orders`, `product_reviews`, `products`, `refunds`, `variants`
 
 Diffed against: <https://raw.githubusercontent.com/bigcommerce/api-specs/master/reference/orders.v2.oas2.yml>
 
@@ -2020,8 +2020,8 @@ Diffed against: <https://raw.githubusercontent.com/bigcommerce/api-specs/master/
 - [x] `Refunds (GET /v3/orders/payment_actions/refunds)` — calculate net sales and analyze refund amounts, reasons, and refunded items (high)
 - [x] `Order transactions (GET /v3/orders/{order_id}/transactions)` — reconcile payments, captures, refunds, and payment provider outcomes against orders (high)
 - [x] `Order shipments (GET /v2/orders/{order_id}/shipments)` — measure fulfillment and connect shipped quantities, tracking references, and shipping providers to orders (medium)
-- [ ] `Order coupons (GET /v2/orders/{order_id}/coupons)` — attribute discounts and order revenue to specific coupon codes (medium)
-- [ ] `Product reviews (GET /v3/catalog/products/{product_id}/reviews)` — compare product ratings and review activity with sales and repeat purchases (medium)
+- [x] `Order coupons (GET /v2/orders/{order_id}/coupons)` — attribute discounts and order revenue to specific coupon codes (medium)
+- [x] `Product reviews (GET /v3/catalog/products/{product_id}/reviews)` — compare product ratings and review activity with sales and repeat purchases (medium)
 
 Note: The official api-specs repository supplies the order, customer, channel, marketing, product, and variant specifications used for this comparison. Orders use V2, while products and customers use V3; neither resource request adds optional related objects. Order products, coupons, transactions, shipments, and reviews need requests for each parent; refunds and variants have collection endpoints. Settings, webhooks, uploads, writes, and abandoned cart detail requests without a collection discovery endpoint are excluded.
 
