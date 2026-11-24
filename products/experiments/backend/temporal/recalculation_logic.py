@@ -52,7 +52,11 @@ from products.experiments.backend.metric_calculation.results import MetricResult
 from products.experiments.backend.metric_resolution import build_metric, get_metrics_for_calculation
 from products.experiments.backend.models.experiment import Experiment, ExperimentMetricsRecalculation
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-from products.experiments.backend.recalculation import _activity_task_queue, recalculation_clickhouse_user
+from products.experiments.backend.recalculation import (
+    RUN_ENTRY_DISPLAY_KEY,
+    _activity_task_queue,
+    recalculation_clickhouse_user,
+)
 from products.experiments.backend.temporal.models import (
     CAPACITY_MAX_METRIC_ATTEMPTS,
     CAPACITY_RETRY_BACKOFF_COEFFICIENT,
@@ -488,12 +492,15 @@ def _record_failure(
     error_type: str,
     retriable: bool,
     exposures_path: ExposuresPath | None = None,
+    display_key: str | None = None,
 ) -> None:
     """Merge the error entry into metric_errors under a row lock (no lost updates between concurrent failures).
 
     Idempotent on Temporal retries: the dict is keyed by metric_uuid, so re-running this for the same metric
     just overwrites the existing entry with a fresh timestamp. retriable is True only when a transient error
     exhausted its attempts, so the frontend heals that metric on page load and leaves the rest to a user retry.
+    `display_key` is the display key of the config that failed, which reads of the run compare with the current
+    config (`entries_of_current_configs`). A failure without a config passes None.
     """
     capped = message[:_MAX_ERROR_MESSAGE_LENGTH]
     with transaction.atomic():
@@ -508,6 +515,8 @@ def _record_failure(
         }
         if exposures_path is not None:
             metric_errors[metric_uuid]["exposures_path"] = exposures_path.value
+        if display_key is not None:
+            metric_errors[metric_uuid][RUN_ENTRY_DISPLAY_KEY] = display_key
         recalc.metric_errors = metric_errors
         recalc.save(update_fields=["metric_errors"])
 
@@ -556,10 +565,13 @@ def _record_retry(
     error_type: str,
     message: str,
     delay_seconds: float,
+    *,
+    display_key: str,
 ) -> None:
     """Transient attempt state for the UI, keyed by metric_uuid; overwritten per attempt, removed by the
     metric's terminal write. Carries a user-safe description of the error that triggered the retry;
-    next_retry_at is an estimate (worker pickup adds slack after it passes)."""
+    next_retry_at is an estimate (worker pickup adds slack after it passes). `display_key` is as in
+    `_record_failure`."""
     with transaction.atomic():
         recalc = ExperimentMetricsRecalculation.objects.select_for_update().get(id=recalculation_id)
         metric_retries = recalc.metric_retries or {}
@@ -569,6 +581,7 @@ def _record_retry(
             "error_type": error_type,
             "message": message[:_MAX_ERROR_MESSAGE_LENGTH],
             "next_retry_at": (timezone.now() + timedelta(seconds=delay_seconds)).isoformat(),
+            RUN_ENTRY_DISPLAY_KEY: display_key,
         }
         recalc.metric_retries = metric_retries
         recalc.save(update_fields=["metric_retries"])
@@ -591,10 +604,18 @@ def _clear_error(recalculation_id: str, metric_uuid: str) -> None:
 
 
 def _fail(
-    recalculation_id: str, metric_uuid: str, step: str, message: str, *, error_type: str
+    recalculation_id: str,
+    metric_uuid: str,
+    step: str,
+    message: str,
+    *,
+    error_type: str,
+    display_key: str | None = None,
 ) -> MetricRecalculationResult:
     """Record a permanent failure on the job (lookup step: job-only; calculation step: also persists a result row upstream)."""
-    _record_failure(recalculation_id, metric_uuid, step, message, error_type=error_type, retriable=False)
+    _record_failure(
+        recalculation_id, metric_uuid, step, message, error_type=error_type, retriable=False, display_key=display_key
+    )
     _clear_retry(recalculation_id, metric_uuid)
     return MetricRecalculationResult(
         metric_uuid=metric_uuid, success=False, error_step=step, error_message=message[:_MAX_ERROR_MESSAGE_LENGTH]
@@ -782,6 +803,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 error_type="validation_error",
             )
         metric_dict = calculation_config.definition
+        display_key = calculation_config.legacy_key()
 
         if not experiment.start_date:
             return _fail(
@@ -826,6 +848,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 error_type=error_type,
                 retriable=retriable,
                 exposures_path=runner.exposures_path if runner is not None else None,
+                display_key=display_key,
             )
             _capture_experiment_metric_event(
                 experiment,
@@ -934,7 +957,14 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 },
                 trigger=state.trigger,
             )
-            return _fail(recalculation_id, metric_uuid, "calculation", message, error_type="insufficient_data")
+            return _fail(
+                recalculation_id,
+                metric_uuid,
+                "calculation",
+                message,
+                error_type="insufficient_data",
+                display_key=display_key,
+            )
 
         except (ConcurrencyLimitExceeded, ClickHouseAtCapacity) as e:
             message = str(e)[:_MAX_ERROR_MESSAGE_LENGTH]
@@ -964,6 +994,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
                     error_type,
                     safe_message,
                     retry_delay_seconds,
+                    display_key=display_key,
                 )
                 _capture_experiment_metric_event(
                     experiment,
@@ -1027,6 +1058,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
                     error_type,
                     safe_message,
                     retry_delay_seconds,
+                    display_key=display_key,
                 )
                 _capture_experiment_metric_event(
                     experiment,
@@ -1105,6 +1137,7 @@ def _record_metric_out_of_time_failure_sync(failure: MetricOutOfTimeFailure) -> 
                     _OUT_OF_TIME_MESSAGE,
                     error_type="timeout",
                     retriable=True,
+                    display_key=calculation_config.legacy_key(),
                 )
         if completed:
             _clear_retry(failure.recalculation_id, failure.metric_uuid)
