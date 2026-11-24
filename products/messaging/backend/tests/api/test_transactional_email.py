@@ -863,7 +863,7 @@ class TestTransactionalEmail(APIBaseTest):
             ("lowest_tier", 0, False, False, status.HTTP_429_TOO_MANY_REQUESTS),
             ("top_tier", 7, False, False, status.HTTP_202_ACCEPTED),
             ("lowest_tier_on_the_bypass_list", 0, True, False, status.HTTP_202_ACCEPTED),
-            ("top_tier_while_the_cache_is_down", 7, False, True, status.HTTP_429_TOO_MANY_REQUESTS),
+            ("top_tier_while_the_cache_is_down", 7, False, True, status.HTTP_202_ACCEPTED),
         ]
     )
     def test_a_send_past_the_floor_is_refused_unless_the_tier_allows_more(

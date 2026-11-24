@@ -1085,9 +1085,9 @@ def transactional_email_send_budget(team_id: int) -> Budget:
             or 0
         )
     except Exception as e:
-        # A cache outage must not refuse sends, so the floor applies until it recovers.
+        # A cache outage must not tighten the limit, so read the tier directly until it recovers.
         capture_exception(e)
-        daily_cap = 0
+        daily_cap = get_enforced_email_sending_daily_cap(team_id) or 0
     return Budget(
         burst=max(TRANSACTIONAL_EMAIL_SEND_FLOOR.burst, daily_cap // 100),
         per_hour=max(TRANSACTIONAL_EMAIL_SEND_FLOOR.per_hour, daily_cap // 10),
@@ -1117,7 +1117,12 @@ class TransactionalEmailSendThrottle(BaseThrottle):
         )
         if isinstance(decision, BucketUnavailable) or decision.allowed:
             return True
-        if team_is_allowed_to_bypass_throttle(self.team_id):
+        try:
+            if team_is_allowed_to_bypass_throttle(self.team_id):
+                return True
+        except Exception as e:
+            # Matches the other API throttles: a failed bypass lookup lets the send through.
+            capture_exception(e)
             return True
         route = get_route_from_path(request.path)
         RATE_LIMIT_EXCEEDED_COUNTER.labels(

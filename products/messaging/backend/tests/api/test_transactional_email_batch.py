@@ -2,6 +2,7 @@ import re
 import json
 from typing import Any
 
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -580,6 +581,23 @@ class TestTransactionalEmailBatch(APIBaseTest):
         assert response.json()["code"] == "delivery_unavailable"
         assert "may still go out" in response.json()["detail"]
         assert [event["outcome"] for event in analytics.properties_of(SEND_EVENT)] == ["unavailable"]
+
+    def test_a_refused_batch_goes_through_when_retried_at_its_retry_after(self, mock_post, _flag, _capture):
+        one_token_a_second = Budget(burst=3, per_hour=3600)
+        with (
+            self._enforce_rate_limits(),
+            patch.object(message_templates, "TRANSACTIONAL_EMAIL_SEND_FLOOR", one_token_a_second),
+            time_machine.travel("2026-01-01T00:00:00Z", tick=False) as clock,
+        ):
+            mock_post.return_value = MagicMock(status_code=202, json=lambda: {"invocation_id": "single"})
+            self._single("template")
+            mock_post.return_value = self._queued_answer(3)
+            refused = self._batch("template", self._recipients(3))
+            clock.shift(int(refused.headers["Retry-After"]))
+            retried = self._batch("template", self._recipients(3))
+
+        assert refused.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert retried.status_code == status.HTTP_200_OK, retried.json()
 
     def test_the_rate_limit_is_reserved_before_the_key_is_created(self, mock_post, _flag, _capture):
         mock_post.return_value = self._queued_answer(5)
