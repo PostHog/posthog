@@ -8,7 +8,7 @@
 //! for a short window, and the events that arrive for it in that window are counted.
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     ops::{Deref, DerefMut},
     sync::{
         atomic::{AtomicUsize, Ordering},
@@ -31,17 +31,22 @@ use crate::{
 
 const SWEEP_INTERVAL: Duration = Duration::from_secs(1);
 const WARN_INTERVAL: Duration = Duration::from_secs(60);
+// Each labelled team keeps its metric series until the pod restarts, so the number of teams that
+// get one is capped. Later hot teams share the `other` series.
+const MAX_LABELLED_TEAMS: usize = 50;
 
 pub struct TeamDbSlots {
     default_limit: usize,
     overrides: HashMap<TeamId, usize>,
     hot_window: Duration,
+    max_labelled_teams: usize,
     state: Mutex<State>,
 }
 
 struct State {
     teams: HashMap<TeamId, TeamUsage>,
     last_sweep: Instant,
+    labelled_teams: HashSet<TeamId>,
 }
 
 #[derive(Default)]
@@ -119,9 +124,11 @@ impl TeamDbSlots {
             default_limit,
             overrides,
             hot_window,
+            max_labelled_teams: MAX_LABELLED_TEAMS,
             state: Mutex::new(State {
                 teams: HashMap::new(),
                 last_sweep: Instant::now(),
+                labelled_teams: HashSet::new(),
             }),
         }
     }
@@ -132,7 +139,10 @@ impl TeamDbSlots {
 
     pub fn record_hot_arrivals(&self, team_ids: impl IntoIterator<Item = TeamId>) {
         for (team_id, events) in self.hot_arrivals_at(team_ids, Instant::now()) {
-            let team: Arc<str> = Arc::from(team_id.to_string());
+            let team: Arc<str> = match team_id {
+                Some(team_id) => Arc::from(team_id.to_string()),
+                None => Arc::from("other"),
+            };
             metrics::counter!(TEAM_DB_SLOTS_HOT_EVENTS, "team_id" => team).increment(events);
         }
     }
@@ -176,15 +186,18 @@ impl TeamDbSlots {
         &self,
         team_ids: impl IntoIterator<Item = TeamId>,
         now: Instant,
-    ) -> Vec<(TeamId, u64)> {
+    ) -> Vec<(Option<TeamId>, u64)> {
         let mut events_per_team: HashMap<TeamId, u64> = HashMap::new();
         for team_id in team_ids {
             *events_per_team.entry(team_id).or_default() += 1;
         }
-        let state = self.lock(now);
-        events_per_team
+        let mut state = self.lock(now);
+        let hot: Vec<(TeamId, u64)> = events_per_team
             .into_iter()
             .filter(|(team_id, _)| state.is_hot(*team_id, now))
+            .collect();
+        hot.into_iter()
+            .map(|(team_id, events)| (state.label(team_id, self.max_labelled_teams), events))
             .collect()
     }
 
@@ -214,6 +227,16 @@ impl TeamDbSlots {
 }
 
 impl State {
+    fn label(&mut self, team_id: TeamId, max_labelled_teams: usize) -> Option<TeamId> {
+        if self.labelled_teams.contains(&team_id) || self.labelled_teams.len() < max_labelled_teams
+        {
+            self.labelled_teams.insert(team_id);
+            Some(team_id)
+        } else {
+            None
+        }
+    }
+
     fn is_hot(&self, team_id: TeamId, now: Instant) -> bool {
         self.teams
             .get(&team_id)
@@ -300,7 +323,30 @@ mod tests {
             let _b = slots.acquire_at(1, now);
         }
 
-        assert_eq!(slots.hot_arrivals_at([1, 2, 1], now), vec![(1, 2)]);
+        assert_eq!(slots.hot_arrivals_at([1, 2, 1], now), vec![(Some(1), 2)]);
+    }
+
+    #[test]
+    fn hot_teams_past_the_label_cap_share_one_series() {
+        let mut slots = slots(1, &[]);
+        slots.max_labelled_teams = 1;
+        let now = Instant::now();
+        for team_id in [1, 2] {
+            let _a = slots.acquire_at(team_id, now);
+            let _b = slots.acquire_at(team_id, now);
+        }
+
+        assert_eq!(slots.hot_arrivals_at([1], now), vec![(Some(1), 1)]);
+        assert_eq!(
+            slots.hot_arrivals_at([2], now),
+            vec![(None, 1)],
+            "a team past the cap got its own series"
+        );
+        assert_eq!(
+            slots.hot_arrivals_at([1], now),
+            vec![(Some(1), 1)],
+            "a labelled team lost its series"
+        );
     }
 
     #[test]
