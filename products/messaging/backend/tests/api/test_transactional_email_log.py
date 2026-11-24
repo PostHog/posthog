@@ -31,6 +31,7 @@ from products.messaging.backend.models.email_status_sql import EMAIL_STATUS_DATA
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
 from products.messaging.backend.services.transactional_email_log import _bucket_starts
+from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
 from products.workflows.backend.facade.testing import create_workflow_for_test
 from products.workflows.backend.facade.transactional_emails import create_code_email_workflow
 from products.workflows.backend.facade.writes import destroy_workflow
@@ -1048,6 +1049,21 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         )
         assert conversions.status_code == status.HTTP_403_FORBIDDEN, conversions.json()
         assert results.status_code == status.HTTP_403_FORBIDDEN, results.json()
+
+    def test_impact_reads_the_default_link_tag_setting_without_saving_workflow_settings(self, _flag):
+        TeamWorkflowsConfig.objects.filter(team_id=self.team.id).delete()
+
+        impact = self._impact()
+
+        assert impact["link_tagging_enabled"] is True
+        assert not TeamWorkflowsConfig.objects.filter(team_id=self.team.id).exists()
+
+    def test_counts_no_sessions_when_nobody_clicked(self, _flag):
+        self._send(30, "jane@example.com", [("sent", 1, ""), ("delivered", 2, "")])
+
+        impact = self._impact(date_from=(NOW - timedelta(days=1)).isoformat())
+
+        assert (impact["delivered"], impact["clicked"], impact["sessions"]) == (1, 0, 0)
 
     def test_names_a_send_from_code_by_its_template_key_and_links_its_code_email(self, _flag):
         workflow_id = str(create_code_email_workflow(team_id=self.team.id, key="order-shipped"))

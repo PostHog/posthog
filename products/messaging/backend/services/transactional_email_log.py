@@ -52,6 +52,7 @@ from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
 from products.messaging.backend.services.code_emails import code_emails_by_workflow
 from products.messaging.backend.services.transactional_email_status import message_created_at
+from products.workflows.backend.facade.api import is_email_workflow_run_link_tag_enabled
 from products.workflows.backend.facade.contracts import WorkflowViewAccess
 from products.workflows.backend.facade.message_assets import (
     fetch_first_email_sends,
@@ -614,8 +615,9 @@ def transactional_email_impact(
     date_from: datetime | None = None,
     date_to: datetime | None = None,
 ) -> TransactionalEmailImpact:
-    """How far one email's sends got, from sent to clicked, how many sessions the clicks started, and how often the
-    person behind a send did `event` within a week of clicking, against sends that were delivered and never clicked."""
+    """How far one email's sends got, from sent to clicked, how many distinct sessions had a pageview in the period or
+    the week after it whose URL carries the link tag of a clicked send, and how often the person behind a send did
+    `event` within a week of clicking, against sends that were delivered and never clicked."""
     period = _window(date_from, date_to)
     params: dict[str, Any] = {
         "start": period.start,
@@ -646,7 +648,7 @@ def transactional_email_impact(
         params,
         _GROUP_AS_READ,
     )
-    link_tagging_enabled = team.workflows_config.email_workflow_run_link_tag_enabled
+    link_tagging_enabled = is_email_workflow_run_link_tag_enabled(team_id=team.id)
     sessions: int | None = None
     if link_tagging_enabled and can_query_events:
         sessions = _sessions_with_a_pageview_from_the_email(team, user, workflow_id, period) if clicked else 0
