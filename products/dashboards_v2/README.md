@@ -175,6 +175,15 @@ The zod schemas in `frontend/dashboard/dashboardSchema.ts` are the only definiti
 - Overlaps and gaps are not problems, because loading a dashboard settles them.
 - It needs only specs, so a CI check or an MCP tool can run it without rendering anything.
 
+A widget can show on more than one tile, such as the same chart on two tabs.
+The document stores it once, in `widgets`, and each tile points at it with `{ "ref": "<key>" }`, plus its own `parts` and `appearance`.
+Its type, title, description and config are shared, so changing a chart's query or kind on one tile changes it on every tile.
+Size, position, parts and appearance belong to each tile.
+
+- `loadDashboard(document)` in `frontend/dashboard/sharedWidgets.ts` puts each shared widget back on its tiles, with `ref` set, so the rest of the code sees whole widgets. `saveDashboard(dashboard)` stores them once again and drops any no tile shows.
+- "Also show on tab" in a tile's menu (`addToGrid`) places a second tile for the same widget on another tab. Removing either tile leaves the other.
+- `validateDashboard` reports a tile pointing at a widget the document does not have.
+
 ## Checking a change
 
 Layout bugs show up under a real pointer, not in a unit test.

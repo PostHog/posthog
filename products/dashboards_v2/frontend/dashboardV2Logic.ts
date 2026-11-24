@@ -76,6 +76,7 @@ export interface dashboardV2LogicActions {
                                               header?: boolean | undefined
                                           }
                                         | undefined
+                                    ref?: string | undefined
                                     refreshedAt?: string | undefined
                                     title?: string | undefined
                                     type: string
@@ -156,6 +157,7 @@ export interface dashboardV2LogicMeta {
                                               header?: boolean | undefined
                                           }
                                         | undefined
+                                    ref?: string | undefined
                                     refreshedAt?: string | undefined
                                     title?: string | undefined
                                     type: string
@@ -216,6 +218,7 @@ export interface dashboardV2LogicMeta {
                                                   header?: boolean | undefined
                                               }
                                             | undefined
+                                        ref?: string | undefined
                                         refreshedAt?: string | undefined
                                         title?: string | undefined
                                         type: string

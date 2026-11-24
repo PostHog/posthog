@@ -16,10 +16,11 @@ import {
     ContextMenuTrigger,
 } from '@posthog/quill'
 
-import { type ContentWidget, type SectionWidget, gridTabs } from '../dashboard/dashboardTypes'
+import { type ContentWidget, type SectionWidget, gridTabs, widgetRef } from '../dashboard/dashboardTypes'
 import { useDashboardV2 } from '../dashboard/dashboardV2Context'
 import type { MenuAction } from '../dashboard/menuAction'
 import { MenuActionList, type MenuParts } from '../dashboard/MenuActionList'
+import { everyTile } from '../dashboard/tileTree'
 import { tileAppearanceAction } from '../presentation/tileAppearance'
 import { tilePartsAction } from '../presentation/tileParts'
 import { widgetSlots } from '../widgets/widgetDefinition'
@@ -70,6 +71,27 @@ export function useContentTileActions(id: string, widget: ContentWidget): MenuAc
                 disabledReason: disabledReasonFor('moveTile'),
                 onSelect: () => onEdit({ edit: 'moveTile', id, grid: tab.id }),
             })),
+        })
+        actions.push({
+            key: 'add-to-tab',
+            label: 'Also show on tab',
+            dataAttr: 'dashboard-v2-tile-add-to-tab',
+            disabledReason: disabledReasonFor('addToGrid'),
+            submenu: otherTabs.map((tab) => {
+                // A tab already showing this widget is ticked, and picking it again takes the widget off that tab.
+                const shown = widget.ref
+                    ? everyTile(tab.tiles).find((tile) => widgetRef(tile) === widget.ref)
+                    : undefined
+                return {
+                    key: tab.id,
+                    label: tab.title,
+                    dataAttr: 'dashboard-v2-tile-add-to-tab-item',
+                    checked: !!shown,
+                    disabledReason: disabledReasonFor(shown ? 'removeTile' : 'addToGrid'),
+                    onSelect: () =>
+                        onEdit(shown ? { edit: 'removeTile', id: shown.id } : { edit: 'addToGrid', id, grid: tab.id }),
+                }
+            }),
         })
     }
     const parts = tilePartsAction(id, widget, widgetSlots(definition), disabledReasonFor('setTileParts'), onEdit)

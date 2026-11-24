@@ -4,6 +4,7 @@ import type {
     contentWidgetAppearanceSchema,
     contentWidgetPartsSchema,
     contentWidgetSchema,
+    dashboardDocumentSchema,
     dashboardSchema,
     dashboardTabSchema,
     gridTabSchema,
@@ -105,8 +106,14 @@ export function activeGridTab(dashboard: Dashboard, activeTabId: string | null):
 
 export type Dashboard = z.infer<typeof dashboardSchema>
 
+export type DashboardDocument = z.infer<typeof dashboardDocumentSchema>
+
 export type SectionTile = Tile & { widget: SectionWidget }
 
 export function isSection(tile: Tile): tile is SectionTile {
     return isSectionWidget(tile.widget)
+}
+
+export function widgetRef(tile: Tile): string | undefined {
+    return isSectionWidget(tile.widget) ? undefined : tile.widget.ref
 }

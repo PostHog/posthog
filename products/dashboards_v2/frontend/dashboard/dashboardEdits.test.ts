@@ -183,6 +183,17 @@ describe('dashboardEdits', () => {
         expect(findTile(view(later), 'group')!.place.h).toEqual(expected)
     })
 
+    it('shows a tile on another tab, and a config change on either tile reaches both', () => {
+        const board = dashboard([text('a', 0, 0, 8, 8)])
+        const shared = applyEdit(board, { edit: 'addToGrid', id: 'a', grid: 'second' }, sizeOf)
+        const copy = gridTabs(shared)[1].tiles[0]
+        const edited = applyEdit(shared, { edit: 'setWidgetConfig', id: copy.id, config: { text: 'new' } }, sizeOf)
+        expect([findTile(edited, 'a'), findTile(edited, copy.id)].map((tile) => tile?.widget)).toEqual([
+            { type: 'markdown', config: { text: 'new' }, ref: 'widget1' },
+            { type: 'markdown', config: { text: 'new' }, ref: 'widget1' },
+        ])
+    })
+
     it('keeps the last tab with tiles when only link tabs would be left', () => {
         const board: Dashboard = {
             ...dashboard([text('a', 0, 0, 8, 8)]),

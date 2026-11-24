@@ -14,9 +14,10 @@ import {
     isGridTab,
     isSection,
     isSectionWidget,
+    widgetRef,
     widgetSize,
 } from './dashboardTypes'
-import { allTiles, changeTileEverywhere, findTile } from './tileTree'
+import { allTiles, changeTileEverywhere, changeTilesWhere, findTile } from './tileTree'
 
 export type LayoutEdit =
     /** `resized` names the tile a person resized, so a section keeps the height they chose. */
@@ -24,6 +25,8 @@ export type LayoutEdit =
     | { edit: 'moveTile'; id: string; grid: string; x?: number; y?: number }
     | { edit: 'addTile'; grid: string; widget: Widget }
     | { edit: 'removeTile'; id: string }
+    /** Shows the tile's widget on another grid too. Both tiles then share its content, such as a chart's query. */
+    | { edit: 'addToGrid'; id: string; grid: string }
     | { edit: 'updateSection'; id: string; patch: Partial<Pick<SectionWidget, 'title'>> }
     /** With `href`, the new tab is a link elsewhere and holds no tiles. */
     | { edit: 'addTab'; title: string; href?: string }
@@ -137,6 +140,25 @@ function moveTile(
     )
 }
 
+// New tiles go on a new row at the bottom, so adding one never moves or resizes what is there.
+function bottomPlace(grid: { tiles: Tile[]; cols: number }, w: number, h: number): TilePlace {
+    return { x: 0, y: bottomOf(grid.tiles.map((other) => other.place)), w: Math.min(w, grid.cols), h }
+}
+
+// A new config can need a bigger tile, such as a stat switched to a line chart.
+function withConfig(tile: Tile, config: unknown, sizeOf: SizeOf): Tile {
+    if (isSection(tile)) {
+        return tile
+    }
+    const widget = { ...tile.widget, config }
+    const { minW, minH } = widgetSize(widget, sizeOf)
+    return {
+        ...tile,
+        widget,
+        place: { ...tile.place, w: Math.max(tile.place.w, minW), h: Math.max(tile.place.h, minH) },
+    }
+}
+
 function addTile(dashboard: Dashboard, edit: Extract<DashboardEdit, { edit: 'addTile' }>, sizeOf: SizeOf): Dashboard {
     const target = findGrid(dashboard, edit.grid)
     if (!target) {
@@ -146,15 +168,34 @@ function addTile(dashboard: Dashboard, edit: Extract<DashboardEdit, { edit: 'add
     const tile: Tile = {
         id: newId(dashboard, isSectionWidget(edit.widget) ? 'section' : 'tile'),
         widget: edit.widget,
-        // New tiles go on a new row at the bottom, so adding one never moves or resizes what is there.
-        place: {
-            x: 0,
-            y: bottomOf(target.tiles.map((other) => other.place)),
-            w: Math.min(size.w, target.cols),
-            h: size.h,
-        },
+        place: bottomPlace(target, size.w, size.h),
     }
     return changeGrid(dashboard, edit.grid, (tiles) => [...tiles, tile])
+}
+
+function newRef(dashboard: Dashboard): string {
+    const taken = new Set(allTiles(dashboard).map(widgetRef))
+    let n = 1
+    while (taken.has(`widget${n}`)) {
+        n++
+    }
+    return `widget${n}`
+}
+
+function addToGrid(dashboard: Dashboard, edit: Extract<DashboardEdit, { edit: 'addToGrid' }>): Dashboard {
+    const tile = findTile(dashboard, edit.id)
+    const target = findGrid(dashboard, edit.grid)
+    if (!tile || isSectionWidget(tile.widget) || !target) {
+        return dashboard
+    }
+    const widget = { ...tile.widget, ref: tile.widget.ref ?? newRef(dashboard) }
+    const shared = changeTileEverywhere(dashboard, edit.id, (original) => ({ ...original, widget }))
+    const copy: Tile = {
+        id: newId(dashboard, 'tile'),
+        widget,
+        place: bottomPlace(target, tile.place.w, tile.place.h),
+    }
+    return changeGrid(shared, edit.grid, (tiles) => [...tiles, copy])
 }
 
 function applyOnce(dashboard: Dashboard, edit: DashboardEdit, view: View, sizeOf: SizeOf): Dashboard {
@@ -186,17 +227,17 @@ function applyOnce(dashboard: Dashboard, edit: DashboardEdit, view: View, sizeOf
             return addTile(dashboard, edit, sizeOf)
         case 'removeTile':
             return changeTileEverywhere(dashboard, edit.id, () => null)
-        case 'setWidgetConfig':
-            return changeTileEverywhere(dashboard, edit.id, (tile) => {
-                if (isSection(tile)) {
-                    return tile
-                }
-                // A new config can need a bigger tile, such as a stat switched to a line chart.
-                const widget = { ...tile.widget, config: edit.config }
-                const { minW, minH } = widgetSize(widget, sizeOf)
-                const place = { ...tile.place, w: Math.max(tile.place.w, minW), h: Math.max(tile.place.h, minH) }
-                return { ...tile, widget, place }
-            })
+        case 'addToGrid':
+            return addToGrid(dashboard, edit)
+        case 'setWidgetConfig': {
+            const edited = findTile(dashboard, edit.id)
+            const ref = edited ? widgetRef(edited) : undefined
+            return changeTilesWhere(
+                dashboard,
+                (tile) => tile.id === edit.id || (!!ref && widgetRef(tile) === ref),
+                (tile) => withConfig(tile, edit.config, sizeOf)
+            )
+        }
         case 'updateSection':
             return changeTileEverywhere(dashboard, edit.id, (tile) =>
                 isSection(tile) ? { ...tile, widget: { ...tile.widget, ...edit.patch } } : tile
