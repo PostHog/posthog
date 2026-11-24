@@ -2,6 +2,7 @@
 
 A catalog of the **reference architectures** scouts fall into.
 Most new scouts are a variation on one of these — pick the closest shape as your starting point, copy the named canonical scout it maps to, and swap in your surface's discriminator and queries.
+To read a canonical scout this page names, try `posthog:skill-get` first for the copy this project runs, then fetch its upstream `SKILL.md` from GitHub at `https://raw.githubusercontent.com/PostHog/posthog/master/products/signals/skills/<name>/SKILL.md` (bundled references sit in `https://github.com/PostHog/posthog/tree/master/products/signals/skills/<name>`); with no web access, start from the skeletons in [`scout-anatomy.md`](scout-anatomy.md).
 The [`scout-anatomy.md`](scout-anatomy.md) body structure is the same for all of them; what changes between patterns is **what the scout watches**, **how it reads that data**, and **what its signal-vs-noise discriminator is**.
 
 This is a living reference — add a pattern when a genuinely new shape proves itself, rather than letting every scout reinvent one.
@@ -86,7 +87,7 @@ The default specialist shape, and the one most surfaces fit.
   Pair it with a **change log** of the things that could shift the metric (merged website PRs above a materiality bar, experiments started or stopped, deploys) so a surprise can be attributed rather than re-derived, and post a short plain-language digest on a fixed cadence even when quiet, because a silent predictor gives its reader no way to tell calibration from absence.
   This is the shape to reach for when the team wants a metric _understood_ rather than merely alarmed on, and when the volume is low enough that per-bucket anomaly scoring is mostly noise.
 - Copy the closest specialist verbatim and replace the surface + discriminator.
-  Read `products/signals/skills/signals-scout-error-tracking/SKILL.md` for the cleanest worked example (its `count`-vs-`distinct_users` table is the canonical discriminator).
+  Read `signals-scout-error-tracking` for the cleanest worked example (its `count`-vs-`distinct_users` table is the canonical discriminator).
 
 ### Liveness / absence watcher
 
@@ -171,7 +172,7 @@ The scout can't re-check everything every run, so it **curates**.
 - **The balance:** each run splits effort between **exploit** (re-check watchlist items that are due) and **explore** (discover new high-value items to add).
   Neither alone is enough — exploit-only goes stale, explore-only never follows up.
 - **Dedupe + memory:** the watchlist itself is the memory — `watchlist:<domain>:<id>` entries with last-checked timestamps and per-item baselines.
-  This is the one specialist that bundles its own references; read `products/signals/skills/signals-scout-anomaly-detection/` for the full treatment.
+  This is the one specialist that bundles its own references; read `signals-scout-anomaly-detection` and its `references/` for the full treatment.
 
 **Curated (fixed) variant — the common user ask.** When the team already knows exactly which entities matter ("watch _these_ dashboards / insights / metrics"), drop the explore half: the watchlist is a **fixed, curated set** held in the scratchpad (or even inlined in the body), so a run spends almost nothing on discovery and almost everything on "is the latest number worth a human's attention?".
 This is what most users mean by "keep an eye on my key dashboards", and it's the cleanest first scout to hand someone.
@@ -197,7 +198,7 @@ Files P3 recommendations rather than P0–P2 anomalies.
 - **Discriminator:** a high-value entity that lacks the coverage/configuration it should have.
 - **Calibration:** default `priority` P3 with `actionability: requires_human_input`; weight by how much the gap matters, not by urgency.
   Don't flood the inbox — a recommendation the team won't act on is noise.
-- See `products/signals/skills/signals-scout-observability-gaps/SKILL.md`.
+- See `signals-scout-observability-gaps`.
 
 ### Warehouse-backed source scout
 
