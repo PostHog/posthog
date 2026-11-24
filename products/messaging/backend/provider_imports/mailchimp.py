@@ -915,7 +915,7 @@ def _read_segments(
     """A list for each tag and segment, holding only contacts the import read as subscribed to its audience."""
     lists: list[ContactList] = []
     skipped: list[ImportItem] = []
-    memberships = left_out = failed = 0
+    memberships = left_out = failed = oversized = 0
     found: list[tuple[int, dict[str, Any], int]] = []
     unlisted = 0
     extra_pages = MAX_EXTRA_SEGMENT_PAGES
@@ -925,17 +925,17 @@ def _read_segments(
             continue
         path = f"/lists/{quoted(str(audience['id']))}/segments"
         offset = 0
+        listed: list[tuple[int, dict[str, Any], int]] = []
+        unlisted_here = 0
         try:
             while True:
                 page = client.page(path, "segments", offset, {"fields": _SEGMENT_FIELDS})
-                found += [
+                listed += [
                     (segment["id"], segment, position)
                     for segment in page.items
                     if isinstance(segment.get("id"), int) and segment.get("type") in _SEGMENT_KINDS
                 ]
-                found.sort(key=lambda entry: entry[0])
-                left_out += len(found[MAX_SEGMENTS + MAX_FAILED_SEGMENTS :])
-                del found[MAX_SEGMENTS + MAX_FAILED_SEGMENTS :]
+                unlisted_here += _keep_oldest(listed)
                 end = offset + len(page.items)
                 if end > page.total or (not page.items and (offset or page.total)):
                     raise MailchimpAPIError("Mailchimp sent an unexpected response.")
@@ -943,7 +943,7 @@ def _read_segments(
                 if offset >= page.total:
                     break
                 if not extra_pages:
-                    left_out += page.total - offset
+                    unlisted_here += page.total - offset
                     break
                 extra_pages -= 1
         except (MailchimpKeyRejected, MailchimpRateLimited):
@@ -952,9 +952,12 @@ def _read_segments(
             failed += 1
             label = f"Tags and segments in {_audience_name(audience)}"
             skipped.append(ImportItem(label=label, status="failed", notes=(UNLISTED_SEGMENTS_NOTE,)))
+            continue
+        found += listed
+        left_out += unlisted_here + _keep_oldest(found)
     # Oldest first, so a later import of an account past the limit fills the same cohorts.
     for segment_id, segment, position in found:
-        if len(lists) >= MAX_SEGMENTS or failed >= MAX_FAILED_SEGMENTS:
+        if len(lists) >= MAX_SEGMENTS or oversized >= MAX_FAILED_SEGMENTS or failed >= MAX_FAILED_SEGMENTS:
             left_out += 1
             continue
         audience, rows_by_email = subscribed[position]
@@ -971,6 +974,8 @@ def _read_segments(
             skipped.append(ImportItem(label=cohort_name, status="failed", notes=(problem,)))
             continue
         if memberships + len(rows) > MAX_SEGMENT_MEMBERSHIPS:
+            # Reading one only to leave it out costs requests, so a few are enough to stop.
+            oversized += 1
             left_out += 1
             continue
         memberships += len(rows)
@@ -1009,6 +1014,14 @@ def _read_segments(
     if failed:
         logger.warning("Mailchimp tags couldn't be read", extra={"failed": failed, "left_out": left_out})
     return _Segments(lists=tuple(lists), skipped=tuple(skipped), failed=failed)
+
+
+def _keep_oldest(segments: list[tuple[int, dict[str, Any], int]]) -> int:
+    """Keeps as many as one import can read, and returns how many it left out."""
+    segments.sort(key=lambda entry: entry[0])
+    left_out = len(segments[MAX_SEGMENTS + MAX_FAILED_SEGMENTS :])
+    del segments[MAX_SEGMENTS + MAX_FAILED_SEGMENTS :]
+    return left_out
 
 
 def _read_segment(

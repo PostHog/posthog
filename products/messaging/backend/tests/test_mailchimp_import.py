@@ -727,6 +727,7 @@ class TestMailchimpContacts(ClickhouseTestMixin, TestMailchimpImportBase):
         with patch.object(self.mailchimp, "handle", broken):
             run = self._import_contacts("new_people")
 
+        assert not any(" in " in name for name in self._staged(run))
         assert run.progress["contacts"]["counts"]["segments_failed"] == 1
         assert run.progress["contacts"]["items"][1]["label"] == "Tags and segments in Weekly newsletter"
 
