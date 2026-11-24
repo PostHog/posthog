@@ -144,7 +144,7 @@ export function MCPSessionView({
                     </div>
                     <div className="flex flex-col min-w-0 flex-1 gap-1">
                         <span
-                            className={`truncate font-semibold ${
+                            className={`ph-no-capture truncate font-semibold ${
                                 identifiedPerson ? 'text-default text-sm' : 'font-mono text-xs text-secondary'
                             }`}
                         >
@@ -156,7 +156,7 @@ export function MCPSessionView({
                                 description="distinct id"
                                 iconSize="xsmall"
                                 tooltipMessage={<IdTooltip label="Distinct ID" value={session.distinct_id} />}
-                                className="truncate font-mono text-[11px] text-secondary"
+                                className="ph-no-capture truncate font-mono text-[11px] text-secondary"
                             >
                                 {session.distinct_id}
                             </CopyToClipboardInline>
@@ -166,7 +166,10 @@ export function MCPSessionView({
 
                 <div className="flex flex-wrap items-center gap-1.5">
                     {session.mcp_client_name ? (
-                        <MetaBadge icon={<IconSparkles />} label={session.mcp_client_name} />
+                        <MetaBadge
+                            icon={<IconSparkles />}
+                            label={<span className="ph-no-capture">{session.mcp_client_name}</span>}
+                        />
                     ) : null}
                     {model ? (
                         <MetaBadge

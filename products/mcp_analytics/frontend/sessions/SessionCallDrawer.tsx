@@ -21,7 +21,7 @@ export function SessionCallDrawer({ stacked = false }: { stacked?: boolean }): J
     return (
         <MCPDetailDrawer
             noun="tool call"
-            title={<span className="font-mono">{openedCall.tool_name || 'unknown'}</span>}
+            title={<span className="ph-no-capture font-mono">{openedCall.tool_name || 'unknown'}</span>}
             position={position}
             onPrevious={previousCall ? () => stepTo('previous') : null}
             onNext={nextCall ? () => stepTo('next') : null}

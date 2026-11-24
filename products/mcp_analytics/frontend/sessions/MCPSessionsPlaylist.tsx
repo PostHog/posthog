@@ -269,9 +269,11 @@ const MCPSessionPreview = memo(function MCPSessionPreview({
         >
             <div className="flex items-center justify-between gap-2">
                 {personLabel ? (
-                    <span className="font-medium truncate">{personLabel}</span>
+                    <span className="ph-no-capture font-medium truncate">{personLabel}</span>
                 ) : (
-                    <span className="font-mono text-secondary truncate">{session.distinct_id || 'unknown'}</span>
+                    <span className="ph-no-capture font-mono text-secondary truncate">
+                        {session.distinct_id || 'unknown'}
+                    </span>
                 )}
                 <span className="shrink-0 text-secondary">
                     <TZLabel time={session.session_start} />
@@ -292,7 +294,7 @@ const MCPSessionPreview = memo(function MCPSessionPreview({
                     {session.mcp_client_name ? (
                         <span className="flex items-center gap-1 truncate">
                             <IconSparkles className="shrink-0" />
-                            <span className="truncate">{session.mcp_client_name}</span>
+                            <span className="ph-no-capture truncate">{session.mcp_client_name}</span>
                         </span>
                     ) : null}
                 </div>

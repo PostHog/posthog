@@ -26,7 +26,7 @@ export function SessionIntentCard({
                         Session intent
                     </span>
                 </div>
-                <p className="m-0 text-xs leading-relaxed text-default">{intent}</p>
+                <p className="ph-no-capture m-0 text-xs leading-relaxed text-default">{intent}</p>
             </div>
         )
     }

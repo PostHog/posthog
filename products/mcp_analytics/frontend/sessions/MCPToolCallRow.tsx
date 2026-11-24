@@ -41,7 +41,8 @@ export function CapturedJson({
     names?: readonly string[]
 }): JSX.Element {
     return (
-        <div className="flex flex-col gap-1">
+        // Raw event data, so keep it out of autocapture and replay.
+        <div className="ph-no-capture flex flex-col gap-1">
             <span className="text-[11px] font-semibold text-secondary">{label}</span>
             {json ? (
                 <CodeSnippet
@@ -70,7 +71,7 @@ function FailureDetails({ toolCall }: { toolCall: MCPToolCallApi }): JSX.Element
         toolCall.error_field ? `Argument ${toolCall.error_field}` : null,
     ].filter(Boolean)
     return details.length > 0 ? (
-        <div className="text-[11px] text-secondary font-mono pl-5 break-all">{details.join(' · ')}</div>
+        <div className="ph-no-capture text-[11px] text-secondary font-mono pl-5 break-all">{details.join(' · ')}</div>
     ) : null
 }
 
@@ -97,7 +98,7 @@ function MCPToolCallDetails({
             <CapturedJson label="Result" json={toolCall.response} property="$mcp_response" />
             {toolCall.llm_model ? (
                 <span className="text-xs text-secondary">
-                    Model: <span className="font-mono">{toolCall.llm_model}</span>
+                    Model: <span className="ph-no-capture font-mono">{toolCall.llm_model}</span>
                 </span>
             ) : null}
             <div className="flex flex-wrap items-center gap-1">
@@ -153,9 +154,9 @@ function MCPToolCallTitle({ toolCall }: { toolCall: MCPToolCallApi }): JSX.Eleme
             ) : (
                 <IconBolt className="text-accent shrink-0 text-xs" />
             )}
-            <span className="font-mono font-semibold truncate">{toolCall.tool_name || 'unknown'}</span>
+            <span className="ph-no-capture font-mono font-semibold truncate">{toolCall.tool_name || 'unknown'}</span>
             {execCommandLabel(toolCall) ? (
-                <span className="font-mono text-secondary truncate">{execCommandLabel(toolCall)}</span>
+                <span className="ph-no-capture font-mono text-secondary truncate">{execCommandLabel(toolCall)}</span>
             ) : null}
             {toolCall.is_error ? (
                 <LemonTag type="danger" size="small">
@@ -201,12 +202,14 @@ export function MCPToolCallRow({
                 </div>
             </div>
 
-            <div className="text-xs leading-snug pl-5">
+            <div className="ph-no-capture text-xs leading-snug pl-5">
                 {toolCall.intent || <span className="text-secondary italic">No intent captured.</span>}
             </div>
 
             {toolCall.is_error && toolCall.error_message ? (
-                <div className="text-xs text-danger font-mono pl-5 break-all">{toolCall.error_message}</div>
+                <div className="ph-no-capture text-xs text-danger font-mono pl-5 break-all">
+                    {toolCall.error_message}
+                </div>
             ) : null}
             {toolCall.is_error ? <FailureDetails toolCall={toolCall} /> : null}
 
