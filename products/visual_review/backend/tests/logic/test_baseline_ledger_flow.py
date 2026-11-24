@@ -4,7 +4,7 @@ from products.visual_review.backend.db import WRITER_DB
 from products.visual_review.backend.facade.enums import BaselineApprovalState, BaselineMode, RunPurpose, RunType
 from products.visual_review.backend.logic import approvals, gating, ledger, ledger_advance
 from products.visual_review.backend.logic.baseline_record import record_for_run
-from products.visual_review.backend.models import BaselineApproval, Repo, Run
+from products.visual_review.backend.models import BaselineApproval, QuarantinedIdentifier, Repo, Run, ToleratedHash
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
 from products.visual_review.backend.tests.logic.ledger_fakes import (
     DEFAULT_BRANCH,
@@ -21,6 +21,7 @@ GREEN = (0, 255, 0, 255)
 GREY = (128, 128, 128, 255)
 YELLOW = (255, 255, 0, 255)
 CYAN = (0, 255, 255, 255)
+MAGENTA = (255, 0, 255, 255)
 
 
 @pytest.fixture
@@ -42,6 +43,7 @@ def flow(repo, mocker) -> LedgerFlow:
     flow.picture("c0", GREY)
     flow.picture("g1", YELLOW)
     flow.picture("b9", CYAN)
+    flow.picture("t1", MAGENTA)
     return flow
 
 
@@ -289,3 +291,59 @@ class TestLedgerFlow:
         top.refresh_from_db()
         assert top.state == BaselineApprovalState.CONFLICTED
         assert _ledger(repo)["Button"] == between_hash
+
+    def test_a_quarantined_queue_run_does_not_land_an_approval_over_a_moved_baseline(self, repo, git, flow) -> None:
+        git.open_pull_request(1, git.commit("x1a", SEED))
+        stale = approve(repo, 1, "Button", "b1", commit_sha="x1a")
+        git.open_pull_request(2, git.commit("y2a", SEED))
+        approve(repo, 2, "Button", "b2", commit_sha="y2a")
+        _queue_run(flow, git, "q1", "y2a", {"Button": "b2", "Card": "c0"})
+        git.merge(2, "m1", squash=True)
+        ledger_advance.advance(repo)
+
+        QuarantinedIdentifier.objects.create(
+            repo=repo, team_id=repo.team_id, identifier="Button", run_type=RunType.STORYBOOK, reason="flaky"
+        )
+        queue = _queue_run(flow, git, "q2", "x1a", {"Button": "b1", "Card": "c0"})
+        assert _drift(queue) == (0, 0, 0)
+        git.merge(1, "m2", squash=True)
+        ledger_advance.advance(repo)
+
+        stale.refresh_from_db()
+        assert stale.state == BaselineApprovalState.CONFLICTED
+        assert _ledger(repo)["Button"] == "b2"
+
+    def test_a_stack_top_the_queue_run_left_out_of_its_overlay_does_not_land_over_a_moved_baseline(
+        self, repo, git, flow
+    ) -> None:
+        git.open_pull_request(1, git.commit("g1a", SEED))
+        approve(repo, 1, "Button", "g1", commit_sha="g1a")
+        _queue_run(flow, git, "q1", "g1a", {"Button": "g1", "Card": "c0"})
+        git.merge(1, "m1", squash=True)
+        ledger_advance.advance(repo)
+
+        git.open_pull_request(2, git.commit("p2a", "g1a"))
+        git.open_pull_request(3, git.commit("c3a", "p2a"))
+        git.open_pull_request(4, git.commit("x4a", "m1"))
+        approve(repo, 2, "Button", "b1", effective_base_hash="g1", commit_sha="p2a")
+        top = approve(repo, 3, "Button", "b2", effective_base_hash="b1", commit_sha="c3a")
+        approve(repo, 4, "Button", "b9", ledger_base_hash="g1", commit_sha="x4a")
+        # The render passes against the ledger only through a toleration, because the top layer and the
+        # unrelated pull request conflict and leave the story out of the overlay.
+        for baseline_hash in ("g1", "b2"):
+            ToleratedHash.objects.create(
+                repo=repo, team_id=repo.team_id, identifier="Button", baseline_hash=baseline_hash, alternate_hash="t1"
+            )
+        git.commit("q2", git.head, "c3a", "x4a")
+        batch = flow.run("q2", {"Button": "t1", "Card": "c0"}, branch="trunk-merge/q2", purpose=RunPurpose.OBSERVE)
+        record = record_for_run(batch)
+        assert record is not None and record.conflicts == {"Button": (3, 4)}
+        assert _drift(batch) == (0, 0, 0)
+
+        git.merge(2, "m2", squash=True)
+        git.merge(3, "m3", squash=True)
+        ledger_advance.advance(repo)
+
+        top.refresh_from_db()
+        assert top.state == BaselineApprovalState.CONFLICTED
+        assert _ledger(repo)["Button"] == "g1"
