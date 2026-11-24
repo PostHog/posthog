@@ -701,14 +701,14 @@
   {
     "name": "legacy substitutions and body",
     "generation": "legacy",
-    "source": "<p>Hi -name-, -missing- -empty-</p><a href='-link-'>Go</a><%body%><a title=\"-name-\">t</a>",
+    "source": "<p>Hi -name-, -missing- -first- -last- -empty-</p><a href='-link-'>Go</a><%body%><a title=\"-name-\">t</a>",
     "data": {
       "name": "Ada & \"Co\"",
       "empty": "",
       "link": "https://example.com/?a=1&b=2",
       "body": "<b>Hello</b>"
     },
-    "liquid": "<p>Hi {% if variables.name == nil %}-name-{% else %}{{ variables.name | join: \",\" }}{% endif %}, {% if variables.missing == nil %}-missing-{% else %}{{ variables.missing | join: \",\" }}{% endif %} {% if variables.empty == nil %}-empty-{% else %}{{ variables.empty | join: \",\" }}{% endif %}</p><a href='{% if variables.link == nil %}-link-{% else %}{{ variables.link | join: \",\" }}{% endif %}'>Go</a>{{ variables.body | raw }}<a title=\"{% if variables.name == nil %}-name-{% else %}{{ variables.name | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}{% endif %}\">t</a>",
-    "expected": "<p>Hi Ada &amp; &quot;Co&quot;, -missing- </p><a href='https://example.com/?a=1&amp;b=2'>Go</a><b>Hello</b><a title=\"Ada &amp; &quot;Co&quot;\">t</a>"
+    "liquid": "<p>Hi {% if variables.name == nil %}-name-{% else %}{{ variables.name | join: \",\" }}{% endif %}, {% if variables.missing == nil %}-missing-{% else %}{{ variables.missing | join: \",\" }}{% endif %} {% if variables.first == nil %}-first-{% else %}{{ variables.first | join: \",\" }}{% endif %} {% if variables.last == nil %}-last-{% else %}{{ variables.last | join: \",\" }}{% endif %} {% if variables.empty == nil %}-empty-{% else %}{{ variables.empty | join: \",\" }}{% endif %}</p><a href='{% if variables.link == nil %}-link-{% else %}{{ variables.link | join: \",\" }}{% endif %}'>Go</a>{{ variables.body | raw }}<a title=\"{% if variables.name == nil %}-name-{% else %}{{ variables.name | join: \",\" | escape | replace: \"=\", \"&#x3D;\" | replace: \"`\", \"&#x60;\" | raw }}{% endif %}\">t</a>",
+    "expected": "<p>Hi Ada &amp; &quot;Co&quot;, -missing- -first- -last- </p><a href='https://example.com/?a=1&amp;b=2'>Go</a><b>Hello</b><a title=\"Ada &amp; &quot;Co&quot;\">t</a>"
   }
 ]

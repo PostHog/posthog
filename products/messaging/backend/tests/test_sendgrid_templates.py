@@ -358,6 +358,11 @@ class TestSendGridTemplateConversion(SimpleTestCase):
             ("legacy", "legacy", "<a href=<%asm_group_unsubscribe_raw_url%>>Leave</a>"),
             ("dynamic", "dynamic", "<a href={{{unsubscribe}}}>Leave</a>"),
             ("malformed", "dynamic", '{{#if a}}<a href="{{{unsubscribe}}}">Leave</a>'),
+            (
+                "next_to_one_that_converts",
+                "legacy",
+                "<i><%asm_preferences_raw_url%></i><a href=<%asm_group_unsubscribe_raw_url%>>Leave</a>",
+            ),
             ("url_encoded_braces", "dynamic", '<a href="%7B%7B%7Bunsubscribe%7D%7D%7D">Leave</a>'),
             ("url_encoded", "legacy", '<a href="%3C%25asm_group_unsubscribe_raw_url%25%3E">Leave</a>'),
             ("handlebars_in_a_legacy_template", "legacy", '<a href="{{{unsubscribe}}}">Leave</a>'),
