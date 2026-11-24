@@ -9,7 +9,9 @@ import time_machine
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
+from django.db import connection
 from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from rest_framework.test import APIClient
@@ -28,6 +30,7 @@ from products.slack_app.backend.logic.daily_focus import (
 from products.slack_app.backend.logic.onboarding.daily_summary import SummaryThread
 from products.slack_app.backend.logic.onboarding.work_focus import (
     MAX_BOT_LOOKUPS,
+    MAX_PRIMED_USERS,
     WorkFocus,
     WorkFocusRateLimited,
     WorkFocusSuggestion,
@@ -769,11 +772,14 @@ def test_bot_lookups_read_the_cache_once_and_stop_at_the_cap_or_a_rate_limit(
     SlackUserProfileCache.objects.create(
         integration_id=integration.id, slack_user_id=AGENT, is_bot=True, refreshed_at=timezone.now()
     )
-    made_up = [f"UFAKE{index:04d}" for index in range(MAX_BOT_LOOKUPS + 10)]
+    made_up = [f"UFAKE{index:04d}" for index in range(MAX_PRIMED_USERS + 50)]
 
     with patch(f"{WORK_FOCUS}.get_slack_user_info", return_value={"user": {"is_bot": False}}) as users_info:
         bots = _BotLookup(integration, "U_BOT")
-        bots.prime([AGENT, *made_up])
+        with CaptureQueriesContext(connection) as queries:
+            bots.prime([AGENT, *made_up])
+        # The same text sizes the cache query, so it reads at most MAX_PRIMED_USERS users.
+        assert len(queries) == 1 and queries[0]["sql"].count("UFAKE") == MAX_PRIMED_USERS - 1
         assert bots.is_bot(AGENT) and bots.is_bot("U_BOT")
         # A message full of made-up mentions costs at most MAX_BOT_LOOKUPS Slack calls.
         assert not any(bots.is_bot(user) for user in made_up)

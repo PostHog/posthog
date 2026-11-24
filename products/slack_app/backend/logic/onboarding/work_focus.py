@@ -11,6 +11,7 @@ import asyncio
 from collections.abc import Iterable
 from dataclasses import field, replace
 from datetime import datetime, timedelta
+from itertools import islice
 from typing import Any, Literal
 from urllib.parse import parse_qs, urlsplit
 from zoneinfo import ZoneInfo
@@ -96,6 +97,8 @@ SLACKBOT_USER_ID = "USLACKBOT"
 # for hundreds of made-up ids. The workspace shares that Slack limit with every other Slack app feature.
 MAX_BOT_LOOKUPS = 25
 BOT_LOOKUP_BUDGET = Budget(burst=MAX_BOT_LOOKUPS, per_hour=1800)
+# The same text decides the size of the cache query, so it reads at most this many users at a time.
+MAX_PRIMED_USERS = 200
 
 # The model calls spend the team's PostHog AI credits, the same as the other Slack app calls.
 WORK_FOCUS_AI_PRODUCT = "slack_app"
@@ -579,8 +582,8 @@ class _BotLookup:
         self._lookups_left = MAX_BOT_LOOKUPS
 
     def prime(self, users: Iterable[str]) -> None:
-        """Reads every fresh cached profile in one query, so only the users the cache lacks cost a Slack call."""
-        wanted = set(users) - self._known.keys()
+        """Reads the fresh cached profiles in one query, so only the users the cache lacks cost a Slack call."""
+        wanted = list(islice(dict.fromkeys(user for user in users if user not in self._known), MAX_PRIMED_USERS))
         if not wanted:
             return
         cached = SlackUserProfileCache.objects.filter(
@@ -591,8 +594,12 @@ class _BotLookup:
         self._known.update(cached)
 
     def is_bot(self, user_id: str) -> bool:
-        if user_id not in self._known:
-            self._known[user_id] = self._look_up(user_id)
+        if user_id in self._known:
+            return self._known[user_id]
+        # Not stored once the lookups are spent, so made-up mentions cannot grow the dict.
+        if self._lookups_left <= 0:
+            return False
+        self._known[user_id] = self._look_up(user_id)
         return self._known[user_id]
 
     def _look_up(self, user_id: str) -> bool:
