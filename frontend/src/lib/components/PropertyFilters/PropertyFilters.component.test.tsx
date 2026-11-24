@@ -290,12 +290,16 @@ describe('PropertyFilters recent selections', () => {
         useSetupMocks({ '/api/environments/:team/persons/values': [] })
         const { onChange } = renderFilters({ allowNonCapturedPersonProperties: true, sendAllKeyUpdates: true })
 
-        await pickShortcutItem({
-            tabTestId: 'taxonomic-tab-person_properties',
-            searchQuery: 'plan_from_flags',
-            itemTestId: 'prop-filter-person-property-option-custom',
-            onChange,
+        await openNewFilter()
+        await searchFor('plan_from_flags')
+        await waitFor(() => {
+            expect(screen.getByTestId('taxonomic-tab-person_properties').textContent).toMatch(/: 0$/)
         })
+        await switchToTab('taxonomic-tab-person_properties')
+        await waitFor(() => {
+            expect(screen.getByTestId('taxonomic-tab-person_properties')).toHaveClass('LemonTag--primary')
+        })
+        await selectItem('prop-filter-person-property-option-custom', onChange)
         const valueInput = await screen.findByPlaceholderText('Enter value...')
         await typeWithDebounce(valueInput, 'enterprise{Enter}')
 
