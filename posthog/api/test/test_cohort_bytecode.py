@@ -469,7 +469,7 @@ class TestCohortBytecodeScenarios(APIBaseTest):
         # 7. Cohort with more than 20M persons should not be realtime
 
         # Create a realtime-eligible cohort
-        filters = {
+        filters: dict[str, Any] = {
             "properties": {
                 "type": "OR",
                 "values": [
