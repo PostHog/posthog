@@ -12,6 +12,7 @@ const os = require('node:os')
 const path = require('node:path')
 const {
     closeWatchedSets,
+    productsReachedByFiles,
     decideJsonTargets,
     decideProductChange,
     decideSelection,
@@ -738,14 +739,25 @@ test('a change to a shared file directly under products/ runs every product and 
 // A watched module that is a symlink runs its target, wherever the target lives.
 test('a change to the target of a symlinked watched file runs Django', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'links-'))
-    fs.mkdirSync(path.join(root, 'products/canvas/backend/tests'), { recursive: true })
-    fs.writeFileSync(path.join(root, 'products/canvas/backend/tests/_impl.py'), '')
-    fs.symlinkSync('tests/_impl.py', path.join(root, 'products/canvas/backend/linked.py'))
+    fs.mkdirSync(path.join(root, 'products/canvas/backend'), { recursive: true })
+    fs.mkdirSync(path.join(root, 'products/canvas/frontend'), { recursive: true })
+    fs.writeFileSync(path.join(root, 'products/canvas/frontend/_impl.py'), '')
+    fs.symlinkSync('../frontend/_impl.py', path.join(root, 'products/canvas/backend/linked.py'))
+    execFileSync('git', ['init', '-q'], { cwd: root })
+    execFileSync('git', ['add', '.'], { cwd: root })
     const fileMap = { 'products/canvas/backend/linked.py': ['posthog/api/canvas.py'] }
     const closed = closeWatchedSets(parseWatchedAnswer(watchedAnswer()), fileMap, root)
-    const target = 'products/canvas/backend/tests/_impl.py'
-    assert.equal(decideCanvas({ affectedProducts: [], watched: closed, changedFiles: [target] }).runLegacy, true)
-    fs.rmSync(root, { recursive: true, force: true })
+    const target = 'products/canvas/frontend/_impl.py'
+    // The selector loads hoglint's answer only for a diff that reaches a product, so the link must reach it.
+    assert.deepEqual(productsReachedByFiles([target], ALL_PRODUCTS, root), ['canvas'])
+    const previous = process.cwd()
+    process.chdir(root)
+    try {
+        assert.equal(decideCanvas({ affectedProducts: [], watched: closed, changedFiles: [target] }).runLegacy, true)
+    } finally {
+        process.chdir(previous)
+        fs.rmSync(root, { recursive: true, force: true })
+    }
 })
 
 // Each case is an answer the diff cannot be judged by, so every product and Django run.

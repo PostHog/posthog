@@ -686,19 +686,16 @@ function closeWatchedSets(watched, fileMap, repoRoot = process.cwd()) {
         }
         closed.set(product, reached)
     }
-    // A watched file that is a symlink runs its target, which can sit in tests/ or frontend/
-    // where a change would not reach the product. Watch the target, and map it back.
-    const symlinkTargets = new Map()
-    for (const [product, files] of closed) {
+    // A watched file that is a symlink runs its target, so the target is watched too.
+    for (const files of closed.values()) {
         for (const file of [...files]) {
             const target = symlinkTarget(file, repoRoot)
-            if (target !== null && !files.has(target)) {
+            if (target !== null) {
                 files.add(target)
-                symlinkTargets.set(target, product)
             }
         }
     }
-    return { ...watched, watched: closed, symlinkTargets }
+    return { ...watched, watched: closed }
 }
 
 // Runs `hoglint watched --map` in repoRoot and returns { graph, watched }: the product graph or
@@ -850,14 +847,46 @@ function isProductDataFile(file) {
 // The products (dashed names, among allProducts) that a product input or a product test input of
 // the diff sits in. Turbo's affected query sees only a product's declared backend:test inputs,
 // and a product's own turbo.json can narrow those, so it can report none of these.
-function productsReachedByFiles(changedFiles, allProducts) {
+function productsReachedByFiles(changedFiles, allProducts, repoRoot = process.cwd()) {
     const allProductSet = new Set(allProducts)
     const inputProducts = (changedFiles ?? [])
         .filter(isProductInputFile)
         .map((file) => moduleToProduct(productOfFile(file)))
         .filter((product) => allProductSet.has(product))
     const testInputProducts = productsWithUndeclaredInputChanges(changedFiles ?? [], allProductSet)
-    return [...new Set([...inputProducts, ...testInputProducts])].sort()
+    const linkProducts = productsLinkingToChangedFiles(changedFiles ?? [], repoRoot).filter((product) =>
+        allProductSet.has(product)
+    )
+    return [...new Set([...inputProducts, ...testInputProducts, ...linkProducts])].sort()
+}
+
+// The products (dashed names) with a tracked symlink whose target the diff changed. A symlink runs
+// or reads its target, and the target can sit where a change reaches no product (tests/, frontend/).
+function productsLinkingToChangedFiles(changedFiles, repoRoot) {
+    if (changedFiles.length === 0) {
+        return []
+    }
+    let listing
+    try {
+        listing = execFileSync('git', ['ls-files', '-s', '-z', '--', PRODUCTS_DIR], { cwd: repoRoot, encoding: 'utf8' })
+    } catch {
+        return []
+    }
+    const products = new Set()
+    for (const entry of listing.split('\0')) {
+        if (!entry.startsWith('120000 ')) {
+            continue
+        }
+        const link = entry.slice(entry.indexOf('\t') + 1)
+        const target = symlinkTarget(link, repoRoot)
+        if (target === null) {
+            continue
+        }
+        if (changedFiles.some((file) => file === target || file.startsWith(`${target}/`))) {
+            products.add(moduleToProduct(productOfFile(link)))
+        }
+    }
+    return [...products]
 }
 
 // The products among `products` (dashed names) whose watched set the diff touched: a
@@ -913,11 +942,7 @@ function decideProductChange({ affectedProducts, allProducts, watched, changedFi
         console.error(`Shared files under products/ changed (${JSON.stringify(looseRoot)}) — testing all products + Django`)
         return everything('products_root')
     }
-    const symlinkTargets = watched?.symlinkTargets ?? new Map()
-    const viaLinks = (changedFiles ?? []).filter((f) => symlinkTargets.has(f)).map((f) => symlinkTargets.get(f))
-    const reached = [
-        ...new Set([...affectedProducts, ...productsReachedByFiles(changedFiles, allProducts), ...viaLinks]),
-    ].sort()
+    const reached = [...new Set([...affectedProducts, ...productsReachedByFiles(changedFiles, allProducts)])].sort()
     if (reached.length === 0) {
         console.error('No product changes detected')
         return { ...none, products: [], runLegacy: false }
@@ -2110,6 +2135,7 @@ module.exports = {
     DJANGO_SEGMENTS,
     parseWatchedAnswer,
     closeWatchedSets,
+    productsReachedByFiles,
     loadWatchedSets,
     watchedPolicyChanges,
     productsWithWatchedChanges,
