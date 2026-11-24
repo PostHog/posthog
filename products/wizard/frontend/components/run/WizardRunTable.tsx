@@ -139,7 +139,7 @@ const columns: DataTableProps<WizardRunApi, unknown>['columns'] = [
             const name = [creator.first_name, creator.last_name].filter(Boolean).join(' ') || creator.email
             const initials = creator.first_name
                 ? `${creator.first_name[0]}${creator.last_name[0] ?? ''}`
-                : creator.email[0]
+                : (creator.email?.[0] ?? '?')
 
             return (
                 <span className="flex min-w-0 items-center gap-2">

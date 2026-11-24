@@ -50,7 +50,7 @@ def require_normal_login(user: User, organization: Organization, requirement: No
         organization.save(update_fields=["available_product_features"])
         OrganizationDomain.objects.create(
             organization=organization,
-            domain=user.email.split("@")[1],
+            domain=user.require_email().split("@")[1],
             verified_at=timezone.now(),
             sso_enforcement="google-oauth2",
         )

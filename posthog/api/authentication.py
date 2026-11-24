@@ -525,7 +525,7 @@ class LoginSerializer(serializers.Serializer):
                 radar_attempt = evaluate_auth_attempt(
                     request=request._request,
                     # Radar knows the account by its stored address, not the variant spelling the lookup folded
-                    email=existing_user.email if existing_user else validated_data["email"],
+                    email=existing_user.require_email() if existing_user else validated_data["email"],
                     action=RadarAction.SIGNIN,
                     auth_method=RadarAuthMethod.PASSWORD,
                     user_id=str(existing_user.distinct_id) if existing_user else None,
@@ -1289,7 +1289,7 @@ def _complete_idp_login(request: Request, user: User, pending: PendingIdPEmailVe
         or partial.kwargs.get("idp_authenticated_identity")
         != idp_identity_key(pending["provider"], pending["issuer"], pending["subject"])
         or not idp_authentication_is_fresh(partial.kwargs.get("idp_authenticated_at"))
-        or user.email.strip() != pending["target_email"]
+        or user.require_email().strip() != pending["target_email"]
     ):
         raise serializers.ValidationError({"detail": "Please log in again."}, code="no_pending_verification")
     backend = load_backend(strategy, pending["provider"], reverse("social:complete", args=[pending["provider"]]))
@@ -1859,7 +1859,7 @@ def social_require_idp_email_verification(
     if user is None or not uid or identity is None or not email:
         return redirect(sso_failure_redirect_url(strategy.request, "improperly_configured_sso"))
 
-    target_email = user.email.strip()
+    target_email = user.require_email().strip()
     if IdentityProviderEmailVerification.objects.filter(
         user=user,
         provider=identity.provider,

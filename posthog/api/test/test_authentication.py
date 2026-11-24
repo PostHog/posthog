@@ -833,7 +833,7 @@ class TestLoginRadar(APIBaseTest):
     def test_radar_gets_the_stored_address_when_the_typed_one_is_a_variant(self, mock_call_api):
         with override_instance_config("WORKOS_RADAR_LOGIN_MODE", "shadow"):
             response = self.client.post(
-                "/api/login", {"email": self.user.email.upper(), "password": self.CONFIG_PASSWORD}
+                "/api/login", {"email": self.user.require_email().upper(), "password": self.CONFIG_PASSWORD}
             )
 
         assert response.status_code == status.HTTP_200_OK

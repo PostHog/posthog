@@ -904,12 +904,12 @@ class TestOIDCAuthentication(APILicensedTest):
                 )
             self.client = APIClient()
             clock.shift(datetime.timedelta(seconds=61))
-            response = self._complete_oidc_login(other.email, sub="moving-subject")
+            response = self._complete_oidc_login(other.require_email(), sub="moving-subject")
             self.assertNotIn("code_verification_pending=1", response["Location"])
             self.assertEqual(sent.call_count, 1)
             clock.shift(datetime.timedelta(seconds=IDP_AUTHENTICATION_TTL_SECONDS))
             self.client = APIClient()
-            response = self._complete_oidc_login(other.email, sub="moving-subject")
+            response = self._complete_oidc_login(other.require_email(), sub="moving-subject")
             self.assertIn("code_verification_pending=1", response["Location"])
         self.assertFalse(IdentityProviderEmailVerification.objects.filter(user=other).exists())
 
@@ -1089,7 +1089,7 @@ class TestOIDCAuthentication(APILicensedTest):
             )
             try:
                 self.client = APIClient()
-                self._complete_oidc_login(other.email, sub="other-user")
+                self._complete_oidc_login(other.require_email(), sub="other-user")
                 other_token = self.client.session["partial_pipeline_token"]
             finally:
                 self.client = original_client
@@ -1098,8 +1098,8 @@ class TestOIDCAuthentication(APILicensedTest):
                 provider="oidc",
                 issuer=self.config.oidc_issuer_url,
                 subject="other-user",
-                email=other.email,
-                target_email=other.email.strip().lower(),
+                email=other.require_email(),
+                target_email=other.require_email().strip().lower(),
             )
             url = "/api/login/code-based-verification/" + (f"?partial_token={other_token}" if query else "")
             data = {"code": code, **({"partial_token": other_token} if not query else {})}
@@ -2109,10 +2109,10 @@ class TestEEAuthenticationAPI(APILicensedTest):
         if provider == "github":
             response = self._complete_github_login(
                 github_id=4242,
-                emails=[{"email": self.user.email, "primary": True, "verified": provider_verified}],
+                emails=[{"email": self.user.require_email(), "primary": True, "verified": provider_verified}],
             )
         elif provider == "chatgpt":
-            response = self._complete_chatgpt_login(email=self.user.email, email_verified=provider_verified)
+            response = self._complete_chatgpt_login(email=self.user.require_email(), email_verified=provider_verified)
         else:
             response = self._complete_google_login(email=self.user.require_email(), email_verified=provider_verified)
 
@@ -2760,8 +2760,8 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
                     provider="saml",
                     issuer=identity.issuer,
                     subject=identity.subject,
-                    email=user.email,
-                    target_email=user.email,
+                    email=user.require_email(),
+                    target_email=user.require_email(),
                 )
             token = (
                 other_client.session["partial_pipeline_token"]
@@ -2825,7 +2825,7 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
             issuer=identity.issuer,
             subject=identity.subject,
             email=asserted_email,
-            target_email=user.email.strip().lower(),
+            target_email=user.require_email().strip().lower(),
         )
         arguments = {
             "strategy": strategy,

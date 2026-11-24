@@ -2742,7 +2742,7 @@ class TestEmailSendingNoticeDelivery(APIBaseTest):
 
         send_email_sending_suspended(team_id=self.team.id, reason="Bounces", suspended_at="2026-01-05T07:15:00")
 
-        assert self.delivered_to() == sorted([self.user.email, "rule-admin@posthog.com"])
+        assert self.delivered_to() == sorted([self.user.require_email(), "rule-admin@posthog.com"])
 
     def test_sends_nothing_when_every_admin_is_deactivated(self) -> None:
         self.user.is_active = False
@@ -2770,4 +2770,4 @@ class TestEmailSendingNoticeDelivery(APIBaseTest):
 
         send_hog_function_filters_uncompilable(self.team.id, broken_ids)
 
-        assert self.delivered_to() == sorted([self.user.email, "active-creator@posthog.com"])
+        assert self.delivered_to() == sorted([self.user.require_email(), "active-creator@posthog.com"])
