@@ -72,6 +72,14 @@ class TestHogQLTypeSystem:
         assert parsed.item_type.item_types[1].precision == 3
         assert parsed.item_type.item_types[1].timezone == "UTC"
 
+        parsed_nested = parse_clickhouse_type("Nested(id UInt64, ts DateTime)")
+
+        assert parsed_nested.family == "array"
+        assert parsed_nested.item_type is not None
+        assert parsed_nested.item_type.family == "tuple"
+        assert parsed_nested.item_type.field_names == ("id", "ts")
+        assert parsed_nested.item_type.item_types[1].family == "datetime"
+
         parsed_map = parse_clickhouse_type("Map(String, Nullable(Float64))")
 
         assert parsed_map.family == "map"

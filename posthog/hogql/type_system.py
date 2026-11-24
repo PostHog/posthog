@@ -582,6 +582,16 @@ def parse_clickhouse_type(type_name: str) -> RuntimeType:
                 source=stripped,
             )
 
+    wrapper = _parse_wrapper(stripped, "Nested")
+    if wrapper is not None:
+        return RuntimeType(
+            family="array",
+            nullable=False,
+            dialect="clickhouse",
+            item_type=parse_clickhouse_type(f"Tuple({wrapper})"),
+            source=stripped,
+        )
+
     wrapper = _parse_wrapper(stripped, "Tuple")
     if wrapper is not None:
         item_types: list[RuntimeType] = []

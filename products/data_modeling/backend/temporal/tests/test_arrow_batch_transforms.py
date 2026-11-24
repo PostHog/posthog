@@ -284,6 +284,12 @@ TODAY = dt.date(2024, 6, 1)
             id="tuple_field_named_like_a_date",
         ),
         pytest.param(
+            pa.array([[{"ts": INSTANT_SECONDS}]], pa.list_(pa.struct([("ts", pa.uint32())]))),
+            "Nested(ts DateTime('UTC'))",
+            [[{"ts": INSTANT}]],
+            id="nested_datetime",
+        ),
+        pytest.param(
             pa.array(["candidate"], pa.string()),
             "Enum8('candidate' = 1, 'other' = 2)",
             ["candidate"],
