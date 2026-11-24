@@ -210,7 +210,7 @@ describe('humanizeActivity', () => {
         expect(text(result.summary?.action)).toBe(action)
     })
 
-    it.each<{ name: string; before: unknown; after: unknown; expected: string[] }>([
+    it.each<{ name: string; before: unknown; after: unknown; expected: string[]; unexpected?: string[] }>([
         {
             name: 'mobile masking turned on',
             before: { maskAllInputs: true, mobile: { maskAllImages: true } },
@@ -231,14 +231,16 @@ describe('humanizeActivity', () => {
                 'enabled masking all text in mobile session replay',
                 'enabled masking all images in mobile session replay',
             ],
+            unexpected: ['masking all inputs', 'masking text selector'],
         },
         {
             name: 'web masking changed alongside unchanged mobile masking',
             before: { maskAllInputs: false, mobile: { maskAllText: true } },
             after: { maskAllInputs: true, mobile: { maskAllText: true } },
             expected: ['enabled masking all inputs in session replay'],
+            unexpected: ['mobile session replay'],
         },
-    ])('describes a masking config change: $name', ({ before, after, expected }) => {
+    ])('describes a masking config change: $name', ({ before, after, expected, unexpected = [] }) => {
         const logItem = makeLogItem({
             scope: ActivityScope.TEAM,
             detail: {
@@ -263,6 +265,9 @@ describe('humanizeActivity', () => {
 
         for (const phrase of expected) {
             expect(action).toContain(phrase)
+        }
+        for (const phrase of unexpected) {
+            expect(action).not.toContain(phrase)
         }
     })
 

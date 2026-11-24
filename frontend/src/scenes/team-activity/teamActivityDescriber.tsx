@@ -294,16 +294,16 @@ const TEAM_PROPERTIES_MAPPING: Record<
         }
     },
     session_recording_masking_config: (change) => {
-        const maskAllInputsBefore = isObject(change.before) ? change.before.maskAllInputs : !!change.before
-        const maskAllInputsAfter = isObject(change.after) ? change.after.maskAllInputs : !!change.after
+        const maskAllInputsBefore = isObject(change.before) ? change.before.maskAllInputs : undefined
+        const maskAllInputsAfter = isObject(change.after) ? change.after.maskAllInputs : undefined
         const maskAllInputsChanged = maskAllInputsBefore !== maskAllInputsAfter
 
         const blockSelectorBefore = isObject(change?.before) ? change?.before.blockSelector : undefined
         const blockSelectorAfter = isObject(change?.after) ? change?.after.blockSelector : undefined
         const blockSelectorChanged = blockSelectorBefore !== blockSelectorAfter
 
-        const maskTextSelectorBefore = isObject(change?.before) ? change?.before.maskTextSelector : !!change?.before
-        const maskTextSelectorAfter = isObject(change?.after) ? change?.after.maskTextSelector : !!change?.after
+        const maskTextSelectorBefore = isObject(change?.before) ? change?.before.maskTextSelector : undefined
+        const maskTextSelectorAfter = isObject(change?.after) ? change?.after.maskTextSelector : undefined
         const maskTextSelectorChanged = maskTextSelectorBefore !== maskTextSelectorAfter
 
         const descriptions = []
