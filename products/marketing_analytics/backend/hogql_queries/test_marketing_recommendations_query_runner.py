@@ -3,6 +3,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from unittest.mock import patch
 
 from django.test import SimpleTestCase
 from django.utils import timezone
@@ -16,6 +17,7 @@ from posthog.schema import (
     MarketingAnalyticsRecommendationsSource,
 )
 
+from posthog.api.query_access_check import denied_query_resources
 from posthog.constants import AvailableFeature
 from posthog.models import User
 from posthog.models.organization import OrganizationMembership
@@ -679,6 +681,41 @@ class TestMarketingAnalyticsRecommendationsSourceDiscovery(BaseTest):
                 "sitesTable": "googlesearchconsole.organic.sites",
             },
         ]
+
+    @parameterized.expand(
+        [
+            ("marketing_analytics", ["marketing_analytics"]),
+            ("warehouse_objects", ["googleads.acme.campaign"]),
+        ]
+    )
+    def test_save_time_access_check_sees_the_product_and_every_source_table(
+        self, denied: str, expected: list[str]
+    ) -> None:
+        self._source("GoogleAds", "acme", {"campaign": True, "campaign_stats": True})
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        member = User.objects.create_and_join(self.organization, "member@example.com", "testtest")
+        AccessControl.objects.create(
+            team=self.team,
+            resource=denied,
+            access_level="none",
+            organization_member=OrganizationMembership.objects.get(user=member, organization=self.organization),
+        )
+        query = MarketingAnalyticsRecommendationsQuery().model_dump()
+
+        with patch("posthog.hogql.database.database._evaluate_warehouse_access_control_flag", return_value=True):
+            assert denied_query_resources(member, self.team, [query]) == expected
+            assert denied_query_resources(self.user, self.team, [query]) == []
+
+    def test_repeated_query_sources_run_once(self) -> None:
+        source = MarketingAnalyticsRecommendationsSource(sourceType="GoogleAds", campaignTable="campaign")
+        runner = MarketingAnalyticsRecommendationsQueryRunner(
+            query=MarketingAnalyticsRecommendationsQuery(sources=[source] * 25), team=self.team, user=self.user
+        )
+
+        assert runner.sources == [source]
 
 
 class TestAdJson(SimpleTestCase):

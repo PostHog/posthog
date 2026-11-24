@@ -28,6 +28,7 @@ from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMo
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import User
 
+from products.marketing_analytics.backend.hogql_queries.access_control import MarketingAnalyticsAccessMixin
 from products.marketing_analytics.backend.hogql_queries.marketing_recommendations import (
     DISAPPROVED,
     LIMITED_APPROVALS,
@@ -88,7 +89,7 @@ PERFORMANCE_MAX_GAP = (
 
 
 class MarketingAnalyticsRecommendationsQueryRunner(
-    AnalyticsQueryRunner[MarketingAnalyticsRecommendationsQueryResponse]
+    MarketingAnalyticsAccessMixin, AnalyticsQueryRunner[MarketingAnalyticsRecommendationsQueryResponse]
 ):
     query: MarketingAnalyticsRecommendationsQuery
     response: MarketingAnalyticsRecommendationsQueryResponse
@@ -115,8 +116,36 @@ class MarketingAnalyticsRecommendationsQueryRunner(
             database=self.hogql_database,
         )
 
-    def to_query(self) -> ast.SelectQuery:
-        return ast.SelectQuery(select=[ast.Constant(value=1)])
+    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        # The runner never executes this query. Save-time access checks, such as publishing a shared link, compile
+        # it as the saving user, so it has to name every table a run reads.
+        tables = {
+            table
+            for source in self.sources
+            for field, table in source
+            if field.endswith("Table")
+            and isinstance(table, str)
+            and (self.hogql_database.has_table(table) or self.hogql_database.is_table_access_denied(table))
+        }
+        if not tables:
+            return ast.SelectQuery(select=[ast.Constant(value=1)])
+        return ast.SelectSetQuery.create_from_queries(
+            [
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=list[str | int](table.split(".")))),
+                    limit=ast.Constant(value=0),
+                )
+                for table in sorted(tables)
+            ],
+            "UNION ALL",
+        )
+
+    @cached_property
+    def sources(self) -> list[MarketingAnalyticsRecommendationsSource]:
+        if self.query.sources is None:
+            return self._project_sources()
+        return list({source.model_dump_json(): source for source in self.query.sources}.values())
 
     def get_cache_payload(self) -> dict:
         payload = super().get_cache_payload()
@@ -162,7 +191,7 @@ class MarketingAnalyticsRecommendationsQueryRunner(
         )
 
     def _calculate(self) -> MarketingAnalyticsRecommendationsQueryResponse:
-        sources = self.query.sources if self.query.sources is not None else self._project_sources()
+        sources = self.sources
         if not sources:
             return MarketingAnalyticsRecommendationsQueryResponse(results=[], disclaimer=DISCLAIMER, dataGaps=[])
         ads = [source for source in sources if source.sourceType == "GoogleAds"]
