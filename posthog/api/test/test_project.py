@@ -210,6 +210,18 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["name"], "Hedgebox")
 
+    def test_create_project_drops_empty_mobile_masking_config(self):
+        self._set_unlimited_projects()
+
+        response = self.client.post(
+            "/api/projects/",
+            {"name": "Hedgebox", "session_recording_masking_config": {"maskAllInputs": True, "mobile": {}}},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["session_recording_masking_config"], {"maskAllInputs": True})
+
     def test_cannot_create_project_with_pending_duplicate_name(self):
         self._set_unlimited_projects()
         self.project.is_pending_deletion = True
