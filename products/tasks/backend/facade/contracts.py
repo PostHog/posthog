@@ -1142,6 +1142,12 @@ class FencedRunTokensRow:
 
 
 @dataclass(frozen=True)
+class ReopenedSweptRunsRow:
+    outcome: str
+    count: int
+
+
+@dataclass(frozen=True)
 class TaskRunGaugeRow:
     """One metric value keyed by (status, environment, origin_product)."""
 

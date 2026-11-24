@@ -26,8 +26,8 @@
 // call to the old name, and master breaks on a combination neither run held.
 //
 //   1. A product change claims its own lane plus its direct importers, rather
-//      than every backend lane. The tach map is the real Python import graph
-//      (`tach map` reads the imports that `tach check` enforces in CI), so for
+//      than every backend lane. The hoglint map is the real Python import graph
+//      (`hoglint map` reads the imports that `hoglint compare` checks in CI), so for
 //      a product it walked, the products that import it are known from the
 //      files. A product absent from that map has no known importer set and
 //      still widens.
@@ -35,20 +35,18 @@
 //      ACCEPTED RISK: the map is read from each PR's own tree, so an importer
 //      that does not exist yet is not in it. PR A renames a symbol in X, PR B
 //      adds the first call from Y to X, and neither lane names the other's
-//      product; master holds the combination untested. The declared graph in
-//      tach.toml covered only the slice of this where Y had listed X in
-//      `depends_on` before importing it, and closing it fully would make every
-//      PR claim what its products import as well, which lands nearly every
-//      product PR in the hub products' lanes.
+//      product; master holds the combination untested. Closing it would make
+//      every PR claim what its products import as well, which lands nearly
+//      every product PR in the hub products' lanes.
 //
 //      This does NOT require the product to be isolated. Isolation is the
 //      stronger claim that a change inside the product can only break the
 //      product's own tests, which is what lets CI skip the full Django suite,
-//      and products/architecture.md is explicit that tach cannot prove it:
+//      and products/architecture.md is explicit that an import graph cannot prove it:
 //      cross-cutting tests reach a product's endpoints by URL, in process,
 //      with no import for any graph to see. A lane only has to answer whether
 //      another PR can reference the symbols this one changed, which is the
-//      import half that tach does enforce. So a product too unsealed to skip
+//      import half that hoglint does check. So a product too unsealed to skip
 //      the suite still has a bounded importer set, and gets a lane from it.
 //
 //      Which of the product's own files seed that cascade is the narrower
@@ -76,8 +74,8 @@
 //   3. A warehouse source vendor directory (products/warehouse_sources/sources/
 //      <vendor>/, every directory there except the SDK) claims only the vendor
 //      lane, not the warehouse_sources product lane. A vendor imports nothing but
-//      the SDK and third-party packages, and tach, import-linter and a repo
-//      invariant enforce that, so no code outside the vendor can reference its
+//      the SDK and third-party packages, and hoglint and a repo invariant
+//      enforce that, so no code outside the vendor can reference its
 //      symbols. That makes the SDK the vendors' only direct import, and narrowing
 //      2 already bounds a cascade at direct importers. The lane is therefore
 //      claimed by the SDK and every other file of the warehouse_sources product,
@@ -269,6 +267,13 @@ const PROSE_SUITE = 'prose-suite'
 // serializes. A product's own owners.yaml keeps its product lane.
 const OWNERSHIP = 'ownership'
 
+// hoglint.ledger and hoglint.exceptions.toml. A PR that fixes a finding shrinks
+// the ledger, and the ledger has to equal the scan of the tree it sits in, so two
+// ledger edits that merge in parallel can leave master failing `hoglint check`
+// although each passed alone. One shared lane serializes them without claiming
+// every python lane. The code a ledger line names keeps its own lanes.
+const HOGLINT_LEDGER = 'hoglint-ledger'
+
 // The vendored paths-filter action and its CI. It decides which jobs run
 // inside a single run's own diff, so no run's outcome depends on it jointly
 // with another queue entry: parallel entries never share a run, and master
@@ -293,14 +298,17 @@ const TRIPWIRE_RULES = [
     ['.github/workflows/trunk-impacted-targets.yml', UNIVERSAL],
     ['turbo.json', UNIVERSAL],
 
-    // tach.toml shapes one of those graphs (its exclude list decides what
-    // `tach map` walks), so it carries the same self-gating hazard, but every
-    // edge it can move lands on a python lane: `tach check` runs in
-    // ci-backend.yml, and the two readers of the map, this script and
-    // turbo-discover, use it only to cascade python product lanes. `python`
-    // claims all of them, so a PR editing the graph still overlaps every PR
-    // whose lanes were computed against the old one.
-    ['tach.toml', PYTHON],
+    // hoglint.toml and its preset shape one of those graphs (they decide what
+    // `hoglint map` walks), so they carry the same self-gating hazard, but every
+    // edge they can move lands on a python lane: `hoglint compare` runs in
+    // ci-backend.yml and the warehouse sources job, and the two readers of the
+    // map, this script and turbo-discover, use it only to cascade python product
+    // lanes. `python` claims all of them, so a PR editing the graph still
+    // overlaps every PR whose lanes were computed against the old one.
+    ['hoglint.toml', PYTHON],
+    ['tools/hoglint/**', PYTHON],
+    ['hoglint.ledger', HOGLINT_LEDGER],
+    ['hoglint.exceptions.toml', HOGLINT_LEDGER],
 
     // A workflow decides which suites run, so one that defines a single
     // language's suite can be held to that language's lanes. Everything else
@@ -1299,13 +1307,13 @@ function isInProductWorkspace(product, file, productWorkspaces) {
 //      filter, but a filter tuned to over-run is not a safe source for lane
 //      assignment, while an --ignore is a statement that the suite does not
 //      cover the path at all.
-//   2. The product is absent from the tach map, the real Python import graph,
+//   2. The product is absent from the hoglint map, the real Python import graph,
 //      so no Python file under a source root imports it.
 //
 // A product satisfying both cannot fail another product's backend suite, so
 // its files claim its own lanes instead of all of them. Either condition
 // missing keeps the old widening, and so does an unreadable pytest.ini or an
-// unavailable tach graph. Both declarations are already tripwires, so a PR
+// unavailable import graph. Both declarations are already tripwires, so a PR
 // that detaches a product cannot itself run beside anything.
 const PYTEST_CONFIG = 'pytest.ini'
 
@@ -1315,8 +1323,8 @@ function parsePytestIgnores(text) {
     return [...text.matchAll(/--ignore[= ](\S+)/g)].map((match) => match[1].replace(/\/+$/, ''))
 }
 
-function loadBackendDetachedProducts(repoRoot, products, tachGraph) {
-    if (!tachGraph) {
+function loadBackendDetachedProducts(repoRoot, products, importGraph) {
+    if (!importGraph) {
         return new Set()
     }
     let ignored
@@ -1328,25 +1336,25 @@ function loadBackendDetachedProducts(repoRoot, products, tachGraph) {
     }
     const detached = new Set()
     for (const product of products) {
-        if (ignored.has(`products/${product}`) && !isTachDeclared(product, tachGraph)) {
+        if (ignored.has(`products/${product}`) && !isMapped(product, importGraph)) {
             detached.add(product)
         }
     }
     return detached
 }
 
-// A product the tach map walked has a known importer set. One absent from the
+// A product the hoglint map walked has a known importer set. One absent from the
 // map (no Python with an import edge under a source root, or excluded by
-// tach.toml), or a map that could not be read at all, has none.
-function isTachDeclared(product, tachGraph) {
-    if (!tachGraph) {
+// hoglint.toml), or a map that could not be read at all, has none.
+function isMapped(product, importGraph) {
+    if (!importGraph) {
         return false
     }
-    return tachGraph.graph.has(product)
+    return importGraph.graph.has(product)
 }
 
-function listTachDeclaredProducts(products, tachGraph) {
-    return new Set(products.filter((product) => isTachDeclared(product, tachGraph)))
+function listMappedProducts(products, importGraph) {
+    return new Set(products.filter((product) => isMapped(product, importGraph)))
 }
 
 // --- Contract surfaces ---
@@ -1720,6 +1728,7 @@ function allKnownTargets(context) {
         'dev-env',
         'ownership',
         'ci-tooling',
+        'hoglint-ledger',
     ])
     for (const lane of NODE_LANES) {
         targets.add(lane)
@@ -2079,6 +2088,7 @@ const DOMAIN_LANES = new Map([
     [DEV_ENV, laneOf('dev-env')],
     [OWNERSHIP, laneOf('ownership')],
     [CI_TOOLING, laneOf('ci-tooling')],
+    [HOGLINT_LEDGER, laneOf('hoglint-ledger')],
     [APP_IMAGE, addAppImageLanes],
     [PROSE_SUITE, laneOf('prose')],
     ['livestream-suite', laneOf('livestream')],
@@ -2146,11 +2156,11 @@ function computeTargets(changedFiles, context) {
         products,
         isolatedProducts,
         rustInventory,
-        tachGraph,
+        importGraph,
         contractSurfaces = new Map(),
         productWorkspaces = new Map(),
         backendDetachedProducts = new Set(),
-        tachDeclaredProducts = listTachDeclaredProducts(products, tachGraph),
+        mappedProducts = listMappedProducts(products, importGraph),
         deletedFiles = new Set(),
     } = context
     const targets = new Set()
@@ -2380,7 +2390,7 @@ function computeTargets(changedFiles, context) {
                     targets.add(WAREHOUSE_SOURCE_VENDORS)
                 }
                 if (isBackend && deletedFiles.has(file)) {
-                    // The tach map is read from the head tree, so a deleted or
+                    // The hoglint map is read from the head tree, so a deleted or
                     // renamed-away file is not in it and its importers are
                     // unknown. The PR that removes a facade module beside a
                     // caller it missed is the exact conflict lanes exist for.
@@ -2397,7 +2407,7 @@ function computeTargets(changedFiles, context) {
                     // case below: a product absent from the module graph has no
                     // importers for the cascade to name.
                     targets.add(pyProduct(product))
-                } else if (isContractDeclaration(product, file) || tachDeclaredProducts.has(product)) {
+                } else if (isContractDeclaration(product, file) || mappedProducts.has(product)) {
                     // A non-isolated product has declared no contract surface,
                     // so every backend file in it counts as contract and seeds
                     // the cascade. That names its direct importers, which is
@@ -2407,15 +2417,15 @@ function computeTargets(changedFiles, context) {
                     // required here. It says a change inside the product can
                     // only break the product's own tests, which lets CI skip
                     // the full Django suite, and products/architecture.md is
-                    // explicit that tach cannot prove it: cross-cutting tests
+                    // explicit that an import graph cannot prove it: cross-cutting tests
                     // reach a product's endpoints by URL, in process, with no
                     // import to see. A lane only has to answer whether another
                     // PR can reference the symbols this one changed, and that
-                    // is the import half, which `tach check` does enforce. So a
+                    // is the import half, which `hoglint compare` does check. So a
                     // product can be too unsealed to skip the suite and still
                     // have a bounded importer set.
                     //
-                    // The bound only holds for a product the tach map walked.
+                    // The bound only holds for a product the hoglint map walked.
                     // One absent from the map has no known importer set, so
                     // it still widens below.
                     targets.add(pyProduct(product))
@@ -2445,7 +2455,7 @@ function computeTargets(changedFiles, context) {
     // deep. See the two numbered narrowings at the top of this file for what
     // that gives up.
     if (cascadeSeeds.size > 0) {
-        const dependents = tachDependentProducts([...cascadeSeeds], tachGraph)
+        const dependents = importDependentProducts([...cascadeSeeds], importGraph)
         if (dependents === null) {
             allPyProducts()
         } else {
@@ -2522,19 +2532,19 @@ function computeTargets(changedFiles, context) {
     return [...targets].sort()
 }
 
-// The tach map is the real Python import graph (`tach map` reads the imports
-// that `tach check` enforces in CI, so it cannot drift from what is
+// The hoglint map is the real Python import graph (`hoglint map` reads the imports
+// that `hoglint compare` checks in CI, so it cannot drift from what is
 // importable). Turbo-style dashed names cross the boundary in both directions;
 // product directories are underscored.
-function tachDependentProducts(changedProducts, tachGraph) {
-    if (!tachGraph) {
+function importDependentProducts(changedProducts, importGraph) {
+    if (!importGraph) {
         return null
     }
     try {
-        const { tachDependents } = tachGraph
-        return tachDependents(
+        const { importDependents } = importGraph
+        return importDependents(
             changedProducts.map((product) => product.replace(/_/g, '-')),
-            tachGraph.graph,
+            importGraph.graph,
             { direct: true }
         ).map((product) => product.replace(/-/g, '_'))
     } catch (error) {
@@ -2543,10 +2553,10 @@ function tachDependentProducts(changedProducts, tachGraph) {
     }
 }
 
-function loadTachGraph(repoRoot) {
-    const { loadTachModuleGraph, tachDependents } = require('./turbo-discover')
-    const graph = loadTachModuleGraph(repoRoot)
-    return graph === null ? null : { graph, tachDependents }
+function loadImportMap(repoRoot) {
+    const { loadImportGraph, importDependents } = require('./turbo-discover')
+    const graph = loadImportGraph(repoRoot)
+    return graph === null ? null : { graph, importDependents }
 }
 
 // Every directory under services/ holds a lane, so the list has to be read
@@ -3166,7 +3176,7 @@ function findDeletedFiles(changedFiles) {
 
 function buildContext(repoRoot) {
     const products = listProducts(repoRoot)
-    const tachGraph = loadTachGraph(repoRoot)
+    const importGraph = loadImportMap(repoRoot)
     const rustInventory = loadRustInventory(repoRoot)
     const contractSurfaces = loadContractSurfaces(repoRoot, products)
     const nodeLaneMap = loadNodeLaneMap(repoRoot)
@@ -3181,13 +3191,13 @@ function buildContext(repoRoot) {
         isolatedProducts: listIsolatedProducts(repoRoot, products, contractSurfaces),
         contractSurfaces,
         productWorkspaces: loadProductWorkspaces(repoRoot, products),
-        backendDetachedProducts: loadBackendDetachedProducts(repoRoot, products, tachGraph),
-        tachDeclaredProducts: listTachDeclaredProducts(products, tachGraph),
+        backendDetachedProducts: loadBackendDetachedProducts(repoRoot, products, importGraph),
+        mappedProducts: listMappedProducts(products, importGraph),
         semgrepDomains: loadSemgrepDomains(repoRoot),
         warehouseSourceSdkImports: loadWarehouseSourceSdkImports(repoRoot),
         warehouseSourceRegistryFiles: loadWarehouseSourceRegistryFiles(repoRoot),
         rustInventory,
-        tachGraph,
+        importGraph,
     }
 }
 

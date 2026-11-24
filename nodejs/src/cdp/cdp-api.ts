@@ -1671,6 +1671,11 @@ export class CdpApi {
                 if (intakeModeOf(this.config)(parseInt(req.params.team_id)) !== 'async') {
                     return refuse('batch_unavailable', 409, { error: 'batch_unavailable' })
                 }
+                if (!this.config.CDP_SEAL_TRANSACTIONAL_EMAIL_STATE) {
+                    return refuse('not_sealing', 503, {
+                        error: 'Transactional email sealing not configured (CDP_SEAL_TRANSACTIONAL_EMAIL_STATE off)',
+                    })
+                }
                 release = this.transactionalEmailBatchCapacity.admit()
                 if (!release) {
                     return refuse('over_capacity', 503, { error: 'over_capacity' })

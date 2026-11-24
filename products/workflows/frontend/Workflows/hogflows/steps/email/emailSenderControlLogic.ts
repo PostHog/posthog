@@ -19,7 +19,7 @@ import {
     isEmailStep,
     ownOnlySettings,
     sandboxSenderAllowed,
-    sandboxTakesStepId,
+    sandboxCanTake,
     toOwnEmailAction,
     toSandboxAction,
 } from './emailStepVariants'
@@ -187,7 +187,7 @@ export const emailSenderControlLogic = kea<emailSenderControlLogicType>([
                     hasVerifiedSender !== true &&
                     sandboxSenderAllowed(workflow, !!workflowLogicProps.editTemplateId) &&
                     !!action &&
-                    sandboxTakesStepId(action)) ||
+                    sandboxCanTake(action)) ||
                 action?.type === 'email_sandbox',
         ],
     }),
