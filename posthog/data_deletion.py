@@ -1,5 +1,5 @@
 import json
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from uuid import UUID
 
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -10,8 +10,12 @@ import pydantic
 from posthog.schema import HogQLVariable
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.models import Table
+from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.query import EmbeddedClickHouseQuery, HogQLQueryExecutor
+from posthog.hogql.team_first_prewhere import reads_events_table
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser
@@ -20,6 +24,8 @@ from posthog.models import Team, User
 from posthog.models.data_deletion_request import DataDeletionRequest, ExecutionMode, RequestStatus, RequestType
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
+from products.feature_flags.backend.facade.flags import get_organization_flag_evaluations_mode
 
 MAX_QUERY_BYTES = 100_000
 MAX_VARIABLES_BYTES = 100_000
@@ -87,7 +93,76 @@ def compile_event_uuid_query(
     output_type = next(iter(prepared_ast.type.columns.values())).resolve_constant_type(selected.context)
     if not isinstance(output_type, ast.UUIDType):
         raise DjangoValidationError({"query": "The selected column must contain event UUIDs."})
+    if _misses_flag_calls_only_in_flag_evaluations(prepared_ast, prepared_ast.type, selected.context, team):
+        raise DjangoValidationError({"query": MISSES_FLAG_CALLS_ERROR})
     return selected
+
+
+MISSES_FLAG_CALLS_ERROR = (
+    "Some of this project's $feature_flag_called events are stored only in posthog.flag_evaluations, so this "
+    "query can't select them. To delete them too, add UNION ALL SELECT uuid FROM posthog.flag_evaluations "
+    "WHERE … with the same conditions. To delete none of them, use WHERE false."
+)
+
+
+def _misses_flag_calls_only_in_flag_evaluations(
+    prepared_ast: ast.SelectQuery | ast.SelectSetQuery,
+    output_type: ast.SelectQueryType | ast.SelectSetQueryType,
+    context: HogQLContext,
+    team: Team,
+) -> bool:
+    """Whether the query reads events while events lacks flag calls that flag_evaluations holds, and no branch of
+    its output returns the uuid of a flag_evaluations row. The drain deletes a queued uuid from every table. A query
+    that selects flag_evaluations uuids therefore reaches those flag calls."""
+    if not reads_events_table(prepared_ast):
+        return False
+    # The stored mode also counts. FLAG_EVALUATIONS_READS_FORCE_EVENTS moves reads back to events. Events still lacks
+    # the flag calls that ingestion wrote before the organization kept its events writes.
+    if not (
+        context.flag_calls_only_in_flag_evaluations()
+        or get_organization_flag_evaluations_mode(team.organization_id) == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY
+    ):
+        return False
+    sources = _column_sources(output_type, _column_names(output_type)[0])
+    return not any(isinstance(table, FlagEvaluationsTable) and field == "uuid" for table, field in sources)
+
+
+def _column_names(source: ast.SelectQueryType | ast.SelectSetQueryType) -> list[str]:
+    if isinstance(source, ast.SelectSetQueryType):
+        return _column_names(source.types[0])
+    return list(source.columns)
+
+
+def _column_sources(source: ast.Type, name: str) -> Iterator[tuple[Table, str]]:
+    """The table fields that the named column of a table or query returns unchanged. A column that an expression
+    computes has no source. The caller treats such a column as returning no flag_evaluations uuid."""
+    match source:
+        case ast.TableType():
+            yield source.table, name
+        case ast.TableAliasType():
+            yield from _column_sources(source.table_type, name)
+        case ast.ColumnAliasedTableType():
+            yield from _column_sources(source.table_type, source.alias_to_original.get(name, name))
+        case ast.SelectQueryAliasType() | ast.CTETableType() | ast.SelectViewType():
+            yield from _column_sources(source.select_query_type, name)
+        case ast.CTETableAliasType():
+            yield from _column_sources(source.cte_table_type, name)
+        case ast.SelectQueryType():
+            column = source.columns.get(name)
+            while isinstance(column, ast.FieldAliasType):
+                column = column.type
+            if isinstance(column, ast.FieldType):
+                yield from _column_sources(column.table_type, column.name)
+        case ast.SelectSetQueryType():
+            # A set query matches its branches' columns by position, not by name.
+            names = _column_names(source)
+            if name not in names:
+                return
+            position = names.index(name)
+            for branch in source.types:
+                branch_names = _column_names(branch)
+                if position < len(branch_names):
+                    yield from _column_sources(branch, branch_names[position])
 
 
 def preview_event_deletion(*, query: str, variables: dict[str, object], team: Team, user: User) -> int:

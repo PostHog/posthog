@@ -15,6 +15,7 @@ import time_machine
 from unittest.mock import Mock, patch
 
 from django.conf import settings as django_settings
+from django.test import override_settings
 from django.utils import timezone
 
 import dagster
@@ -101,6 +102,7 @@ from posthog.models.flag_evaluations.sql import (
     FLAG_EVALUATIONS_SOURCE_EVENT,
     FLAG_EVALUATIONS_TTL_DAYS,
 )
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.person.bulk_delete import (
     DeletionRun,
     PersonDeletionFailure,
@@ -108,6 +110,9 @@ from posthog.models.person.bulk_delete import (
     PersonProfileDeletionResult,
 )
 from posthog.test.persons import create_person
+
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
+from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 
 TEAM_ID = 99999
 
@@ -406,6 +411,118 @@ def test_hogql_event_deletion_executor_rejects_invalid_output_before_insert(team
             HogQLEventDeletionExecutor(deletion_request).execute()
 
     execute.assert_not_called()
+
+
+_EVENTS_ONLY = "SELECT uuid FROM events WHERE distinct_id = 'x'"
+_MIXED_FLAG_CALLS = "SELECT uuid FROM events WHERE event IN ('$pageview', '$feature_flag_called') AND distinct_id = 'x'"
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("query", "mode", "settings", "refused"),
+    [
+        pytest.param(_EVENTS_ONLY, FlagEvaluationsMode.EVENTS, {}, False, id="mode-0-events"),
+        pytest.param(_EVENTS_ONLY, FlagEvaluationsMode.READ_FLAG_EVALUATIONS, {}, False, id="mode-1-events"),
+        pytest.param(_EVENTS_ONLY, FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, {}, True, id="mode-2-events"),
+        pytest.param(
+            _EVENTS_ONLY,
+            FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+            {"keep_events_writes": True, "force_events_reads": True},
+            True,
+            id="mode-2-events-reads-forced-to-events",
+        ),
+        pytest.param(_EVENTS_ONLY, FlagEvaluationsMode.EVENTS, {"native_events": True}, True, id="native-events"),
+        pytest.param(
+            "SELECT uuid FROM events WHERE distinct_id IN (SELECT distinct_id FROM posthog.flag_evaluations)",
+            FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+            {},
+            True,
+            id="flag-evaluations-only-in-where",
+        ),
+        pytest.param(
+            "SELECT e.uuid FROM events e JOIN posthog.flag_evaluations f ON e.distinct_id = f.distinct_id",
+            FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+            {},
+            True,
+            id="flag-evaluations-only-joined",
+        ),
+        pytest.param(
+            "SELECT uuid FROM events UNION ALL SELECT flag_evaluation_person_id FROM posthog.flag_evaluations",
+            FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+            {},
+            True,
+            id="flag-evaluations-other-uuid-column",
+        ),
+        pytest.param(
+            _MIXED_FLAG_CALLS,
+            FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+            {"union_disabled": True},
+            True,
+            id="mixed-flag-calls-union-disabled",
+        ),
+        pytest.param(
+            "SELECT uuid FROM events WHERE event = '$feature_flag_called' AND distinct_id = 'x'",
+            FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+            {},
+            False,
+            id="flag-calls-swapped",
+        ),
+        pytest.param(
+            _MIXED_FLAG_CALLS, FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, {}, False, id="mixed-flag-calls-union"
+        ),
+        pytest.param(
+            f"{_EVENTS_ONLY} UNION ALL SELECT uuid FROM posthog.flag_evaluations WHERE distinct_id = 'x'",
+            FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+            {},
+            False,
+            id="explicit-union",
+        ),
+        pytest.param(
+            "WITH f AS (SELECT uuid AS u FROM posthog.flag_evaluations) "
+            "SELECT uuid FROM events UNION ALL SELECT u FROM (SELECT u FROM f)",
+            FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+            {},
+            False,
+            id="flag-evaluations-through-cte-and-subquery",
+        ),
+        pytest.param(
+            "SELECT toUUID('01234567-89ab-cdef-0123-456789abcdef')",
+            FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+            {},
+            False,
+            id="no-events-read",
+        ),
+    ],
+)
+def test_hogql_event_deletion_executor_refuses_a_query_that_misses_flag_calls_only_in_flag_evaluations(
+    team, user, query, mode, settings, refused
+):
+    OrganizationFeatureFlagsConfig.objects.update_or_create(
+        organization=team.organization,
+        defaults={
+            "flag_evaluations_mode": mode,
+            "keep_writing_flag_calls_to_events": settings.get("keep_events_writes", False),
+        },
+    )
+    deletion_request = HogQLEventRemovalContext(
+        request_id=str(uuid4()), team_id=team.pk, created_by_id=user.pk, query=query, variables={}
+    )
+
+    with (
+        override_instance_config("FLAG_EVALUATIONS_UNION_DISABLED", settings.get("union_disabled", False)),
+        override_instance_config("FLAG_EVALUATIONS_READS_FORCE_EVENTS", settings.get("force_events_reads", False)),
+        override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=settings.get("native_events", False)),
+        patch("posthog.hogql.database.database.feature_enabled_or_false", return_value=False),
+        patch("products.feature_flags.backend.facade.flags.is_flag_evaluations_table_enabled", return_value=True),
+        patch("posthog.dags.data_deletion_requests.sync_execute", return_value=1) as execute,
+    ):
+        if refused:
+            with pytest.raises(dagster.Failure, match=r"UNION ALL SELECT uuid FROM posthog\.flag_evaluations"):
+                HogQLEventDeletionExecutor(deletion_request).execute()
+        else:
+            assert HogQLEventDeletionExecutor(deletion_request).execute() == 1
+
+    assert execute.called is not refused
 
 
 @pytest.mark.django_db
