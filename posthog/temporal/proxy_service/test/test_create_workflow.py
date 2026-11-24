@@ -1,9 +1,10 @@
 import uuid
 import logging
+from collections.abc import AsyncIterator
 from datetime import timedelta
 
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 from django.db import transaction
 from django.test import TestCase, TransactionTestCase, override_settings
@@ -13,7 +14,8 @@ import temporalio.worker
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 from temporalio import activity
-from temporalio.client import Client, WorkflowFailureError
+from temporalio.client import WorkflowFailureError
+from temporalio.common import WorkflowIDConflictPolicy
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
@@ -35,6 +37,30 @@ from posthog.temporal.proxy_service.create import (
     WaitForDNSRecordsInputs,
     create_cloudflare_custom_hostname,
 )
+from posthog.temporal.proxy_service.delete import DeleteManagedProxyInputs
+
+
+class ProxyWorkflowTestClient:
+    def __init__(self, running_retry_id: str | None = None) -> None:
+        self.running_retry_id = running_retry_id
+        self.started: dict[str, tuple[str, CreateManagedProxyInputs | DeleteManagedProxyInputs]] = {}
+
+    async def list_workflows(self, *, query: str, limit: int, page_size: int) -> AsyncIterator[str]:
+        if self.running_retry_id is not None:
+            prefix = self.running_retry_id.rsplit("-", maxsplit=1)[0] + "-"
+            if query == f'WorkflowId STARTS_WITH "{prefix}" AND ExecutionStatus = "Running"':
+                yield self.running_retry_id
+
+    async def start_workflow(
+        self,
+        name: str,
+        inputs: CreateManagedProxyInputs | DeleteManagedProxyInputs,
+        *,
+        id: str,
+        task_queue: str,
+        id_conflict_policy: WorkflowIDConflictPolicy,
+    ) -> None:
+        self.started[id] = (name, inputs)
 
 
 def _make_mock_activities(failing_activity: str | None = None, error_type: str = "NonRetriableException"):
@@ -218,11 +244,11 @@ class TestCloudflareProxyActivation(CloudflareProxyTestMixin, TestCase):
         else:
             self.record.status = scenario
             self.record.save(update_fields=["status"])
-        temporal = AsyncMock()
+        temporal = ProxyWorkflowTestClient()
         with responses.RequestsMock() as http, patch("posthog.tasks.proxy.sync_connect", return_value=temporal):
             reconcile_proxy.run(str(self.organization.pk), record_id)
             self.assertEqual(len(http.calls), 0)
-        temporal.start_workflow.assert_not_awaited()
+        self.assertEqual(temporal.started, {})
 
     def test_deprovisioning_is_idempotent_when_hostname_is_already_absent(self) -> None:
         Organization.objects.filter(pk=self.organization.pk).update(is_active=False)
@@ -244,29 +270,34 @@ class TestCloudflareProxyActivation(CloudflareProxyTestMixin, TestCase):
     def test_reactivation_resumes_incomplete_provisioning(self, status: str) -> None:
         self.record.status = status
         self.record.save(update_fields=["status"])
-        temporal = AsyncMock(spec=Client)
+        temporal = ProxyWorkflowTestClient()
         with responses.RequestsMock() as http, patch("posthog.tasks.proxy.sync_connect", return_value=temporal):
             reconcile_proxy.run(str(self.organization.pk), str(self.record.pk))
             self.assertEqual(len(http.calls), 0)
-        inputs = temporal.start_workflow.call_args.args[1]
-        self.assertEqual(temporal.start_workflow.call_args.args[0], "create-proxy")
-        self.assertEqual(inputs.proxy_record_id, self.record.id)
-        self.assertEqual(inputs.domain, self.record.domain)
-        self.assertEqual(temporal.start_workflow.call_args.kwargs["id"], f"proxy-create-{self.record.id}")
+        self.assertEqual(
+            temporal.started,
+            {
+                f"proxy-create-{self.record.id}": (
+                    "create-proxy",
+                    CreateManagedProxyInputs(
+                        organization_id=self.organization.id,
+                        proxy_record_id=self.record.id,
+                        domain=self.record.domain,
+                        target_cname=self.record.target_cname,
+                    ),
+                )
+            },
+        )
 
     def test_reconciliation_leaves_a_running_timestamped_retry_in_place(self) -> None:
         ProxyRecord.objects.filter(pk=self.record.pk).update(status=ProxyRecord.Status.ISSUING)
         workflow_id = f"proxy-create-{self.record.id}-retry-1234"
-        temporal = AsyncMock(spec=Client)
-        temporal.list_workflows.return_value.__aiter__.return_value = [workflow_id]
+        temporal = ProxyWorkflowTestClient(running_retry_id=workflow_id)
 
         with patch("posthog.tasks.proxy.sync_connect", return_value=temporal):
             reconcile_proxy.run(str(self.organization.pk), str(self.record.pk))
 
-        query = temporal.list_workflows.call_args.kwargs["query"]
-        self.assertIn(f'WorkflowId STARTS_WITH "proxy-create-{self.record.id}-retry-"', query)
-        self.assertIn('ExecutionStatus = "Running"', query)
-        temporal.start_workflow.assert_not_awaited()
+        self.assertEqual(temporal.started, {})
 
     @parameterized.expand([(ProxyRecord.Status.ERRORING,), (ProxyRecord.Status.VALID,)])
     def test_background_status_updates_preserve_deletion_intent(self, status: str) -> None:
@@ -298,7 +329,7 @@ class TestCloudflareProxyActivation(CloudflareProxyTestMixin, TestCase):
         self.record.target_cname = target_cname
         self.record.save(update_fields=["status", "target_cname"])
         Organization.objects.filter(pk=self.organization.pk).update(is_active=active)
-        temporal = AsyncMock()
+        temporal = ProxyWorkflowTestClient()
 
         def connect_while_deleting():
             competing_lock = cloudflare_proxy_lock(self.record.id)
@@ -316,24 +347,39 @@ class TestCloudflareProxyActivation(CloudflareProxyTestMixin, TestCase):
             reconcile_managed_proxies.run()
             self.assertEqual(len(http.calls), 0)
 
-        self.assertEqual(temporal.start_workflow.call_args.args[0], "delete-proxy")
-        inputs = temporal.start_workflow.call_args.args[1]
-        self.assertEqual(inputs.proxy_record_id, self.record.id)
-        self.assertEqual(inputs.root_redirect_url, self.record.root_redirect_url)
-        self.assertEqual(temporal.start_workflow.call_args.kwargs["id"], f"proxy-delete-{self.record.id}")
+        self.assertEqual(
+            temporal.started,
+            {
+                f"proxy-delete-{self.record.id}": (
+                    "delete-proxy",
+                    DeleteManagedProxyInputs(
+                        organization_id=self.organization.id,
+                        proxy_record_id=self.record.id,
+                        domain=self.record.domain,
+                        target_cname=self.record.target_cname,
+                        root_redirect_url=self.record.root_redirect_url,
+                    ),
+                )
+            },
+        )
 
     def test_sweep_recovers_failed_activation_enqueue_without_interrupting_commit_hooks(self) -> None:
         subsequent_hooks = []
+        failed_records: list[str] = []
+
+        def record_publish_failure(error: Exception, properties: dict[str, str]) -> None:
+            failed_records.append(properties["proxy_record_id"])
+
         with (
             patch("posthog.tasks.proxy.reconcile_proxy.delay", side_effect=ConnectionError("broker unavailable")),
-            patch("posthog.tasks.proxy.capture_exception") as captured,
+            patch("posthog.tasks.proxy.capture_exception", new=record_publish_failure),
         ):
             with self.captureOnCommitCallbacks(execute=True):
                 self.organization.is_active = False
                 self.organization.save(update_fields=["is_active"])
                 transaction.on_commit(lambda: subsequent_hooks.append("completed"))
         self.assertEqual(subsequent_hooks, ["completed"])
-        self.assertEqual(captured.call_args.args[1]["proxy_record_id"], str(self.record.id))
+        self.assertEqual(failed_records, [str(self.record.id)])
         with responses.RequestsMock(assert_all_requests_are_fired=False) as http:
             self._cloudflare(http, exists=True)
             with patch("posthog.tasks.proxy.reconcile_proxy.delay", side_effect=reconcile_proxy.run):

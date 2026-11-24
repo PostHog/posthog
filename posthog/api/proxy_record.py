@@ -282,6 +282,13 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
 
     DEFAULT_MAX_PROXY_RECORDS = 2
 
+    def _get_proxy_record(self, pk: str | None) -> ProxyRecord:
+        record_id = serializers.UUIDField().run_validation(pk)
+        try:
+            return self.organization.proxy_records.get(id=record_id)
+        except ProxyRecord.DoesNotExist:
+            raise NotFound()
+
     @property
     def max_proxy_records(self) -> int:
         feature = self.organization.get_available_feature(AvailableFeature.MANAGED_REVERSE_PROXY)
@@ -312,10 +319,7 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
         "Returns the full configuration including domain, CNAME target, and current provisioning status.",
     )
     def retrieve(self, request, *args, pk=None, **kwargs):
-        try:
-            record = self.organization.proxy_records.get(id=pk)
-        except ProxyRecord.DoesNotExist:
-            raise NotFound()
+        record = self._get_proxy_record(pk)
         serializer = self.get_serializer(record)
         return Response(serializer.data)
 
@@ -438,10 +442,7 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
     )
     @action(methods=["POST"], detail=True)
     def diagnose(self, request, *args, pk=None, **kwargs):
-        try:
-            record = self.organization.proxy_records.get(id=pk)
-        except ProxyRecord.DoesNotExist:
-            raise NotFound()
+        record = self._get_proxy_record(pk)
 
         # Per-user, per-record cooldown. Each diagnose makes ~5–10 outbound requests
         # against the customer's domain (DNS CAA walk, HTTP probes, TLS handshake) plus a
@@ -479,10 +480,7 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
     )
     @action(methods=["POST"], detail=True)
     def retry(self, request, *args, pk=None, **kwargs):
-        try:
-            record = self.organization.proxy_records.get(id=pk)
-        except ProxyRecord.DoesNotExist:
-            raise NotFound()
+        record = self._get_proxy_record(pk)
 
         if record.status not in (
             ProxyRecord.Status.ERRORING,
