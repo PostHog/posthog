@@ -53,12 +53,12 @@ A future converter must reject conversion of a target with inbound v1 dependenci
 
 A v1 write also rejects a dependency whose target does not evaluate everywhere the dependent flag does.
 The target's `evaluation_runtime` must be `all`, null, or the dependent's own runtime, because the flags service evaluates a dependency on a flag outside the request's runtime as false.
-The check applies to dependencies the write adds, and to every dependency of the flag when the write changes the flag's runtime.
-A newly added dependency fails at `filters`, and a stored dependency that a runtime change breaks fails at `evaluation_runtime`.
+The check applies to dependencies the write adds, and to every dependency of the flag when the write changes the flag's runtime or turns the flag on.
+A newly added dependency fails at `filters`, a stored dependency that a runtime change breaks fails at `evaluation_runtime`, and one that turning the flag on breaks fails at `active`.
 A dependency the stored flag already has passes unchanged, so an older mismatch does not block unrelated edits.
 Changing a flag's runtime also fails at `evaluation_runtime` when an active flag that depends on it evaluates in a runtime the new value excludes.
 All of these errors use the code `dependency_runtime_mismatch`.
-The runtime check never blocks re-enabling a flag.
+Turning a flag off never runs the check.
 A copy that creates a flag in another project counts every dependency as added, so it fails when a remapped dependency has a runtime the copy cannot depend on.
 
 A dependency the write adds must be a flag the caller can read, judged in the write team's organization.
