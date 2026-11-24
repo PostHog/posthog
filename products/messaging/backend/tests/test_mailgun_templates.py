@@ -64,6 +64,12 @@ class TestMailgunTemplateConversion(SimpleTestCase):
                 "<title>{{x}}</title><script>a</script><p>{{x}}</p>",
                 f"<title>{ESCAPED_X}</title><script>a</script><p>{ESCAPED_X}</p>",
             ),
+            (
+                "recipient_variable_in_a_go_link",
+                "go",
+                '<a href="https://example.com/?%recipient.x%">',
+                f'<a href="https://example.com/?{ESCAPED_X.replace(chr(34), "&quot;")}">',
+            ),
             ("after_a_stray_less_than", "handlebars", "a<3 {{x}}", f"a<3 {ESCAPED_X}"),
             ("brace_before_a_value", "handlebars", "{ {{x}}", f"{{ {ESCAPED_X}"),
             ("liquid_in_text", "handlebars", "{% if a %}{{x}}", '{{ "{%" }} if a %}' + ESCAPED_X),

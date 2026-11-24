@@ -275,6 +275,10 @@ class GoToLiquid(HandlebarsToLiquid):
             return True
         return self._html.state == "dq" and (self._html.attribute in _PLAIN_ATTRIBUTES or self._in_link_query())
 
+    def _print_piece(self, value: str) -> str:
+        # Mailgun fills these after Go has run, so Go never encodes them for a link.
+        return super()._print(value, False)
+
     def _piece_fits(self, piece: TextValue) -> bool:
         # Only the import writes a piece's own Liquid, such as the unsubscribe link, so any address fits.
         return (

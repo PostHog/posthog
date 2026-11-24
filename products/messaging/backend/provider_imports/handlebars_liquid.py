@@ -200,7 +200,7 @@ class HandlebarsToLiquid:
             if (piece.liquid or piece.value_path) and (whole or self._piece_fits(piece)):
                 self._feed('"x"' if whole else "x")
                 self.converted.append(piece.source)
-                liquid = self._print(piece.value_path, False) if piece.value_path else piece.liquid or ""
+                liquid = self._print_piece(piece.value_path) if piece.value_path else piece.liquid or ""
                 yield _in_quotes(liquid) if whole else self._attribute_safe(liquid)
             else:
                 self.unsupported.append(piece.source)
@@ -667,6 +667,9 @@ class HandlebarsToLiquid:
         if where == "title":
             return not raw and in_attribute
         return where == "value" and in_attribute and not raw and self._html.plain_attribute()
+
+    def _print_piece(self, value: str) -> str:
+        return self._print(value, False)
 
     def _piece_fits(self, piece: TextValue) -> bool:
         return self._value_fits(raw=False, in_attribute=piece.in_attribute)
