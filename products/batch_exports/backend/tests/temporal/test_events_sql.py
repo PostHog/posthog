@@ -188,6 +188,56 @@ _SENT_EVENTS: dict[str, tuple[dict, dict]] = {
 }
 
 
+async def _read_native_exports(
+    clickhouse_client, team_id: int, sent_events: dict[str, tuple[dict, dict]], fields: list, filters: list[dict]
+) -> dict[str, list[dict]]:
+    now = dt.datetime.now(tz=dt.UTC)
+    await insert_event_values_in_clickhouse(
+        clickhouse_client,
+        [
+            sent_event
+            for event, (properties, person_properties) in sent_events.items()
+            for sent_event in generate_test_events(
+                count=1,
+                team_id=team_id,
+                possible_datetimes=[now],
+                event_name=event,
+                inserted_at=now,
+                properties=properties,
+                person_properties=person_properties,
+            )
+        ],
+    )
+    filters_str, filter_values = (
+        await database_sync_to_async(compose_filters_clause)(filters, team_id=team_id, use_new_events_schema=True)
+        if filters
+        else ("", {})
+    )
+    parameters = {
+        **filter_values,
+        "team_id": team_id,
+        "interval_start": (now - dt.timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S"),
+        "interval_end": (now + dt.timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S"),
+        "include_events": [],
+        "exclude_events": [],
+    }
+
+    rows_by_table = {}
+    for table, query in (
+        ("events_json", native_events_export_query(fields, filters_str)),
+        (
+            "events_json_recent",
+            native_recent_events_export_query(
+                fields, filters_str, includes_feature_flag_called=False, reads_typed_columns=bool(filters_str)
+            ),
+        ),
+    ):
+        rows_by_table[table] = await clickhouse_client.read_query_as_jsonl(
+            query.replace("FORMAT ArrowStream", "FORMAT JSONEachRow"), parameters
+        )
+    return rows_by_table
+
+
 @pytest.mark.parametrize(
     "filters,expected_events",
     [
@@ -204,49 +254,34 @@ async def test_native_recent_events_export_filters_like_the_native_events_export
     clickhouse_client, ateam, settings, filters: list[dict], expected_events: set[str]
 ) -> None:
     settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA = True
-    now = dt.datetime.now(tz=dt.UTC)
-    await insert_event_values_in_clickhouse(
-        clickhouse_client,
-        [
-            sent_event
-            for event, (properties, person_properties) in _SENT_EVENTS.items()
-            for sent_event in generate_test_events(
-                count=1,
-                team_id=ateam.pk,
-                possible_datetimes=[now],
-                event_name=event,
-                inserted_at=now,
-                properties=properties,
-                person_properties=person_properties,
-            )
-        ],
+
+    rows_by_table = await _read_native_exports(
+        clickhouse_client, ateam.pk, _SENT_EVENTS, [BatchExportField(expression="event", alias="event")], filters
     )
-    filters_str, filter_values = await database_sync_to_async(compose_filters_clause)(
-        filters, team_id=ateam.pk, use_new_events_schema=True
-    )
-    fields = [BatchExportField(expression="event", alias="event")]
-    parameters = {
-        **filter_values,
-        "team_id": ateam.pk,
-        "interval_start": (now - dt.timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S"),
-        "interval_end": (now + dt.timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S"),
-        "include_events": [],
-        "exclude_events": [],
+
+    exported_events = {table: {row["event"] for row in rows} for table, rows in rows_by_table.items()}
+    assert exported_events == {"events_json": expected_events, "events_json_recent": expected_events}
+
+
+# Without filters `events_json_recent` is read as stored. A filter makes it the typed read.
+@pytest.mark.parametrize("filters", [[], [{"key": "1 = 1", "type": "hogql"}]], ids=["stored-read", "typed-read"])
+@pytest.mark.django_db
+async def test_native_events_exports_read_ip_from_properties(clickhouse_client, ateam, settings, filters) -> None:
+    settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA = True
+    sent_events: dict[str, tuple[dict, dict]] = {
+        "with-ip": ({"$ip": "203.0.113.7"}, {}),
+        "empty-ip": ({"$ip": ""}, {}),
+        "without-ip": ({"$browser": "Chrome"}, {}),
     }
 
-    exported_events = {}
-    for table, query in (
-        ("events_json", native_events_export_query(fields, filters_str)),
-        (
-            "events_json_recent",
-            native_recent_events_export_query(
-                fields, filters_str, includes_feature_flag_called=False, reads_typed_columns=True
-            ),
-        ),
-    ):
-        rows = await clickhouse_client.read_query_as_jsonl(
-            query.replace("FORMAT ArrowStream", "FORMAT JSONEachRow"), parameters
-        )
-        exported_events[table] = {row["event"] for row in rows}
+    rows_by_table = await _read_native_exports(
+        clickhouse_client,
+        ateam.pk,
+        sent_events,
+        [BatchExportField(expression="event", alias="event"), BatchExportField(expression="ip", alias="ip")],
+        filters,
+    )
 
-    assert exported_events == {"events_json": expected_events, "events_json_recent": expected_events}
+    expected_ips = {"with-ip": "203.0.113.7", "empty-ip": None, "without-ip": None}
+    exported_ips = {table: {row["event"]: row["ip"] for row in rows} for table, rows in rows_by_table.items()}
+    assert exported_ips == {"events_json": expected_ips, "events_json_recent": expected_ips}

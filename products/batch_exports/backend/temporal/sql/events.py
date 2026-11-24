@@ -1,7 +1,7 @@
 """SQL for the events batch export model."""
 
 import typing
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from string import Template
 
 from posthog.hogql.printer.events_json_document import (
@@ -109,6 +109,8 @@ SETTINGS
 )
 
 
+# Workflows exports send no `ip` field, so the two workflows templates select no `ip` column, unlike the other legacy
+# templates.
 SELECT_FROM_EVENTS_WORKFLOWS = Template(
     """
 SELECT
@@ -494,12 +496,6 @@ SETTINGS
 )
 
 
-# Every `JSONExtractString` call parses the whole `properties` document, so the legacy events templates that dedup
-# extract `$set`, `$set_once` and `$ip` with one `JSONExtract` call. A field with this expression reads the extracted
-# `ip` column, because the expression itself parses the document one more time.
-EXTRACTED_FIELD_EXPRESSIONS = {"nullIf(JSONExtractString(properties, '$ip'), '')": "ip"}
-
-
 def build_event_count_by_interval_query(table: str, *, includes_feature_flag_called: bool) -> str:
     """Count the events a 5-minute export of `table` reads, per interval, for monitoring."""
     feature_flag_called_filter = "" if includes_feature_flag_called else "AND event != '$feature_flag_called'"
@@ -546,6 +542,14 @@ def _build_temporary_property_fields(temporary_properties_text: str) -> dict[str
     }
 
 
+# The events tables store no `ip` column, so these replacements build it from `$ip`. On typed `properties`, the
+# `String` variant is NULL when `$ip` is not a string, which matches `JSONExtractString` on the stored text.
+# On `events_json_recent` this parses `properties` once per row only for `ip`, so a future change could drop the `ip`
+# column from the destinations that export it to save that work.
+_TYPED_IP_FIELD_EXPRESSIONS = {"ip": "nullIf(events.properties.`$ip`.:String, '')"}
+_STORED_IP_FIELD_EXPRESSIONS = {"ip": "nullIf(JSONExtractString(events.properties, '$ip'), '')"}
+
+
 def _build_properties_document_sql(properties: str, temporary_properties: str) -> str:
     """The `properties` column as document text in its stored shape, with the temporary properties after the others."""
     pairs = (
@@ -574,6 +578,7 @@ _NATIVE_EVENTS_FIELD_EXPRESSIONS = {
     "properties": _build_properties_document_sql("events.properties", "events.temporary_properties"),
     "person_properties": person_document_sql("events.person_properties"),
     **_build_temporary_property_fields("toJSONString(events.temporary_properties)"),
+    **_TYPED_IP_FIELD_EXPRESSIONS,
 }
 
 
@@ -590,7 +595,7 @@ def native_events_export_query(
     `events.properties` and `events.person_properties` columns, which the query turns into text only for the export's
     own `properties` and `person_properties` fields.
     """
-    select = _select_fields(fields, _NATIVE_EVENTS_FIELD_EXPRESSIONS)
+    select = build_select_list(fields, _NATIVE_EVENTS_FIELD_EXPRESSIONS)
     return f"""
 {"INSERT INTO FUNCTION " + s3_function if s3_function else ""}
 SELECT {select}
@@ -618,7 +623,9 @@ SETTINGS
 """
 
 
-def _select_fields(fields: Sequence["BatchExportField"], replacements: dict[str, str]) -> str:
+def build_select_list(fields: Sequence["BatchExportField"], replacements: Mapping[str, str] | None = None) -> str:
+    """Each field's expression, or its replacement in `replacements`, aliased to the field's alias."""
+    replacements = replacements or {}
     return ", ".join(
         f"{replacements.get(field['expression'], field['expression'])} AS {field['alias']}" for field in fields
     )
@@ -643,15 +650,17 @@ def native_recent_events_export_query(
     """
     if reads_typed_columns:
         source = build_typed_events_json_recent_source()
-        replacements = STORED_DOCUMENT_FIELD_EXPRESSIONS | _build_temporary_property_fields(
-            f"events.{STORED_TEMPORARY_PROPERTIES_COLUMN}"
+        replacements = (
+            STORED_DOCUMENT_FIELD_EXPRESSIONS
+            | _build_temporary_property_fields(f"events.{STORED_TEMPORARY_PROPERTIES_COLUMN}")
+            | _TYPED_IP_FIELD_EXPRESSIONS
         )
     else:
         source = EVENTS_JSON_RECENT_TABLE
-        replacements = _build_temporary_property_fields("events.temporary_properties")
+        replacements = _build_temporary_property_fields("events.temporary_properties") | _STORED_IP_FIELD_EXPRESSIONS
     return f"""
 {"INSERT INTO FUNCTION " + s3_function if s3_function else ""}
-SELECT {_select_fields(fields, replacements)}
+SELECT {build_select_list(fields, replacements)}
 FROM (
     SELECT DISTINCT ON (team_id, event, cityHash64(events.distinct_id), cityHash64(events.uuid))
         * REPLACE (toString(uuid) AS uuid, toString(person_id) AS person_id), inserted_at AS _inserted_at
