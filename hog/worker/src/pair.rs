@@ -579,17 +579,16 @@ mod tests {
     }
 
     // Opening a FIFO to read blocks until a writer opens it, and /dev/zero never ends, so a worker
-    // that opened either would never answer. The read runs on a thread to fail the test instead.
-    fn read_bundle(bundle: &Path, roots: &[PathBuf]) -> Result<SourcePair, Unreadable> {
+    // that opened either would never answer. The read runs on a thread to fail the test instead, and
+    // None means it timed out.
+    fn read_bundle(bundle: &Path, roots: &[PathBuf]) -> Option<Result<SourcePair, Unreadable>> {
         let (bundle, roots) = (bundle.to_path_buf(), roots.to_vec());
         let (send, receive) = mpsc::channel();
         thread::spawn(move || {
             let _ = send.send(read_pair(&bundle, None, &roots));
         });
 
-        receive
-            .recv_timeout(READ_TIMEOUT)
-            .expect("read_pair answers without opening the map")
+        receive.recv_timeout(READ_TIMEOUT).ok()
     }
 
     #[test]
@@ -613,8 +612,9 @@ mod tests {
             fs::write(&bundle, format!("a();\n//# sourceMappingURL={reference}\n")).unwrap();
 
             match read_bundle(&bundle, std::slice::from_ref(&dist)) {
-                Err(Unreadable::Outside(path)) => assert_eq!(path, expected, "{reference}"),
-                _ => panic!("{reference} should resolve outside the roots"),
+                Some(Err(Unreadable::Outside(path))) => assert_eq!(path, expected, "{reference}"),
+                None => panic!("read_pair opened {reference} and never answered"),
+                Some(_) => panic!("{reference} should resolve outside the roots"),
             }
         }
 
@@ -622,7 +622,7 @@ mod tests {
         fs::write(&bundle, "a();\n//# sourceMappingURL=a.js.map\n").unwrap();
         let inside = read_bundle(&bundle, std::slice::from_ref(&dist));
 
-        assert!(inside.is_ok_and(|pair| pair.map_path == dist.join("a.js.map")));
+        assert!(matches!(inside, Some(Ok(pair)) if pair.map_path == dist.join("a.js.map")));
         fs::remove_dir_all(folder).unwrap();
     }
 }
