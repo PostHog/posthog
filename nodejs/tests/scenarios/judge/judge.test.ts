@@ -740,10 +740,11 @@ describe('judge', () => {
             'the last truth read failed',
             async () => {
                 await judge.converge(20, NEVER_ABORTED)
+                await deliver('run-b-1')
                 truthFails = 'The operation was aborted due to timeout'
             },
             NO_RESETS,
-            'the truth could not be read: The operation was aborted due to timeout',
+            'the truth could not be read: the truth read hit a harness limit at record 1 of 2: 2 of 2 attempts failed, the last with The operation was aborted due to timeout',
         ],
         [
             'the last truth read of convergence failed',
