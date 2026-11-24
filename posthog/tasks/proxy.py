@@ -24,7 +24,7 @@ from posthog.temporal.proxy_service.create import CreateManagedProxyInputs, star
 from posthog.temporal.proxy_service.delete import DeleteManagedProxyInputs
 
 PROXY_RECOVERY_TIMEOUT_SECONDS = 30
-PROXY_SWEEP_SPREAD_SECONDS = 20 * 60
+PROXY_SWEEP_SPREAD_SECONDS = 45 * 60
 
 
 async def _resume_proxy_deletion(record: ProxyRecord, temporal: Client) -> None:
@@ -129,8 +129,6 @@ def reconcile_proxy(organization_id: str, proxy_record_id: str, *, from_sweep: b
                     return
                 if proxy_domain_can_be_provisioned(record):
                     asyncio.run(_resume_proxy(record))
-                    if record.needs_activation_recovery:
-                        ProxyRecord.objects.filter(pk=record.pk).update(needs_activation_recovery=False)
                 return
     reconcile_cloudflare_proxy(organization_id, proxy_record_id, from_sweep=from_sweep)
 
@@ -139,9 +137,18 @@ def reconcile_proxy(organization_id: str, proxy_record_id: str, *, from_sweep: b
 @skip_team_scope_audit
 def reconcile_managed_proxies() -> None:
     pending = ProxyRecord.objects.filter(
-        Q(organization__is_active=False)
-        | Q(needs_activation_recovery=True)
-        | Q(status__in=(ProxyRecord.Status.ISSUING, ProxyRecord.Status.DELETING))
+        Q(organization__is_active=False, cloudflare_deprovisioned=False)
+        | Q(status=ProxyRecord.Status.DELETING)
+        | (
+            ~Q(organization__is_active=False)
+            & (
+                Q(status=ProxyRecord.Status.ISSUING)
+                | (
+                    Q(needs_activation_recovery=True)
+                    & ~Q(status__in=(ProxyRecord.Status.WAITING, ProxyRecord.Status.TIMED_OUT))
+                )
+            )
+        )
     )
     for organization_id, proxy_record_id, target_cname, status in pending.values_list(
         "organization_id", "id", "target_cname", "status"

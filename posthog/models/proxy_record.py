@@ -128,6 +128,7 @@ class ProxyRecord(UUIDTModel):
     root_redirect_url = models.URLField(max_length=1024, null=True, blank=True)
     message = models.CharField(max_length=1024, null=True)
     needs_activation_recovery = models.BooleanField(default=False, db_default=False)
+    cloudflare_deprovisioned = models.BooleanField(default=False, db_default=False)
 
     class Status(models.TextChoices):
         WAITING = "waiting"
