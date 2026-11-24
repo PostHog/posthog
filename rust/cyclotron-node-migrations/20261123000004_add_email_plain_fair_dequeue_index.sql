@@ -8,7 +8,7 @@
 -- idx_cyclotron_jobs_email_plain_due keeps serving the due scan, which orders by scheduled instead.
 --
 -- An interrupted build leaves the index INVALID, and the rerun's IF NOT EXISTS skips it.
--- rust/bin/migrate-entry rebuilds it after the migrations run.
+-- Rebuild it with REINDEX INDEX CONCURRENTLY.
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_cyclotron_jobs_email_plain_fair_dequeue
     ON cyclotron_jobs (priority, dequeue_seq NULLS FIRST, scheduled)
     WHERE status = 'available' AND queue_name = 'email' AND file_bytes IS NULL;
