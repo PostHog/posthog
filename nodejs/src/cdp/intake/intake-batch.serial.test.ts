@@ -278,7 +278,7 @@ describe('insertIntakeBatch', () => {
 
     it.each([
         ['a fresh shadow copy', 0, 1],
-        ['a shadow copy older than a claim written with the old four-day TTL', 93 * 60 * 60 * 1000, 0],
+        ['a shadow copy older than the 92-hour cutoff', 93 * 60 * 60 * 1000, 0],
     ])('inserts %s only while its claim still holds', async (_name, ageMs, jobs) => {
         const run = send({ shadow: true, producedAt: Date.now() - ageMs })
 

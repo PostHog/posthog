@@ -1875,6 +1875,19 @@ describe('Cyclotron V2', () => {
                 expect(await totalJobCount()).toBe(1)
             })
 
+            it('replays a retry five days after the first send, once its job is gone', async () => {
+                const id = uuidv7()
+                await manager.createJobsIdempotently([keyed(id, 'a')])
+                await assertPool.query('DELETE FROM cyclotron_jobs WHERE id = $1', [id])
+                await assertPool.query(
+                    `UPDATE cyclotron_idempotency_keys SET expires_at = expires_at - interval '5 days' WHERE id = $1`,
+                    [id]
+                )
+
+                expect(await manager.createJobsIdempotently([keyed(id, 'a')])).toEqual(['replayed'])
+                expect(await totalJobCount()).toBe(0)
+            })
+
             it('reads claims in bulk by any spelling of their id, in the order asked', async () => {
                 const first = uuidv7()
                 const second = uuidv7()
