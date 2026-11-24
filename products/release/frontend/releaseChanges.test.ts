@@ -66,6 +66,37 @@ describe('releaseChanges', () => {
             applied: ['email contains example.com · 30%'],
         },
         {
+            name: 'a cohort excluded from a condition set',
+            kind: 'flag',
+            input: entry({
+                changes: [
+                    {
+                        field: 'filters',
+                        before: everyone,
+                        after: {
+                            groups: [
+                                {
+                                    properties: [
+                                        {
+                                            key: 'id',
+                                            type: 'cohort',
+                                            operator: 'not_in',
+                                            value: 7,
+                                            cohort_name: 'Beta testers',
+                                        },
+                                    ],
+                                    rollout_percentage: 30,
+                                },
+                            ],
+                        },
+                    },
+                ],
+            }),
+            who: 'Ana',
+            lines: ['Added cohort Beta testers'],
+            applied: ['not in cohort Beta testers · 30%'],
+        },
+        {
             name: 'a flag description edit',
             kind: 'flag',
             input: entry({ changes: [{ field: 'name', before: 'Old', after: 'New' }] }),

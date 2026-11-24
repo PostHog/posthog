@@ -233,7 +233,7 @@ function propertyValue(value: unknown): string {
 
 function propertyText(property: ConditionProperty): string {
     if (property.type === 'cohort') {
-        return cohortName(property)
+        return property.operator === 'not_in' ? `not in ${cohortName(property)}` : cohortName(property)
     }
     const operator = property.operator ? (OPERATOR_TEXT[property.operator] ?? property.operator) : 'is'
     return ['is_set', 'is_not_set'].includes(property.operator ?? '')

@@ -10,7 +10,7 @@ import { ActivityEntry, ReleaseChange, describeChanges, laneActivity } from './r
 import { ReleaseChangeSteps } from './ReleaseChangeSteps'
 import { ReleaseRolloutBar } from './ReleaseRolloutBar'
 import { ReleaseTrackMarkers } from './ReleaseTrackMarkers'
-import { Lane, Scale, laneHeight, sendLabel } from './releaseTracks'
+import { Lane, SPAN_LOOK, Scale, laneHeight, sendLabel } from './releaseTracks'
 import { ReleaseTrackSpan } from './ReleaseTrackSpan'
 
 function useLaneChanges(lane: Lane): ReleaseChange[] {
@@ -37,6 +37,8 @@ function useLaneChanges(lane: Lane): ReleaseChange[] {
     return useMemo(() => (kind && entries ? describeChanges(kind, entries) : []), [kind, entries])
 }
 
+const BAR_HEIGHT = 18
+
 export function ReleaseTrackLane({
     lane,
     color,
@@ -53,15 +55,17 @@ export function ReleaseTrackLane({
     stickyOffset?: number
 }): JSX.Element {
     const height = laneHeight(detailed)
+    const barTop = (height - BAR_HEIGHT) / 2
     const changes = useLaneChanges(lane)
+    const stepColor = lane.kind !== 'flag' && 'span' in lane && lane.span ? SPAN_LOOK[lane.span.kind].color : color
     return (
         <div className={cn('relative', !detailed && !flush && 'border-t border-border/60')} style={{ height }}>
             {lane.kind === 'flag' && !lane.steps.length ? (
                 <ReleaseTrackSpan
                     span={lane.span}
                     scale={scale}
-                    top={(height - 18) / 2}
-                    height={18}
+                    top={barTop}
+                    height={BAR_HEIGHT}
                     stickyOffset={stickyOffset}
                     lane={lane}
                 />
@@ -70,8 +74,8 @@ export function ReleaseTrackLane({
                     steps={lane.steps}
                     scale={scale}
                     color={color}
-                    top={(height - 18) / 2}
-                    height={18}
+                    top={barTop}
+                    height={BAR_HEIGHT}
                     stickyOffset={stickyOffset}
                     lane={lane}
                 />
@@ -98,13 +102,13 @@ export function ReleaseTrackLane({
                 <ReleaseTrackSpan
                     span={lane.span}
                     scale={scale}
-                    top={(height - 18) / 2}
-                    height={18}
+                    top={barTop}
+                    height={BAR_HEIGHT}
                     stickyOffset={stickyOffset}
                     lane={lane}
                 />
             ) : null}
-            <ReleaseChangeSteps changes={changes} scale={scale} top={(height - 18) / 2} height={18} color={color} />
+            <ReleaseChangeSteps changes={changes} scale={scale} top={barTop} height={BAR_HEIGHT} color={stepColor} />
         </div>
     )
 }
