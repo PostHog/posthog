@@ -326,6 +326,16 @@ class TestQueryBatchCacheReads(_QueryBatchMixin, APIBaseTest):
         self.assertEqual([line["legend"] for line in lines], ["a", "b"])
         self.assertEqual(reads.call_count, expected_reads)
 
+    @parameterized.expand([("result",), ("frames",)])
+    def test_a_stale_entry_without_swr_runs_fresh(self, result_format: str) -> None:
+        self._warm_via_query_endpoint("$pageview")
+
+        with patch("products.dashboards.backend.v2.query_batch._is_stale", return_value=True):
+            (line,) = self._lines([_insight("$pageview")], format=result_format)
+
+        self.assertNotIn("error", line)
+        self.assertEqual(line["result"]["cache"]["hit"], False)
+
     def test_stale_panels_differing_only_in_legend_refresh_their_query_once(self) -> None:
         self._warm_via_query_endpoint("$pageview")
         panels = [_insight("$pageview", swr=True) for _ in range(3)]

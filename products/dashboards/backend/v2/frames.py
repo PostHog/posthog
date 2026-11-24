@@ -44,6 +44,8 @@ _TIME_TYPE = re.compile(r"date|time", re.IGNORECASE)
 _NUMBER_TYPE = re.compile(r"int|float|decimal|double", re.IGNORECASE)
 _DATE_ONLY_TYPE = re.compile(r"^(Nullable\()?Date(32)?\)?$")
 _COMPOUND_TYPE = re.compile(r"^(Nullable\()?(Array|Map|Tuple|Nested)\(")
+# An enum's labels can spell "time" or "int", so it is a string before the scalar checks read its type.
+_ENUM_TYPE = re.compile(r"^(Nullable\()?(LowCardinality\()?(Nullable\()?Enum(8|16)?\(")
 _NO_LABEL = "(none)"
 # A template can repeat a long label, so the expanded name is cut while it is built.
 MAX_LEGEND_NAME = 1024
@@ -425,6 +427,8 @@ def hogql_frames(result: Mapping[str, Any], *, pivot: bool = True) -> Optional[l
         field_type: FrameFieldType
         if _COMPOUND_TYPE.match(type_name) or isinstance(sample, list | tuple | dict):
             field_type = "other"
+        elif _ENUM_TYPE.match(type_name):
+            field_type = "string"
         elif _TIME_TYPE.search(type_name):
             field_type = "time"
         elif _NUMBER_TYPE.search(type_name) or (isinstance(sample, int | float) and not isinstance(sample, bool)):

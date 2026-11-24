@@ -318,18 +318,24 @@ class TestFrameConverters(SimpleTestCase):
 
         assert _shape(frames) == [(None, {}, [["Jul 2026"], ["https://example.com/x"], [1]])]
 
-    def test_hogql_array_columns_keep_the_table(self) -> None:
+    def test_hogql_column_types_follow_the_scalar_type(self) -> None:
         result = {
-            "columns": ["t", "ids", "browser", "n"],
-            "types": [["t", "DateTime"], ["ids", "Array(UInt64)"], ["browser", "String"], ["n", "UInt64"]],
-            "results": [["2026-09-18T00:00:00", [1, 2], "Chrome", 3]],
+            "columns": ["t", "ids", "browser", "status", "n"],
+            "types": [
+                ["t", "DateTime"],
+                ["ids", "Array(UInt64)"],
+                ["browser", "String"],
+                ["status", "Enum8('ok' = 1, 'timeout' = 2, 'print' = 3)"],
+                ["n", "UInt64"],
+            ],
+            "results": [["2026-09-18T00:00:00", [1, 2], "Chrome", "timeout", 3]],
         }
 
         frames = frames_for(QueryBatchLanguage.HOGQL, {"kind": "HogQLQuery"}, result)
 
         assert frames is not None
         assert [[field["type"] for field in frame["fields"]] for frame in frames] == [
-            ["time", "other", "string", "number"]
+            ["time", "other", "string", "string", "number"]
         ]
 
     def test_kinds_without_frames_return_none(self) -> None:

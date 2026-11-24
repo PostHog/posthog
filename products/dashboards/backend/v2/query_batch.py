@@ -887,7 +887,9 @@ class QueryBatch:
                 stale = _is_stale(response)
                 if stale and not (item.swr or item.cache_only):
                     # Read and parsed already, so it counts against the read budget. Repeats run without a refetch.
-                    self._read_bytes += len(_render_body(_result_line(index, response, hit=True, stale=stale)))
+                    self._read_bytes += stored_bytes or len(
+                        _render_body(_result_line(index, response, hit=True, stale=stale, shape=self._shapes[index]))
+                    )
                     served[same_entry] = _RUN_FRESH
                     to_run.append(index)
                     continue
