@@ -70,6 +70,13 @@ from products.notebooks.backend.analytics import (
 )
 from products.notebooks.backend.collab import submit_steps
 from products.notebooks.backend.facade.api import to_markdown_notebook_content
+from products.notebooks.backend.facade.app_releases import (
+    plan_viewer_queries,
+    read_published_run_rows,
+    read_release,
+    record_release,
+    review_release,
+)
 from products.notebooks.backend.facade.compute_pricing import (
     COMPUTE_PRESETS,
     DEFAULT_COMPUTE_PRESET_KEY,
@@ -78,6 +85,7 @@ from products.notebooks.backend.facade.compute_pricing import (
     get_compute_rates,
 )
 from products.notebooks.backend.facade.contracts import (
+    AppBlockSource,
     NotebookContentNotConvertible,
     NotebookRunBusy,
     TeamRunCapacityFull,
@@ -128,10 +136,13 @@ from products.notebooks.backend.kernel_runtime import (
 from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun
 from products.notebooks.backend.presentation.app_serializers import (
     NotebookAppLayoutField,
+    NotebookAppLayoutSerializer,
     notebook_app_builder_enabled,
     update_app_revision,
 )
 from products.notebooks.backend.presentation.notebook_throttles import (
+    NotebookAppQueryBurstThrottle,
+    NotebookAppQuerySustainedThrottle,
     NotebookCreateBurstThrottle,
     NotebookCreateSustainedThrottle,
     NotebookKernelStartBurstThrottle,
@@ -294,14 +305,45 @@ class NotebookMinimalSerializer(serializers.ModelSerializer, UserAccessControlSe
         extra_kwargs = _NOTEBOOK_FIELD_HELP_TEXTS
 
 
+class NotebookAppReleaseReviewSerializer(serializers.Serializer):
+    has_previous = serializers.BooleanField()
+    problems = serializers.ListField(child=serializers.CharField())
+    results_as_of = serializers.DateTimeField(allow_null=True)
+
+
+class NotebookAppViewerRequestSerializer(serializers.Serializer):
+    revision = serializers.IntegerField(min_value=0)
+    variables: serializers.ListSerializer[dict[str, object]] = serializers.ListSerializer(
+        child=NotebookVariableSerializer(), max_length=MAX_VARIABLES_PER_NOTEBOOK
+    )
+
+
+class NotebookAppViewerQuerySerializer(serializers.Serializer):
+    node_id = serializers.CharField()
+    query = serializers.CharField()
+    matches_defaults = serializers.BooleanField()
+
+
+class NotebookAppReleaseSerializer(serializers.Serializer):
+    revision = serializers.IntegerField()
+    published_at = serializers.DateTimeField(allow_null=True)
+    results_as_of = serializers.DateTimeField(allow_null=True)
+    title = serializers.CharField(allow_blank=True)
+    layout = NotebookAppLayoutSerializer()
+    markdown = serializers.CharField(allow_blank=True)
+    variables = NotebookVariableSerializer(many=True)
+    has_previous = serializers.BooleanField()
+
+
 class NotebookSerializer(NotebookMinimalSerializer):
+    restore_previous_app_release = serializers.BooleanField(required=False, write_only=True)
     app_draft = NotebookAppLayoutField(
         required=False, allow_null=True, help_text="Editable app layout. Does not change the published layout."
     )
     app_published = NotebookAppLayoutField(
         required=False,
         allow_null=True,
-        help_text="Published app layout. Cell content and results remain linked to the notebook. Null unpublishes the app.",
+        help_text="Publish this layout with the saved notebook sources and input defaults. Null unpublishes the app.",
     )
     app_revision = serializers.IntegerField(
         required=False,
@@ -344,6 +386,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
             "user_access_level",
             "parent_resource",
             "variables",
+            "restore_previous_app_release",
             "app_draft",
             "app_published",
             "app_revision",
@@ -380,8 +423,16 @@ class NotebookSerializer(NotebookMinimalSerializer):
         )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        if {"app_draft", "app_published", "app_revision"}.intersection(attrs) and not self.app_builder_enabled:
+        if {"app_draft", "app_published", "app_revision", "restore_previous_app_release"}.intersection(
+            attrs
+        ) and not self.app_builder_enabled:
             raise PermissionDenied("App builder is not available for this project.")
+        if "restore_previous_app_release" in attrs and (
+            not self.instance
+            or set(attrs) != {"restore_previous_app_release", "app_revision"}
+            or not attrs["restore_previous_app_release"]
+        ):
+            raise serializers.ValidationError("Restore a previous app release with its current app revision.")
         if set(attrs) == {"app_revision"}:
             raise serializers.ValidationError({"app_revision": "Include an app layout or notebook change to save."})
         return super().validate(attrs)
@@ -454,6 +505,8 @@ class NotebookSerializer(NotebookMinimalSerializer):
                     last_modified_by=request.user,
                     **validated_data,
                 )
+                if notebook.app_published is not None:
+                    record_release(notebook.team_id, notebook.pk)
         except IntegrityError:
             existing_notebook = (
                 Notebook.objects.filter(team=team, short_id=short_id)
@@ -511,6 +564,14 @@ class NotebookSerializer(NotebookMinimalSerializer):
             # select_for_update locks the database row so we ensure version updates are atomic
             locked_instance = Notebook.objects.select_for_update().get(pk=instance.pk)
             should_publish_update = False
+            restore = validated_data.pop("restore_previous_app_release", False)
+            if restore:
+                if locked_instance.app_published is None:
+                    raise serializers.ValidationError("Publish the app before restoring a previous release.")
+                previous = read_release(locked_instance.team_id, locked_instance.pk, previous=True)
+                if previous is None:
+                    raise serializers.ValidationError("There is no previous published version to restore.")
+                validated_data["app_published"] = previous.layout
             update_app_revision(validated_data, locked_instance.app_revision)
 
             if validated_data.keys():
@@ -550,6 +611,8 @@ class NotebookSerializer(NotebookMinimalSerializer):
                     should_publish_update = True
 
                 updated_notebook = super().update(locked_instance, validated_data)
+                if validated_data.get("app_published") is not None:
+                    record_release(updated_notebook.team_id, updated_notebook.pk, restore_previous=restore)
                 if should_publish_update:
                     notify_team_id = updated_notebook.team_id
                     notify_notebook_id = str(updated_notebook.short_id)
@@ -817,9 +880,55 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         throttles = super().get_throttles()
         if self.action == "create":
             return [*throttles, NotebookCreateBurstThrottle(), NotebookCreateSustainedThrottle()]
+        if self.action == "app_queries":
+            return [*throttles, NotebookAppQueryBurstThrottle(), NotebookAppQuerySustainedThrottle()]
         if self.action in ("kernel_start", "kernel_restart"):
             return [*throttles, NotebookKernelStartBurstThrottle(), NotebookKernelStartSustainedThrottle()]
         return throttles
+
+    @extend_schema(request=NotebookAppLayoutSerializer, responses=NotebookAppReleaseReviewSerializer)
+    @action(methods=["POST"], detail=True, url_path="app_preview", required_scopes=["notebook:write"])
+    def app_preview(self, request: Request, **kwargs) -> Response:
+        notebook = self.get_object()
+        if not notebook_app_builder_enabled(request.user, self.team):
+            raise Http404()
+        layout = NotebookAppLayoutSerializer(data=request.data)
+        layout.is_valid(raise_exception=True)
+        review = review_release(
+            notebook.team_id, notebook.pk, [AppBlockSource(**block) for block in layout.validated_data["blocks"]]
+        )
+        return Response(NotebookAppReleaseReviewSerializer(review).data)
+
+    @extend_schema(responses=NotebookAppReleaseSerializer)
+    @action(methods=["GET"], detail=True, url_path="app_release", required_scopes=["notebook:read"])
+    def app_release(self, request: Request, **kwargs) -> Response:
+        notebook = self.get_object()
+        if notebook.app_published is None or not notebook_app_builder_enabled(request.user, self.team):
+            raise Http404()
+        release = read_release(notebook.team_id, notebook.pk)
+        if release is None:
+            raise Http404()
+        return Response(NotebookAppReleaseSerializer(release).data)
+
+    @extend_schema(request=NotebookAppViewerRequestSerializer, responses=NotebookAppViewerQuerySerializer(many=True))
+    @action(
+        methods=["POST"],
+        detail=True,
+        url_path="app_queries",
+        pagination_class=None,
+        filter_backends=[],
+        required_scopes=["notebook:read", "query:read"],
+    )
+    def app_queries(self, request: Request, **kwargs) -> Response:
+        notebook = self.get_object()
+        if not notebook_app_builder_enabled(request.user, self.team):
+            raise Http404()
+        self._require_query_access()
+        params = NotebookAppViewerRequestSerializer(data=request.data)
+        params.is_valid(raise_exception=True)
+        inputs = {v["name"]: v.get("value") for v in params.validated_data["variables"]}
+        plans = plan_viewer_queries(notebook.team_id, notebook.pk, params.validated_data["revision"], inputs)
+        return Response(NotebookAppViewerQuerySerializer(plans, many=True).data)
 
     def _get_notebook_for_kernel(self) -> Notebook:
         if self.kwargs.get(self.lookup_field) == "scratchpad":
@@ -2356,7 +2465,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
         # Direct (hogql) runs have no callback: this poll advances the row from the async
         # query status, and while the manager's result is alive it also returns the full
-        # capped row set for client-side paging (`rows`, absent once expired).
+        # capped row set for client-side paging. Published runs may retain those rows.
         #
         # It runs before the access gate on purpose. This poll is the only thing that moves a
         # direct run to a terminal state, and the only place its expiry watchdog fires, so
@@ -2369,6 +2478,14 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         # The two are mutually exclusive — each is a no-op for the other's node types.
         expire_stale_kernel_run(run)
         self._require_run_connection_access(run, user)
+        if (
+            rows is None
+            and notebook.app_published is not None
+            and run.node_type == NotebookNodeRun.NodeType.HOGQL
+            and run.status == NotebookNodeRun.Status.DONE
+            and (run.envelope or {}).get("has_more")
+        ):
+            rows = read_published_run_rows(self.team_id, notebook.pk, run.id)
 
         # Interrupted runs keep their envelope too: the walkthrough (Journey 9) promises the
         # captured stdout/stderr arrive with the final envelope even when the user stopped it.
