@@ -76,30 +76,65 @@ const detectTemplatingMismatch = (value: unknown, language: 'hog' | 'liquid'): s
     }
 }
 
+type PathNode = {
+    parent: PathNode | null
+    segment: string
+    isIndex: boolean
+}
+
+const formatPath = (node: PathNode | null): string => {
+    const parts: string[] = []
+    let current = node
+    while (current) {
+        parts.push(current.isIndex ? `[${current.segment}]` : current.parent ? `.${current.segment}` : current.segment)
+        current = current.parent
+    }
+    return parts.reverse().join('')
+}
+
 // The runtime renders every string leaf it finds, including strings nested in
 // dictionary objects and json arrays, so validation walks the same set.
+// Walk iteratively with a visited guard so deeply nested or cyclic values
+// cannot overflow the call stack.
 const eachStringLeaf = (
-    value: unknown,
-    visit: (leaf: string, path: string) => string | undefined,
-    path = ''
+    root: unknown,
+    visit: (leaf: string, getPath: () => string) => string | undefined
 ): string | undefined => {
-    if (typeof value === 'string') {
-        return visit(value, path)
-    }
-    if (Array.isArray(value)) {
-        for (const [index, item] of value.entries()) {
-            const result = eachStringLeaf(item, visit, `${path}[${index}]`)
+    const stack: Array<{ value: unknown; path: PathNode | null }> = [{ value: root, path: null }]
+    const visited = new WeakSet<object>()
+
+    while (stack.length > 0) {
+        const { value, path } = stack.pop()!
+        if (typeof value === 'string') {
+            const result = visit(value, () => formatPath(path))
             if (result) {
                 return result
             }
+            continue
         }
-        return
-    }
-    if (value !== null && typeof value === 'object') {
-        for (const [key, item] of Object.entries(value)) {
-            const result = eachStringLeaf(item, visit, path ? `${path}.${key}` : key)
-            if (result) {
-                return result
+        if (value === null || typeof value !== 'object') {
+            continue
+        }
+        if (visited.has(value)) {
+            continue
+        }
+        visited.add(value)
+
+        if (Array.isArray(value)) {
+            for (let index = value.length - 1; index >= 0; index--) {
+                stack.push({
+                    value: value[index],
+                    path: { parent: path, segment: String(index), isIndex: true },
+                })
+            }
+        } else {
+            const entries = Object.entries(value)
+            for (let index = entries.length - 1; index >= 0; index--) {
+                const [key, item] = entries[index]
+                stack.push({
+                    value: item,
+                    path: { parent: path, segment: key, isIndex: false },
+                })
             }
         }
     }
@@ -130,11 +165,12 @@ const validateInput = (input: CyclotronJobInputType, inputSchema: CyclotronJobIn
         return
     }
 
-    const getTemplatingError = (value: string, path?: string): string | undefined => {
+    const getTemplatingError = (value: string, getPath?: () => string): string | undefined => {
         if (language === 'liquid' && typeof value === 'string') {
             try {
                 LiquidRenderer.parse(value)
             } catch (e: any) {
+                const path = getPath?.()
                 return path ? `Liquid template error at "${path}": ${e.message}` : `Liquid template error: ${e.message}`
             }
         }
@@ -211,7 +247,7 @@ const validateInput = (input: CyclotronJobInputType, inputSchema: CyclotronJobIn
         }
     }
 
-    if (['string', 'json', 'dictionary'].includes(inputSchema.type)) {
+    if (language === 'liquid' && ['string', 'json', 'dictionary'].includes(inputSchema.type)) {
         return eachStringLeaf(value, getTemplatingError)
     }
 }

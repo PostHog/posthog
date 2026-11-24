@@ -437,6 +437,32 @@ describe('CyclotronJobInputsValidation', () => {
                 expect(result.valid).toBe(true)
                 expect(result.warnings.config).toBe(TEMPLATING_MISMATCH_WARNINGS.hogSyntaxInLiquidField)
             })
+
+            it('should handle deeply nested json values without overflowing the call stack', () => {
+                let value: unknown = '{% invalid %}'
+                for (let i = 0; i < 15000; i++) {
+                    value = [value]
+                }
+                const inputs = { config: { templating: 'liquid' as const, value } }
+                const schema: CyclotronJobInputSchemaType[] = [{ key: 'config', type: 'json', label: 'Config' }]
+
+                const result = CyclotronJobInputsValidation.validate(inputs, schema)
+
+                expect(result.valid).toBe(false)
+                expect(result.errors.config).toContain('tag "invalid" not found')
+            })
+
+            it('should handle cyclic dictionary values without looping infinitely', () => {
+                const cyclic: Record<string, unknown> = { ok: '{{ event.properties.name }}' }
+                cyclic.self = cyclic
+                const inputs = { config: { templating: 'liquid' as const, value: cyclic } }
+                const schema: CyclotronJobInputSchemaType[] = [{ key: 'config', type: 'dictionary', label: 'Config' }]
+
+                const result = CyclotronJobInputsValidation.validate(inputs, schema)
+
+                expect(result.valid).toBe(true)
+                expect(result.errors).toEqual({})
+            })
         })
 
         describe('secret handling', () => {
