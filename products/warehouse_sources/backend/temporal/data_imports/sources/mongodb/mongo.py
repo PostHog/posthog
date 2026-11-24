@@ -34,7 +34,8 @@ from pymongo.monitoring import (
 )
 from pymongo.pool_options import PoolOptions
 from pymongo.server_description import ServerDescription
-from pymongo.uri_parser import parse_uri, split_options
+from pymongo.uri_parser import parse_uri
+from pymongo.uri_parser_shared import _validate_uri, split_options
 from structlog.types import FilteringBoundLogger
 
 from posthog.dataclasses import frozen
@@ -580,8 +581,10 @@ def mongo_client(connection_string: str, team_id: int, tls_ca_file: str | None =
     }
     checked_connection_string = _checked_connection_string(connection_string)
     if checked_connection_string.startswith("mongodb+srv://"):
-        # pymongo percent-decodes the host before its SRV lookup, so check the decoded name.
-        _refuse_oob_domain(unquote_plus(urlparse(checked_connection_string).hostname or ""), team_id)
+        # pymongo's own parser, which makes no DNS lookup, gives the exact name it will resolve. A
+        # generic URL parser reads some strings differently, such as a `#` in the password.
+        srv_name = _validate_uri(checked_connection_string, validate=False, warn=True, normalize=False)["fqdn"]
+        _refuse_oob_domain(srv_name or "", team_id)
     # The client's monitor dials the seed as soon as the client opens, so check before it exists.
     # `parse_uri` makes the same SRV and TXT lookups as the client, without opening a connection.
     _check_single_seed(parse_uri(checked_connection_string, warn=True)["nodelist"], team_id)
