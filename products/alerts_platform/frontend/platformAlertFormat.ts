@@ -9,6 +9,7 @@ import {
     PlatformAlertApi,
     PlatformAlertConfigurationApi,
     PlatformAlertConfigurationSourceKindEnumApi,
+    PlatformAlertOwnerEnumApi,
 } from './generated/api.schemas'
 
 export type PlatformAlertConfigurationStatus = PlatformAlertStateApi | 'disabled' | 'not_checked'
@@ -235,8 +236,12 @@ export function canEditFromList(configuration: PlatformAlertConfigurationApi): b
     return configuration.owner === PlatformAlertOwnerEnumApi.Platform
 }
 
+function hasSourceRow(configuration: PlatformAlertConfigurationApi): boolean {
+    return configuration.legacy_configuration_id !== null
+}
+
 export function canSnoozeFromList(configuration: PlatformAlertConfigurationApi): boolean {
-    return canEditFromList(configuration) && configuration.legacy_configuration_id === null
+    return canEditFromList(configuration) && !hasSourceRow(configuration)
 }
 
 export function describeOverflow(configuration: PlatformAlertConfigurationApi): string | null {

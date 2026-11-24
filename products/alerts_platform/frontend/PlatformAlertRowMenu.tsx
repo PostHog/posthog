@@ -17,7 +17,9 @@ export function PlatformAlertRowMenu({ configuration }: { configuration: Platfor
     const snoozed = listRowMute({ kind: 'alert', configuration }, new Date())?.until != null
     const sourceLabel = SOURCE_KINDS[configuration.source_kind].label
     const editDisabledReason = canEditFromList(configuration) ? undefined : `Change this alert in ${sourceLabel}`
-    const snoozeDisabledReason = canSnoozeFromList(configuration) ? undefined : `Snooze this alert in ${sourceLabel}`
+    const snoozeDisabledReason = canSnoozeFromList(configuration)
+        ? undefined
+        : `${snoozed ? 'Unsnooze' : 'Snooze'} this alert in ${sourceLabel}`
 
     return (
         <LemonMenu
