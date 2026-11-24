@@ -188,12 +188,12 @@ class DashboardV2ViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             200: OpenApiResponse(
                 description=(
                     "An `application/x-ndjson` stream with one JSON line per query, in the order each finishes: "
-                    "`{i, refId, legend?, format?, result: {result | frames, format?, canonical, "
+                    "`{i, refId, legend?, format?, result: {result | frames, format?, warnings?, canonical, "
                     "cache: {key, fetchedAt, stale, hit}, provenance: {mode, timeline}}, truncated?}` or "
                     "`{i, refId, legend?, format?, error}`, where `i` is the query's index. With the request's "
                     "`format` set to `frames`, `result.format` says whether the line holds `frames` "
                     "(`{name, labels, fields, meta: {interval, date_from, date_to, end}, hash}`) or the runner's "
-                    "`result`. `canonical` is the query text that ran. `truncated` is true when the result stopped "
+                    "`result`. A `frames` line keeps the runner's `warnings`. `canonical` is the query text that ran. `truncated` is true when the result stopped "
                     "at its row limit. Blank lines are keep-alives."
                 )
             )

@@ -276,11 +276,15 @@ class TestFrameConverters(SimpleTestCase):
             )
         ]
 
-    def test_log_streams_with_too_many_repeated_label_bytes_stay_raw(self) -> None:
-        labels = {"x": "y" * (MAX_STREAM_LABEL_BYTES // 2)}
-        result = {
-            "results": {"resultType": "streams", "result": [{"stream": labels, "values": [["1", "a"], ["2", "b"]]}]}
-        }
+    @parameterized.expand(
+        [
+            ("ascii", "y" * (MAX_STREAM_LABEL_BYTES // 2), 2),
+            ("four_byte_characters", "😀" * (MAX_STREAM_LABEL_BYTES // 8), 3),
+        ]
+    )
+    def test_log_streams_with_too_many_repeated_label_bytes_stay_raw(self, _name: str, label: str, lines: int) -> None:
+        values = [[str(n), "line"] for n in range(lines)]
+        result = {"results": {"resultType": "streams", "result": [{"stream": {"x": label}, "values": values}]}}
 
         assert frames_for(QueryBatchLanguage.LOGQL, {}, result) is None
 

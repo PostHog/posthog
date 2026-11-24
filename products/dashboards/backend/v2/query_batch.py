@@ -51,6 +51,7 @@ from posthog.errors import ExposedCHQueryError
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.query_cache.results import prefetched_size
 from posthog.renderers import SafeJSONRenderer
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
@@ -488,6 +489,9 @@ def _result_line(
         body["format"] = (QueryBatchResultFormat.FRAMES if frames is not None else QueryBatchResultFormat.RESULT).value
     if frames is not None:
         body["frames"] = frames
+        # Freshness and access-control warnings qualify the frames as they do the runner's result.
+        if result.get("warnings"):
+            body["warnings"] = result["warnings"]
     else:
         body["result"] = result
     from_cache = hit or result.get("is_cached") is True
@@ -859,6 +863,8 @@ class QueryBatch:
                         self._add_shared(index, served[same_entry])
                     continue
                 started = monotonic()
+                # Frames can be far smaller than the entry they came from, so the read budget counts the entry.
+                stored_bytes = prefetched_size(planned.cache_key)
                 try:
                     response = run_planned_query(
                         planned,
@@ -896,7 +902,7 @@ class QueryBatch:
                 body = _render_body(line)
                 del line
                 del response
-                self._read_bytes += len(body)
+                self._read_bytes += max(len(body), stored_bytes)
                 if self._ready_bytes + len(body) > MAX_READY_BYTES:
                     # Shared like a served body, so panels repeating this entry are not fetched and rendered again.
                     served[same_entry] = self._add_ready({"i": index, "error": _TOO_LARGE})

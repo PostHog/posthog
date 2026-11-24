@@ -119,6 +119,14 @@ def _read_blobs(pointers: Sequence[tuple[str, bytes]], *, team_id: int) -> dict[
     return resolved
 
 
+def prefetched_size(cache_key: str) -> int:
+    """The stored size in bytes of the next prefetched value for `cache_key`, or 0 when none is waiting."""
+    prefetched = _prefetched_values.get()
+    remaining = prefetched.get(cache_key) if prefetched is not None else None
+    value = remaining[-1] if remaining else None
+    return len(value) if isinstance(value, bytes | bytearray | str) else 0
+
+
 def fetch_entry(cache_key: str, team_id: int) -> Optional[CachedEntry]:
     prefetched = _prefetched_values.get()
     if prefetched is not None and cache_key in prefetched:

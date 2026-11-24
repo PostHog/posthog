@@ -192,6 +192,8 @@ def frame_json(frame: Frame) -> dict[str, Any]:
         sort_keys=True,
         separators=(",", ":"),
         default=str,
+        # Escaping non-ASCII would grow a label up to six times before it is hashed.
+        ensure_ascii=False,
     )
     return {
         "name": frame.name,
@@ -381,7 +383,7 @@ def streams_frame(streams: Sequence[Mapping[str, Any]]) -> Optional[Frame]:
     for stream in streams:
         labels = " ".join(f"{key}={value}" for key, value in (stream.get("stream") or {}).items())
         values = stream.get("values") or []
-        label_bytes += len(labels) * len(values)
+        label_bytes += len(labels.encode()) * len(values)
         if label_bytes > MAX_STREAM_LABEL_BYTES:
             return None
         for nanoseconds, line in values:
@@ -462,9 +464,9 @@ def pivot_long(frame: Frame) -> list[Frame]:
         if key not in groups:
             if len(groups) >= MAX_PIVOT_SERIES or (len(groups) + 1) * (len(numbers) + 1) > MAX_PIVOT_FIELDS:
                 return [frame]
-            label_bytes += sum(len(name) + len(value or _NO_LABEL) for name, value in zip(label_names, key)) * (
-                len(numbers) + 1
-            )
+            label_bytes += sum(
+                len(name.encode()) + len((value or _NO_LABEL).encode()) for name, value in zip(label_names, key)
+            ) * (len(numbers) + 1)
             if label_bytes > MAX_PIVOT_LABEL_BYTES:
                 return [frame]
             groups[key] = []
