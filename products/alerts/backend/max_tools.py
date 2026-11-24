@@ -577,7 +577,7 @@ class UpsertAlertTool(MaxTool):
             existing=alert,
         ):
             return _SaveRefusal(message=error, error_code="plan_limit_reached")
-        if refusal := _config_refusal(
+        if config_refusal := _config_refusal(
             alert.insight,
             condition={"type": action.condition_type} if action.condition_type is not None else alert.condition,
             config={**(alert.config or {}), "series_index": action.series_index}
@@ -589,7 +589,7 @@ class UpsertAlertTool(MaxTool):
             # As the API: an edit that leaves the threshold alone keeps an alert saved without bounds.
             require_threshold_bounds=self._has_threshold_changes(action),
         ):
-            return refusal
+            return config_refusal
         if refusal := admit_llm_alert_write(
             LLMAlertWrite(
                 team_id=alert.team_id,
