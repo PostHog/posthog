@@ -1,4 +1,6 @@
-import { LemonBanner, Link, Tooltip } from '@posthog/lemon-ui'
+import { Suspense, lazy } from 'react'
+
+import { LemonBanner, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 import { LLMProviderKeysSettings } from '@posthog/products-ai-observability/frontend/settings/LLMProviderKeysSettings'
 import { ParserRecipesSettings } from '@posthog/products-ai-observability/frontend/settings/ParserRecipesSettings'
 import { AIFeaturesSettings } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/ai_features/AIFeaturesSettings'
@@ -23,6 +25,7 @@ import { FEATURE_SUPPORT } from 'lib/components/SupportedPlatforms/featureSuppor
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { PersonalPosthogConnections } from 'lib/integrations/PosthogConnect'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
+import { retryImport } from 'lib/utils/retryImport'
 import { DefaultMinimumDetectableEffect } from 'scenes/experiments/DefaultMinimumDetectableEffect'
 import { GitHub, GitLab, Linear, Slack } from 'scenes/integrations/definitions'
 import { AgentPersonalInstructionsSettings } from 'scenes/settings/environment/AgentPersonalInstructionsSettings'
@@ -49,7 +52,6 @@ import { OrganizationMCPAccess } from 'scenes/settings/organization/Organization
 import { urls } from 'scenes/urls'
 
 import { ConfigScopeEnumApi } from '~/generated/core/api.schemas'
-import { AccessResolutionPreview } from '~/layout/navigation-3000/sidepanel/panels/access_control/ResolutionPreview/AccessResolutionPreview'
 import {
     DefaultRoleSelector,
     RolesAccessControls,
@@ -229,6 +231,15 @@ import { UpdateEmailPreferences } from './user/UpdateEmailPreferences'
 import { UserDangerZone } from './user/UserDangerZone'
 import { UserDetails } from './user/UserDetails'
 import { WebAnalyticsAchievementsSetting } from './user/WebAnalyticsAchievementsSetting'
+
+// This map ships with the app shell, so the setting's code loads only when its section renders.
+const EvalSuggestionsSettings = lazy(() =>
+    retryImport(() =>
+        import('@posthog/products-ai-observability/frontend/settings/EvalSuggestionsSettings').then((m) => ({
+            default: m.EvalSuggestionsSettings,
+        }))
+    )
+)
 
 export const SETTINGS_MAP: SettingSection[] = [
     // ENVIRONMENT
@@ -735,6 +746,18 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <ParserRecipesSettings />,
                 keywords: ['parser', 'recipe', 'normalize', 'trace', 'provider', 'custom parsing', 'content'],
             },
+            {
+                id: 'ai-observability-eval-suggestions',
+                title: 'Suggested evals',
+                description: 'Up to 3 eval ideas a week at the top of the evaluations page, based on your traces.',
+                component: (
+                    <Suspense fallback={<Spinner />}>
+                        <EvalSuggestionsSettings />
+                    </Suspense>
+                ),
+                flag: 'LLM_ANALYTICS_EVAL_SUGGESTIONS',
+                keywords: ['suggestions', 'suggested evals', 'evaluations', 'evals', 'turn off'],
+            },
         ],
     },
     {
@@ -983,7 +1006,7 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'error-tracking-tag-rules',
                 title: 'Tag rules',
-                description: 'Tag new issues based on rules you define.',
+                description: 'Tag issues based on rules you define.',
                 component: <TagRules />,
                 flag: 'ERROR_TRACKING_ISSUE_TAGS',
                 keywords: ['tag', 'label', 'rule', 'triage', 'categorize'],
@@ -2651,26 +2674,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'Automatically assign a role to new members when they join the organization. New users will inherit all permissions from this role.',
                 component: <DefaultRoleSelector />,
                 keywords: ['default', 'role', 'new member', 'onboarding'],
-            },
-        ],
-    },
-    {
-        level: 'organization',
-        id: 'organization-access-resolution',
-        title: 'Access resolution preview',
-        flag: 'ACCESS_CONTROL_RESOLUTION_PREVIEW',
-        // Temporary migration surface: reachable only from the access control
-        // settings banner, never from the settings navigation or search
-        hideFromNavigation: true,
-        unavailableFallback: { sectionId: 'organization-roles', label: 'Go to access control settings' },
-        settings: [
-            {
-                id: 'organization-access-resolution-preview',
-                title: 'Access resolution preview',
-                description:
-                    'PostHog is changing how access levels combine: the most specific rule will decide, instead of the highest one. Review what will be different for your organization before the change takes effect.',
-                component: <AccessResolutionPreview />,
-                keywords: ['access control', 'resolution', 'rbac', 'permission', 'override'],
             },
         ],
     },

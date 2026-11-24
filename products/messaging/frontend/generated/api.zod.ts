@@ -259,6 +259,54 @@ export const MessagingSendPushCreateBody = /* @__PURE__ */ zod.object({
         .describe("Values for the template's {{ variables.\* }} placeholders, keyed by variable name."),
 })
 
+/**
+ * Send one push notification from a push template made transactional to up to 100 people in one request. Each person gets their own notification on every device they registered, with its own `message_id` and `idempotency_key`, the same notification a single send to that person makes. Each recipient's `message_data` is merged over the shared `message_data`. The response holds one result per recipient, in the order of the request: a recipient can fail while the others are queued. A refusal of the whole batch, such as a turned-off workflow or an exhausted quota, answers with an error and no `results`. Each recipient counts against the send rate limit. Needs the `transactional_push:write` scope.
+ * @summary Send a transactional push notification to a batch of people
+ */
+export const messagingSendPushBatchCreateBodyRecipientsItemDistinctIdMax = 400
+
+export const messagingSendPushBatchCreateBodyRecipientsMax = 100
+
+export const MessagingSendPushBatchCreateBody = /* @__PURE__ */ zod.object({
+    template_id: zod
+        .uuid()
+        .describe(
+            "ID of a push template made transactional, which holds the notification's title, body and push channels."
+        ),
+    message_data: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe(
+            "Values for the template's {{ variables.\* }} placeholders that every recipient shares, keyed by variable name."
+        ),
+    recipients: zod
+        .array(
+            zod.object({
+                distinct_id: zod
+                    .string()
+                    .max(messagingSendPushBatchCreateBodyRecipientsItemDistinctIdMax)
+                    .describe(
+                        "Distinct ID of the person to notify. The notification goes to every device this person registered for the template's push channels. A person with no registered device gets nothing, and the send shows as skipped in the template's sends."
+                    ),
+                message_data: zod
+                    .record(zod.string(), zod.unknown())
+                    .optional()
+                    .describe(
+                        "Values for this recipient's {{ variables.\* }} placeholders, merged over the batch's `message_data`: a top-level key set here replaces the same key there."
+                    ),
+                idempotency_key: zod
+                    .string()
+                    .describe(
+                        "A unique key for this recipient's notification, 1 to 255 visible ASCII characters, different for each recipient of the batch. Retrying with the same key and the same notification within 24 hours sends nothing new and returns the first send's `message_id`, also when the first send was a single send."
+                    ),
+            })
+        )
+        .max(messagingSendPushBatchCreateBodyRecipientsMax)
+        .describe(
+            'Who gets the notification: 1 to 100 people, each sent their own notification with its own `message_id`.'
+        ),
+})
+
 export const messagingCategoriesCreateBodyKeyMax = 64
 
 export const messagingCategoriesCreateBodyNameMax = 128
@@ -618,8 +666,8 @@ export const MessagingPreferencesRemoveOptOutCreateBody = /* @__PURE__ */ zod.ob
 })
 
 /**
- * Background imports from other messaging tools, such as Customer.io, Resend, SendGrid and Mailgun suppressions and
- * unsubscribes.
+ * Background imports from other messaging tools, such as Customer.io, Resend, SendGrid, Mailgun and Mailchimp
+ * suppressions and unsubscribes.
  *
  * A run executes outside the request, so a long provider list does not time out. Poll a run to show its progress.
  * @summary Start a background import from another messaging tool
@@ -632,12 +680,12 @@ export const messagingProviderImportsCreateBodySettingsMaxOne = 64
 
 export const MessagingProviderImportsCreateBody = /* @__PURE__ */ zod.object({
     provider: zod
-        .enum(['customerio', 'resend', 'postmark', 'sendgrid', 'mailgun'])
+        .enum(['customerio', 'resend', 'postmark', 'sendgrid', 'mailgun', 'mailchimp'])
         .describe(
-            '\* `customerio` - Customer.io\n\* `resend` - Resend\n\* `postmark` - Postmark\n\* `sendgrid` - SendGrid\n\* `mailgun` - Mailgun'
+            '\* `customerio` - Customer.io\n\* `resend` - Resend\n\* `postmark` - Postmark\n\* `sendgrid` - SendGrid\n\* `mailgun` - Mailgun\n\* `mailchimp` - Mailchimp'
         )
         .describe(
-            'The provider to import from.\n\n\* `customerio` - Customer.io\n\* `resend` - Resend\n\* `postmark` - Postmark\n\* `sendgrid` - SendGrid\n\* `mailgun` - Mailgun'
+            'The provider to import from.\n\n\* `customerio` - Customer.io\n\* `resend` - Resend\n\* `postmark` - Postmark\n\* `sendgrid` - SendGrid\n\* `mailgun` - Mailgun\n\* `mailchimp` - Mailchimp'
         ),
     steps: zod
         .array(zod.string().max(messagingProviderImportsCreateBodyStepsItemMax))
@@ -650,7 +698,7 @@ export const MessagingProviderImportsCreateBody = /* @__PURE__ */ zod.object({
         .max(messagingProviderImportsCreateBodyApiKeyMax)
         .optional()
         .describe(
-            "The provider's API key. For Customer.io, an App API key: leave it out to reuse the stored key. For Resend, a full access key. For Postmark, a server token or the account token. For SendGrid, a key with read access to the selected steps. For Mailgun, an account key that can read suppressions. PostHog deletes a Resend, Postmark, SendGrid or Mailgun key when the run ends, so send it every time."
+            "The provider's API key. For Customer.io, an App API key: leave it out to reuse the stored key. For Resend, a full access key. For Postmark, a server token or the account token. For SendGrid, a key with read access to the selected steps. For Mailgun, an account key that can read suppressions. For Mailchimp, a Marketing API key ending in its data center, such as -us21. PostHog deletes a Resend, Postmark, SendGrid, Mailgun or Mailchimp key when the run ends, so send it every time."
         ),
     settings: zod
         .record(zod.string(), zod.string().max(messagingProviderImportsCreateBodySettingsMaxOne))

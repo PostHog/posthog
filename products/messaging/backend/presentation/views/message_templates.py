@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 from email.utils import parseaddr
 from types import MappingProxyType, SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from django.core.exceptions import (
     RequestDataTooBig,
@@ -48,13 +48,19 @@ from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models import ProjectSecretAPIKey, User
 from posthog.models.file_system.constants import resolved_workflows_list_v2
 from posthog.models.file_system.file_system_mixin import file_system_sync
+from posthog.models.instance_setting import get_instance_setting
 from posthog.models.tag import tagify
 from posthog.permissions import (
     is_authenticated_via_project_secret_api_key,
     legacy_scope_object_used,
     scopes_caller_lacks,
 )
-from posthog.rate_limit import PersonalOrProjectSecretApiKeyRateThrottle, ProjectSecretApiKeyTeamRateThrottle
+from posthog.rate_limit import (
+    PersonalOrProjectSecretApiKeyRateThrottle,
+    ProjectSecretApiKeyTeamRateThrottle,
+    reserve_units,
+)
+from posthog.settings.utils import get_list
 
 from products.cdp.backend.presentation.hog_functions import build_html_wrap_design, html_wrap_design_needs_refresh
 from products.messaging.backend.facade.api import (
@@ -105,6 +111,7 @@ from products.messaging.backend.facade.transactional_email import (
     send_code_email,
     send_transactional_email,
     send_transactional_push,
+    send_transactional_push_batch,
     sender_address_error,
     sync_transactional_workflow,
     transactional_email_stage,
@@ -122,6 +129,16 @@ from products.messaging.backend.presentation.views.code_send_fields import (
     template_send_refusal,
     validate_pipeline_address,
     with_code_send_reason,
+)
+from products.messaging.backend.presentation.views.push_batch import (
+    PUSH_BATCH_BODY_MAX_BYTES,
+    PUSH_BATCH_RESPONSES,
+    SendPushBatchSerializer,
+    push_batch_outcome,
+    push_batch_recipients,
+    push_batch_response,
+    push_batch_too_large,
+    unconfirmed_push_batch,
 )
 from products.messaging.backend.presentation.views.refusals import (
     ExplainedRefusal,
@@ -1187,9 +1204,11 @@ def _flag_enabled(team: Any, flag: str) -> bool:
     )
 
 
-def transactional_email_throttles() -> list[
-    PersonalOrProjectSecretApiKeyRateThrottle | ProjectSecretApiKeyTeamRateThrottle
-]:
+def transactional_email_throttles(
+    team_id: int,
+) -> list[PersonalOrProjectSecretApiKeyRateThrottle | ProjectSecretApiKeyTeamRateThrottle]:
+    if str(team_id) in get_list(str(get_instance_setting("TRANSACTIONAL_EMAIL_RATE_LIMIT_ALLOW_LIST_TEAMS"))):
+        return []
     # Both send routes share these scopes, so a caller can't double its rate by using both.
     return [
         TransactionalEmailBurstThrottle(),
@@ -1541,7 +1560,7 @@ class MessageTemplatesViewSet(
 
     def get_throttles(self):
         if self.action == "send":
-            return transactional_email_throttles()
+            return transactional_email_throttles(self.team_id)
         return super().get_throttles()
 
     def read_object(self) -> MessageTemplateRow | MessageTemplatePlacement | None:
@@ -1875,17 +1894,22 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
     scope_object = "hog_flow"
     permission_classes = [IsAuthenticated]
     authentication_classes = [ProjectSecretAPIKeyAuthentication]
-    psak_allowed_actions = ["email", "push"]
+    psak_allowed_actions = ["email", "push", "push_batch"]
     transactional_email_send_actions: tuple[str, ...] = ("email",)
     transactional_email_route = "send_email"
     # Access rules on hog_flow name workflow ids, never template ids, so no rule names one template.
     records_have_object_access_rules = False
 
     def get_throttles(self):
-        return transactional_email_throttles()
+        return transactional_email_throttles(self.team_id)
+
+    def initial(self, request: Any, *args: Any, **kwargs: Any) -> None:
+        super().initial(request, *args, **kwargs)
+        if self.action == "push_batch" and int(request.META.get("CONTENT_LENGTH") or 0) > PUSH_BATCH_BODY_MAX_BYTES:
+            raise push_batch_too_large()
 
     def read_object(self) -> MessageTemplateRow | None:
-        # The `email` and `push` actions name their template in the request body, not in the URL.
+        # The `email`, `push` and `push_batch` actions name their template in the request body, not in the URL.
         try:
             return get_template(self.team_id, self.request.validated_data["template_id"], with_tags=False)
         except MessageTemplateMissing:
@@ -1963,6 +1987,44 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
         finally:
             self._report_transactional_push_send(request, template.id, outcome)
         return Response(SendTransactionalPushResponseSerializer(queued).data, status=status.HTTP_202_ACCEPTED)
+
+    @validated_request(
+        SendPushBatchSerializer,
+        responses=PUSH_BATCH_RESPONSES,
+        summary="Send a transactional push notification to a batch of people",
+        description=(
+            "Send one push notification from a push template made transactional to up to 100 people in one "
+            "request. Each person gets their own notification on every device they registered, with its own "
+            "`message_id` and `idempotency_key`, the same notification a single send to that person makes. Each "
+            "recipient's `message_data` is merged over the shared `message_data`. The response holds one result per "
+            "recipient, in the order of the request: a recipient can fail while the others are queued. A refusal of "
+            "the whole batch, such as a turned-off workflow or an exhausted quota, answers with an error and no "
+            "`results`. Each recipient counts against the send rate limit. Needs the `transactional_push:write` "
+            "scope."
+        ),
+    )
+    @action(detail=False, methods=["POST"], required_scopes=[TRANSACTIONAL_PUSH_SEND_SCOPE])
+    def push_batch(self, request: Any, *args: Any, **kwargs: Any) -> Response:
+        require_transactional_push_api(self.team)
+        recipients = push_batch_recipients(request.validated_data)
+        reserve_units(transactional_email_throttles(), request, self, len(recipients) - 1)
+        template = self.get_object()
+        if template.transactional_hog_flow_id:
+            self._require_workflow_editor(template.transactional_hog_flow_id)
+        batch = {"batch_id": str(uuid4()), "batch_size": len(recipients), "has_idempotency_key": True}
+        try:
+            results = send_transactional_push_batch(self.team, template, recipients)
+        except TransactionalEmailError as e:
+            self._report_transactional_push_send(
+                request, template.id, {**batch, "outcome": "rejected", "error_code": e.code}
+            )
+            raise TransactionalEmailRejected(e) from None
+        except DeliveryUnavailable:
+            self._report_transactional_push_send(request, template.id, {**batch, "outcome": "unavailable"})
+            raise unconfirmed_push_batch() from None
+        for result in results:
+            self._report_transactional_push_send(request, template.id, {**batch, **push_batch_outcome(result)})
+        return Response(push_batch_response(results), status=status.HTTP_200_OK)
 
     def _report_transactional_push_send(self, request: Any, template_id: Any, properties: dict[str, Any]) -> None:
         # report_user_action drops the synthetic user behind a project secret API key, so capture directly.

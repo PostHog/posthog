@@ -27,6 +27,7 @@ from products.alerts.backend.judge import (
     SeriesContext,
     SeriesJudgment,
 )
+from products.alerts.backend.judge.lazy_and import combined_flag, judge_flagged_bucket
 from products.alerts.backend.judge.llm import (
     LLM_DETECTOR_OUT_OF_CREDITS_MESSAGE,
     LLM_DETECTOR_UNKNOWN_MODEL_MESSAGE,
@@ -157,9 +158,20 @@ class TestLLMJudgeFailureIsLoud:
         with pytest.raises(LLMDetectorUnavailableError):
             _judge(LLMSeriesJudge({"type": "llm"}), LLMDetectorUnavailableError("boom"))
 
-    @parameterized.expand([("withdrawn", False), ("never_given", None)])
-    def test_call_is_refused_without_ai_processing_consent(self, _name: str, approved: bool | None) -> None:
-        attribution = _attribution(team=_fake_team(ai_processing_approved=approved))
+    @parameterized.expand(
+        [
+            ("withdrawn", False, True),
+            ("never_given", None, True),
+            ("withdrawn_with_no_person", False, False),
+            ("never_given_with_no_person", None, False),
+        ]
+    )
+    def test_call_is_refused_without_ai_processing_consent(
+        self, _name: str, approved: bool | None, with_person: bool
+    ) -> None:
+        attribution = _attribution(
+            team=_fake_team(ai_processing_approved=approved), user=_fake_user() if with_person else None
+        )
 
         with pytest.raises(LLMDetectorPausedError, match="AI data processing is turned off"):
             LLMSeriesJudge({"type": "llm"}).judge_latest(SERIES, series=_series(), attribution=attribution)
@@ -614,3 +626,40 @@ def test_luna_is_asked_the_same_question_with_the_chart_and_charged_to_the_team(
     assert [part["type"] for part in user["content"]] == ["text", "image_url"]
     assert user["content"][1]["image_url"]["url"].startswith("data:image/png;base64,")
     assert parse.build_client.call_args.kwargs["properties"] == {"team_id": "1"}
+
+
+@pytest.mark.usefixtures("_memo_cache")
+def test_a_check_with_no_person_skips_the_alert_rollout_and_never_raises() -> None:
+    team = _fake_team()
+    with (
+        patch(
+            "products.alerts.backend.llm_detector_limits.posthoganalytics.feature_enabled", return_value=False
+        ) as flag,
+        _mocked_model(_verdict(is_anomaly=False, kind="none", rationale="Within the usual range.")) as parse,
+    ):
+        rejected = judge_flagged_bucket(
+            {"type": "llm"},
+            SERIES,
+            series=_series(),
+            team=team,
+            evaluation_id="anomaly_scoring:1:series:v2:2026-01-07",
+            ai_product="signals_anomaly_scoring",
+        )
+        parse.side_effect = anthropic.APIConnectionError(request=httpx.Request("POST", "https://gateway.example.com"))
+        failed = judge_flagged_bucket(
+            {"type": "llm"}, SERIES * 2, series=_series(), team=team, evaluation_id="other", ai_product="x"
+        )
+
+    flag.assert_not_called()
+    assert rejected.details() == {
+        "type": "llm",
+        "state": "not_fired",
+        "rationale": "Within the usual range.",
+        "kind": "none",
+        "model": HAIKU,
+    }
+    assert combined_flag(True, rejected) is False
+    assert parse.build_client.call_args_list[0].kwargs["ai_product"] == "signals_anomaly_scoring"
+    assert parse.call_args_list[0].kwargs["extra_headers"] == {"X-PostHog-Billable": "false"}
+    assert failed.details() == {"type": "llm", "state": "not_evaluated", "reason": "unavailable"}
+    assert combined_flag(True, failed) is True
