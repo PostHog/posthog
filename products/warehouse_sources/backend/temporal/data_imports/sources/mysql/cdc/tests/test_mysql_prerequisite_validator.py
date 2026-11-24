@@ -89,6 +89,10 @@ class TestValidateCDCPrerequisites:
         assert f"{DATABASE}.unkeyed" in error
         assert f"{DATABASE}.keyed," not in error
 
+    def test_a_table_that_does_not_exist_is_not_called_unkeyed(self, mysql_server):
+        [error] = self._validate(mysql_server, tables=("keyed", "missing"))
+        assert error.startswith(f"These tables don't exist on the server: {DATABASE}.missing.")
+
     def test_grants_held_through_a_default_role_pass(self, mysql_server):
         assert self._validate(mysql_server, grants="", role_grants=_ALL_GRANTS) == []
 
