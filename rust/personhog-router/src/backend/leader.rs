@@ -246,11 +246,6 @@ impl LeaderBackend {
                     .timeout(self.config.timeout)
                     .connect_timeout(self.config.timeout)
                     .tcp_nodelay(true);
-                // The request timeout cancels one stream and leaves the
-                // connection open. A connection whose peer vanished without
-                // a FIN or RST therefore keeps taking requests until the
-                // kernel gives up on the socket. An unanswered ping closes
-                // it, so the next request dials again.
                 if let Some(interval) = self.config.keepalive_interval {
                     endpoint = endpoint
                         .http2_keep_alive_interval(interval)

@@ -247,8 +247,6 @@ async fn every_outbound_channel_builder_closes_a_connection_that_stops_answering
             }
             pinged
         };
-        // Shorter than the builders' request timeout, which also closes the
-        // connection when the driving request gives up.
         let pinged = tokio::time::timeout(Duration::from_secs(2), read_until_closed)
             .await
             .unwrap_or_else(|_| panic!("{builder} kept the unanswered connection open"));
