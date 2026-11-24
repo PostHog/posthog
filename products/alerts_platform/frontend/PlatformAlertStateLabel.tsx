@@ -21,6 +21,7 @@ export function PlatformAlertStateLabel({
     status: PlatformAlertConfigurationStatus
     count?: number
 }): JSX.Element {
+    // A state added on the backend before these maps know it still renders.
     const label = STATUS_LABELS[status] ?? status
     const icon = STATUS_ICONS[status] ?? <IconCircleDashed />
     return (
