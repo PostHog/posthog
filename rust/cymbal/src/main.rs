@@ -4,19 +4,22 @@ use cymbal::modes::resolution::ResolutionConfig;
 use cymbal::modes::{self, CymbalMode};
 use tracing::level_filters::LevelFilter;
 use tracing::{error, info};
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 common_alloc::used!();
 
 fn setup_tracing() {
-    let log_layer = tracing_subscriber::fmt::layer().with_filter(
-        EnvFilter::builder()
-            .with_default_directive(LevelFilter::INFO.into())
-            .from_env_lossy()
-            .add_directive("pyroscope=warn".parse().unwrap())
-            .add_directive("rdkafka=warn".parse().unwrap()),
-    );
-    tracing_subscriber::registry().with(log_layer).init();
+    // A global filter, not a per-layer one. With a per-layer filter and a RUST_LOG that enables
+    // DEBUG for any target, the `enabled!` check sqlx makes after each query drops the next event.
+    let filter = EnvFilter::builder()
+        .with_default_directive(LevelFilter::INFO.into())
+        .from_env_lossy()
+        .add_directive("pyroscope=warn".parse().unwrap())
+        .add_directive("rdkafka=warn".parse().unwrap());
+    tracing_subscriber::registry()
+        .with(filter)
+        .with(tracing_subscriber::fmt::layer())
+        .init();
 }
 
 /// Read `CYMBAL_MODE` without parsing any mode-specific config, so each mode can
