@@ -99,6 +99,12 @@ _MONGO_HOST_UNRESOLVED_MESSAGE = (
     "string is spelled correctly."
 )
 
+_MONGO_SRV_RECORD_MISSING_MESSAGE = (
+    "PostHog couldn't find the DNS records that a mongodb+srv:// connection string needs. This "
+    "scheme only works with a host that publishes SRV records, such as a MongoDB Atlas cluster. "
+    "If your host doesn't, use the mongodb:// scheme with the host and port instead, then try again."
+)
+
 _MONGO_SERVER_TOO_OLD_MESSAGE = (
     "This MongoDB server runs a version PostHog no longer supports. Upgrade the cluster to "
     "MongoDB 4.2 or newer, then try again."
@@ -187,6 +193,13 @@ _DNS_RESOLUTION_FAILURE_MARKERS = (*_DNS_NAME_NOT_FOUND_MARKERS, _DNS_TEMPORARY_
 # NXDOMAIN carries this fixed prefix when the SRV record's DNS name doesn't exist at all —
 # a deleted, renamed, or mistyped cluster hostname — distinct from a timed-out lookup.
 _SRV_DNS_NAME_NOT_FOUND_MARKER = "The DNS query name does not exist"
+
+# dnspython's NoAnswer carries this fixed prefix when the SRV name resolves but the zone
+# publishes no `_mongodb._tcp` SRV record for it — the `mongodb+srv://` scheme needs one, and a
+# self-hosted or non-Atlas host (e.g. a plain TCP endpoint) never has it configured. Distinct from
+# NXDOMAIN above: the name exists, the SRV record type just isn't there. This never resolves on
+# retry; the user must switch to the `mongodb://host:port` form instead.
+_SRV_NO_ANSWER_MARKER = "The DNS response does not contain an answer to the question"
 
 # pymongo raises ConfigurationError from server selection when every server's wire version is
 # below the driver's minimum (pymongo 4.15 dropped MongoDB 4.0). The variable parts are the
@@ -370,6 +383,10 @@ class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], Val
             # The same answer for a mongodb+srv:// URI, whose SRV lookup fails before pymongo picks a
             # server. The raw dnspython text echoes the cluster host, so it never reaches the customer.
             _SRV_DNS_NAME_NOT_FOUND_MARKER: _MONGO_HOST_UNRESOLVED_MESSAGE,
+            # The SRV name resolves but carries no `_mongodb._tcp` record, because the host doesn't
+            # support SRV-based discovery at all. Distinct guidance: the fix is the connection string
+            # scheme, not the spelling.
+            _SRV_NO_ANSWER_MARKER: _MONGO_SRV_RECORD_MISSING_MESSAGE,
             # pymongo removes every server whose replica set name differs from the `replicaSet` the
             # connection string asks for, which empties the topology and names the set rather than a
             # host in the selection error. A cluster that is merely down keeps its servers as Unknown
@@ -612,6 +629,8 @@ class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], Val
             message = str(e)
             if _SRV_DNS_NAME_NOT_FOUND_MARKER in message:
                 return False, _MONGO_HOST_UNRESOLVED_MESSAGE
+            if _SRV_NO_ANSWER_MARKER in message:
+                return False, _MONGO_SRV_RECORD_MISSING_MESSAGE
             if _SERVER_TOO_OLD_MARKER in message:
                 return False, _MONGO_SERVER_TOO_OLD_MESSAGE
             if "must be escaped according to RFC 3986" in message:
