@@ -49,6 +49,7 @@ RELEASE_PATHS=(
     '.github/actions/setup-pnpm'
     '.github/actions/setup-rust'
     '.github/workflows/release-hog.yml'
+    'cli/Cargo.lock'
 )
 
 if [ "${1:-}" = --list-paths ]; then
