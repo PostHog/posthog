@@ -475,4 +475,53 @@ describe('messageTemplateLogic', () => {
             }
         })
     })
+
+    describe('tags', () => {
+        let patches: unknown[]
+
+        const tagMocks = (status: number): Parameters<typeof useMocks>[0] => ({
+            get: {
+                '/api/environments/:team_id/messaging_templates/:id/': { id: 'existing-id', name: 'A', tags: ['old'] },
+            },
+            patch: {
+                '/api/environments/:team_id/messaging_templates/:id/': async ({ request }) => {
+                    const body = (await request.json()) as Record<string, unknown>
+                    patches.push(body)
+                    return [status, { id: 'existing-id', name: 'A', ...body }]
+                },
+            },
+        })
+
+        const mountLoaded = async (): Promise<void> => {
+            logic = messageTemplateLogic({ id: 'existing-id' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadTemplateSuccess'])
+        }
+
+        beforeEach(() => {
+            patches = []
+        })
+
+        it('keeps every tag added before the first save answers', async () => {
+            useMocks(tagMocks(200))
+            await mountLoaded()
+            // The menu bar has no state of its own, so it adds to whatever tags the template shows.
+            logic.actions.saveTags([...(logic.values.template.tags ?? []), 'a'])
+            logic.actions.saveTags([...(logic.values.template.tags ?? []), 'b'])
+            expect(logic.values.template.tags).toEqual(['old', 'a', 'b'])
+            expect(logic.values.templateChanged).toBe(false)
+
+            await expectLogic(logic).toFinishAllListeners()
+            expect(patches).toEqual([{ tags: ['old', 'a', 'b'] }])
+            expect(logic.values.template.tags).toEqual(['old', 'a', 'b'])
+        })
+
+        it('goes back to the saved tags when the save fails', async () => {
+            useMocks(tagMocks(500))
+            await mountLoaded()
+            logic.actions.saveTags(['old', 'a'])
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.template.tags).toEqual(['old'])
+        })
+    })
 })

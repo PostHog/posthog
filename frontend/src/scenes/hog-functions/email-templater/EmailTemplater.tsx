@@ -627,8 +627,16 @@ function NativeEmailTemplaterForm({
                         <>
                             {showSenderRow && <EmailSenderRow />}
                             {workflowHeader && <EmailRecipientFields />}
-                            <EmailHeaderRow label="Subject" error={logicProps.fieldErrors?.subject}>
-                                <LemonField name="subject" className="flex-1 min-w-0" renderError={() => null}>
+                            <EmailHeaderRow
+                                label="Subject"
+                                error={logicProps.fieldErrors?.subject}
+                                wrap={showContentSwitch}
+                            >
+                                <LemonField
+                                    name="subject"
+                                    className={clsx('flex-1', showContentSwitch ? 'min-w-32' : 'min-w-0')}
+                                    renderError={() => null}
+                                >
                                     {({ value, onChange }: ChildFunctionProps) => (
                                         <LiquidSupportedText
                                             value={value}

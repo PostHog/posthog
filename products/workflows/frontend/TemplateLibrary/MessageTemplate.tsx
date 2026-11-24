@@ -100,6 +100,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
         isSavingDraft,
         isDiscardingDraft,
         isSavingSensitive,
+        isTransactional,
     } = useValues(logic)
     const transactionalEmailsEnabled = useFeatureFlag('WORKFLOWS_TRANSACTIONAL_EMAIL_API')
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
@@ -139,7 +140,8 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
 
     const editDisabledReason =
         getAccessControlDisabledReason(AccessControlResourceType.Workflow, AccessControlLevel.Editor) ?? undefined
-    const isTransactional = !!template.transactional_hog_flow_id
+    // The type is known once the saved template loads.
+    const isLibraryTemplate = props.id === 'new' || (!!originalTemplate.id && !isTransactional)
     // An empty one is added from the side panel. A saved one stays while it's cleared, so its row can't vanish mid-edit.
     const showDescription = isTransactional || !!template.description || !!originalTemplate.description
     const saveDisabledReason =
@@ -313,7 +315,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
             {...{ className: 'flex flex-col grow h-full' }}
         >
             <SceneContent className="h-full flex flex-col grow">
-                {!isTransactional && (
+                {isLibraryTemplate && (
                     <>
                         <MessageTemplateSceneMenuBar
                             {...props}

@@ -37,8 +37,11 @@ const PASSWORD_RESET_WITH_DRAFT = {
 describe('MessageTemplate', () => {
     const priorAppContext = window.POSTHOG_APP_CONTEXT
 
+    let panel: HTMLElement | undefined
+
     afterEach(() => {
         cleanup()
+        panel?.remove()
         window.POSTHOG_APP_CONTEXT = priorAppContext
     })
 
@@ -247,7 +250,7 @@ describe('MessageTemplate', () => {
             },
         })
         await renderAs(AccessControlLevel.Editor, ORDER_RECEIPT.name)
-        const panel = document.createElement('div')
+        panel = document.createElement('div')
         document.body.appendChild(panel)
         act(() => sceneLayoutLogic.actions.registerScenePanelElement(panel))
 
@@ -263,7 +266,6 @@ describe('MessageTemplate', () => {
         fireEvent.change(input, { target: { value: 'receipts' } })
         fireEvent.keyDown(input, { key: 'Enter' })
         await waitFor(() => expect(patches).toEqual([{ tags: ['receipts'] }]))
-        panel.remove()
     })
 
     it('puts subject, preheader and the content switch of a library template on one row', async () => {
@@ -276,5 +278,14 @@ describe('MessageTemplate', () => {
         expect(within(row).getByLabelText('Preheader')).toBeInTheDocument()
         expect(within(row).getByText('Plain text')).toBeInTheDocument()
         expect(screen.getAllByText('Plain text')).toHaveLength(1)
+    })
+
+    it.each([
+        ['a library template', ORDER_RECEIPT, true],
+        ['a transactional template', PASSWORD_RESET_WITH_DRAFT, false],
+    ])('gives %s a scene menu bar: %s', async (_, template, shown) => {
+        useMocks({ get: { '/api/environments/:team_id/messaging_templates/:id/': template } })
+        await renderAs(AccessControlLevel.Editor, template.name, { [FEATURE_FLAGS.SCENE_MENU_BAR]: true })
+        expect(screen.queryAllByText('Metadata')).toHaveLength(shown ? 1 : 0)
     })
 })

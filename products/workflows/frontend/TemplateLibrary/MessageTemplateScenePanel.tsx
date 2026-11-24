@@ -12,7 +12,7 @@ export function MessageTemplateScenePanel({
     canEdit,
     ...props
 }: MessageTemplateSceneLogicProps & { canEdit: boolean }): JSX.Element {
-    const { template, isTemplateSubmitting } = useValues(messageTemplateLogic(props))
+    const { template, isTemplateSubmitting, templateLoading } = useValues(messageTemplateLogic(props))
     const { saveTags, setTemplateValue } = useActions(messageTemplateLogic(props))
 
     return (
@@ -30,6 +30,7 @@ export function MessageTemplateScenePanel({
                         description={template.description || null}
                         onChange={(description) => setTemplateValue('description', description)}
                         canEdit={canEdit}
+                        isLoading={templateLoading}
                     />
                 </ScenePanelLabel>
             </ScenePanelInfoSection>

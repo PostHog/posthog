@@ -776,7 +776,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             },
         },
     })),
-    listeners(({ actions, props, values }) => ({
+    listeners(({ actions, props, values, cache }) => ({
         setTransactionalTab: ({ tab }) => {
             const { tab: _shownTab, ...searchParams } = router.values.searchParams
             const kept = tab === 'sends' ? withoutRunLogFilters(searchParams) : searchParams
@@ -835,6 +835,13 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 actions.setTemplateValue('tags', tags)
                 return
             }
+            // Shown at once, so the next tag adds to this one instead of replacing it.
+            cache.savedTags ??= values.originalTemplate.tags
+            const showTags = (shown: string[] | undefined): void => {
+                actions.setTemplate({ ...values.template, tags: shown })
+                actions.setOriginalTemplate({ ...values.originalTemplate, tags: shown })
+            }
+            showTags(tags)
             // The editor fires one save per tag added or removed. Without this, a burst of clicks puts
             // several writes in flight at once, and the one that lands last wins rather than the latest
             // selection. The wait collapses the burst into a single write.
@@ -845,14 +852,19 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             try {
                 updated = await api.messaging.updateTemplate(props.id, { tags })
             } catch (error: any) {
+                // A newer save replaced this one, so its tags stay on screen.
+                breakpoint()
+                showTags(cache.savedTags)
+                cache.savedTags = undefined
                 lemonToast.error(`Failed to save tags: ${error?.detail || error?.message || 'Unknown error'}`)
                 return
             }
+            cache.savedTags = updated.tags
             // Outside the catch: a breakpoint throws to unwind a superseded listener, and catching that
             // would report it as a failed save.
             breakpoint()
-            actions.setTemplate({ ...values.template, tags: updated.tags })
-            actions.setOriginalTemplate({ ...values.originalTemplate, tags: updated.tags })
+            showTags(updated.tags)
+            cache.savedTags = undefined
         },
         setTemplateValues: () => actions.autoSaveDraft(),
         autoSaveDraft: async (_, breakpoint) => {

@@ -136,6 +136,7 @@ function MessageTemplateSceneMenuBarInner({
                         description={template.description || null}
                         onChange={(description) => setTemplateValue('description', description)}
                         canEdit={!editDisabledReason}
+                        isLoading={templateLoading}
                     />
                 </ScenePanelLabel>
             </SceneMenuBarPopover>
