@@ -36,7 +36,7 @@ class TestCreateDashboardAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         flag_patcher = patch(
-            "products.aeo.backend.presentation.views.posthog_feature_flag_enabled",
+            "posthog.permissions.posthog_feature_flag_enabled",
             return_value=True,
         )
         self.feature_enabled = flag_patcher.start()

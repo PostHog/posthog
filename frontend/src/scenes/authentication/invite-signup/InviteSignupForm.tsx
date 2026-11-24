@@ -23,6 +23,7 @@ import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { loginLogic } from 'scenes/authentication/auth/loginLogic'
+import { SIGNUP_NETWORK_ERROR_CODE } from 'scenes/authentication/auth/signupLogic'
 import { AuthBanner } from 'scenes/authentication/shared/authScene/AuthBanner'
 import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
 import { AUTH_NOTES } from 'scenes/authentication/shared/authScene/authNotes'
@@ -173,13 +174,15 @@ function InviteNewUser({ invite }: { invite: PrevalidatedInvite }): JSX.Element 
                 {signupManualErrors?.generic && (
                     <AuthBanner variant="danger" className="mb-4">
                         <span>{signupManualErrors.generic.detail || 'Could not complete your signup.'}</span>{' '}
-                        <Link
-                            data-attr="invite-signup-error-contact-support"
-                            onClick={() => openSupportForm({ kind: 'support' })}
-                            className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
-                        >
-                            Need help?
-                        </Link>
+                        {signupManualErrors.generic.code !== SIGNUP_NETWORK_ERROR_CODE && (
+                            <Link
+                                data-attr="invite-signup-error-contact-support"
+                                onClick={() => openSupportForm({ kind: 'support' })}
+                                className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
+                            >
+                                Need help?
+                            </Link>
+                        )}
                     </AuthBanner>
                 )}
                 {passkeyError && (
