@@ -359,7 +359,6 @@ class RemoteConfig(UUIDTModel):
             config["surveys"] = False
 
         # MARK: Product tours
-        # Product tours is removed. The key stays because SDKs treat a missing key as "keep the last persisted value".
         config["productTours"] = False
 
         # Required by posthog-js <= 1.207.1; without it those versions default to person_profiles="always".
