@@ -288,3 +288,22 @@ def test_a_package_left_when_the_batch_deadline_passes_is_not_scanned(monkeypatc
     finding = scanner.scan(scanner.Package("npm", "left-pad", "1.3.1"), deadline=0.0)
 
     assert finding.label == "not_scanned"
+
+
+def test_a_release_that_cannot_be_downloaded_yet_is_scanned_again(monkeypatch, tmp_path):
+    attempts = tmp_path / "attempts"
+    ok = {"errors": {}, "results": {}, "risk_score": {"label": "no_risks_detected", "score": 0.0}}
+    failed = {**ok, "errors": {"download-package": "not found"}}
+    code = (
+        "import json, pathlib\n"
+        f"attempts = pathlib.Path({str(attempts)!r})\n"
+        "attempts.open('a').write('x')\n"
+        f"print(json.dumps({failed!r} if len(attempts.read_text()) < 2 else {ok!r}))"
+    )
+    monkeypatch.setattr(scanner, "GUARDDOG", [sys.executable, "-c", code])
+    monkeypatch.setattr(scanner, "DOWNLOAD_RETRY_SECONDS", 0)
+
+    finding = scanner.scan(scanner.Package("pypi", "posthoganalytics", "8.2.0"), deadline=float("inf"))
+
+    assert finding.label == "no_risks_detected"
+    assert attempts.read_text() == "xx"
