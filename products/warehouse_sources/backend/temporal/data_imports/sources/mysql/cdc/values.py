@@ -116,6 +116,9 @@ def _as_bytes(value: Any) -> bytes:
     return bytes(value)
 
 
+_SMALLEST_TIMESTAMP = dt.datetime(1970, 1, 1, 0, 0, 1)
+
+
 def _key_list(primary_key: Sequence[str] | str | None) -> list[str]:
     if isinstance(primary_key, str):
         return [primary_key] if primary_key else []
@@ -179,7 +182,11 @@ class TableColumns:
             elif name in self._hex_columns:
                 value = _as_bytes(value).hex()
             elif column.type in _TIMESTAMP_TYPES and isinstance(value, dt.datetime):
-                value = value.replace(tzinfo=dt.UTC).astimezone(time_zone).replace(tzinfo=None)
+                # The library decodes the zero TIMESTAMP as the epoch, which the snapshot reads as NULL.
+                if value < _SMALLEST_TIMESTAMP:
+                    value = None
+                else:
+                    value = value.replace(tzinfo=dt.UTC).astimezone(time_zone).replace(tzinfo=None)
             elif pa.types.is_string(self.arrow_types[name]):
                 value = _as_string(value, column)
             row[name] = value

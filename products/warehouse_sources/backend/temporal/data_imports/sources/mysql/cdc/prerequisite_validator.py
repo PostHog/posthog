@@ -43,13 +43,37 @@ def validate_cdc_prerequisites(conn: pymysql.Connection, tables: list[str], data
         return version_errors
 
     resolved = resolve_tables(tables, database)
+    missing_grants = _missing_grants(conn)
     errors: list[str] = []
     errors.extend(_check_binlog_settings(conn))
-    errors.extend(_check_binlog_filters(conn, {table.database for table in resolved} or {database or ""}))
-    errors.extend(_check_grants(conn))
+    # The binlog's filters are only readable with REPLICATION CLIENT, which the grants error asks for.
+    if "REPLICATION CLIENT" not in missing_grants:
+        errors.extend(_check_binlog_filters(conn, {table.database for table in resolved} or {database or ""}))
+    if missing_grants:
+        errors.append(
+            f"The database user is missing {', '.join(missing_grants)}. Run: GRANT REPLICATION SLAVE, "
+            "REPLICATION CLIENT, PROCESS ON *.* TO '<user>'@'%'; Granting these through a role only works when "
+            "the role is active by default."
+        )
     errors.extend(_check_retention(conn))
+    time_zone = _variables(conn, ["time_zone", "system_time_zone"])
+    if error := time_zone_error(time_zone.get("time_zone", ""), time_zone.get("system_time_zone", "")):
+        errors.append(error)
     errors.extend(_check_tables_have_primary_keys(conn, resolved))
     return errors
+
+
+def time_zone_error(time_zone: str, system_time_zone: str) -> str | None:
+    """CDC reads TIMESTAMP values in UTC and converts them to the zone the snapshot reads them in. Under SYSTEM
+    the server only names its zone by an abbreviation such as CET, which doesn't say when daylight saving
+    applies."""
+    if time_zone.upper() != "SYSTEM" or system_time_zone.upper() in ("UTC", "GMT") or "/" in system_time_zone:
+        return None
+    return (
+        f"The server's time_zone is SYSTEM ({system_time_zone}), so change data capture can't tell when daylight "
+        "saving time applies to TIMESTAMP columns. Set time_zone to a named zone such as 'Europe/Berlin' or an "
+        "offset such as '+00:00' (on RDS and Aurora, in the parameter group), then check again."
+    )
 
 
 def resolve_tables(tables: Iterable[str], database: str | None) -> list[QualifiedTable]:
@@ -158,7 +182,7 @@ def _check_binlog_filters(conn: pymysql.Connection, databases: set[str]) -> list
     ]
 
 
-def _check_grants(conn: pymysql.Connection) -> list[str]:
+def _missing_grants(conn: pymysql.Connection) -> list[str]:
     with conn.cursor() as cur:
         cur.execute("SHOW GRANTS FOR CURRENT_USER()")
         grants = [str(row[0]) for row in cur.fetchall()]
@@ -168,14 +192,7 @@ def _check_grants(conn: pymysql.Connection) -> list[str]:
             held.update(privilege.strip().upper() for privilege in match.group("privileges").split(","))
     if "ALL PRIVILEGES" in held:
         return []
-    missing = [grant for grant in _REQUIRED_GRANTS if grant not in held]
-    if not missing:
-        return []
-    return [
-        f"The database user is missing {', '.join(missing)}. Run: GRANT REPLICATION SLAVE, REPLICATION CLIENT, "
-        "PROCESS ON *.* TO '<user>'@'%'; Granting these through a role only works when the role is active by "
-        "default."
-    ]
+    return [grant for grant in _REQUIRED_GRANTS if grant not in held]
 
 
 def is_rds(conn: pymysql.Connection) -> bool:
@@ -189,8 +206,10 @@ def is_rds(conn: pymysql.Connection) -> bool:
 
 def retention_hours(conn: pymysql.Connection) -> float | None:
     """How long the server keeps binlog files, in hours. None when it never purges them on a timer."""
-    if is_rds(conn):
-        return _rds_retention_hours(conn)
+    return _rds_retention_hours(conn) if is_rds(conn) else _server_retention_hours(conn)
+
+
+def _server_retention_hours(conn: pymysql.Connection) -> float | None:
     seconds = int(_variables(conn, ["binlog_expire_logs_seconds"]).get("binlog_expire_logs_seconds") or 0)
     return seconds / 3600 if seconds else None
 
@@ -212,7 +231,7 @@ def _rds_retention_hours(conn: pymysql.Connection) -> float:
 def _check_retention(conn: pymysql.Connection) -> list[str]:
     rds = is_rds(conn)
     try:
-        hours = _rds_retention_hours(conn) if rds else retention_hours(conn)
+        hours = _rds_retention_hours(conn) if rds else _server_retention_hours(conn)
     except pymysql.err.MySQLError as e:
         if e.args and e.args[0] in CONNECTION_ERROR_CODES:
             raise
