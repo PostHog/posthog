@@ -622,6 +622,86 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
         expect(await metric('cdp_cyclotron_v2_result_write_failures_total', { queue: queueName })).toBe(0)
     })
 
+    const useFakeClock = (): void => {
+        jest.useFakeTimers({
+            doNotFake: ['nextTick', 'setImmediate', 'clearImmediate', 'queueMicrotask', 'hrtime', 'performance'],
+        })
+        const timeout = jest.spyOn(AbortSignal, 'timeout').mockImplementation((ms) => {
+            const controller = new AbortController()
+            setTimeout(
+                () => controller.abort(new DOMException('The operation was aborted due to timeout', 'TimeoutError')),
+                ms
+            )
+            return controller.signal
+        })
+        backToRealClock = () => {
+            timeout.mockRestore()
+            jest.useRealTimers()
+            backToRealClock = () => undefined
+        }
+    }
+
+    async function onTheFakeClock<T>(check: () => Promise<T>, before: number): Promise<T> {
+        for (;;) {
+            try {
+                return await check()
+            } catch (error) {
+                if (Date.now() + POLL_DELAY_MS >= before) {
+                    throw error
+                }
+                await jest.advanceTimersByTimeAsync(POLL_DELAY_MS)
+            }
+        }
+    }
+
+    it('writes the result of a send at half the file size limit whose download is still running 26 s into a stop, before the stop returns', async () => {
+        const report = await uploadAttachment(
+            team.id,
+            { filename: 'report.pdf', contentType: 'application/pdf' },
+            Buffer.alloc(LARGEST_SEND_FILE_BYTES / 2)
+        )
+        const [running] = await enqueue(transactionalSend([report.metadata]))
+        bucket.answer = 'hold'
+        const clockStarted = Date.now()
+        useFakeClock()
+        const worker = await startWorker({
+            budgetBytes: estimateSend(report.metadata.sizeBytes).reservedBytes,
+            heapLimitBytes: 64 * 1024 * 1024 * 1024,
+            maxInFlight: 100,
+        })
+        await onTheFakeClock(async () => {
+            expect({ status: (await jobRow(running)).status, downloadsHeld: bucket.heldRequests }).toEqual({
+                status: 'running',
+                downloadsHeld: 1,
+            })
+        }, clockStarted + 5_000)
+        const rowLock = await lockJobRow(running)
+
+        let stopReturned = false
+        const stopStarted = Date.now()
+        void worker.stop().then(() => (stopReturned = true))
+        await jest.advanceTimersByTimeAsync(26_000)
+        expect({
+            stopReturned,
+            status: (await jobRow(running)).status,
+            downloadsHeld: bucket.heldRequests,
+            downloadsAbandoned: bucket.abandonedRequests,
+        }).toEqual({ stopReturned: false, status: 'running', downloadsHeld: 1, downloadsAbandoned: 0 })
+        await onTheFakeClock(async () => expect(await rowLock.waiting()).toBeGreaterThan(0), stopStarted + 53_000)
+        expect(stopReturned).toBe(false)
+        await jest.advanceTimersByTimeAsync(stopStarted + 50_000 - Date.now())
+        expect(stopReturned).toBe(false)
+        await rowLock.release()
+        await onTheFakeClock(() => Promise.resolve(expect(stopReturned).toBe(true)), stopStarted + 53_000)
+
+        const row = await jobRow(running)
+        expect({ status: row.status, retries: row.queueMetadata?.attachmentLoadRetries }).toEqual({
+            status: 'available',
+            retries: 1,
+        })
+        expect(delivered()).toEqual([])
+    })
+
     describe('with a send whose SES call never settles, not even on abort', () => {
         // The 17 s send deadline of a small file, then 3 s for its calls to settle.
         const callsCannotOutlast = 20_000
@@ -633,39 +713,6 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
                     return new Promise(() => undefined)
                 },
             })
-
-        const useFakeClock = (): void => {
-            jest.useFakeTimers({
-                doNotFake: ['nextTick', 'setImmediate', 'clearImmediate', 'queueMicrotask', 'hrtime', 'performance'],
-            })
-            const timeout = jest.spyOn(AbortSignal, 'timeout').mockImplementation((ms) => {
-                const controller = new AbortController()
-                setTimeout(
-                    () =>
-                        controller.abort(new DOMException('The operation was aborted due to timeout', 'TimeoutError')),
-                    ms
-                )
-                return controller.signal
-            })
-            backToRealClock = () => {
-                timeout.mockRestore()
-                jest.useRealTimers()
-                backToRealClock = () => undefined
-            }
-        }
-
-        async function onTheFakeClock<T>(check: () => Promise<T>, before: number): Promise<T> {
-            for (;;) {
-                try {
-                    return await check()
-                } catch (error) {
-                    if (Date.now() + POLL_DELAY_MS >= before) {
-                        throw error
-                    }
-                    await jest.advanceTimersByTimeAsync(POLL_DELAY_MS)
-                }
-            }
-        }
 
         it('waits for a result write that hangs until the email stop deadline, past the stop deadline of other queues', async () => {
             const [id] = await enqueue(transactionalSend(null))
@@ -681,53 +728,6 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
             await jest.advanceTimersByTimeAsync(1_000)
 
             expect(stopReturned).toBe(true)
-        })
-
-        it('writes the result of a send at half the file size limit that is still running 26 s into a stop, before the stop returns', async () => {
-            const report = await uploadAttachment(
-                team.id,
-                { filename: 'report.pdf', contentType: 'application/pdf' },
-                Buffer.alloc(LARGEST_SEND_FILE_BYTES / 2)
-            )
-            const [running] = await enqueue(transactionalSend([report.metadata]))
-            const clockStarted = Date.now()
-            useFakeClock()
-            let callStarted = false
-            const worker = await startWorker(
-                {
-                    budgetBytes: estimateSend(report.metadata.sizeBytes).reservedBytes,
-                    heapLimitBytes: 64 * 1024 * 1024 * 1024,
-                    maxInFlight: 100,
-                },
-                stalledSes(() => (callStarted = true))
-            )
-            await onTheFakeClock(async () => {
-                expect((await jobRow(running)).status).toBe('running')
-                expect(callStarted).toBe(true)
-            }, clockStarted + 5_000)
-            const rowLock = await lockJobRow(running)
-
-            let stopReturned = false
-            const stopStarted = Date.now()
-            void worker.stop().then(() => (stopReturned = true))
-            await jest.advanceTimersByTimeAsync(26_000)
-            expect({ stopReturned, status: (await jobRow(running)).status }).toEqual({
-                stopReturned: false,
-                status: 'running',
-            })
-            await onTheFakeClock(async () => expect(await rowLock.waiting()).toBeGreaterThan(0), stopStarted + 53_000)
-            expect(stopReturned).toBe(false)
-            await jest.advanceTimersByTimeAsync(stopStarted + 50_000 - Date.now())
-            expect(stopReturned).toBe(false)
-            await rowLock.release()
-            await onTheFakeClock(() => Promise.resolve(expect(stopReturned).toBe(true)), stopStarted + 53_000)
-
-            const row = await jobRow(running)
-            expect({ status: row.status, retries: row.queueMetadata?.attachmentLoadRetries }).toEqual({
-                status: 'available',
-                retries: 1,
-            })
-            expect(delivered()).toEqual([])
         })
 
         it('writes its result once its deadline and the wait for its call passed, before a stop that starts while it runs returns, and keeps its room taken', async () => {
