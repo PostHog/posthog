@@ -17,6 +17,7 @@ from products.dashboards.backend.v2.frames import (
     MAX_LEGEND_NAME,
     MAX_PIVOT_LABEL_BYTES,
     MAX_PIVOT_SERIES,
+    MAX_PROMETHEUS_SERIES,
     MAX_STREAM_LABEL_BYTES,
     Frame,
     FrameField,
@@ -287,6 +288,14 @@ class TestFrameConverters(SimpleTestCase):
         result = {"results": {"resultType": "streams", "result": [{"stream": {"x": label}, "values": values}]}}
 
         assert frames_for(QueryBatchLanguage.LOGQL, {}, result) is None
+
+    @parameterized.expand([("matrix", "values", [[10, "1"]]), ("vector", "value", [10, "1"])])
+    def test_prometheus_results_with_too_many_series_stay_raw(self, result_type: str, key: str, value: Any) -> None:
+        series = [{"metric": {"pod": f"web-{n}"}, key: value} for n in range(MAX_PROMETHEUS_SERIES + 1)]
+        result = {"results": {"resultType": result_type, "result": series}}
+
+        assert frames_for(QueryBatchLanguage.LOGQL, {}, result) is None
+        assert frames_for(QueryBatchLanguage.LOGQL, {}, {"results": {**result["results"], "result": series[:-1]}})
 
     def test_metrics_frames_give_no_interval_the_runner_may_have_coarsened(self) -> None:
         result = {"results": [{"labels": {}, "metricName": "up", "points": [{"time": NOW, "value": 1}]}]}

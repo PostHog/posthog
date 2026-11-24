@@ -54,6 +54,9 @@ MAX_PIVOT_FIELDS = 20_000
 MAX_PIVOT_LABEL_BYTES = 8 * 1024 * 1024
 # A log table repeats its stream's labels on every line. Above this many label bytes, the result stays raw.
 MAX_STREAM_LABEL_BYTES = 8 * 1024 * 1024
+# Each Prometheus series becomes a frame of its own, many times the size of the series in the response. Above this
+# many series, the result stays raw.
+MAX_PROMETHEUS_SERIES = 1000
 
 
 @frozen
@@ -336,7 +339,7 @@ def prometheus_frames(data: Mapping[str, Any]) -> Optional[list[Frame]]:
     if result_type == "streams":
         frame = streams_frame(results)
         return [frame] if frame else None
-    if result_type not in ("matrix", "vector"):
+    if result_type not in ("matrix", "vector") or len(results) > MAX_PROMETHEUS_SERIES:
         return None
     frames: list[Frame] = []
     for index, series in enumerate(results):
