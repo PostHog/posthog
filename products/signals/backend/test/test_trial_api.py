@@ -418,7 +418,7 @@ class TestTrialAPI(APIBaseTest):
         with (
             patch("products.signals.backend.trial.billing.get_cached_instance_license", return_value=Mock()),
             patch(
-                "products.signals.backend.trial.billing.BillingManager.get_billing",
+                "products.signals.backend.trial.billing.BillingManager.get_billing_read_only",
                 return_value=customer,
             ),
         ):
