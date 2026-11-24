@@ -193,20 +193,14 @@ function byPostHogItemForPath(path: string): FileSystemImport | undefined {
     return href ? items.find((item) => item.href === href) : undefined
 }
 
-/** Whether the Products pane lists the product that owns this page. Some, like Dashboards, open under Analytics too. */
 function productsPaneListsPath(path: string): boolean {
     navProductPages ??= getNavProductPages()
     return !!navProductHrefForPath(path, navProductPages)
 }
 
-/**
- * Whether an open Products pane stays open on this page: a product it lists, even one Analytics lists too, or any
- * People list page, so a tab like Cohorts opened from Persons does not switch the rail.
- */
 function productsPaneKeepsPath(path: string, routePane: TodayRailPane | null): boolean {
     return (
-        ((routePane === 'analytics' || routePane === 'monitor' || routePane === 'data') &&
-            productsPaneListsPath(path)) ||
+        ((routePane === 'monitor' || routePane === 'data') && productsPaneListsPath(path)) ||
         (routePane === 'people' && isPeopleListPath(path))
     )
 }

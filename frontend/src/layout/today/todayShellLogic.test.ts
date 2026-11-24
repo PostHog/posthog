@@ -256,7 +256,7 @@ describe('todayShellLogic', () => {
     })
 
     test.each([
-        ['products', 'products'],
+        ['products', 'analytics'],
         ['home', 'analytics'],
     ] as const)('opening Dashboards with the %s pane open shows the %s pane', (openPane, pane) => {
         const logic = todayShellLogic()
@@ -333,7 +333,17 @@ describe('todayShellLogic', () => {
     })
 
     test.each([
-        ['/project/1/dashboard', 'products'],
+        ['/project/1/dashboard', 'analytics'],
+        ['/project/1/dashboard/12', 'analytics'],
+        ['/project/1/insights', 'analytics'],
+        ['/project/1/insights/abc', 'analytics'],
+        ['/project/1/notebooks', 'analytics'],
+        ['/project/1/notebooks/abc', 'analytics'],
+        ['/project/1/canvases/abc', 'analytics'],
+        ['/project/1/analytics/all', 'analytics'],
+        ['/project/1/web', 'analytics'],
+        ['/project/1/marketing', 'analytics'],
+        ['/project/1/mcp-analytics', 'analytics'],
         ['/project/1/sql', 'products'],
         ['/project/1/support/tickets', 'products'],
         ['/project/1/persons', 'products'],
@@ -369,6 +379,17 @@ describe('todayShellLogic', () => {
     })
 
     test.each([
+        ['/project/1/dashboard', 'analytics'],
+        ['/project/1/dashboard/12', 'analytics'],
+        ['/project/1/insights', 'analytics'],
+        ['/project/1/insights/abc', 'analytics'],
+        ['/project/1/notebooks', 'analytics'],
+        ['/project/1/notebooks/abc', 'analytics'],
+        ['/project/1/canvases/abc', 'analytics'],
+        ['/project/1/analytics/all', 'analytics'],
+        ['/project/1/web', 'analytics'],
+        ['/project/1/marketing', 'analytics'],
+        ['/project/1/mcp-analytics', 'analytics'],
         ['/project/1/cohorts', 'products'],
         ['/project/1/ai', 'spaces'],
     ])('a reload on %s after picking the Products pane shows the %s pane', (pathname, pane) => {
@@ -501,7 +522,7 @@ describe('todayShellLogic', () => {
 
             logic.actions.goBackOnPhone()
             expect(logic.values.sidebarVisible).toBe(true)
-            expect(logic.values.activePane).toBe('products')
+            expect(logic.values.activePane).toBe('analytics')
         } finally {
             Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth })
         }
