@@ -1169,9 +1169,16 @@ class TestResolver(BaseTest):
         self.assertIsInstance(resolved.type, ast.SelectQueryType)
         self.assertEqual(self.context.errors, [])
 
-    def test_lambda_argument_shadows_outer_table_bound_alias(self):
+    @parameterized.expand(
+        [
+            ("lambda_argument", "arrayMap(x -> x, [1])"),
+            ("outer_lambda_argument", "arrayMap(x -> arrayMap(y -> x, [1]), [1])"),
+            ("select_alias", "1 AS x, x + 1"),
+        ]
+    )
+    def test_lambda_argument_shadows_outer_table_bound_alias(self, _name: str, selected: str):
         resolved = resolve_types(
-            self._select("WITH timestamp AS x SELECT (SELECT arrayMap(x -> x, [1]) FROM numbers(1)) FROM events"),
+            self._select(f"WITH timestamp AS x SELECT (SELECT {selected} FROM numbers(1)) FROM events"),
             self.context,
             dialect="clickhouse",
         )

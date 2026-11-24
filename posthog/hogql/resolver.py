@@ -3074,8 +3074,8 @@ class Resolver(CloningVisitor):
             if nested_match:
                 type, qualifier_length = nested_match
 
-        if type and len(node.chain) == 1 and name in self.ctes and not (scope.is_lambda_type and name in scope.aliases):
-            # ClickHouse prefers a WITH alias over a column with the same name.
+        if isinstance(type, (ast.FieldType, ast.PropertyType)) and len(node.chain) == 1 and name in self.ctes:
+            # ClickHouse prefers a WITH alias over a column with the same name. A lambda argument or a SELECT alias wins.
             self._find_scalar_alias(name)
 
         if not type:
