@@ -39,7 +39,7 @@ from posthog.models.proxy_record import (
 from posthog.permissions import OrganizationAdminWritePermissions, TimeSensitiveActionPermission
 from posthog.tasks.proxy import reconcile_proxy_root_redirect
 from posthog.temporal.common.client import sync_connect
-from posthog.temporal.proxy_service import CreateManagedProxyInputs, DeleteManagedProxyInputs
+from posthog.temporal.proxy_service import CreateManagedProxyInputs
 from posthog.temporal.proxy_service.cloudflare import (
     CloudflareAPIError,
     get_custom_hostname_by_domain,
@@ -47,6 +47,7 @@ from posthog.temporal.proxy_service.cloudflare import (
 )
 from posthog.temporal.proxy_service.common import is_cloudflare_proxy_by_cname
 from posthog.temporal.proxy_service.create import start_proxy_provisioning
+from posthog.temporal.proxy_service.delete import start_proxy_deletion
 
 
 def generate_target_cname(organization_id, domain) -> str:
@@ -302,7 +303,7 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
 
     DEFAULT_MAX_PROXY_RECORDS = 2
 
-    def _get_proxy_record(self, pk: str | None) -> ProxyRecord:
+    def _get_proxy_record(self, pk: str | UUID | None) -> ProxyRecord:
         record_id = serializers.UUIDField().run_validation(pk)
         try:
             return self.organization.proxy_records.get(id=record_id)
@@ -350,56 +351,55 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
     )
     def partial_update(self, request, *args, pk=None, **kwargs):
         pk = serializers.UUIDField().run_validation(pk)
-        with _lock_proxy_for_write(self.organization, pk):
-            reconciliation_required = False
-            try:
-                with transaction.atomic():
-                    record = self.organization.proxy_records.select_for_update().get(id=pk)
+        reconciliation_required = False
+        try:
+            with _lock_proxy_for_write(self.organization, pk), transaction.atomic():
+                record = self.organization.proxy_records.select_for_update().get(id=pk)
 
-                    if not is_cloudflare_proxy_by_cname(record.target_cname):
+                if not is_cloudflare_proxy_by_cname(record.target_cname):
+                    return Response(
+                        {"detail": "Root redirects are only available for Cloudflare-managed proxies."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+                serializer = ProxyRecordUpdateSerializer(data=request.data, context={"record": record})
+                serializer.is_valid(raise_exception=True)
+                root_redirect_url = serializer.validated_data["root_redirect_url"]
+
+                try:
+                    hostname = get_custom_hostname_by_domain(record.domain)
+                    if hostname is None:
                         return Response(
-                            {"detail": "Root redirects are only available for Cloudflare-managed proxies."},
-                            status=status.HTTP_400_BAD_REQUEST,
-                        )
-
-                    serializer = ProxyRecordUpdateSerializer(data=request.data, context={"record": record})
-                    serializer.is_valid(raise_exception=True)
-                    root_redirect_url = serializer.validated_data["root_redirect_url"]
-
-                    try:
-                        hostname = get_custom_hostname_by_domain(record.domain)
-                        if hostname is None:
-                            return Response(
-                                {"detail": "Cloudflare could not find this managed proxy hostname."},
-                                status=status.HTTP_502_BAD_GATEWAY,
-                            )
-                        update_cloudflare_proxy_root_redirect(record.domain, root_redirect_url)
-                    except (CloudflareAPIError, requests.RequestException) as error:
-                        capture_exception(error, {"domain": record.domain, "proxy_record_id": str(record.id)})
-                        return Response(
-                            {"detail": "Cloudflare could not update the root redirect. Please try again."},
+                            {"detail": "Cloudflare could not find this managed proxy hostname."},
                             status=status.HTTP_502_BAD_GATEWAY,
                         )
+                    update_cloudflare_proxy_root_redirect(record.domain, root_redirect_url)
+                except (CloudflareAPIError, requests.RequestException) as error:
+                    capture_exception(error, {"domain": record.domain, "proxy_record_id": str(record.id)})
+                    return Response(
+                        {"detail": "Cloudflare could not update the root redirect. Please try again."},
+                        status=status.HTTP_502_BAD_GATEWAY,
+                    )
 
-                    record.root_redirect_url = root_redirect_url
-                    try:
-                        record.save(update_fields=["root_redirect_url", "updated_at"])
-                    except DatabaseError:
-                        reconciliation_required = True
-                        raise
-            except ProxyRecord.DoesNotExist:
-                raise NotFound()
-            except DatabaseError as error:
-                if reconciliation_required:
-                    reconcile_proxy_root_redirect.delay(str(pk))
-                capture_exception(error, {"organization_id": str(self.organization.id), "proxy_record_id": str(pk)})
-                return Response(
-                    {"detail": "Could not save the root redirect. Please try again."},
-                    status=status.HTTP_502_BAD_GATEWAY,
-                )
+                record.root_redirect_url = root_redirect_url
+                try:
+                    record.save(update_fields=["root_redirect_url", "updated_at"])
+                except DatabaseError:
+                    reconciliation_required = True
+                    raise
+        except ProxyRecord.DoesNotExist:
+            raise NotFound()
+        except DatabaseError as error:
+            if reconciliation_required:
+                reconcile_proxy_root_redirect.delay(str(pk))
+            capture_exception(error, {"organization_id": str(self.organization.id), "proxy_record_id": str(pk)})
+            return Response(
+                {"detail": "Could not save the root redirect. Please try again."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
 
-            _capture_proxy_event(request, record, "root redirect updated")
-            return Response(ProxyRecordSerializer(record).data)
+        _capture_proxy_event(request, record, "root redirect updated")
+        return Response(ProxyRecordSerializer(record).data)
 
     @extend_schema(
         description="Create a new managed reverse proxy. "
@@ -569,10 +569,7 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
     def destroy(self, request, *args, pk=None, **kwargs):
         pk = serializers.UUIDField().run_validation(pk)
         with _lock_proxy_for_write(self.organization, pk):
-            try:
-                record = self.organization.proxy_records.get(id=pk)
-            except ProxyRecord.DoesNotExist:
-                raise NotFound()
+            record = self._get_proxy_record(pk)
 
             if record.status in (
                 ProxyRecord.Status.WAITING,
@@ -596,24 +593,7 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
                 record.save()
 
                 try:
-                    temporal = sync_connect()
-                    inputs = DeleteManagedProxyInputs(
-                        organization_id=record.organization_id,
-                        proxy_record_id=record.id,
-                        domain=record.domain,
-                        target_cname=record.target_cname,
-                        root_redirect_url=record.root_redirect_url,
-                    )
-                    workflow_id = f"proxy-delete-{inputs.proxy_record_id}"
-                    asyncio.run(
-                        temporal.start_workflow(
-                            "delete-proxy",
-                            inputs,
-                            id=workflow_id,
-                            task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
-                            id_conflict_policy=delete_conflict_policy,
-                        )
-                    )
+                    asyncio.run(start_proxy_deletion(sync_connect(), record, id_conflict_policy=delete_conflict_policy))
                 except Exception as e:
                     capture_exception(e, {"domain": record.domain, "proxy_record_id": str(record.id)})
                     record.status = previous_status
