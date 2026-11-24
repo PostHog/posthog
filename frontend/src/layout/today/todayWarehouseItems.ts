@@ -8,21 +8,11 @@ import { FileSystemIconType } from '~/queries/schema/schema-general'
 
 export type WarehouseItemKey =
     | 'home'
-    | 'etl'
     | 'sources'
-    | 'managed_migrations'
-    | 'event_filtering'
-    | 'ingestion_warnings'
     | 'sql_editor'
     | 'models'
-    | 'transformations'
     | 'managed_viewsets'
-    | 'warehouse_destinations'
-    | 'destinations'
     | 'data_catalog'
-    | 'definitions'
-    | 'actions'
-    | 'sql_variables'
     | 'data_ops'
 
 export interface WarehouseItem {
@@ -32,11 +22,11 @@ export interface WarehouseItem {
     href: string
     iconType: FileSystemIconType
     sceneKey: string
-    group: 'home' | 'import' | 'transform' | 'export' | 'define' | 'manage'
+    group: 'home' | 'import' | 'model' | 'manage'
     flag?: FeatureFlagKey
     // Any of these flags also shows the item, as `alternativeFlags` does in a product manifest.
     alternativeFlags?: FeatureFlagKey[]
-    // Pages reached from this item that live under another prefix, such as batch exports under `/pipeline`.
+    // Pages reached from this item that live under another prefix.
     // They keep the warehouse pane and mark this item as the current page.
     extraPaths?: string[]
 }
@@ -51,15 +41,6 @@ export const WAREHOUSE_ITEMS: WarehouseItem[] = [
         group: 'home',
     },
     {
-        key: 'etl',
-        label: 'ELT',
-        href: urls.etlOverview(),
-        iconType: 'data_pipeline',
-        sceneKey: 'PipelineOverview',
-        group: 'home',
-        flag: FEATURE_FLAGS.WAREHOUSE_MULTI_DESTINATION,
-    },
-    {
         key: 'sources',
         label: 'Sources',
         href: urls.sources(),
@@ -68,37 +49,12 @@ export const WAREHOUSE_ITEMS: WarehouseItem[] = [
         group: 'import',
     },
     {
-        key: 'managed_migrations',
-        label: 'Managed migrations',
-        href: urls.managedMigration(),
-        iconType: 'managed_migration',
-        sceneKey: 'ManagedMigration',
-        group: 'import',
-    },
-    {
-        key: 'event_filtering',
-        label: 'Event ingestion filtering',
-        href: urls.eventFiltering(),
-        iconType: 'event_filter',
-        sceneKey: 'EventFiltering',
-        group: 'import',
-    },
-    {
-        key: 'ingestion_warnings',
-        label: 'Event ingestion warnings',
-        href: urls.ingestionWarnings(),
-        iconType: 'ingestion_warning',
-        sceneKey: 'DataManagement',
-        group: 'import',
-        extraPaths: [urls.ingestionWarningsV2()],
-    },
-    {
         key: 'sql_editor',
         label: 'SQL editor',
         href: urls.sqlEditor(),
         iconType: 'sql_editor',
         sceneKey: 'SQLEditor',
-        group: 'transform',
+        group: 'model',
     },
     {
         key: 'models',
@@ -106,15 +62,7 @@ export const WAREHOUSE_ITEMS: WarehouseItem[] = [
         href: urls.models(),
         iconType: 'data_modeling',
         sceneKey: 'Models',
-        group: 'transform',
-    },
-    {
-        key: 'transformations',
-        label: 'Transformations',
-        href: urls.transformations(),
-        iconType: 'data_transformation',
-        sceneKey: 'Transformations',
-        group: 'transform',
+        group: 'model',
     },
     {
         key: 'managed_viewsets',
@@ -122,26 +70,8 @@ export const WAREHOUSE_ITEMS: WarehouseItem[] = [
         href: urls.dataWarehouseManagedViewsets(),
         iconType: 'managed_viewsets',
         sceneKey: 'DataManagement',
-        group: 'transform',
+        group: 'model',
         flag: FEATURE_FLAGS.MANAGED_VIEWSETS,
-    },
-    {
-        key: 'warehouse_destinations',
-        label: 'Warehouse destinations',
-        href: urls.warehouseDestinations(),
-        iconType: 'warehouse_destination',
-        sceneKey: 'WarehouseDestinations',
-        group: 'export',
-        flag: FEATURE_FLAGS.WAREHOUSE_MULTI_DESTINATION,
-    },
-    {
-        key: 'destinations',
-        label: 'Destinations',
-        href: urls.destinations(),
-        iconType: 'data_destination',
-        sceneKey: 'Destinations',
-        group: 'export',
-        extraPaths: ['/pipeline/batch-exports'],
     },
     {
         key: 'data_catalog',
@@ -149,40 +79,7 @@ export const WAREHOUSE_ITEMS: WarehouseItem[] = [
         href: urls.dataCatalog(),
         iconType: 'data_catalog',
         sceneKey: 'DataCatalog',
-        group: 'define',
-    },
-    {
-        key: 'definitions',
-        label: 'Definitions',
-        href: urls.eventDefinitions(),
-        iconType: 'event_definition',
-        sceneKey: 'DataManagement',
-        group: 'define',
-        // The other Definitions tabs. They are listed here because importing DEFINITIONS_TABS would pull a scene
-        // logic into the shell layer. todayWarehouseItems.test.ts fails when a tab is missing.
-        extraPaths: [
-            urls.coreEvents(),
-            urls.propertyDefinitions(),
-            urls.schemaManagement(),
-            urls.revenueSettings(),
-            urls.warehouseProperties(),
-        ],
-    },
-    {
-        key: 'actions',
-        label: 'Actions',
-        href: urls.actions(),
-        iconType: 'action',
-        sceneKey: 'Actions',
-        group: 'define',
-    },
-    {
-        key: 'sql_variables',
-        label: 'SQL variables',
-        href: urls.variables(),
-        iconType: 'sql_variable',
-        sceneKey: 'DataManagement',
-        group: 'define',
+        group: 'model',
     },
     {
         key: 'data_ops',
@@ -196,10 +93,9 @@ export const WAREHOUSE_ITEMS: WarehouseItem[] = [
     },
 ]
 
-// Warehouse pages that no menu item names: the new-source wizard and the connect flow under `/data-warehouse`,
-// and the function pages under `/functions` and `/pipeline/new`. Destinations, transformations, webhook sources
-// and web scripts share those function routes, so the routes map to the warehouse pane but to no single item.
-const EXTRA_WAREHOUSE_PATHS = ['/data-warehouse', '/functions', '/pipeline/new']
+// Warehouse pages that no menu item names: the new-source wizard and the source connect flow.
+// The destination and migration connect pages share the `/data-warehouse` prefix but are not warehouse pages.
+const EXTRA_WAREHOUSE_PATHS = ['/data-warehouse/new-source', '/data-warehouse/connect']
 
 export function hrefPath(href: string): string {
     return href.split(/[?#]/)[0]

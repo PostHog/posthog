@@ -28,13 +28,11 @@ import { WarehouseItem, visibleWarehouseItems } from './todayWarehouseItems'
 
 // pinned: the data-attr values and analytics event names in this file feed autocapture and dashboards, so renaming them breaks both.
 
-const GROUP_ORDER: WarehouseItem['group'][] = ['home', 'import', 'transform', 'export', 'define', 'manage']
+const GROUP_ORDER: WarehouseItem['group'][] = ['home', 'import', 'model', 'manage']
 
 const GROUP_HEADINGS: Partial<Record<WarehouseItem['group'], string>> = {
     import: 'Import',
-    transform: 'Transform',
-    export: 'Export',
-    define: 'Define',
+    model: 'Model',
 }
 
 /** The bar above every warehouse page. Its menu is the only way to the warehouse tools under the rail navigation. */
