@@ -27,7 +27,6 @@ from products.signals.backend.models import (
     SignalReportPullRequest,
     SignalReportTask,
 )
-from products.signals.backend.pull_request_merger import PullRequestMerger
 from products.signals.backend.report_lifecycle import report_status_filter
 from products.signals.backend.report_urls import ReportLinkSource, build_report_url
 from products.signals.backend.task_run_artefacts import (
@@ -187,7 +186,6 @@ class ImplementationPr:
     attached_at: datetime | None = None
     attached_by_user: "User | None" = None
     agent_name: str | None = None
-    merged_by: PullRequestMerger | None = None
 
 
 def fetch_implementation_prs_for_reports(
@@ -236,11 +234,6 @@ def fetch_implementation_prs_for_reports(
                 attached_at=link.created_at,
                 attached_by_user=link.created_by,
                 agent_name=link.actor_agent,
-                merged_by=(
-                    PullRequestMerger(login=linked_pr.merged_by_login, github_id=linked_pr.merged_by_github_id)
-                    if linked_pr.merged_by_login
-                    else None
-                ),
             )
         )
     assignments = list(
