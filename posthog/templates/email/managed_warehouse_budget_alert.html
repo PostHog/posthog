@@ -1,0 +1,24 @@
+{% extends "email/base.html" %}
+{% block heading %}Your warehouse spend reached {{ threshold }}% of your monthly budget{% endblock %}
+{% block section %}
+    <!-- prettier-ignore -->
+    <p>
+        Estimated spend on the managed warehouse for {% if organization_name %}<strong>{{ organization_name }}</strong>{% else %}your organization{% endif %}
+        this month is <strong>${{ spend }}</strong>, which is {{ threshold }}% of your monthly budget of <strong>${{ budget }}</strong>.
+    </p>
+    <p>If usage continues at this pace, the estimated total for the month is ${{ forecast }}.</p>
+    <p>
+        These amounts are estimates and may differ from your final invoice. Your queries are not stopped when you reach
+        your budget.
+    </p>
+    <div class="mb mt text-center">
+        <a class="button primary" href="{{ usage_url }}">View warehouse usage</a>
+    </div>
+    <div class="mt">
+        <p>
+            If the button above doesn't work, paste this link into your browser:
+            <br />
+            <a href="{{ usage_url }}">{{ usage_url }}</a>
+        </p>
+    </div>
+{% endblock %}

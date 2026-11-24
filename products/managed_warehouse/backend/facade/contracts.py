@@ -38,6 +38,9 @@ __all__ = [
     "QueryHistoryPage",
     "QueryHistoryRow",
     "QueryNotFoundError",
+    "QueryCostEstimate",
+    "QueryCostTable",
+    "QueryCostWarning",
     "StorageOverview",
     "StorageTableUsage",
     "UsageBreakdownRow",
@@ -801,3 +804,32 @@ class WarehouseLoginCredential:
 
     login: WarehouseLogin
     password: str = field(repr=False)
+
+
+QueryCostWarning = Literal["no_filter_on_large_table", "exceeds_cap", "size_unknown"]
+
+
+@frozen
+class QueryCostTable:
+    catalog: str
+    schema: str
+    table: str
+    # Stored data bytes of the table, or None when the storage listing has no matching table.
+    size_bytes: int | None
+    # Whether the query constrains at least one column of the table.
+    has_filter: bool
+
+
+@frozen
+class QueryCostEstimate:
+    """An upper bound on what a SQL editor query can scan, before it runs."""
+
+    tables: tuple[QueryCostTable, ...]
+    upper_bound_bytes: int | None
+    # Marginal compute price of the upper bound. The monthly free tier is not applied.
+    estimated_cost_usd: Decimal | None
+    cap_bytes: int | None
+    exceeds_cap: bool
+    # False when any table has an unknown size, so the upper bound undercounts.
+    complete: bool
+    warnings: tuple[QueryCostWarning, ...]

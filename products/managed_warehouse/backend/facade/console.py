@@ -5,29 +5,31 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from posthog.models.team import Team
 
 if TYPE_CHECKING:
-    pass
+    from posthog.models.user import User
 
 from products.managed_warehouse.backend.facade.contracts import (
     ConsoleSettings,
     LoginMode,
+    QueryCostEstimate,
     QueryHistoryPage,
     StorageOverview,
     UsageSummary,
     WarehouseLogin,
     WarehouseLoginCredential,
 )
-from products.managed_warehouse.backend.logic import console_logins, console_queries, console_usage
+from products.managed_warehouse.backend.logic import console_logins, console_queries, console_usage, query_estimate
 from products.managed_warehouse.backend.logic.console_access import is_console_enabled as _is_console_enabled
 from products.managed_warehouse.backend.logic.console_labels import SQL_EDITOR_PRINCIPAL
 
 __all__ = [
     "create_project_login",
     "delete_login",
+    "estimate_managed_trino_query",
     "list_logins",
     "rotate_login",
     "set_login_disabled",
@@ -136,3 +138,28 @@ def set_login_disabled(organization_id: str, username: str, *, disabled: bool, a
 
 def delete_login(organization_id: str, username: str, *, acting_user_id: int) -> None:
     console_logins.delete_login(organization_id, username, acting_user_id=acting_user_id)
+
+
+def estimate_managed_trino_query(
+    team: Team,
+    user: User,
+    *,
+    query: str,
+    send_raw_query: bool,
+    variables: Mapping[str, Any] | None = None,
+    filters: Mapping[str, Any] | None = None,
+    include_sizes: bool = True,
+) -> QueryCostEstimate:
+    """Upper-bound scan size and cost of a SQL editor query. Raises ``ExposedHogQLError`` for an invalid query.
+
+    Without ``include_sizes`` the tables the query reads are listed with unknown sizes.
+    """
+    return query_estimate.estimate_managed_trino_query(
+        team,
+        user,
+        query=query,
+        send_raw_query=send_raw_query,
+        variables=variables,
+        filters=filters,
+        include_sizes=include_sizes,
+    )

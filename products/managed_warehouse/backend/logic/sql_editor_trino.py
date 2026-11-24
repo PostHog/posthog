@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.direct_sql.adapter import DirectQueryRequest, DirectQueryResult
 from posthog.hogql.direct_sql.trino_adapter import (
-    DIRECT_TRINO_DEFAULT_STATEMENT_TIMEOUT_SECONDS,
     TrinoQueryRequest,
     bounded_trino_cursor,
     ensure_read_only_raw_trino_statement,
@@ -15,7 +14,8 @@ from posthog.hogql.errors import ExposedHogQLError
 
 from products.managed_warehouse.backend.facade.contracts import ManagedWarehouseTrinoConnectionUnavailable
 from products.managed_warehouse.backend.logic.sql_editor import managed_warehouse_sql_editor_uses_trino
-from products.managed_warehouse.backend.trino_connection import connect_managed_warehouse_trino
+from products.managed_warehouse.backend.sql_editor_limits import map_scan_limit_error, sql_editor_limits
+from products.managed_warehouse.backend.trino_connection import TRINO_SOURCE_SQL_EDITOR, connect_managed_warehouse_trino
 from products.warehouse_sources.backend.facade.source_management import SourceSchema, discover_trino_catalog
 
 if TYPE_CHECKING:
@@ -51,24 +51,27 @@ class ManagedTrinoAdapter:
         self.validate_source_config(request.source, request.team)
         if request.principal is None:
             raise ExposedHogQLError("Sign in to query the managed warehouse.")
+        limits = sql_editor_limits(str(request.team.organization_id), request.settings.max_execution_time)
         try:
-            return execute_trino_query(
-                TrinoQueryRequest(
-                    sql=request.sql,
-                    values=request.values,
-                    timeout_seconds=request.settings.max_execution_time
-                    or DIRECT_TRINO_DEFAULT_STATEMENT_TIMEOUT_SECONDS,
-                    timings=request.timings,
-                    team_id=request.team.pk,
-                    debug=request.debug,
-                    cancellation_token=request.cancellation_token,
-                ),
-                connect_managed_warehouse_trino(
-                    str(request.team.organization_id),
-                    principal=request.principal.value,
-                    canary=request.principal.trino_canary,
-                ),
-            )
+            with map_scan_limit_error(limits):
+                return execute_trino_query(
+                    TrinoQueryRequest(
+                        sql=request.sql,
+                        values=request.values,
+                        timeout_seconds=limits.timeout_seconds,
+                        timings=request.timings,
+                        team_id=request.team.pk,
+                        debug=request.debug,
+                        cancellation_token=request.cancellation_token,
+                    ),
+                    connect_managed_warehouse_trino(
+                        str(request.team.organization_id),
+                        principal=request.principal.value,
+                        canary=request.principal.trino_canary,
+                        source=TRINO_SOURCE_SQL_EDITOR,
+                        session_properties=limits.session_properties,
+                    ),
+                )
         except (ExposedHogQLError, ManagedWarehouseTrinoConnectionUnavailable) as error:
             if not isinstance(error, ManagedWarehouseTrinoConnectionUnavailable) and not isinstance(
                 error.__cause__, ManagedWarehouseTrinoConnectionUnavailable
@@ -79,7 +82,9 @@ class ManagedTrinoAdapter:
 
 def discover_managed_trino_schemas(organization_id: str, team_id: int) -> list[SourceSchema]:
     with connect_managed_warehouse_trino(
-        organization_id, principal=f"posthog:sql-editor-schema-discovery:team:{team_id}"
+        organization_id,
+        principal=f"posthog:sql-editor-schema-discovery:team:{team_id}",
+        source=TRINO_SOURCE_SQL_EDITOR,
     ) as connection:
         with bounded_trino_cursor(connection, MANAGED_TRINO_SCHEMA_DISCOVERY_TIMEOUT_SECONDS, team_id=team_id) as (
             cursor,
