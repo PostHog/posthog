@@ -75,6 +75,13 @@ pub struct ResolverConfig {
     #[envconfig(default = "false")]
     pub skip_unchanged_frame_rewrites: bool,
 
+    // Frame rows are a cache. A row that a writer crash loses is resolved again on its next
+    // miss, so frame saves can commit without waiting for the WAL flush. When enabled, each
+    // frame snapshot is saved in one transaction with `synchronous_commit = off`. When
+    // disabled, each part is saved as its own fully durable commit.
+    #[envconfig(default = "true")]
+    pub frame_save_async_commit: bool,
+
     // TTL for the in-memory negative cache of symbol-set lookup failures in the `Saving` layer.
     // Like `frame_unresolved_ttl_seconds`, this is kept short: a failure record can become
     // resolvable the moment a user uploads the missing symbols, so a cached negative result

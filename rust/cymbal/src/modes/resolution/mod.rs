@@ -23,7 +23,8 @@ use tracing::{info, warn};
 
 use crate::core::{config::ResolverConfig, shutdown::wait_for_shutdown};
 use crate::metric_consts::{
-    BYTE_HISTOGRAM_BUCKETS, SYMBOL_SET_DECOMPRESSED_BYTES, SYMBOL_SET_PARSE_INPUT_BYTES,
+    BYTE_HISTOGRAM_BUCKETS, FRAME_SAVE_TIME, FRAME_SAVE_TIME_BUCKETS,
+    SYMBOL_SET_DECOMPRESSED_BYTES, SYMBOL_SET_PARSE_INPUT_BYTES,
 };
 
 pub mod app_context;
@@ -140,6 +141,10 @@ fn spawn_metrics_server(
                 (
                     Matcher::Full(SYMBOL_SET_PARSE_INPUT_BYTES.into()),
                     BYTE_HISTOGRAM_BUCKETS,
+                ),
+                (
+                    Matcher::Full(FRAME_SAVE_TIME.into()),
+                    FRAME_SAVE_TIME_BUCKETS,
                 ),
             ],
         );
