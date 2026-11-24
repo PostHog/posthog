@@ -28,6 +28,7 @@ from products.web_analytics.backend.hogql_queries.web_analytics_query_runner imp
 )
 from products.web_analytics.backend.hogql_queries.web_dimensional_precompute import (
     WEB_BOUNCES_DIMENSIONAL_READ_TABLE,
+    WEB_STATS_DIMENSIONAL_READ_TABLE,
     DimensionalJobIds,
 )
 from products.web_analytics.backend.hogql_queries.web_dimensional_read import (
@@ -271,8 +272,9 @@ CROSS JOIN {sessions_agg} AS sessions_agg
     def get_dimensional_response(self) -> tuple[Optional[HogQLQueryResponse], Optional[DimensionalJobIds]]:
         if self.query.conversionGoal or not self.preaggregated_query_builder.can_use_preaggregated_tables():
             return None, None
-        # The overview builder reads only the bounces table.
-        job_ids = ready_dimensional_job_ids(self, tables=(WEB_BOUNCES_DIMENSIONAL_READ_TABLE,))
+        job_ids = ready_dimensional_job_ids(
+            self, tables=(WEB_STATS_DIMENSIONAL_READ_TABLE, WEB_BOUNCES_DIMENSIONAL_READ_TABLE)
+        )
         if job_ids is None:
             return None, None
         response = self._execute_pre_aggregated(

@@ -52,7 +52,10 @@ from products.web_analytics.backend.hogql_queries.web_dimensional_precompute imp
     ensure_web_bounces_dimensional_precomputed,
     ensure_web_stats_dimensional_precomputed,
 )
-from products.web_analytics.backend.hogql_queries.web_dimensional_read import ready_dimensional_job_ids
+from products.web_analytics.backend.hogql_queries.web_dimensional_read import (
+    WEB_ANALYTICS_QUERY_MODIFIERS_FLAG,
+    ready_dimensional_job_ids,
+)
 from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
 from products.web_analytics.backend.hogql_queries.web_page_directory import WebPageDirectoryQueryRunner
 
@@ -840,3 +843,127 @@ class TestPageDirectoryDimensionalParity(WebAnalyticsPreAggregatedTestBase):
     def test_directory_dimensional_timeout_does_not_rerun_live(self):
         with self._failing_dimensional_read(ClickHouseQueryTimeOut()), self.assertRaises(ClickHouseQueryTimeOut):
             self._run(OPT_IN)
+
+
+APP_HOST = "app.example.com"
+SITE_HOST = "example.com"
+# Explicit, so the live run stays live once enrolled teams read the dimensional tables by default.
+LIVE = WebAnalyticsQueryModifiers(useDimensionalTables=False)
+
+
+def _host(value, operator=PropertyOperator.EXACT) -> EventPropertyFilter:
+    return EventPropertyFilter(key="$host", value=value, operator=operator)
+
+
+class TestOverviewDimensionalHostParity(WebAnalyticsPreAggregatedTestBase):
+    def setUp(self):
+        for table in ("sharded_web_stats_dimensional_preaggregated", "sharded_web_bounces_dimensional_preaggregated"):
+            sync_execute(f"SYSTEM STOP TTL MERGES {table}")
+            self.addCleanup(sync_execute, f"SYSTEM START TTL MERGES {table}")
+        flag_patcher = patch(
+            "products.web_analytics.backend.hogql_queries.web_dimensional_read.feature_enabled_or_false",
+            side_effect=lambda key, *args, **kwargs: key == WEB_ANALYTICS_QUERY_MODIFIERS_FLAG,
+        )
+        flag_patcher.start()
+        self.addCleanup(flag_patcher.stop)
+        super().setUp()
+
+    def _event(self, event: str, distinct_id: str, session: str, ts: str, host: str | None, path: str, **props) -> None:
+        url = {"$host": host, "$current_url": f"https://{host}{path}"} if host else {}
+        _create_event(
+            team=self.team,
+            event=event,
+            distinct_id=distinct_id,
+            timestamp=ts,
+            properties={"$session_id": session, "$pathname": path, **url, **props},
+        )
+
+    def _setup_test_data(self):
+        desktop = {"$device_type": "Desktop", "$browser": "Chrome", "$os": "Mac OS X"}
+        mobile = {"$device_type": "Mobile", "$browser": "Safari", "$os": "iOS"}
+        sessions = [str(uuid7("2024-01-01")) for _ in range(6)]
+        a, b, c, d, e, app = sessions
+        with time_machine.travel("2024-01-01T09:00:00Z", tick=False):
+            for did in ("user_a", "user_b", "user_c", "user_d", "user_e", "user_app"):
+                _create_person(team_id=self.team.pk, distinct_ids=[did])
+            # Crosses from the site into the app.
+            self._event("$pageview", "user_a", a, "2024-01-01T10:00:00Z", SITE_HOST, "/", **desktop)
+            self._event("$pageview", "user_a", a, "2024-01-01T10:02:00Z", APP_HOST, "/dashboard", **desktop)
+            self._event("$pageview", "user_a", a, "2024-01-01T10:05:00Z", APP_HOST, "/settings", **desktop)
+            self._event("$pageview", "user_b", b, "2024-01-01T11:00:00Z", APP_HOST, "/dashboard", **mobile)
+            self._event("$pageview", "user_c", c, "2024-01-01T12:00:00Z", SITE_HOST, "/", **desktop)
+            self._event("$pageview", "user_c", c, "2024-01-01T12:03:00Z", SITE_HOST, "/pricing", **desktop)
+            self._event("$pageview", "user_d", d, "2024-01-01T13:00:00Z", SITE_HOST, "/blog", **mobile)
+            # Crosses from the app into the site.
+            self._event("$pageview", "user_e", e, "2024-01-01T14:00:00Z", APP_HOST, "/login", **desktop)
+            self._event("$pageview", "user_e", e, "2024-01-01T14:02:00Z", SITE_HOST, "/pricing", **desktop)
+            # An app session: screens only, so it has no bounce value and no host.
+            self._event("$screen", "user_app", app, "2024-01-01T15:00:00Z", None, "", **mobile)
+            self._event("$screen", "user_app", app, "2024-01-01T15:01:00Z", None, "", **mobile)
+            flush_persons_and_events()
+
+        ensure_web_stats_dimensional_precomputed(self.team, WINDOW_START, WINDOW_END)
+        ensure_web_bounces_dimensional_precomputed(self.team, WINDOW_START, WINDOW_END)
+
+    def _run(self, web_query_modifiers, properties, date_range, compare) -> tuple[list[str], dict]:
+        runner = WebOverviewQueryRunner(
+            team=self.team,
+            query=WebOverviewQuery(
+                dateRange=date_range,
+                properties=properties,
+                compareFilter=CompareFilter(compare=True) if compare else None,
+                webQueryModifiers=web_query_modifiers,
+            ),
+        )
+        with patch(
+            "products.web_analytics.backend.hogql_queries.web_overview.execute_hogql_query",
+            wraps=execute_hogql_query,
+        ) as mock_execute:
+            response = runner.calculate()
+        query_types = [call.kwargs["query_type"] for call in mock_execute.call_args_list]
+        tiles = {
+            item.key: (item.value, item.previous)
+            for item in response.results
+            if item.key in ("visitors", "views", "sessions", "bounce rate")
+        }
+        return query_types, tiles
+
+    @parameterized.expand(
+        [
+            # visitors, views, sessions; bounce rate in percent, None when no session has a bounce value.
+            ("no_filter", [], (6, 11, 6, 40.0)),
+            ("exact_app_host", [_host(APP_HOST)], (3, 4, 3, 100 / 3)),
+            ("exact_site_host", [_host(SITE_HOST)], (4, 5, 4, 25.0)),
+            ("contains", [_host("app.", PropertyOperator.ICONTAINS)], (3, 4, 3, 100 / 3)),
+            ("is_not", [_host(APP_HOST, PropertyOperator.IS_NOT)], (5, 7, 5, 25.0)),
+            ("is_not_set_app_session", [_host(None, PropertyOperator.IS_NOT_SET)], (1, 2, 1, None)),
+            (
+                "host_and_device",
+                [_host(APP_HOST), EventPropertyFilter(key="$device_type", value="Desktop")],
+                (2, 3, 2, 0.0),
+            ),
+        ]
+    )
+    def test_overview_dimensional_matches_live(self, _name, properties, expected):
+        date_range = DateRange(date_from=DATE_FROM, date_to=DATE_TO)
+        live_types, live = self._run(LIVE, properties, date_range, compare=False)
+        dimensional_types, dimensional = self._run(OPT_IN, properties, date_range, compare=False)
+
+        assert "web_overview_dimensional_query" not in live_types
+        assert dimensional_types == ["web_overview_dimensional_query"]
+        assert dimensional == pytest.approx(live), f"{_name}\nlive={live}\ndimensional={dimensional}"
+        visitors, views, sessions, bounce_rate = expected
+        assert [dimensional[key][0] for key in ("visitors", "views", "sessions")] == [visitors, views, sessions]
+        assert dimensional["bounce rate"][0] == (pytest.approx(bounce_rate) if bounce_rate is not None else None)
+
+    def test_overview_previous_period_matches_live(self):
+        # The current day is empty and the previous day holds every session, so the previous values come from
+        # the compare period of both tables.
+        date_range = DateRange(date_from="2024-01-02", date_to="2024-01-02")
+        properties = [_host(APP_HOST)]
+        live_types, live = self._run(LIVE, properties, date_range, compare=True)
+        dimensional_types, dimensional = self._run(OPT_IN, properties, date_range, compare=True)
+
+        assert dimensional_types == ["web_overview_dimensional_query"]
+        assert dimensional == pytest.approx(live), f"live={live}\ndimensional={dimensional}"
+        assert [dimensional[key][1] for key in ("visitors", "views", "sessions")] == [3, 4, 3]
