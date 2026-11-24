@@ -21,7 +21,6 @@ logger = structlog.get_logger(__name__)
 DRAIN_TIMEOUT_SECONDS = 3
 EXIT_WAIT_SECONDS = DRAIN_TIMEOUT_SECONDS + 1
 
-# Also bounds how long sends keep using a rotated token.
 TOKEN_CACHE_TTL_SECONDS = 300
 _MAX_CACHED_TEAMS = 10_000
 
