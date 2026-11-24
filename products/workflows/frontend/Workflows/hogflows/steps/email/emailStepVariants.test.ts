@@ -78,11 +78,11 @@ describe('email step variants', () => {
         })
     })
 
-    it('leaves out optional content a sandbox step never had', () => {
+    it('leaves out optional content a sandbox step never had and keeps its implicit Hog templating', () => {
         const sandbox = {
             ...graphFields,
             type: 'email_sandbox',
-            config: { inputs: { email: { templating: 'hog', value: { to: { email: 'a@example.com' } } } } },
+            config: { inputs: { email: { value: { to: { email: 'a@example.com' } } } } },
         } as SandboxEmailAction
 
         expect(toOwnEmailAction(sandbox, 3).config).toEqual({

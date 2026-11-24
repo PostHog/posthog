@@ -46,6 +46,7 @@ from products.warehouse_sources.sources.firebase.firebase import (
 )
 from products.warehouse_sources.sources.firebase.settings import (
     AUTH_TENANT_USERS_TABLE,
+    AUTH_TENANTS_TABLE,
     AUTH_USERS_TABLE,
     FIRESTORE_CREATE_TIME_COLUMN,
     FIRESTORE_DISCOVERY_CONCURRENCY,
@@ -863,6 +864,72 @@ class TestTenantAuthUsers:
         assert [(url, kwargs["params"]) for _, url, kwargs in session.requests[1:]] == expected_requests
 
 
+class TestTenants:
+    @pytest.mark.parametrize(
+        "state,first_params",
+        [
+            (None, {"pageSize": 1000}),
+            (FirebaseResumeConfig(cursor="t0"), {"pageSize": 1000, "pageToken": "t0"}),
+        ],
+        ids=["fresh", "resumed"],
+    )
+    def test_walks_every_page_and_never_syncs_hash_settings_or_test_codes(
+        self, state: Optional[FirebaseResumeConfig], first_params: dict[str, Any], logger: FilteringBoundLogger
+    ) -> None:
+        session = FakeSession(
+            request_responses=[
+                FakeResponse(
+                    payload={
+                        "tenants": [
+                            {
+                                **tenant("tenant-a"),
+                                "allowPasswordSignup": True,
+                                "mfaConfig": {"state": "ENABLED"},
+                                "hashConfig": {"algorithm": "SCRYPT", "signerKey": "c2lnbmVyLWtleQ=="},
+                                "testPhoneNumbers": {"+15555550100": "123456"},
+                            },
+                            {"displayName": "no name"},
+                        ],
+                        "nextPageToken": "t2",
+                    }
+                ),
+                # A page of only unusable entries still advances, and the empty last page ends the walk.
+                FakeResponse(payload={"tenants": [{"displayName": "no name"}], "nextPageToken": "t3"}),
+                FakeResponse(payload={"tenants": [tenant("tenant-b")]}),
+            ],
+            post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)],
+        )
+        manager = FakeResumeManager(state)
+        staged_at_each_yield: list[list[str]] = []
+
+        with mock.patch(_SESSION_FACTORY, return_value=session.as_session()) as factory:
+            rows = []
+            for batch in get_rows(credentials(), AUTH_TENANTS_TABLE, manager, logger):
+                staged_at_each_yield.append([saved.cursor for saved in manager.saved])
+                rows += batch
+
+        assert rows == [
+            {
+                "name": "projects/demo-project/tenants/tenant-a",
+                "displayName": "tenant-a",
+                "allowPasswordSignup": True,
+                "mfaConfig": '{"state": "ENABLED"}',
+                "tenantId": "tenant-a",
+            },
+            {"name": "projects/demo-project/tenants/tenant-b", "displayName": "tenant-b", "tenantId": "tenant-b"},
+        ]
+        # Each page's token is staged before its rows are handed over, so a resume never skips them.
+        assert staged_at_each_yield == [["t2"], ["t2", "t3"]]
+        assert manager.cleared
+        assert [(url, kwargs["params"]) for _, url, kwargs in session.requests] == [
+            (TENANTS_URL, first_params),
+            (TENANTS_URL, {"pageSize": 1000, "pageToken": "t2"}),
+            (TENANTS_URL, {"pageSize": 1000, "pageToken": "t3"}),
+        ]
+        # The raw listing carries the signer key, which only row shaping removes, so nothing may capture it.
+        assert all(call.kwargs["capture"] is False for call in factory.call_args_list)
+
+
 class TestRealtimeDatabase:
     @pytest.mark.parametrize(
         "url",
@@ -1178,7 +1245,12 @@ class TestTableDiscovery:
     @pytest.mark.parametrize(
         "tenant_response,expected_tables",
         [
-            (FakeResponse(payload={"tenants": [tenant("tenant-a")]}), [AUTH_USERS_TABLE, AUTH_TENANT_USERS_TABLE]),
+            (
+                FakeResponse(payload={"tenants": [tenant("tenant-a")]}),
+                [AUTH_USERS_TABLE, AUTH_TENANTS_TABLE, AUTH_TENANT_USERS_TABLE],
+            ),
+            # Entries without a resource name are no tenant to sync.
+            (FakeResponse(payload={"tenants": [{"displayName": "no name"}]}), [AUTH_USERS_TABLE]),
             (FakeResponse(payload={}), [AUTH_USERS_TABLE]),
             # A project without Identity Platform, or a service account that can't list tenants.
             (
@@ -1188,9 +1260,9 @@ class TestTableDiscovery:
             (FakeResponse(status_code=403, payload={"error": {"status": "PERMISSION_DENIED"}}), [AUTH_USERS_TABLE]),
             (FakeResponse(status_code=404, payload={"error": {"status": "NOT_FOUND"}}), [AUTH_USERS_TABLE]),
         ],
-        ids=["has-tenants", "no-tenants", "no-identity-platform", "forbidden", "not-found"],
+        ids=["has-tenants", "unnamed-tenant", "no-tenants", "no-identity-platform", "forbidden", "not-found"],
     )
-    def test_tenant_users_table_is_listed_only_when_the_project_has_a_tenant(
+    def test_tenant_tables_are_listed_only_when_the_project_has_a_tenant(
         self, tenant_response: FakeResponse, expected_tables: list[str]
     ) -> None:
         session = FakeSession(
@@ -1465,6 +1537,7 @@ class TestSourceResponseShape:
             (AUTH_USERS_TABLE, ["localId"], False),
             # A user id is unique only inside its tenant.
             (AUTH_TENANT_USERS_TABLE, ["tenantId", "localId"], False),
+            (AUTH_TENANTS_TABLE, ["tenantId"], False),
             ("firestore_rooms", [FIRESTORE_ID_COLUMN], True),
             # A subcollection is a collection group, so its unique key is the full document path.
             ("firestore_collection_group/messages", [FIRESTORE_PATH_COLUMN], True),
