@@ -88,27 +88,35 @@ Stop at code the base lists and at code the worker does not run. The base lists 
 
 The table shows the waits on 2026-11-19 at `master` tip `adf1f847400`. It covers the 20,646 first-parent commits on `master` in the previous 90 days. For each commit that no row matches, the wait is the committer time from that commit to the next commit that a row matches. Unmatched commits after the last matching commit have no wait and are left out, 20 of them for the base alone. The table measures the time to the next matching commit, not the time to a publication.
 
-| Filter                              | Commits that match | Median wait | 90th percentile | 99th percentile | Longest wait |
-| ----------------------------------- | -----------------: | ----------: | --------------: | --------------: | -----------: |
-| `sharedWorkerBase` alone            |              12.5% |      21 min |           1.9 h |          17.1 h |       37.9 h |
-| `dataWarehouseMetadata`             |              32.5% |       9 min |           1.2 h |          10.2 h |       25.5 h |
-| `experimentsRecalculationActivity`  |              17.9% |      14 min |           1.5 h |          11.4 h |       37.9 h |
-| `wizardWorker`                      |              18.4% |      13 min |           1.4 h |          13.2 h |       37.9 h |
-| `genericWorker`                     |              19.9% |      12 min |           1.4 h |          12.0 h |       33.1 h |
-| `alertsPlatformSharedOrchestration` |              17.3% |      15 min |           1.5 h |          13.1 h |       32.8 h |
-| `alertsPlatformEvaluation`          |              40.5% |       6 min |          52 min |           6.3 h |       21.0 h |
-| `alertsPlatformDelivery`            |              25.4% |       9 min |           1.1 h |           7.8 h |       27.3 h |
-| `webAnalyticsWorker`                |              12.6% |      21 min |           1.9 h |          17.1 h |       37.9 h |
-| `signupEnrichmentWorker`            |              15.4% |      16 min |           1.7 h |          15.7 h |       37.9 h |
-| `healthCheckWorker`                 |              35.4% |       8 min |           1.0 h |           6.9 h |       21.0 h |
-| `batchExportsWorker`                |              16.3% |      15 min |           1.7 h |          14.4 h |       36.3 h |
-| `dataWarehouseWorker`               |              28.6% |      11 min |           1.3 h |          12.7 h |       25.5 h |
-| `dataWarehouseCdpProducerWorker`    |              13.5% |      19 min |           1.9 h |          15.7 h |       36.3 h |
-| `generalPurposeWorker`              |              26.0% |       9 min |           1.1 h |           8.8 h |       33.1 h |
-| `errorTrackingWorker`               |              16.1% |      16 min |           1.7 h |          14.4 h |       36.3 h |
-| `errorTrackingLifecycleWorker`      |              16.8% |      15 min |           1.6 h |          13.7 h |       36.3 h |
-| `videoExportWorker`                 |              50.0% |       5 min |          46 min |           5.1 h |       17.1 h |
-| `maxAiWorker`                       |              28.2% |       8 min |          60 min |           7.3 h |       24.4 h |
+| Filter                                | Commits that match | Median wait | 90th percentile | 99th percentile | Longest wait |
+| ------------------------------------- | -----------------: | ----------: | --------------: | --------------: | -----------: |
+| `sharedWorkerBase` alone              |              12.5% |      21 min |           1.9 h |          17.1 h |       37.9 h |
+| `dataWarehouseMetadata`               |              32.5% |       9 min |           1.2 h |          10.2 h |       25.5 h |
+| `experimentsRecalculationActivity`    |              17.9% |      14 min |           1.5 h |          11.4 h |       37.9 h |
+| `wizardWorker`                        |              18.4% |      13 min |           1.4 h |          13.2 h |       37.9 h |
+| `genericWorker`                       |              19.9% |      12 min |           1.4 h |          12.0 h |       33.1 h |
+| `alertsPlatformSharedOrchestration`   |              17.3% |      15 min |           1.5 h |          13.1 h |       32.8 h |
+| `alertsPlatformEvaluation`            |              40.5% |       6 min |          52 min |           6.3 h |       21.0 h |
+| `alertsPlatformDelivery`              |              25.4% |       9 min |           1.1 h |           7.8 h |       27.3 h |
+| `webAnalyticsWorker`                  |              12.6% |      21 min |           1.9 h |          17.1 h |       37.9 h |
+| `signupEnrichmentWorker`              |              15.4% |      16 min |           1.7 h |          15.7 h |       37.9 h |
+| `healthCheckWorker`                   |              35.4% |       8 min |           1.0 h |           6.9 h |       21.0 h |
+| `batchExportsWorker`                  |              16.3% |      15 min |           1.7 h |          14.4 h |       36.3 h |
+| `dataWarehouseWorker`                 |              28.6% |      11 min |           1.3 h |          12.7 h |       25.5 h |
+| `dataWarehouseCdpProducerWorker`      |              13.5% |      19 min |           1.9 h |          15.7 h |       36.3 h |
+| `generalPurposeWorker`                |              26.0% |       9 min |           1.1 h |           8.8 h |       33.1 h |
+| `errorTrackingWorker`                 |              16.1% |      16 min |           1.7 h |          14.4 h |       36.3 h |
+| `errorTrackingLifecycleWorker`        |              16.8% |      15 min |           1.6 h |          13.7 h |       36.3 h |
+| `videoExportWorker`                   |              50.0% |       5 min |          46 min |           5.1 h |       17.1 h |
+| `maxAiWorker`                         |              28.2% |       8 min |          60 min |           7.3 h |       24.4 h |
+| `sessionReplayWorker`                 |              16.1% |      15 min |           1.7 h |          14.4 h |       36.3 h |
+| `replayVisionWorker`                  |              19.3% |      12 min |           1.4 h |          12.3 h |       28.8 h |
+| `billingWorker`                       |              15.7% |      16 min |           1.6 h |          13.5 h |       36.3 h |
+| `billingUsageReportAggregationWorker` |              12.7% |      21 min |           1.9 h |          16.8 h |       37.9 h |
+| `weeklyDigestWorker`                  |              19.0% |      13 min |           1.4 h |          12.2 h |       33.1 h |
+| `logsAlertingWorker`                  |              17.0% |      15 min |           1.6 h |          14.0 h |       36.3 h |
+| `experimentsRecalculationWorker`      |              17.8% |      14 min |           1.5 h |          12.1 h |       33.1 h |
+| `stamphogWorker`                      |              16.8% |      15 min |           1.5 h |          14.0 h |       37.9 h |
 
 When a change must reach a worker now, force its channel. Run `container-images-cd.yml` through `workflow_dispatch` on the default branch, with `shared-image-force` set to a JSON array of channel keys, for example `["posthog-cloud/wizard"]`. Force qualifies a newer build that the publication job evaluates when no row matches. The publisher's frontier, image identity and newer-revision checks still apply, as for any publication (see [Selective publication](#selective-publication)). A force dispatch runs the CD workflow under its manual-dispatch conditions, which skip the image boot check, so a successful force is not evidence that the image passed that check. No scheduled job forces a publication.
 

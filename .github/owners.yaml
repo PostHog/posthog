@@ -51,6 +51,9 @@ rules:
           - team-error-tracking
           - team-self-driving
           - team-surfaces
+          - team-replay
+          - team-billing
+          - team-experiments
     - match: '/workflows/cd-llm-analytics-image.yml'
       owners: [team-devex, team-ai-observability]
     - match:
