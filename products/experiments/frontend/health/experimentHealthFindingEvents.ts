@@ -60,6 +60,8 @@ export interface ExperimentHealthFinding {
     severity?: ExperimentHealthFindingApi['severity']
     /** The server finding's reason: a pinned qualifier below the subcode, never customer text. */
     reason?: string
+    /** The check of the finding that the panel shows this one under, as caused by it. */
+    causedBy?: string
 }
 
 // pinned: `open_kind` property values, for the same reason as the codes above.
@@ -144,6 +146,9 @@ function healthFindingEventProperties(
         finding_subcode: finding.subcode ?? null,
         finding_severity: finding.severity ?? null,
         finding_reason: finding.reason ?? null,
+        // pinned: analytics property. Set when the finding shows under the finding of its cause, so that one card
+        // on screen holds several findings.
+        finding_caused_by: finding.causedBy ?? null,
         health_ui: healthUi,
         surface: 'experiment_page',
         // The value the backend reports for a request from the web app, so one breakdown covers both.

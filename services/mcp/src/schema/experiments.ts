@@ -195,7 +195,7 @@ type ExposureCounts = Pick<
 
 export type ExperimentHealthOverview = {
     summary: string
-    findings: Pick<HealthFinding, 'severity' | 'code' | 'title'>[]
+    findings: (Pick<HealthFinding, 'severity' | 'code' | 'title'> & Pick<Partial<HealthFinding>, 'caused_by'>)[]
     details: string
 }
 
@@ -475,7 +475,13 @@ function summaryText({ findings, checks, not_run }: ExperimentHealthDetails): st
 export function overviewHealth(details: ExperimentHealthDetails): ExperimentHealthOverview {
     return {
         summary: summaryText(details),
-        findings: details.findings.map(({ severity, code, title }) => ({ severity, code, title })),
+        // A finding with a cause names the check whose finding to fix, so the agent fixes the cause once.
+        findings: details.findings.map(({ severity, code, title, caused_by }) => ({
+            severity,
+            code,
+            title,
+            ...(caused_by ? { caused_by } : {}),
+        })),
         details:
             'Call experiment-health-get with the same id for the evidence and the fix of each finding, and for the status and reason of every check.',
     }

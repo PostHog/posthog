@@ -6,7 +6,7 @@ import {
 } from '~/queries/schema/schema-general'
 
 import type { ExperimentHealthApi, ExperimentHealthFindingApi } from '../generated/api.schemas'
-import { healthIssues, healthPanelFindings } from './healthPanelFindings'
+import { type HealthPanelFinding, healthFindingGroups, healthIssues, healthPanelFindings } from './healthPanelFindings'
 
 const serverFinding = (
     code: ExperimentHealthFindingApi['code'],
@@ -22,6 +22,7 @@ const serverFinding = (
     actions: [],
     diagnostic_ref: null,
     check: 'no_metric',
+    caused_by: null,
 })
 
 const exposureFinding = (code: ExperimentExposureHealthFindingCode): ExperimentExposureHealthFinding => ({
@@ -120,6 +121,59 @@ describe('healthPanelFindings', () => {
     ])('$name', ({ findings, expected }) => {
         expect(
             healthIssues(healthPanelFindings({ findings, checks: [] }, null, false)).map(({ code }) => code)
+        ).toEqual(expected)
+    })
+
+    const panelFinding = (
+        check: NonNullable<HealthPanelFinding['check']>,
+        severity: HealthPanelFinding['severity'] = 'warning',
+        causedBy: HealthPanelFinding['caused_by'] = null
+    ): HealthPanelFinding => ({
+        ...serverFinding('no_metric', severity),
+        // Each check below reports a finding code of the same name.
+        code: check as HealthPanelFinding['code'],
+        check,
+        caused_by: causedBy,
+    })
+
+    test.each<{ name: string; findings: HealthPanelFinding[]; expected: string[] }>([
+        {
+            name: 'a cause holds the findings of both sources that it causes',
+            findings: [
+                panelFinding('release_conditions_changed_mid_run'),
+                panelFinding('srm', 'warning', 'release_conditions_changed_mid_run'),
+                panelFinding('multiple_variants_share', 'warning', 'release_conditions_changed_mid_run'),
+            ],
+            expected: ['warning release_conditions_changed_mid_run: srm, multiple_variants_share'],
+        },
+        {
+            name: 'a finding whose cause the panel does not show stands on its own',
+            findings: [panelFinding('srm', 'warning', 'split_changed_mid_run')],
+            expected: ['warning srm'],
+        },
+        {
+            name: 'a note that causes a warning sorts with the issues',
+            findings: [
+                panelFinding('stale_experiment', 'info'),
+                panelFinding('forced_variant_release_condition', 'info'),
+                panelFinding('srm', 'warning', 'forced_variant_release_condition'),
+            ],
+            expected: ['warning forced_variant_release_condition: srm', 'info stale_experiment'],
+        },
+        {
+            name: 'a finding whose cause has a cause of its own stands on its own',
+            findings: [
+                panelFinding('split_changed_mid_run'),
+                panelFinding('multiple_variants_share', 'warning', 'split_changed_mid_run'),
+                panelFinding('bias_risk_multiple_excluded', 'warning', 'multiple_variants_share'),
+            ],
+            expected: ['warning split_changed_mid_run: multiple_variants_share', 'warning bias_risk_multiple_excluded'],
+        },
+    ])('$name', ({ findings, expected }) => {
+        expect(
+            healthFindingGroups(findings).map(({ finding, effects, severity }) =>
+                [`${severity} ${finding.code}`, effects.map(({ code }) => code).join(', ')].filter(Boolean).join(': ')
+            )
         ).toEqual(expected)
     })
 })

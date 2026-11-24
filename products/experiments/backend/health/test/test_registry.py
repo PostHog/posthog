@@ -784,8 +784,8 @@ class TestEvaluate(TestCase):
 
     @parameterized.expand(
         [
-            ("persons", False, "Many users were exposed to multiple variants"),
-            ("groups", True, "Many groups were exposed to multiple variants"),
+            ("persons", False, "6.0% of users were exposed to more than one variant, so the results leave them out"),
+            ("groups", True, "6.0% of groups were exposed to more than one variant, so the results leave them out"),
         ]
     )
     def test_multiple_variants_share_names_the_counted_unit(self, _name: str, counts_groups: bool, title: str) -> None:

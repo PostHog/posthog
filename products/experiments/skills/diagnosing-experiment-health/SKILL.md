@@ -145,6 +145,10 @@ _systematic_ bias (e.g. uneven-split + Exclude) doesn't resolve by waiting; a _s
 (e.g. small-sample variance) does. Bundling them leaves the bias in place after the user follows the
 bundled advice.
 
+A health finding with `caused_by` is the measured exception: it names the check whose finding explains it, and that finding's fix fixes both, usually a move of the start date past a flag change.
+Report the two under one cause, with the fix of the finding that `caused_by` names.
+When that finding is missing from the findings you read, report the finding on its own, with its own fix.
+
 Only list mechanisms that have a path to verification in the project state — config (from
 `experiment-get`), snapshot data, activity log, or repo source (when the agent has the repository). Config-derived mechanisms count: an
 80/20 split with default `multiple_variant_handling="exclude"` is visible in `experiment-get` and is

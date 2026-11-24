@@ -17,7 +17,7 @@ import { healthAnalysisReadings } from './healthAnalysisReadings'
 import { HEALTH_CHECK_STATUS_DISPLAY } from './healthCheckStatusDisplay'
 import type { HealthReading } from './healthCheckValues'
 import { type HealthPanelCheck, countHealthChecks } from './healthPanelChecks'
-import { type HealthPanelFinding, healthIssues } from './healthPanelFindings'
+import { type HealthPanelFinding, healthFindingGroups } from './healthPanelFindings'
 import { HealthPanelSection } from './HealthPanelSection'
 import { HealthReadingList } from './HealthReadingList'
 
@@ -162,13 +162,15 @@ export function HealthOverviewDetail({
     const { aggregationLabel } = useValues(groupsModel)
     const libraryShares = exposures?.exposed_by_library ? librarySharesText(exposures.exposed_by_library) : null
     const setupReadings = setup ? buildSetupReadings(setup, aggregationLabel, libraryShares) : []
-    const issues = healthIssues(findings)
+    // One cause counts once, as in the header chip, however many findings it causes.
+    const groups = healthFindingGroups(findings)
+    const issues = groups.filter(({ severity }) => severity !== 'info')
     const issueIcon = (
         <IconWarning
             className={issues.some(({ severity }) => severity === 'critical') ? 'text-danger' : 'text-warning'}
         />
     )
-    const noteCount = findings.length - issues.length
+    const noteCount = groups.length - issues.length
     const passedCount = countHealthChecks(checks, 'passed')
     const notApplicableCount = countHealthChecks(checks, 'not_applicable')
     const counts = [

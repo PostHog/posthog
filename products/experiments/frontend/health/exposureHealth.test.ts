@@ -51,6 +51,16 @@ describe('sampleRatioLine', () => {
             },
         },
         {
+            desc: 'a mismatch after a release condition change',
+            exposures: { ...MISMATCH, health_findings: [srmFinding('release_conditions_changed')] },
+            followsServer: true,
+            expected: {
+                tone: 'warning',
+                label: 'Sample ratio mismatch after a release condition change',
+                tooltip: 'Server detail for release_conditions_changed',
+            },
+        },
+        {
             desc: 'a mismatch the server reports without a cause',
             exposures: { ...MISMATCH, health_findings: [srmFinding(null)] },
             followsServer: true,
