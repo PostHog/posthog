@@ -551,6 +551,17 @@ test('an isolated product skips Django only when the diff leaves its watched set
             },
             { products: ['canvas', 'error-tracking'], runLegacy: true, runLegacyReason: 'contract_cascade' },
         ],
+        // A backend data file can change what a core test sees, and Turbo's Python-only inputs
+        // report no product for it.
+        [
+            { affectedProducts: [], changedFiles: ['products/canvas/backend/logic/seed.json'] },
+            { products: ['canvas', 'error-tracking'], runLegacy: true, runLegacyReason: 'contract_cascade' },
+        ],
+        // A fixture under the product's tests is no backend data file.
+        [
+            { affectedProducts: [], changedFiles: ['products/canvas/backend/tests/fixture.json'] },
+            { products: [], runLegacy: false, runLegacyReason: '' },
+        ],
         // No base to diff against: nothing says the watched set was left alone.
         [
             { changedFiles: null },

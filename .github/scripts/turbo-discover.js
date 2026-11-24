@@ -696,10 +696,23 @@ function watchedPolicyChanges(changedFiles) {
     )
 }
 
+// A non-Python file under a product's backend, outside its tests: a seed or a template that core
+// tests can read. hoglint watches Python modules, and Turbo's backend:test inputs are Python only.
+const PRODUCT_BACKEND = /^products\/[^/]+\/backend\//
+const NOT_BACKEND_DATA_DIRS = ['tests', 'test', '__pycache__']
+
+function isBackendDataFile(file) {
+    if (!PRODUCT_BACKEND.test(file) || file.endsWith('.py') || file.endsWith('.md')) {
+        return false
+    }
+    const directories = file.split('/').slice(3, -1)
+    return !directories.some((directory) => NOT_BACKEND_DATA_DIRS.includes(directory))
+}
+
 // The products among `products` (dashed names) whose watched set the diff touched: a
-// changed file in the set, or a deleted or renamed-away file under the product. A deleted
-// file is in no set of the head tree, so any deletion counts. Without a list of changed
-// files every product counts.
+// changed file in the set, a backend data file of the product, or a deleted or renamed-away
+// file under the product. A deleted file is in no set of the head tree, so any deletion
+// counts. Without a list of changed files every product counts.
 function productsWithWatchedChanges(products, changedFiles, deletedFiles, watched) {
     if (changedFiles === null) {
         return [...products].sort()
@@ -709,7 +722,8 @@ function productsWithWatchedChanges(products, changedFiles, deletedFiles, watche
             const prefix = `${PRODUCTS_DIR}${productToModule(product)}/`
             const files = watched.get(productToModule(product)) ?? new Set()
             return changedFiles.some(
-                (file) => files.has(file) || (file.startsWith(prefix) && deletedFiles.has(file))
+                (file) =>
+                    files.has(file) || (file.startsWith(prefix) && (deletedFiles.has(file) || isBackendDataFile(file)))
             )
         })
         .sort()
@@ -738,7 +752,13 @@ function decideProductChange({ affectedProducts, allProducts, watched, changedFi
         )
         return everything('watched_policy')
     }
-    if (affectedProducts.length === 0) {
+    // Turbo's affected query cannot see a backend data file, so its product is added here.
+    const dataProducts = (changedFiles ?? [])
+        .filter(isBackendDataFile)
+        .map((file) => moduleToProduct(productOfFile(file)))
+        .filter((product) => allProducts.includes(product))
+    const reached = [...new Set([...affectedProducts, ...dataProducts])].sort()
+    if (reached.length === 0) {
         console.error('No product changes detected')
         return { ...none, products: [], runLegacy: false }
     }
@@ -746,20 +766,20 @@ function decideProductChange({ affectedProducts, allProducts, watched, changedFi
         console.error(`hoglint gave no complete watched answer (${watched.status}) — testing all products + Django`)
         return everything('watched_unavailable')
     }
-    const nonIsolated = affectedProducts.filter((p) => !watched.isolated.has(productToModule(p)))
+    const nonIsolated = reached.filter((p) => !watched.isolated.has(productToModule(p)))
     if (nonIsolated.length > 0) {
         console.error(`Non-isolated products changed: ${JSON.stringify(nonIsolated)} — testing all products + Django`)
         // Products that import the changed product's internals keep their events_json paths too.
         const dependents = dependentsOf(nonIsolated, { direct: false })
         return {
             ...everything('non_isolated_product'),
-            diffProducts: dependents === null ? null : [...new Set([...affectedProducts, ...dependents])].sort(),
+            diffProducts: dependents === null ? null : [...new Set([...reached, ...dependents])].sort(),
         }
     }
-    const touched = productsWithWatchedChanges(affectedProducts, changedFiles, deletedFiles, watched.watched)
+    const touched = productsWithWatchedChanges(reached, changedFiles, deletedFiles, watched.watched)
     if (touched.length === 0) {
         console.error('Only unwatched files of isolated products changed — Django can be skipped')
-        return { ...none, products: affectedProducts, runLegacy: false }
+        return { ...none, products: reached, runLegacy: false }
     }
     console.error(`Watched files of isolated products changed: ${JSON.stringify(touched)} — Django will run`)
     const dependentCascade = direct ? 'direct' : 'transitive'
@@ -776,7 +796,7 @@ function decideProductChange({ affectedProducts, allProducts, watched, changedFi
             `Dependent products cascaded in via hoglint map: ${JSON.stringify(dependents)} (${dependentCascade}ly depend on ${JSON.stringify(touched)})`
         )
     }
-    const products = [...new Set([...affectedProducts, ...dependents])].sort()
+    const products = [...new Set([...reached, ...dependents])].sort()
     return { products, runLegacy: true, runLegacyReason: 'contract_cascade', diffProducts: products, dependentCascade }
 }
 
@@ -2030,7 +2050,8 @@ if (legacyChanged) {
     logAffectedReasons('backend:test', affectedTestTasks)
 
     // hoglint runs only when a product changed, or below when a lib change reaches one.
-    const watched = affectedProducts.length > 0 ? loadWatchedSets() : null
+    const watched =
+        affectedProducts.length > 0 || (changedFiles ?? []).some(isBackendDataFile) ? loadWatchedSets() : null
     if (watched !== null) {
         const isolated = [...watched.isolated].map(moduleToProduct).sort()
         console.error(`Isolated products (hoglint watched, ${watched.status}): ${JSON.stringify(isolated)}`)
