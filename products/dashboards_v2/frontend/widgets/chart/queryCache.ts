@@ -2,6 +2,9 @@ import type { DataFrame, RunQuery, WidgetQuery } from './vizTypes'
 
 type Entry = { promise: Promise<DataFrame[]>; frames?: DataFrame[] }
 
+// Enough for every tile on a large dashboard, while each query edit adds a key, so the oldest results go first.
+export const MAX_CACHED_QUERIES = 200
+
 // Kept per runner, so a host that wants fresh results passes a new runner and the old results go with the old one.
 const caches = new WeakMap<RunQuery, Map<string, Entry>>()
 
@@ -27,12 +30,18 @@ export function runCachedQuery(runQuery: RunQuery, queryKey: string): Promise<Da
     const cache = cacheFor(runQuery)
     const existing = cache.get(queryKey)
     if (existing) {
+        // A Map keeps insertion order, so moving the entry to the end marks it as the most recently used.
+        cache.delete(queryKey)
+        cache.set(queryKey, existing)
         return existing.promise
     }
     // A runner that throws before it returns a promise still ends in a rejected promise.
     const promise = Promise.resolve().then(() => runQuery(JSON.parse(queryKey) as WidgetQuery))
     const entry: Entry = { promise }
     cache.set(queryKey, entry)
+    if (cache.size > MAX_CACHED_QUERIES) {
+        cache.delete(cache.keys().next().value as string)
+    }
     promise.then(
         (frames) => {
             entry.frames = frames
