@@ -1,5 +1,3 @@
-"""Sends internal logs from sync code, such as a web request thread, on one background event loop per process."""
-
 import os
 import asyncio
 import threading

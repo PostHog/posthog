@@ -1,5 +1,3 @@
-"""Lets a product send its `log_entries` rows to the logs product through core, the same way the Temporal logger does."""
-
 from datetime import datetime
 
 from products.logs.backend.facade.internal_logs import InternalLogEntry, send_internal_logs
