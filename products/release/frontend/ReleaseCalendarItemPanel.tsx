@@ -1,20 +1,22 @@
 import { useActions, useValues } from 'kea'
 import { ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 
+import { IconCalendar, IconEllipsis, IconTrash } from '@posthog/icons'
 import {
-    AlertDialog,
-    AlertDialogContent,
-    AlertDialogDescription,
-    AlertDialogFooter,
-    AlertDialogHeader,
-    AlertDialogTitle,
     Badge,
     Button,
     Drawer,
     DrawerBody,
     DrawerContent,
     DrawerDescription,
-    DrawerFooter,
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+    Item,
+    ItemContent,
+    ItemDescription,
+    ItemTitle,
     DrawerHeader,
     DrawerTitle,
     Text,
@@ -38,6 +40,7 @@ import { releaseCalendarLogic } from './releaseCalendarLogic'
 import { KIND_ICON, laneCardFacts } from './ReleaseLaneCard'
 import { releaseLogic } from './releaseLogic'
 import { releaseRelatedLogic } from './releaseRelatedLogic'
+import { RolloutStep } from './releaseRollout'
 import { Lane, buildTrack, sendLabel, statusLabel } from './releaseTracks'
 import { CALENDAR_DAYS_AFTER, ReleaseRow } from './releaseUtils'
 import { useRolloutStepsByFlag } from './useRolloutStepsByFlag'
@@ -74,15 +77,31 @@ function Section({ title, children }: { title: string; children: ReactNode }): J
     )
 }
 
-function Rows({ rows }: { rows: { key: string; label: string; detail: string }[] }): JSX.Element {
+function Rows({
+    rows,
+    emphasis = 'label',
+}: {
+    rows: { key: string; label: string; detail: string }[]
+    emphasis?: 'label' | 'detail'
+}): JSX.Element {
     return (
         <div className="grid grid-cols-[5rem_minmax(0,1fr)] gap-x-2 gap-y-1.5">
             {rows.map((row) => (
                 <div key={row.key} className="contents">
-                    <Text size="xs" className="truncate tabular-nums" title={row.label}>
+                    <Text
+                        size="xs"
+                        variant={emphasis === 'label' ? undefined : 'muted'}
+                        className="truncate tabular-nums"
+                        title={row.label}
+                    >
                         {row.label}
                     </Text>
-                    <Text size="xs" variant="muted" className="truncate" title={row.detail}>
+                    <Text
+                        size="xs"
+                        variant={emphasis === 'detail' ? undefined : 'muted'}
+                        className="truncate"
+                        title={row.detail}
+                    >
                         {row.detail}
                     </Text>
                 </div>
@@ -197,14 +216,24 @@ function Variants({ lane }: { lane: Lane | undefined }): JSX.Element | null {
     )
 }
 
+function dailySteps(steps: RolloutStep[]): RolloutStep[] {
+    const lastOfDay = steps.filter(
+        (step, index) =>
+            step.upcoming || index === steps.length - 1 || !dayjs(steps[index + 1].from).isSame(step.from, 'day')
+    )
+    return lastOfDay.filter((step, index) => index === 0 || step.upcoming || step.label !== lastOfDay[index - 1].label)
+}
+
 function History({ lane }: { lane: Lane }): JSX.Element | null {
     const entries =
         lane.kind === 'flag'
-            ? [...lane.steps].reverse().map((step) => ({
-                  key: `${step.from}-${step.label}`,
-                  label: step.label === 'Everyone' ? '100%' : step.label,
-                  detail: step.upcoming ? `Planned for ${date(step.from)}` : `From ${date(step.from)}`,
-              }))
+            ? dailySteps(lane.steps)
+                  .reverse()
+                  .map((step) => ({
+                      key: `${step.from}-${step.label}`,
+                      label: step.label === 'Everyone' ? '100%' : step.label,
+                      detail: step.upcoming ? `Planned for ${date(step.from)}` : date(step.from),
+                  }))
             : lane.kind === 'broadcast'
               ? [...lane.events].reverse().map((event) => ({
                     key: event.key,
@@ -218,6 +247,25 @@ function History({ lane }: { lane: Lane }): JSX.Element | null {
     return (
         <Section title={lane.kind === 'flag' ? 'Rollout history' : 'Sends'}>
             <Rows rows={entries} />
+        </Section>
+    )
+}
+
+function SurveyQuestions(): JSX.Element | null {
+    const { panelSurvey } = useValues(releaseCalendarLogic)
+    const questions = (panelSurvey?.questions ?? []) as { question?: string }[]
+    if (!questions.length) {
+        return null
+    }
+    return (
+        <Section title={questions.length === 1 ? 'Question' : `Questions (${questions.length})`}>
+            <ol className="flex list-decimal flex-col gap-1 pl-4" data-attr="release-calendar-item-panel-questions">
+                {questions.map((question, index) => (
+                    <li key={index}>
+                        <Text size="xs">{question.question}</Text>
+                    </li>
+                ))}
+            </ol>
         </Section>
     )
 }
@@ -264,53 +312,70 @@ function LinkedFlag({ row, flagId }: { row: ReleaseRow; flagId: number | undefin
     )
 }
 
-function FlagStatusButton({ flag }: { flag: FeatureFlagApi }): JSX.Element {
+function StatusRow({ lane }: { lane: Lane }): JSX.Element {
     const { canEditReleases } = useValues(releaseLogic)
     const { setFlagActive } = useActions(releaseLogic)
     const [confirming, setConfirming] = useState(false)
-    const turnOn = !flag.active
+    const flag = lane.kind === 'flag' ? lane.flag : null
+    const turnOn = !flag?.active
+
+    useEffect(() => setConfirming(false), [lane.key])
+
     return (
-        <>
-            <Button
-                variant="outline"
-                onClick={() => setConfirming(true)}
-                disabledReason={canEditReleases ? undefined : NO_EDIT_REASON}
-                data-attr={turnOn ? 'release-calendar-item-panel-turn-on' : 'release-calendar-item-panel-turn-off'}
-            >
-                {turnOn ? 'Turn on' : 'Turn off'}
-            </Button>
-            <AlertDialog open={confirming} onOpenChange={setConfirming}>
-                <AlertDialogContent>
-                    <AlertDialogHeader>
-                        <AlertDialogTitle>{turnOn ? `Turn on ${flag.key}?` : `Turn off ${flag.key}?`}</AlertDialogTitle>
-                        <AlertDialogDescription>
+        <div className="flex flex-col gap-2">
+            <div className="flex min-h-7 items-center gap-2">
+                <Text size="xs" variant="muted">
+                    Status
+                </Text>
+                <Badge variant={lane.live ? 'success' : 'default'}>{statusLabel(lane.status)}</Badge>
+                {flag && !confirming && (
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        className="ml-auto"
+                        onClick={() => setConfirming(true)}
+                        disabledReason={canEditReleases ? undefined : NO_EDIT_REASON}
+                        data-attr={
+                            turnOn ? 'release-calendar-item-panel-turn-on' : 'release-calendar-item-panel-turn-off'
+                        }
+                    >
+                        {turnOn ? 'Turn on' : 'Turn off'}
+                    </Button>
+                )}
+            </div>
+            {flag && confirming && (
+                <Item variant="outline" tone={turnOn ? undefined : 'warning'} size="sm">
+                    <ItemContent>
+                        <ItemTitle>{turnOn ? 'Turn on this flag now?' : 'Turn off this flag now?'}</ItemTitle>
+                        <ItemDescription>
                             {turnOn
-                                ? 'The flag starts to apply its release conditions now.'
-                                : 'The flag stops for all users now. SDKs get no value for it.'}
-                        </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                        <Button variant="outline" onClick={() => setConfirming(false)}>
-                            Cancel
-                        </Button>
-                        <Button
-                            variant={turnOn ? 'primary' : 'destructive'}
-                            onClick={() => {
-                                setFlagActive(flag.id, turnOn)
-                                setConfirming(false)
-                            }}
-                            data-attr="release-calendar-item-panel-status-confirm"
-                        >
-                            {turnOn ? 'Turn on' : 'Turn off'}
-                        </Button>
-                    </AlertDialogFooter>
-                </AlertDialogContent>
-            </AlertDialog>
-        </>
+                                ? 'Users who match its release conditions start to get the feature.'
+                                : 'Every user stops getting the feature. Your code gets false for this flag.'}
+                        </ItemDescription>
+                        <div className="flex gap-2 pt-1">
+                            <Button size="sm" variant="outline" onClick={() => setConfirming(false)}>
+                                Cancel
+                            </Button>
+                            <Button
+                                size="sm"
+                                variant={turnOn ? 'primary' : 'destructive'}
+                                onClick={() => {
+                                    setFlagActive(flag.id, turnOn)
+                                    setConfirming(false)
+                                }}
+                                data-attr="release-calendar-item-panel-status-confirm"
+                            >
+                                {turnOn ? 'Turn on' : 'Turn off'}
+                            </Button>
+                        </div>
+                    </ItemContent>
+                </Item>
+            )}
+        </div>
     )
 }
 
-function ItemActions({ row, lane }: { row: ReleaseRow; lane: Lane }): JSX.Element {
+function PanelActions({ row, lane }: { row: ReleaseRow; lane: Lane }): JSX.Element {
     const { canEditReleases } = useValues(releaseLogic)
     const { openSchedule, unlinkFlag, unlinkBroadcast } = useActions(releaseLogic)
     const { unlinkRelated } = useActions(releaseRelatedLogic)
@@ -324,7 +389,7 @@ function ItemActions({ row, lane }: { row: ReleaseRow; lane: Lane }): JSX.Elemen
                 ? () => unlinkBroadcast(row.id, lane.key.replace(/^broadcast-/, ''))
                 : null
     return (
-        <div className="flex w-full flex-wrap items-center gap-2">
+        <div className="flex items-center gap-2 pt-2">
             <Button
                 variant="primary"
                 nativeButton={false}
@@ -334,33 +399,49 @@ function ItemActions({ row, lane }: { row: ReleaseRow; lane: Lane }): JSX.Elemen
                 Open {KIND_LABEL[lane.kind].toLowerCase()}
             </Button>
             {lane.kind === 'flag' && (
-                <>
-                    <FlagStatusButton flag={lane.flag} />
-                    <Button
-                        variant="outline"
-                        onClick={() => {
-                            closeCalendarItem()
-                            openSchedule(lane.flag.id)
-                        }}
-                        disabledReason={canEditReleases ? undefined : NO_EDIT_REASON}
-                        data-attr="release-calendar-item-panel-schedule"
-                    >
-                        Schedule a change
-                    </Button>
-                </>
-            )}
-            {remove && (
                 <Button
-                    variant="destructive-outline"
+                    variant="outline"
                     onClick={() => {
                         closeCalendarItem()
-                        remove()
+                        openSchedule(lane.flag.id)
                     }}
                     disabledReason={canEditReleases ? undefined : NO_EDIT_REASON}
-                    data-attr="release-calendar-item-panel-remove"
+                    data-attr="release-calendar-item-panel-schedule"
                 >
-                    Remove from release
+                    <IconCalendar />
+                    Schedule a change
                 </Button>
+            )}
+            {remove && (
+                <DropdownMenu>
+                    <DropdownMenuTrigger
+                        render={
+                            <Button
+                                variant="default"
+                                size="icon"
+                                className="ml-auto"
+                                aria-label={`More actions for ${lane.title}`}
+                                data-attr="release-calendar-item-panel-more"
+                            />
+                        }
+                    >
+                        <IconEllipsis />
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="min-w-48">
+                        <DropdownMenuItem
+                            variant="destructive"
+                            onClick={() => {
+                                closeCalendarItem()
+                                remove()
+                            }}
+                            disabledReason={canEditReleases ? undefined : NO_EDIT_REASON}
+                            data-attr="release-calendar-item-panel-remove"
+                        >
+                            <IconTrash />
+                            Remove from release
+                        </DropdownMenuItem>
+                    </DropdownMenuContent>
+                </DropdownMenu>
             )}
         </div>
     )
@@ -377,7 +458,9 @@ function ItemDetails({ row, lane, lanes }: { row: ReleaseRow; lane: Lane; lanes:
             : undefined
     const linkedFlagId = experiment
         ? row.flags.find((flag) => flag.key === experiment.feature_flag_key)?.id
-        : earlyAccess?.feature_flag?.id
+        : lane.kind === 'survey'
+          ? (lane.survey.linkedFlagId ?? undefined)
+          : earlyAccess?.feature_flag?.id
     const linkedLane = lanes.find((item) => item.key === `flag-${linkedFlagId}`)
     const description = experiment?.description || earlyAccess?.description
     return (
@@ -395,18 +478,17 @@ function ItemDetails({ row, lane, lanes }: { row: ReleaseRow; lane: Lane; lanes:
                         {row.name}
                     </LinkPrimitive>
                 </DrawerDescription>
+                <PanelActions row={row} lane={lane} />
             </DrawerHeader>
             <DrawerBody>
                 <div className="flex flex-col gap-5">
                     <div className="flex flex-col gap-3">
-                        <div className="flex items-center gap-2">
-                            <Text size="xs" variant="muted">
-                                Status
-                            </Text>
-                            <Badge variant={lane.live ? 'success' : 'default'}>{statusLabel(lane.status)}</Badge>
-                        </div>
+                        <StatusRow lane={lane} />
                         {facts.length > 0 && (
-                            <Rows rows={facts.map(([label, value]) => ({ key: label, label, detail: value }))} />
+                            <Rows
+                                emphasis="detail"
+                                rows={facts.map(([label, value]) => ({ key: label, label, detail: value }))}
+                            />
                         )}
                     </div>
                     {description && (
@@ -416,14 +498,12 @@ function ItemDetails({ row, lane, lanes }: { row: ReleaseRow; lane: Lane; lanes:
                     )}
                     {lane.kind === 'flag' && <Conditions flag={lane.flag} />}
                     <Variants lane={lane.kind === 'flag' ? lane : linkedLane} />
+                    {lane.kind === 'survey' && <SurveyQuestions />}
                     <Upcoming lane={lane} />
                     {lane.kind !== 'flag' && <LinkedFlag row={row} flagId={linkedFlagId} />}
                     <History lane={lane} />
                 </div>
             </DrawerBody>
-            <DrawerFooter>
-                <ItemActions row={row} lane={lane} />
-            </DrawerFooter>
         </>
     )
 }
