@@ -7,7 +7,7 @@ import type { CyclotronProbe } from '../probe/cyclotron-probe'
 import type { TruthRecord } from '../provider-edge'
 import { INVARIANTS, deliveryKey, residentBacklogIntact } from './invariants'
 import type { JudgeEvidence } from './invariants'
-import type { TruthSource } from './truth'
+import type { TruthRead, TruthSource } from './truth'
 
 export type IntakeAnswer = (
     | { accepted: true }
@@ -52,7 +52,12 @@ export interface Judge {
     open(seed: Pick<SeedState, 'teamIds'>): Promise<void>
     record(unit: JournalEntry): void
     converge(withinMs: number, signal: AbortSignal): Promise<Convergence>
-    check(invariants: Named[], gates: Record<string, number>, run: RunEvidence): Promise<InvariantResult[]>
+    check(
+        invariants: Named[],
+        gates: Record<string, number>,
+        run: RunEvidence,
+        signal?: AbortSignal
+    ): Promise<InvariantResult[]>
     evidence(): { journal: JournalEntry[]; truth: TruthRecord[]; fetchRetries: number; unread?: string }
 }
 
@@ -61,8 +66,36 @@ export type JudgeOptions = {
     probe: Pick<CyclotronProbe, 'unfinishedJobs'>
     fetchRetries: number
     residentBacklog?: () => Promise<ResidentBacklog>
+    finalRead?: FinalRead
     pollMs?: number
     now?: () => number
+}
+
+export type FinalRead = { attempts: number; backoffMs: number }
+
+const FINAL_READ: FinalRead = { attempts: 3, backoffMs: 1000 }
+const FINAL: TruthRead = { final: true }
+
+const messageOf = (error: unknown): string =>
+    typeof error === 'object' && error !== null && 'message' in error ? String(error.message) : String(error)
+
+async function retried<T>(
+    read: () => Promise<T>,
+    { attempts, backoffMs }: FinalRead,
+    signal?: AbortSignal
+): Promise<T> {
+    for (let attempt = 1; ; attempt++) {
+        try {
+            return await read()
+        } catch (error) {
+            if (attempt < attempts) {
+                await sleep(backoffMs * attempt, undefined, { signal }).catch(() => undefined)
+            }
+            if (attempt >= attempts || signal?.aborted) {
+                throw new Error(`${attempt} of ${attempts} attempts failed, the last with ${messageOf(error)}`)
+            }
+        }
+    }
 }
 
 export function createJudge({
@@ -70,6 +103,7 @@ export function createJudge({
     probe,
     fetchRetries,
     residentBacklog,
+    finalRead = FINAL_READ,
     pollMs = 1000,
     now = Date.now,
 }: JudgeOptions): Judge {
@@ -90,13 +124,42 @@ export function createJudge({
         }
     }
 
+    const pullToHead = async (signal?: AbortSignal): Promise<void> => {
+        let head: number | undefined
+        try {
+            if (signal?.aborted) {
+                throw new Error('the run was stopped')
+            }
+            const sampled = await retried(() => source.head(FINAL), finalRead, signal)
+            if (!Number.isInteger(sampled)) {
+                throw new Error('the edge answered no head')
+            }
+            head = sampled
+            while (cursor < head) {
+                if (signal?.aborted) {
+                    throw new Error('the run was stopped')
+                }
+                const page = await retried(() => source.after(cursor, FINAL), finalRead, signal)
+                const records = page.records.filter(({ seq }) => seq > cursor && seq <= head!)
+                if (records.length === 0) {
+                    throw new Error(`the edge answered no records past ${cursor}`)
+                }
+                truth.push(...records)
+                cursor = records.at(-1)!.seq
+            }
+        } catch (error) {
+            const at = head === undefined ? cursor : `${cursor} of ${head}`
+            throw new Error(`the truth read hit a harness limit at record ${at}: ${messageOf(error)}`)
+        }
+    }
+
     const read = async <T>(what: () => Promise<T>): Promise<T | undefined> => {
         try {
             const value = await what()
             unread = undefined
             return value
         } catch (error) {
-            unread = error instanceof Error ? error.message : String(error)
+            unread = messageOf(error)
             return undefined
         }
     }
@@ -152,8 +215,8 @@ export function createJudge({
             }
         },
 
-        async check(invariants, gates, run) {
-            await read(pullTruth)
+        async check(invariants, gates, run, signal) {
+            await read(() => pullToHead(signal))
             const resident = invariants.some(({ name }) => name === residentBacklogIntact.name)
                 ? await residentBacklog?.()
                 : undefined

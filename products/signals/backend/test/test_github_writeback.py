@@ -291,14 +291,21 @@ class TestPostReportLinkToGithubIssues(BaseTest):
         assert posted == expected
         assert [call.args[:2] for call in comment.call_args_list] == [("acme/widgets", 42)] * expected
 
-    def test_posts_no_second_comment_when_the_issue_signal_joins_later(self):
+    @parameterized.expand(
+        [
+            ("the source issue before the issue signal", False),
+            ("the issue signal before the source issue", True),
+        ]
+    )
+    def test_posts_no_second_comment_for_an_issue_that_is_both_a_signal_and_a_source_issue(self, _name, signal_first):
         self._sync_issues("acme/widgets.issues")
         self._name_source_issue()
+        calls = [[self.signal], []] if signal_first else [[], [self.signal]]
 
-        first, _ = self._post([])
-        joined, comment = self._post([self.signal])
+        first, _ = self._post(calls[0])
+        second, comment = self._post(calls[1])
 
-        assert (first, joined) == (1, 0)
+        assert (first, second) == (1, 0)
         comment.assert_not_called()
 
     def _name_source_issue(self):

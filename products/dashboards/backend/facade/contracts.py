@@ -8,15 +8,20 @@ product hold only these.
 
 from dataclasses import field
 from datetime import datetime
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 from uuid import UUID
 
+from pydantic import JsonValue
 from pydantic.dataclasses import dataclass
 
 from posthog.dataclasses import frozen
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef
-from products.dashboards.backend.facade.enums import DashboardCreationMode, DashboardTemplateScope
+from products.dashboards.backend.facade.enums import (
+    DashboardCreationMode,
+    DashboardTemplateOrdering,
+    DashboardTemplateScope,
+)
 
 GRID_COLUMNS = 12
 MAX_TEXT_TILE_LENGTH = 4000
@@ -256,6 +261,102 @@ class DashboardTemplateDefinition:
     image_url: str | None = None
     scope: DashboardTemplateScope | None = None
     availability_contexts: list[str] | None = None
+
+
+MAX_DASHBOARD_TEMPLATES_PER_ORGANIZATION = 100
+
+
+class DashboardTemplateNotFound(LookupError):
+    """No template this project can see has this id. The API answers 404."""
+
+
+class DashboardTemplateWriteRejected(ValueError):
+    """A template write breaks a rule. The API answers 400 with `message`, on `field` when it names one."""
+
+    def __init__(self, message: str, *, field: str | None = None, code: str = "invalid") -> None:
+        super().__init__(message)
+        self.message = message
+        self.field = field
+        self.code = code
+
+
+@dataclass(frozen=True)
+class DashboardTemplateCreator:
+    """The user fields a template response shows for its creator."""
+
+    id: int
+    uuid: UUID
+    distinct_id: str | None
+    first_name: str
+    last_name: str
+    email: str
+    is_email_verified: bool | None
+    hedgehog_config: dict[str, Any] | None
+    role_at_organization: str | None
+
+
+@dataclass(frozen=True)
+class DashboardTemplate:
+    """A stored dashboard template. The JSON columns hold whatever JSON the API accepted for them."""
+
+    id: UUID
+    team_id: int | None
+    template_name: str | None
+    dashboard_description: str | None
+    dashboard_filters: JsonValue
+    tiles: JsonValue
+    variables: JsonValue
+    customization: JsonValue
+    tags: list[str] | None
+    created_at: datetime | None
+    created_by_id: int | None
+    created_by: DashboardTemplateCreator | None
+    deleted: bool | None
+    image_url: str | None
+    # The stored value. A staff update can store a blank scope, and nothing in the database holds a row to the
+    # choices, so a value outside them reads back as the raw string instead of failing the read.
+    scope: DashboardTemplateScope | str | None
+    availability_contexts: list[str] | None
+    is_featured: bool
+
+
+@dataclass(frozen=True)
+class DashboardTemplateWrite:
+    """The template fields a create or an update writes. Only the fields named in `fields_set` are written."""
+
+    fields_set: frozenset[str]
+    template_name: str | None = None
+    dashboard_description: str | None = None
+    dashboard_filters: JsonValue = None
+    tags: list[str] | None = None
+    tiles: JsonValue = None
+    variables: JsonValue = None
+    customization: JsonValue = None
+    deleted: bool | None = None
+    image_url: str | None = None
+    scope: DashboardTemplateScope | Literal[""] | None = None
+    availability_contexts: list[str] | None = None
+    is_featured: bool = False
+
+
+@dataclass(frozen=True)
+class DashboardTemplateFilters:
+    """The list query params. They narrow a retrieve or an update too."""
+
+    scope: DashboardTemplateScope | None = None
+    # An empty search still filters by rank. Only None leaves the list unsearched.
+    search: str | None = None
+    ordering: DashboardTemplateOrdering | None = None
+    is_featured: bool | None = None
+
+
+@dataclass(frozen=True)
+class NonPortableReferences:
+    """Project-specific references in a template's tiles, which another project may not have."""
+
+    actions: int
+    cohorts: int
+    warehouse_tables: tuple[str, ...]
 
 
 # Returned only by facade/testing.py; boundary-crossing data types live in this module.
