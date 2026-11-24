@@ -472,6 +472,18 @@ class BillingManager:
         if organization and billing_service_response:
             self.update_org_details(organization, billing_service_response, timeout=timeout)
 
+        return self._build_billing_response(organization, billing_service_response, timeout=timeout)
+
+    def _build_billing_response(
+        self,
+        organization: Organization,
+        billing_service_response: BillingStatus,
+        *,
+        timeout: tuple[float, float] | None = None,
+    ) -> dict[str, Any]:
+        if not self.license:  # mypy
+            raise Exception("No license found")
+
         response: dict[str, Any] = {"available_product_features": []}
 
         response["license"] = {"plan": self.license.plan}
@@ -513,6 +525,28 @@ class BillingManager:
             product["percentage_usage"] = current_usage / usage_limit if usage_limit else 0
 
         return response
+
+    def get_billing_read_only(
+        self,
+        organization: Organization | None,
+        query_params: dict[str, Any] | None = None,
+        *,
+        timeout: tuple[float, float] | None = None,
+    ) -> dict[str, Any]:
+        """Builds the response the way get_billing does, but from the stored organization and license.
+
+        It writes nothing, so a stored todays_usage or license plan that billing has moved past stays in the response.
+        """
+        if not organization or not self.license or not self.license.is_v2_license:
+            return self._get_default_billing_response(organization, timeout=timeout)
+
+        billing_service_response = self._get_billing(organization, query_params, timeout=timeout)
+
+        customer = cast(dict[str, Any], billing_service_response).get("customer")
+        if not customer:
+            return self._get_default_billing_response(organization, timeout=timeout)
+
+        return self._build_billing_response(organization, billing_service_response, timeout=timeout)
 
     def update_billing(
         self, organization: Organization, data: dict[str, Any], authorizer_actor: Optional[User] = None

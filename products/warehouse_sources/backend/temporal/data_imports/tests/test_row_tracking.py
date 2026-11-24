@@ -487,7 +487,7 @@ class TestRowTracking(BaseTest):
         source = await self._create_source()
 
         with (
-            mock.patch("ee.billing.billing_manager.BillingManager.get_billing") as mock_get_billing,
+            mock.patch("ee.billing.billing_manager.BillingManager.get_billing_read_only") as mock_get_billing,
             mock.patch(
                 "products.warehouse_sources.backend.temporal.data_imports.row_tracking.capture_exception"
             ) as mock_capture_exception,
@@ -524,7 +524,7 @@ class TestRowTracking(BaseTest):
         source = await self._create_source()
 
         with (
-            mock.patch("ee.billing.billing_manager.BillingManager.get_billing") as mock_get_billing,
+            mock.patch("ee.billing.billing_manager.BillingManager.get_billing_read_only") as mock_get_billing,
             mock.patch(
                 "products.warehouse_sources.backend.temporal.data_imports.row_tracking.capture_exception"
             ) as mock_capture_exception,
@@ -555,7 +555,7 @@ class TestRowTracking(BaseTest):
             handle_billing_service_error(response)
 
         with (
-            mock.patch("ee.billing.billing_manager.BillingManager.get_billing") as mock_get_billing,
+            mock.patch("ee.billing.billing_manager.BillingManager.get_billing_read_only") as mock_get_billing,
             mock.patch(
                 "products.warehouse_sources.backend.temporal.data_imports.row_tracking.capture_exception"
             ) as mock_capture_exception,
@@ -580,7 +580,7 @@ class TestRowTracking(BaseTest):
             handle_billing_service_error(response)
 
         with (
-            mock.patch("ee.billing.billing_manager.BillingManager.get_billing") as mock_get_billing,
+            mock.patch("ee.billing.billing_manager.BillingManager.get_billing_read_only") as mock_get_billing,
             mock.patch(
                 "products.warehouse_sources.backend.temporal.data_imports.row_tracking.capture_exception"
             ) as mock_capture_exception,
@@ -600,7 +600,7 @@ class TestRowTracking(BaseTest):
         source = await self._create_source()
 
         with (
-            mock.patch("ee.billing.billing_manager.BillingManager.get_billing") as mock_get_billing,
+            mock.patch("ee.billing.billing_manager.BillingManager.get_billing_read_only") as mock_get_billing,
             mock.patch(
                 "products.warehouse_sources.backend.temporal.data_imports.row_tracking.capture_exception"
             ) as mock_capture_exception,
