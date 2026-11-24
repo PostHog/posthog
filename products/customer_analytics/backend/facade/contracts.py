@@ -23,10 +23,17 @@ from pydantic.dataclasses import dataclass
 
 from posthog.dataclasses import frozen
 
+from products.authorization.backend.facade.contracts import Subject
 from products.customer_analytics.backend.facade.enums import WarehousePersonPropertyMissingRowBehavior
 
 if TYPE_CHECKING:
     from posthog.schema import PersonPropertyFilter
+
+
+@frozen
+class CustomPropertyAccess:
+    subject: Subject
+    missing_scopes: frozenset[str] = frozenset()
 
 
 class PersonAccount(TypedDict):

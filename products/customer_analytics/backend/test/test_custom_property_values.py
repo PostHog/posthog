@@ -16,8 +16,8 @@ from posthog.models import OrganizationMembership, Team, User
 from posthog.models.scoping import team_scope
 from posthog.paging import PageRequest
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
+from products.authorization.backend.facade.contracts import Subject
 from products.customer_analytics.backend.facade import (
     api as facade,
     contracts,
@@ -570,16 +570,13 @@ class TestCanonicalCustomPropertyDefinition(BaseTest):
 
         with team_scope(self.team.id):
             view = facade.get_custom_property_definition(
-                self.team.id, str(definition.id), user_access_control=self._uac()
+                self.team.id,
+                str(definition.id),
+                access=contracts.CustomPropertyAccess(subject=Subject(user_id=self.user.pk)),
             )
 
         assert view is not None
         assert view.is_canonical is expected
-
-    def _uac(self):
-        uac = MagicMock()
-        uac.check_access_level_for_resource.return_value = True
-        return uac
 
     def test_a_non_canonical_definition_can_be_renamed(self):
         plan = create_custom_property_definition(team_id=self.team.id, name="Plan")
@@ -687,8 +684,9 @@ class TestCustomPropertyDefinitionReferences(BaseTest):
         )
         return user
 
-    def _uac(self, *, can_read_workflows: bool = True) -> UserAccessControl:
-        return UserAccessControl(user=self.user if can_read_workflows else self._limited_workflow_user, team=self.team)
+    def _access(self, *, can_read_workflows: bool = True) -> contracts.CustomPropertyAccess:
+        user = self.user if can_read_workflows else self._limited_workflow_user
+        return contracts.CustomPropertyAccess(subject=Subject(user_id=user.pk))
 
     def _create_workflow_setting(self, definition_id: str, *, name: str = "Onboarding", status: str = "active"):
         return create_workflow_for_test(
@@ -713,7 +711,7 @@ class TestCustomPropertyDefinitionReferences(BaseTest):
 
         with team_scope(self.team.id):
             page = facade.list_custom_property_definitions(
-                self.team.id, page=PageRequest(limit=50), user_access_control=self._uac()
+                self.team.id, page=PageRequest(limit=50), access=self._access()
             )
         by_id = {view.id: view for view in page.results}
 
@@ -732,7 +730,7 @@ class TestCustomPropertyDefinitionReferences(BaseTest):
 
         with team_scope(self.team.id):
             page = facade.list_custom_property_definitions(
-                self.team.id, page=PageRequest(limit=50), user_access_control=self._uac()
+                self.team.id, page=PageRequest(limit=50), access=self._access()
             )
 
         assert next(v for v in page.results if v.id == plan.id).references == []
@@ -742,7 +740,7 @@ class TestCustomPropertyDefinitionReferences(BaseTest):
         workflow = self._create_workflow_setting(str(plan.id))
 
         with team_scope(self.team.id):
-            view = facade.get_custom_property_definition(self.team.id, str(plan.id), user_access_control=self._uac())
+            view = facade.get_custom_property_definition(self.team.id, str(plan.id), access=self._access())
 
         assert view is not None
         assert [(r.id, r.name, r.status, r.type) for r in view.references] == [
@@ -762,7 +760,7 @@ class TestCustomPropertyDefinitionReferences(BaseTest):
                 organization_id=self.organization.id,
                 user=self.user,
                 was_impersonated=False,
-                user_access_control=self._uac(),
+                access=self._access(),
             )
 
         assert view is not None
@@ -778,10 +776,10 @@ class TestCustomPropertyDefinitionReferences(BaseTest):
 
         with team_scope(self.team.id):
             page = facade.list_custom_property_definitions(
-                self.team.id, page=PageRequest(limit=50), user_access_control=self._uac(can_read_workflows=False)
+                self.team.id, page=PageRequest(limit=50), access=self._access(can_read_workflows=False)
             )
             view = facade.get_custom_property_definition(
-                self.team.id, str(plan.id), user_access_control=self._uac(can_read_workflows=False)
+                self.team.id, str(plan.id), access=self._access(can_read_workflows=False)
             )
 
         list_view = next(v for v in page.results if v.id == plan.id)
@@ -803,7 +801,7 @@ class TestCustomPropertyDefinitionReferences(BaseTest):
                 organization_id=self.organization.id,
                 user=self.user,
                 was_impersonated=False,
-                user_access_control=self._uac(can_read_workflows=False),
+                access=self._access(can_read_workflows=False),
             )
 
         assert view is not None

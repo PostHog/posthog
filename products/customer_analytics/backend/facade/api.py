@@ -75,6 +75,9 @@ from posthog.paging import Page, PageRequest
 from posthog.queryset_paging import select_page
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.conversations.backend.facade.api import (
     AccountEmailThreadMessage as AccountEmailThreadMessage,
     AccountEmailThreadSummary as AccountEmailThreadSummary,
@@ -161,9 +164,6 @@ from products.customer_analytics.backend.logic.person_property_projection import
 )
 from products.customer_analytics.backend.logic.usage_spike_notifications import (
     notify_managers_of_usage_spike as notify_managers_of_usage_spike,
-)
-from products.customer_analytics.backend.logic.warehouse_scope_gate import (
-    ScopeGatedAccessControl as _ScopeGatedAccessControl,
 )
 from products.customer_analytics.backend.models import (
     CANONICAL_DISPLAY_TYPE_BY_NAME,
@@ -1531,7 +1531,7 @@ def _to_custom_property_definition_view(
     definition: CustomPropertyDefinition,
     references: list[contracts.CustomPropertyReference] | None = None,
     has_workflow_reference: bool = False,
-    user_access_control: "UserAccessControl | None" = None,
+    access: contracts.CustomPropertyAccess | None = None,
     enrichment_by_source_id: "dict[Any, tuple[Any, CustomPropertySyncRun | None]] | None" = None,
 ) -> contracts.CustomPropertyDefinitionView:
     return contracts.CustomPropertyDefinitionView(
@@ -1548,7 +1548,7 @@ def _to_custom_property_definition_view(
         updated_at=definition.updated_at,
         references=references or [],
         has_workflow_reference=has_workflow_reference,
-        source=_definition_source_view(definition, user_access_control, enrichment_by_source_id),
+        source=_definition_source_view(definition, access, enrichment_by_source_id),
         options=_to_custom_property_options(definition.options),
     )
 
@@ -1559,18 +1559,6 @@ def _to_custom_property_options(
     if options is None:
         return None
     return [contracts.CustomPropertyOption(**option) for option in options]
-
-
-def scope_warehouse_access(access: UserAccessControl, scopes: list[str]) -> UserAccessControl:
-    return cast(UserAccessControl, _ScopeGatedAccessControl(access, scopes))
-
-
-def _filter_workflow_references_for_caller(
-    team_id: int, references: dict[str, list[HogFlowReference]], access: "UserAccessControl"
-) -> dict[str, list[HogFlowReference]]:
-    if isinstance(access, _ScopeGatedAccessControl) and not access.allows_scope("hog_flow", "viewer"):
-        return {}
-    return filter_hog_flow_references_by_access_level(team_id, references, access)
 
 
 def _custom_property_references_by_definition_id(
@@ -1601,7 +1589,7 @@ def _to_custom_property_references(
 
 def _definition_source_view(
     definition: CustomPropertyDefinition,
-    user_access_control: "UserAccessControl | None" = None,
+    access: contracts.CustomPropertyAccess | None = None,
     enrichment_by_source_id: "dict[Any, tuple[Any, CustomPropertySyncRun | None]] | None" = None,
 ) -> contracts.CustomPropertySourceView | None:
     """The source bound to this definition (reverse one-to-one ``source``), or None. List reads
@@ -1617,7 +1605,7 @@ def _definition_source_view(
         if enrichment_by_source_id is not None
         else _RESOLVE_ENRICHMENT_INLINE
     )
-    return _to_custom_property_source_view(source, user_access_control, enrichment)
+    return _to_custom_property_source_view(source, access, enrichment)
 
 
 def _custom_property_definitions_queryset(
@@ -1632,23 +1620,27 @@ def _custom_property_definitions_queryset(
 
 
 def _to_custom_property_definition_views(
-    team_id: int, page: list[CustomPropertyDefinition], user_access_control: "UserAccessControl"
+    team_id: int, page: list[CustomPropertyDefinition], access: contracts.CustomPropertyAccess
 ) -> list[contracts.CustomPropertyDefinitionView]:
     workflow_references = _custom_property_references_by_definition_id(team_id)
-    references = _filter_workflow_references_for_caller(team_id, workflow_references, user_access_control)
+    references = (
+        filter_hog_flow_references_by_access_level(team_id, workflow_references, access.subject)
+        if "hog_flow:read" not in access.missing_scopes
+        else {}
+    )
     sources: list[CustomPropertySource] = []
     for d in page:
         try:
             sources.append(d.source)
         except CustomPropertySource.DoesNotExist:
             pass
-    enrichment = _batch_source_enrichment(team_id, sources, user_access_control)
+    enrichment = _batch_source_enrichment(team_id, sources, access)
     return [
         _to_custom_property_definition_view(
             d,
             _to_custom_property_references(references.get(str(d.id), [])),
             has_workflow_reference=bool(workflow_references.get(str(d.id))),
-            user_access_control=user_access_control,
+            access=access,
             enrichment_by_source_id=enrichment,
         )
         for d in page
@@ -1659,7 +1651,7 @@ def list_custom_property_definitions(
     team_id: int,
     *,
     page: PageRequest,
-    user_access_control: "UserAccessControl",
+    access: contracts.CustomPropertyAccess,
     exclude_group_targets: bool = False,
     target_type: str | None = None,
 ) -> Page[contracts.CustomPropertyDefinitionView]:
@@ -1671,19 +1663,19 @@ def list_custom_property_definitions(
     that wants a single target doesn't page over every definition to find it."""
     queryset = _custom_property_definitions_queryset(team_id, exclude_group_targets, target_type)
     selected = select_page(queryset, page)
-    views = _to_custom_property_definition_views(team_id, selected.results, user_access_control)
+    views = _to_custom_property_definition_views(team_id, selected.results, access)
     return Page(results=views, count=selected.count)
 
 
 def list_all_custom_property_definitions(
     team_id: int,
     *,
-    user_access_control: "UserAccessControl",
+    access: contracts.CustomPropertyAccess,
     exclude_group_targets: bool = False,
 ) -> list[contracts.CustomPropertyDefinitionView]:
     """All of the team's custom property definitions, ordered by name, for a caller that needs the whole list."""
     queryset = _custom_property_definitions_queryset(team_id, exclude_group_targets, None)
-    return _to_custom_property_definition_views(team_id, list(queryset), user_access_control)
+    return _to_custom_property_definition_views(team_id, list(queryset), access)
 
 
 def get_custom_property_definition_target_type(team_id: int, definition_id: str) -> str | None:
@@ -1692,7 +1684,7 @@ def get_custom_property_definition_target_type(team_id: int, definition_id: str)
 
 
 def get_custom_property_definition(
-    team_id: int, definition_id: str, *, user_access_control: "UserAccessControl"
+    team_id: int, definition_id: str, *, access: contracts.CustomPropertyAccess
 ) -> contracts.CustomPropertyDefinitionView | None:
     definition = _get_custom_property_definition(team_id, definition_id)
     if definition is None:
@@ -1701,14 +1693,18 @@ def get_custom_property_definition(
         team_id, definition_id=str(definition.id)
     )
     workflow_references = workflow_references_by_definition_id.get(str(definition.id), [])
-    references = _filter_workflow_references_for_caller(
-        team_id, workflow_references_by_definition_id, user_access_control
-    ).get(str(definition.id), [])
+    references = (
+        filter_hog_flow_references_by_access_level(team_id, workflow_references_by_definition_id, access.subject).get(
+            str(definition.id), []
+        )
+        if "hog_flow:read" not in access.missing_scopes
+        else []
+    )
     return _to_custom_property_definition_view(
         definition,
         _to_custom_property_references(references),
         has_workflow_reference=bool(workflow_references),
-        user_access_control=user_access_control,
+        access=access,
     )
 
 
@@ -1785,7 +1781,7 @@ def update_custom_property_definition(
     organization_id,
     user: "User",
     was_impersonated: bool,
-    user_access_control: "UserAccessControl | None" = None,
+    access: contracts.CustomPropertyAccess | None = None,
 ) -> contracts.CustomPropertyDefinitionView | None:
     """Apply ``fields`` (only the keys the caller sent) to a team-scoped definition. Returns the
     updated view, or None when no definition matches the id for this team (→ 404)."""
@@ -1832,17 +1828,17 @@ def update_custom_property_definition(
     )
     workflow_references = workflow_references_by_definition_id.get(str(definition.id), [])
     references = (
-        _filter_workflow_references_for_caller(team_id, workflow_references_by_definition_id, user_access_control).get(
+        filter_hog_flow_references_by_access_level(team_id, workflow_references_by_definition_id, access.subject).get(
             str(definition.id), []
         )
-        if user_access_control is not None
+        if access is not None and "hog_flow:read" not in access.missing_scopes
         else []
     )
     return _to_custom_property_definition_view(
         definition,
         _to_custom_property_references(references),
         has_workflow_reference=bool(workflow_references),
-        user_access_control=user_access_control,
+        access=access,
     )
 
 
@@ -1948,23 +1944,33 @@ def _profile_binding(source: CustomPropertySource) -> "WarehouseBinding | None":
     return None
 
 
-def _resolve_schema(team_id: int, schema_id: Any, user_access_control: "UserAccessControl | None") -> Any:
+def _resolve_schema(team_id: int, schema_id: Any, access: contracts.CustomPropertyAccess | None) -> Any:
     """The ``ExternalDataSchema`` (with ``.source`` loaded) for a schema-bound source, or None when it
     no longer exists or the caller lacks object-level ``external_data_source`` viewer access.
-    ``user_access_control`` None (service auth) skips the object check, matching ``_enforce_object_access``.
+    ``access`` None (service auth) skips the object check, matching ``_enforce_object_access``.
     ``apps.get_model`` keeps this off a warehouse_sources internal import."""
     schema_model = apps.get_model("warehouse_sources", "ExternalDataSchema")
     schema = schema_model.objects.filter(id=schema_id, team_id=team_id).select_related("source", "table").first()
     if schema is None:
         return None
-    if user_access_control is not None and not user_access_control.check_access_level_for_object(
-        schema.source, required_level="viewer"
+    if access is not None and (
+        "external_data_source:read" in access.missing_scopes
+        or not authorization.check(
+            resource=Resource(
+                type=ResourceType.EXTERNAL_DATA_SOURCE,
+                project_id=schema.source.team_id,
+                id=str(schema.source_id),
+                created_by_id=schema.source.created_by_id,
+            ),
+            action=Action.VIEW,
+            subject=access.subject,
+        )
     ):
         return None
     return schema
 
 
-def _resolve_saved_query(team_id: int, saved_query_id: Any, user_access_control: "UserAccessControl | None") -> Any:
+def _resolve_saved_query(team_id: int, saved_query_id: Any, access: contracts.CustomPropertyAccess | None) -> Any:
     """The ``DataWarehouseSavedQuery`` for a view-bound source, or None when it no longer resolves or
     the caller lacks object-level ``warehouse_view`` viewer access — the same gate the warehouse view
     endpoints and HogQL resolution apply."""
@@ -1972,8 +1978,18 @@ def _resolve_saved_query(team_id: int, saved_query_id: Any, user_access_control:
     saved_query = saved_query_model.objects.filter(id=saved_query_id, team_id=team_id).exclude(deleted=True).first()
     if saved_query is None:
         return None
-    if user_access_control is not None and not user_access_control.check_access_level_for_object(
-        saved_query, required_level="viewer"
+    if access is not None and (
+        "warehouse_view:read" in access.missing_scopes
+        or not authorization.check(
+            resource=Resource(
+                type=ResourceType.WAREHOUSE_VIEW,
+                project_id=saved_query.team_id,
+                id=str(saved_query.id),
+                created_by_id=saved_query.created_by_id,
+            ),
+            action=Action.VIEW,
+            subject=access.subject,
+        )
     ):
         return None
     return saved_query
@@ -1992,7 +2008,7 @@ def _saved_query_meta(saved_query: Any, schedule: SavedQuerySchedule | None = No
 
 
 def _resolve_profile_warehouse_meta(
-    source: CustomPropertySource, user_access_control: "UserAccessControl | None"
+    source: CustomPropertySource, access: contracts.CustomPropertyAccess | None
 ) -> _ProfileWarehouseMeta | None:
     """Warehouse-derived display metadata for a profile source, or None for an account source, a
     warehouse object that no longer exists, or a caller without viewer access to it."""
@@ -2000,12 +2016,12 @@ def _resolve_profile_warehouse_meta(
     if binding is None:
         return None
     if binding.is_saved_query:
-        saved_query = _resolve_saved_query(source.team_id, binding.id, user_access_control)
+        saved_query = _resolve_saved_query(source.team_id, binding.id, access)
         if saved_query is None:
             return None
         schedule = data_modeling_facade.saved_query_schedules(source.team_id, [saved_query]).get(str(saved_query.id))
         return _saved_query_meta(saved_query, schedule)
-    schema = _resolve_schema(source.team_id, binding.id, user_access_control)
+    schema = _resolve_schema(source.team_id, binding.id, access)
     return _schema_meta(schema) if schema is not None else None
 
 
@@ -2048,7 +2064,7 @@ _RESOLVE_ENRICHMENT_INLINE = _ResolveEnrichmentInline()
 
 def _to_custom_property_source_view(
     source: CustomPropertySource,
-    user_access_control: "UserAccessControl | None" = None,
+    access: contracts.CustomPropertyAccess | None = None,
     enrichment: "tuple[_ProfileWarehouseMeta | None, CustomPropertySyncRun | None] | _ResolveEnrichmentInline" = _RESOLVE_ENRICHMENT_INLINE,
 ) -> contracts.CustomPropertySourceView:
     # Schedule + latest-run enrichment applies only to person/group sources; account sources leave it
@@ -2058,7 +2074,7 @@ def _to_custom_property_source_view(
     # run in one batched query each (see ``_batch_source_enrichment``) instead of two per row.
     latest_run: contracts.CustomPropertySyncRunView | None = None
     if isinstance(enrichment, _ResolveEnrichmentInline):
-        meta = _resolve_profile_warehouse_meta(source, user_access_control)
+        meta = _resolve_profile_warehouse_meta(source, access)
         latest = source.sync_runs.order_by("-created_at").first() if meta is not None else None
         _expire_stale_running_runs(source.team_id, [latest])
     else:
@@ -2101,7 +2117,7 @@ def _to_custom_property_source_view(
 
 
 def _batch_source_enrichment(
-    team_id: int, sources: list[CustomPropertySource], user_access_control: "UserAccessControl | None"
+    team_id: int, sources: list[CustomPropertySource], access: contracts.CustomPropertyAccess | None
 ) -> dict[Any, "tuple[_ProfileWarehouseMeta | None, CustomPropertySyncRun | None]"]:
     """Resolve the warehouse metadata (with viewer access applied) and latest run for a page of profile
     sources in one query per warehouse kind, so a list endpoint doesn't issue two per-row queries (see
@@ -2151,9 +2167,7 @@ def _batch_source_enrichment(
     for source in profile_sources:
         binding = bindings[source.id]
         assert binding is not None  # profile_sources is filtered on exactly this
-        meta = _batched_meta(
-            binding, schemas_by_id, saved_queries_by_id, schedules_by_saved_query_id, user_access_control
-        )
+        meta = _batched_meta(binding, schemas_by_id, saved_queries_by_id, schedules_by_saved_query_id, access)
         latest = latest_run_by_source_id.get(source.id) if meta is not None else None
         # Only mutate runs the caller can view; expiring runs for hidden warehouse objects would let a
         # denied viewer flip their status through the source-list endpoint.
@@ -2169,7 +2183,7 @@ def _batched_meta(
     schemas_by_id: dict[str, Any],
     saved_queries_by_id: dict[str, Any],
     schedules_by_saved_query_id: dict[str, SavedQuerySchedule],
-    user_access_control: "UserAccessControl | None",
+    access: contracts.CustomPropertyAccess | None,
 ) -> _ProfileWarehouseMeta | None:
     """One binding's metadata from the prefetched maps, or None when it is missing or access-denied.
     The access check mirrors the per-row resolvers: the import source for a schema, the view itself for
@@ -2178,8 +2192,18 @@ def _batched_meta(
         saved_query = saved_queries_by_id.get(binding.id)
         if saved_query is None:
             return None
-        if user_access_control is not None and not user_access_control.check_access_level_for_object(
-            saved_query, required_level="viewer"
+        if access is not None and (
+            "warehouse_view:read" in access.missing_scopes
+            or not authorization.check(
+                resource=Resource(
+                    type=ResourceType.WAREHOUSE_VIEW,
+                    project_id=saved_query.team_id,
+                    id=str(saved_query.id),
+                    created_by_id=saved_query.created_by_id,
+                ),
+                action=Action.VIEW,
+                subject=access.subject,
+            )
         ):
             return None
         return _saved_query_meta(saved_query, schedules_by_saved_query_id.get(binding.id))
@@ -2187,8 +2211,18 @@ def _batched_meta(
     schema = schemas_by_id.get(binding.id)
     if schema is None:
         return None
-    if user_access_control is not None and not user_access_control.check_access_level_for_object(
-        schema.source, required_level="viewer"
+    if access is not None and (
+        "external_data_source:read" in access.missing_scopes
+        or not authorization.check(
+            resource=Resource(
+                type=ResourceType.EXTERNAL_DATA_SOURCE,
+                project_id=schema.source.team_id,
+                id=str(schema.source_id),
+                created_by_id=schema.source.created_by_id,
+            ),
+            action=Action.VIEW,
+            subject=access.subject,
+        )
     ):
         return None
     return _schema_meta(schema)
@@ -2463,51 +2497,38 @@ def _triggerable_profile_binding(team_id: int, source_id: str) -> "WarehouseBind
 def _assert_warehouse_access(
     team_id: int,
     binding: "WarehouseBinding | None",
-    user_access_control: "UserAccessControl | None",
-    level: str,
+    access: contracts.CustomPropertyAccess | None,
+    action: Action,
 ) -> None:
-    """A profile source drives a real warehouse run, so acting on it or reading its warehouse metadata
-    requires the caller's object-level access to what it reads at ``level``, not account-scope access
-    alone: the ``external_data_source`` for a schema, the ``warehouse_view`` for a materialized view.
-    Mirrors the canonical warehouse endpoints, which gate through ``get_object``. ``None`` (service auth,
-    which the permission layer skips object checks for) is a no-op, matching ``_enforce_object_access``.
-    Raises ``ResourceForbiddenError`` (→ 403) when the caller is denied. A warehouse object that no
-    longer resolves is a no-op: there is nothing left to protect, and the caller's own write will fail
-    its validation. ``apps.get_model`` keeps this off a warehouse_sources/data_modeling internal import."""
-    if user_access_control is None or binding is None:
+    """Profile sources expose warehouse metadata and drive warehouse runs through account endpoints."""
+    if access is None or binding is None:
         return
     if binding.is_saved_query:
-        saved_query_model = apps.get_model("data_modeling", "DataWarehouseSavedQuery")
-        saved_query = saved_query_model.objects.filter(id=binding.id, team_id=team_id).exclude(deleted=True).first()
-        if saved_query is None:
-            return
-        _enforce_object_access(saved_query, user_access_control, level)
+        model = apps.get_model("data_modeling", "DataWarehouseSavedQuery")
+        resource_type = ResourceType.WAREHOUSE_VIEW
+        warehouse_object = model.objects.filter(id=binding.id, team_id=team_id).exclude(deleted=True).first()
+    else:
+        model = apps.get_model("warehouse_sources", "ExternalDataSchema")
+        schema = model.objects.filter(id=binding.id, team_id=team_id).select_related("source").first()
+        resource_type = ResourceType.EXTERNAL_DATA_SOURCE
+        warehouse_object = schema.source if schema is not None else None
+    if warehouse_object is None:
         return
-    schema_model = apps.get_model("warehouse_sources", "ExternalDataSchema")
-    schema = schema_model.objects.filter(id=binding.id, team_id=team_id).select_related("source").first()
-    if schema is None:
-        return
-    _enforce_object_access(schema.source, user_access_control, level)
-
-
-def _assert_warehouse_editor(
-    team_id: int, binding: "WarehouseBinding | None", user_access_control: "UserAccessControl | None"
-) -> None:
-    """Editor gate for acting on a profile source — a manual sync/backfill, or creating/enabling the
-    mapping (which auto-triggers one)."""
-    _assert_warehouse_access(team_id, binding, user_access_control, "editor")
-
-
-def _assert_warehouse_viewer(
-    team_id: int, binding: "WarehouseBinding | None", user_access_control: "UserAccessControl | None"
-) -> None:
-    """Viewer gate for reading a profile source's warehouse run metadata (row counts, schedule, sync
-    errors), which exposes the warehouse object it reads."""
-    _assert_warehouse_access(team_id, binding, user_access_control, "viewer")
+    resource = Resource(
+        type=resource_type,
+        project_id=warehouse_object.team_id,
+        id=str(warehouse_object.id),
+        created_by_id=warehouse_object.created_by_id,
+    )
+    scope_action = "read" if action == Action.VIEW else "write"
+    if f"{resource.type}:{scope_action}" in access.missing_scopes or not authorization.check(
+        resource=resource, action=action, subject=access.subject
+    ):
+        raise ResourceForbiddenError()
 
 
 def trigger_person_property_sync(
-    *, team_id: int, source_id: str, user_access_control: "UserAccessControl | None" = None
+    *, team_id: int, source_id: str, access: contracts.CustomPropertyAccess | None = None
 ) -> bool:
     """ "Sync now" for a profile source: start a fresh warehouse run of whatever it reads — an import for
     a schema (billable), a materialization for a view. The person-property child runs off that run.
@@ -2517,7 +2538,7 @@ def trigger_person_property_sync(
     binding = _triggerable_profile_binding(team_id, source_id)
     if binding is None:
         return False
-    _assert_warehouse_editor(team_id, binding, user_access_control)
+    _assert_warehouse_access(team_id, binding, access, Action.EDIT)
     from products.warehouse_sources.backend.facade.temporal import (  # noqa: PLC0415
         ExternalDataSchemaSyncPausedError,
         SavedQueryNotFoundError,
@@ -2548,7 +2569,7 @@ def trigger_person_property_sync(
 
 
 def trigger_person_property_backfill(
-    *, team_id: int, source_id: str, trigger: str = "manual", user_access_control: "UserAccessControl | None" = None
+    *, team_id: int, source_id: str, trigger: str = "manual", access: contracts.CustomPropertyAccess | None = None
 ) -> bool | None:
     """Request a backfill for a profile source's table. Returns True when a new visible run starts,
     False when an existing run receives a guaranteed latest-state follow-up, or None for an invalid
@@ -2556,7 +2577,7 @@ def trigger_person_property_backfill(
     binding = _triggerable_profile_binding(team_id, source_id)
     if binding is None:
         return None
-    _assert_warehouse_editor(team_id, binding, user_access_control)
+    _assert_warehouse_access(team_id, binding, access, Action.EDIT)
     # Placeholder rows before starting, so the activity always finds a running row to reconcile.
     created_source_ids = _create_running_runs(team_id, binding, trigger)
     # `created_source_ids` covers every enabled source on the binding, not just the one requested —
@@ -2588,7 +2609,7 @@ def list_custom_property_sources(
     team_id: int,
     *,
     page: PageRequest,
-    user_access_control: "UserAccessControl | None" = None,
+    access: contracts.CustomPropertyAccess | None = None,
     exclude_group_targets: bool = False,
 ) -> Page[contracts.CustomPropertySourceView]:
     """One page of the team's custom-property sources, newest first. Warehouse
@@ -2600,19 +2621,17 @@ def list_custom_property_sources(
     if exclude_group_targets:
         queryset = queryset.exclude(definition__target_type=TargetType.GROUP.value)
     selected = select_page(queryset, page)
-    enrichment = _batch_source_enrichment(team_id, selected.results, user_access_control)
+    enrichment = _batch_source_enrichment(team_id, selected.results, access)
     return selected.map(
-        lambda s: _to_custom_property_source_view(
-            s, user_access_control, enrichment.get(s.id, _RESOLVE_ENRICHMENT_INLINE)
-        )
+        lambda s: _to_custom_property_source_view(s, access, enrichment.get(s.id, _RESOLVE_ENRICHMENT_INLINE))
     )
 
 
 def get_custom_property_source(
-    team_id: int, source_id: str, user_access_control: "UserAccessControl | None" = None
+    team_id: int, source_id: str, access: contracts.CustomPropertyAccess | None = None
 ) -> contracts.CustomPropertySourceView | None:
     source = CustomPropertySource.objects.for_team(team_id).select_related("definition").filter(id=source_id).first()
-    return _to_custom_property_source_view(source, user_access_control) if source is not None else None
+    return _to_custom_property_source_view(source, access) if source is not None else None
 
 
 def get_custom_property_source_binding_id(team_id: int, source_id: str) -> str | None:
@@ -2649,7 +2668,7 @@ def create_custom_property_source(
     column_property_map: dict | None = None,
     column_descriptions: dict | None = None,
     missing_row_behavior: str = WarehousePersonPropertyMissingRowBehavior.KEEP.value,
-    user_access_control: "UserAccessControl | None" = None,
+    access: contracts.CustomPropertyAccess | None = None,
 ) -> contracts.CustomPropertySourceView:
     definition = _get_custom_property_definition(team_id, definition_id)
     if definition is None:
@@ -2696,7 +2715,7 @@ def create_custom_property_source(
             raise CustomPropertySourceValidationError(_ONE_PROFILE_BINDING_ERROR)
         # Mapping (and enabling) a warehouse table into profile properties drives real warehouse runs,
         # so require the caller's editor access on what it reads, not account-scope editor alone.
-        _assert_warehouse_editor(team_id, binding, user_access_control)
+        _assert_warehouse_access(team_id, binding, access, Action.EDIT)
     else:
         if saved_query_id is None or not source_column:
             raise CustomPropertySourceValidationError(
@@ -2721,12 +2740,12 @@ def create_custom_property_source(
         raise CustomPropertySourceValidationError("This custom property already has a source.")
     _enqueue_initial_account_property_sync(source)
     _start_person_backfill_if_enabled(source)
-    return _to_custom_property_source_view(source, user_access_control)
+    return _to_custom_property_source_view(source, access)
 
 
 @transaction.atomic
 def update_custom_property_source(
-    *, team_id: int, source_id: str, fields: dict[str, Any], user_access_control: "UserAccessControl | None" = None
+    *, team_id: int, source_id: str, fields: dict[str, Any], access: contracts.CustomPropertyAccess | None = None
 ) -> contracts.CustomPropertySourceView | None:
     """Apply writable fields to a team-scoped source. Re-enabling (is_enabled False→True) resets the
     failure streak and clears the last error. Returns None (→ 404) when no source matches."""
@@ -2788,7 +2807,7 @@ def update_custom_property_source(
     if fields.get("missing_row_behavior") == source.missing_row_behavior:
         profile_mapping_fields.discard("missing_row_behavior")
     if binding is not None and (profile_mapping_fields or (will_be_enabled and (reenabling or columns_changed))):
-        _assert_warehouse_editor(team_id, binding, user_access_control)
+        _assert_warehouse_access(team_id, binding, access, Action.EDIT)
     for attr, value in fields.items():
         setattr(source, attr, value)
     if reenabling:
@@ -2804,11 +2823,11 @@ def update_custom_property_source(
         _enqueue_initial_account_property_sync(source)
         if will_be_enabled:
             _start_person_backfill_if_enabled(source)
-    return _to_custom_property_source_view(source, user_access_control)
+    return _to_custom_property_source_view(source, access)
 
 
 def delete_custom_property_source(
-    *, team_id: int, source_id: str, user_access_control: "UserAccessControl | None" = None
+    *, team_id: int, source_id: str, access: contracts.CustomPropertyAccess | None = None
 ) -> bool:
     """Delete a team-scoped source. Returns False when none matched (→ 404). Deleting a profile source
     permanently stops its warehouse-driven updates, so it requires the caller's editor access on the
@@ -2816,7 +2835,7 @@ def delete_custom_property_source(
     source = CustomPropertySource.objects.for_team(team_id).select_related("definition").filter(id=source_id).first()
     if source is None:
         return False
-    _assert_warehouse_editor(team_id, _profile_binding(source), user_access_control)
+    _assert_warehouse_access(team_id, _profile_binding(source), access, Action.EDIT)
     deleted, _ = source.delete()
     return deleted > 0
 
@@ -2826,7 +2845,7 @@ def list_custom_property_sync_runs(
     source_id: str,
     *,
     page: PageRequest,
-    user_access_control: "UserAccessControl | None" = None,
+    access: contracts.CustomPropertyAccess | None = None,
     include_temporal_urls: bool = False,
     search: str | None = None,
 ) -> Page[contracts.CustomPropertySyncRunView]:
@@ -2836,7 +2855,7 @@ def list_custom_property_sync_runs(
     the same callers who can view the source."""
     source = CustomPropertySource.objects.for_team(team_id).select_related("definition").filter(id=source_id).first()
     if source is not None:
-        _assert_warehouse_viewer(team_id, _profile_binding(source), user_access_control)
+        _assert_warehouse_access(team_id, _profile_binding(source), access, Action.VIEW)
     queryset: QuerySet[CustomPropertySyncRun] = CustomPropertySyncRun.objects.for_team(team_id).filter(
         source_id=source_id
     )

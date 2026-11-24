@@ -6,16 +6,11 @@ workflows that set it. Used (e.g.) to surface which workflows reference a custom
 definition via the "Update account property" action's ``properties`` input.
 """
 
-from typing import TYPE_CHECKING
-
 from products.authorization.backend.facade.contracts import Resource, Subject
 from products.authorization.backend.facade.enums import ResourceType
 from products.authorization.backend.presentation.querysets import filter_queryset
 from products.workflows.backend.facade.contracts import HogFlowReference
 from products.workflows.backend.models import HogFlow
-
-if TYPE_CHECKING:
-    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 
 def get_hog_flows_referencing_template_input_keys(
@@ -50,7 +45,7 @@ def get_hog_flows_referencing_template_input_keys(
 def filter_hog_flow_references_by_access_level(
     team_id: int,
     references_by_key: dict[str, list[HogFlowReference]],
-    user_access_control: "UserAccessControl",
+    subject: Subject,
 ) -> dict[str, list[HogFlowReference]]:
     """Remove references the caller cannot view without reading workflow actions again."""
     reference_ids = {reference.id for references in references_by_key.values() for reference in references}
@@ -62,7 +57,7 @@ def filter_hog_flow_references_by_access_level(
         for flow_id in filter_queryset(
             HogFlow.objects.filter(team_id=team_id, id__in=reference_ids),
             resource=Resource(type=ResourceType.HOG_FLOW, project_id=team_id),
-            subject=Subject(user_id=user_access_control.user.pk),
+            subject=subject,
         ).values_list("id", flat=True)
     }
     return {
