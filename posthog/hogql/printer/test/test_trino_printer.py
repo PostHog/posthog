@@ -409,7 +409,7 @@ def test_ignores_clickhouse_cte_materialization_hint() -> None:
         ("hasAny([1, 2], [2, 3])", "(cardinality(array_intersect(ARRAY[1, 2], ARRAY[2, 3])) > 0)"),
         (
             "range(2, 5)",
-            'filter(sequence(2, greatest((5) - 1, 2)), "__hogql_range_value" -> ("__hogql_range_value" < 5))',
+            "filter(element_at(transform(ARRAY[ROW(2, greatest((5) - 1, 2))]",
         ),
         ("tuple(1, 2).1", "(ROW(1, 2))[1]"),
         ("extract(user_id, 'id-(.*)')", 'regexp_extract("users"."user_id", \'id-(.*)\', 1)'),
@@ -478,7 +478,7 @@ def test_ignores_clickhouse_cte_materialization_hint() -> None:
         ("coalesce(properties.enabled, false)", "coalesce(CAST(json_extract_scalar("),
         ("positionCaseInsensitive(user_id, 'ab')", 'strpos(lower("users"."user_id"), lower('),
         ("lowerUTF8(user_id)", 'lower("users"."user_id")'),
-        ("arrayEnumerate([10, 20])", "sequence(1, cardinality(ARRAY[10, 20]))"),
+        ("arrayEnumerate([10, 20])", "ARRAY[ROW(1, cardinality(ARRAY[10, 20]))]"),
         ("arrayExists(x -> x > 1, [1, 2])", 'any_match(ARRAY[1, 2], "x" -> ("x" > 1))'),
         ("cutToFirstSignificantSubdomain(user_id)", "array_join(slice(filter(split(lower(trim(TRAILING '.' FROM"),
         ("mapFromArrays([user_id], [1])", "map(__hogql_args[1], __hogql_args[2])"),
@@ -1066,8 +1066,8 @@ def test_regex_character_classes_keep_clickhouse_meaning(pattern: str, expected:
         ),
         (
             "SELECT range(1, length(user_id) + 1, 3) FROM users",
-            "greatest(__hogql_range[2] - 1, __hogql_range[1]), 3)",
-            "greatest(__hogql_range[2] - 1, __hogql_range[1]))",
+            "__hogql_sequence_bounds[2]), 3)",
+            "__hogql_sequence_bounds[2]))",
         ),
         (
             "SELECT toFloat(tupleElement(kv, 2)) FROM users ARRAY JOIN JSONExtractKeysAndValuesRaw(user_id) AS kv",
@@ -1809,9 +1809,9 @@ def test_rejects_currency_conversion_without_an_exchange_rate_locator() -> None:
 @pytest.mark.parametrize(
     ("source", "expected"),
     [
-        ("numbers(3)", "sequence(0, greatest((3) - 1, 0))"),
-        ("numbers(4, 2)", "sequence(4, greatest((6) - 1, 4))"),
-        ("numbers(0)", "sequence(0, greatest((0) - 1, 0))"),
+        ("numbers(3)", "ROW(0, greatest((3) - 1, 0))"),
+        ("numbers(4, 2)", "ROW(4, greatest((6) - 1, 4))"),
+        ("numbers(0)", "ROW(0, greatest((0) - 1, 0))"),
     ],
 )
 def test_lowers_numbers_to_bounded_unnest(source: str, expected: str) -> None:
@@ -1825,7 +1825,7 @@ def test_lowers_numbers_to_bounded_unnest(source: str, expected: str) -> None:
 
     sql, _ = prepare_and_print_ast(parse_select(f"SELECT number FROM {source}"), context, "trino")
 
-    assert f"FROM UNNEST(filter({expected}" in sql
+    assert f"FROM UNNEST(filter(element_at(transform(ARRAY[{expected}" in sql
     assert 'AS "numbers" ("number")' in sql
 
 

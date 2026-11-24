@@ -48,6 +48,25 @@ TRINO_TUPLE_OPERATORS = {
 TRINO_VECTOR_REWRITES = frozenset(
     {"lpnorm", "lpdistance", "l1normalize", "l2normalize", "linfnormalize", "lpnormalize"}
 )
+TRINO_SEQUENCE_MAX_ENTRIES = 10_000
+
+
+def bounded_sequence(start: str, stop: str, step: int = 1) -> str:
+    """Trino `sequence(start, stop[, step])` built in blocks, so it is not capped at 10,000 entries."""
+    block = TRINO_SEQUENCE_MAX_ENTRIES * step
+    step_arg = "" if step == 1 else f", {step}"
+    block_start = f"__hogql_sequence_bounds[1] + __hogql_sequence_block * {block}"
+    return (
+        f"element_at(transform(ARRAY[ROW({start}, {stop})], __hogql_sequence_bounds -> flatten(transform("
+        f"sequence(0, (__hogql_sequence_bounds[2] - __hogql_sequence_bounds[1]) / {block}), "
+        f"__hogql_sequence_block -> sequence({block_start}, "
+        f"least({block_start} + {block - step}, __hogql_sequence_bounds[2]){step_arg})))), 1)"
+    )
+
+
+def array_indexes(value: str) -> str:
+    return bounded_sequence("1", f"cardinality({value})")
+
 
 TRINO_FUNCTION_RENAMES: dict[str, str] = {
     "any": "arbitrary",
@@ -607,7 +626,7 @@ def _array_difference(args: list[str]) -> str:
     value = args[0]
     return (
         f"IF(cardinality({value}) = 0, ARRAY[], "
-        f"transform(sequence(1, cardinality({value})), __hogql_index -> "
+        f"transform({array_indexes(value)}, __hogql_index -> "
         f"IF(__hogql_index = 1, 0, {value}[__hogql_index] - {value}[__hogql_index - 1])))"
     )
 
@@ -643,7 +662,8 @@ def _base58_encode(args: list[str]) -> str:
     value = "__hogql_base58_value"
     binary = f"to_utf8({value})"
     byte_count = f"length({binary})"
-    positions = f"IF({byte_count} = 0, CAST(ARRAY[] AS ARRAY(BIGINT)), sequence(BIGINT '1', {byte_count}))"
+    byte_positions = bounded_sequence("BIGINT '1'", byte_count)
+    positions = f"IF({byte_count} = 0, CAST(ARRAY[] AS ARRAY(BIGINT)), {byte_positions})"
     bytes_array = (
         f"transform({positions}, __hogql_base58_position -> "
         f"from_base(substr(to_hex({binary}), __hogql_base58_position * 2 - 1, 2), 16))"
@@ -914,7 +934,7 @@ def _array_enumerate_dense(args: list[str]) -> str:
     value = args[0]
     return (
         f"IF(cardinality({value}) = 0, ARRAY[], "
-        f"transform(sequence(1, cardinality({value})), __hogql_index -> "
+        f"transform({array_indexes(value)}, __hogql_index -> "
         f"array_position(transform(array_distinct(slice({value}, 1, __hogql_index)), "
         f"__hogql_candidate -> __hogql_candidate IS NOT DISTINCT FROM {value}[__hogql_index]), TRUE)))"
     )
@@ -926,7 +946,7 @@ def _array_enumerate_uniq(args: list[str]) -> str:
     value = args[0] if len(args) == 1 else f"zip({', '.join(args)})"
     return (
         f"IF(cardinality({value}) = 0, ARRAY[], "
-        f"transform(sequence(1, cardinality({value})), __hogql_index -> "
+        f"transform({array_indexes(value)}, __hogql_index -> "
         f"cardinality(filter(slice({value}, 1, __hogql_index), __hogql_value -> "
         f"__hogql_value IS NOT DISTINCT FROM {value}[__hogql_index]))))"
     )
@@ -1038,7 +1058,8 @@ def _has_subsequence(name: str, case_insensitive: bool, utf8: bool) -> Callable[
                 return f"regexp_extract_all({value}, '(?s).')"
             encoded = f"to_hex(to_utf8({value}))"
             count = f"length({encoded}) / 2"
-            indexes = f"filter(sequence(1, greatest({count}, 1)), __hogql_index -> __hogql_index <= {count})"
+            candidates = bounded_sequence("1", f"greatest({count}, 1)")
+            indexes = f"filter({candidates}, __hogql_index -> __hogql_index <= {count})"
             return f"transform({indexes}, __hogql_index -> substr({encoded}, 2 * __hogql_index - 1, 2))"
 
         haystack_characters = characters(haystack)
@@ -1273,10 +1294,8 @@ def _url_hierarchy(name: str, path_only: bool) -> Callable[[list[str]], str]:
             else f"__hogql_position = length({value})"
         )
         boundary = f"{slash_boundary} OR {marker_boundary} OR {terminal_boundary}"
-        positions = (
-            f"filter(sequence(1, greatest(length({value}), 1)), "
-            f"__hogql_position -> __hogql_position <= length({value}) AND ({boundary}))"
-        )
+        candidates = bounded_sequence("1", f"greatest(length({value}), 1)")
+        positions = f"filter({candidates}, __hogql_position -> __hogql_position <= length({value}) AND ({boundary}))"
         prefix = (
             f"substr({value}, {authority_length} + 1, __hogql_position - {authority_length})"
             if path_only
@@ -1309,8 +1328,9 @@ def _cut_url_parameter(args: list[str]) -> str:
         f"strpos(__hogql_parameter, '=') > 0 AND split_part(__hogql_parameter, '=', 1) = {name})"
     )
     match_position = f"array_position({matches}, true)"
+    parameter_positions = array_indexes("__hogql_parameters")
     remaining = (
-        "transform(filter(sequence(1, cardinality(__hogql_parameters)), "
+        f"transform(filter({parameter_positions}, "
         "__hogql_position -> __hogql_position <> __hogql_match_position), "
         "__hogql_position -> element_at(__hogql_parameters, __hogql_position))"
     )
@@ -1443,10 +1463,8 @@ def _ngrams(args: list[str]) -> str:
     _require_args("ngrams", args, 2)
     value = "__hogql_ngram_args[1]"
     size = "CAST(__hogql_ngram_args[2] AS BIGINT)"
-    positions = (
-        f"filter(sequence(1, greatest(length({value}) - {size} + 1, 1)), "
-        f"__hogql_position -> __hogql_position <= length({value}) - {size} + 1)"
-    )
+    candidates = bounded_sequence("1", f"greatest(length({value}) - {size} + 1, 1)")
+    positions = f"filter({candidates}, __hogql_position -> __hogql_position <= length({value}) - {size} + 1)"
     result = f"transform({positions}, __hogql_position -> substr({value}, __hogql_position, {size}))"
     return (
         f"element_at(transform(ARRAY[ROW({args[0]}, {args[1]})], __hogql_ngram_args -> "
@@ -1530,8 +1548,9 @@ def _url_query_part(name: str, fragment: bool) -> Callable[[list[str]], str]:
 def _split_by_regexp(args: list[str]) -> str:
     if len(args) not in {2, 3}:
         raise _invalid_arguments("splitByRegexp", "splitByRegexp expects a pattern, string, and optional limit.")
+    character_positions = bounded_sequence("1", f"length({args[1]})")
     split = (
-        f"IF({args[0]} = '', IF({args[1]} = '', ARRAY[], transform(sequence(1, length({args[1]})), "
+        f"IF({args[0]} = '', IF({args[1]} = '', ARRAY[], transform({character_positions}, "
         f"__hogql_index -> substr({args[1]}, __hogql_index, 1))), regexp_split({args[1]}, {args[0]}))"
     )
     return split if len(args) == 2 else f"slice({split}, 1, {args[2]})"

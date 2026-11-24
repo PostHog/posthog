@@ -40,6 +40,8 @@ from posthog.hogql.printer.trino_functions import (
     TRINO_UNIQUE_ARRAY_AGGREGATES,
     TRINO_VECTOR_REWRITES,
     TRINO_WINDOW_ONLY_FUNCTIONS,
+    array_indexes,
+    bounded_sequence,
 )
 from posthog.hogql.printer.trino_json import keys_and_values, keys_and_values_path, parse_keys_and_values_type
 from posthog.hogql.printer.trino_lambda_aggregates import aggregates_to_hoist
@@ -884,7 +886,7 @@ class TrinoPrinter(PostgresPrinter):
             return f"array_max({self._visit_mapped_array_arg(node)})"
         if name == "arrayenumerate":
             value = self._visit_unary_arg(node)
-            return f"IF(cardinality({value}) = 0, CAST(ARRAY[] AS ARRAY(BIGINT)), sequence(1, cardinality({value})))"
+            return f"IF(cardinality({value}) = 0, CAST(ARRAY[] AS ARRAY(BIGINT)), {array_indexes(value)})"
         if name in {"arrayexists", "arrayall"}:
             return self._visit_lambda_array_call(node, "any_match" if name == "arrayexists" else "all_match")
         if name == "intdiv":
@@ -3203,7 +3205,7 @@ class TrinoPrinter(PostgresPrinter):
             end = self.visit(node.args[1])
         else:
             self._invalid_function_arguments(node, "range expects one to three arguments in Trino mode.")
-        step = ""
+        step = 1
         if len(node.args) == 3:
             step_arg = node.args[2]
             # A constant positive step keeps the Trino sequence ascending, as the exclusive end filter assumes.
@@ -3218,14 +3220,15 @@ class TrinoPrinter(PostgresPrinter):
                     "range requires a constant positive integer step in Trino mode.",
                     node,
                 )
-            step = f", {step_arg.value}"
+            step = step_arg.value
         value = self._print_identifier("__hogql_range_value")
         if all(isinstance(arg, ast.Constant) for arg in node.args):
-            return f"filter(sequence({start}, greatest(({end}) - 1, {start}){step}), {value} -> ({value} < {end}))"
+            values = bounded_sequence(start, f"greatest(({end}) - 1, {start})", step)
+            return f"filter({values}, {value} -> ({value} < {end}))"
+        values = bounded_sequence("__hogql_range[1]", "greatest(__hogql_range[2] - 1, __hogql_range[1])", step)
         return (
             f"element_at(transform(ARRAY[ROW({start}, {end})], __hogql_range -> "
-            f"filter(sequence(__hogql_range[1], greatest(__hogql_range[2] - 1, __hogql_range[1]){step}), "
-            f"{value} -> ({value} < __hogql_range[2]))), 1)"
+            f"filter({values}, {value} -> ({value} < __hogql_range[2]))), 1)"
         )
 
     def _visit_map_from_arrays(self, node: ast.Call) -> str:
@@ -3263,10 +3266,9 @@ class TrinoPrinter(PostgresPrinter):
         source = self.visit(node.args[0])
         upper = self.visit(node.args[1]) if len(node.args) == 2 else "array_max(map_keys(__hogql_series_map))"
         default = self._default_value(map_type.value_type, node)
-        keys = (
-            f"filter(sequence(array_min(map_keys(__hogql_series_map)), "
-            f"greatest(array_min(map_keys(__hogql_series_map)), {upper})), __hogql_key -> __hogql_key <= {upper})"
-        )
+        lower = "array_min(map_keys(__hogql_series_map))"
+        candidate_keys = bounded_sequence(lower, f"greatest({lower}, {upper})")
+        keys = f"filter({candidate_keys}, __hogql_key -> __hogql_key <= {upper})"
         entries = (
             f"transform({keys}, __hogql_key -> ROW(__hogql_key, "
             f"IF(contains(map_keys(__hogql_series_map), __hogql_key), "
@@ -3458,11 +3460,12 @@ class TrinoPrinter(PostgresPrinter):
         if split:
             size = "cardinality(__hogql_scan_array)"
             condition_index = "__hogql_position - 1" if name == "arrayreversesplit" else "__hogql_position"
-            positions = f"filter(sequence(1, {size}), __hogql_position -> IF(__hogql_position > 1, CAST(element_at(__hogql_flags, {condition_index}) AS BOOLEAN), FALSE))"
+            positions = f"filter({array_indexes('__hogql_scan_array')}, __hogql_position -> IF(__hogql_position > 1, CAST(element_at(__hogql_flags, {condition_index}) AS BOOLEAN), FALSE))"
             boundaries = f"concat(ARRAY[1], {positions}, ARRAY[{size} + 1])"
+            segments = bounded_sequence("1", "cardinality(__hogql_boundaries) - 1")
             result = (
                 f"element_at(transform(ARRAY[{boundaries}], __hogql_boundaries -> "
-                "transform(sequence(1, cardinality(__hogql_boundaries) - 1), __hogql_segment -> "
+                f"transform({segments}, __hogql_segment -> "
                 "slice(__hogql_scan_array, __hogql_boundaries[__hogql_segment], "
                 "__hogql_boundaries[__hogql_segment + 1] - __hogql_boundaries[__hogql_segment]))), 1)"
             )
@@ -3607,9 +3610,8 @@ class TrinoPrinter(PostgresPrinter):
             if not isinstance(value_type, ast.ArrayType):
                 self._invalid_function_arguments(node, f"{node.name} requires a resolved array type in Trino mode.")
             maximum = "coalesce(array_max(transform(__hogql_rows, __hogql_row -> cardinality(__hogql_row))), 0)"
-            positions = (
-                f"filter(sequence(1, greatest({maximum}, 1)), __hogql_position -> __hogql_position <= {maximum})"
-            )
+            candidates = bounded_sequence("1", f"greatest({maximum}, 1)")
+            positions = f"filter({candidates}, __hogql_position -> __hogql_position <= {maximum})"
             values = "transform(filter(__hogql_rows, __hogql_row -> cardinality(__hogql_row) >= __hogql_position), __hogql_row -> element_at(__hogql_row, __hogql_position))"
             aggregate = self._array_aggregate(node, base, values, value_type.item_type)
             result = f"transform({positions}, __hogql_position -> {aggregate})"
@@ -3981,10 +3983,8 @@ class TrinoPrinter(PostgresPrinter):
                 )
                 return f"ARRAY[{entries}]"
             matches = f"regexp_extract_all({value}, {regex}, 0)"
-            indexes = (
-                f"filter(sequence(1, greatest(cardinality({matches}), 1)), "
-                f"__hogql_index -> __hogql_index <= cardinality({matches}))"
-            )
+            candidates = bounded_sequence("1", f"greatest(cardinality({matches}), 1)")
+            indexes = f"filter({candidates}, __hogql_index -> __hogql_index <= cardinality({matches}))"
             entries = ", ".join(f"coalesce(element_at({column}, __hogql_index), '')" for column in columns)
             return f"transform({indexes}, __hogql_index -> ARRAY[{entries}])"
         replacement = node.args[2]
@@ -4449,7 +4449,8 @@ class TrinoPrinter(PostgresPrinter):
         rows = f"coalesce(array_agg({row}){aggregate_filter}{over}, ARRAY[])"
         rows = f"filter({rows}, __hogql_row -> __hogql_row[1] IS NOT NULL AND __hogql_row[2] IS NOT NULL)"
         maximum = "coalesce(array_max(transform(__hogql_insert_rows, __hogql_row -> __hogql_row[2])), -1)"
-        positions = f"filter(sequence(0, greatest(__hogql_maximum, 0)), __hogql_position -> __hogql_position <= __hogql_maximum)"
+        candidates = bounded_sequence("0", "greatest(__hogql_maximum, 0)")
+        positions = f"filter({candidates}, __hogql_position -> __hogql_position <= __hogql_maximum)"
         selected = (
             "element_at(transform(filter(__hogql_insert_rows, __hogql_row -> "
             "__hogql_row[2] = __hogql_position), __hogql_row -> __hogql_row[1]), 1)"
@@ -4658,7 +4659,8 @@ class TrinoPrinter(PostgresPrinter):
         def grams(value: str, label: str) -> str:
             size = f"length({value})"
             count = f"{size} - {gram_size - 1}"
-            indexes = f"filter(sequence(1, greatest({count}, 1)), {label}_index -> {label}_index <= {count})"
+            candidates = bounded_sequence("1", f"greatest({count}, 1)")
+            indexes = f"filter({candidates}, {label}_index -> {label}_index <= {count})"
             return f"transform({indexes}, {label}_index -> substr({value}, {label}_index, {gram_size}))"
 
         def frequencies(values: str, label: str) -> str:
