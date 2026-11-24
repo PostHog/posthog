@@ -9,15 +9,14 @@
     padding-block: 0;
 }
 
-/* A closed section's card is taller than its header, so the header sits in the middle of it. */
-.SectionTile--collapsed {
-    justify-content: center;
-}
-
 /* The header's title row and its actions share one line, centered on it, so the chevron, title and buttons line up. */
 .SectionTile__header {
     /* A quill card header's height, fixed so the header and padding make three grid rows (GRID.sectionChromeRows). */
     box-sizing: border-box;
+    flex-shrink: 0;
+
+    /* Quill's gap before the empty description row would sit the title 2px above the actions. */
+    row-gap: 0;
     align-content: center;
     align-items: center;
     height: 44px;

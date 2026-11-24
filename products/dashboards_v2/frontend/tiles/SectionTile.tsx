@@ -3,7 +3,7 @@ import './TileHoverReveal.css'
 
 import { type ReactNode, useCallback, useState } from 'react'
 
-import { IconChevronDown, IconChevronRight, IconDrag } from '@posthog/icons'
+import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { Button, Card, CardAction, CardContent, CardHeader, CardTitle, Input } from '@posthog/quill'
 
 import { GRID, type SectionWidget, type Tile, spanPx } from '../dashboard/dashboardTypes'
@@ -62,9 +62,8 @@ export function SectionTile({
 
     return (
         <TileContextMenu actions={actions}>
-            <Section collapsed={collapsed}>
+            <Section>
                 <SectionHeader
-                    draggable={editable}
                     actions={
                         (showAdd || hasMenu) && (
                             <SectionActions>
@@ -103,35 +102,19 @@ export function SectionTile({
 }
 
 /** A section is a quill card, so it reads like a tile that holds tiles. */
-export function Section({ collapsed, children }: { collapsed: boolean; children: ReactNode }): JSX.Element {
+export function Section({ children }: { children: ReactNode }): JSX.Element {
     return (
-        <Card
-            size="sm"
-            role="group"
-            className={collapsed ? 'SectionTile SectionTile--collapsed' : 'SectionTile'}
-            data-attr="dashboard-v2-section"
-        >
+        <Card size="sm" role="group" className="SectionTile" data-attr="dashboard-v2-section">
             {children}
         </Card>
     )
 }
 
 /** The section's title bar, which is also what the section is dragged by. */
-export function SectionHeader({
-    draggable,
-    actions,
-    children,
-}: {
-    draggable: boolean
-    actions?: ReactNode
-    children: ReactNode
-}): JSX.Element {
+export function SectionHeader({ actions, children }: { actions?: ReactNode; children: ReactNode }): JSX.Element {
     return (
         <CardHeader className="SectionTile__header TileGrid__handle">
-            <div className="flex items-center gap-1 min-w-0">
-                {draggable && <IconDrag className="TileHoverReveal size-4 shrink-0 text-muted-foreground" />}
-                {children}
-            </div>
+            <div className="flex items-center gap-1 min-w-0">{children}</div>
             {actions}
         </CardHeader>
     )
@@ -184,7 +167,7 @@ export function SectionTitle({
         label = (
             <Button
                 size="xs"
-                className="quill-card__title min-w-0 max-w-full"
+                className="quill-card__title min-w-0 max-w-full shrink"
                 tooltip="Rename"
                 data-attr="dashboard-v2-section-rename"
                 onClick={() => setDraft(title)}
