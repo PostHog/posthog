@@ -89,83 +89,89 @@ function rollout(group: ConditionGroup | undefined): number {
     return group?.rollout_percentage ?? 100
 }
 
-export function describeFilters(beforeValue: unknown, afterValue: unknown): string[] {
-    const before = (beforeValue ?? {}) as FlagFilters
-    const after = (afterValue ?? {}) as FlagFilters
-    const lines: string[] = []
-    const beforeGroups = before.groups ?? []
-    const afterGroups = after.groups ?? []
-
+function describeCohorts(before: FlagFilters, after: FlagFilters): string[] {
     const beforeCohorts = cohorts(before)
     const afterCohorts = cohorts(after)
-    for (const [id, property] of afterCohorts) {
-        if (!beforeCohorts.has(id)) {
-            lines.push(`Added ${cohortName(property)}`)
-        }
-    }
-    for (const [id, property] of beforeCohorts) {
-        if (!afterCohorts.has(id)) {
-            lines.push(`Removed ${cohortName(property)}`)
-        }
-    }
+    return [
+        ...[...afterCohorts]
+            .filter(([id]) => !beforeCohorts.has(id))
+            .map(([, property]) => `Added ${cohortName(property)}`),
+        ...[...beforeCohorts]
+            .filter(([id]) => !afterCohorts.has(id))
+            .map(([, property]) => `Removed ${cohortName(property)}`),
+    ]
+}
 
-    const cohortLines = lines.length
-    if (afterGroups.length > beforeGroups.length) {
-        if (!cohortLines) {
-            lines.push(`Added ${plural(afterGroups.length - beforeGroups.length, 'condition set', 'condition sets')}`)
+function describeGroups(
+    beforeGroups: ConditionGroup[],
+    afterGroups: ConditionGroup[],
+    cohortsChanged: boolean
+): string[] {
+    const delta = afterGroups.length - beforeGroups.length
+    if (delta !== 0) {
+        if (cohortsChanged) {
+            return []
         }
-    } else if (afterGroups.length < beforeGroups.length) {
-        if (!cohortLines) {
-            lines.push(`Removed ${plural(beforeGroups.length - afterGroups.length, 'condition set', 'condition sets')}`)
-        }
-    } else {
-        afterGroups.forEach((group, index) => {
-            const from = rollout(beforeGroups[index])
-            const to = rollout(group)
-            if (from !== to) {
-                lines.push(
-                    afterGroups.length === 1
-                        ? `Rollout ${from}% to ${to}%`
-                        : `Condition set ${index + 1}: rollout ${from}% to ${to}%`
-                )
-            }
-        })
+        return [`${delta > 0 ? 'Added' : 'Removed'} ${plural(Math.abs(delta), 'condition set', 'condition sets')}`]
     }
+    return afterGroups.flatMap((group, index) => {
+        const from = rollout(beforeGroups[index])
+        const to = rollout(group)
+        if (from === to) {
+            return []
+        }
+        return [
+            afterGroups.length === 1
+                ? `Rollout ${from}% to ${to}%`
+                : `Condition set ${index + 1}: rollout ${from}% to ${to}%`,
+        ]
+    })
+}
 
+function describeConditions(before: FlagFilters, after: FlagFilters): string[] {
     const beforeProperties = propertyKeys(before)
     const afterProperties = propertyKeys(after)
-    const propertiesChanged =
+    const changed =
         beforeProperties.length !== afterProperties.length ||
         beforeProperties.some((property, index) => property !== afterProperties[index])
-    if (propertiesChanged && afterGroups.length === beforeGroups.length) {
-        lines.push('Changed the conditions')
-    }
+    const sameGroupCount = (after.groups ?? []).length === (before.groups ?? []).length
+    return changed && sameGroupCount ? ['Changed the conditions'] : []
+}
 
+function describeVariants(before: FlagFilters, after: FlagFilters): string[] {
     const beforeVariants = before.multivariate?.variants ?? []
     const afterVariants = after.multivariate?.variants ?? []
-    const beforeKeys = new Set(beforeVariants.map((variant) => variant.key))
+    const beforeSplit = new Map(beforeVariants.map((variant) => [variant.key, variant.rollout_percentage]))
     const afterKeys = new Set(afterVariants.map((variant) => variant.key))
-    for (const variant of afterVariants) {
-        if (!beforeKeys.has(variant.key)) {
-            lines.push(`Added variant ${variant.key}`)
-        }
-    }
-    for (const variant of beforeVariants) {
-        if (!afterKeys.has(variant.key)) {
-            lines.push(`Removed variant ${variant.key}`)
-        }
-    }
+    const lines = [
+        ...afterVariants
+            .filter((variant) => !beforeSplit.has(variant.key))
+            .map((variant) => `Added variant ${variant.key}`),
+        ...beforeVariants
+            .filter((variant) => !afterKeys.has(variant.key))
+            .map((variant) => `Removed variant ${variant.key}`),
+    ]
     const splitChanged = afterVariants.some(
-        (variant) =>
-            beforeKeys.has(variant.key) &&
-            beforeVariants.find((item) => item.key === variant.key)?.rollout_percentage !== variant.rollout_percentage
+        (variant) => beforeSplit.has(variant.key) && beforeSplit.get(variant.key) !== variant.rollout_percentage
     )
     if (splitChanged) {
         lines.push(
             `Variant split ${afterVariants.map((variant) => `${variant.key} ${variant.rollout_percentage}%`).join(', ')}`
         )
     }
+    return lines
+}
 
+export function describeFilters(beforeValue: unknown, afterValue: unknown): string[] {
+    const before = (beforeValue ?? {}) as FlagFilters
+    const after = (afterValue ?? {}) as FlagFilters
+    const cohortLines = describeCohorts(before, after)
+    const lines = [
+        ...cohortLines,
+        ...describeGroups(before.groups ?? [], after.groups ?? [], cohortLines.length > 0),
+        ...describeConditions(before, after),
+        ...describeVariants(before, after),
+    ]
     return lines.length ? lines : ['Changed the release conditions']
 }
 
@@ -173,65 +179,48 @@ function fieldLabel(field: string): string {
     return field.replace(/_/g, ' ')
 }
 
+type DescribeField = (before: unknown, after: unknown) => string[]
+
+const SCHEDULED_FIELDS: Record<string, DescribeField> = {
+    start_date: (before) => [before ? 'Changed the start date' : 'Launched'],
+    archived: (_, after) => [after ? 'Archived' : 'Unarchived'],
+    name: (_, after) => [`Renamed to ${String(after)}`],
+}
+
+const FIELDS: Record<ChangeKind, Map<string, DescribeField>> = {
+    flag: new Map<string, DescribeField>([
+        ['filters', describeFilters],
+        ['active', (_, after) => [after ? 'Turned on' : 'Turned off']],
+        ['key', (_, after) => [`Changed the key to ${String(after)}`]],
+        ['name', () => ['Edited the description']],
+        ['deleted', (_, after) => [after ? 'Deleted the flag' : 'Restored the flag']],
+    ]),
+    experiment: new Map<string, DescribeField>([
+        ...Object.entries(SCHEDULED_FIELDS),
+        ['end_date', (_, after) => [after ? 'Ended' : 'Resumed']],
+        ['status', (_, after) => [`Status changed to ${String(after).toLowerCase()}`]],
+        ['metrics', () => ['Edited the metrics']],
+        ['metrics_secondary', () => ['Edited the metrics']],
+        ['parameters', () => ['Edited the variants']],
+    ]),
+    survey: new Map<string, DescribeField>([
+        ...Object.entries(SCHEDULED_FIELDS),
+        ['end_date', (_, after) => [after ? 'Stopped' : 'Resumed']],
+        ['questions', () => ['Edited the questions']],
+        ['conditions', () => ['Changed who sees it']],
+        ['targeting_flag_filters', () => ['Changed who sees it']],
+        ['linked_flag', () => ['Changed who sees it']],
+        ['appearance', () => ['Changed how it looks']],
+    ]),
+}
+
 function describeField(kind: ChangeKind, change: ActivityChange): string[] {
     const { field, before, after } = change
     if (IGNORED_FIELDS.has(field)) {
         return []
     }
-    if (kind === 'flag') {
-        if (field === 'filters') {
-            return describeFilters(before, after)
-        }
-        if (field === 'active') {
-            return [after ? 'Turned on' : 'Turned off']
-        }
-        if (field === 'key') {
-            return [`Changed the key to ${String(after)}`]
-        }
-        if (field === 'name') {
-            return ['Edited the description']
-        }
-        if (field === 'deleted') {
-            return [after ? 'Deleted the flag' : 'Restored the flag']
-        }
-    }
-    if (kind === 'experiment' || kind === 'survey') {
-        if (field === 'start_date') {
-            return [before ? 'Changed the start date' : 'Launched']
-        }
-        if (field === 'end_date') {
-            return [after ? (kind === 'survey' ? 'Stopped' : 'Ended') : 'Resumed']
-        }
-        if (field === 'archived') {
-            return [after ? 'Archived' : 'Unarchived']
-        }
-        if (field === 'name') {
-            return [`Renamed to ${String(after)}`]
-        }
-    }
-    if (kind === 'experiment') {
-        if (field === 'status') {
-            return [`Status changed to ${String(after).toLowerCase()}`]
-        }
-        if (field === 'metrics' || field === 'metrics_secondary') {
-            return ['Edited the metrics']
-        }
-        if (field === 'parameters') {
-            return ['Edited the variants']
-        }
-    }
-    if (kind === 'survey') {
-        if (field === 'questions') {
-            return ['Edited the questions']
-        }
-        if (field === 'conditions' || field === 'targeting_flag_filters' || field === 'linked_flag') {
-            return ['Changed who sees it']
-        }
-        if (field === 'appearance') {
-            return ['Changed how it looks']
-        }
-    }
-    return [`Edited the ${fieldLabel(field)}`]
+    const describe = FIELDS[kind].get(field)
+    return describe ? describe(before, after) : [`Edited the ${fieldLabel(field)}`]
 }
 
 export function changeAuthor(entry: ActivityEntry): string {
