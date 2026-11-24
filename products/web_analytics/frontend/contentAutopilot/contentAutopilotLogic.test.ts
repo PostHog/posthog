@@ -2,6 +2,9 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 
@@ -97,6 +100,7 @@ describe('contentAutopilotLogic', () => {
     beforeEach(() => {
         jest.clearAllMocks()
         initKeaTests()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT_DRAFTING]: true })
         logic = null
 
         mockProfilesList.mockResolvedValue(paginated([EXAMPLE_PROFILE]))
@@ -139,6 +143,16 @@ describe('contentAutopilotLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         return logic
     }
+
+    it('reads no opportunities when drafting is off', async () => {
+        featureFlagLogic.actions.setFeatureFlags([], {})
+
+        const mountedLogic = await mountWorkspace()
+
+        expect(mountedLogic.values.opportunities).toEqual([])
+        expect(webAnalyticsContentAutopilotOpportunitiesList).not.toHaveBeenCalled()
+        expect(mockOpportunitiesRefresh).not.toHaveBeenCalled()
+    })
 
     it('shows saved opportunities while the refresh runs and keeps rows the refresh response leaves out', async () => {
         const [first] = EXAMPLE_OPPORTUNITIES

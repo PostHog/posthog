@@ -881,7 +881,8 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
             {
                 loadOpportunities: async (_, breakpoint) => {
                     const profile = values.profile
-                    if (!profile) {
+                    // Only the drafting tabs show opportunities, and listing them pages through every prompt.
+                    if (!profile || !values.draftingEnabled) {
                         return []
                     }
                     const opportunities = await fetchOpportunities(String(values.currentTeamIdStrict), profile.id)
@@ -890,7 +891,7 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
                 },
                 refreshOpportunities: async (_, breakpoint) => {
                     const profile = values.profile
-                    if (!profile) {
+                    if (!profile || !values.draftingEnabled) {
                         return []
                     }
                     const teamId = String(values.currentTeamIdStrict)
