@@ -107,7 +107,10 @@ from products.product_analytics.backend.hogql_queries.trends.trends_actors_query
     ActorsDateWindow,
     TrendsActorsQueryBuilder,
 )
-from products.product_analytics.backend.hogql_queries.trends.trends_query_builder import TrendsQueryBuilder
+from products.product_analytics.backend.hogql_queries.trends.trends_query_builder import (
+    MAX_SHARED_BREAKDOWN_VALUES_LENGTH,
+    TrendsQueryBuilder,
+)
 from products.product_analytics.backend.hogql_queries.trends.utils import is_groups_math
 from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by_name
 
@@ -401,6 +404,12 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                 )
 
         assert rankings[0] is not None
+        # Every series query repeats the values, so long values fall back to a ranking per series.
+        for ranking in rankings:
+            if ranking is not None and sum(len(_breakdown_ranking_key(value)) for value in ranking.values) > (
+                MAX_SHARED_BREAKDOWN_VALUES_LENGTH
+            ):
+                return None
         return _SharedBreakdownValues(current_period=rankings[0], previous_period=rankings[1])
 
     def _event_count_query_builder(self, series: SeriesWithExtras) -> TrendsQueryBuilder:

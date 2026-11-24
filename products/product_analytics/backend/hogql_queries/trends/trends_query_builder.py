@@ -39,6 +39,7 @@ from products.web_analytics.backend.hogql_queries.first_pageview_attribution imp
 
 # A series query holds the shared breakdown values as constants, so a longer list makes the query text too large.
 MAX_SHARED_BREAKDOWN_VALUES = 1_000
+MAX_SHARED_BREAKDOWN_VALUES_LENGTH = 50_000
 
 
 class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
