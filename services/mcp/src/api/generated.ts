@@ -77159,11 +77159,20 @@ export namespace Schemas {
       revision: number;
       /** @nullable */
       published_at: string | null;
+      /** @nullable */
+      results_as_of: string | null;
       title: string;
       layout: NotebookAppLayout;
       markdown: string;
       variables: NotebookVariable[];
       has_previous: boolean;
+    }
+
+    export interface NotebookAppReleaseReview {
+      has_previous: boolean;
+      problems: string[];
+      /** @nullable */
+      results_as_of: string | null;
     }
 
     export interface NotebookCellLastRun {

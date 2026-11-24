@@ -14,7 +14,9 @@ The estimate does not include separate failed or canceled generation jobs, or no
 
 ## Notebook apps and variables
 
-Publishing saves a release with the app layout, source markdown, notebook title, and input defaults. Publishing checks each referenced cell and variable and requires current results for displayed SQL and Python outputs. A failed publish keeps the previous release available. Restoring a release preserves the editable draft. Layouts published before releases existed continue to resolve against their notebook until republished.
+Choose **Review and publish** to check the sources and default inputs against the draft layout. The preview lists missing sources, failed or stale calculations, and outputs still waiting to save. **Run all** refreshes the notebook's calculations. The preview checks them again after the notebook saves.
+
+**Publish release** captures the layout, source markdown, title, input defaults, saved run references, and bounded previews. The oldest displayed calculation's completion time records how fresh those results were when published. A failed check keeps the previous release available. **Restore previous release** in the preview restores its sources and results while preserving the editable draft. Apps published before releases existed continue to resolve against their notebook until republished.
 
 The app builder requires `notebook-app-builder`. When the notebook API cannot resolve the flag locally, it checks the flag service and reuses the result for that user and project for 30 seconds. An app can display the notebook's generated Widget cells alongside standard charts, calculated metrics, text, and variable inputs.
 

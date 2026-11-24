@@ -70,7 +70,7 @@ from products.notebooks.backend.analytics import (
 )
 from products.notebooks.backend.collab import submit_steps
 from products.notebooks.backend.facade.api import to_markdown_notebook_content
-from products.notebooks.backend.facade.app_releases import read_release, record_release
+from products.notebooks.backend.facade.app_releases import read_release, record_release, review_release
 from products.notebooks.backend.facade.compute_pricing import (
     COMPUTE_PRESETS,
     DEFAULT_COMPUTE_PRESET_KEY,
@@ -79,6 +79,7 @@ from products.notebooks.backend.facade.compute_pricing import (
     get_compute_rates,
 )
 from products.notebooks.backend.facade.contracts import (
+    AppBlockSource,
     NotebookContentNotConvertible,
     NotebookRunBusy,
     TeamRunCapacityFull,
@@ -296,9 +297,16 @@ class NotebookMinimalSerializer(serializers.ModelSerializer, UserAccessControlSe
         extra_kwargs = _NOTEBOOK_FIELD_HELP_TEXTS
 
 
+class NotebookAppReleaseReviewSerializer(serializers.Serializer):
+    has_previous = serializers.BooleanField()
+    problems = serializers.ListField(child=serializers.CharField())
+    results_as_of = serializers.DateTimeField(allow_null=True)
+
+
 class NotebookAppReleaseSerializer(serializers.Serializer):
     revision = serializers.IntegerField()
     published_at = serializers.DateTimeField(allow_null=True)
+    results_as_of = serializers.DateTimeField(allow_null=True)
     title = serializers.CharField(allow_blank=True)
     layout = NotebookAppLayoutSerializer()
     markdown = serializers.CharField(allow_blank=True)
@@ -854,6 +862,19 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         if self.action in ("kernel_start", "kernel_restart"):
             return [*throttles, NotebookKernelStartBurstThrottle(), NotebookKernelStartSustainedThrottle()]
         return throttles
+
+    @extend_schema(request=NotebookAppLayoutSerializer, responses=NotebookAppReleaseReviewSerializer)
+    @action(methods=["POST"], detail=True, url_path="app_preview", required_scopes=["notebook:write"])
+    def app_preview(self, request: Request, **kwargs) -> Response:
+        notebook = self.get_object()
+        if not notebook_app_builder_enabled(request.user, self.team):
+            raise Http404()
+        layout = NotebookAppLayoutSerializer(data=request.data)
+        layout.is_valid(raise_exception=True)
+        review = review_release(
+            notebook.team_id, notebook.pk, [AppBlockSource(**block) for block in layout.validated_data["blocks"]]
+        )
+        return Response(NotebookAppReleaseReviewSerializer(review).data)
 
     @extend_schema(responses=NotebookAppReleaseSerializer)
     @action(methods=["GET"], detail=True, url_path="app_release", required_scopes=["notebook:read"])

@@ -966,10 +966,19 @@ export interface PatchedNotebookApi {
     _create_in_folder?: string
 }
 
+export interface NotebookAppReleaseReviewApi {
+    has_previous: boolean
+    problems: string[]
+    /** @nullable */
+    results_as_of: string | null
+}
+
 export interface NotebookAppReleaseApi {
     revision: number
     /** @nullable */
     published_at: string | null
+    /** @nullable */
+    results_as_of: string | null
     title: string
     layout: NotebookAppLayoutApi
     markdown: string

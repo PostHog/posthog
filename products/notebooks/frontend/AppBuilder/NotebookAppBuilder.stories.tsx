@@ -120,6 +120,10 @@ const meta: Meta = {
                 },
             },
             post: {
+                '/api/projects/:team_id/notebooks/app-builder-demo/app_preview': () => [
+                    200,
+                    { has_previous: true, problems: [], results_as_of: '2026-10-18T09:00:00Z' },
+                ],
                 '/api/projects/:team_id/notebooks/app-builder-demo/runs': async ({ request }) => {
                     const body = (await request.json()) as { variables: NotebookVariable[] }
                     saved = { ...saved, variables: body.variables, content: buildContent(body.variables) }
@@ -162,6 +166,21 @@ export const Builder: Story = {
         fireEvent.click(saveButton)
         await waitFor(() => expect(saved.app_draft.blocks.at(-1)?.text).toContain('Review notes'))
         expect(saved.app_published.blocks).toHaveLength(layout.blocks.length)
+    },
+}
+
+export const PublicationReview: Story = {
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        const review = await canvas.findByRole('button', { name: 'Review and publish' }, { timeout: 60000 })
+        await userEvent.click(review)
+        await waitFor(() => expect(canvas.getByText('Ready to publish')).toBeVisible())
+        expect(canvas.getByText(/Oldest displayed result ran/)).toBeVisible()
+        expect(canvas.getByRole('button', { name: 'Publish release' })).toBeEnabled()
+        await userEvent.click(canvas.getByRole('button', { name: 'Restore previous release' }))
+        const dialog = await within(document.body).findByRole('dialog')
+        await userEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+        expect(saved.app_revision).toBe(1)
     },
 }
 

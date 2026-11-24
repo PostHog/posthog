@@ -87,6 +87,7 @@ class NotebookAppRelease(TeamScopedRootMixin, UUIDModel):
     notebook = models.ForeignKey(Notebook, on_delete=models.CASCADE, related_name="app_releases")
     revision = models.PositiveIntegerField()
     published_at = models.DateTimeField(auto_now_add=True)
+    results_as_of = models.DateTimeField(null=True, blank=True)
     title = models.CharField(max_length=256, blank=True)
     layout = models.JSONField()
     markdown = models.TextField(blank=True)

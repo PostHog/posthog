@@ -8,7 +8,8 @@ from parameterized import parameterized
 
 from posthog.models import Team
 
-from products.notebooks.backend.models import Notebook
+from products.notebooks.backend.markdown_conversion import build_markdown_notebook_content
+from products.notebooks.backend.models import Notebook, NotebookNodeRun, NotebookRun
 from products.notebooks.backend.presentation.views.notebook import NotebookSerializer
 
 LAYOUT = {
@@ -203,6 +204,50 @@ class TestNotebookAppLayout(APIBaseTest):
         assert self.client.get(release_url).json()["variables"] == variables
         assert self.client.patch(url, {"app_revision": 4, "app_published": None}, format="json").status_code == 200
         assert self.client.get(release_url).status_code == 404
+
+    def test_preview_and_publish_require_the_saved_run_and_its_bound_defaults(self) -> None:
+        defaults = [{"name": "region", "type": "string", "value": "Europe"}]
+        notebook = Notebook.objects.create(team=self.team, created_by=self.user, variables=defaults)
+        run = NotebookRun.objects.for_team(self.team.id).create(
+            team=self.team, notebook=notebook, trigger="ui", variables=defaults, status="done"
+        )
+        cell = NotebookNodeRun.objects.for_team(self.team.id).create(
+            team=self.team,
+            notebook=notebook,
+            notebook_run=run,
+            node_id="proof",
+            node_type="python",
+            code="print(region)",
+            status="done",
+            envelope={"stdout": "Europe"},
+        )
+        url = f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/"
+        layout = {
+            **LAYOUT,
+            "blocks": [{"id": "output", "kind": "cell", "tab_id": "overview", "title": "Region", "node_id": "proof"}],
+        }
+        source = '<PythonV2 nodeId="proof" code="print(region)" />'
+        notebook.content = build_markdown_notebook_content(source)
+        notebook.save(update_fields=["content"])
+        preview = self.client.post(url + "app_preview/", layout, format="json")
+        assert preview.status_code == 200, preview.json()
+        assert "wait for the result to save" in preview.json()["problems"][0]
+        assert self.client.patch(url, {"app_revision": 0, "app_published": layout}, format="json").status_code == 400
+        source = source.replace(" />", f' runId="{cell.pk}" result={{{{"stdout":"Europe"}}}} />')
+        notebook.content = build_markdown_notebook_content(source)
+        notebook.save(update_fields=["content"])
+        preview = self.client.post(url + "app_preview/", layout, format="json").json()
+        assert preview["problems"] == [] and preview["results_as_of"]
+        assert self.client.patch(url, {"app_revision": 0, "app_published": layout}, format="json").status_code == 200
+        release = self.client.get(url + "app_release/").json()
+        assert release["results_as_of"] == preview["results_as_of"]
+        assert release["markdown"] == source
+        notebook.variables = [{**defaults[0], "value": "Asia"}]
+        notebook.save(update_fields=["variables"])
+        preview = self.client.post(url + "app_preview/", layout, format="json").json()
+        assert "stale" in preview["problems"][0]
+        assert self.client.patch(url, {"app_revision": 1, "app_published": layout}, format="json").status_code == 400
+        assert self.client.get(url + "app_release/").json() == release
 
     def test_layout_patch_cannot_address_a_notebook_in_another_project(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="Other project")
