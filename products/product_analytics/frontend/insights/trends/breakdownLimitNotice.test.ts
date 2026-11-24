@@ -1,6 +1,6 @@
 import { CompareLabelType, TrendResult } from '~/types'
 
-import { getBreakdownRankingCaption } from './breakdownRankingCaption'
+import { getBreakdownLimitNotice } from './breakdownLimitNotice'
 
 const OTHER = '$$_posthog_breakdown_other_$$'
 
@@ -18,7 +18,7 @@ function row(breakdown_value: string, extra: Partial<TrendResult> = {}): TrendRe
     }
 }
 
-describe('getBreakdownRankingCaption', () => {
+describe('getBreakdownLimitNotice', () => {
     it.each([
         {
             name: 'counts each value once across formulas and compared periods',
@@ -34,19 +34,19 @@ describe('getBreakdownRankingCaption', () => {
                 row(OTHER, { order: 0, compare_label: CompareLabelType.Previous, breakdown_other_values_count: 9 }),
             ],
             expected:
-                'Showing the 2 values with the most events across all series. 7 more values are grouped in Other.',
+                'Breakdown limited to the 2 values with the most events across all series. 7 more are grouped in Other.',
         },
         {
             name: 'leaves out Other when every value has a row',
             results: [row('home')],
-            expected: 'Showing the 1 value with the most events across all series.',
+            expected: 'Breakdown limited to the 1 value with the most events across all series.',
         },
         {
-            name: 'returns nothing when the query did not rank by event count',
+            name: 'keeps the plain limit when the query did not rank by event count',
             results: [row('home', { breakdown_event_count: undefined })],
-            expected: null,
+            expected: 'Breakdown limited to 25 - more available',
         },
     ])('$name', ({ results, expected }) => {
-        expect(getBreakdownRankingCaption(results)).toEqual(expected)
+        expect(getBreakdownLimitNotice(results, 25)).toEqual(expected)
     })
 })

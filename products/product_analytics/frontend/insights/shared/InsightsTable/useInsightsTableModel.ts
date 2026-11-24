@@ -21,7 +21,6 @@ import { getResultSeriesName } from 'products/product_analytics/frontend/insight
 import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
 import { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
-import { getBreakdownRankingCaption } from './breakdownRankingCaption'
 import { getAggregatedValue, insightsTableDataLogic } from './insightsTableDataLogic'
 
 export type CalcColumnState = 'total' | 'average' | 'median'
@@ -71,7 +70,6 @@ export interface InsightsTableModelProps {
 
 export interface InsightsTableModel {
     columns: InsightsTableColumn[]
-    breakdownRankingCaption: string | null
     dataSource: IndexedTrendResult[]
     hasCheckboxes: boolean
     isSingleSeriesWithBreakdown: boolean
@@ -288,8 +286,7 @@ export function useInsightsTableModel({
         }
     }
 
-    const breakdownRankingCaption = getBreakdownRankingCaption(indexedResults)
-    if (breakdownRankingCaption) {
+    if (indexedResults.some((result) => result.breakdown_event_count != null)) {
         const seriesCount = querySource && isInsightQueryWithSeries(querySource) ? querySource.series.length : 0
         columns.push({
             kind: 'event-count',
@@ -350,7 +347,6 @@ export function useInsightsTableModel({
 
     return {
         columns,
-        breakdownRankingCaption,
         dataSource,
         hasCheckboxes,
         isSingleSeriesWithBreakdown,

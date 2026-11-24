@@ -106,7 +106,6 @@ export function InsightsTable({
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
     const {
         columns: columnModel,
-        breakdownRankingCaption,
         dataSource,
         hasCheckboxes,
         isSingleSeriesWithBreakdown,
@@ -385,13 +384,6 @@ export function InsightsTable({
             loading={insightDataLoading}
             disableTableWhileLoading={false}
             emptyState={emptyState}
-            footer={
-                breakdownRankingCaption ? (
-                    <div className="text-secondary text-xs px-2 py-1" data-attr="insights-table-breakdown-ranking">
-                        {breakdownRankingCaption}
-                    </div>
-                ) : undefined
-            }
             data-attr="insights-table-graph"
             useURLForSorting={!editMode}
             rowRibbonColor={isLegend ? (item) => seriesRowColor(item, getTrendsColor(item)) : undefined}
