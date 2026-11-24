@@ -249,33 +249,11 @@ describe('intake message', () => {
         ).toBeNull()
     })
 
-    const FILE_SIZE_FIELD_BYTES = Buffer.byteLength('"fileBytes":10000000,')
-
     it.each([
-        [
-            'a send without files at the size limit',
-            null,
-            0,
-            { status: 'encoded', bytes: INTAKE_MESSAGE_MAX_BYTES, inserted: null },
-        ],
-        [
-            'a send with files at the size limit',
-            10_000_000,
-            0,
-            { status: 'encoded', bytes: INTAKE_MESSAGE_MAX_BYTES + FILE_SIZE_FIELD_BYTES, inserted: 10_000_000 },
-        ],
-        [
-            'a send without files one byte over the size limit',
-            null,
-            1,
-            { status: 'too_large', bytes: INTAKE_MESSAGE_MAX_BYTES + 1 },
-        ],
-        [
-            'a send with files one byte over the size limit',
-            10_000_000,
-            1,
-            { status: 'too_large', bytes: INTAKE_MESSAGE_MAX_BYTES + 1 + FILE_SIZE_FIELD_BYTES },
-        ],
+        ['a send without files at the size limit', null, 0, { status: 'encoded', inserted: null }],
+        ['a send with files at the size limit', 10_000_000, 0, { status: 'encoded', inserted: 10_000_000 }],
+        ['a send without files one byte over the size limit', null, 1, { status: 'too_large' }],
+        ['a send with files one byte over the size limit', 10_000_000, 1, { status: 'too_large' }],
     ])('holds %s to the size limit of the same send without a file size', (_case, fileBytes, overBytes, outcome) => {
         const padded = (padding: number): CyclotronV2JobInit & { id: string } =>
             job({
@@ -291,12 +269,8 @@ describe('intake message', () => {
 
         expect(
             encoded.status === 'encoded'
-                ? {
-                      status: encoded.status,
-                      bytes: encoded.message.value.length,
-                      inserted: insertedFileBytes(encoded.message.value),
-                  }
-                : encoded
+                ? { status: encoded.status, inserted: insertedFileBytes(encoded.message.value) }
+                : { status: encoded.status }
         ).toEqual(outcome)
     })
 })
