@@ -25,7 +25,6 @@ import { todayShellLogic } from '~/layout/today/todayShellLogic'
 import { ReleaseDetailsCard } from './ReleaseDetailsCard'
 import { ReleaseHistory } from './ReleaseHistory'
 import { ReleaseLaunchDialog } from './ReleaseLaunchDialog'
-import { ReleaseLinkedCard } from './ReleaseLinkedCard'
 import { ReleaseLoadError } from './ReleaseLoadError'
 import { releaseLogic } from './releaseLogic'
 import { ReleaseMergeButton } from './ReleaseMergeButton'
@@ -70,7 +69,6 @@ function ReleaseSkeleton({ suggestions }: { suggestions: boolean }): JSX.Element
                 </div>
                 <div className="flex min-w-0 flex-col gap-4">
                     <Skeleton className="h-20 w-full" />
-                    <Skeleton className="h-60 w-full @4xl:h-44" />
                     {suggestions && <Skeleton className="h-40 w-full" />}
                 </div>
             </div>
@@ -158,7 +156,6 @@ function ReleaseContent({ id }: ReleaseSceneProps): JSX.Element {
                     </div>
                     <div className="flex min-w-0 flex-col gap-4">
                         <ReleaseDetailsCard row={row} />
-                        <ReleaseLinkedCard row={row} />
                         <ReleaseSuggestedCard row={row} />
                     </div>
                 </div>
