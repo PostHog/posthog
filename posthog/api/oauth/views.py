@@ -1048,9 +1048,19 @@ class OAuthValidator(OAuth2Validator):
             # Re-read it so the new tokens copy the committed scope. DOT's own re-read is an
             # unguarded `.get()`, which would surface as a 500 for a deleted row; reject the grant
             # instead so the client re-authorizes.
+            was_restricted = bool(presented_refresh_token.scoped_teams or presented_refresh_token.scoped_organizations)
             try:
                 presented_refresh_token.refresh_from_db(fields=["scoped_teams", "scoped_organizations"])
             except OAuthRefreshToken.DoesNotExist:
+                raise InvalidGrantError(
+                    description="This application's access was revoked; re-authorize.",
+                    request=request,
+                )
+            # An empty list means unrestricted, so a token whose last team was removed meanwhile
+            # must end here rather than mint tokens that reach every team.
+            if was_restricted and not (
+                presented_refresh_token.scoped_teams or presented_refresh_token.scoped_organizations
+            ):
                 raise InvalidGrantError(
                     description="This application's access was revoked; re-authorize.",
                     request=request,
