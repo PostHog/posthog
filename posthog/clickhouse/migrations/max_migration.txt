@@ -1,1 +1,1 @@
-0392_sessions_exclude_mcp_ai_events
+0395_sessions_exclude_mcp_ai_events
