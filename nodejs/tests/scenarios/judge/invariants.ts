@@ -20,7 +20,7 @@ export type JudgeEvidence = {
 
 export type RunBoundary = {
     truthFrom: number
-    horizon?: { seq: number; at: number }
+    horizon?: { seq: number; at: number } | { unread: string }
     unread?: string
     unobserved: readonly string[]
 }
@@ -398,6 +398,9 @@ export const noLoss: InvariantDefinition = {
         const { horizon } = evidence.boundary
         if (horizon === undefined) {
             return unjudgedOf('the run reached no recovery horizon: convergence was interrupted')
+        }
+        if ('unread' in horizon) {
+            return unjudgedOf(`the run reached no recovery horizon: the last truth read failed: ${horizon.unread}`)
         }
         const unjudged = unjudgedNoLoss(evidence)
         if (unjudged !== undefined) {

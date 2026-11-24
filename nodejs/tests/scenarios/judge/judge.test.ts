@@ -736,6 +736,19 @@ describe('judge', () => {
             'the truth could not be read: The operation was aborted due to timeout',
         ],
         [
+            'the last truth read of convergence failed',
+            async () => {
+                duringProbe = () => {
+                    truthFails = 'The operation was aborted due to timeout'
+                    return Promise.resolve()
+                }
+                await judge.converge(20, NEVER_ABORTED)
+                truthFails = undefined
+            },
+            NO_RESETS,
+            'the run reached no recovery horizon: the last truth read failed: The operation was aborted due to timeout',
+        ],
+        [
             'a valve was never observed',
             () => judge.converge(20, NEVER_ABORTED),
             { ...NO_RESETS, unobserved: ['role.kill on cdp-cyclotron-worker-email was not observed: never applied'] },
@@ -1045,28 +1058,33 @@ describe('judge', () => {
         })
     })
 
-    it.each<[string, () => void, number, number | null]>([
+    const failTheTruthReadAfterTheCount = (): void => {
+        duringProbe = () => {
+            truthFails = 'The operation was aborted due to timeout'
+            return Promise.resolve()
+        }
+    }
+
+    it.each<[string, number, () => void, number, number | null]>([
         [
             'as unknown when its last job count fails after an earlier poll counted some',
+            5,
             () => {
                 probeAnswers = 1
             },
             50,
             null,
         ],
+        ['it counted when the truth read after that count fails', 5, failTheTruthReadAfterTheCount, 20, 5],
         [
-            'it counted when the truth read after that count fails',
-            () => {
-                duringProbe = () => {
-                    truthFails = 'The operation was aborted due to timeout'
-                    return Promise.resolve()
-                }
-            },
+            'as unknown when it counted none and the truth read after that count fails',
+            0,
+            failTheTruthReadAfterTheCount,
             20,
-            5,
+            null,
         ],
-    ])('reports the unfinished jobs %s', async (_story, failing, withinMs, reported) => {
-        unfinishedJobs = 5
+    ])('reports the unfinished jobs %s', async (_story, jobs, failing, withinMs, reported) => {
+        unfinishedJobs = jobs
         failing()
         judge.record(offered())
         await deliver(UNIT)

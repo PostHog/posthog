@@ -151,10 +151,14 @@ export function createJudge({
                 const tookMs = now() - startedAt
                 const converged = jobs === 0 && quiet === true && unrecorded.length === 0 && tookMs <= withinMs
                 if (converged || tookMs >= withinMs || signal.aborted) {
-                    horizon = signal.aborted ? undefined : { seq: cursor, at: now() }
+                    horizon = signal.aborted
+                        ? undefined
+                        : quiet === undefined && unread !== undefined
+                          ? { unread }
+                          : { seq: cursor, at: now() }
                     return {
                         converged,
-                        unfinishedJobs: jobs ?? null,
+                        unfinishedJobs: quiet === undefined && jobs === 0 ? null : (jobs ?? null),
                         unrecorded,
                         tookMs,
                         ...(unread !== undefined && { unread }),
