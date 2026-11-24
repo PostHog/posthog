@@ -139,83 +139,8 @@ const workflowsMakePushTemplateTransactionalExecute = (): ToolBase<
     },
 })
 
-const WorkflowsSendPushSchema = () => {
-    const MessagingSendPushCreateBody = orvalSchemas.MessagingSendPushCreateBody()
-    return MessagingSendPushCreateBody
-}
-
-const WorkflowsSendPushSchemaExecute = z.strictObject({
-    confirmation_hash: z
-        .string()
-        .describe('The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.'),
-    confirmation: z.string().describe('The literal string "confirm", typed by the user in chat. Required to proceed.'),
-})
-
-const workflowsSendPushPrepare = (): ToolBase<
-    ReturnType<typeof WorkflowsSendPushSchema>,
-    PrepareConfirmedActionResult
-> => ({
-    name: 'workflows-send-push-prepare',
-    schema: WorkflowsSendPushSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsSendPushSchema>>) => {
-        const __runtime = getConfirmedActionRuntime()
-        const __scopeProjectId = await context.stateManager.getProjectId()
-        return await prepareConfirmedAction(context, {
-            args: params,
-            purpose: 'workflows-send-push',
-            inputSchema: WorkflowsSendPushSchema(),
-            actionLabel: 'send push notification',
-            messageTemplate:
-                "About to send push template '{template_id}' to every device of '{distinct_id}'. Reply 'confirm' to send it.\n",
-            codec: __runtime.codec,
-            stash: __runtime.stash,
-            boundScope: { projectId: String(__scopeProjectId) },
-        })
-    },
-})
-
-const workflowsSendPushExecute = (): ToolBase<typeof WorkflowsSendPushSchemaExecute, unknown> => ({
-    name: 'workflows-send-push-execute',
-    schema: WorkflowsSendPushSchemaExecute,
-    handler: async (context: Context, confirmationParams: z.infer<typeof WorkflowsSendPushSchemaExecute>) => {
-        const __runtime = getConfirmedActionRuntime()
-        const __scopeProjectId = await context.stateManager.getProjectId()
-        const __guard = await executeConfirmedAction<z.infer<ReturnType<typeof WorkflowsSendPushSchema>>>(context, {
-            incomingArgs: confirmationParams,
-            purpose: 'workflows-send-push',
-            inputSchema: WorkflowsSendPushSchema(),
-            codec: __runtime.codec,
-            stash: __runtime.stash,
-            expectedScope: { projectId: String(__scopeProjectId) },
-        })
-        if (!__guard.ok) {
-            return __guard.result as never
-        }
-        const params = __guard.verifiedArgs
-        const projectId = __scopeProjectId
-        const body: Record<string, unknown> = {}
-        if (params.template_id !== undefined) {
-            body['template_id'] = params.template_id
-        }
-        if (params.distinct_id !== undefined) {
-            body['distinct_id'] = params.distinct_id
-        }
-        if (params.message_data !== undefined) {
-            body['message_data'] = params.message_data
-        }
-        const result = await context.api.request<unknown>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging/send/push/`,
-            body,
-        })
-        return result
-    },
-})
-
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'workflows-create-push-template': workflowsCreatePushTemplate,
     'workflows-make-push-template-transactional-prepare': workflowsMakePushTemplateTransactionalPrepare,
     'workflows-make-push-template-transactional-execute': workflowsMakePushTemplateTransactionalExecute,
-    'workflows-send-push-prepare': workflowsSendPushPrepare,
-    'workflows-send-push-execute': workflowsSendPushExecute,
 }

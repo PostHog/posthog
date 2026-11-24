@@ -17,7 +17,7 @@ export function TransactionalPushTestSend({ id }: { id: string }): JSX.Element {
                     Sends the published version to every device of one person, like an API call would.
                 </p>
             </div>
-            <div className="flex flex-col gap-1">
+            <div className="flex flex-col gap-1 ph-no-capture">
                 <LemonLabel htmlFor="transactional-push-test-distinct-id">Distinct ID</LemonLabel>
                 <LemonInput
                     id="transactional-push-test-distinct-id"
@@ -28,7 +28,7 @@ export function TransactionalPushTestSend({ id }: { id: string }): JSX.Element {
                 />
             </div>
             {savedVariables.map((name) => (
-                <div key={name} className="flex flex-col gap-1">
+                <div key={name} className="flex flex-col gap-1 ph-no-capture">
                     <LemonLabel htmlFor={`transactional-push-test-variable-${name}`}>{name}</LemonLabel>
                     <LemonInput
                         id={`transactional-push-test-variable-${name}`}

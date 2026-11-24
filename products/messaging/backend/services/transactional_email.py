@@ -74,6 +74,7 @@ from products.messaging.backend.facade.contracts import (
     SensitiveTemplate,
     TemplateNotSendable,
     TemplateNotTransactional,
+    TemplateTypeChanged,
     TooManyKeys,
     TransactionalEmailError,
     TransactionalEmailPaused,
@@ -448,13 +449,20 @@ def _push_content(template: MessageTemplate) -> TransactionalPushContent:
 
 
 def make_transactional(
-    team_id: int, template_id: UUID, *, user_id: int | None, from_integration_id: int | None
+    team_id: int,
+    template_id: UUID,
+    *,
+    user_id: int | None,
+    from_integration_id: int | None,
+    template_type: str | None = None,
 ) -> UUID:
     """Create the template's workflow and link it, and return the workflow's id. A template that is already
-    transactional keeps the workflow it has."""
+    transactional keeps the workflow it has. `template_type` is the type the caller was allowed to convert."""
     with transaction.atomic():
         # The row lock keeps two concurrent calls from creating two workflows.
         template = MessageTemplate.objects.select_for_update().get(team_id=team_id, id=template_id, deleted=False)
+        if template_type is not None and template.type != template_type:
+            raise TemplateTypeChanged("The template's type changed while it was being made transactional. Try again.")
         if template.transactional_hog_flow_id and _workflow_exists(team_id, template.transactional_hog_flow_id):
             return template.transactional_hog_flow_id
         check_sendable(
@@ -807,13 +815,13 @@ def send_code_email_batch(team: Team, email: CodeEmail, recipients: Sequence[Bat
 
 def _within_batch_shared_limit(shared: dict[str, Any] | CodeEmail | None) -> bool:
     if not isinstance(shared, CodeEmail):
-        return _encoded_size(shared or {}) <= BATCH_SHARED_MAX_BYTES
-    if _encoded_size([shared.subject, shared.html, shared.text]) > BATCH_SHARED_MAX_BYTES:
+        return encoded_size(shared or {}) <= BATCH_SHARED_MAX_BYTES
+    if encoded_size([shared.subject, shared.html, shared.text]) > BATCH_SHARED_MAX_BYTES:
         return False
-    return _encoded_size(_accepted_content(shared)) <= BATCH_SHARED_MAX_BYTES
+    return encoded_size(_accepted_content(shared)) <= BATCH_SHARED_MAX_BYTES
 
 
-def _encoded_size(value: Any) -> int:
+def encoded_size(value: Any) -> int:
     return len(json.dumps(value, ensure_ascii=False).encode(errors="surrogatepass"))
 
 

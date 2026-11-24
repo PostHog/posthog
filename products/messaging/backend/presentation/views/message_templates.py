@@ -102,6 +102,7 @@ from products.messaging.backend.facade.transactional_email import (
     SendWarningCode,
     TransactionalEmailError,
     TransactionalEmailStage,
+    check_push_batch,
     check_transactional_update,
     lock_transactional_workflow_id,
     make_transactional,
@@ -1557,8 +1558,22 @@ class MessageTemplatesViewSet(
     transactional_email_route = "template"
     # Access rules on hog_flow name workflow ids, never template ids, so no rule names one template.
     records_have_object_access_rules = False
+    _scoped_template_type: str | None = None
 
     serializer_class = MessageTemplateSerializer
+
+    # Each kind of template needs the scope that sends it, so a key for one channel can't open the other.
+    request_dependent_scope_actions = frozenset({"make_transactional"})
+
+    def dangerously_get_required_scopes(self, request: Any, view: Any) -> list[str] | None:
+        if self.action != "make_transactional":
+            return None
+        # Schema generation asks for the scopes without a template.
+        template = self.read_object() if "pk" in self.kwargs else None
+        self._scoped_template_type = template.type if isinstance(template, MessageTemplateRow) else None
+        return [
+            TRANSACTIONAL_PUSH_SEND_SCOPE if self._scoped_template_type == "push" else TRANSACTIONAL_EMAIL_SEND_SCOPE
+        ]
 
     def get_throttles(self):
         if self.action == "send":
@@ -1836,13 +1851,14 @@ class MessageTemplatesViewSet(
             "template. This creates the workflow that sends it, "
             "with its own metrics, run history and versions. This can't be undone: the template stays transactional. "
             "Transactional sends ignore marketing opt-outs. Calling it again on a transactional template changes "
-            "nothing. Needs the `transactional_email:write` scope, the same scope as sending. A key with "
-            "`hog_flow:write` also works, but that scope reaches the rest of Workflows too. Without `hog_flow:read`, "
+            "nothing. Needs the scope that sends the template: `transactional_email:write` for an email template, "
+            "`transactional_push:write` for a push template. A key with `hog_flow:write` also works, but that scope "
+            "reaches the rest of Workflows too. Without `hog_flow:read`, "
             "the response leaves out `content` and `draft_content`."
         ),
         parameters=[TEMPLATE_ID_PARAMETER],
     )
-    @action(detail=True, methods=["POST"], pagination_class=None, required_scopes=[TRANSACTIONAL_EMAIL_SEND_SCOPE])
+    @action(detail=True, methods=["POST"], pagination_class=None)
     def make_transactional(self, request: Any, *args: Any, **kwargs: Any) -> Response:
         template = self.get_object()
         expected_type = request.validated_data.get("expected_type")
@@ -1867,6 +1883,7 @@ class MessageTemplatesViewSet(
                 template.id,
                 user_id=self._actor_id(),
                 from_integration_id=request.validated_data.get("from_integration_id"),
+                template_type=self._scoped_template_type or template.type,
             )
         except TransactionalEmailError as e:
             raise TransactionalEmailRejected(e) from None
@@ -2008,6 +2025,10 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
     @action(detail=False, methods=["POST"], required_scopes=[TRANSACTIONAL_PUSH_SEND_SCOPE])
     def push_batch(self, request: Any, *args: Any, **kwargs: Any) -> Response:
         require_transactional_push_api(self.team)
+        try:
+            check_push_batch(request.validated_data["message_data"])
+        except TransactionalEmailError as e:
+            raise TransactionalEmailRejected(e) from None
         recipients = push_batch_recipients(request.validated_data)
         reserve_units(transactional_email_throttles(self.team_id), request, self, len(recipients) - 1)
         template = self.get_object()

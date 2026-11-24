@@ -29,9 +29,11 @@ from products.messaging.backend.facade.contracts import (
     TransactionalPushPaused,
 )
 from products.messaging.backend.services.transactional_email import (
+    BATCH_SHARED_MAX_BYTES,
     IDEMPOTENCY_KEY_PATTERN,
     TransactionalTemplate,
     check_sendable,
+    encoded_size,
     queued_send,
     raise_refusal,
     refusal_code_of,
@@ -95,6 +97,15 @@ def send_transactional_push(
         idempotency_key=idempotency_key,
         timeout=timeout,
     )
+
+
+def check_push_batch(message_data: dict[str, Any]) -> None:
+    """Refuse a batch whose shared data is over the email batch's cap, before it is copied to every recipient."""
+    if encoded_size(message_data) > BATCH_SHARED_MAX_BYTES:
+        raise ContentTooLarge(
+            f"The `message_data` that a batch sends to every recipient can be at most "
+            f"{BATCH_SHARED_MAX_BYTES // 1024} KiB. Send larger notifications one at a time."
+        )
 
 
 def send_transactional_push_batch(

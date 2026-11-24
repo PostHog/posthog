@@ -17,7 +17,7 @@ Push setup is at https://posthog.com/docs/workflows/push-notifications.md.
 
 ## Check that the project can use it
 
-Look for the `workflows-create-push-template`, `workflows-make-push-template-transactional-prepare` and `workflows-send-push-prepare` tools before you promise anything.
+Look for the `workflows-create-push-template` and `workflows-make-push-template-transactional-prepare` tools before you promise anything. No tool sends a push: the user's backend does, or a person with the Send test form on the push's page.
 
 - If they are missing, transactional push is not on for the project yet, or the MCP connection lacks the scopes. Tell the user which one applies if you can tell, otherwise say both.
 - Don't work around a missing tool with other tools.
@@ -39,5 +39,5 @@ Look for the `workflows-create-push-template`, `workflows-make-push-template-tra
 
 ## Don't decide alone
 
-- Making a template sendable, and every test or real send, need the user's confirmation.
-- Don't send to a distinct ID the user did not name.
+- Making a template sendable needs the user's confirmation.
+- Don't send a push for the user, with another tool or with a key you find.
