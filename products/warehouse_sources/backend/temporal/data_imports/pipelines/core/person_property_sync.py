@@ -894,7 +894,7 @@ async def _sync_removed(run: _RunContext, state: _SourceState) -> None:
             removable = await database_sync_to_async(_removable_ids, thread_sensitive=False)(
                 run.team_id, chunk, state.present_ids
             )
-        removal_items = [(key, {}) for key in chunk if key in removable]
+        removal_items: list[tuple[str, dict]] = [(key, {}) for key in chunk if key in removable]
         delivered: set[str] = set()
         if removal_items:
             with run.timer.phase("produce"):

@@ -1206,7 +1206,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                             schema_id=str(inputs.external_data_schema_id),
                             job_id=str(job_id),
                             source_id=str(inputs.external_data_source_id),
-                            reset_pipeline=inputs.reset_pipeline,
+                            reset_pipeline=bool(inputs.reset_pipeline),
                         ),
                         start_to_close_timeout=dt.timedelta(hours=6),
                         heartbeat_timeout=dt.timedelta(minutes=5),
@@ -1273,7 +1273,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 run_id=job_id,
                 schema_id=inputs.external_data_schema_id,
                 source_id=inputs.external_data_source_id,
-                reset_pipeline=inputs.reset_pipeline,
+                reset_pipeline=bool(inputs.reset_pipeline),
                 fast_return_eligible=fast_return_eligible,
                 scheduled_full_refresh=scheduled_full_refresh,
                 on_resumable_retry_budget=is_resumable_source,
@@ -1412,7 +1412,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     complete_table_read=_reads_complete_table(
                         incremental_or_append=incremental_or_append,
                         scheduled_full_refresh=scheduled_full_refresh,
-                        reset_pipeline=inputs.reset_pipeline,
+                        reset_pipeline=bool(inputs.reset_pipeline),
                         is_resumable_source=is_resumable_source,
                     ),
                 )
