@@ -704,7 +704,7 @@ Klar,,,,,,klar
 Klarna,api_key username region environment,,,,,klarna
 Klaus,subdomain api_token,,,,,klaus
 Klaviyo,api_key,,,conversion_metric_id,,klaviyo
-Knock,api_key,,,object_collections audience_keys in_app_feed_channel_ids,,knock
+Knock,api_key service_token,,,object_collections audience_keys in_app_feed_channel_ids management_environment,,knock
 Knowbe4,api_key region,,,,,knowbe4
 Kommo,subdomain api_key,,,,,kommo
 Komodor,api_key region,,,,,komodor

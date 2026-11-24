@@ -9,9 +9,13 @@ from products.warehouse_sources.sources.sdk import (
 )
 
 KNOCK_BASE_URL = "https://api.knock.app"
+# The Management API takes an account service token, not the environment secret key.
+KNOCK_MANAGEMENT_BASE_URL = "https://control.knock.app"
 
 # Knock caps `page_size` at 50 on every list endpoint.
 KNOCK_PAGE_SIZE = 50
+# The Management API pages with `limit`, capped at 100 (the cap the Knock CLI enforces).
+KNOCK_MANAGEMENT_PAGE_SIZE = 100
 
 
 @dataclass(frozen=True)
@@ -38,6 +42,12 @@ class KnockEndpointConfig:
     page_size: int = KNOCK_PAGE_SIZE
     # False for an endpoint whose spec documents no `page_size` or `after` param.
     documents_pagination: bool = True
+    # Read from the Management API with the service token.
+    management_api: bool = False
+    # Sends the configured environment slug. Knock uses the account's default environment
+    # when none is sent.
+    environment_scoped: bool = False
+    params: dict[str, str] = field(default_factory=dict)
 
     @property
     def default_incremental_field(self) -> str | None:
@@ -231,6 +241,45 @@ ENDPOINTS_CONFIG: dict[str, KnockEndpointConfig] = {
         primary_keys=("audience_key", "user_id", "tenant"),
         partition_key="added_at",
         documents_pagination=False,
+    ),
+    # The Management API tables below sync only once the user adds a service token. The
+    # secret API key cannot list workflows, channels or audiences.
+    # Workflow and audience keys repeat across environments, so the environment joins the key.
+    # Uncommitted changes are hidden so the rows match the versions that run.
+    "workflows": KnockEndpointConfig(
+        name="workflows",
+        path="/v1/workflows",
+        data_selector="entries",
+        primary_keys=("environment", "key"),
+        management_api=True,
+        environment_scoped=True,
+        params={"hide_uncommitted_changes": "true"},
+    ),
+    # Channels are account-wide, not per environment.
+    "channels": KnockEndpointConfig(
+        name="channels",
+        path="/v1/channels",
+        data_selector="entries",
+        management_api=True,
+    ),
+    "audiences": KnockEndpointConfig(
+        name="audiences",
+        path="/v1/audiences",
+        data_selector="entries",
+        primary_keys=("environment", "key"),
+        management_api=True,
+        environment_scoped=True,
+        params={"hide_uncommitted_changes": "true"},
+    ),
+    # Account-wide, newest first. `since` is a documented server-side filter on `inserted_at`.
+    "audit_logs": KnockEndpointConfig(
+        name="audit_logs",
+        path="/v1/audit_logs",
+        data_selector="entries",
+        incremental_fields=[incremental_field("inserted_at")],
+        incremental_param="since",
+        partition_key="inserted_at",
+        management_api=True,
     ),
 }
 

@@ -8519,7 +8519,7 @@ Note (2026-11-19): Parsed the revision 2026-10-15 OpenAPI spec and listed the to
 
 ## Knock — gaps
 
-Today (13): `audience_members`, `message_activities`, `message_delivery_logs`, `message_events`, `messages`, `objects`, `schedules`, `tenants`, `user_feed_items`, `user_preferences`, `user_subscriptions`, `users`, `workflow_recipient_runs`
+Today (17): `audience_members`, `audiences`, `audit_logs`, `channels`, `message_activities`, `message_delivery_logs`, `message_events`, `messages`, `objects`, `schedules`, `tenants`, `user_feed_items`, `user_preferences`, `user_subscriptions`, `users`, `workflow_recipient_runs`, `workflows`
 
 Diffed against: <https://docs.knock.app/llms.txt>
 
@@ -8538,15 +8538,17 @@ Note: Knock has no publicly downloadable OpenAPI file (docs.knock.app/openapi.js
 
 Re-audited 2026-11-19 against: <https://docs.knock.app/mapi/openapi.json>
 
-- [ ] `Workflows (GET /v1/workflows)` — workflow definitions, to resolve the workflow key carried on messages and workflow runs (high)
-- [ ] `Channels (GET /v1/channels)` — channel definitions, to resolve the channel_id on messages and delivery logs (high)
-- [ ] `Audiences (GET /v1/audiences)` — lists audience keys, which our audience_members table needs as configuration today (medium)
-- [ ] `Audit logs (GET /v1/audit_logs)` — account change history across environments, ordered newest first, with since and until filters (medium)
+- [x] `Workflows (GET /v1/workflows)` — workflow definitions, to resolve the workflow key carried on messages and workflow runs (high)
+- [x] `Channels (GET /v1/channels)` — channel definitions, to resolve the channel_id on messages and delivery logs (high)
+- [x] `Audiences (GET /v1/audiences)` — lists audience keys, which our audience_members table needs as configuration today (medium)
+- [x] `Audit logs (GET /v1/audit_logs)` — account change history across environments, ordered newest first, with since and until filters (medium)
 - [ ] `Message types (GET /v1/message_types)` — in-app message type definitions used by feed items (low)
 - [ ] `Broadcasts (GET /v1/broadcasts)` — broadcast campaigns, with the workflow they run (low)
 - [ ] `Members (GET /v1/members)` — account members, to resolve actor ids in audit logs and commits (low)
 
 Note (2026-11-19): The main API spec at docs.knock.app/openapi.json is now published and covers only routes we already sync (messages, users, objects, tenants, schedules, workflow runs, audiences members). The gaps come from the separate Management API spec (docs.knock.app/mapi/openapi.json, server https://control.knock.app). It uses a different bearer token (a service token) and per-environment filters, so an implementer needs a second credential. List routes take after, before and limit cursors.
+
+Note (2026-11-24): `workflows`, `channels`, `audiences` and `audit_logs` read the Management API with an optional `service_token` source field. `workflows` and `audiences` read the environment in the `management_environment` sync setting, or the account default when it is empty. The four tables sync by default only when a service token is set. Pages use `limit=100`, the cap that the Knock CLI enforces.
 
 ## Knowbe4 — gaps
 
