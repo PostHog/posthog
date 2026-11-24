@@ -404,6 +404,10 @@ export const contentAutopilotKeywordsLogic = kea<contentAutopilotKeywordsLogicTy
                 if (values.modifierKeyword === keyword.keyword) {
                     actions.setModifierKeyword(null)
                 }
+                // The empty state unmounts the editor, so it would reopen on its own once a keyword is added back.
+                if (values.keywords?.length === 0) {
+                    actions.closeKeywordsModal()
+                }
             },
             setModifierKeyword: ({ modifierKeyword }) => {
                 // pinned: analytics event name, renaming it breaks dashboards
