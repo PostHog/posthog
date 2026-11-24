@@ -1,5 +1,3 @@
-import { dayjs } from 'lib/dayjs'
-
 import type { ExperimentExposureQueryResponse } from '~/queries/schema/schema-general'
 
 import type {
@@ -27,10 +25,6 @@ export const HEALTH_FINDING_SEVERITY_LABELS: Record<HealthPanelFinding['severity
     info: 'Note',
     warning: 'Warning',
     critical: 'Critical',
-}
-
-export function hoursSinceStart(startDate: string | null | undefined): number | null {
-    return startDate ? dayjs().diff(startDate, 'hour', true) : null
 }
 
 /**
