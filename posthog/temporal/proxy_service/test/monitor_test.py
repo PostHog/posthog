@@ -7,10 +7,14 @@ from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
 
 from django.test import SimpleTestCase, TestCase
 
+import dns.name
 import requests
+from asgiref.sync import async_to_sync
 from parameterized import parameterized
+from temporalio.exceptions import ApplicationError
 
 from posthog.models import Organization, ProxyRecord
+from posthog.models.proxy_record import CloudflareActivationState
 from posthog.security.pinned_requests import SSRFBlockedError
 from posthog.security.url_validation import PinnedUrlVerdict
 from posthog.temporal.proxy_service.cloudflare import (
@@ -25,6 +29,7 @@ from posthog.temporal.proxy_service.monitor import (
     CheckActivityInput,
     CleanupMonitorJobInputs,
     _check_cloudflare_certificate_status,
+    check_dns,
     check_proxy_is_live,
     cleanup_monitor_job,
 )
@@ -91,6 +96,39 @@ class TestCheckProxyIsLive(TestCase):
             await cleanup_monitor_job(inputs)
 
         self.assertFalse(schedules)
+
+    @parameterized.expand(
+        [
+            ("inactive_organization", False, CloudflareActivationState.IDLE),
+            ("awaiting_restoration", True, CloudflareActivationState.SUSPENDED),
+            ("restoring", True, CloudflareActivationState.RECOVERY_PENDING),
+        ]
+    )
+    def test_dns_check_waits_for_cloudflare_proxy_restoration(
+        self, _name: str, is_active: bool, state: CloudflareActivationState
+    ) -> None:
+        cname = "edge.proxy.example.com"
+        record = ProxyRecord.objects.filter(pk=self.proxy_record.pk)
+        organization = Organization.objects.filter(pk=self.organization.pk)
+        record.update(target_cname=cname, cloudflare_activation_state=state)
+        organization.update(is_active=is_active)
+
+        with (
+            self.settings(CLOUDFLARE_PROXY_BASE_CNAME="proxy.example.com"),
+            patch("posthog.temporal.proxy_service.common.connection.connect"),
+            patch("posthog.temporal.proxy_service.monitor.dnssec_resolver") as resolver,
+        ):
+            resolver.return_value.resolve.return_value = [Mock(target=dns.name.from_text(cname))]
+            with self.assertRaises(ApplicationError) as suspended:
+                async_to_sync(check_dns)(self.input)
+            self.assertEqual(suspended.exception.type, "ProxyMonitoringSuspended")
+            self.assertTrue(suspended.exception.non_retryable)
+
+            organization.update(is_active=True)
+            record.update(cloudflare_activation_state=CloudflareActivationState.IDLE)
+            result = async_to_sync(check_dns)(self.input)
+
+        self.assertEqual((result.errors, result.warnings), ([], []))
 
     @pytest.mark.asyncio
     @patch("posthog.temporal.proxy_service.monitor.get_record")

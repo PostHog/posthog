@@ -81,8 +81,7 @@ class RecordDeletedException(NonRetriableException):
 @sync_to_async
 def get_record(proxy_record_id: uuid.UUID) -> t.Optional[ProxyRecord]:
     connection.connect()
-    pr = ProxyRecord.objects.filter(id=proxy_record_id)
-    return pr.first()
+    return ProxyRecord.objects.select_related("organization").filter(pk=proxy_record_id).first()
 
 
 @sync_to_async
