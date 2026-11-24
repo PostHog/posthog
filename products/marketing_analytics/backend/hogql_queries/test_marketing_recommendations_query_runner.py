@@ -716,7 +716,16 @@ class TestMarketingAnalyticsRecommendationsSourceDiscovery(BaseTest):
             assert denied_query_resources(member, self.team, [query]) == expected
             assert denied_query_resources(self.user, self.team, [query]) == []
 
-    def test_save_time_access_check_expands_expressions_on_source_tables(self) -> None:
+    @parameterized.expand(
+        [
+            ("synced_tables", None),
+            # A table-valued field that fails to compile would make the whole check pass.
+            ("with_a_non_warehouse_table", "events"),
+        ]
+    )
+    def test_save_time_access_check_expands_expressions_on_source_tables(
+        self, _name: str, extra_table: str | None
+    ) -> None:
         # An expression may add a field the run reads, such as a status column older syncs lack.
         self._source("GoogleAds", "acme", {"campaign": True, "campaign_stats": True})
         credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
@@ -746,7 +755,16 @@ class TestMarketingAnalyticsRecommendationsSourceDiscovery(BaseTest):
             access_level="none",
             organization_member=OrganizationMembership.objects.get(user=member, organization=self.organization),
         )
-        query = MarketingAnalyticsRecommendationsQuery().model_dump()
+        query = MarketingAnalyticsRecommendationsQuery(
+            sources=[
+                MarketingAnalyticsRecommendationsSource(
+                    sourceType="GoogleAds",
+                    campaignTable="googleads.acme.campaign",
+                    campaignStatsTable="googleads.acme.campaign_stats",
+                    adTable=extra_table,
+                )
+            ]
+        ).model_dump()
 
         with patch("posthog.hogql.database.database._evaluate_warehouse_access_control_flag", return_value=True):
             assert denied_query_resources(member, self.team, [query]) == ["secret_lookup"]

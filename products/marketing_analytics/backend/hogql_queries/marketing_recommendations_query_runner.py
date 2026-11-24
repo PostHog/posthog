@@ -19,7 +19,8 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
-from posthog.hogql.database.models import DatabaseField, FieldTraverser
+from posthog.hogql.database.models import DatabaseField
+from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import create_default_modifiers_for_team, execute_hogql_query
 
@@ -136,16 +137,16 @@ class MarketingAnalyticsRecommendationsQueryRunner(
 
     def _access_probe(self, table: str) -> ast.SelectQuery:
         chain = list[str | int](table.split("."))
-        # A field can be an expression that reads another table, and only a selected field gets expanded, so the probe
-        # selects every field the table exposes: the fields a run reads are among them.
+        # A saved expression can add a warehouse field that reads another table, and only a selected field gets
+        # expanded, so the probe selects every scalar field of a warehouse table: the fields a run reads are among
+        # them. Other tables and table-valued fields stay out, because one that fails to compile would skip the check.
+        hogql_table = (
+            None if self.hogql_database.is_table_access_denied(table) else self.hogql_database.get_table(table)
+        )
         fields = (
-            []
-            if self.hogql_database.is_table_access_denied(table)
-            else [
-                name
-                for name, field in self.hogql_database.get_table(table.split(".")).fields.items()
-                if isinstance(field, DatabaseField | FieldTraverser)
-            ]
+            [name for name, field in hogql_table.fields.items() if isinstance(field, DatabaseField)]
+            if isinstance(hogql_table, S3Table)
+            else []
         )
         # Every query in a UNION returns the same columns, so each table's fields go into one array.
         select: ast.Expr = (
