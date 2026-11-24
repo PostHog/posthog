@@ -14,7 +14,7 @@ from typing import Any
 from posthog.schema import HogQLFilters
 
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, HogQLGlobalSettings
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.query import execute_hogql_query
 
@@ -32,8 +32,6 @@ from products.mcp_analytics.backend.wrapped.model_families import model_family_e
 
 # Generous because no one waits on this batch job. The cap only stops a runaway scan.
 MAX_EXECUTION_TIME_SECONDS = 600
-# Far above any card's needs. Tools are the only dimension that can grow this long.
-ROWS_PER_DIMENSION = 500
 
 
 class Dimension(StrEnum):
@@ -132,7 +130,7 @@ ARRAY JOIN
 GROUP BY kind, key
 ORDER BY kind, calls DESC, key
 LIMIT {rows_per_dimension} BY kind
-LIMIT 10000
+LIMIT {max_rows}
 """
 
 # Order matches the key array in _AGGREGATES_SQL.
@@ -146,6 +144,10 @@ _KINDS = (
     Dimension.MONTH,
     Dimension.WEEK_HOUR,
 )
+# HogQL cuts any result at MAX_SELECT_RETURNED_ROWS, so each dimension gets an equal share of that cap.
+# Tools are the only dimension that grows this long. The slowest and most error-prone tool cards rank every
+# returned tool row, so a tool cut here can never win them even when it passes MIN_TOOL_CALLS.
+ROWS_PER_DIMENSION = MAX_SELECT_RETURNED_ROWS // len(_KINDS)
 
 
 def _period_placeholders(period: WrappedPeriod) -> dict[str, ast.Expr]:
@@ -186,6 +188,7 @@ def fetch_wrapped_aggregates(team: Team, period: WrappedPeriod) -> WrappedAggreg
         "model_family": model_family_expr(),
         "kinds": ast.Array(exprs=[ast.Constant(value=str(kind)) for kind in _KINDS]),
         "rows_per_dimension": ast.Constant(value=ROWS_PER_DIMENSION),
+        "max_rows": ast.Constant(value=MAX_SELECT_RETURNED_ROWS),
     }
     # The dashboard applies the project's test account filters by default, so the wrap does too.
     filters = HogQLFilters(filterTestAccounts=bool(team.test_account_filters_default_checked))

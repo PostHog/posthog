@@ -45,6 +45,12 @@ class EcbDataPortalSource(ResumableSource[EcbDataPortalSourceConfig, ECBResumeCo
             WAF_BLOCK_MARKER: "ECB Data Portal blocked this request. Try again later.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # The source retries dropped connections and read timeouts in-process. When that budget runs out,
+        # urllib3 raises "... Max retries exceeded with url: ...". Temporal retries the activity, so the
+        # failure is transient and must not be reported as an exception.
+        return {"Max retries exceeded with url"}
+
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         from products.warehouse_sources.sources.ecb_data_portal.canonical_descriptions import CANONICAL_DESCRIPTIONS
 

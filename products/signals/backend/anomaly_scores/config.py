@@ -67,6 +67,11 @@ def _zscore(window: int) -> dict[str, Any]:
     return {"type": "zscore", "threshold": 0.95, "window": window, "preprocessing": {"diffs_n": 1, "smooth_n": 3}}
 
 
+def _zscore_and_judge(window: int) -> dict[str, Any]:
+    # A lazy AND: the AI judge is asked only about a bucket that z-score flags. See `alerts.backend.facade.lazy_judge`.
+    return {"type": "ensemble", "operator": "and", "detectors": [_zscore(window), {"type": "llm"}]}
+
+
 DEFAULT_PROFILE = ScoringProfile(
     name="default-v1",
     intervals={
@@ -77,14 +82,41 @@ DEFAULT_PROFILE = ScoringProfile(
     },
 )
 
+# The local part is `default-v1`, so it flags the same buckets before the judge.
+AI_JUDGE_PROFILE = ScoringProfile(
+    name="default-v2",
+    intervals={
+        IntervalType.HOUR: IntervalScoring(min_points=336, detector=_zscore_and_judge(336)),
+        IntervalType.DAY: IntervalScoring(min_points=56, detector=_zscore_and_judge(56)),
+        IntervalType.WEEK: IntervalScoring(min_points=52, detector=_zscore_and_judge(52)),
+        IntervalType.MONTH: IntervalScoring(min_points=24, detector=_zscore_and_judge(24)),
+    },
+)
+
 DEFAULT_LIMITS = ScoringLimits()
 # The largest value a flag payload can set for each limit.
 MAX_LIMITS = ScoringLimits(max_breakdown_values=25, max_series=50, max_backfill_buckets=90)
 
 
-def resolve_profile(team: "Team", insight: "Insight") -> ScoringProfile:
+@frozen
+class AIJudgeConfig:
+    """Which projects score with `default-v2`, and the caps on its model calls. The `ai_judge` object of the payload."""
+
+    # Every other project scores with `default-v1`.
+    team_ids: tuple[int, ...] = ()
+    # A train step that backfills many buckets asks about its newest flagged buckets first.
+    max_checks_per_insight_per_run: int = 3
+    max_checks_per_project_per_day: int = 50
+
+
+NO_AI_JUDGE = AIJudgeConfig()
+MAX_AI_CHECKS_PER_INSIGHT_PER_RUN = 10
+MAX_AI_CHECKS_PER_PROJECT_PER_DAY = 1000
+
+
+def resolve_profile(team: "Team", insight: "Insight", ai_judge: AIJudgeConfig = NO_AI_JUDGE) -> ScoringProfile:
     """The one place that picks scoring settings for an insight, so project and per-metric overrides only change this."""
-    return DEFAULT_PROFILE
+    return AI_JUDGE_PROFILE if team.id in ai_judge.team_ids else DEFAULT_PROFILE
 
 
 class ScoringRun(StrEnum):
@@ -182,6 +214,7 @@ class AnomalyScoringConfig:
     # A project at its limit gets no picks until the next UTC day. Near the fleet limit, train picks stop first.
     max_cpu_seconds_per_project_per_day: int = 0
     max_fleet_cpu_seconds_per_day: int = 0
+    ai_judge: AIJudgeConfig = NO_AI_JUDGE
 
     def fan_out(self) -> TickFanOut:
         concurrency = min(self.max_concurrency, self.max_total_concurrency)
@@ -287,6 +320,23 @@ def parse_limits(payload: Any) -> ScoringLimits:
     )
 
 
+def parse_ai_judge(payload: Any) -> AIJudgeConfig:
+    """The `ai_judge` object of the payload. An invalid cap gets its default, a large one its maximum."""
+    if not isinstance(payload, dict):
+        return NO_AI_JUDGE
+    return AIJudgeConfig(
+        team_ids=_team_ids(payload.get("team_ids")),
+        max_checks_per_insight_per_run=min(
+            _positive_int(payload.get("max_checks_per_insight_per_run"), NO_AI_JUDGE.max_checks_per_insight_per_run),
+            MAX_AI_CHECKS_PER_INSIGHT_PER_RUN,
+        ),
+        max_checks_per_project_per_day=min(
+            _positive_int(payload.get("max_checks_per_project_per_day"), NO_AI_JUDGE.max_checks_per_project_per_day),
+            MAX_AI_CHECKS_PER_PROJECT_PER_DAY,
+        ),
+    )
+
+
 def parse_config(payload: Any) -> AnomalyScoringConfig:
     if not isinstance(payload, dict) or payload.get("enabled") is not True:
         return DISABLED
@@ -372,6 +422,7 @@ def parse_config(payload: Any) -> AnomalyScoringConfig:
         max_fleet_cpu_seconds_per_day=_positive_int(
             payload.get("max_fleet_cpu_seconds_per_day"), defaults.max_fleet_cpu_seconds_per_day
         ),
+        ai_judge=parse_ai_judge(payload.get("ai_judge")),
     )
 
 

@@ -1,4 +1,5 @@
 import uuid
+import dataclasses
 
 from posthog.test.base import BaseTest
 from unittest import TestCase, mock
@@ -15,6 +16,8 @@ from products.warehouse_sources.backend.models.external_data_destination import 
     ExternalDataSourceDestination,
     get_or_create_warehouse_destination,
 )
+from products.warehouse_sources.backend.models.external_data_destination_delivery import ExternalDataDestinationDelivery
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import BatchWriteOutcome
@@ -43,9 +46,11 @@ class RecordingWriter:
     runs_post_load = False
     calls: list[tuple[str, str, int]] = []
     primary_keys: list[tuple[str, ...]] = []
+    run_started_at: list = []
     fail_for: set[str] = set()
     configuration_error_for: set[str] = set()
     rows_written = 1
+    bytes_written: dict[str, int] = {}
 
     def __init__(self, ctx) -> None:
         self._ctx = ctx
@@ -60,7 +65,11 @@ class RecordingWriter:
             raise DestinationConfigurationError(self._ctx.destination_name, "The host name does not exist.")
         RecordingWriter.calls.append(("write", self._ctx.destination_name, batch_ctx.batch_index))
         RecordingWriter.primary_keys.append(batch_ctx.run.primary_keys)
-        return BatchWriteOutcome(rows_written=RecordingWriter.rows_written)
+        RecordingWriter.run_started_at.append(batch_ctx.run.run_started_at)
+        return BatchWriteOutcome(
+            rows_written=RecordingWriter.rows_written,
+            bytes_written=RecordingWriter.bytes_written.get(self._ctx.destination_name, 0),
+        )
 
     async def finalize_run(self, ctx) -> None:
         RecordingWriter.calls.append(("finalize", self._ctx.destination_name, -1))
@@ -74,9 +83,16 @@ class DeliveryTestCase(BaseTest):
         super().setUp()
         RecordingWriter.calls = []
         RecordingWriter.primary_keys = []
+        RecordingWriter.run_started_at = []
         RecordingWriter.fail_for = set()
         RecordingWriter.configuration_error_for = set()
         RecordingWriter.rows_written = 1
+        RecordingWriter.bytes_written = {}
+
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_id="src", connection_id="conn", status="Running", source_type="Stripe"
+        )
+        self.job = ExternalDataJob.objects.create(team=self.team, pipeline=source, status="Running")
 
         # Registered before the snapshot, so the first delivery in the process cannot replace the
         # fakes below, and the cleanup puts the real writers back.
@@ -120,10 +136,11 @@ class DeliveryTestCase(BaseTest):
         is_final: bool = False,
         schema_id: str | None = None,
         primary_keys: list[str] | None = None,
+        job_id: str | None = None,
     ) -> ExportSignalMessage:
         return ExportSignalMessage(
             team_id=self.team.pk,
-            job_id=str(uuid.uuid4()),
+            job_id=job_id or str(self.job.id),
             schema_id=schema_id or str(uuid.uuid4()),
             source_id=str(uuid.uuid4()),
             resource_name="charges",
@@ -146,16 +163,76 @@ class DeliveryTestCase(BaseTest):
     def _writes() -> list[str]:
         return [name for kind, name, _ in RecordingWriter.calls if kind == "write"]
 
+    def _recorded_egress(self) -> dict[str, int]:
+        return {
+            delivered.destination.name: delivered.bytes_exported
+            for delivered in ExternalDataDestinationDelivery.objects.for_team(self.team.pk).select_related(
+                "destination"
+            )
+        }
+
 
 class TestDelivery(DeliveryTestCase):
     def test_every_destination_receives_the_batch(self) -> None:
         a = self._destination("warehouse a")
         b = self._destination("warehouse b", ExternalDataDestination.Type.SNOWFLAKE)
+        RecordingWriter.bytes_written = {"warehouse a": 2048, "warehouse b": 512}
 
         written = delivery.deliver_batch_to_destinations(self._signal([str(a.id), str(b.id)]))
 
         assert written == 2
         assert sorted(self._writes()) == ["warehouse a", "warehouse b"]
+        assert self._recorded_egress() == {"warehouse a": 2048, "warehouse b": 512}
+
+    def test_a_batch_delivered_again_bills_its_egress_once(self) -> None:
+        a = self._destination("warehouse a")
+        RecordingWriter.bytes_written = {"warehouse a": 2048}
+        signal = self._signal([str(a.id)])
+
+        delivery.deliver_batch_to_destinations(signal)
+        # The idempotency marker expired or was never written, so the batch is written again.
+        self._seen.clear()
+        delivery.deliver_batch_to_destinations(signal)
+
+        assert self._writes() == ["warehouse a", "warehouse a"]
+        assert self._recorded_egress() == {"warehouse a": 2048}
+
+    def test_a_later_attempt_bills_its_batches_too(self) -> None:
+        a = self._destination("warehouse a")
+        RecordingWriter.bytes_written = {"warehouse a": 2048}
+        first_attempt = self._signal([str(a.id)])
+
+        # A resumed attempt of the same job numbers its batches from zero again.
+        delivery.deliver_batch_to_destinations(first_attempt)
+        delivery.deliver_batch_to_destinations(dataclasses.replace(first_attempt, run_uuid="run-a2"))
+
+        recorded = ExternalDataDestinationDelivery.objects.for_team(self.team.pk).values_list(
+            "run_uuid", "bytes_exported"
+        )
+        assert sorted(recorded) == [("run-a1", 2048), ("run-a2", 2048)]
+
+    def test_a_failed_egress_record_warns_and_the_batch_still_succeeds(self) -> None:
+        a = self._destination("warehouse a")
+        RecordingWriter.bytes_written = {"warehouse a": 2048}
+        signal = self._signal([str(a.id)])
+
+        with (
+            mock.patch.object(
+                ExternalDataDestinationDelivery.objects,
+                "for_team",
+                side_effect=OperationalError("database unavailable"),
+            ),
+            structlog.testing.capture_logs() as logs,
+        ):
+            assert delivery.deliver_batch_to_destinations(signal) == 1
+        # A retry finds the batch delivered, so an append is never written twice.
+        delivery.deliver_batch_to_destinations(signal)
+
+        failed = next(entry for entry in logs if entry["event"] == "destination_delivery_record_failed")
+        assert failed["bytes_exported"] == 2048
+        assert failed["job_id"] == signal.job_id
+        assert self._writes() == ["warehouse a"]
+        assert self._recorded_egress() == {}
 
     @parameterized.expand(
         [
@@ -174,6 +251,22 @@ class TestDelivery(DeliveryTestCase):
         delivery.deliver_batch_to_destinations(self._signal([str(redshift.id)], primary_keys=source_keys))
 
         assert RecordingWriter.primary_keys == [expected]
+
+    def test_every_batch_of_a_run_carries_the_time_its_job_started(self) -> None:
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_id="src", connection_id="conn", status="Running", source_type="Stripe"
+        )
+        job = ExternalDataJob.objects.create(
+            team=self.team, pipeline=source, status=ExternalDataJob.Status.RUNNING, rows_synced=0
+        )
+        redshift = self._destination("Redshift")
+
+        for batch_index in (0, 1):
+            delivery.deliver_batch_to_destinations(
+                self._signal([str(redshift.id)], batch_index=batch_index, job_id=str(job.id))
+            )
+
+        assert RecordingWriter.run_started_at == [job.created_at, job.created_at]
 
     def test_the_logs_say_where_the_rows_went(self) -> None:
         # A run writing to several destinations is otherwise indistinguishable in the logs from
@@ -228,9 +321,12 @@ class TestDelivery(DeliveryTestCase):
         first = min((a, b), key=lambda d: str(d.id))
         RecordingWriter.fail_for = {str(last.name)}
 
+        RecordingWriter.bytes_written = {first.name: 2048, last.name: 512}
+
         with self.assertRaises(delivery.DestinationDeliveryError):
             delivery.deliver_batch_to_destinations(signal)
         assert self._writes() == [first.name]
+        assert self._recorded_egress() == {first.name: 2048}
 
         RecordingWriter.calls = []
         RecordingWriter.fail_for = set()
@@ -238,6 +334,7 @@ class TestDelivery(DeliveryTestCase):
         delivery.deliver_batch_to_destinations(signal)
 
         assert self._writes() == [last.name]
+        assert self._recorded_egress() == {first.name: 2048, last.name: 512}
 
     @parameterized.expand(
         [
@@ -282,6 +379,7 @@ class TestDelivery(DeliveryTestCase):
 
         assert written == 1
         assert self._writes() == ["warehouse a"]
+        assert self._recorded_egress() == {"warehouse a": 0}
 
     def test_a_deleted_destination_fails_the_batch(self) -> None:
         a = self._destination("warehouse a")

@@ -20,7 +20,7 @@ describe('sesHtmlMaxBytes', () => {
     const invocation = createExampleInvocation()
     const signer = new EmailTrackingCodeSigner(defaultConfig.ENCRYPTION_SALT_KEYS, 'https://track.example.com')
     const maxBytes = (html: string, utm: typeof UTM | null): number =>
-        sesHtmlMaxBytes(html, { utmTags: utm?.tags ?? null, invocation, signer, preheader: PREHEADER })
+        sesHtmlMaxBytes(html, { utmTags: utm?.tags ?? null, invocation, preheader: PREHEADER })
 
     it.each<{ case: string; html: string; utm?: typeof UTM | null }>([
         { case: 'a plain link', html: '<body><a href="https://example.com/p">x</a></body>' },

@@ -1,3 +1,4 @@
+import re
 import datetime
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast
@@ -91,10 +92,27 @@ class FloatDatabaseField(DatabaseField):
 
 
 class DecimalDatabaseField(DatabaseField):
+    scale: Optional[int] = None
+
     def get_constant_type(self) -> "ConstantType":
         from posthog.hogql.ast import DecimalType
 
         return DecimalType(nullable=self.is_nullable())
+
+
+_CLICKHOUSE_DECIMAL_TYPE = re.compile(
+    r"(?:Nullable\()?Decimal(?P<bits>32|64|128|256)?\(\s*(?P<first>\d+)\s*(?:,\s*(?P<second>\d+)\s*)?\)\)?",
+    re.IGNORECASE,
+)
+
+
+def clickhouse_decimal_scale(clickhouse_type: str) -> int | None:
+    match = _CLICKHOUSE_DECIMAL_TYPE.fullmatch(clickhouse_type.strip())
+    if match is None:
+        return None
+    if match["bits"] is not None:
+        return None if match["second"] is not None else int(match["first"])
+    return int(match["second"] or 0)
 
 
 class StringDatabaseField(DatabaseField):
@@ -545,6 +563,14 @@ class LazyTable(Table):
     ) -> Any:
         raise NotImplementedError("LazyTable.lazy_select not overridden")
 
+    def held_join_conjuncts(self, join: "JoinExpr") -> list[Any]:
+        """The conjuncts of the join's constraint that this table holds an unresolved copy of."""
+        return []
+
+    def take_join_filter(self, join: "JoinExpr") -> None:
+        """Removes the resolved predicates that this table already carries from the join's constraint."""
+        return None
+
 
 @dataclass(frozen=False)
 class LazyTableToAdd:
@@ -595,6 +621,11 @@ class FunctionCallTable(Table):
     requires_args: bool = True
     min_args: Optional[int] = None
     max_args: Optional[int] = None
+
+
+class CTETable(Table):
+    def get_asterisk(self):
+        return {key: field_ for key, field_ in self.fields.items() if isinstance(field_, DatabaseField)}
 
 
 class DANGEROUS_NoTeamIdCheckTable(Table):

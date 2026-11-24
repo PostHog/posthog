@@ -47,8 +47,8 @@ export interface ProductLaunchConfiguration<
   readonly taskId: string;
   /** Task run identifier. */
   readonly runId: string;
-  /** Product that started the run. */
-  readonly originProduct?: string;
+  /** Surface that started the run, such as "slack". */
+  readonly interactionOrigin?: string;
   /** PostHog client that created the task. */
   readonly clientProvenance?: string;
   /** Product-specific launch data. */
