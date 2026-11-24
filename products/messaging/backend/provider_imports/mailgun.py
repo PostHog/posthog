@@ -910,8 +910,7 @@ def _save_contacts(
         if category_id:
             for email in left:
                 opt_outs.setdefault(email, set()).add(category_id)
-    import_opt_outs(context.team_id, {email: sorted(ids) for email, ids in opt_outs.items()}, context.created_by_id)
-    return save_contact_lists(context, everyone, lists, other_spellings)
+    return save_contact_lists(context, everyone, lists, other_spellings, opt_outs)
 
 
 def _missing_list(target: _Target) -> SavedPage:
